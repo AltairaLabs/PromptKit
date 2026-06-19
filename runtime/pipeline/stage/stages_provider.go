@@ -301,6 +301,13 @@ func (s *ProviderStage) executeMultiRound(
 	if err != nil {
 		return nil, err
 	}
+	// Pre-seed: persist history messages into the log before the tool loop
+	// starts. This guarantees the full transcript is recoverable even if a
+	// mid-loop error prevents the normal end-of-turn save from running.
+	// LogAppend's idempotent-dedup skips messages already in the store, so
+	// calling this at loop-start is safe for multi-turn conversations where
+	// the history was persisted by a previous turn.
+	loop.preSeedLog(ctx)
 	for round := 1; round <= loop.maxRounds; round++ {
 		response, hasToolCalls, err := s.executeRound(
 			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, round, acc.metadata)
@@ -415,6 +422,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	if err != nil {
 		return nil, err
 	}
+	loop.preSeedLog(ctx)
 	for round := 1; round <= loop.maxRounds; round++ {
 		params := &streamingRoundParams{
 			messages:      loop.messages,
@@ -547,6 +555,36 @@ func (tl *toolLoop) afterRound(
 	}
 
 	return false, nil, nil
+}
+
+// preSeedLog writes the history messages that were already present in
+// acc.messages (i.e. messages[0:lastPersistedSeq]) into the MessageLog.
+// This ensures the full initial context is persisted before the first
+// tool-loop round fires, so a mid-loop error doesn't lose the transcript.
+// LogAppend's idempotent-dedup skips messages already stored from prior
+// turns, so this is safe to call on every turn start.
+func (tl *toolLoop) preSeedLog(ctx context.Context) {
+	cfg := tl.stage.config
+	if cfg == nil || cfg.MessageLog == nil || tl.lastPersistedSeq == 0 {
+		return
+	}
+	history := tl.messages[:tl.lastPersistedSeq]
+	if len(history) == 0 {
+		return
+	}
+	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, 0, history)
+	if err != nil {
+		logger.Warn("message log pre-seed failed", "error", err)
+		return
+	}
+	// After pre-seeding, lastPersistedSeq reflects what's now in the store.
+	// If the store already had these messages (multi-turn case), newTotal may
+	// be > lastPersistedSeq (store has more history from previous turns).
+	// Keep lastPersistedSeq as the larger of the two so we don't re-send old
+	// messages in subsequent persistMessages calls.
+	if newTotal > tl.lastPersistedSeq {
+		tl.lastPersistedSeq = newTotal
+	}
 }
 
 // persistMessages writes new messages to the MessageLog if configured.

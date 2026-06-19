@@ -498,6 +498,13 @@ func ensureTrace(trace *pipeline.ExecutionTrace) *pipeline.ExecutionTrace {
 // Caller is responsible for loading the state once (via ensureLoaded) and
 // passing the same pointer back on subsequent calls within a Process
 // invocation — this is what avoids redundant Loads.
+//
+// When the store implements runtimeStatestore.MessageLog, messages were
+// already persisted per-round by the ProviderStage write-through. In that
+// case we read the authoritative transcript from the log instead of using
+// the pipeline-stream-collected slice (which may be incomplete on the error
+// path). This prevents both double-writing on success and message loss on
+// mid-loop errors.
 func (s *ArenaStateStoreSaveStage) persistState(
 	ctx context.Context,
 	arenaStore arenaSaveStore,
@@ -517,6 +524,26 @@ func (s *ArenaStateStoreSaveStage) persistState(
 	if systemPrompt == "" && s.config != nil && s.config.Metadata != nil {
 		if sp, ok := s.config.Metadata["system_prompt"].(string); ok && sp != "" {
 			systemPrompt = sp
+		}
+	}
+
+	// On the error path the ProviderStage emits only an error element — no
+	// response messages reach this stage's input channel, so messages is empty.
+	// If the store implements MessageLog the ProviderStage wrote per-round
+	// messages via LogAppend+preSeedLog (including history). Do a fresh Load()
+	// to recover the full transcript.
+	//
+	// On the success path messages already contains everything the pipeline
+	// emitted (including assertion-decorated messages from downstream stages);
+	// we must NOT replace it with a stale store snapshot that predates those
+	// decorations. The guard len(messages)==0 limits the recovery to the error
+	// path only.
+	if len(messages) == 0 && s.config != nil {
+		if _, ok := s.config.Store.(runtimeStatestore.MessageLog); ok {
+			freshState, freshErr := arenaStore.Load(ctx, s.config.ConversationID)
+			if freshErr == nil && freshState != nil && len(freshState.Messages) > 0 {
+				messages = freshState.Messages
+			}
 		}
 	}
 

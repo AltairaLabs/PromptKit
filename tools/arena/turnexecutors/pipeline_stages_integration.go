@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
+	runtimestatestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -174,13 +175,22 @@ func buildStateStoreConfig(req *TurnRequest) *pipeline.StateStoreConfig {
 	}
 }
 
-// buildProviderConfig creates provider config from request
+// buildProviderConfig creates provider config from request.
+// When the state store implements runtimestatestore.MessageLog, it is wired for
+// per-round write-through so tool-loop messages survive a mid-loop error.
 func buildProviderConfig(req *TurnRequest) *stage.ProviderConfig {
-	return &stage.ProviderConfig{
+	cfg := &stage.ProviderConfig{
 		MaxTokens:   req.MaxTokens,
 		Temperature: float32(req.Temperature),
 		Seed:        req.Seed,
 	}
+	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
+		if ml, ok := req.StateStoreConfig.Store.(runtimestatestore.MessageLog); ok {
+			cfg.MessageLog = ml
+			cfg.MessageLogConvID = req.ConversationID
+		}
+	}
+	return cfg
 }
 
 // buildToolPolicy constructs tool policy from scenario config
