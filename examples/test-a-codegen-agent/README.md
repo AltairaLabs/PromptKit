@@ -1,18 +1,28 @@
 # test-a-codegen-agent
 
-A PromptArena kit that dogfoods PromptArena itself: it tests whether AI coding
-agents, given the PromptArena authoring brief, reliably produce valid, faithful,
-runnable PromptArena kits. The subject under test is the authoring experience —
-the AGENTS.md brief embedded in the system prompt, plus the `promptarena
-explain`/`schema`/`examples`/`validate` CLI — not the agent model itself.
+A PromptArena kit that dogfoods PromptArena itself: it tests whether our
+**agent-assist tooling** is actually good enough to get a developer who knows
+nothing about PromptArena from "I have an agent idea" to a valid, faithful,
+runnable test kit. The subject under test is the tooling — the emitted AGENTS.md
+brief, the installed `.claude/skills/promptarena-authoring` skill, and the
+`promptarena explain`/`schema`/`examples`/`validate` CLI — not the agent model.
+
+Each scenario is a **naive developer request** (someone describing the agent they
+want to build and what they're worried about, in plain language — no PromptArena
+jargon). A good run is one where the tooling steers the coding agent to a kit that
+faithfully tests *that* developer's agent.
 
 ## How it works
 
-A brief-equipped coding agent runs inside a Docker sandbox built via
+A coding agent runs inside a Docker sandbox built via
 `make build-codegen-agent-sandbox` (bakes `promptarena`, `packc`, and gate
-scripts onto the codegen-sandbox image). The agent authors a PromptArena kit
-under `/workspace/kit`. When the conversation ends, `conversation_assertions`
-score the result — five gates plus one non-gating metric:
+scripts onto the codegen-sandbox image). The sandbox is **briefed like a real
+project**: the image runs `promptarena agent-brief /workspace`, which installs
+`AGENTS.md` and the full `.claude/skills/promptarena-authoring/SKILL.md` — so the
+agent starts with the same tooling a developer's coding agent would have. Given a
+naive request, the agent authors a kit under `/workspace/kit`. When the
+conversation ends, `conversation_assertions` score the result — five gates plus
+one non-gating metric:
 
 | Gate | Check |
 |------|-------|
@@ -20,7 +30,7 @@ score the result — five gates plus one non-gating metric:
 | Gate 2 | `packc compile` + `packc validate` — kit compiles to a PromptPack |
 | Gate 3 | `promptarena run --ci` — generated scenarios run green |
 | Gate 4 | `unused-files.sh` — no unreferenced files in the kit |
-| Gate 5 | `llm_judge_session` — kit faithfully implements the request |
+| Gate 5 | `llm_judge_session` — kit faithfully tests the agent the developer described |
 | Metric | `idiom-traps.sh` — non-gating idiom-trap + assertion-adequacy report |
 
 Gates 1–4 and the metric are shared across all authoring tasks (defined once in

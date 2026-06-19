@@ -12,6 +12,11 @@ COPY --chmod=755 bin/packc-linux /usr/local/bin/packc
 COPY --chmod=755 examples/test-a-codegen-agent/tools/unused-files.sh /usr/local/bin/unused-files.sh
 COPY --chmod=755 examples/test-a-codegen-agent/tools/idiom-traps.sh /usr/local/bin/idiom-traps.sh
 
+# Brief the agent exactly like a real PromptArena project: drop AGENTS.md and the
+# full .claude/skills/promptarena-authoring/SKILL.md into the workspace so the
+# agent has the same tooling a developer's coding agent would (not just the shim).
+RUN mkdir -p /workspace && /usr/local/bin/promptarena agent-brief /workspace
+
 # Expose the sandbox HTTP API for workspace capture (/api/download).
 # The base image's entrypoint is the sandbox binary; CMD supplies its args.
 # CMD replaces the base image's default args, so re-state -addr/-workspace
