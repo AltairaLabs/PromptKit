@@ -4,7 +4,7 @@ metadata:
   name: refund-broken-mock
   labels:
     use_case: support
-    complexity: low
+    complexity: simple
 spec:
   id: refund-broken-mock
   task_type: authoring-agent

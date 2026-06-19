@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Summarize an agents-brief-eval run: gate pass-rate per scenario + idiom-trap counts.
+# Requires: python3, jq
 #
 # Usage: summarize.sh [out-dir]
 #   out-dir defaults to "out" (relative to CWD, or pass an absolute path).

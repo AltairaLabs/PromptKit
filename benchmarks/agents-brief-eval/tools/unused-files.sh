@@ -11,6 +11,7 @@ rc=0
 while IFS= read -r f; do
   base="$(basename "$f")"
   case "$base" in config.arena.yaml|mock-responses.yaml) continue ;; esac
+  # LIMITATION: matching is by basename, so two same-named files in different subdirs can mask an orphan; basename is used as a regex.
   if ! grep -q "$base" "$cfg"; then
     echo "orphan: $f (not referenced from config.arena.yaml)"
     rc=1
