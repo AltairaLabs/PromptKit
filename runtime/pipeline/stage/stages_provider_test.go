@@ -2847,6 +2847,55 @@ func TestAfterRound_CostBudgetZeroIsUnlimited(t *testing.T) {
 	require.NoError(t, err, "should not error — zero MaxCostUSD means unlimited")
 }
 
+// TestNewToolLoop_CostBudgetIsPerRun verifies MaxCostUSD bounds the whole run,
+// not just this turn's loop: newToolLoop seeds cumulativeCost from the cost
+// already carried on the input history, so a fresh-per-turn loop still trips
+// the budget on accumulated prior spend.
+func TestNewToolLoop_CostBudgetIsPerRun(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	}))
+
+	stage := NewProviderStage(provider, registry,
+		&pipeline.ToolPolicy{MaxCostUSD: 0.10},
+		&ProviderConfig{},
+	)
+
+	// Prior turns of this run already cost 0.08 (carried on message CostInfo).
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages: []types.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "prior turn", CostInfo: &types.CostInfo{TotalCost: 0.05}},
+			{Role: "tool", Content: "res", CostInfo: &types.CostInfo{TotalCost: 0.03}},
+		},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.08, loop.cumulativeCost, 0.001,
+		"cumulativeCost should be seeded from prior-turn history cost")
+
+	// This turn's first round costs only 0.05 — under the cap on its own — but
+	// 0.08 (prior) + 0.05 = 0.13 > 0.10, so the RUN budget trips.
+	response := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.05},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	assert.True(t, done, "run budget should trip from accumulated prior cost")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cost budget exceeded")
+	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
+}
+
 func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	registry := tools.NewRegistry()
@@ -3013,5 +3062,107 @@ func TestProviderStage_StopOnTool(t *testing.T) {
 		assert.True(t, done, "max rounds should still stop the loop")
 		require.Error(t, err, "max rounds exceeded should be an error (not a clean stop)")
 		assert.Contains(t, err.Error(), "max rounds")
+	})
+}
+
+// TestAfterRound_IdenticalToolCallBreaker verifies that the repeated-identical-call
+// guard aborts the loop when the same tool is called with identical arguments
+// MaxIdenticalToolCalls times.
+func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "loop_tool",
+		Description: "a tool that loops forever",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	t.Run("aborts at threshold with identical args", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.maxRounds = 10 // high so rounds don't interfere
+
+		identicalArgs := json.RawMessage(`{"query":"same"}`)
+		// Round 1 and 2: below threshold — should continue
+		for round := 1; round <= 2; round++ {
+			response := types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool", Args: identicalArgs},
+				},
+			}
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+			assert.False(t, done, "round %d: should not stop before threshold", round)
+			require.NoError(t, loopErr, "round %d: should not error before threshold", round)
+		}
+
+		// Round 3: hits threshold — must abort
+		response3 := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c3", Name: "loop_tool", Args: identicalArgs},
+			},
+		}
+		done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response3, true, 3)
+		assert.True(t, done, "should stop at threshold")
+		require.Error(t, loopErr, "should return error at threshold")
+		assert.Contains(t, loopErr.Error(), "tool loop detected")
+		assert.Contains(t, loopErr.Error(), "loop_tool")
+	})
+
+	t.Run("does not abort when args differ each round", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.maxRounds = 10
+
+		// Each round uses different args — should not trip the breaker
+		for round := 1; round <= 5; round++ {
+			response := types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool",
+						Args: json.RawMessage(fmt.Sprintf(`{"query":"step-%d"}`, round))},
+				},
+			}
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+			// round == loop.maxRounds would stop; otherwise should continue without error
+			if round < loop.maxRounds {
+				assert.False(t, done, "round %d: varying args should not trip breaker", round)
+				require.NoError(t, loopErr, "round %d: varying args should not error", round)
+			}
+		}
+	})
+
+	t.Run("default threshold is 3 when policy field is zero", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 0}, // 0 = use default
+			&ProviderConfig{},
+		)
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
+	})
+
+	t.Run("nil policy uses default threshold", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
 	})
 }

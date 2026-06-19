@@ -899,6 +899,16 @@ type ToolPolicy struct {
 	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn" yaml:"max_tool_calls_per_turn"`
 	MaxTotalToolCalls   int      `json:"max_total_tool_calls" yaml:"max_total_tool_calls"`
 	Blocklist           []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
+	// MaxRounds is the maximum number of tool-call rounds per turn.
+	// 0/unset means use the Arena default (50). Never unlimited.
+	MaxRounds int `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
+	// MaxCostUSD is the maximum cost in USD allowed per turn.
+	// 0/unset means use the Arena default ($2.00). Never unlimited.
+	MaxCostUSD float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd,omitempty"`
+	// MaxIdenticalToolCalls is the maximum number of times the same tool may be
+	// called with identical arguments before the loop is aborted.
+	// 0/unset means use the Arena default (3). Never unlimited.
+	MaxIdenticalToolCalls int `json:"max_identical_tool_calls,omitempty" yaml:"max_identical_tool_calls,omitempty"`
 }
 
 // Turn detection mode constants
