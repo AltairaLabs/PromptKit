@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: authoring-agent
+spec:
+  task_type: authoring-agent
+  version: "v1.0.0"
+  description: "PromptArena kit authoring agent (Arm C — brief-equipped)."
+  system_template: |
+    <!-- promptarena-authoring -->
+    # PromptArena — notes for AI coding agents
+
+    You are working in a PromptArena kit. Before authoring configs:
+
+    - Read the authoring skill at `.claude/skills/promptarena-authoring/SKILL.md`.
+    - Discover idioms and examples on demand:
+      `promptarena explain --list`, `promptarena explain <id>`,
+      `promptarena examples list`, `promptarena examples show <name>`.
+    - Run `promptarena schema <type>` for the authoritative structure of a
+      scenario, provider, prompt, tool, or arena config. The embedded schema is the
+      version this binary's `promptarena validate` enforces — prefer it over
+      any web copy.
+    - Run `promptarena validate` to check your work before `promptarena run`.
+    - Mock providers simulate the LLM only; tools execute for real. Mock response keys
+      match the scenario's `metadata.name`, not `spec.id`.
+    - Assertions apply thresholds; eval handlers emit raw scores. Keep thresholds on the
+      `type: assertion` wrapper, never on the eval.
+
+  allowed_tools:
+    - Read
+    - Edit
+    - Write
+    - Glob
+    - Grep
+    - Bash
