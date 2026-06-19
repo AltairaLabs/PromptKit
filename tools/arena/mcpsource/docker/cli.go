@@ -9,13 +9,11 @@ import (
 
 // RunSpec is the arguments to `docker run`.
 type RunSpec struct {
-	Image       string
-	PortHost    int
-	PortCtr     int
-	APIPortHost int // Optional second host port for the sandbox HTTP API
-	APIPortCtr  int // Optional second container port for the sandbox HTTP API
-	Env         map[string]string
-	Mounts      []Mount
+	Image    string
+	PortHost int
+	PortCtr  int
+	Env      map[string]string
+	Mounts   []Mount
 }
 
 // Mount describes one -v flag on a container.
@@ -48,9 +46,6 @@ func buildRunArgs(spec RunSpec) []string {
 	args := []string{"run", "-d", "--rm"}
 	if spec.PortHost > 0 && spec.PortCtr > 0 {
 		args = append(args, "-p", fmt.Sprintf("%d:%d", spec.PortHost, spec.PortCtr))
-	}
-	if spec.APIPortHost > 0 && spec.APIPortCtr > 0 {
-		args = append(args, "-p", fmt.Sprintf("%d:%d", spec.APIPortHost, spec.APIPortCtr))
 	}
 	for k, v := range spec.Env {
 		args = append(args, "-e", k+"="+v)

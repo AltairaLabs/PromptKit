@@ -71,18 +71,6 @@ cd examples/test-a-codegen-agent
 promptarena run -c mock.arena.yaml --ci --format html,json
 ```
 
-## Capturing the generated workspace zip
-
-The sandbox image exposes a `/api/download` endpoint (port 8090) that streams
-the `/workspace` directory as a zip. Pass `--capture-workspace` to save it:
-
-```bash
-promptarena run -c config.arena.yaml --ci --format html --capture-workspace
-```
-
-The zip lands at `out/kit/<runID>/sandbox.zip` — one file per run, container
-still alive at capture time. Omit the flag to skip capture (the default).
-
 ## Summarizing results
 
 ```bash

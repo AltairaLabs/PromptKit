@@ -54,20 +54,6 @@ func (s *Source) Open(ctx context.Context, args map[string]any) (mcpsource.MCPCo
 		Mounts:   mountsFromArgs(args["mounts"]),
 	}
 
-	// Optional sandbox HTTP API port (e.g. for /api/download). YAML unmarshals
-	// integers as int or float64 depending on context — handle both.
-	apiPort := intFromAny(args["api_port"])
-	var apiURL string
-	if apiPort > 0 {
-		apiHost, portErr := pickFreePort()
-		if portErr != nil {
-			return mcpsource.MCPConn{}, nil, fmt.Errorf("docker source: pick free API port: %w", portErr)
-		}
-		spec.APIPortHost = apiHost
-		spec.APIPortCtr = apiPort
-		apiURL = "http://localhost:" + strconv.Itoa(apiHost)
-	}
-
 	cid, err := s.cli.Run(ctx, spec)
 	if err != nil {
 		return mcpsource.MCPConn{}, nil, fmt.Errorf("docker source: run: %w", err)
@@ -96,20 +82,7 @@ func (s *Source) Open(ctx context.Context, args map[string]any) (mcpsource.MCPCo
 		return mcpsource.MCPConn{}, nil, fmt.Errorf("docker source: container not healthy: %w", err)
 	}
 
-	return mcpsource.MCPConn{URL: url, APIURL: apiURL}, closer, nil
-}
-
-// intFromAny converts a YAML-decoded value to int, accepting both int and
-// float64 (YAML decoders may produce either for integer literals).
-func intFromAny(v any) int {
-	switch n := v.(type) {
-	case int:
-		return n
-	case float64:
-		return int(n)
-	default:
-		return 0
-	}
+	return mcpsource.MCPConn{URL: url}, closer, nil
 }
 
 func (s *Source) resolveURL(cid, port string) string {

@@ -17,9 +17,3 @@ COPY --chmod=755 examples/test-a-codegen-agent/tools/kit-quality.sh /usr/local/b
 # full .claude/skills/promptarena-authoring/SKILL.md into the workspace so the
 # agent has the same tooling a developer's coding agent would (not just the shim).
 RUN mkdir -p /workspace && /usr/local/bin/promptarena agent-brief /workspace
-
-# Expose the sandbox HTTP API for workspace capture (/api/download).
-# The base image's entrypoint is the sandbox binary; CMD supplies its args.
-# CMD replaces the base image's default args, so re-state -addr/-workspace
-# explicitly, then add the API flags.
-CMD ["-addr=:8080", "-workspace=/workspace", "-enable-api", "-api-addr", ":8090", "-dev-mode"]

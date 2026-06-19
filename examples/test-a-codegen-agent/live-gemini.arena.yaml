@@ -26,9 +26,6 @@ spec:
       scope: session
       source_args:
         image: codegen-agent-sandbox:local
-        api_port: 8090
-        env:
-          DEV_MODE: "1"
 
   # promptarena-authoring skill as a skill__activate tool (not preloaded).
   skills:

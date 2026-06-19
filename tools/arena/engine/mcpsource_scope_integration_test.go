@@ -84,7 +84,7 @@ func TestScenarioVariables_CopiesVariables(t *testing.T) {
 // helper is a no-op when either the scope manager or MCP config is empty.
 func TestOpenScenarioSessionMCPSources_NoOpWhenUnconfigured(t *testing.T) {
 	e := &Engine{}
-	_, cleanup, _, err := e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
+	_, cleanup, err := e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	cleanup() // must not panic
@@ -92,7 +92,7 @@ func TestOpenScenarioSessionMCPSources_NoOpWhenUnconfigured(t *testing.T) {
 	// With a scope manager but no config entries, still a no-op.
 	reg := mcp.NewRegistry()
 	e = &Engine{mcpSourceScope: newMCPSourceScope(reg)}
-	_, cleanup, _, err = e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
+	_, cleanup, err = e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
 	require.NoError(t, err)
 	cleanup()
 }
@@ -117,7 +117,7 @@ func TestOpenScenarioSessionMCPSources_OpensAndCloses(t *testing.T) {
 	}
 
 	scenario := &config.Scenario{Variables: map[string]string{"k": "v"}}
-	_, cleanup, _, err := e.openScenarioSessionMCPSources(
+	_, cleanup, err := e.openScenarioSessionMCPSources(
 		context.Background(), scenario, "scenario-1", "run-xyz")
 	require.NoError(t, err)
 	// Open once each (counter on the fake source).
@@ -153,7 +153,7 @@ func TestOpenScenarioSessionMCPSources_RollsBackScenarioOnSessionFailure(t *test
 		},
 	}
 
-	_, cleanup, _, err := e.openScenarioSessionMCPSources(
+	_, cleanup, err := e.openScenarioSessionMCPSources(
 		context.Background(), nil, "scenario-rb", "run-rb")
 	require.Error(t, err)
 	require.NotNil(t, cleanup) // always safe to call

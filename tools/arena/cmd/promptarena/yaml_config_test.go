@@ -368,7 +368,6 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSlice("eval-types", []string{}, "Filter to specific eval types")
 	cmd.Flags().String("audio-monitor", "auto", "Audio monitoring mode")
 	cmd.Flags().Int("audio-rate", 24000, "Audio canonical sample rate")
-	cmd.Flags().String("capture-workspace", "", "Download workspace zip from each sandbox via /api/download after run")
 }
 
 // Helper function to convert slice to comma-separated string for flag setting

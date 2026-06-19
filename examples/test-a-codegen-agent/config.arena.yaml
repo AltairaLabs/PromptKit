@@ -29,9 +29,6 @@ spec:
       scope: session
       source_args:
         image: codegen-agent-sandbox:local
-        api_port: 8090
-        env:
-          DEV_MODE: "1"
 
   # The promptarena-authoring skill, loaded as a skill__activate tool (NOT
   # preloaded, so the system prompt stays equal to the AGENTS.md brief). This
