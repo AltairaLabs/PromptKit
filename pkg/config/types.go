@@ -106,18 +106,23 @@ type Config struct {
 	// every scenario in addition to its own definitions. Distinct from
 	// Defaults (which are "values when unspecified") — Globals is for
 	// "always-additive" entries.
-	Globals      *Globals          `yaml:"globals,omitempty" json:"globals,omitempty"`
-	Workflow     interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
-	Compositions interface{}       `yaml:"compositions,omitempty" json:"compositions,omitempty"`
-	Memory       interface{}       `yaml:"memory,omitempty" json:"memory,omitempty"`
-	Agents       interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Deploy       *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
-	MCPServers   []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
-	A2AAgents    []A2AAgentConfig  `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
-	StateStore   *StateStoreConfig `yaml:"state_store,omitempty" json:"state_store,omitempty"`
-	Defaults     Defaults          `yaml:"defaults" json:"defaults"`
-	SelfPlay     *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
-	PackFile     string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
+	Globals *Globals `yaml:"globals,omitempty" json:"globals,omitempty"`
+	// Runtime carries a runtime configuration spec passed straight through to the
+	// runtime layer (hooks, sandboxes, …). Arena wraps the runtime, so anything
+	// the runtime config supports is available here under `runtime:` without
+	// Arena needing a bespoke field for each.
+	Runtime      *RuntimeConfigSpec `yaml:"runtime,omitempty" json:"runtime,omitempty"`
+	Workflow     interface{}        `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Compositions interface{}        `yaml:"compositions,omitempty" json:"compositions,omitempty"`
+	Memory       interface{}        `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Agents       interface{}        `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Deploy       *DeployConfig      `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	MCPServers   []MCPServerConfig  `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
+	A2AAgents    []A2AAgentConfig   `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
+	StateStore   *StateStoreConfig  `yaml:"state_store,omitempty" json:"state_store,omitempty"`
+	Defaults     Defaults           `yaml:"defaults" json:"defaults"`
+	SelfPlay     *SelfPlayConfig    `yaml:"self_play,omitempty" json:"self_play,omitempty"`
+	PackFile     string             `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 
 	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
 	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`

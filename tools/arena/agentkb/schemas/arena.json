@@ -503,6 +503,9 @@
         "globals": {
           "$ref": "#/$defs/Globals"
         },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeConfigSpec"
+        },
         "workflow": true,
         "compositions": true,
         "memory": true,
@@ -798,6 +801,56 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "EmbeddingProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "gemini",
+            "voyageai",
+            "ollama"
+          ],
+          "title": "Type",
+          "description": "Embedding provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Embedding model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig",
+          "title": "Platform",
+          "description": "Hyperscaler platform hosting for keyless auth (azure/bedrock/vertex)"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
     },
     "Eval": {
       "properties": {
@@ -1155,6 +1208,86 @@
         "command"
       ]
     },
+    "ExecHook": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the executable"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "exec",
+            "server"
+          ],
+          "title": "Runtime",
+          "description": "Execution mode",
+          "default": "exec"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
+        },
+        "hook": {
+          "type": "string",
+          "enum": [
+            "provider",
+            "tool",
+            "session",
+            "eval"
+          ],
+          "title": "Hook",
+          "description": "Hook interface type"
+        },
+        "phases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Phases",
+          "description": "Hook phases to intercept"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "filter",
+            "observe"
+          ],
+          "title": "Mode",
+          "description": "Hook execution mode",
+          "default": "filter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command",
+        "hook"
+      ]
+    },
     "FileStateStoreConfig": {
       "properties": {
         "root": {
@@ -1327,6 +1460,48 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "InferenceProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "huggingface"
+          ],
+          "title": "Type",
+          "description": "Inference provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Classification model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
     "JSONOutputConfig": {
       "properties": {},
       "additionalProperties": false,
@@ -1380,6 +1555,51 @@
       "required": [
         "provider"
       ]
+    },
+    "LoggingConfigSpec": {
+      "properties": {
+        "defaultLevel": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Default Level",
+          "description": "Default log level for all modules",
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ],
+          "title": "Format",
+          "description": "Log output format",
+          "default": "text"
+        },
+        "commonFields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Common Fields",
+          "description": "Key-value pairs added to every log entry"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ModuleLoggingConfig"
+          },
+          "type": "array",
+          "title": "Modules",
+          "description": "Per-module logging configuration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "MCPServerConfig": {
       "properties": {
@@ -1710,6 +1930,41 @@
         "model",
         "date",
         "success_rate"
+      ]
+    },
+    "ModuleLoggingConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Module name pattern using dot notation (e.g. runtime.pipeline)"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Level",
+          "description": "Log level for this module"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Fields",
+          "description": "Additional fields added to logs from this module"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "level"
       ]
     },
     "MonitorSection": {
@@ -2302,6 +2557,176 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "RuntimeConfigSpec": {
+      "properties": {
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "type": "array",
+          "title": "Providers",
+          "description": "LLM provider configurations"
+        },
+        "embedding_providers": {
+          "items": {
+            "$ref": "#/$defs/EmbeddingProviderConfig"
+          },
+          "type": "array",
+          "title": "Embedding Providers",
+          "description": "Embedding provider configurations"
+        },
+        "tts_providers": {
+          "items": {
+            "$ref": "#/$defs/TTSProviderConfig"
+          },
+          "type": "array",
+          "title": "TTS Providers",
+          "description": "Text-to-speech provider configurations"
+        },
+        "stt_providers": {
+          "items": {
+            "$ref": "#/$defs/STTProviderConfig"
+          },
+          "type": "array",
+          "title": "STT Providers",
+          "description": "Speech-to-text provider configurations"
+        },
+        "inference_providers": {
+          "items": {
+            "$ref": "#/$defs/InferenceProviderConfig"
+          },
+          "type": "array",
+          "title": "Inference Providers",
+          "description": "Inference (classify) provider configurations"
+        },
+        "tools": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "type": "object",
+          "title": "Tools",
+          "description": "Tool implementation bindings keyed by tool name"
+        },
+        "mcp_servers": {
+          "items": {
+            "$ref": "#/$defs/MCPServerConfig"
+          },
+          "type": "array",
+          "title": "MCP Servers",
+          "description": "MCP server configurations"
+        },
+        "state_store": {
+          "$ref": "#/$defs/StateStoreConfig",
+          "title": "State Store",
+          "description": "Conversation state persistence configuration"
+        },
+        "logging": {
+          "$ref": "#/$defs/LoggingConfigSpec",
+          "title": "Logging",
+          "description": "Logging configuration"
+        },
+        "evals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ExecBinding"
+          },
+          "type": "object",
+          "title": "Evals",
+          "description": "External eval process bindings keyed by eval type name"
+        },
+        "hooks": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ExecHook"
+          },
+          "type": "object",
+          "title": "Hooks",
+          "description": "External hook process configurations"
+        },
+        "sandboxes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SandboxConfig"
+          },
+          "type": "object",
+          "title": "Sandboxes",
+          "description": "Named sandbox backends for exec-hook subprocess launch"
+        },
+        "selectors": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SelectorConfig"
+          },
+          "type": "object",
+          "title": "Selectors",
+          "description": "External selector processes narrowing skill and tool candidate sets"
+        },
+        "skills": {
+          "$ref": "#/$defs/SkillsConfig",
+          "title": "Skills",
+          "description": "Runtime skill configuration"
+        },
+        "tool_selector": {
+          "type": "string",
+          "title": "ToolSelector",
+          "description": "Name of a selector declared under spec.selectors used to narrow the LLM-visible tool set per turn"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "STTProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai"
+          ],
+          "title": "Type",
+          "description": "STT provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Transcription model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "SandboxConfig": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "Mode",
+          "description": "Registered sandbox factory name (direct ships in-tree; docker_run/docker_exec/kubectl_exec are examples)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mode"
+      ]
+    },
     "Scenario": {
       "properties": {
         "id": {
@@ -2430,6 +2855,46 @@
         "content"
       ]
     },
+    "SelectorConfig": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the selector executable"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
     "SelfPlayConfig": {
       "properties": {
         "enabled": {
@@ -2496,6 +2961,17 @@
         },
         "preload": {
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SkillsConfig": {
+      "properties": {
+        "selector": {
+          "type": "string",
+          "title": "Selector",
+          "description": "Name of a selector declared under spec.selectors"
         }
       },
       "additionalProperties": false,
@@ -2638,6 +3114,50 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "TTSProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "elevenlabs",
+            "cartesia"
+          ],
+          "title": "Type",
+          "description": "TTS provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Voice or model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
     },
     "TemplateEngineInfo": {
       "properties": {

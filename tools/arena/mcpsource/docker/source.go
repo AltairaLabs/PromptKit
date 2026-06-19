@@ -82,7 +82,7 @@ func (s *Source) Open(ctx context.Context, args map[string]any) (mcpsource.MCPCo
 		return mcpsource.MCPConn{}, nil, fmt.Errorf("docker source: container not healthy: %w", err)
 	}
 
-	return mcpsource.MCPConn{URL: url}, closer, nil
+	return mcpsource.MCPConn{URL: url, ContainerID: cid}, closer, nil
 }
 
 func (s *Source) resolveURL(cid, port string) string {

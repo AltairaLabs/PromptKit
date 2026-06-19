@@ -187,9 +187,17 @@ func (e *Engine) WithSessionHooks(reg *hooks.Registry) {
 // SessionEvent fired by the engine. It includes the tool registry so that
 // SessionHook implementations (e.g. tool_exec eval) can access registered tools.
 func (e *Engine) sessionEventMetadata() map[string]any {
-	return map[string]any{
+	meta := map[string]any{
 		"tool_registry": e.toolRegistry,
 	}
+	// Surface open sandbox container IDs (keyed by server name) so session hooks
+	// can reach the sandbox — e.g. a workspace-capture hook running `docker cp`.
+	if e.mcpSourceScope != nil {
+		if cids := e.mcpSourceScope.containerIDs(); cids != nil {
+			meta["sandbox_containers"] = cids
+		}
+	}
+	return meta
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -264,6 +272,15 @@ func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine,
 			a2aCleanup()
 		}
 		return nil, fmt.Errorf("failed to initialize memory: %w", err)
+	}
+
+	// Wire pass-through runtime config (cfg.Runtime): build hooks from
+	// cfg.Runtime.Hooks using the same runtime builder the SDK uses.
+	if err := eng.applyRuntimeHooks(); err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, fmt.Errorf("failed to apply runtime hooks: %w", err)
 	}
 
 	// Use the eval orchestrator from the conversation executor — it already
