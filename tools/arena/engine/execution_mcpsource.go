@@ -79,8 +79,31 @@ func (e *Engine) openScenarioSessionMCPSources(
 		}
 	}
 
+	// Carry this run's open sandbox container IDs on the context so the session
+	// metadata can expose them to hooks (e.g. a workspace-capture hook). They
+	// live on the per-run runScope, not the engine's shared scope.
+	runCtx = withSandboxContainerIDs(runCtx, runScope.containerIDs())
+
 	return runCtx, func() {
 		closeSession()
 		closeScenario()
 	}, nil
+}
+
+type sandboxContainersKey struct{}
+
+// withSandboxContainerIDs returns a context carrying the open sandbox container
+// IDs (keyed by server name). A no-op when ids is empty.
+func withSandboxContainerIDs(ctx context.Context, ids map[string]string) context.Context {
+	if len(ids) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, sandboxContainersKey{}, ids)
+}
+
+// sandboxContainerIDsFromContext returns the sandbox container IDs carried by
+// ctx, or nil when none were set.
+func sandboxContainerIDsFromContext(ctx context.Context) map[string]string {
+	ids, _ := ctx.Value(sandboxContainersKey{}).(map[string]string)
+	return ids
 }

@@ -473,7 +473,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// Fire SessionHook.OnSessionStart now that sandbox sources are open and
 	// the run context is fully prepared. The registry is nil-safe — if no
 	// hooks are registered this is a complete no-op.
-	sessionMeta := e.sessionEventMetadata()
+	sessionMeta := e.sessionEventMetadata(runCtx)
 	_ = e.sessionHooks.RunSessionStart(runCtx, hooks.SessionEvent{
 		SessionID:      runID,
 		ConversationID: runID,

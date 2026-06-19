@@ -186,16 +186,15 @@ func (e *Engine) WithSessionHooks(reg *hooks.Registry) {
 // sessionEventMetadata returns the per-event metadata map injected into every
 // SessionEvent fired by the engine. It includes the tool registry so that
 // SessionHook implementations (e.g. tool_exec eval) can access registered tools.
-func (e *Engine) sessionEventMetadata() map[string]any {
+func (e *Engine) sessionEventMetadata(runCtx context.Context) map[string]any {
 	meta := map[string]any{
 		"tool_registry": e.toolRegistry,
 	}
-	// Surface open sandbox container IDs (keyed by server name) so session hooks
-	// can reach the sandbox — e.g. a workspace-capture hook running `docker cp`.
-	if e.mcpSourceScope != nil {
-		if cids := e.mcpSourceScope.containerIDs(); cids != nil {
-			meta["sandbox_containers"] = cids
-		}
+	// Surface this run's open sandbox container IDs (keyed by server name) so
+	// session hooks can reach the sandbox — e.g. a workspace-capture hook running
+	// `docker cp`. The IDs come from the per-run MCP scope via the run context.
+	if cids := sandboxContainerIDsFromContext(runCtx); len(cids) > 0 {
+		meta["sandbox_containers"] = cids
 	}
 	return meta
 }

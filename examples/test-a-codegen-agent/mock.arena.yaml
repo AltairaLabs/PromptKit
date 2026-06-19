@@ -8,10 +8,14 @@ metadata:
       executes them for real (only the LLM is faked). The SAME five gates run
       against both a known-good kit and a deliberately broken kit, proving the
       gates discriminate — good kit passes, broken kit fails — with no API spend.
+      Also demonstrates workspace capture as a regular runtime exec SessionHook
+      (see spec.runtime.hooks) — each sandbox's /workspace is copied to
+      out-mock/kit/<session>/ at session end via docker cp, no promptarena flag.
+      Needs PROMPTKIT_SCHEMA_SOURCE=local until the `runtime:` field is released.
       Run:
         make build-codegen-agent-sandbox
         cd examples/test-a-codegen-agent
-        promptarena run -c mock.arena.yaml --ci --out out-mock
+        PROMPTKIT_SCHEMA_SOURCE=local promptarena run -c mock.arena.yaml --ci --out out-mock
         open out-mock/report.html
 spec:
   prompt_configs:
@@ -32,6 +36,20 @@ spec:
   # promptarena-authoring skill as a skill__activate tool (not preloaded).
   skills:
     - path: skills
+
+  # Pass-through runtime config. Workspace capture is a regular runtime exec
+  # SessionHook — NOT a promptarena flag — so it works against any sandbox the
+  # test creator wires. At session_end the host runs capture-workspace.sh, which
+  # `docker cp`s each sandbox's /workspace (container IDs come from the
+  # SessionEvent metadata the engine populates) into out-mock/kit/<session>/.
+  runtime:
+    hooks:
+      capture-workspace:
+        hook: session
+        phases: ["session_end"]
+        mode: observe
+        command: tools/capture-workspace.sh
+        args: ["out-mock"]
 
   # The same gates as the live config, applied to BOTH scenarios so the report
   # shows discrimination directly: the good kit goes green, the broken kit red.
