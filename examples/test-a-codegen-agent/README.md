@@ -11,8 +11,8 @@ explain`/`schema`/`examples`/`validate` CLI — not the agent model itself.
 A brief-equipped coding agent runs inside a Docker sandbox built via
 `make build-codegen-agent-sandbox` (bakes `promptarena`, `packc`, and gate
 scripts onto the codegen-sandbox image). The agent authors a PromptArena kit
-under `/workspace/kit`. When the conversation ends, five `conversation_assertions`
-score the result as gates:
+under `/workspace/kit`. When the conversation ends, `conversation_assertions`
+score the result — five gates plus one non-gating metric:
 
 | Gate | Check |
 |------|-------|
@@ -20,7 +20,12 @@ score the result as gates:
 | Gate 2 | `packc compile` + `packc validate` — kit compiles to a PromptPack |
 | Gate 3 | `promptarena run --ci` — generated scenarios run green |
 | Gate 4 | `unused-files.sh` — no unreferenced files in the kit |
+| Gate 5 | `llm_judge_session` — kit faithfully implements the request |
 | Metric | `idiom-traps.sh` — non-gating idiom-trap + assertion-adequacy report |
+
+Gates 1–4 and the metric are shared across all authoring tasks (defined once in
+`configs/live.arena.yaml` under `spec.globals.conversation_assertions`); Gate 5's
+faithfulness criteria are written per scenario.
 
 The authoring system prompt (`packs/authoring-agent.yaml`) is generated from
 `agentkb.AgentsBrief()` and kept in sync by a byte-parity test, so this kit
