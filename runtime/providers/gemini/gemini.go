@@ -590,16 +590,17 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	// Extract token counts
-	var tokensIn, tokensOut int
+	var tokensIn, tokensOut, cachedTokens int
 	if geminiResp.UsageMetadata != nil {
 		tokensIn = geminiResp.UsageMetadata.PromptTokenCount
 		tokensOut = geminiResp.UsageMetadata.CandidatesTokenCount
+		cachedTokens = geminiResp.UsageMetadata.CachedContentTokenCount
 	}
 
 	latency := time.Since(start)
 
-	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
-	costBreakdown := p.CalculateCost(tokensIn, tokensOut, 0)
+	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
+	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
 	// Extract all content parts (text + inline media + markdown images)
 	var contentParts []types.ContentPart

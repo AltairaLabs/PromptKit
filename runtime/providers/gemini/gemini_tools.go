@@ -527,14 +527,15 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 		}
 	}
 
-	var tokensIn, tokensOut int
+	var tokensIn, tokensOut, cachedTokens int
 	if resp.UsageMetadata != nil {
 		tokensIn = resp.UsageMetadata.PromptTokenCount
 		tokensOut = resp.UsageMetadata.CandidatesTokenCount
+		cachedTokens = resp.UsageMetadata.CachedContentTokenCount
 	}
 
-	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
-	costBreakdown := p.Provider.CalculateCost(tokensIn, tokensOut, 0)
+	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
+	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
 	predictResp.Content = textBuilder.String()
 	predictResp.CostInfo = &costBreakdown
