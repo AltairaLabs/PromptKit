@@ -35,6 +35,7 @@ spec:
           timeout_seconds: 120
           args:
             command: "promptarena validate /workspace/kit/config.arena.yaml"
+            description: "Validate the generated kit's arena config against its schema"
       - type: tool_exec
         message: "Gate 2: kit compiles to a valid PromptPack"
         params:
@@ -42,6 +43,7 @@ spec:
           timeout_seconds: 120
           args:
             command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json"
+            description: "Compile the kit to a PromptPack and validate it"
       - type: tool_exec
         message: "Gate 3: generated scenarios run green offline"
         params:
@@ -49,6 +51,7 @@ spec:
           timeout_seconds: 300
           args:
             command: "cd /workspace/kit && promptarena run --ci"
+            description: "Run the generated kit's scenarios offline"
       - type: tool_exec
         message: "Gate 4: no unused files"
         params:
@@ -56,6 +59,7 @@ spec:
           timeout_seconds: 60
           args:
             command: "unused-files.sh /workspace/kit"
+            description: "Check the kit for unreferenced files"
       - type: tool_exec
         message: "Metric: idiom-trap + adequacy report (non-gating)"
         params:
@@ -63,6 +67,7 @@ spec:
           timeout_seconds: 60
           args:
             command: "idiom-traps.sh /workspace/kit"
+            description: "Report idiom-trap and assertion-adequacy counts for the kit"
   defaults:
     temperature: 0.3
     max_tokens: 4096
