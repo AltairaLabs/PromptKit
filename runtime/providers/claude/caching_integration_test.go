@@ -90,6 +90,71 @@ func TestIntegration_PromptCaching_ToolsPath(t *testing.T) {
 	}
 }
 
+// TestIntegration_PromptCaching_StreamingToolsPath proves caching on the
+// STREAMING-WITH-TOOLS path — the exact path the codegen agent loop uses. A big
+// stable system prompt sent twice (via PredictStreamWithTools) must produce a
+// cache READ on the second call. This is the path that regressed to cached=0.
+func TestIntegration_PromptCaching_StreamingToolsPath(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("no ANTHROPIC_API_KEY, skipping prompt-caching integration test")
+	}
+
+	provider := NewToolProvider("itest-cache-stream-tools", "claude-haiku-4-5",
+		"https://api.anthropic.com/v1",
+		providers.ProviderDefaults{MaxTokens: 16}, false)
+
+	descriptors := []*providers.ToolDescriptor{
+		{
+			Name:        "noop",
+			Description: "A placeholder tool that does nothing.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		},
+	}
+	tools, err := provider.BuildTooling(descriptors)
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	req := providers.PredictionRequest{
+		System:    bigCacheablePrompt(),
+		Messages:  []types.Message{{Role: "user", Content: "Reply with the single word: ok"}},
+		MaxTokens: 16,
+	}
+	ctx := context.Background()
+
+	drain := func(label string) *types.CostInfo {
+		stream, streamErr := provider.PredictStreamWithTools(ctx, req, tools, "auto")
+		if streamErr != nil {
+			t.Fatalf("%s: PredictStreamWithTools failed: %v", label, streamErr)
+		}
+		var cost *types.CostInfo
+		for chunk := range stream {
+			if chunk.Error != nil {
+				t.Fatalf("%s: stream error: %v", label, chunk.Error)
+			}
+			if chunk.CostInfo != nil {
+				cost = chunk.CostInfo
+			}
+		}
+		if cost == nil {
+			t.Fatalf("%s: stream produced no CostInfo", label)
+		}
+		t.Logf("%s: input=%d output=%d cached=%d", label, cost.InputTokens, cost.OutputTokens, cost.CachedTokens)
+		return cost
+	}
+
+	drain("call 1 (prime)")
+	cost2 := drain("call 2 (read)")
+
+	if cost2.CachedTokens <= 0 {
+		t.Fatalf("STREAMING-TOOLS PATH NOT CACHING: expected CachedTokens > 0 on the "+
+			"second call (this is the path the agent loop uses), got %d", cost2.CachedTokens)
+	}
+	if cost2.InputTokens < 0 || cost2.TotalCost < 0 {
+		t.Fatalf("negative cost (input=%d total=%.6f) on the streaming-tools path",
+			cost2.InputTokens, cost2.TotalCost)
+	}
+}
+
 // TestIntegration_PromptCaching_StreamingPath proves caching is captured on the
 // STREAMING path (which the harness uses) — the streaming parser must read
 // cache_read_input_tokens from message_start. Same two-call shape.

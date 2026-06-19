@@ -405,7 +405,12 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	}
 
 	if req.System != "" {
-		request["system"] = req.System
+		// Use the cache-aware system block builder so a long system prompt gets its
+		// own cache_control breakpoint — same as Predict/PredictStream. Sending the
+		// system as a raw string left the (often large) system prompt uncached on
+		// both tool paths (this powers the codegen agent loop), so every round
+		// re-paid full price for the system.
+		request["system"] = p.createSystemBlocks(req.System)
 	}
 
 	if tools != nil {
