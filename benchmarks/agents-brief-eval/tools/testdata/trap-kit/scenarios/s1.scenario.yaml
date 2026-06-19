@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: refund-flow
+spec:
+  id: refund-flow-id
+  turns:
+    - role: user
+      content: "refund please"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["refund"]

@@ -1,0 +1,7 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: good-kit
+spec:
+  scenarios:
+    - file: scenarios/s1.scenario.yaml

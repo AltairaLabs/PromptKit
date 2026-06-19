@@ -1,0 +1,9 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: trap-kit
+spec:
+  scenarios:
+    - file: scenarios/s1.scenario.yaml
+  providers:
+    - file: providers/mock-provider.yaml
