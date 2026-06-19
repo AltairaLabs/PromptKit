@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -145,6 +146,11 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 		logger.Debug("Turn completed",
 			"turn", turnIdx,
 			"role", scenarioTurn.Role)
+
+		// Fire SessionHook.OnSessionUpdate for each completed turn.
+		// Reads messages from the state store so the event carries the
+		// current transcript, not just the turn's input.
+		ce.fireSessionUpdate(turnCtx, req, turnIdx)
 	}
 
 	// Load final conversation state from StateStore
@@ -241,6 +247,9 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 
 		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		ce.logTurnCompletion(turnIdx, scenarioTurn, req.Scenario.ShouldStreamTurn(turnIdx))
+
+		// Fire SessionHook.OnSessionUpdate for each completed turn.
+		ce.fireSessionUpdate(turnCtx, req, turnIdx)
 	}
 
 	return ce.buildResultFromStateStore(ctx, req)
@@ -770,6 +779,29 @@ func providerSpecFromConfig(p *config.Provider) providers.ProviderSpec {
 			},
 		},
 	}
+}
+
+// fireSessionUpdate emits a hooks.SessionEvent for the completed turn if a
+// hooks.Registry was threaded into ctx via withSessionHookContext. When no
+// registry is present — e.g. the Engine has no session hooks — this is a
+// guaranteed no-op and adds zero overhead on the hot turn path.
+func (ce *DefaultConversationExecutor) fireSessionUpdate(ctx context.Context, req *ConversationRequest, turnIdx int) {
+	reg, sessionID, meta, ok := sessionHookContextFrom(ctx)
+	if !ok {
+		return
+	}
+	// Best-effort message snapshot: load current messages from the state store
+	// so the event carries the transcript up to and including this turn.
+	// Failures here are non-fatal — we emit the update with an empty slice
+	// rather than silently dropping the event.
+	_, messages, _ := ce.loadMessagesFromStateStore(ctx, req)
+	_ = reg.RunSessionUpdate(ctx, hooks.SessionEvent{
+		SessionID:      sessionID,
+		ConversationID: sessionID,
+		TurnIndex:      turnIdx,
+		Messages:       messages,
+		Metadata:       meta,
+	})
 }
 
 // buildResultFromStateStore loads the final conversation state from StateStore and builds the result

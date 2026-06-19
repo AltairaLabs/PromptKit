@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
@@ -469,6 +470,21 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		e.fireAudioMonitorHooks(runID, audioRouter, e.audioMonitorOpts.Rate)
 	}
 
+	// Fire SessionHook.OnSessionStart now that sandbox sources are open and
+	// the run context is fully prepared. The registry is nil-safe — if no
+	// hooks are registered this is a complete no-op.
+	sessionMeta := e.sessionEventMetadata()
+	_ = e.sessionHooks.RunSessionStart(runCtx, hooks.SessionEvent{
+		SessionID:      runID,
+		ConversationID: runID,
+		Metadata:       sessionMeta,
+	})
+
+	// Thread the session hook registry into the run context so per-turn
+	// update events can be fired deep inside the conversation executor
+	// without needing extra plumbing parameters.
+	runCtx = withSessionHookContext(runCtx, e.sessionHooks, runID, sessionMeta)
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider:         provider,
@@ -501,6 +517,15 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	req.ConversationID = runID
 
 	convResult := e.conversationExecutor.ExecuteConversation(runCtx, req)
+
+	// Fire SessionHook.OnSessionEnd after the conversation completes.
+	// convResult is never nil here — ExecuteConversation always returns a value.
+	_ = e.sessionHooks.RunSessionEnd(runCtx, hooks.SessionEvent{
+		SessionID:      runID,
+		ConversationID: runID,
+		Messages:       convResult.Messages,
+		Metadata:       sessionMeta,
+	})
 
 	// Run timed out, but the executor may have produced a partial result
 	// (messages exchanged, conversation_assertions evaluated on what

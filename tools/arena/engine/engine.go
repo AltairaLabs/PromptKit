@@ -31,6 +31,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -94,6 +95,7 @@ type Engine struct {
 	audioMonitorMu       sync.RWMutex                 // Guards audioMonitorHooks
 	runCompletedHooks    []RunCompletedHook           // Subscribers fired when each run finishes
 	runCompletedMu       sync.RWMutex                 // Guards runCompletedHooks
+	sessionHooks         *hooks.Registry              // Optional — fires SessionHook lifecycle per run
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -132,10 +134,10 @@ func (e *Engine) RegisterAudioMonitorHook(hook AudioMonitorHook) {
 // hook does not race or deadlock with iteration.
 func (e *Engine) fireAudioMonitorHooks(runID string, router *arenaaudio.AudioRouter, rate int) {
 	e.audioMonitorMu.RLock()
-	hooks := make([]AudioMonitorHook, len(e.audioMonitorHooks))
-	copy(hooks, e.audioMonitorHooks)
+	audioHooks := make([]AudioMonitorHook, len(e.audioMonitorHooks))
+	copy(audioHooks, e.audioMonitorHooks)
 	e.audioMonitorMu.RUnlock()
-	for _, h := range hooks {
+	for _, h := range audioHooks {
 		h(runID, router, rate)
 	}
 }
@@ -165,11 +167,28 @@ func (e *Engine) RegisterRunCompletedHook(hook RunCompletedHook) {
 
 func (e *Engine) fireRunCompletedHooks(runID string, err error) {
 	e.runCompletedMu.RLock()
-	hooks := make([]RunCompletedHook, len(e.runCompletedHooks))
-	copy(hooks, e.runCompletedHooks)
+	runHooks := make([]RunCompletedHook, len(e.runCompletedHooks))
+	copy(runHooks, e.runCompletedHooks)
 	e.runCompletedMu.RUnlock()
-	for _, h := range hooks {
+	for _, h := range runHooks {
 		h(runID, err)
+	}
+}
+
+// WithSessionHooks configures session lifecycle hooks on the Engine.
+// When set, the engine fires OnSessionStart before the first turn,
+// OnSessionUpdate after each turn, and OnSessionEnd after the conversation
+// completes. A nil registry is a no-op — no hooks are fired.
+func (e *Engine) WithSessionHooks(reg *hooks.Registry) {
+	e.sessionHooks = reg
+}
+
+// sessionEventMetadata returns the per-event metadata map injected into every
+// SessionEvent fired by the engine. It includes the tool registry so that
+// SessionHook implementations (e.g. tool_exec eval) can access registered tools.
+func (e *Engine) sessionEventMetadata() map[string]any {
+	return map[string]any{
+		"tool_registry": e.toolRegistry,
 	}
 }
 
