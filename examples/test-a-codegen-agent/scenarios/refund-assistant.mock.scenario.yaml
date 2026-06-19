@@ -8,53 +8,7 @@ metadata:
 spec:
   id: refund-assistant-mock
   task_type: authoring-agent
-  description: "Mock wiring check: scripted agent scaffolds a known-good kit; all deterministic gates must pass."
+  description: "Mock wiring check: scripted agent scaffolds a known-good kit; the shared gates must all PASS."
   turns:
     - role: user
       content: "Scaffold a minimal valid refund kit under /workspace/kit."
-  conversation_assertions:
-    - type: tool_exec
-      message: "Gate 1: kit is schema-valid"
-      params:
-        tool: Bash
-        timeout_seconds: 120
-        success_pattern: "__GATE_OK__"
-        args:
-          description: "validate kit schema"
-          command: "promptarena validate /workspace/kit/config.arena.yaml && echo __GATE_OK__"
-    - type: tool_exec
-      message: "Gate 2: kit compiles to a valid PromptPack"
-      params:
-        tool: Bash
-        timeout_seconds: 120
-        success_pattern: "__GATE_OK__"
-        args:
-          description: "compile and validate kit PromptPack"
-          command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json && echo __GATE_OK__"
-    - type: tool_exec
-      message: "Gate 3: generated scenarios run green offline"
-      params:
-        tool: Bash
-        timeout_seconds: 300
-        success_pattern: "__GATE_OK__"
-        args:
-          description: "run kit scenarios offline"
-          command: "cd /workspace/kit && promptarena run --ci && echo __GATE_OK__"
-    - type: tool_exec
-      message: "Gate 4: no unused files"
-      params:
-        tool: Bash
-        timeout_seconds: 60
-        success_pattern: "__GATE_OK__"
-        args:
-          description: "check for unused files in kit"
-          command: "unused-files.sh /workspace/kit && echo __GATE_OK__"
-    - type: tool_exec
-      message: "Metric: idiom-trap + adequacy report (non-gating)"
-      params:
-        tool: Bash
-        timeout_seconds: 60
-        success_pattern: "__GATE_OK__"
-        args:
-          description: "report idiom traps and assertion adequacy"
-          command: "idiom-traps.sh /workspace/kit && echo __GATE_OK__"

@@ -103,3 +103,5 @@ spec:
     output:
       dir: out
       formats: ["json", "html"]
+      html:
+        file: report.html

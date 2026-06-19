@@ -18,5 +18,6 @@ spec:
         within our 30-day refund window and approve or decline accordingly, and
         it has to stay polite and professional even when customers get angry or
         abusive. Before I ship it I want a test suite I can run locally without
-        burning API credits, so I can iterate on the prompt. Can you set that up
-        for me in a `kit/` folder?
+        burning API credits, so I can iterate on the prompt. Keep it lean — just
+        the tests and a short README, I don't need a pile of extra docs or
+        boilerplate. Can you set that up for me in a `kit/` folder?

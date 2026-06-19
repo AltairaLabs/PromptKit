@@ -96,3 +96,5 @@ spec:
     output:
       dir: out-gemini
       formats: ["json", "html"]
+      html:
+        file: report.html
