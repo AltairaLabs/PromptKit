@@ -32,6 +32,15 @@ spec:
         api_port: 8090
         env:
           DEV_MODE: "1"
+
+  # The promptarena-authoring skill, loaded as a skill__activate tool (NOT
+  # preloaded, so the system prompt stays equal to the AGENTS.md brief). This
+  # equips the agent the way a real skills-enabled coding agent is equipped —
+  # the skill is discoverable, not just a file it might forget to read. Kept in
+  # sync with agentkb.Skill() by a parity test.
+  skills:
+    - path: skills
+
   globals:
     conversation_assertions:
       - type: tool_exec
