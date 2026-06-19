@@ -177,6 +177,10 @@ func createProvider(info *Info) (providers.Provider, error) {
 		Temperature: defaultTemperature,
 		TopP:        defaultTopP,
 		MaxTokens:   defaultMaxTokens,
+		// DisablePromptCaching is false (caching on by default).
+		// SDK callers that need to disable caching should use a provider file
+		// or WithLLMProvider option with prompt_caching: false in the config.
+		DisablePromptCaching: false,
 	}
 
 	switch strings.ToLower(info.Name) {

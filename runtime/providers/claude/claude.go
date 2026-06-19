@@ -476,21 +476,11 @@ type claudeError struct {
 	Message string `json:"message"`
 }
 
-// supportsCaching returns true if the model supports prompt caching
+// supportsCaching returns true if prompt caching should be enabled.
+// All Anthropic models support caching by default; set DisablePromptCaching in
+// ProviderDefaults to opt out (e.g. when the provider config sets prompt_caching: false).
 func (p *Provider) supportsCaching() bool {
-	// Claude 3.5 Haiku does not support prompt caching as of October 2024
-	// Only Claude 3.5 Sonnet and Claude 3 Opus support it
-	switch p.model {
-	case "claude-3-5-haiku-20241022":
-		return false
-	case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620":
-		return true
-	case "claude-3-opus-20240229":
-		return true
-	default:
-		// For unknown models, disable caching to be safe
-		return false
-	}
+	return !p.defaults.DisablePromptCaching
 }
 
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.

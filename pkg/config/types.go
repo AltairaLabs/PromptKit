@@ -1395,6 +1395,9 @@ type ProviderDefaults struct {
 	Temperature float32 `json:"temperature" yaml:"temperature"`
 	TopP        float32 `json:"top_p" yaml:"top_p"`
 	MaxTokens   int     `json:"max_tokens" yaml:"max_tokens"`
+	// PromptCaching controls Anthropic prompt caching. Omit or set true to enable
+	// (the default); set false to disable. Only affects Claude providers.
+	PromptCaching *bool `json:"prompt_caching,omitempty" yaml:"prompt_caching,omitempty"`
 }
 
 // PromptConfigSchema represents a PromptConfig in K8s-style manifest format for schema generation

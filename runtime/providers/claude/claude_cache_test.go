@@ -12,9 +12,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// TestClaudeProvider_CacheControlNotSentForHaiku tests that cache_control is not included
-// for models that don't support it (like Claude 3.5 Haiku)
-func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
+// TestClaudeProvider_CacheControlNotSentWhenDisabled tests that cache_control is not included
+// when DisablePromptCaching is set to true in ProviderDefaults.
+func TestClaudeProvider_CacheControlNotSentWhenDisabled(t *testing.T) {
 	// Create a test server that captures the request
 	var capturedRequest map[string]interface{}
 
@@ -32,7 +32,7 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 			"type":    "message",
 			"role":    "assistant",
 			"content": []map[string]string{{"type": "text", "text": "Hello"}},
-			"model":   "claude-3-5-haiku-20241022",
+			"model":   "claude-haiku-4-5",
 			"usage": map[string]int{
 				"input_tokens":  10,
 				"output_tokens": 5,
@@ -45,15 +45,16 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	os.Setenv("ANTHROPIC_API_KEY", "test-key")
 	defer os.Unsetenv("ANTHROPIC_API_KEY")
 
-	// Create provider with Haiku model
+	// Create provider with caching explicitly disabled via DisablePromptCaching
 	provider := NewProvider(
 		"test-haiku",
-		"claude-3-5-haiku-20241022",
+		"claude-haiku-4-5",
 		server.URL,
 		providers.ProviderDefaults{
-			Temperature: 0.7,
-			MaxTokens:   100,
-			TopP:        1.0,
+			Temperature:          0.7,
+			MaxTokens:            100,
+			TopP:                 1.0,
+			DisablePromptCaching: true,
 		},
 		false,
 	)
@@ -99,15 +100,110 @@ func TestClaudeProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		t.Fatal("First content is not a map")
 	}
 
-	// cache_control should NOT be present for Haiku (causes 400 error)
+	// cache_control should NOT be present when DisablePromptCaching is true
 	if cacheControl, exists := firstContent["cache_control"]; exists {
-		t.Errorf("cache_control should not be sent for Claude 3.5 Haiku, but found: %v", cacheControl)
-		t.Errorf("This causes a 400 error: 'messages.0.cache_control: Extra inputs are not permitted'")
+		t.Errorf("cache_control should not be sent when DisablePromptCaching=true, but found: %v", cacheControl)
 	}
 }
 
-// TestToolProvider_CacheControlNotSentForHaiku tests the same for tool provider
-func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
+// TestClaudeProvider_CacheControlSentForCurrentModels tests that cache_control IS included
+// for current models (haiku-4-5, sonnet-4-6, opus-4-8) when caching is enabled (default).
+func TestClaudeProvider_CacheControlSentForCurrentModels(t *testing.T) {
+	currentModels := []string{
+		"claude-haiku-4-5",
+		"claude-sonnet-4-6",
+		"claude-opus-4-8",
+	}
+
+	for _, model := range currentModels {
+		t.Run(model, func(t *testing.T) {
+			var capturedRequest map[string]interface{}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&capturedRequest); err != nil {
+					t.Fatalf("Failed to decode request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"id":      "msg_test",
+					"type":    "message",
+					"role":    "assistant",
+					"content": []map[string]string{{"type": "text", "text": "Hello"}},
+					"model":   model,
+					"usage": map[string]int{
+						"input_tokens":  10,
+						"output_tokens": 5,
+					},
+				})
+			}))
+			defer server.Close()
+
+			os.Setenv("ANTHROPIC_API_KEY", "test-key")
+			defer os.Unsetenv("ANTHROPIC_API_KEY")
+
+			provider := NewProvider(
+				"test-provider",
+				model,
+				server.URL,
+				providers.ProviderDefaults{
+					Temperature: 0.7,
+					MaxTokens:   100,
+					TopP:        1.0,
+					// DisablePromptCaching defaults to false → caching enabled
+				},
+				false,
+			)
+
+			longContent := ""
+			for i := 0; i < 10000; i++ {
+				longContent += "This is a long message to test caching. "
+			}
+
+			req := providers.PredictionRequest{
+				Messages: []types.Message{
+					{Role: "user", Content: longContent},
+				},
+				Temperature: 0.7,
+				MaxTokens:   100,
+			}
+
+			_, err := provider.Predict(context.Background(), req)
+			if err != nil {
+				t.Fatalf("Predict failed: %v", err)
+			}
+
+			messages, ok := capturedRequest["messages"].([]interface{})
+			if !ok || len(messages) == 0 {
+				t.Fatal("No messages in captured request")
+			}
+
+			firstMessage, ok := messages[0].(map[string]interface{})
+			if !ok {
+				t.Fatal("First message is not a map")
+			}
+
+			content, ok := firstMessage["content"].([]interface{})
+			if !ok || len(content) == 0 {
+				t.Fatal("No content in first message")
+			}
+
+			firstContent, ok := content[0].(map[string]interface{})
+			if !ok {
+				t.Fatal("First content is not a map")
+			}
+
+			// cache_control SHOULD be present for current models with caching enabled
+			if _, exists := firstContent["cache_control"]; !exists {
+				t.Errorf("cache_control should be sent for %q with default caching settings, but was absent", model)
+			}
+		})
+	}
+}
+
+// TestToolProvider_CacheControlNotSentWhenDisabled tests that the tool provider does not
+// send cache_control when DisablePromptCaching is set to true in ProviderDefaults.
+func TestToolProvider_CacheControlNotSentWhenDisabled(t *testing.T) {
 	// Create a test server that captures the request
 	var capturedRequest map[string]interface{}
 
@@ -125,7 +221,7 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 			"type":    "message",
 			"role":    "assistant",
 			"content": []map[string]string{{"type": "text", "text": "Hello"}},
-			"model":   "claude-3-5-haiku-20241022",
+			"model":   "claude-haiku-4-5",
 			"usage": map[string]int{
 				"input_tokens":  10,
 				"output_tokens": 5,
@@ -138,15 +234,16 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 	os.Setenv("ANTHROPIC_API_KEY", "test-key")
 	defer os.Unsetenv("ANTHROPIC_API_KEY")
 
-	// Create tool provider with Haiku model
+	// Create tool provider with caching explicitly disabled
 	provider := NewToolProvider(
-		"test-haiku",
-		"claude-3-5-haiku-20241022",
+		"test-provider",
+		"claude-haiku-4-5",
 		server.URL,
 		providers.ProviderDefaults{
-			Temperature: 0.7,
-			MaxTokens:   100,
-			TopP:        1.0,
+			Temperature:          0.7,
+			MaxTokens:            100,
+			TopP:                 1.0,
+			DisablePromptCaching: true,
 		},
 		false,
 	)
@@ -180,13 +277,13 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 		t.Fatalf("PredictWithTools failed: %v", err)
 	}
 
-	// Verify that cache_control was NOT sent in system blocks
+	// Verify that cache_control was NOT sent in system blocks when disabled
 	system, ok := capturedRequest["system"].([]interface{})
 	if ok && len(system) > 0 {
 		systemBlock, ok := system[0].(map[string]interface{})
 		if ok {
 			if cacheControl, exists := systemBlock["cache_control"]; exists {
-				t.Errorf("cache_control should not be sent for Claude 3.5 Haiku system prompt, but found: %v", cacheControl)
+				t.Errorf("cache_control should not be sent when DisablePromptCaching=true, but found: %v", cacheControl)
 			}
 		}
 	}
@@ -201,7 +298,7 @@ func TestToolProvider_CacheControlNotSentForHaiku(t *testing.T) {
 				lastContent, ok := content[0].(map[string]interface{})
 				if ok {
 					if cacheControl, exists := lastContent["cache_control"]; exists {
-						t.Errorf("cache_control should not be sent for Claude 3.5 Haiku message, but found: %v", cacheControl)
+						t.Errorf("cache_control should not be sent when DisablePromptCaching=true, but found: %v", cacheControl)
 					}
 				}
 			}
