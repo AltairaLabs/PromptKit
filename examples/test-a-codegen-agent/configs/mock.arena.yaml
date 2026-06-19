@@ -1,15 +1,15 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
-  name: agents-brief-arm-c-mock
+  name: codegen-agent-test-mock
   annotations:
     description: |
-      Arm C — mock wiring variant. Proves gates fire and discriminate without API spend.
-      The mock provider scripts tool calls; Docker executes them for real (only the LLM is faked).
+      Wiring check: mock provider scripts tool calls; Docker executes them for real (only the LLM is faked).
+      Proves gates fire and discriminate without API spend.
       Run:
-        make build-agents-brief-sandbox
-        cd benchmarks/agents-brief-eval
-        promptarena run -c configs/arm-c-mock.arena.yaml --ci --format json
+        make build-codegen-agent-sandbox
+        cd examples/test-a-codegen-agent
+        promptarena run -c configs/mock.arena.yaml --ci --format html,json
 spec:
   prompt_configs:
     - id: authoring-agent
@@ -24,7 +24,7 @@ spec:
       source: docker
       scope: session
       source_args:
-        image: agents-brief-sandbox:local
+        image: codegen-agent-sandbox:local
         env:
           DEV_MODE: "1"
   defaults:

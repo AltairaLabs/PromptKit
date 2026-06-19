@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci capability-matrix capability-matrix-live build-agents-brief-sandbox
+.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci capability-matrix capability-matrix-live build-codegen-agent-sandbox
  
 # Route unknown targets to help
 .DEFAULT:
@@ -108,10 +108,10 @@ demo-build: build-arena-linux build-packc-linux ## Build Docker image for demo r
 	@docker build -t promptarena-demo -f Dockerfile.demo .
 	@echo "Demo container built: promptarena-demo"
 
-build-agents-brief-sandbox: build-arena-linux build-packc-linux ## Build the AGENTS.md brief eval sandbox image
-	@echo "Building agents-brief-sandbox image..."
-	@docker build -t agents-brief-sandbox:local -f benchmarks/agents-brief-eval/Dockerfile .
-	@echo "Built: agents-brief-sandbox:local"
+build-codegen-agent-sandbox: build-arena-linux build-packc-linux ## Build the codegen-agent test sandbox image
+	@echo "Building codegen-agent-sandbox image..."
+	@docker build -t codegen-agent-sandbox:local -f examples/test-a-codegen-agent/Dockerfile .
+	@echo "Built: codegen-agent-sandbox:local"
 
 demo-run: ## Run demo recording container (mounts examples and recordings dirs)
 	@mkdir -p recordings

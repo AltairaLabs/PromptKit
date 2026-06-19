@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Summarize an agents-brief-eval run: gate pass-rate per scenario + idiom-trap counts.
+# Summarize a test-a-codegen-agent run: gate pass-rate per scenario + idiom-trap counts.
 # Requires: python3, jq
 #
 # Usage: summarize.sh [out-dir]

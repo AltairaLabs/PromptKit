@@ -1,15 +1,16 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Arena
 metadata:
-  name: agents-brief-arm-c
+  name: codegen-agent-test
   annotations:
     description: |
-      Arm C — brief-equipped authoring agent. Live only (real Claude + Docker).
+      Brief-equipped codegen agent authors a PromptArena kit; gates score the result.
+      Live only (real Claude + Docker).
       Run:
         export ANTHROPIC_API_KEY=...
-        make build-agents-brief-sandbox
-        cd benchmarks/agents-brief-eval
-        promptarena run -c configs/arm-c-brief.arena.yaml --ci --format html
+        make build-codegen-agent-sandbox
+        cd examples/test-a-codegen-agent
+        promptarena run -c configs/live.arena.yaml --ci --format html
 spec:
   prompt_configs:
     - id: authoring-agent
@@ -27,7 +28,7 @@ spec:
       source: docker
       scope: session
       source_args:
-        image: agents-brief-sandbox:local
+        image: codegen-agent-sandbox:local
         env:
           DEV_MODE: "1"
   globals:
