@@ -46,6 +46,9 @@ func ParseScope(raw string) (Scope, error) {
 type MCPConn struct {
 	URL     string
 	Headers map[string]string
+	// APIURL is an optional human/host-facing API base URL (e.g. http://localhost:NNNN).
+	// Set when the sandbox image exposes a non-MCP HTTP API (e.g. /api/download).
+	APIURL string
 }
 
 // MCPSource opens an MCP endpoint with caller-supplied args.

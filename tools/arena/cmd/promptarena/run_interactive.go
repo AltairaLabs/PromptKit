@@ -15,9 +15,11 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/sandboxcapture"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
@@ -221,6 +223,12 @@ func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *en
 		LevelMeter:  true,
 	}); err != nil {
 		return nil, nil, fmt.Errorf("failed to enable audio monitor: %w", err)
+	}
+
+	// Wire sandbox workspace capture when --capture-workspace was explicitly provided.
+	if params.CaptureWorkspaceEnabled {
+		reg := hooks.NewRegistry(hooks.WithSessionHook(sandboxcapture.New(params.CaptureWorkspace, params.OutDir)))
+		eng.WithSessionHooks(reg)
 	}
 
 	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios, params.Evals)

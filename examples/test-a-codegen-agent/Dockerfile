@@ -11,3 +11,9 @@ COPY --chmod=755 bin/packc-linux /usr/local/bin/packc
 # gate + metric scripts
 COPY --chmod=755 examples/test-a-codegen-agent/tools/unused-files.sh /usr/local/bin/unused-files.sh
 COPY --chmod=755 examples/test-a-codegen-agent/tools/idiom-traps.sh /usr/local/bin/idiom-traps.sh
+
+# Expose the sandbox HTTP API for workspace capture (/api/download).
+# The base image's entrypoint is the sandbox binary; CMD supplies its args.
+# CMD replaces the base image's default args, so re-state -addr/-workspace
+# explicitly, then add the API flags.
+CMD ["-addr=:8080", "-workspace=/workspace", "-enable-api", "-api-addr", ":8090", "-dev-mode"]

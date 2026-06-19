@@ -422,8 +422,10 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// Open scenario + session scoped MCPSource entries; cleanup runs via defer.
 	// The returned context carries a per-run forked MCP registry so the
 	// pipeline's MCPExecutor routes to this run's session-scoped servers
-	// rather than the engine's shared registry.
-	mcpRunCtx, mcpCleanup, mcpErr := e.openScenarioSessionMCPSources(runCtx, scenario, combo.ScenarioID, runID)
+	// rather than the engine's shared registry. apiURLs maps server names to
+	// their sandbox HTTP API base URLs (set when api_port is configured).
+	mcpRunCtx, mcpCleanup, sandboxAPIURLs, mcpErr := e.openScenarioSessionMCPSources(
+		runCtx, scenario, combo.ScenarioID, runID)
 	if mcpErr != nil {
 		return saveError(mcpErr.Error())
 	}
@@ -474,6 +476,9 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// the run context is fully prepared. The registry is nil-safe — if no
 	// hooks are registered this is a complete no-op.
 	sessionMeta := e.sessionEventMetadata()
+	if len(sandboxAPIURLs) > 0 {
+		sessionMeta["sandbox_api_urls"] = sandboxAPIURLs
+	}
 	_ = e.sessionHooks.RunSessionStart(runCtx, hooks.SessionEvent{
 		SessionID:      runID,
 		ConversationID: runID,

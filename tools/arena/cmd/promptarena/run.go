@@ -141,6 +141,12 @@ func init() {
 	runCmd.Flags().String("audio-monitor", string(arenaaudio.ModeAuto), "Audio monitoring: auto, on, off")
 	runCmd.Flags().Int("audio-rate", arenaaudio.Rate24k, "Audio canonical sample rate: 16000, 24000, or 48000")
 
+	// Sandbox workspace capture — download workspace zip from each docker sandbox's
+	// /api/download endpoint and save to <out>/kit/<runID>/<server>.zip at session end.
+	// Value is the sandbox server name to capture (empty = capture all).
+	runCmd.Flags().String("capture-workspace", "",
+		"Download workspace zip from each sandbox via /api/download after run; value = server name filter (empty = all)")
+
 	// Bind flags to viper
 	_ = viper.BindPFlag("concurrency", runCmd.Flags().Lookup("concurrency"))
 	_ = viper.BindPFlag("out_dir", runCmd.Flags().Lookup("out"))
@@ -189,6 +195,12 @@ type RunParameters struct {
 	// Audio monitor settings (real-time duplex audio)
 	AudioMonitorMode string // "auto" | "on" | "off"
 	AudioMonitorRate int    // 16000, 24000, or 48000
+
+	// CaptureWorkspace is the sandbox server name to capture at end of each run.
+	// Empty string means capture all servers. Only active when CaptureWorkspaceEnabled is true.
+	CaptureWorkspace string
+	// CaptureWorkspaceEnabled is true when --capture-workspace was explicitly provided.
+	CaptureWorkspaceEnabled bool
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -272,6 +284,10 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	if params.EvalTypes, err = cmd.Flags().GetStringSlice("eval-types"); err != nil {
 		return fmt.Errorf("failed to get eval-types flag: %w", err)
 	}
+	if params.CaptureWorkspace, err = cmd.Flags().GetString("capture-workspace"); err != nil {
+		return fmt.Errorf("failed to get capture-workspace flag: %w", err)
+	}
+	params.CaptureWorkspaceEnabled = cmd.Flags().Changed("capture-workspace")
 	return nil
 }
 

@@ -27,6 +27,9 @@ const discoveryTimeout = 30 * time.Second
 type openEntry struct {
 	serverName string
 	closer     io.Closer
+	// apiURL is the optional sandbox HTTP API base URL (e.g. http://localhost:NNNN).
+	// Empty when the source does not expose a non-MCP API.
+	apiURL string
 }
 
 // mcpSourceScope manages per-scope open/close of source-backed MCP entries.
@@ -152,7 +155,7 @@ func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerCon
 		_ = closer.Close()
 		return openEntry{}, fmt.Errorf("mcp server %q: discover tools after Open failed: %w", entry.Name, err)
 	}
-	return openEntry{serverName: entry.Name, closer: closer}, nil
+	return openEntry{serverName: entry.Name, closer: closer, apiURL: conn.APIURL}, nil
 }
 
 // discoverAndRegisterServerTools lists tools from the just-registered MCP
@@ -262,6 +265,27 @@ func (m *mcpSourceScope) CloseAll(scope mcpsource.Scope, instanceID string) []er
 		_ = m.registry.UnregisterServer(entries[i].serverName)
 	}
 	return errs
+}
+
+// APIURLs returns a map of serverName → apiURL for all open entries under
+// (scope, instanceID) that have a non-empty API URL. Used by executeRun to
+// populate sandbox_api_urls in the session event metadata so SessionHooks
+// (e.g. sandboxcapture.Hook) can reach the sandbox HTTP API after the run.
+func (m *mcpSourceScope) APIURLs(scope mcpsource.Scope, instanceID string) map[string]string {
+	m.mu.Lock()
+	entries := m.opens[scopeKey(scope, instanceID)]
+	m.mu.Unlock()
+
+	out := make(map[string]string)
+	for _, e := range entries {
+		if e.apiURL != "" {
+			out[e.serverName] = e.apiURL
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // --- Args templating (Task 5 responsibilities) ---

@@ -30,6 +30,10 @@ func scenarioVariables(sc *config.Scenario) map[string]string {
 // success-return path. When no source-backed entries are configured, the
 // cleanup is a no-op.
 //
+// The returned apiURLs map (serverName → http base URL) is populated from
+// session-scoped servers that expose a sandbox HTTP API (e.g. /api/download).
+// It is empty when no such servers are configured.
+//
 // Each executeRun invocation is one session (= one trial). To allow
 // concurrent runs of source-backed MCP entries that present at different
 // URLs under the same logical name, this function forks the engine's
@@ -41,10 +45,10 @@ func (e *Engine) openScenarioSessionMCPSources(
 	ctx context.Context,
 	scenario *config.Scenario,
 	scenarioID, runID string,
-) (runCtx context.Context, cleanup func(), err error) {
+) (runCtx context.Context, cleanup func(), apiURLs map[string]string, err error) {
 	cleanup = func() {}
 	if e.mcpSourceScope == nil || len(e.mcpConfig) == 0 {
-		return ctx, cleanup, nil
+		return ctx, cleanup, nil, nil
 	}
 
 	// Per-run forked registry isolates this run's session-scoped servers
@@ -58,7 +62,7 @@ func (e *Engine) openScenarioSessionMCPSources(
 		runCtx, mcpsource.ScopeScenario, scenarioID, scenarioVars,
 		e.mcpSkillSources, e.mcpConfig,
 	); openErr != nil {
-		return ctx, cleanup, fmt.Errorf("open scenario-scoped MCP sources: %v", openErr)
+		return ctx, cleanup, nil, fmt.Errorf("open scenario-scoped MCP sources: %v", openErr)
 	}
 	closeScenario := func() {
 		for _, cerr := range runScope.CloseAll(mcpsource.ScopeScenario, scenarioID) {
@@ -71,7 +75,7 @@ func (e *Engine) openScenarioSessionMCPSources(
 		e.mcpSkillSources, e.mcpConfig,
 	); openErr != nil {
 		closeScenario()
-		return ctx, cleanup, fmt.Errorf("open session-scoped MCP sources: %v", openErr)
+		return ctx, cleanup, nil, fmt.Errorf("open session-scoped MCP sources: %v", openErr)
 	}
 	closeSession := func() {
 		for _, cerr := range runScope.CloseAll(mcpsource.ScopeSession, runID) {
@@ -79,8 +83,11 @@ func (e *Engine) openScenarioSessionMCPSources(
 		}
 	}
 
+	// Collect API URLs from session-scoped servers (container still alive).
+	urls := runScope.APIURLs(mcpsource.ScopeSession, runID)
+
 	return runCtx, func() {
 		closeSession()
 		closeScenario()
-	}, nil
+	}, urls, nil
 }
