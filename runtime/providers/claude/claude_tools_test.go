@@ -506,10 +506,10 @@ func TestClaudeParseToolResponse_CachedTokens(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// Total input tokens is 100, with 80 from cache
-	// So non-cached InputTokens should be 20
-	if predictResp.CostInfo.InputTokens != 20 {
-		t.Errorf("Expected 20 non-cached input tokens, got %d", predictResp.CostInfo.InputTokens)
+	// Anthropic's input_tokens (100) already excludes the 80 cache reads, so the
+	// non-cached InputTokens is reported as-is (100), with 80 cached on top.
+	if predictResp.CostInfo.InputTokens != 100 {
+		t.Errorf("Expected 100 non-cached input tokens (API input_tokens excludes cached), got %d", predictResp.CostInfo.InputTokens)
 	}
 
 	if predictResp.CostInfo.CachedTokens != 80 {

@@ -205,13 +205,14 @@ func TestClaudeProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 
 	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
-	// 1000 input (total), 500 output, 200 cached
-	// Claude cached tokens cost 10% of input tokens
+	// Anthropic's input_tokens EXCLUDES cache reads (cache_read_input_tokens is a
+	// separate field), so the 1000 here is already the non-cached input; 200 cached
+	// is billed on top at 10%. (Verified live in caching_integration_test.go.)
 	breakdown := provider.CalculateCost(1000, 500, 200)
 
-	// InputTokens field contains only non-cached input tokens
-	if breakdown.InputTokens != 800 {
-		t.Errorf("Expected 800 input tokens (1000 - 200 cached), got %d", breakdown.InputTokens)
+	// InputTokens is the non-cached input as reported by the API — not reduced again.
+	if breakdown.InputTokens != 1000 {
+		t.Errorf("Expected 1000 input tokens (API input_tokens already excludes cached), got %d", breakdown.InputTokens)
 	}
 
 	if breakdown.OutputTokens != 500 {
@@ -224,9 +225,8 @@ func TestClaudeProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 
 	// Cached tokens cost 10% of regular input tokens (Claude pricing)
 	expectedCachedCost := 0.00006 // 200 * 0.003 / 1000 * 0.1 = 0.00006
-	// Input cost is for 800 tokens only
-	expectedInputCost := 0.0024  // 800 * 0.003 / 1000 = 0.0024
-	expectedOutputCost := 0.0075 // 500 * 0.015 / 1000 = 0.0075
+	expectedInputCost := 0.003    // 1000 * 0.003 / 1000 = 0.003
+	expectedOutputCost := 0.0075  // 500 * 0.015 / 1000 = 0.0075
 
 	// Use tolerance for floating point comparison
 	tolerance := 0.0000001

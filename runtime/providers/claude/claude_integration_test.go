@@ -511,7 +511,9 @@ func TestCalculateCost(t *testing.T) {
 
 			costInfo := provider.CalculateCost(tt.tokensIn, tt.tokensOut, tt.cachedTokens)
 
-			assert.Equal(t, tt.tokensIn-tt.cachedTokens, costInfo.InputTokens)
+			// Anthropic's input_tokens already excludes cache reads, so tokensIn is
+			// the non-cached input as-is (not reduced again by cachedTokens).
+			assert.Equal(t, tt.tokensIn, costInfo.InputTokens)
 			assert.Equal(t, tt.tokensOut, costInfo.OutputTokens)
 			assert.Equal(t, tt.cachedTokens, costInfo.CachedTokens)
 			assert.Greater(t, costInfo.TotalCost, 0.0)

@@ -857,13 +857,17 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 		inputCostPer1K, outputCostPer1K, cachedCostPer1K = claudePricing(p.model)
 	}
 
-	// Calculate costs
-	inputCost := float64(tokensIn-cachedTokens) / 1000.0 * inputCostPer1K
-	cachedCost := float64(cachedTokens) / 1000.0 * cachedCostPer1K
-	outputCost := float64(tokensOut) / 1000.0 * outputCostPer1K
+	// Calculate costs. Anthropic reports input_tokens EXCLUSIVE of cache reads
+	// (cache_read_input_tokens is a separate field), so tokensIn is already the
+	// uncached, full-price input — do NOT subtract cachedTokens (that double-counts
+	// and goes negative once a cache read exceeds the fresh input).
+	const per1K = 1000.0
+	inputCost := float64(tokensIn) / per1K * inputCostPer1K
+	cachedCost := float64(cachedTokens) / per1K * cachedCostPer1K
+	outputCost := float64(tokensOut) / per1K * outputCostPer1K
 
 	return types.CostInfo{
-		InputTokens:   tokensIn - cachedTokens,
+		InputTokens:   tokensIn,
 		OutputTokens:  tokensOut,
 		CachedTokens:  cachedTokens,
 		InputCostUSD:  inputCost,
