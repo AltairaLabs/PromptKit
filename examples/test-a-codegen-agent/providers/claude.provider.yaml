@@ -4,7 +4,7 @@ metadata:
   name: claude
 spec:
   id: claude
-  type: anthropic
+  type: claude
   model: claude-haiku-4-5
   defaults:
     temperature: 0.3

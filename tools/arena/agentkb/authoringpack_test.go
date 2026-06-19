@@ -8,7 +8,7 @@ import (
 )
 
 // committed pack path, relative to this package dir (tools/arena/agentkb).
-const authoringPackPath = "../../../examples/test-a-codegen-agent/packs/authoring-agent.yaml"
+const authoringPackPath = "../../../examples/test-a-codegen-agent/prompts/authoring-agent.yaml"
 
 func TestAuthoringPackYAML_EmbedsBrief(t *testing.T) {
 	got := AuthoringPackYAML()

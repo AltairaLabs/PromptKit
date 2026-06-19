@@ -10,19 +10,19 @@ metadata:
         export ANTHROPIC_API_KEY=...
         make build-codegen-agent-sandbox
         cd examples/test-a-codegen-agent
-        promptarena run -c configs/live.arena.yaml --ci --format html
+        promptarena run -c config.arena.yaml --ci --format html
 spec:
   prompt_configs:
     - id: authoring-agent
-      file: ../packs/authoring-agent.yaml
+      file: prompts/authoring-agent.yaml
   providers:
-    - file: ../providers/claude.provider.yaml
+    - file: providers/claude.provider.yaml
   scenarios:
-    - file: ../scenarios/refund-assistant.scenario.yaml
-    - file: ../scenarios/faq-bot.scenario.yaml
-    - file: ../scenarios/code-reviewer.scenario.yaml
-    - file: ../scenarios/triage-router.scenario.yaml
-    - file: ../scenarios/sentiment-guardrail.scenario.yaml
+    - file: scenarios/refund-assistant.scenario.yaml
+    - file: scenarios/faq-bot.scenario.yaml
+    - file: scenarios/code-reviewer.scenario.yaml
+    - file: scenarios/triage-router.scenario.yaml
+    - file: scenarios/sentiment-guardrail.scenario.yaml
   mcp_servers:
     - name: sandbox
       source: docker

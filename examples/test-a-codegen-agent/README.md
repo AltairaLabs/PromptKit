@@ -24,10 +24,10 @@ score the result — five gates plus one non-gating metric:
 | Metric | `idiom-traps.sh` — non-gating idiom-trap + assertion-adequacy report |
 
 Gates 1–4 and the metric are shared across all authoring tasks (defined once in
-`configs/live.arena.yaml` under `spec.globals.conversation_assertions`); Gate 5's
+`config.arena.yaml` under `spec.globals.conversation_assertions`); Gate 5's
 faithfulness criteria are written per scenario.
 
-The authoring system prompt (`packs/authoring-agent.yaml`) is generated from
+The authoring system prompt (`prompts/authoring-agent.yaml`) is generated from
 `agentkb.AgentsBrief()` and kept in sync by a byte-parity test, so this kit
 always tests the current shipped brief.
 
@@ -38,13 +38,13 @@ Requires `ANTHROPIC_API_KEY` and Docker.
 ```bash
 make build-codegen-agent-sandbox
 cd examples/test-a-codegen-agent
-promptarena run -c configs/live.arena.yaml --ci --format html
+promptarena run -c config.arena.yaml --ci --format html
 open out/report.html
 ```
 
 ## Wiring check (Docker, no API key, no cost)
 
-`configs/mock.arena.yaml` uses a `type: mock` provider that scripts the agent's
+`mock.arena.yaml` uses a `type: mock` provider that scripts the agent's
 tool calls. The gates execute for real against a known-good kit (`refund-assistant`)
 and a deliberately broken kit (`refund-broken`) that must be detected. No model
 calls are made — only the LLM is faked.
@@ -52,7 +52,7 @@ calls are made — only the LLM is faked.
 ```bash
 make build-codegen-agent-sandbox
 cd examples/test-a-codegen-agent
-promptarena run -c configs/mock.arena.yaml --ci --format html,json
+promptarena run -c mock.arena.yaml --ci --format html,json
 ```
 
 ## Summarizing results
@@ -63,11 +63,11 @@ bash report/summarize.sh out
 
 ## Trying a cheaper model (Gemini)
 
-`configs/live-gemini.arena.yaml` points the same harness at Gemini 2.5 Flash
+`live-gemini.arena.yaml` points the same harness at Gemini 2.5 Flash
 (cheaper per token than Claude Haiku). Run it with `GEMINI_API_KEY` set:
 
 ```bash
-promptarena run -c configs/live-gemini.arena.yaml --ci --format html
+promptarena run -c live-gemini.arena.yaml --ci --format html
 ```
 
 > **Known limitation (2026-06):** Gemini's function-calling API rejects tool

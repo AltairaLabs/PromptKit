@@ -7,4 +7,4 @@ spec:
   type: mock
   model: mock
   additional_config:
-    mock_config: ../mock-responses.yaml
+    mock_config: mock-responses.yaml

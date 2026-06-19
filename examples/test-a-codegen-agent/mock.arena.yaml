@@ -9,16 +9,16 @@ metadata:
       Run:
         make build-codegen-agent-sandbox
         cd examples/test-a-codegen-agent
-        promptarena run -c configs/mock.arena.yaml --ci --format html,json
+        promptarena run -c mock.arena.yaml --ci --format html,json
 spec:
   prompt_configs:
     - id: authoring-agent
-      file: ../packs/authoring-agent.yaml
+      file: prompts/authoring-agent.yaml
   providers:
-    - file: ../providers/mock-provider.yaml
+    - file: providers/mock-provider.yaml
   scenarios:
-    - file: ../scenarios/refund-assistant.mock.scenario.yaml
-    - file: ../scenarios/refund-broken.mock.scenario.yaml
+    - file: scenarios/refund-assistant.mock.scenario.yaml
+    - file: scenarios/refund-broken.mock.scenario.yaml
   mcp_servers:
     - name: sandbox
       source: docker

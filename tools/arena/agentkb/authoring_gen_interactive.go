@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	out := filepath.Join("..", "..", "..", "examples", "test-a-codegen-agent", "packs", "authoring-agent.yaml")
+	out := filepath.Join("..", "..", "..", "examples", "test-a-codegen-agent", "prompts", "authoring-agent.yaml")
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		log.Fatal(err)
 	}
