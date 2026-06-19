@@ -130,6 +130,9 @@ type ProviderDefaults struct {
 	TopP        float32
 	MaxTokens   int
 	Pricing     Pricing
+	// DisablePromptCaching, when true, disables Anthropic prompt caching.
+	// Default (false) means caching is on for all models that support it.
+	DisablePromptCaching bool
 }
 
 // Provider interface defines the contract for predict providers.

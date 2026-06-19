@@ -760,9 +760,10 @@ func providerSpecFromConfig(p *config.Provider) providers.ProviderSpec {
 		IncludeRawOutput: p.IncludeRawOutput,
 		AdditionalConfig: p.AdditionalConfig,
 		Defaults: providers.ProviderDefaults{
-			Temperature: p.Defaults.Temperature,
-			TopP:        p.Defaults.TopP,
-			MaxTokens:   p.Defaults.MaxTokens,
+			Temperature:          p.Defaults.Temperature,
+			TopP:                 p.Defaults.TopP,
+			MaxTokens:            p.Defaults.MaxTokens,
+			DisablePromptCaching: p.Defaults.PromptCaching != nil && !*p.Defaults.PromptCaching,
 			Pricing: providers.Pricing{
 				InputCostPer1K:  p.Pricing.InputCostPer1K,
 				OutputCostPer1K: p.Pricing.OutputCostPer1K,

@@ -323,9 +323,10 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		StreamMaxConcurrent: provider.StreamMaxConcurrent,
 		HTTPTransport:       httpTransport,
 		Defaults: providers.ProviderDefaults{
-			Temperature: provider.Defaults.Temperature,
-			TopP:        provider.Defaults.TopP,
-			MaxTokens:   provider.Defaults.MaxTokens,
+			Temperature:          provider.Defaults.Temperature,
+			TopP:                 provider.Defaults.TopP,
+			MaxTokens:            provider.Defaults.MaxTokens,
+			DisablePromptCaching: provider.Defaults.PromptCaching != nil && !*provider.Defaults.PromptCaching,
 			Pricing: providers.Pricing{
 				InputCostPer1K:  provider.Pricing.InputCostPer1K,
 				OutputCostPer1K: provider.Pricing.OutputCostPer1K,

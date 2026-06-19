@@ -744,6 +744,9 @@
         },
         "max_tokens": {
           "type": "integer"
+        },
+        "prompt_caching": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

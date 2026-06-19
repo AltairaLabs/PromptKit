@@ -311,11 +311,11 @@ func TestConvertMessagesToClaudeFormat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &Provider{
-				model: "claude-3-5-sonnet-20241022", // Supports caching
-			}
-
-			if !tt.supportsCaching {
-				provider.model = "claude-2" // Doesn't support caching
+				model: "claude-sonnet-4-6",
+				defaults: providers.ProviderDefaults{
+					// DisablePromptCaching controls caching; model name no longer matters
+					DisablePromptCaching: !tt.supportsCaching,
+				},
 			}
 
 			result := provider.convertMessagesToClaudeFormat(tt.messages)
@@ -368,11 +368,11 @@ func TestCreateSystemBlocks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &Provider{
-				model: "claude-3-5-sonnet-20241022",
-			}
-
-			if !tt.modelSupportsCache {
-				provider.model = "claude-2"
+				model: "claude-sonnet-4-6",
+				defaults: providers.ProviderDefaults{
+					// DisablePromptCaching controls caching; model name no longer matters
+					DisablePromptCaching: !tt.modelSupportsCache,
+				},
 			}
 
 			result := provider.createSystemBlocks(tt.systemPrompt)
