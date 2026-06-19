@@ -248,16 +248,30 @@ func (s *ArenaAssertionStage) executeAssertions(
 
 	var validationErrors []error
 	for i, cr := range convResults {
-		// Use the original assertion type (not the pack_eval: prefixed eval type)
+		// Use the original assertion type (not the pack_eval: prefixed eval type),
+		// and surface the assertion's configured message as the headline (same fix
+		// as conversation assertions) so reports label each turn assertion
+		// meaningfully; the handler explanation is kept under details.explanation.
 		displayType := cr.Type
+		displayMessage := cr.Message
+		details := cr.Details
 		if i < len(filteredConfigs) {
 			displayType = filteredConfigs[i].Type
+			if filteredConfigs[i].Message != "" {
+				if details == nil {
+					details = map[string]interface{}{}
+				}
+				if cr.Message != "" {
+					details["explanation"] = cr.Message
+				}
+				displayMessage = filteredConfigs[i].Message
+			}
 		}
 		resultMap := map[string]interface{}{
 			"type":    displayType,
 			"passed":  cr.Passed,
-			"details": cr.Details,
-			"message": cr.Message,
+			"details": details,
+			"message": displayMessage,
 		}
 		// Attach the original assertion config so reports can show what was tested
 		if i < len(filteredConfigs) {
