@@ -60,3 +60,20 @@ promptarena run -c configs/mock.arena.yaml --ci --format html,json
 ```bash
 bash report/summarize.sh out
 ```
+
+## Trying a cheaper model (Gemini)
+
+`configs/live-gemini.arena.yaml` points the same harness at Gemini 2.5 Flash
+(cheaper per token than Claude Haiku). Run it with `GEMINI_API_KEY` set:
+
+```bash
+promptarena run -c configs/live-gemini.arena.yaml --ci --format html
+```
+
+> **Known limitation (2026-06):** Gemini's function-calling API rejects tool
+> declarations / tool results that contain JSON-Schema `$ref`/`$defs`
+> (`400 INVALID_ARGUMENT: ... #/$defs/ObjectMeta ...`). Because the brief's
+> discovery commands (e.g. `promptarena schema`) emit `$defs`-bearing schemas,
+> the authoring loop currently errors on Gemini when such output is fed back as
+> a tool result. Claude (Haiku/Sonnet/Opus) is unaffected. Tracking a runtime
+> fix to flatten `$ref`/`$defs` for the Gemini provider.
