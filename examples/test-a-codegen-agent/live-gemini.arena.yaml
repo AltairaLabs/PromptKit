@@ -68,6 +68,15 @@ spec:
             command: "unused-files.sh /workspace/kit && echo __GATE_OK__"
             description: "Check the kit for unreferenced files"
       - type: tool_exec
+        message: "Gate 5: kit is a competent test suite (non-trivial assertions)"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "kit-quality.sh /workspace/kit && echo __GATE_OK__"
+            description: "Deterministic adequacy check: every scenario has a non-trivial assertion"
+      - type: tool_exec
         message: "Metric: idiom-trap + adequacy report (non-gating)"
         params:
           tool: Bash

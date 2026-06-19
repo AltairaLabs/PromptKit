@@ -30,12 +30,18 @@ one non-gating metric:
 | Gate 2 | `packc compile` + `packc validate` — kit compiles to a PromptPack |
 | Gate 3 | `promptarena run --ci` — generated scenarios run green |
 | Gate 4 | `unused-files.sh` — no unreferenced files in the kit |
-| Gate 5 | `llm_judge_session` — kit faithfully tests the agent the developer described |
+| Gate 5 | `kit-quality.sh` — deterministic adequacy: ≥1 scenario, each with a non-trivial assertion |
 | Metric | `idiom-traps.sh` — non-gating idiom-trap + assertion-adequacy report |
 
-Gates 1–4 and the metric are shared across all authoring tasks (defined once in
-`config.arena.yaml` under `spec.globals.conversation_assertions`); Gate 5's
-faithfulness criteria are written per scenario.
+All five gates and the metric are deterministic and shared across authoring
+tasks (defined once in `config.arena.yaml` under
+`spec.globals.conversation_assertions`). Each runs a command **inside the live
+sandbox** against the real `/workspace/kit` files (via the MCP tool registry) and
+passes only when a `__GATE_OK__` sentinel is present — so a failed command
+actually fails the gate. There is deliberately **no LLM judge**: a structured
+YAML kit's quality is checked deterministically (validity, compilation, green
+run, no orphans, non-trivial assertions). An LLM code-reviewer is a possible
+future addition for more complex artifacts, reading them via the sandbox API.
 
 The authoring system prompt (`prompts/authoring-agent.yaml`) is generated from
 `agentkb.AgentsBrief()` and kept in sync by a byte-parity test, so this kit

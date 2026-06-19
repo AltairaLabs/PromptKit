@@ -8,7 +8,7 @@ metadata:
 spec:
   id: faq-bot
   task_type: authoring-agent
-  description: "A developer asks (naively) for tests for an FAQ bot; scored against five gates."
+  description: "A developer asks (naively) for tests for an FAQ bot; scored against the deterministic gates."
   trials: 3
   turns:
     - role: user
@@ -19,19 +19,3 @@ spec:
         like a test suite that catches that kind of thing, and I want to be able
         to run it offline while I tune the prompt — no API keys. Can you build it
         for me in a `kit/` folder?
-  conversation_assertions:
-    - type: llm_judge_session
-      message: "Gate 5: kit faithfully tests the FAQ bot the developer described"
-      params:
-        judge: default
-        criteria: |
-          You are a skeptical reviewer. Score 1.0 only if ALL hold, else 0.0:
-          - the kit clearly tests an FAQ/docs bot, not a generic chatbot;
-          - it tests the developer's actual worries — that the bot answers from the
-            source material (no hallucination) and stays on-topic / deflects unrelated
-            questions — across more than one case;
-          - at least one assertion meaningfully checks relevance or grounding
-            (content_matches, llm_judge, faithfulness/hallucination, or similar),
-            NOT a placeholder/always-true check like "response is non-empty";
-          - the assertions are non-trivial and tied to those behaviours;
-          - the kit runs fully offline (a mock provider is wired) so it needs no API keys.

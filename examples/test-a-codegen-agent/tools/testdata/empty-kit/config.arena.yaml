@@ -1,0 +1,9 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: empty-kit
+spec:
+  # A hallucinated/empty kit: a config but no scenarios. Must be caught as inadequate.
+  prompt_configs: []
+  providers: []
+  scenarios: []

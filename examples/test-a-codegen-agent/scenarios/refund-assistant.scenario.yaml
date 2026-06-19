@@ -8,7 +8,7 @@ metadata:
 spec:
   id: refund-assistant
   task_type: authoring-agent
-  description: "A developer asks (naively) for tests for a refund assistant; scored against five gates."
+  description: "A developer asks (naively) for tests for a refund assistant; scored against the deterministic gates."
   trials: 3
   turns:
     - role: user
@@ -20,18 +20,3 @@ spec:
         abusive. Before I ship it I want a test suite I can run locally without
         burning API credits, so I can iterate on the prompt. Can you set that up
         for me in a `kit/` folder?
-  conversation_assertions:
-    - type: llm_judge_session
-      message: "Gate 5: kit faithfully tests the refund assistant the developer described"
-      params:
-        judge: default
-        criteria: |
-          You are a skeptical reviewer. Score 1.0 only if ALL hold, else 0.0:
-          - the kit clearly tests a customer refund assistant, not a generic chatbot;
-          - it tests the refund-eligibility behaviour the developer cares about —
-            an order inside the 30-day window vs one outside it (approve vs decline);
-          - it tests that the assistant stays polite/professional with a hostile or
-            abusive message (the developer's explicit concern);
-          - the assertions are non-trivial and actually check those behaviours —
-            NOT placeholder/always-true checks like "response is non-empty";
-          - the kit runs fully offline (a mock provider is wired) so it needs no API keys.

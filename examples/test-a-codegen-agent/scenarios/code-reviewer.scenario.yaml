@@ -8,7 +8,7 @@ metadata:
 spec:
   id: code-reviewer
   task_type: authoring-agent
-  description: "A developer asks (naively) for tests for a code-review assistant; scored against five gates."
+  description: "A developer asks (naively) for tests for a code-review assistant; scored against the deterministic gates."
   trials: 3
   turns:
     - role: user
@@ -20,19 +20,3 @@ spec:
         that check both that it catches issues and that the output format stays
         consistent, and I want to run them locally without any API keys while I
         develop. Can you set it up in a `kit/` folder?
-  conversation_assertions:
-    - type: llm_judge_session
-      message: "Gate 5: kit faithfully tests the code-review assistant the developer described"
-      params:
-        judge: default
-        criteria: |
-          You are a skeptical reviewer. Score 1.0 only if ALL hold, else 0.0:
-          - the kit clearly tests a code-review assistant, not a generic chatbot;
-          - it exercises the behaviours the developer named — catching a real bug
-            AND flagging a style/nit — across more than one case;
-          - at least one assertion checks that findings come back in a consistent,
-            parseable structure (e.g. JSON with severity/line fields, or a predictable
-            labelled format) — the developer's explicit requirement;
-          - the assertions are non-trivial and tied to those behaviours, NOT
-            placeholder/always-true checks like "response is non-empty";
-          - the kit runs fully offline (a mock provider is wired) so it needs no API keys.

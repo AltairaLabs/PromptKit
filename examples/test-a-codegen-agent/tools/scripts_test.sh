@@ -16,4 +16,10 @@ out="$(bash "$here/idiom-traps.sh" "$here/testdata/trap-kit")"; rc=$?
 check "idiom-traps exits 0" 0 $rc
 echo "$out" | grep -q '"idiom_traps": 1' && echo "ok: trap counted" || { echo "FAIL: trap not counted: $out"; fail=1; }
 
+# kit-quality.sh — deterministic adequacy gate
+bash "$here/kit-quality.sh" "$here/testdata/good-kit"; check "good-kit is adequate (non-trivial assertion)" 0 $?
+bash "$here/kit-quality.sh" "$here/testdata/trivial-kit"; check "trivial-kit fails (only min_length)" 1 $?
+bash "$here/kit-quality.sh" "$here/testdata/empty-kit"; check "empty-kit fails (no scenarios)" 1 $?
+bash "$here/kit-quality.sh" /no/such/dir; check "kit-quality missing dir errors" 2 $?
+
 exit $fail

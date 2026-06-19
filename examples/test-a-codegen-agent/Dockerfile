@@ -11,6 +11,7 @@ COPY --chmod=755 bin/packc-linux /usr/local/bin/packc
 # gate + metric scripts
 COPY --chmod=755 examples/test-a-codegen-agent/tools/unused-files.sh /usr/local/bin/unused-files.sh
 COPY --chmod=755 examples/test-a-codegen-agent/tools/idiom-traps.sh /usr/local/bin/idiom-traps.sh
+COPY --chmod=755 examples/test-a-codegen-agent/tools/kit-quality.sh /usr/local/bin/kit-quality.sh
 
 # Brief the agent exactly like a real PromptArena project: drop AGENTS.md and the
 # full .claude/skills/promptarena-authoring/SKILL.md into the workspace so the
