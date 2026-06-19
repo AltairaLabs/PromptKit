@@ -214,6 +214,138 @@ func TestToolExec_NonJSONStringStaysString(t *testing.T) {
 	require.Equal(t, "hello world", res.Details["result"])
 }
 
+// TestToolExec_SuccessPatternMatchesOutput verifies that when success_pattern
+// is set, the gate passes only when the tool output matches the regex.
+func TestToolExec_SuccessPatternMatchesOutput(t *testing.T) {
+	// Stub returns a JSON string payload that contains the sentinel.
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-sentinel",
+		result: json.RawMessage(`"all tests passed\n__GATE_OK__\n"`),
+	})
+	h := &ToolExecHandler{}
+
+	// Pattern present in output → pass.
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"success_pattern": "__GATE_OK__",
+		"args":            map[string]any{"command": "echo ok", "description": "smoke"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, *res.Score, "output contains sentinel → should pass")
+	assert.Contains(t, res.Explanation, "succeeded")
+}
+
+// TestToolExec_SuccessPatternMissingFromOutput verifies a gate fails when the
+// sentinel is absent from the tool output.
+func TestToolExec_SuccessPatternMissingFromOutput(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-no-sentinel",
+		result: json.RawMessage(`"exit: 1\nsome failure output\n"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"success_pattern": "__GATE_OK__",
+		"args":            map[string]any{"command": "false", "description": "will fail"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, *res.Score, "sentinel absent → should fail")
+	assert.Contains(t, res.Explanation, "success_pattern")
+}
+
+// TestToolExec_FailurePatternMatchesOutput verifies that failure_pattern causes
+// a fail when the pattern is found in the output.
+func TestToolExec_FailurePatternMatchesOutput(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-fail-pattern",
+		result: json.RawMessage(`"exit: 1\nERROR: something went wrong\n"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"failure_pattern": `exit: [1-9]`,
+		"args":            map[string]any{"command": "false", "description": "will fail"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, *res.Score, "failure pattern matched → should fail")
+	assert.Contains(t, res.Explanation, "failure_pattern")
+}
+
+// TestToolExec_FailurePatternAbsentFromOutput verifies the gate passes when
+// failure_pattern does not match the output.
+func TestToolExec_FailurePatternAbsentFromOutput(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-clean-output",
+		result: json.RawMessage(`"all good\n"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"failure_pattern": `exit: [1-9]`,
+		"args":            map[string]any{"command": "echo ok", "description": "smoke"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, *res.Score, "failure pattern absent → should pass")
+	assert.Contains(t, res.Explanation, "succeeded")
+}
+
+// TestToolExec_NeitherPatternSetUnchanged verifies baseline pass behavior is
+// unaffected when neither success_pattern nor failure_pattern is configured.
+func TestToolExec_NeitherPatternSetUnchanged(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-plain",
+		result: json.RawMessage(`"exit: 1\nfailed\n"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool": "Bash",
+		"args": map[string]any{"command": "false", "description": "would fail in shell"},
+	})
+	require.NoError(t, err)
+	// No pattern set → tool-level success is the only criterion → pass
+	assert.Equal(t, 1.0, *res.Score, "no patterns set → unchanged pass behavior")
+}
+
+// TestToolExec_BadSuccessPatternFails verifies that an invalid regex in
+// success_pattern fails the assertion with a clear message rather than panicking.
+func TestToolExec_BadSuccessPatternFails(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-bad-rx",
+		result: json.RawMessage(`"ok"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"success_pattern": `[invalid`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, *res.Score)
+	assert.Contains(t, res.Explanation, "success_pattern")
+}
+
+// TestToolExec_BadFailurePatternFails verifies that an invalid regex in
+// failure_pattern fails the assertion with a clear message rather than panicking.
+func TestToolExec_BadFailurePatternFails(t *testing.T) {
+	registry := newStubRegistry(t, "Bash", &stubExecutor{
+		name:   "stub-bad-rx2",
+		result: json.RawMessage(`"ok"`),
+	})
+	h := &ToolExecHandler{}
+
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":            "Bash",
+		"failure_pattern": `[invalid`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, *res.Score)
+	assert.Contains(t, res.Explanation, "failure_pattern")
+}
+
 // capturingExecutor records the args it received without erroring.
 type capturingExecutor struct {
 	name     string

@@ -39,40 +39,45 @@ spec:
         params:
           tool: Bash
           timeout_seconds: 120
+          success_pattern: "__GATE_OK__"
           args:
-            command: "promptarena validate /workspace/kit/config.arena.yaml"
+            command: "promptarena validate /workspace/kit/config.arena.yaml && echo __GATE_OK__"
             description: "Validate the generated kit's arena config against its schema"
       - type: tool_exec
         message: "Gate 2: kit compiles to a valid PromptPack"
         params:
           tool: Bash
           timeout_seconds: 120
+          success_pattern: "__GATE_OK__"
           args:
-            command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json"
+            command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json && echo __GATE_OK__"
             description: "Compile the kit to a PromptPack and validate it"
       - type: tool_exec
         message: "Gate 3: generated scenarios run green offline"
         params:
           tool: Bash
           timeout_seconds: 300
+          success_pattern: "__GATE_OK__"
           args:
-            command: "cd /workspace/kit && promptarena run --ci"
+            command: "cd /workspace/kit && promptarena run --ci && echo __GATE_OK__"
             description: "Run the generated kit's scenarios offline"
       - type: tool_exec
         message: "Gate 4: no unused files"
         params:
           tool: Bash
           timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
           args:
-            command: "unused-files.sh /workspace/kit"
+            command: "unused-files.sh /workspace/kit && echo __GATE_OK__"
             description: "Check the kit for unreferenced files"
       - type: tool_exec
         message: "Metric: idiom-trap + adequacy report (non-gating)"
         params:
           tool: Bash
           timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
           args:
-            command: "idiom-traps.sh /workspace/kit"
+            command: "idiom-traps.sh /workspace/kit && echo __GATE_OK__"
             description: "Report idiom-trap and assertion-adequacy counts for the kit"
   defaults:
     temperature: 0.3
