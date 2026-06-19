@@ -925,6 +925,91 @@ func (s *ArenaStateStore) cloneRunMetadataSlices(cloned, m *RunMetadata) {
 	}
 }
 
+// LogAppend implements statestore.MessageLog. It appends messages to the
+// conversation's embedded Messages slice starting from startSeq. If
+// startSeq < current message count, the first (current-startSeq) inputs
+// are skipped (idempotent deduplication). Returns the new total count.
+//
+// Thread-safe via s.mu.
+func (s *ArenaStateStore) LogAppend(
+	ctx context.Context, id string, startSeq int, messages []types.Message,
+) (int, error) {
+	if len(messages) == 0 {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if arenaState, ok := s.conversations[id]; ok {
+			return len(arenaState.Messages), nil
+		}
+		return 0, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	arenaState, exists := s.conversations[id]
+	if !exists {
+		arenaState = &ArenaConversationState{
+			ConversationState: runtimestore.ConversationState{ID: id},
+		}
+		s.conversations[id] = arenaState
+	}
+
+	current := len(arenaState.Messages)
+	skip := current - startSeq
+	if skip < 0 {
+		skip = 0
+	}
+	toAppend := messages
+	if skip > 0 {
+		if skip >= len(messages) {
+			return current, nil
+		}
+		toAppend = messages[skip:]
+	}
+	for i := range toAppend {
+		arenaState.Messages = append(arenaState.Messages, s.deepCloneMessage(&toAppend[i]))
+	}
+	return len(arenaState.Messages), nil
+}
+
+// LogLoad implements statestore.MessageLog. It returns messages for the
+// conversation. If recent > 0, returns only the last N messages. If
+// recent == 0, returns all messages. Returns an empty slice (not an error)
+// if the conversation doesn't exist.
+func (s *ArenaStateStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	arenaState, exists := s.conversations[id]
+	if !exists {
+		return []types.Message{}, nil
+	}
+
+	msgs := arenaState.Messages
+	if recent > 0 && recent < len(msgs) {
+		msgs = msgs[len(msgs)-recent:]
+	}
+
+	out := make([]types.Message, len(msgs))
+	for i := range msgs {
+		out[i] = s.deepCloneMessage(&msgs[i])
+	}
+	return out, nil
+}
+
+// LogLen implements statestore.MessageLog. It returns the total message count
+// for the conversation. Returns 0 (not an error) if the conversation doesn't exist.
+func (s *ArenaStateStore) LogLen(ctx context.Context, id string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	arenaState, exists := s.conversations[id]
+	if !exists {
+		return 0, nil
+	}
+	return len(arenaState.Messages), nil
+}
+
 // MediaOutput represents media content produced during a run
 type MediaOutput struct {
 	Type       string `json:"Type"`       // "image", "audio", "video"

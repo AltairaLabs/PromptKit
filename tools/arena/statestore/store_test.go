@@ -8,6 +8,162 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// ---- MessageLog tests (Piece 1) ----
+
+func TestLogAppend_EmptyStore_ReturnsLen(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	msgs := []types.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hello"},
+	}
+	n, err := s.LogAppend(ctx, "conv1", 0, msgs)
+	if err != nil {
+		t.Fatalf("LogAppend error: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2, got %d", n)
+	}
+}
+
+func TestLogAppend_IdempotentReplay_NoDuplication(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	msgs := []types.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+	if _, err := s.LogAppend(ctx, "conv1", 0, msgs); err != nil {
+		t.Fatalf("first LogAppend error: %v", err)
+	}
+	// Replay from seq=1 (idempotent: skip first 2 already-persisted, append 3rd)
+	replayMsgs := []types.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+	n, err := s.LogAppend(ctx, "conv1", 0, replayMsgs)
+	if err != nil {
+		t.Fatalf("replay LogAppend error: %v", err)
+	}
+	// No growth: startSeq(0) < current(3), all 3 inputs are dupes, new total stays 3
+	if n != 3 {
+		t.Errorf("expected 3 after idempotent replay, got %d", n)
+	}
+	// Verify actual stored count doesn't grow
+	all, err := s.LogLoad(ctx, "conv1", 0)
+	if err != nil {
+		t.Fatalf("LogLoad error: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 messages stored (no duplication), got %d", len(all))
+	}
+}
+
+func TestLogAppend_PartialReplay_AppendsTail(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	first := []types.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hello"},
+	}
+	if _, err := s.LogAppend(ctx, "conv1", 0, first); err != nil {
+		t.Fatalf("first LogAppend error: %v", err)
+	}
+	// Append from seq=1: skip first 1 already-persisted (current=2 - startSeq=1 = 1 to skip)
+	second := []types.Message{
+		{Role: "user", Content: "hello"},   // already persisted, skip
+		{Role: "assistant", Content: "hi"}, // new
+	}
+	n, err := s.LogAppend(ctx, "conv1", 1, second)
+	if err != nil {
+		t.Fatalf("second LogAppend error: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("expected 3 total after partial replay, got %d", n)
+	}
+}
+
+func TestLogLoad_RecentNMessages(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	msgs := []types.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "u1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "u2"},
+		{Role: "assistant", Content: "a2"},
+	}
+	if _, err := s.LogAppend(ctx, "conv1", 0, msgs); err != nil {
+		t.Fatalf("LogAppend error: %v", err)
+	}
+
+	// recent=0 → all
+	all, err := s.LogLoad(ctx, "conv1", 0)
+	if err != nil {
+		t.Fatalf("LogLoad all error: %v", err)
+	}
+	if len(all) != 5 {
+		t.Errorf("expected 5 for recent=0, got %d", len(all))
+	}
+
+	// recent=2 → last 2
+	last2, err := s.LogLoad(ctx, "conv1", 2)
+	if err != nil {
+		t.Fatalf("LogLoad recent=2 error: %v", err)
+	}
+	if len(last2) != 2 {
+		t.Errorf("expected 2 for recent=2, got %d", len(last2))
+	}
+	if last2[0].Content != "u2" || last2[1].Content != "a2" {
+		t.Errorf("expected last 2 messages [u2, a2], got %v %v", last2[0].Content, last2[1].Content)
+	}
+}
+
+func TestLogLoad_MissingConversation_ReturnsEmptySlice(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	msgs, err := s.LogLoad(ctx, "missing", 0)
+	if err != nil {
+		t.Fatalf("expected no error for missing conv, got %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected empty slice for missing conv, got %d messages", len(msgs))
+	}
+}
+
+func TestLogLen_MissingConversation_ReturnsZero(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	n, err := s.LogLen(ctx, "missing")
+	if err != nil {
+		t.Fatalf("expected no error for missing conv, got %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 for missing conv, got %d", n)
+	}
+}
+
+func TestLogLen_AfterAppend(t *testing.T) {
+	s := NewArenaStateStore()
+	ctx := context.Background()
+	msgs := []types.Message{
+		{Role: "user", Content: "u1"},
+		{Role: "assistant", Content: "a1"},
+	}
+	if _, err := s.LogAppend(ctx, "conv1", 0, msgs); err != nil {
+		t.Fatalf("LogAppend error: %v", err)
+	}
+	n, err := s.LogLen(ctx, "conv1")
+	if err != nil {
+		t.Fatalf("LogLen error: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2, got %d", n)
+	}
+}
+
 func TestUpdateLastAssistantMessage(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
