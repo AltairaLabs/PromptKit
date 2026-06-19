@@ -518,7 +518,26 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		rejectionCounts:     map[string]int{},
 		identicalCallCounts: map[string]int{},
 		lastPersistedSeq:    len(acc.messages), // history already in store
+		// Seed with the cost already incurred in this conversation (prior
+		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's
+		// loop. Arena builds a fresh pipeline (and toolLoop) per turn, so
+		// without this seed the cap would reset every turn and a multi-turn
+		// run could spend MaxCostUSD per turn. History cost is carried on the
+		// input messages' CostInfo.
+		cumulativeCost: sumHistoryCost(acc.messages),
 	}, nil
+}
+
+// sumHistoryCost totals the CostInfo across the conversation history fed into
+// this turn — i.e. the run's spend before this turn's loop begins.
+func sumHistoryCost(messages []types.Message) float64 {
+	var total float64
+	for i := range messages {
+		if messages[i].CostInfo != nil {
+			total += messages[i].CostInfo.TotalCost
+		}
+	}
+	return total
 }
 
 // afterRound handles tool execution, rejection tracking, and loop control after

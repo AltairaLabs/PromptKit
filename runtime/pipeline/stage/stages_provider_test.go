@@ -2847,6 +2847,55 @@ func TestAfterRound_CostBudgetZeroIsUnlimited(t *testing.T) {
 	require.NoError(t, err, "should not error — zero MaxCostUSD means unlimited")
 }
 
+// TestNewToolLoop_CostBudgetIsPerRun verifies MaxCostUSD bounds the whole run,
+// not just this turn's loop: newToolLoop seeds cumulativeCost from the cost
+// already carried on the input history, so a fresh-per-turn loop still trips
+// the budget on accumulated prior spend.
+func TestNewToolLoop_CostBudgetIsPerRun(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	}))
+
+	stage := NewProviderStage(provider, registry,
+		&pipeline.ToolPolicy{MaxCostUSD: 0.10},
+		&ProviderConfig{},
+	)
+
+	// Prior turns of this run already cost 0.08 (carried on message CostInfo).
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages: []types.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "prior turn", CostInfo: &types.CostInfo{TotalCost: 0.05}},
+			{Role: "tool", Content: "res", CostInfo: &types.CostInfo{TotalCost: 0.03}},
+		},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.08, loop.cumulativeCost, 0.001,
+		"cumulativeCost should be seeded from prior-turn history cost")
+
+	// This turn's first round costs only 0.05 — under the cap on its own — but
+	// 0.08 (prior) + 0.05 = 0.13 > 0.10, so the RUN budget trips.
+	response := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.05},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	assert.True(t, done, "run budget should trip from accumulated prior cost")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cost budget exceeded")
+	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
+}
+
 func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	registry := tools.NewRegistry()
