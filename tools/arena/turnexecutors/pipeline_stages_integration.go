@@ -193,18 +193,46 @@ func buildProviderConfig(req *TurnRequest) *stage.ProviderConfig {
 	return cfg
 }
 
-// buildToolPolicy constructs tool policy from scenario config
+// defaultArenaMaxCostUSD is the cost cap applied to every Arena turn when no
+// explicit max_cost_usd is configured. 0/unset in the scenario always maps to
+// this value — Arena never allows unlimited cost runs.
+const defaultArenaMaxCostUSD = 2.00
+
+// buildToolPolicy constructs tool policy from scenario config.
+// It always returns a non-nil *pipeline.ToolPolicy with finite safety caps:
+//   - MaxRounds: scenario value if >0, else 50
+//   - MaxCostUSD: scenario value if >0, else defaultArenaMaxCostUSD ($2.00)
+//   - MaxIdenticalToolCalls: scenario value if >0, else 3
 func buildToolPolicy(scenario *config.Scenario) *pipeline.ToolPolicy {
-	if scenario == nil || scenario.ToolPolicy == nil {
-		return nil
+	const defaultRounds = 50
+	const defaultIdentical = 3
+
+	policy := &pipeline.ToolPolicy{
+		MaxRounds:             defaultRounds,
+		MaxCostUSD:            defaultArenaMaxCostUSD,
+		MaxIdenticalToolCalls: defaultIdentical,
 	}
 
-	return &pipeline.ToolPolicy{
-		ToolChoice:          scenario.ToolPolicy.ToolChoice,
-		MaxRounds:           0, // Not supported in config, using unlimited
-		MaxToolCallsPerTurn: scenario.ToolPolicy.MaxToolCallsPerTurn,
-		Blocklist:           scenario.ToolPolicy.Blocklist,
+	if scenario == nil || scenario.ToolPolicy == nil {
+		return policy
 	}
+
+	sp := scenario.ToolPolicy
+	policy.ToolChoice = sp.ToolChoice
+	policy.MaxToolCallsPerTurn = sp.MaxToolCallsPerTurn
+	policy.Blocklist = sp.Blocklist
+
+	if sp.MaxRounds > 0 {
+		policy.MaxRounds = sp.MaxRounds
+	}
+	if sp.MaxCostUSD > 0 {
+		policy.MaxCostUSD = sp.MaxCostUSD
+	}
+	if sp.MaxIdenticalToolCalls > 0 {
+		policy.MaxIdenticalToolCalls = sp.MaxIdenticalToolCalls
+	}
+
+	return policy
 }
 
 // buildMediaConfig creates media externalizer config

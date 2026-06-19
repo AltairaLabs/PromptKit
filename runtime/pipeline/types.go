@@ -20,6 +20,10 @@ type ToolPolicy struct {
 	MaxCallsPerMinute    int      `json:"max_calls_per_minute,omitempty"`    // Per-tool calls/minute (0=unlimited)
 	MaxCostUSD           float64  `json:"max_cost_usd,omitempty"`            // Cost budget in USD (0=unlimited)
 	Blocklist            []string `json:"blocklist,omitempty"`
+	// MaxIdenticalToolCalls is the maximum number of times the same tool may be called
+	// with identical arguments before the loop is aborted as an infinite-loop guard.
+	// 0/unset means use the default (3). Never set to unlimited — use a large number instead.
+	MaxIdenticalToolCalls int `json:"max_identical_tool_calls,omitempty"`
 	// StopOnTool, when non-empty, stops the agent tool loop at the end of any round
 	// in which a tool with this name was called (RFC 0010 termination.tool_called).
 	StopOnTool string `json:"stop_on_tool,omitempty"`

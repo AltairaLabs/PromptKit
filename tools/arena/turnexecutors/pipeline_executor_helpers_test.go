@@ -179,59 +179,90 @@ func TestBuildProviderConfig(t *testing.T) {
 }
 
 func TestBuildToolPolicy(t *testing.T) {
-	tests := []struct {
-		name     string
-		scenario *config.Scenario
-		want     *pipeline.ToolPolicy
-	}{
-		{
-			name:     "nil scenario returns nil",
-			scenario: nil,
-			want:     nil,
-		},
-		{
-			name: "scenario without tool policy returns nil",
-			scenario: &config.Scenario{
-				ID: "test",
-			},
-			want: nil,
-		},
-		{
-			name: "scenario with tool policy returns configured policy",
-			scenario: &config.Scenario{
-				ID: "test",
-				ToolPolicy: &config.ToolPolicy{
-					ToolChoice:          "auto",
-					MaxToolCallsPerTurn: 5,
-					Blocklist:           []string{"dangerous_tool"},
-				},
-			},
-			want: &pipeline.ToolPolicy{
-				ToolChoice:          "auto",
-				MaxRounds:           0,
-				MaxToolCallsPerTurn: 5,
-				Blocklist:           []string{"dangerous_tool"},
-			},
-		},
-	}
+	t.Run("nil scenario always returns non-nil policy with defaults", func(t *testing.T) {
+		got := buildToolPolicy(nil)
+		if got == nil {
+			t.Fatal("buildToolPolicy(nil) returned nil, want non-nil policy with defaults")
+		}
+		if got.MaxRounds != 50 {
+			t.Errorf("MaxRounds = %d, want 50 (default)", got.MaxRounds)
+		}
+		if got.MaxCostUSD != defaultArenaMaxCostUSD {
+			t.Errorf("MaxCostUSD = %f, want %f (default)", got.MaxCostUSD, defaultArenaMaxCostUSD)
+		}
+		if got.MaxIdenticalToolCalls != 3 {
+			t.Errorf("MaxIdenticalToolCalls = %d, want 3 (default)", got.MaxIdenticalToolCalls)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildToolPolicy(tt.scenario)
-			if (got == nil) != (tt.want == nil) {
-				t.Errorf("buildToolPolicy() = %v, want %v", got, tt.want)
-				return
-			}
-			if got != nil && tt.want != nil {
-				if got.ToolChoice != tt.want.ToolChoice {
-					t.Errorf("ToolChoice = %s, want %s", got.ToolChoice, tt.want.ToolChoice)
-				}
-				if got.MaxToolCallsPerTurn != tt.want.MaxToolCallsPerTurn {
-					t.Errorf("MaxToolCallsPerTurn = %d, want %d", got.MaxToolCallsPerTurn, tt.want.MaxToolCallsPerTurn)
-				}
-			}
+	t.Run("scenario without tool_policy returns non-nil policy with defaults", func(t *testing.T) {
+		got := buildToolPolicy(&config.Scenario{ID: "test"})
+		if got == nil {
+			t.Fatal("buildToolPolicy() returned nil, want non-nil policy with defaults")
+		}
+		if got.MaxRounds != 50 {
+			t.Errorf("MaxRounds = %d, want 50 (default)", got.MaxRounds)
+		}
+		if got.MaxCostUSD != defaultArenaMaxCostUSD {
+			t.Errorf("MaxCostUSD = %f, want %f (default)", got.MaxCostUSD, defaultArenaMaxCostUSD)
+		}
+		if got.MaxIdenticalToolCalls != 3 {
+			t.Errorf("MaxIdenticalToolCalls = %d, want 3 (default)", got.MaxIdenticalToolCalls)
+		}
+	})
+
+	t.Run("scenario with tool_policy honors explicit overrides", func(t *testing.T) {
+		got := buildToolPolicy(&config.Scenario{
+			ID: "test",
+			ToolPolicy: &config.ToolPolicy{
+				ToolChoice:            "auto",
+				MaxToolCallsPerTurn:   5,
+				Blocklist:             []string{"dangerous_tool"},
+				MaxRounds:             10,
+				MaxCostUSD:            5.00,
+				MaxIdenticalToolCalls: 7,
+			},
 		})
-	}
+		if got == nil {
+			t.Fatal("buildToolPolicy() returned nil")
+		}
+		if got.ToolChoice != "auto" {
+			t.Errorf("ToolChoice = %s, want auto", got.ToolChoice)
+		}
+		if got.MaxToolCallsPerTurn != 5 {
+			t.Errorf("MaxToolCallsPerTurn = %d, want 5", got.MaxToolCallsPerTurn)
+		}
+		if len(got.Blocklist) != 1 || got.Blocklist[0] != "dangerous_tool" {
+			t.Errorf("Blocklist = %v, want [dangerous_tool]", got.Blocklist)
+		}
+		if got.MaxRounds != 10 {
+			t.Errorf("MaxRounds = %d, want 10", got.MaxRounds)
+		}
+		if got.MaxCostUSD != 5.00 {
+			t.Errorf("MaxCostUSD = %f, want 5.00", got.MaxCostUSD)
+		}
+		if got.MaxIdenticalToolCalls != 7 {
+			t.Errorf("MaxIdenticalToolCalls = %d, want 7", got.MaxIdenticalToolCalls)
+		}
+	})
+
+	t.Run("MaxCostUSD is never zero even if scenario sets 0", func(t *testing.T) {
+		got := buildToolPolicy(&config.Scenario{
+			ID: "test",
+			ToolPolicy: &config.ToolPolicy{
+				MaxCostUSD: 0, // unset — must use default, not zero/unlimited
+			},
+		})
+		if got == nil {
+			t.Fatal("buildToolPolicy() returned nil")
+		}
+		if got.MaxCostUSD == 0 {
+			t.Errorf("MaxCostUSD = 0, want %f (default, never unlimited)", defaultArenaMaxCostUSD)
+		}
+		if got.MaxCostUSD != defaultArenaMaxCostUSD {
+			t.Errorf("MaxCostUSD = %f, want %f", got.MaxCostUSD, defaultArenaMaxCostUSD)
+		}
+	})
 }
 
 func TestBuildMediaConfig(t *testing.T) {

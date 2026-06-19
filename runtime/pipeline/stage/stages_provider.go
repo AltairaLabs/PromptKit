@@ -25,6 +25,7 @@ import (
 const (
 	defaultMaxRounds            = 50
 	defaultMaxParallelToolCalls = 10
+	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
 	toolChoiceNone              = "none"
 )
@@ -412,6 +413,50 @@ func (s *ProviderStage) getMaxRounds() int {
 	return defaultMaxRounds
 }
 
+// getMaxIdenticalToolCalls returns the threshold for aborting a loop where the
+// same tool is called repeatedly with identical arguments.
+func (s *ProviderStage) getMaxIdenticalToolCalls() int {
+	if s.toolPolicy != nil && s.toolPolicy.MaxIdenticalToolCalls > 0 {
+		return s.toolPolicy.MaxIdenticalToolCalls
+	}
+	return defaultMaxIdenticalCalls
+}
+
+// canonicalArgs returns a stable, order-insensitive string representation of
+// raw JSON arguments for use as an identical-call detection key. If the raw
+// bytes cannot be parsed as JSON, the raw bytes are used directly so the key
+// is still meaningful (just byte-order-sensitive).
+func canonicalArgs(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return string(raw)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(b)
+}
+
+// checkIdenticalToolCalls increments per-call counters and returns an error if
+// any single (tool, args) pair exceeds the configured threshold.
+func (tl *toolLoop) checkIdenticalToolCalls(toolCalls []types.MessageToolCall) error {
+	threshold := tl.stage.getMaxIdenticalToolCalls()
+	for _, tc := range toolCalls {
+		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
+		tl.identicalCallCounts[key]++
+		if tl.identicalCallCounts[key] >= threshold {
+			return fmt.Errorf(
+				"provider stage: tool loop detected: %q called %d times with identical arguments",
+				tc.Name, tl.identicalCallCounts[key])
+		}
+	}
+	return nil
+}
+
 func (s *ProviderStage) executeStreamingMultiRound(
 	ctx context.Context,
 	acc *providerInput,
@@ -445,15 +490,16 @@ func (s *ProviderStage) executeStreamingMultiRound(
 
 // toolLoop holds shared state for multi-round tool execution.
 type toolLoop struct {
-	stage            *ProviderStage
-	messages         []types.Message
-	providerTools    interface{}
-	toolChoice       string
-	maxRounds        int
-	excluded         map[string]bool
-	rejectionCounts  map[string]int
-	lastPersistedSeq int     // messages persisted so far via MessageLog
-	cumulativeCost   float64 // accumulated cost across rounds
+	stage               *ProviderStage
+	messages            []types.Message
+	providerTools       interface{}
+	toolChoice          string
+	maxRounds           int
+	excluded            map[string]bool
+	rejectionCounts     map[string]int
+	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
+	lastPersistedSeq    int            // messages persisted so far via MessageLog
+	cumulativeCost      float64        // accumulated cost across rounds
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
@@ -463,14 +509,15 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	return &toolLoop{
-		stage:            s,
-		messages:         acc.messages,
-		providerTools:    providerTools,
-		toolChoice:       toolChoice,
-		maxRounds:        s.getMaxRounds(),
-		excluded:         excluded,
-		rejectionCounts:  map[string]int{},
-		lastPersistedSeq: len(acc.messages), // history already in store
+		stage:               s,
+		messages:            acc.messages,
+		providerTools:       providerTools,
+		toolChoice:          toolChoice,
+		maxRounds:           s.getMaxRounds(),
+		excluded:            excluded,
+		rejectionCounts:     map[string]int{},
+		identicalCallCounts: map[string]int{},
+		lastPersistedSeq:    len(acc.messages), // history already in store
 	}, nil
 }
 
@@ -500,6 +547,13 @@ func (tl *toolLoop) afterRound(
 	if !hasToolCalls {
 		tl.persistMessages(ctx, round)
 		return true, tl.messages, nil
+	}
+
+	// Repeated-identical-call breaker: abort before executing tool calls if the
+	// same tool has been called with the same arguments too many times.
+	if err := tl.checkIdenticalToolCalls(response.ToolCalls); err != nil {
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, err
 	}
 
 	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls)

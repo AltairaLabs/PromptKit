@@ -2728,6 +2728,15 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "max_identical_tool_calls": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

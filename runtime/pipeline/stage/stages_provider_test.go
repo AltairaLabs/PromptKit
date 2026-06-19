@@ -3015,3 +3015,105 @@ func TestProviderStage_StopOnTool(t *testing.T) {
 		assert.Contains(t, err.Error(), "max rounds")
 	})
 }
+
+// TestAfterRound_IdenticalToolCallBreaker verifies that the repeated-identical-call
+// guard aborts the loop when the same tool is called with identical arguments
+// MaxIdenticalToolCalls times.
+func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "loop_tool",
+		Description: "a tool that loops forever",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	t.Run("aborts at threshold with identical args", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.maxRounds = 10 // high so rounds don't interfere
+
+		identicalArgs := json.RawMessage(`{"query":"same"}`)
+		// Round 1 and 2: below threshold — should continue
+		for round := 1; round <= 2; round++ {
+			response := types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool", Args: identicalArgs},
+				},
+			}
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+			assert.False(t, done, "round %d: should not stop before threshold", round)
+			require.NoError(t, loopErr, "round %d: should not error before threshold", round)
+		}
+
+		// Round 3: hits threshold — must abort
+		response3 := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c3", Name: "loop_tool", Args: identicalArgs},
+			},
+		}
+		done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response3, true, 3)
+		assert.True(t, done, "should stop at threshold")
+		require.Error(t, loopErr, "should return error at threshold")
+		assert.Contains(t, loopErr.Error(), "tool loop detected")
+		assert.Contains(t, loopErr.Error(), "loop_tool")
+	})
+
+	t.Run("does not abort when args differ each round", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.maxRounds = 10
+
+		// Each round uses different args — should not trip the breaker
+		for round := 1; round <= 5; round++ {
+			response := types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool",
+						Args: json.RawMessage(fmt.Sprintf(`{"query":"step-%d"}`, round))},
+				},
+			}
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+			// round == loop.maxRounds would stop; otherwise should continue without error
+			if round < loop.maxRounds {
+				assert.False(t, done, "round %d: varying args should not trip breaker", round)
+				require.NoError(t, loopErr, "round %d: varying args should not error", round)
+			}
+		}
+	})
+
+	t.Run("default threshold is 3 when policy field is zero", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 0}, // 0 = use default
+			&ProviderConfig{},
+		)
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
+	})
+
+	t.Run("nil policy uses default threshold", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
+	})
+}
