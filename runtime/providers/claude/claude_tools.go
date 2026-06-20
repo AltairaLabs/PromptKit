@@ -101,7 +101,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		tools[i] = claudeTool{
 			Name:        desc.Name,
 			Description: desc.Description,
-			InputSchema: desc.InputSchema,
+			InputSchema: types.NormalizeRawMessage(desc.InputSchema),
 		}
 	}
 

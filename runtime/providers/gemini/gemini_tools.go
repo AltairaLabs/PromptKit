@@ -113,7 +113,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		functions[i] = geminiFunctionDeclaration{
 			Name:        desc.Name,
 			Description: desc.Description,
-			Parameters:  desc.InputSchema,
+			Parameters:  types.NormalizeRawMessage(desc.InputSchema),
 		}
 	}
 

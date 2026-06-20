@@ -73,7 +73,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (an
 			Function: ollamaToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
-				Parameters:  desc.InputSchema,
+				Parameters:  types.NormalizeRawMessage(desc.InputSchema),
 			},
 		}
 	}
