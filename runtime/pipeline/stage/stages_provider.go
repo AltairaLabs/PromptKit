@@ -503,7 +503,16 @@ type toolLoop struct {
 	cumulativeCost      float64        // accumulated cost across rounds
 	cumulativeInput     int            // accumulated input tokens across this loop's rounds
 	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
+	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
+}
+
+// promptCachingProvider is optionally implemented by providers that support
+// prompt caching. The caching-stall warning only fires for providers that
+// advertise support, so a provider without caching (local models, etc.) never
+// produces false "caching not engaging" warnings.
+type promptCachingProvider interface {
+	SupportsPromptCaching() bool
 }
 
 // cachingStallRounds is how many rounds of a tool loop must pass with a large,
@@ -512,12 +521,13 @@ const cachingStallRounds = 3
 
 // warnIfCachingStalled emits a one-time warning when an agent loop has run
 // several rounds re-sending a large input with zero cache reads — the signature
-// of prompt caching not engaging (an unstable request prefix, or a provider that
-// doesn't support caching). It is the operational backstop for the
-// non-deterministic-tool-order class of bug, which silently re-bills the full
-// context at full price every round. Cheap: a couple of int comparisons per round.
+// of prompt caching not engaging (an unstable request prefix). It is the
+// operational backstop for the non-deterministic-tool-order class of bug, which
+// silently re-bills the full context at full price every round. Gated on the
+// provider advertising caching support so no-cache providers don't false-alarm.
+// Cheap: a couple of int comparisons per round.
 func (tl *toolLoop) warnIfCachingStalled(round int) {
-	if tl.warnedNoCaching || round < cachingStallRounds {
+	if tl.warnedNoCaching || !tl.cachingSupported || round < cachingStallRounds {
 		return
 	}
 	// Average input per round as a proxy for "there is a substantial prefix that
@@ -540,6 +550,10 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
+	cachingSupported := false
+	if pc, ok := s.provider.(promptCachingProvider); ok {
+		cachingSupported = pc.SupportsPromptCaching()
+	}
 	return &toolLoop{
 		stage:               s,
 		messages:            acc.messages,
@@ -549,6 +563,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		excluded:            excluded,
 		rejectionCounts:     map[string]int{},
 		identicalCallCounts: map[string]int{},
+		cachingSupported:    cachingSupported,
 		lastPersistedSeq:    len(acc.messages), // history already in store
 		// Seed with the cost already incurred in this conversation (prior
 		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's

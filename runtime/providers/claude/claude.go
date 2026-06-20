@@ -486,6 +486,14 @@ func (p *Provider) supportsCaching() bool {
 	return !p.defaults.DisablePromptCaching
 }
 
+// SupportsPromptCaching reports whether prompt caching is active for this
+// provider (supported and not disabled by config). The pipeline uses this to
+// decide whether a zero-cache-read tool loop is worth warning about, so
+// providers without caching don't produce false "caching not engaging" warnings.
+func (p *Provider) SupportsPromptCaching() bool {
+	return p.supportsCaching()
+}
+
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
 // Handles both text-only and multimodal (image) messages inline.
 func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
