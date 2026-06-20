@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
@@ -176,6 +177,7 @@ func (e *SelfPlayExecutor) ExecuteTurnStream(
 
 	go func() {
 		defer close(outChan)
+		defer safe.Recover("arena-selfplay-stream")
 
 		// Load history from StateStore if configured
 		history, err := e.loadHistoryForStream(ctx, &req, outChan)

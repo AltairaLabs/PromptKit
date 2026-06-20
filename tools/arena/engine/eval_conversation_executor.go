@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -196,6 +197,7 @@ func (e *EvalConversationExecutor) ExecuteConversationStream(
 
 	go func() {
 		defer close(outChan)
+		defer safe.Recover("arena-eval-conversation-stream")
 
 		// Execute non-streaming and send final result
 		result := e.ExecuteConversation(ctx, req)

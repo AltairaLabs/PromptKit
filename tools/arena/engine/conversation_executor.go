@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -609,7 +610,11 @@ func (ce *DefaultConversationExecutor) ExecuteConversationStream(ctx context.Con
 
 	go func() {
 		defer close(outChan)
-		ce.executeStreamingConversation(ctx, req, outChan)
+		// Recover any panic so a malformed turn can't crash the process; the
+		// deferred close(outChan) still runs so the consumer sees EOF.
+		safe.Run("arena-conversation-stream", func() {
+			ce.executeStreamingConversation(ctx, req, outChan)
+		}, nil)
 	}()
 
 	return outChan, nil
