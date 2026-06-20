@@ -11,8 +11,8 @@ import (
 func TestLoadRunArtifacts(t *testing.T) {
 	dir := t.TempDir()
 
-	// Manifests live at <outDir>/artifacts/<runID>/manifest.json and record only
-	// {name, description, filename}; the loader joins Arena's base path.
+	// The renderer reads the RESOLVED manifest the engine's artifact store wrote:
+	// <outDir>/artifacts/<runID>/manifest.json with {name, description, ref}.
 	writeManifest := func(runID, body string) {
 		d := filepath.Join(dir, "artifacts", runID)
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -22,17 +22,17 @@ func TestLoadRunArtifacts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeManifest("run-1", `{"artifacts":[{"name":"Captured workspace","description":"the kit","filename":"sandbox"}]}`)
+	writeManifest("run-1", `{"artifacts":[{"name":"Captured workspace","description":"the kit","ref":"artifacts/run-1/sandbox"}]}`)
 	writeManifest("run-2", `not json`)                     // malformed -> skipped
 	writeManifest("run-4", `{"artifacts":[]}`)             // empty -> skipped
-	writeManifest("run-5", `{"artifacts":[{"name":"x"}]}`) // no filename -> entry skipped
+	writeManifest("run-5", `{"artifacts":[{"name":"x"}]}`) // no ref -> entry skipped
 
 	results := []engine.RunResult{
 		{RunID: "run-1"}, // valid
 		{RunID: "run-2"}, // malformed
 		{RunID: "run-3"}, // no manifest
 		{RunID: "run-4"}, // empty
-		{RunID: "run-5"}, // entry without filename
+		{RunID: "run-5"}, // entry without ref
 		{RunID: ""},      // no run id
 	}
 
@@ -41,7 +41,6 @@ func TestLoadRunArtifacts(t *testing.T) {
 		t.Fatalf("expected exactly run-1 to have artifacts, got %d (%v)", len(got), got)
 	}
 	arts := got["run-1"]
-	// Arena owns the base: the report link is artifacts/<runID>/<filename>.
 	if len(arts) != 1 || arts[0].Name != "Captured workspace" || arts[0].Path != "artifacts/run-1/sandbox" {
 		t.Fatalf("unexpected artifacts for run-1: %+v", arts)
 	}

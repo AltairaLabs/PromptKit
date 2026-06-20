@@ -17,7 +17,6 @@ import (
 	"html/template"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -30,6 +29,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
@@ -113,13 +113,12 @@ type MatrixCell struct {
 	Cost       float64 `json:"cost"`
 }
 
-// loadRunArtifacts reads per-run artifact manifests and returns display
-// artifacts keyed by RunID. Arena owns the base path
-// (<outDir>/artifacts/<RunID>/, created by the engine and handed to hooks via
-// SessionEvent metadata); a hook writes its files there and records only
-// {name, description, filename} in <base>/manifest.json. This joins the base and
-// the hook's filename into the report link. Missing/malformed manifests are
-// skipped — artifacts are purely additive and must never break report generation.
+// loadRunArtifacts reads each run's RESOLVED artifact manifest
+// (<outDir>/artifacts/<RunID>/manifest.json, rewritten by the engine's artifact
+// store after the hook ran) and returns display artifacts keyed by RunID. Each
+// entry's Ref already resolves to the backend — a relative path for the local
+// store, a URL for a remote one — so the report links it directly. Missing or
+// malformed manifests are skipped; artifacts must never break report generation.
 func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Artifact {
 	byRun := make(map[string][]Artifact)
 	for i := range results {
@@ -132,26 +131,20 @@ func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Ar
 		if err != nil {
 			continue
 		}
-		var manifest struct {
-			Artifacts []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Filename    string `json:"filename"`
-			} `json:"artifacts"`
-		}
+		var manifest artifacts.ResolvedManifest
 		if err := json.Unmarshal(raw, &manifest); err != nil {
 			continue
 		}
 		var arts []Artifact
 		for _, a := range manifest.Artifacts {
-			if a.Filename == "" {
+			if a.Ref == "" {
 				continue
 			}
 			arts = append(arts, Artifact{
 				Name:        a.Name,
 				Description: a.Description,
-				// Base is Arena's (relative to the report dir); filename is the hook's.
-				Path: path.Join("artifacts", runID, a.Filename),
+				// Ref already resolves to the backend (relative path or URL).
+				Path: string(a.Ref),
 			})
 		}
 		if len(arts) > 0 {

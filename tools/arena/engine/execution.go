@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -526,6 +528,20 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		Messages:       convResult.Messages,
 		Metadata:       sessionMeta,
 	})
+
+	// Ingest any artifacts a hook staged this run through the artifact store.
+	// The local backend leaves bytes in place; a remote backend would upload.
+	// Best-effort — never fail a run over artifact persistence.
+	if e.outputDir != "" {
+		store := e.artifactStore
+		if store == nil {
+			store = artifacts.NewLocal()
+		}
+		dir := filepath.Join(e.outputDir, "artifacts", runID)
+		if ingestErr := artifacts.Ingest(runCtx, store, dir, runID); ingestErr != nil {
+			logger.Warn("artifact ingestion failed", "run", runID, "error", ingestErr)
+		}
+	}
 
 	// Run timed out, but the executor may have produced a partial result
 	// (messages exchanged, conversation_assertions evaluated on what

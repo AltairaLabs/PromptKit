@@ -48,6 +48,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -98,6 +99,7 @@ type Engine struct {
 	runCompletedMu       sync.RWMutex                 // Guards runCompletedHooks
 	sessionHooks         *hooks.Registry              // Optional — fires SessionHook lifecycle per run
 	outputDir            string                       // Resolved report output dir; exposes per-run artifacts base
+	artifactStore        artifacts.Store              // Persists per-run report artifacts (default: local backend)
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -193,6 +195,12 @@ const outputDirPerm = 0o750
 // via SessionEvent metadata. A nil/empty dir disables artifacts-base exposure.
 func (e *Engine) WithOutputDir(dir string) {
 	e.outputDir = dir
+}
+
+// WithArtifactStore sets the backend that persists per-run report artifacts.
+// Defaults to the local backend (bytes left in place) when unset.
+func (e *Engine) WithArtifactStore(s artifacts.Store) {
+	e.artifactStore = s
 }
 
 // sessionEventMetadata returns the per-event metadata map injected into every
