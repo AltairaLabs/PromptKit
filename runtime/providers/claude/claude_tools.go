@@ -64,16 +64,18 @@ type claudeTool struct {
 }
 
 type claudeToolUse struct {
-	Type  string          `json:"type"`
-	ID    string          `json:"id"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
+	Type         string              `json:"type"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Input        json.RawMessage     `json:"input"`
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 type claudeToolResult struct {
-	Type      string      `json:"type"`
-	ToolUseID string      `json:"tool_use_id"`
-	Content   interface{} `json:"content"` // string for text-only, []interface{} for multimodal
+	Type         string              `json:"type"`
+	ToolUseID    string              `json:"tool_use_id"`
+	Content      interface{}         `json:"content"` // string for text-only, []interface{} for multimodal
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 type claudeToolMessage struct {
@@ -369,6 +371,34 @@ func (p *ToolProvider) processMessageForTools(
 	return messages, pendingToolResults
 }
 
+// markLastBlockCacheable sets a cache_control breakpoint on the final content
+// block of the most recent message so Anthropic caches the whole conversation
+// prefix up to that point. It walks back within the last message to find a block
+// type that can carry cache_control (text, tool_use, tool_result).
+func markLastBlockCacheable(messages []claudeToolMessage) {
+	if len(messages) == 0 {
+		return
+	}
+	last := &messages[len(messages)-1]
+	bp := &claudeCacheControl{Type: cacheTypeEphemeral}
+	for i := len(last.Content) - 1; i >= 0; i-- {
+		switch b := last.Content[i].(type) {
+		case claudeTextContent:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		case claudeToolUse:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		case claudeToolResult:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		}
+	}
+}
+
 func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
@@ -386,6 +416,16 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	// If there are still pending tool results at the end, add them as a final user message
 	if len(pendingToolResults) > 0 {
 		messages = append(messages, flushPendingToolResults(pendingToolResults))
+	}
+
+	// Cache the GROWING conversation prefix. A cache_control breakpoint caches the
+	// entire prefix up to it, and Anthropic auto-matches earlier cached prefixes
+	// within a 20-block lookback, so marking the LAST block rolls the cache forward
+	// each round: round N reads round N-1's full prefix and writes the new one.
+	// (The static first-message breakpoint set above only cached the base, leaving
+	// the growing tool-result history re-billed at full price every round.)
+	if p.supportsCaching() && tools != nil {
+		markLastBlockCacheable(messages)
 	}
 
 	// Apply defaults to zero-valued request parameters

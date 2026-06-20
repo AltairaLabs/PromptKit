@@ -57,3 +57,50 @@ func TestToolRequest_CachingBreakpointsAndDeterminism(t *testing.T) {
 		t.Fatal("tool request is not byte-deterministic for identical input — cached prefix would change every round")
 	}
 }
+
+// The cache breakpoint must sit on the LAST message so the whole *growing*
+// conversation prefix is cached (rolling cache). Marking only the first message
+// caches the static base and re-bills the growing tool-result history every round.
+func TestToolRequest_RollingBreakpointOnLastMessage(t *testing.T) {
+	provider, err := providers.CreateProviderFromSpec(newClaudeSpec("https://example.invalid", nil))
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	tp := provider.(*ToolProvider)
+	tools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "Bash", Description: "run", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	})
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "1", Name: "Bash", Args: json.RawMessage(`{"command":"ls"}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "1", Name: "Bash", Parts: []types.ContentPart{types.NewTextPart("big output")}}},
+	}
+	req := tp.buildToolRequest(providers.PredictionRequest{System: "sys", Messages: msgs, MaxTokens: 100}, tools, "")
+	cms, ok := req["messages"].([]claudeToolMessage)
+	if !ok || len(cms) == 0 {
+		t.Fatalf("expected claude messages, got %T", req["messages"])
+	}
+	if !messageHasCacheControl(cms[len(cms)-1]) {
+		t.Fatal("last message must carry a cache_control breakpoint so the growing prefix is cached")
+	}
+}
+
+func messageHasCacheControl(m claudeToolMessage) bool {
+	for _, b := range m.Content {
+		switch v := b.(type) {
+		case claudeTextContent:
+			if v.CacheControl != nil {
+				return true
+			}
+		case claudeToolUse:
+			if v.CacheControl != nil {
+				return true
+			}
+		case claudeToolResult:
+			if v.CacheControl != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
