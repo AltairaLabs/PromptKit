@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -500,6 +501,37 @@ type toolLoop struct {
 	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
 	lastPersistedSeq    int            // messages persisted so far via MessageLog
 	cumulativeCost      float64        // accumulated cost across rounds
+	cumulativeInput     int            // accumulated input tokens across this loop's rounds
+	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
+	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
+}
+
+// cachingStallRounds is how many rounds of a tool loop must pass with a large,
+// uncached input before we warn that prompt caching isn't engaging.
+const cachingStallRounds = 3
+
+// warnIfCachingStalled emits a one-time warning when an agent loop has run
+// several rounds re-sending a large input with zero cache reads — the signature
+// of prompt caching not engaging (an unstable request prefix, or a provider that
+// doesn't support caching). It is the operational backstop for the
+// non-deterministic-tool-order class of bug, which silently re-bills the full
+// context at full price every round. Cheap: a couple of int comparisons per round.
+func (tl *toolLoop) warnIfCachingStalled(round int) {
+	if tl.warnedNoCaching || round < cachingStallRounds {
+		return
+	}
+	// Average input per round as a proxy for "there is a substantial prefix that
+	// caching would help" (Claude's cacheable floor is ~2048 tokens).
+	avgInput := tl.cumulativeInput / (round + 1)
+	if tl.cumulativeCached == 0 && avgInput >= 2048 {
+		tl.warnedNoCaching = true
+		logger.Warn("prompt caching not engaging: zero cache reads over a multi-round tool loop "+
+			"with a large input — verify the provider supports caching and the request prefix "+
+			"(tools+system) is stable across rounds",
+			"rounds", round+1,
+			"avg_input_tokens", avgInput,
+			"cumulative_input_tokens", tl.cumulativeInput)
+	}
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
@@ -555,7 +587,10 @@ func (tl *toolLoop) afterRound(
 	// Track cumulative cost for budget enforcement
 	if response.CostInfo != nil {
 		tl.cumulativeCost += response.CostInfo.TotalCost
+		tl.cumulativeInput += response.CostInfo.InputTokens
+		tl.cumulativeCached += response.CostInfo.CachedTokens
 	}
+	tl.warnIfCachingStalled(round)
 	policy := tl.stage.toolPolicy
 	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
 		tl.persistMessages(ctx, round)
@@ -1703,6 +1738,58 @@ func classifyToolError(err error) types.ToolErrorType {
 	return types.ToolErrorExecution
 }
 
+// collectProviderDescriptors builds the deterministic tool-descriptor list for a
+// provider call: pack-declared tools (allowedTools) plus capability tools
+// (system-namespaced). Order MUST be stable across calls within a run — the
+// tools array is part of the provider's cached prefix (Anthropic caches
+// tools+system+first-message), and capability tools are gathered via IterateTools
+// in Go map-iteration order, which is randomized. A varying order changes the
+// cached-prefix bytes and busts prompt caching entirely, re-billing the full
+// context at full price every round. Sorting by name keeps the prefix byte-stable
+// so caching actually engages.
+func (s *ProviderStage) collectProviderDescriptors(
+	allowedTools []string, excluded map[string]bool,
+) []*providers.ToolDescriptor {
+	seen := make(map[string]bool)
+	var descriptors []*providers.ToolDescriptor
+
+	// 1. Pack-declared tools from the prompt's allowed list (slice order).
+	for _, toolName := range allowedTools {
+		if excluded[toolName] {
+			continue
+		}
+		tool, err := s.toolRegistry.GetTool(toolName)
+		if err != nil {
+			logger.Warn("Tool not found in registry", "tool", toolName, "error", err)
+			continue
+		}
+		seen[tool.Name] = true
+		descriptors = append(descriptors, &providers.ToolDescriptor{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+
+	// 2. Capability tools (skill__, a2a__, workflow__, mcp__, memory__), gathered
+	//    in randomized map order — sorted below to make the whole set stable.
+	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+		if seen[name] || excluded[name] || !tools.IsSystemTool(name) {
+			return
+		}
+		descriptors = append(descriptors, &providers.ToolDescriptor{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	})
+
+	sort.Slice(descriptors, func(i, j int) bool {
+		return descriptors[i].Name < descriptors[j].Name
+	})
+	return descriptors
+}
+
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
@@ -1725,42 +1812,7 @@ func (s *ProviderStage) buildProviderTools(
 		return nil, "", nil
 	}
 
-	// Build tool descriptors: pack-declared tools (allowedTools) + capability tools (system-namespaced)
-	seen := make(map[string]bool)
-	var descriptors []*providers.ToolDescriptor
-
-	// 1. Add pack-declared tools from the prompt's allowed list
-	for _, toolName := range allowedTools {
-		if excluded[toolName] {
-			continue
-		}
-		tool, err := s.toolRegistry.GetTool(toolName)
-		if err != nil {
-			logger.Warn("Tool not found in registry", "tool", toolName, "error", err)
-			continue
-		}
-		seen[tool.Name] = true
-		descriptors = append(descriptors, &providers.ToolDescriptor{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
-	}
-
-	// 2. Add capability tools (system-namespaced: skill__, a2a__, workflow__, mcp__, memory__)
-	//    These are registered by capabilities and are always available to the LLM.
-	//    Uses IterateTools to avoid a full map copy from GetTools.
-	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if seen[name] || excluded[name] || !tools.IsSystemTool(name) {
-			return
-		}
-		descriptors = append(descriptors, &providers.ToolDescriptor{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
-	})
-
+	descriptors := s.collectProviderDescriptors(allowedTools, excluded)
 	if len(descriptors) == 0 {
 		return nil, "", nil
 	}
