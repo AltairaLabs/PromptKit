@@ -5,7 +5,7 @@ metadata:
 spec:
   id: claude
   type: claude
-  model: claude-haiku-4-5
+  model: claude-sonnet-4-6
   defaults:
     temperature: 0.3
     top_p: 1.0

@@ -9,7 +9,12 @@ spec:
   id: refund-assistant
   task_type: authoring-agent
   description: "A developer asks (naively) for tests for a refund assistant; scored against the deterministic gates."
-  trials: 3
+  trials: 1
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 50
+    max_total_tool_calls: 500
+    max_cost_usd: 0.50
   turns:
     - role: user
       content: |
