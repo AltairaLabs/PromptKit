@@ -62,12 +62,14 @@ type HTMLReportData struct {
 	ArtifactsByRun map[string][]Artifact `json:"artifacts_by_run,omitempty"`
 }
 
-// Artifact is a hook-declared output (file or directory) surfaced as a link in
-// the report. Path is relative to the report's output directory so it resolves
-// when the report is opened from disk.
+// Artifact is a hook-declared output surfaced in the report's per-run Artifacts
+// section. Hooks may record any number (a session hook a captured workspace, a
+// turn hook a per-turn dump, etc.). Path is relative to the report's output
+// directory so the link resolves when the report is opened from disk.
 type Artifact struct {
-	Label string `json:"label"`
-	Path  string `json:"path"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path"`
 }
 
 // ScenarioGroup represents a scenario with its provider×region matrix

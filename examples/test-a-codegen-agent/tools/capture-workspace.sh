@@ -41,7 +41,7 @@ if [ ${#captured[@]} -gt 0 ]; then
 		printf '{"artifacts":['
 		for i in "${!captured[@]}"; do
 			[ "$i" -gt 0 ] && printf ','
-			printf '{"label":"Captured workspace","path":"%s"}' "${captured[$i]}"
+			printf '{"name":"Captured workspace","description":"Files the agent wrote in /workspace, captured at session end","path":"%s"}' "${captured[$i]}"
 		done
 		printf ']}'
 	} >"$outdir/artifacts/$session.json"

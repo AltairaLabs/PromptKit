@@ -19,7 +19,7 @@ func TestLoadRunArtifacts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mustWrite("run-1.json", `{"artifacts":[{"label":"Captured workspace","path":"kit/run-1/sandbox"}]}`)
+	mustWrite("run-1.json", `{"artifacts":[{"name":"Captured workspace","description":"the kit","path":"kit/run-1/sandbox"}]}`)
 	mustWrite("run-2.json", `not json`)         // malformed -> skipped
 	mustWrite("run-4.json", `{"artifacts":[]}`) // empty -> skipped
 
@@ -36,7 +36,7 @@ func TestLoadRunArtifacts(t *testing.T) {
 		t.Fatalf("expected exactly run-1 to have artifacts, got %d (%v)", len(got), got)
 	}
 	arts := got["run-1"]
-	if len(arts) != 1 || arts[0].Label != "Captured workspace" || arts[0].Path != "kit/run-1/sandbox" {
+	if len(arts) != 1 || arts[0].Name != "Captured workspace" || arts[0].Path != "kit/run-1/sandbox" {
 		t.Fatalf("unexpected artifacts for run-1: %+v", arts)
 	}
 	for _, skipped := range []string{"run-2", "run-3", "run-4", ""} {
