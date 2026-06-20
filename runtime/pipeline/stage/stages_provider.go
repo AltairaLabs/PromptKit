@@ -444,18 +444,52 @@ func canonicalArgs(raw json.RawMessage) string {
 
 // checkIdenticalToolCalls increments per-call counters and returns an error if
 // any single (tool, args) pair exceeds the configured threshold.
-func (tl *toolLoop) checkIdenticalToolCalls(toolCalls []types.MessageToolCall) error {
+func (tl *toolLoop) identicalLoopCalls(toolCalls []types.MessageToolCall) []types.MessageToolCall {
 	threshold := tl.stage.getMaxIdenticalToolCalls()
-	for _, tc := range toolCalls {
+	var looping []types.MessageToolCall
+	for i := range toolCalls {
+		tc := toolCalls[i]
 		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
 		tl.identicalCallCounts[key]++
 		if tl.identicalCallCounts[key] >= threshold {
-			return fmt.Errorf(
-				"provider stage: tool loop detected: %q called %d times with identical arguments",
-				tc.Name, tl.identicalCallCounts[key])
+			looping = append(looping, tc)
 		}
 	}
-	return nil
+	return looping
+}
+
+// loopFeedbackResults builds tool-result messages for a round where an identical
+// loop was detected: the looping calls get a synthetic "you repeated this — stop"
+// result (NOT executed, since the result wouldn't change), while any non-looping
+// calls in the same round execute normally so every tool_use still has a result.
+func (tl *toolLoop) loopFeedbackResults(
+	ctx context.Context, all, looping []types.MessageToolCall,
+) []types.Message {
+	loopSet := make(map[string]bool, len(looping))
+	for _, c := range looping {
+		loopSet[c.ID] = true
+	}
+	threshold := tl.stage.getMaxIdenticalToolCalls()
+	results := make([]types.Message, 0, len(all))
+	var toExecute []types.MessageToolCall
+	for i := range all {
+		tc := all[i]
+		if !loopSet[tc.ID] {
+			toExecute = append(toExecute, tc)
+			continue
+		}
+		msg := fmt.Sprintf(
+			"Repeated call ignored: %q has been called %d times with identical arguments and was NOT "+
+				"executed again — the result will not change. Stop repeating this exact call: change the "+
+				"arguments, use a different tool, or finish the task.",
+			tc.Name, threshold)
+		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
+	}
+	if len(toExecute) > 0 {
+		executed, _ := tl.stage.executeToolCalls(ctx, toExecute)
+		results = append(results, executed...)
+	}
+	return results
 }
 
 func (s *ProviderStage) executeStreamingMultiRound(
@@ -505,6 +539,7 @@ type toolLoop struct {
 	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
 	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
+	nudgedLoop          bool           // already fed an identical-loop back to the model once
 }
 
 // promptCachingProvider is optionally implemented by providers that support
@@ -618,11 +653,25 @@ func (tl *toolLoop) afterRound(
 		return true, tl.messages, nil
 	}
 
-	// Repeated-identical-call breaker: abort before executing tool calls if the
-	// same tool has been called with the same arguments too many times.
-	if err := tl.checkIdenticalToolCalls(response.ToolCalls); err != nil {
+	// Repeated-identical-call breaker. The first time the same tool is called with
+	// identical arguments too many times, feed that back to the model once (a
+	// synthetic "you're repeating yourself — stop" result) and let it self-correct
+	// — loops are often transient confusion (e.g. a model retrying a failing call
+	// verbatim). If it loops AGAIN after the nudge, abort.
+	if looping := tl.identicalLoopCalls(response.ToolCalls); len(looping) > 0 {
+		if tl.nudgedLoop {
+			tl.persistMessages(ctx, round)
+			return true, tl.messages, fmt.Errorf(
+				"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
+				looping[0].Name)
+		}
+		tl.nudgedLoop = true
+		logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
+			"tool", looping[0].Name)
+		tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, response.ToolCalls, looping)...)
+		ResetIdleFromContext(ctx)
 		tl.persistMessages(ctx, round)
-		return true, tl.messages, err
+		return false, tl.messages, nil
 	}
 
 	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls)
