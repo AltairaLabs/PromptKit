@@ -810,17 +810,23 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 // claudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
 func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
-	// Define pricing constants
+	// Define pricing constants (USD per 1K tokens). Cached = 10% of input.
 	const (
 		sonnetInput  = 0.003
 		sonnetOutput = 0.015
 		sonnetCached = 0.0003
-		haikuInput   = 0.001
+		haikuInput   = 0.001 // Haiku 4.5
 		haikuOutput  = 0.005
 		haikuCached  = 0.0001
-		opusInput    = 0.015
-		opusOutput   = 0.075
-		opusCached   = 0.0015
+		opus3Input   = 0.015 // Claude 3 Opus (legacy)
+		opus3Output  = 0.075
+		opus3Cached  = 0.0015
+		opus4Input   = 0.005 // Opus 4.6/4.7/4.8
+		opus4Output  = 0.025
+		opus4Cached  = 0.0005
+		fableInput   = 0.010 // Fable 5 / Mythos 5
+		fableOutput  = 0.050
+		fableCached  = 0.001
 		haiku3Input  = 0.00025
 		haiku3Output = 0.00125
 		haiku3Cached = 0.000025
@@ -829,15 +835,34 @@ func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 	switch model {
 	case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620", "claude-3-sonnet-20240229":
 		return sonnetInput, sonnetOutput, sonnetCached
+	case "claude-sonnet-4-6", "claude-sonnet-4-5":
+		return sonnetInput, sonnetOutput, sonnetCached
+	case "claude-haiku-4-5":
+		return haikuInput, haikuOutput, haikuCached
 	case "claude-3-5-haiku-20241022":
 		return haikuInput, haikuOutput, haikuCached
+	case "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6":
+		return opus4Input, opus4Output, opus4Cached
+	case "claude-fable-5", "claude-mythos-5", "claude-mythos-preview":
+		return fableInput, fableOutput, fableCached
 	case "claude-3-opus-20240229":
-		return opusInput, opusOutput, opusCached
+		return opus3Input, opus3Output, opus3Cached
 	case "claude-3-haiku-20240307":
 		return haiku3Input, haiku3Output, haiku3Cached
 	default:
-		// Default to Claude 3.5 Sonnet pricing for unknown models
-		return sonnetInput, sonnetOutput, sonnetCached
+		// Heuristic fallback for unlisted IDs (e.g. a future dated snapshot) so a
+		// new model name doesn't silently bill at the wrong tier. Order matters:
+		// check the most specific family token first.
+		switch {
+		case strings.Contains(model, "haiku"):
+			return haikuInput, haikuOutput, haikuCached
+		case strings.Contains(model, "opus"):
+			return opus4Input, opus4Output, opus4Cached
+		case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
+			return fableInput, fableOutput, fableCached
+		default: // sonnet and everything else
+			return sonnetInput, sonnetOutput, sonnetCached
+		}
 	}
 }
 
