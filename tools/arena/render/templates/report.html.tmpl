@@ -412,7 +412,28 @@
             transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
             overflow: hidden;
         }
-        
+        .result-artifacts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .artifact-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.85rem;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            background: #f6f8fa;
+            color: #0969da;
+            text-decoration: none;
+        }
+        .artifact-link:hover {
+            background: #eaeef2;
+        }
+
         .result-card.collapsed .result-content {
             max-height: 0;
             opacity: 0;
@@ -2161,6 +2182,12 @@
                             </div>
                         </div>
                         <div class="result-content">
+                            {{$artifacts := index $.ArtifactsByRun $result.RunID}}
+                            {{if $artifacts}}
+                            <div class="result-artifacts">
+                                {{range $artifacts}}<a class="artifact-link" href="{{.Path}}">📁 {{.Label}}</a>{{end}}
+                            </div>
+                            {{end}}
                             <div class="conversation">
                                 {{range $msgIdx, $msg := $result.Messages}}
                                 {{$assertions := getAssertions $msg.Meta}}

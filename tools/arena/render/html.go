@@ -55,6 +55,19 @@ type HTMLReportData struct {
 	Scenarios      []string           `json:"scenarios"`
 	Matrix         [][]MatrixCell     `json:"matrix"` // Deprecated: kept for backwards compatibility
 	ScenarioGroups []ScenarioGroup    `json:"scenario_groups"`
+	// ArtifactsByRun maps a run's RunID to artifacts a hook declared for it via a
+	// manifest at <outDir>/artifacts/<RunID>.json, rendered as per-run links. The
+	// report knows nothing about what hooks produce — it only surfaces what they
+	// declare. Empty when no manifest exists.
+	ArtifactsByRun map[string][]Artifact `json:"artifacts_by_run,omitempty"`
+}
+
+// Artifact is a hook-declared output (file or directory) surfaced as a link in
+// the report. Path is relative to the report's output directory so it resolves
+// when the report is opened from disk.
+type Artifact struct {
+	Label string `json:"label"`
+	Path  string `json:"path"`
 }
 
 // ScenarioGroup represents a scenario with its provider×region matrix
@@ -97,10 +110,43 @@ type MatrixCell struct {
 	Cost       float64 `json:"cost"`
 }
 
+// loadRunArtifacts reads per-run artifact manifests that hooks write at
+// <outDir>/artifacts/<RunID>.json and returns them keyed by RunID. A manifest is
+// {"artifacts":[{"label":"...","path":"..."}]} with paths relative to outDir.
+// Missing or malformed manifests are skipped — artifacts are purely additive and
+// must never break report generation.
+func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Artifact {
+	byRun := make(map[string][]Artifact)
+	for i := range results {
+		runID := results[i].RunID
+		if runID == "" {
+			continue
+		}
+		manifestPath := filepath.Join(outDir, "artifacts", runID+".json")
+		raw, err := os.ReadFile(manifestPath) //nolint:gosec // outDir is the report output dir
+		if err != nil {
+			continue
+		}
+		var manifest struct {
+			Artifacts []Artifact `json:"artifacts"`
+		}
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			continue
+		}
+		if len(manifest.Artifacts) > 0 {
+			byRun[runID] = manifest.Artifacts
+		}
+	}
+	return byRun
+}
+
 // GenerateHTMLReport creates an HTML report from run results
 func GenerateHTMLReport(results []engine.RunResult, outputPath string) error {
 	// Prepare data
 	data := prepareReportData(results)
+	// Surface any hook-declared per-run artifacts (e.g. a captured workspace) as
+	// links. Manifests live next to the report under artifacts/<RunID>.json.
+	data.ArtifactsByRun = loadRunArtifacts(filepath.Dir(outputPath), results)
 
 	// Generate HTML
 	html, err := generateHTML(&data)
