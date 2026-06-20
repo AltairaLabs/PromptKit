@@ -118,14 +118,15 @@ type ToolDef struct {
 var emptyJSONObject = json.RawMessage("{}")
 
 // NormalizeRawMessage returns a valid JSON value for raw, substituting "{}" when
-// raw is nil or empty. An empty json.RawMessage is the single most common crash
-// source in the agent loop: LLMs routinely emit tool calls with no arguments and
-// tools may ship without an input schema, and marshaling an empty RawMessage
-// fails the encoder. Provider request builders and the message types use this at
-// the boundary so a missing blob degrades to {} instead of crashing a request or
-// losing a whole run's saved output.
+// raw is nil, empty, OR not well-formed JSON. Two crash sources in the agent loop
+// motivate this: LLMs routinely emit tool calls with no arguments (empty), and a
+// streamed tool call cut off at max_tokens leaves *truncated* args (e.g.
+// `{"path":"foo`) — non-empty but invalid. Both fail json.RawMessage's encoder
+// with "unexpected end of JSON input". Provider request builders and the message
+// types call this at the boundary so a missing or broken blob degrades to {}
+// instead of crashing a request or losing a whole run's saved output.
 func NormalizeRawMessage(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
+	if len(raw) == 0 || !json.Valid(raw) {
 		return emptyJSONObject
 	}
 	return raw

@@ -246,15 +246,14 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
 		for _, toolCall := range msg.ToolCalls {
-			args := toolCall.Args
-			if len(args) == 0 || string(args) == "null" {
-				args = json.RawMessage("{}")
-			}
+			// Normalize empty/null/truncated args to {} — a streamed tool call cut
+			// off at max_tokens leaves non-empty-but-invalid JSON that would crash
+			// the request marshal on replay.
 			content = append(content, claudeToolUse{
 				Type:  "tool_use",
 				ID:    toolCall.ID,
 				Name:  toolCall.Name,
-				Input: args,
+				Input: types.NormalizeRawMessage(toolCall.Args),
 			})
 		}
 	}

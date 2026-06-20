@@ -16,6 +16,10 @@ func TestNormalizeRawMessage(t *testing.T) {
 		{"empty", json.RawMessage{}, "{}"},
 		{"null stays null (valid JSON)", json.RawMessage(`null`), "null"},
 		{"object passthrough", json.RawMessage(`{"a":1}`), `{"a":1}`},
+		// max_tokens cut off mid-tool-call: non-empty but invalid JSON.
+		{"truncated object", json.RawMessage(`{"command":"cat fi`), "{}"},
+		{"truncated string", json.RawMessage(`"foo`), "{}"},
+		{"bare garbage", json.RawMessage(`{`), "{}"},
 	}
 	for _, c := range cases {
 		if got := string(NormalizeRawMessage(c.in)); got != c.want {
