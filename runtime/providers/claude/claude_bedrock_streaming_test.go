@@ -237,15 +237,15 @@ func TestBedrockMarshalStreamingRequest(t *testing.T) {
 		platform: "bedrock",
 	}
 
-	reqMap := map[string]interface{}{
-		"model":       provider.model,
-		"max_tokens":  1024,
-		"messages":    []map[string]string{{"role": "user", "content": "hi"}},
-		"stream":      true,
-		"temperature": 0.7,
+	req := claudeRequest{
+		Model:       provider.model,
+		MaxTokens:   1024,
+		Messages:    []map[string]string{{"role": "user", "content": "hi"}},
+		Stream:      true,
+		Temperature: 0.7,
 	}
 
-	body, err := provider.marshalBedrockStreamingRequest(reqMap)
+	body, err := provider.marshalBedrockStreamingRequest(&req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

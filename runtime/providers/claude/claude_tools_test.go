@@ -729,19 +729,19 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 
 			request := provider.buildToolRequest(req, nil, "")
 
-			if temp, ok := request["temperature"].(float32); !ok || temp != tt.expectedTemp {
-				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request["temperature"])
+			if request.Temperature != tt.expectedTemp {
+				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request.Temperature)
 			}
 
 			// Note: top_p is intentionally NOT included in the request
 			// Claude 4+ doesn't support both temperature and top_p simultaneously
 			// See buildToolRequest() comment for details
-			if _, hasTopP := request["top_p"]; hasTopP {
+			if request.TopP != 0 {
 				t.Errorf("top_p should not be in request (Claude 4+ doesn't support both temp and top_p)")
 			}
 
-			if maxTokens, ok := request["max_tokens"].(int); !ok || maxTokens != tt.expectedMaxTokens {
-				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request["max_tokens"])
+			if request.MaxTokens != tt.expectedMaxTokens {
+				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request.MaxTokens)
 			}
 		})
 	}
@@ -979,16 +979,16 @@ func TestToolProvider_MakeRequest_BedrockBodyMutation(t *testing.T) {
 		nil, "bedrock", nil,
 	)
 
-	// Build a request map (simulating buildToolRequest output)
-	request := map[string]interface{}{
-		"model":       "anthropic.claude-3-5-haiku-20241022-v1:0",
-		"max_tokens":  100,
-		"messages":    []interface{}{},
-		"temperature": float32(0.7),
+	// Build a request (simulating buildToolRequest output)
+	request := claudeRequest{
+		Model:       "anthropic.claude-3-5-haiku-20241022-v1:0",
+		MaxTokens:   100,
+		Messages:    []claudeToolMessage{},
+		Temperature: 0.7,
 	}
 
 	ctx := context.Background()
-	_, err := provider.makeRequest(ctx, request)
+	_, err := provider.makeRequest(ctx, &request)
 	if err != nil {
 		t.Fatalf("makeRequest failed: %v", err)
 	}
@@ -1132,10 +1132,11 @@ func TestAddClaudeToolConfig_ToolChoice(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := make(map[string]interface{})
-			addClaudeToolConfig(request, dummyTools, tt.toolChoice)
+			var request claudeRequest
+			addClaudeToolConfig(&request, dummyTools, tt.toolChoice)
 
-			got, exists := request["tool_choice"]
+			got := request.ToolChoice
+			exists := got != nil
 			if !tt.wantKey {
 				if exists {
 					t.Errorf("tool_choice should not be set, but got %v", got)

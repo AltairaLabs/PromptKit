@@ -110,13 +110,13 @@ func TestProvider_MarshalBedrockRequest_VertexVersion(t *testing.T) {
 
 func TestProvider_MarshalBedrockStreamingRequest_VertexVersion(t *testing.T) {
 	p := &Provider{platform: vertexPlatform, model: "claude-haiku-4-5@20251001"}
-	reqMap := map[string]any{
-		"model":      "claude-haiku-4-5@20251001",
-		"max_tokens": 100,
-		"messages":   []any{},
-		"stream":     true,
+	req := claudeRequest{
+		Model:     "claude-haiku-4-5@20251001",
+		MaxTokens: 100,
+		Messages:  []any{},
+		Stream:    true,
 	}
-	body, err := p.marshalBedrockStreamingRequest(reqMap)
+	body, err := p.marshalBedrockStreamingRequest(&req)
 	if err != nil {
 		t.Fatalf("marshalBedrockStreamingRequest: %v", err)
 	}

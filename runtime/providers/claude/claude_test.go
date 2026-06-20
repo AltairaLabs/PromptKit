@@ -306,7 +306,7 @@ func TestClaudeRequest_Structure(t *testing.T) {
 		t.Error("MaxTokens mismatch")
 	}
 
-	if len(req.Messages) != 1 {
+	if msgs, ok := req.Messages.([]claudeMessage); !ok || len(msgs) != 1 {
 		t.Error("Messages count mismatch")
 	}
 

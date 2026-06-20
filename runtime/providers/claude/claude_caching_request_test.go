@@ -76,9 +76,9 @@ func TestToolRequest_RollingBreakpointOnLastMessage(t *testing.T) {
 		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "1", Name: "Bash", Parts: []types.ContentPart{types.NewTextPart("big output")}}},
 	}
 	req := tp.buildToolRequest(providers.PredictionRequest{System: "sys", Messages: msgs, MaxTokens: 100}, tools, "")
-	cms, ok := req["messages"].([]claudeToolMessage)
+	cms, ok := req.Messages.([]claudeToolMessage)
 	if !ok || len(cms) == 0 {
-		t.Fatalf("expected claude messages, got %T", req["messages"])
+		t.Fatalf("expected claude messages, got %T", req.Messages)
 	}
 	if !messageHasCacheControl(cms[len(cms)-1]) {
 		t.Fatal("last message must carry a cache_control breakpoint so the growing prefix is cached")
