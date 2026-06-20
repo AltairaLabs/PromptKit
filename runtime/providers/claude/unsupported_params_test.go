@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -128,8 +129,12 @@ func TestUnsupportedParams_TemperatureOmitted(t *testing.T) {
 			Temperature: 0.1,
 			MaxTokens:   100,
 		}, nil, "")
-		if _, ok := request["temperature"]; ok {
-			t.Errorf("temperature should be omitted from tool request, got: %v", request)
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		if bytes.Contains(body, []byte(`"temperature"`)) {
+			t.Errorf("temperature should be omitted from tool request, got: %s", body)
 		}
 	})
 }

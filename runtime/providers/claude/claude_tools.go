@@ -16,6 +16,7 @@ import (
 const (
 	roleUser        = "user"
 	roleAssistant   = "assistant"
+	roleTool        = "tool"
 	apiKeyHeader    = "x-api-key"
 	providerNameLog = "Claude-Tools"
 
@@ -27,10 +28,8 @@ const (
 	errMarshalRequestFailed = "failed to marshal request: %w"
 	errCreateRequestFailed  = "failed to create request: %w"
 
-	// Shared Claude request body field names.
-	reqFieldModel     = "model"
-	reqFieldMaxTokens = "max_tokens"
-	reqFieldMessages  = "messages"
+	// fieldType is the "type" discriminator key used in tool_choice objects.
+	fieldType = "type"
 )
 
 // ToolProvider extends ClaudeProvider with tool support
@@ -132,7 +131,7 @@ func (p *ToolProvider) PredictWithTools(
 	}
 
 	// Make the API call
-	respBytes, err := p.makeRequest(ctx, claudeReq)
+	respBytes, err := p.makeRequest(ctx, &claudeReq)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return predictResp, nil, err
@@ -290,28 +289,25 @@ func (p *ToolProvider) buildMessageContentBlocks(msg types.Message) []interface{
 	return nil
 }
 
-// addClaudeToolConfig adds tool configuration to the request based on toolChoice
-func addClaudeToolConfig(request map[string]interface{}, tools interface{}, toolChoice string) {
-	request["tools"] = tools
-
-	if toolChoice == "" {
-		return
-	}
+// addClaudeToolConfig sets the tools and tool_choice fields on the request based
+// on toolChoice.
+func addClaudeToolConfig(request *claudeRequest, tools any, toolChoice string) {
+	request.Tools = tools
 
 	switch toolChoice {
+	case "", "none":
+		// Empty: no forced selection. "none": Claude doesn't support
+		// tool_choice:"none" directly, so omit tool_choice and let the model
+		// decide not to use tools (the tools are still sent so it knows they
+		// exist). Both leave ToolChoice unset.
 	case "auto":
-		request["tool_choice"] = map[string]interface{}{"type": "auto"}
+		request.ToolChoice = map[string]any{fieldType: "auto"}
 	case "required", "any":
-		request["tool_choice"] = map[string]interface{}{"type": "any"}
-	case "none":
-		// Claude doesn't support tool_choice: "none" directly.
-		// Omit tool_choice to let the model decide not to use tools.
-		// The tools are still sent (so the model knows they exist) but
-		// no forced selection is applied.
+		request.ToolChoice = map[string]any{fieldType: "any"}
 	default:
-		request["tool_choice"] = map[string]interface{}{
-			"type": "tool",
-			"name": toolChoice,
+		request.ToolChoice = map[string]any{
+			fieldType: "tool",
+			"name":    toolChoice,
 		}
 	}
 }
@@ -399,13 +395,14 @@ func markLastBlockCacheable(messages []claudeToolMessage) {
 	}
 }
 
-func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
+//nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
+func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools any, toolChoice string) claudeRequest {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
 	for i := range req.Messages {
 		msg := &req.Messages[i]
-		if msg.Role == "tool" {
+		if msg.Role == roleTool {
 			pendingToolResults = append(pendingToolResults, processClaudeToolResult(*msg))
 			continue
 		}
@@ -428,32 +425,12 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		markLastBlockCacheable(messages)
 	}
 
-	// Apply defaults to zero-valued request parameters
-	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
-
-	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
-	// We only send temperature to avoid the "cannot both be specified" error
-	request := map[string]interface{}{
-		reqFieldModel:     p.model,
-		reqFieldMaxTokens: maxTokens,
-		reqFieldMessages:  messages,
-	}
-	// Claude 4.7+ models reject temperature; omit it when unsupported.
-	if p.paramSupported("temperature") {
-		request["temperature"] = temperature
-	}
-
-	if req.System != "" {
-		// Use the cache-aware system block builder so a long system prompt gets its
-		// own cache_control breakpoint — same as Predict/PredictStream. Sending the
-		// system as a raw string left the (often large) system prompt uncached on
-		// both tool paths (this powers the codegen agent loop), so every round
-		// re-paid full price for the system.
-		request["system"] = p.createSystemBlocks(req.System)
-	}
-
+	// Common fields (model, max_tokens, gated temperature, cache-aware system)
+	// come from the shared base builder — same source of truth as
+	// Predict/PredictStream. The tool paths deliberately omit output_config.
+	request := p.buildBaseRequest(req, messages)
 	if tools != nil {
-		addClaudeToolConfig(request, tools, toolChoice)
+		addClaudeToolConfig(&request, tools, toolChoice)
 	}
 
 	return request
@@ -584,20 +561,20 @@ func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Re
 	return p.ApplyCustomHeaders(req)
 }
 
-func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
+func (p *ToolProvider) makeRequest(ctx context.Context, request *claudeRequest) ([]byte, error) {
 	url := p.messagesURL()
 
-	// Partner-hosted (Bedrock/Vertex): inject anthropic_version into the
-	// request body (with the platform-specific value) and drop the model
-	// field — both put the model in the URL path.
+	// Partner-hosted (Bedrock/Vertex): inject anthropic_version into the request
+	// body and drop the model field — both put the model in the URL path. The
+	// shared partner marshaler also drops the (absent here) stream field; the
+	// tools and tool_choice fields the builder set pass through unchanged.
+	var reqBytes []byte
+	var err error
 	if p.isPartnerHosted() {
-		if reqMap, ok := request.(map[string]interface{}); ok {
-			reqMap[bedrockVersionBodyKey] = p.platformAnthropicVersion()
-			delete(reqMap, "model")
-		}
+		reqBytes, err = p.marshalPartnerRequest(request)
+	} else {
+		reqBytes, err = json.Marshal(request)
 	}
-
-	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
@@ -655,19 +632,19 @@ func (p *ToolProvider) PredictStreamWithTools(
 	claudeReq := p.buildToolRequest(req, tools, toolChoice)
 
 	// Add streaming flag
-	claudeReq["stream"] = true
+	claudeReq.Stream = true
 
 	// Bedrock: binary event-stream format.
 	if p.isBedrock() {
-		return p.streamBedrockToolRequest(ctx, claudeReq)
+		return p.streamBedrockToolRequest(ctx, &claudeReq)
 	}
 
 	// Vertex: SSE via :streamRawPredict with the partner body shape.
 	if p.isVertex() {
-		return p.streamVertexToolRequest(ctx, claudeReq)
+		return p.streamVertexToolRequest(ctx, &claudeReq)
 	}
 
-	return p.streamDirectToolRequest(ctx, claudeReq)
+	return p.streamDirectToolRequest(ctx, &claudeReq)
 }
 
 // streamVertexToolRequest handles the Vertex AI Anthropic-partner
@@ -677,9 +654,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 // like the direct API, so the SSE helper is reused.
 func (p *ToolProvider) streamVertexToolRequest(
 	ctx context.Context,
-	claudeReq map[string]interface{},
+	claudeReq *claudeRequest,
 ) (<-chan providers.StreamChunk, error) {
-	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	reqBody, err := p.marshalPartnerRequest(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
@@ -717,9 +694,9 @@ func (p *ToolProvider) runSSEToolStream(
 // cognitive-complexity threshold.
 func (p *ToolProvider) streamBedrockToolRequest(
 	ctx context.Context,
-	claudeReq map[string]interface{},
+	claudeReq *claudeRequest,
 ) (<-chan providers.StreamChunk, error) {
-	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	reqBody, err := p.marshalPartnerRequest(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
@@ -746,7 +723,7 @@ func (p *ToolProvider) streamBedrockToolRequest(
 // serialized as-is; auth is x-api-key via applyToolRequestHeaders.
 func (p *ToolProvider) streamDirectToolRequest(
 	ctx context.Context,
-	claudeReq map[string]interface{},
+	claudeReq *claudeRequest,
 ) (<-chan providers.StreamChunk, error) {
 	requestBytes, err := json.Marshal(claudeReq)
 	if err != nil {

@@ -1,0 +1,39 @@
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "max_tokens": 100,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "output_config": {
+    "format": {
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "type": "object"
+      },
+      "type": "json_schema"
+    }
+  },
+  "system": [
+    {
+      "text": "you are helpful",
+      "type": "text"
+    }
+  ],
+  "temperature": 0.1
+}

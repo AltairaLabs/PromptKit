@@ -82,8 +82,8 @@ func TestProvider_MessagesURL_Vertex(t *testing.T) {
 	})
 }
 
-func TestProvider_MarshalBedrockRequest_VertexVersion(t *testing.T) {
-	// marshalBedrockRequest is shared by Bedrock and Vertex; the
+func TestProvider_MarshalPartnerRequest_VertexVersion(t *testing.T) {
+	// marshalPartnerRequest is shared by Bedrock and Vertex; the
 	// anthropic_version body field must reflect the active platform.
 	p := &Provider{platform: vertexPlatform, model: "claude-haiku-4-5@20251001"}
 	req := &claudeRequest{
@@ -92,9 +92,9 @@ func TestProvider_MarshalBedrockRequest_VertexVersion(t *testing.T) {
 			{Role: "user", Content: []claudeContentBlock{{Type: "text", Text: "hi"}}},
 		},
 	}
-	body, err := p.marshalBedrockRequest(req)
+	body, err := p.marshalPartnerRequest(req)
 	if err != nil {
-		t.Fatalf("marshalBedrockRequest: %v", err)
+		t.Fatalf("marshalPartnerRequest: %v", err)
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -108,17 +108,17 @@ func TestProvider_MarshalBedrockRequest_VertexVersion(t *testing.T) {
 	}
 }
 
-func TestProvider_MarshalBedrockStreamingRequest_VertexVersion(t *testing.T) {
+func TestProvider_MarshalPartnerRequest_Streaming_VertexVersion(t *testing.T) {
 	p := &Provider{platform: vertexPlatform, model: "claude-haiku-4-5@20251001"}
-	reqMap := map[string]any{
-		"model":      "claude-haiku-4-5@20251001",
-		"max_tokens": 100,
-		"messages":   []any{},
-		"stream":     true,
+	req := claudeRequest{
+		Model:     "claude-haiku-4-5@20251001",
+		MaxTokens: 100,
+		Messages:  []any{},
+		Stream:    true,
 	}
-	body, err := p.marshalBedrockStreamingRequest(reqMap)
+	body, err := p.marshalPartnerRequest(&req)
 	if err != nil {
-		t.Fatalf("marshalBedrockStreamingRequest: %v", err)
+		t.Fatalf("marshalPartnerRequest: %v", err)
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(body, &parsed); err != nil {

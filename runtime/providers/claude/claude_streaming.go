@@ -33,52 +33,19 @@ func (p *Provider) PredictStream(
 		Model:    p.model,
 	})
 
-	// Convert messages to Claude format (handles both text and multimodal)
+	// Build the canonical request via the shared base builder, then layer on the
+	// streaming deltas. PredictStream is the no-tools path, so it honors
+	// output_config with no tool-use conflict to guard against.
 	messages := p.convertMessagesToClaudeFormat(req.Messages)
-
-	// Apply provider defaults
-	temperature := req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
-
-	maxTokens := req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
-
-	// Create streaming request
-	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
-	// We only send temperature to avoid the "cannot both be specified" error
-	claudeReq := map[string]any{
-		reqFieldModel:     p.model,
-		reqFieldMaxTokens: maxTokens,
-		reqFieldMessages:  messages,
-		"stream":          true,
-	}
-	// Claude 4.7+ models reject temperature; omit it when unsupported.
-	if p.paramSupported("temperature") {
-		claudeReq["temperature"] = temperature
-	}
-
-	if req.System != "" {
-		// Use the cache-aware system block builder so a long system prompt gets a
-		// cache_control breakpoint. Building the block inline (as this did) skipped
-		// caching entirely on the streaming path — every round re-paid full price.
-		claudeReq["system"] = p.createSystemBlocks(req.System)
-	}
-
-	// Native structured outputs (output_config). PredictStream is the no-tools
-	// path, so there's no tool-use conflict to guard against.
-	if oc := outputConfigFor(req.ResponseFormat); oc != nil {
-		claudeReq["output_config"] = oc
-	}
+	claudeReq := p.buildBaseRequest(req, messages)
+	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
+	claudeReq.Stream = true
 
 	// Bedrock: use binary event-stream format, wired through the same
 	// RunStreamingRequest path as the direct API so Bedrock gets retry,
 	// budget, semaphore, and metrics for free.
 	if p.isBedrock() {
-		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		reqBody, err := p.marshalPartnerRequest(&claudeReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
@@ -118,7 +85,7 @@ func (p *Provider) PredictStream(
 	// model, no stream flag, anthropic_version=vertex-2023-10-16); auth via
 	// GCP credential Bearer token; no anthropic-version header (in body).
 	if p.isVertex() {
-		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		reqBody, err := p.marshalPartnerRequest(&claudeReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}

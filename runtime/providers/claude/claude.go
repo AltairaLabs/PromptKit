@@ -310,13 +310,23 @@ func (p *Provider) messagesStreamURL() string {
 	}
 }
 
-// marshalBedrockStreamingRequest converts any request map to partner-platform
-// streaming JSON: injects anthropic_version (with the platform-specific value)
-// and removes both the model and stream fields. Used by both Bedrock
-// (binary event-stream) and Vertex (SSE via :streamRawPredict) — neither
-// puts the model in the body, neither uses the stream flag (the URL action
-// signals streaming for both).
-func (p *Provider) marshalBedrockStreamingRequest(reqMap map[string]interface{}) ([]byte, error) {
+// marshalPartnerRequest produces the partner-platform (Bedrock/Vertex) body
+// from the canonical request struct. It is the single partner marshaler for
+// EVERY partner path — plain Predict, streaming, and the tool paths (streaming
+// and non-streaming): the model and stream fields are dropped (the model lives
+// in the URL path; the URL action signals streaming) and anthropic_version is
+// injected. Every other field the builder set (system, temperature,
+// output_config, tools, tool_choice) passes through unchanged, so partner
+// requests can no longer silently drop a field the direct API honors (#1379).
+func (p *Provider) marshalPartnerRequest(cr *claudeRequest) ([]byte, error) {
+	raw, err := json.Marshal(cr)
+	if err != nil {
+		return nil, err
+	}
+	var reqMap map[string]any
+	if err := json.Unmarshal(raw, &reqMap); err != nil {
+		return nil, err
+	}
 	reqMap[bedrockVersionBodyKey] = p.platformAnthropicVersion()
 	delete(reqMap, "model")
 	delete(reqMap, "stream")
@@ -360,28 +370,6 @@ func (p *Provider) makeBedrockStreamingRequest(
 	return resp.Body, scanner, nil
 }
 
-// marshalBedrockRequest converts a claudeRequest to JSON with partner-platform
-// fields: anthropic_version (with the platform-specific value) and no model
-// field (the model is specified in the URL path). Used by both Bedrock and
-// Vertex non-streaming Predict calls.
-func (p *Provider) marshalBedrockRequest(claudeReq *claudeRequest) ([]byte, error) {
-	m := map[string]interface{}{
-		bedrockVersionBodyKey: p.platformAnthropicVersion(),
-		"max_tokens":          claudeReq.MaxTokens,
-		"messages":            claudeReq.Messages,
-	}
-	if len(claudeReq.System) > 0 {
-		m["system"] = claudeReq.System
-	}
-	if claudeReq.Temperature != 0 {
-		m["temperature"] = claudeReq.Temperature
-	}
-	if claudeReq.TopP != 0 {
-		m["top_p"] = claudeReq.TopP
-	}
-	return json.Marshal(m)
-}
-
 // applyAuth applies authentication to an HTTP request.
 // Uses credential interface if available, falls back to legacy apiKey.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
@@ -397,15 +385,57 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 
 // Close implements provider cleanup (uses BaseProvider.Close)
 
-// Claude API request/response structures
+// claudeRequest is the single canonical representation of an Anthropic
+// /v1/messages body. Every path — non-streaming Predict, streaming
+// PredictStream, and the tool builders — produces this one struct via
+// buildBaseRequest and layers on its own deltas (Stream, Tools, ToolChoice).
+// Messages is an interface because the no-tools paths use []claudeMessage
+// (text/image content blocks) while the tool paths use []claudeToolMessage
+// (interleaved tool_use/tool_result blocks); both marshal to {role, content}.
+// Optional fields use omitempty so an unset delta is absent from the wire body.
 type claudeRequest struct {
 	Model        string               `json:"model"`
 	MaxTokens    int                  `json:"max_tokens"`
-	Messages     []claudeMessage      `json:"messages"`
+	Messages     any                  `json:"messages"`
 	System       []claudeContentBlock `json:"system,omitempty"`
 	Temperature  float32              `json:"temperature,omitempty"`
 	TopP         float32              `json:"top_p,omitempty"`
 	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
+	Stream       bool                 `json:"stream,omitempty"`
+	Tools        any                  `json:"tools,omitempty"`
+	ToolChoice   any                  `json:"tool_choice,omitempty"`
+}
+
+// buildBaseRequest assembles the fields every Claude request shares: model,
+// max_tokens (defaulted), gated temperature, and system blocks. Callers supply
+// the already-converted messages and layer on output_config / stream / tools.
+// This is the single source of truth #1379 consolidates the three former
+// builders onto.
+//
+// Temperature uses the struct's omitempty: a resolved temperature of 0 is
+// omitted on every path (the API then applies its own default). This unifies
+// the previously divergent behavior where the map-based stream/tool builders
+// sent temperature:0 while Predict omitted it.
+//
+// output_config is intentionally NOT set here: the no-tools callers
+// (Predict/PredictStream) apply outputConfigFor themselves, and the tool paths
+// deliberately omit structured outputs. Wiring structured outputs into the tool
+// paths is a separate change, not a no-op refactor.
+//
+//nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
+func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages any) claudeRequest {
+	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+	cr := claudeRequest{
+		Model:     p.model,
+		MaxTokens: maxTokens,
+		Messages:  messages,
+		System:    p.createSystemBlocks(req.System),
+	}
+	// Claude 4.7+ models reject temperature; only send it when supported.
+	if p.paramSupported("temperature") {
+		cr.Temperature = temperature
+	}
+	return cr
 }
 
 // claudeOutputConfig requests native structured outputs (GA, no beta header):
@@ -578,12 +608,13 @@ func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (fina
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
 func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
-	// Partner-hosted (Bedrock/Vertex): marshal via a map so we can inject
-	// anthropic_version into the body and drop the model field.
+	// Partner-hosted (Bedrock/Vertex): inject anthropic_version and drop the
+	// model field via the shared partner marshaler — the same transform every
+	// other partner path uses, so output_config and any future field stay in.
 	var reqBody []byte
 	var err error
 	if p.isPartnerHosted() {
-		reqBody, err = p.marshalBedrockRequest(&claudeReq)
+		reqBody, err = p.marshalPartnerRequest(&claudeReq)
 	} else {
 		reqBody, err = json.Marshal(claudeReq)
 	}
@@ -757,30 +788,10 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	start := time.Now()
 
-	// Convert messages to Claude format
+	// Build the canonical request via the shared base builder, then layer on
+	// structured outputs (the no-tools paths honor output_config).
 	messages := p.convertMessagesToClaudeFormat(req.Messages)
-
-	// Apply provider defaults
-	// Note: We ignore topP because Anthropic's newer models (Claude 4+) don't support both temperature and top_p
-	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
-
-	// Create system content blocks
-	systemBlocks := p.createSystemBlocks(req.System)
-
-	// Create request
-	// Note: TopP is omitted to avoid the "cannot both be specified" error with newer Claude models
-	claudeReq := claudeRequest{
-		Model:     p.model,
-		MaxTokens: maxTokens,
-		Messages:  messages,
-		System:    systemBlocks,
-	}
-	// Claude 4.7+ models reject temperature; omit it when unsupported. With
-	// Temperature left at 0 the bedrock/vertex marshaler also drops it.
-	if p.paramSupported("temperature") {
-		claudeReq.Temperature = temperature
-	}
-	// Native structured outputs: map a JSON-schema ResponseFormat to output_config.
+	claudeReq := p.buildBaseRequest(req, messages)
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
