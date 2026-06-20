@@ -45,7 +45,7 @@ func (p *Provider) PredictStream(
 	// RunStreamingRequest path as the direct API so Bedrock gets retry,
 	// budget, semaphore, and metrics for free.
 	if p.isBedrock() {
-		reqBody, err := p.marshalBedrockStreamingRequest(&claudeReq)
+		reqBody, err := p.marshalPartnerRequest(&claudeReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
@@ -85,7 +85,7 @@ func (p *Provider) PredictStream(
 	// model, no stream flag, anthropic_version=vertex-2023-10-16); auth via
 	// GCP credential Bearer token; no anthropic-version header (in body).
 	if p.isVertex() {
-		reqBody, err := p.marshalBedrockStreamingRequest(&claudeReq)
+		reqBody, err := p.marshalPartnerRequest(&claudeReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}

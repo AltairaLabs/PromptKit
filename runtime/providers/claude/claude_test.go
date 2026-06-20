@@ -490,7 +490,7 @@ func TestMessagesURL_Bedrock(t *testing.T) {
 	}
 }
 
-func TestMarshalBedrockRequest(t *testing.T) {
+func TestMarshalPartnerRequest(t *testing.T) {
 	provider := &Provider{platform: "bedrock"}
 
 	t.Run("basic request", func(t *testing.T) {
@@ -502,9 +502,9 @@ func TestMarshalBedrockRequest(t *testing.T) {
 			},
 		}
 
-		data, err := provider.marshalBedrockRequest(&req)
+		data, err := provider.marshalPartnerRequest(&req)
 		if err != nil {
-			t.Fatalf("marshalBedrockRequest failed: %v", err)
+			t.Fatalf("marshalPartnerRequest failed: %v", err)
 		}
 
 		var m map[string]interface{}
@@ -537,9 +537,9 @@ func TestMarshalBedrockRequest(t *testing.T) {
 			TopP:        0.9,
 		}
 
-		data, err := provider.marshalBedrockRequest(&req)
+		data, err := provider.marshalPartnerRequest(&req)
 		if err != nil {
-			t.Fatalf("marshalBedrockRequest failed: %v", err)
+			t.Fatalf("marshalPartnerRequest failed: %v", err)
 		}
 
 		var m map[string]interface{}
@@ -564,9 +564,9 @@ func TestMarshalBedrockRequest(t *testing.T) {
 			Messages:  []claudeMessage{},
 		}
 
-		data, err := provider.marshalBedrockRequest(&req)
+		data, err := provider.marshalPartnerRequest(&req)
 		if err != nil {
-			t.Fatalf("marshalBedrockRequest failed: %v", err)
+			t.Fatalf("marshalPartnerRequest failed: %v", err)
 		}
 
 		var m map[string]interface{}

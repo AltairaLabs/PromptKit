@@ -571,7 +571,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request *claudeRequest) 
 	var reqBytes []byte
 	var err error
 	if p.isPartnerHosted() {
-		reqBytes, err = p.marshalBedrockStreamingRequest(request)
+		reqBytes, err = p.marshalPartnerRequest(request)
 	} else {
 		reqBytes, err = json.Marshal(request)
 	}
@@ -656,7 +656,7 @@ func (p *ToolProvider) streamVertexToolRequest(
 	ctx context.Context,
 	claudeReq *claudeRequest,
 ) (<-chan providers.StreamChunk, error) {
-	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	reqBody, err := p.marshalPartnerRequest(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
@@ -696,7 +696,7 @@ func (p *ToolProvider) streamBedrockToolRequest(
 	ctx context.Context,
 	claudeReq *claudeRequest,
 ) (<-chan providers.StreamChunk, error) {
-	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	reqBody, err := p.marshalPartnerRequest(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}

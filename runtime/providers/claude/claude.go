@@ -310,20 +310,15 @@ func (p *Provider) messagesStreamURL() string {
 	}
 }
 
-// marshalBedrockStreamingRequest converts any request map to partner-platform
-// streaming JSON: injects anthropic_version (with the platform-specific value)
-// and removes both the model and stream fields. Used by both Bedrock
-// (binary event-stream) and Vertex (SSE via :streamRawPredict) — neither
-// puts the model in the body, neither uses the stream flag (the URL action
-// signals streaming for both).
-// marshalBedrockStreamingRequest produces the partner-platform (Bedrock/Vertex)
-// body for every path that carries the full canonical request — streaming, and
-// the tool paths (streaming and non-streaming): the model and stream fields are
-// dropped (the model lives in the URL path) and anthropic_version is injected.
-// All other fields the builder set (system, temperature, output_config, tools,
-// tool_choice) pass through unchanged. The plain non-streaming Predict path uses
-// the narrower marshalBedrockRequest instead (see its note on output_config).
-func (p *Provider) marshalBedrockStreamingRequest(cr *claudeRequest) ([]byte, error) {
+// marshalPartnerRequest produces the partner-platform (Bedrock/Vertex) body
+// from the canonical request struct. It is the single partner marshaler for
+// EVERY partner path — plain Predict, streaming, and the tool paths (streaming
+// and non-streaming): the model and stream fields are dropped (the model lives
+// in the URL path; the URL action signals streaming) and anthropic_version is
+// injected. Every other field the builder set (system, temperature,
+// output_config, tools, tool_choice) passes through unchanged, so partner
+// requests can no longer silently drop a field the direct API honors (#1379).
+func (p *Provider) marshalPartnerRequest(cr *claudeRequest) ([]byte, error) {
 	raw, err := json.Marshal(cr)
 	if err != nil {
 		return nil, err
@@ -373,28 +368,6 @@ func (p *Provider) makeBedrockStreamingRequest(
 
 	scanner := providers.NewBedrockEventScanner(resp.Body)
 	return resp.Body, scanner, nil
-}
-
-// marshalBedrockRequest converts a claudeRequest to JSON with partner-platform
-// fields: anthropic_version (with the platform-specific value) and no model
-// field (the model is specified in the URL path). Used by both Bedrock and
-// Vertex non-streaming Predict calls.
-func (p *Provider) marshalBedrockRequest(claudeReq *claudeRequest) ([]byte, error) {
-	m := map[string]interface{}{
-		bedrockVersionBodyKey: p.platformAnthropicVersion(),
-		"max_tokens":          claudeReq.MaxTokens,
-		"messages":            claudeReq.Messages,
-	}
-	if len(claudeReq.System) > 0 {
-		m["system"] = claudeReq.System
-	}
-	if claudeReq.Temperature != 0 {
-		m["temperature"] = claudeReq.Temperature
-	}
-	if claudeReq.TopP != 0 {
-		m["top_p"] = claudeReq.TopP
-	}
-	return json.Marshal(m)
 }
 
 // applyAuth applies authentication to an HTTP request.
@@ -635,12 +608,13 @@ func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (fina
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
 func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
-	// Partner-hosted (Bedrock/Vertex): marshal via a map so we can inject
-	// anthropic_version into the body and drop the model field.
+	// Partner-hosted (Bedrock/Vertex): inject anthropic_version and drop the
+	// model field via the shared partner marshaler — the same transform every
+	// other partner path uses, so output_config and any future field stay in.
 	var reqBody []byte
 	var err error
 	if p.isPartnerHosted() {
-		reqBody, err = p.marshalBedrockRequest(&claudeReq)
+		reqBody, err = p.marshalPartnerRequest(&claudeReq)
 	} else {
 		reqBody, err = json.Marshal(claudeReq)
 	}

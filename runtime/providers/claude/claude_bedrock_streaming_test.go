@@ -245,7 +245,7 @@ func TestBedrockMarshalStreamingRequest(t *testing.T) {
 		Temperature: 0.7,
 	}
 
-	body, err := provider.marshalBedrockStreamingRequest(&req)
+	body, err := provider.marshalPartnerRequest(&req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -12,6 +12,23 @@
       "role": "user"
     }
   ],
+  "output_config": {
+    "format": {
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "type": "object"
+      },
+      "type": "json_schema"
+    }
+  },
   "system": [
     {
       "text": "you are helpful",

@@ -226,11 +226,10 @@ func TestGolden_PredictWithTools_Direct(t *testing.T) {
 	assertGolden(t, "predict_tools_direct", body)
 }
 
-// The partner-platform marshalers (Bedrock/Vertex) are layered transforms on
-// top of the base body. These function-level goldens pin their output —
-// including the existing drift that marshalBedrockRequest drops output_config
-// and tools while marshalBedrockStreamingRequest preserves them. #1379 must
-// preserve this exactly; fixing the drift is a separate, explicit change.
+// marshalPartnerRequest is the single Bedrock/Vertex transform layered on the
+// canonical body. These goldens pin its output for the non-streaming (plain
+// Predict) and streaming inputs. Both now PRESERVE output_config — #1379 fixed
+// the prior drift where plain Predict on a partner platform silently dropped it.
 
 func goldenBedrockProvider(t *testing.T) *Provider {
 	t.Helper()
@@ -243,7 +242,7 @@ func goldenBedrockProvider(t *testing.T) *Provider {
 	)
 }
 
-func TestGolden_MarshalBedrockRequest(t *testing.T) {
+func TestGolden_PartnerRequest_NonStreaming(t *testing.T) {
 	p := goldenBedrockProvider(t)
 	req := &claudeRequest{
 		Model:     "anthropic.claude-opus-4-8",
@@ -256,14 +255,18 @@ func TestGolden_MarshalBedrockRequest(t *testing.T) {
 		Temperature:  0.1,
 		OutputConfig: outputConfigFor(goldenJSONSchemaResponseFormat()),
 	}
-	body, err := p.marshalBedrockRequest(req)
+	body, err := p.marshalPartnerRequest(req)
 	if err != nil {
-		t.Fatalf("marshalBedrockRequest: %v", err)
+		t.Fatalf("marshalPartnerRequest: %v", err)
 	}
-	assertGolden(t, "marshal_bedrock_request", body)
+	// Regression guard for the fixed drift: output_config must survive.
+	if !bytes.Contains(body, []byte(`"output_config"`)) {
+		t.Errorf("output_config must be preserved on the partner non-stream path; got: %s", body)
+	}
+	assertGolden(t, "partner_request_nonstreaming", body)
 }
 
-func TestGolden_MarshalBedrockStreamingRequest(t *testing.T) {
+func TestGolden_PartnerRequest_Streaming(t *testing.T) {
 	p := goldenBedrockProvider(t)
 	cr := claudeRequest{
 		Model:     "anthropic.claude-opus-4-8",
@@ -277,11 +280,11 @@ func TestGolden_MarshalBedrockStreamingRequest(t *testing.T) {
 		Stream:       true,
 		OutputConfig: outputConfigFor(goldenJSONSchemaResponseFormat()),
 	}
-	body, err := p.marshalBedrockStreamingRequest(&cr)
+	body, err := p.marshalPartnerRequest(&cr)
 	if err != nil {
-		t.Fatalf("marshalBedrockStreamingRequest: %v", err)
+		t.Fatalf("marshalPartnerRequest: %v", err)
 	}
-	assertGolden(t, "marshal_bedrock_streaming_request", body)
+	assertGolden(t, "partner_request_streaming", body)
 }
 
 func TestGolden_PredictStreamWithTools_Direct(t *testing.T) {
