@@ -35,6 +35,12 @@ var defaultRegistryJSON = `{
       "description": "AWS Bedrock AgentCore",
       "latest": "0.2.0",
       "maintained_by": "AltairaLabs"
+    },
+    "omnia": {
+      "repo": "AltairaLabs/PromptArena-deploy-omnia",
+      "description": "Omnia Kubernetes platform",
+      "latest": "1.0.0",
+      "maintained_by": "AltairaLabs"
     }
   }
 }`

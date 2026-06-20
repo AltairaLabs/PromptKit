@@ -64,7 +64,15 @@ type rpcError struct {
 
 // applyResult wraps the adapter state returned by Apply.
 type applyResult struct {
-	AdapterState string `json:"adapter_state"`
+	AdapterState string               `json:"adapter_state"`
+	Events       []*deploy.ApplyEvent `json:"events,omitempty"`
+}
+
+// destroyResult carries the destroy outcome plus the streamed events so the
+// client can replay them to its callback.
+type destroyResult struct {
+	Status string                 `json:"status"`
+	Events []*deploy.DestroyEvent `json:"events,omitempty"`
 }
 
 // Serve reads JSON-RPC requests from stdin, dispatches them to the
@@ -227,7 +235,7 @@ func handleApply(
 	if err != nil {
 		return errResponse(req.ID, CodeInternalError, err.Error())
 	}
-	return okResponse(req.ID, &applyResult{AdapterState: state})
+	return okResponse(req.ID, &applyResult{AdapterState: state, Events: events})
 }
 
 // handleDestroy handles the destroy method.
@@ -249,7 +257,7 @@ func handleDestroy(
 	if err != nil {
 		return errResponse(req.ID, CodeInternalError, err.Error())
 	}
-	return okResponse(req.ID, map[string]string{"status": "destroyed"})
+	return okResponse(req.ID, &destroyResult{Status: "destroyed", Events: events})
 }
 
 // handleStatus handles the status method.
