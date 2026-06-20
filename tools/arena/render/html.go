@@ -28,6 +28,7 @@ import (
 	"github.com/russross/blackfriday/v2"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -154,41 +155,47 @@ func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Ar
 	return byRun
 }
 
-// GenerateHTMLReport creates an HTML report from run results
-func GenerateHTMLReport(results []engine.RunResult, outputPath string) error {
-	// Prepare data
+// Report output permissions.
+const (
+	reportDirPerm  = 0o750
+	reportFilePerm = 0o644
+)
+
+// GenerateHTMLReport creates an HTML report from run results.
+func GenerateHTMLReport(results []engine.RunResult, outputPath string) (err error) {
+	// A render panic on one malformed message must never crash the process or
+	// lose the whole report; degrade to an error instead.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("html report generation panicked (recovered): %v", r)
+		}
+	}()
+
 	data := prepareReportData(results)
 	// Surface any hook-declared per-run artifacts (e.g. a captured workspace) as
-	// links. Manifests live next to the report under artifacts/<RunID>.json.
+	// links. Manifests live next to the report under artifacts/<RunID>/.
 	data.ArtifactsByRun = loadRunArtifacts(filepath.Dir(outputPath), results)
 
-	// Generate HTML
-	html, err := generateHTML(&data)
-	if err != nil {
-		return fmt.Errorf("failed to generate HTML: %w", err)
+	html, genErr := generateHTML(&data)
+	if genErr != nil {
+		return fmt.Errorf("failed to generate HTML: %w", genErr)
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(outputPath), reportDirPerm); mkErr != nil {
+		return fmt.Errorf("failed to create output directory: %w", mkErr)
+	}
+	if wErr := os.WriteFile(outputPath, []byte(html), reportFilePerm); wErr != nil {
+		return fmt.Errorf("failed to write HTML file: %w", wErr)
 	}
 
-	// Create output directory if needed
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Write HTML file
-	if err := os.WriteFile(outputPath, []byte(html), 0644); err != nil {
-		return fmt.Errorf("failed to write HTML file: %w", err)
-	}
-
-	// Generate companion JSON data file
+	// The companion JSON is a convenience; its failure must NOT fail the report —
+	// the HTML (the primary artifact) is already written. This is what previously
+	// lost the whole report when one message couldn't marshal.
 	jsonPath := strings.TrimSuffix(outputPath, ".html") + "-data.json"
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON data: %w", err)
+	if jsonData, jErr := json.MarshalIndent(data, "", "  "); jErr != nil {
+		logger.Warn("report companion JSON marshal failed; HTML report still written", "error", jErr)
+	} else if jErr := os.WriteFile(jsonPath, jsonData, reportFilePerm); jErr != nil {
+		logger.Warn("report companion JSON write failed; HTML report still written", "error", jErr)
 	}
-
-	if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
-		return fmt.Errorf("failed to write JSON data file: %w", err)
-	}
-
 	return nil
 }
 
