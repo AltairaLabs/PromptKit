@@ -98,7 +98,9 @@ jobs:
         echo "Validating Arena configs with promptarena validate..."
         ERRORS=0
         
-        for file in $(find examples -name "config.arena.yaml" -o -name "*.arena.yaml" -o -name "arena.yaml"); do
+        # Exclude testdata/ fixtures: kits used as inputs to example gate scripts
+        # (e.g. trap-kit/empty-kit are intentionally invalid), not example configs.
+        for file in $(find examples -path "*/testdata/*" -prune -o \( -name "config.arena.yaml" -o -name "*.arena.yaml" -o -name "arena.yaml" \) -print); do
           echo "Validating $file..."
           if ./bin/promptarena validate "$file" --schema-only; then
             echo "✓ $file passed"
