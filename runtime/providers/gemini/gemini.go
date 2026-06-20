@@ -691,6 +691,12 @@ func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 	}
 }
 
+// SupportsPromptCaching reports that Gemini 2.5+ models apply implicit prompt
+// caching automatically, so the pipeline's caching-stall warning applies here.
+// Caching engages only when the request prefix is stable across rounds (see the
+// deterministic tool-order fix).
+func (p *Provider) SupportsPromptCaching() bool { return true }
+
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
