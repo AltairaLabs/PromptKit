@@ -273,8 +273,15 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	// Calculate cost breakdown
 	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
+	// Guard against an empty/odd API response (no candidates, no parts) rather
+	// than panicking with an index-out-of-range.
+	if len(geminiResp.Candidates) == 0 {
+		return predictResp, fmt.Errorf("gemini: response contained no candidates")
+	}
 	candidate := geminiResp.Candidates[0]
-	predictResp.Content = candidate.Content.Parts[0].Text
+	if len(candidate.Content.Parts) > 0 {
+		predictResp.Content = candidate.Content.Parts[0].Text
+	}
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
