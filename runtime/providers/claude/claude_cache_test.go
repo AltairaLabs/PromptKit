@@ -305,3 +305,77 @@ func TestToolProvider_CacheControlNotSentWhenDisabled(t *testing.T) {
 		}
 	}
 }
+
+// TestToolProvider_CacheControlOnContentBlockNotMessage is a regression test for
+// the Anthropic API rule that cache_control is only valid on content blocks (and
+// tools/system), never on a message object — a message-level cache_control returns
+// 400 "messages.N.cache_control: Extra inputs are not permitted". With caching
+// ENABLED and tools present, the breakpoint must land on a content block.
+func TestToolProvider_CacheControlOnContentBlockNotMessage(t *testing.T) {
+	var capturedRequest map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedRequest); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "msg_test", "type": "message", "role": "assistant",
+			"content": []map[string]string{{"type": "text", "text": "Hello"}},
+			"model":   "claude-haiku-4-5",
+			"usage":   map[string]int{"input_tokens": 10, "output_tokens": 5},
+		})
+	}))
+	defer server.Close()
+
+	os.Setenv("ANTHROPIC_API_KEY", "test-key")
+	defer os.Unsetenv("ANTHROPIC_API_KEY")
+
+	// Caching ENABLED (default — DisablePromptCaching is false) for a current model.
+	provider := NewToolProvider("test-provider", "claude-haiku-4-5", server.URL,
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100, TopP: 1.0}, false)
+
+	req := providers.PredictionRequest{
+		Messages:    []types.Message{{Role: "user", Content: "please use a tool"}},
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}
+	tools := []*providers.ToolDescriptor{
+		{Name: "test_tool", Description: "A test tool", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}
+
+	if _, _, err := provider.PredictWithTools(context.Background(), req, tools, "auto"); err != nil {
+		t.Fatalf("PredictWithTools failed: %v", err)
+	}
+
+	messages, ok := capturedRequest["messages"].([]interface{})
+	if !ok || len(messages) == 0 {
+		t.Fatalf("no messages captured: %v", capturedRequest)
+	}
+	firstMsg, ok := messages[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("message[0] is not an object")
+	}
+
+	// The bug: cache_control must NOT be on the message object.
+	if cc, exists := firstMsg["cache_control"]; exists {
+		t.Fatalf("cache_control on a message object is rejected by the API (messages.0.cache_control); found: %v", cc)
+	}
+
+	// With caching enabled, the breakpoint must be on a content block.
+	content, ok := firstMsg["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		t.Fatalf("message[0].content missing or empty")
+	}
+	foundBlockCache := false
+	for _, blk := range content {
+		if bm, ok := blk.(map[string]interface{}); ok {
+			if _, exists := bm["cache_control"]; exists {
+				foundBlockCache = true
+			}
+		}
+	}
+	if !foundBlockCache {
+		t.Fatalf("expected cache_control on a content block when caching is enabled; content: %v", content)
+	}
+}

@@ -46,6 +46,11 @@ func ParseScope(raw string) (Scope, error) {
 type MCPConn struct {
 	URL     string
 	Headers map[string]string
+	// ContainerID is the backing container's ID when the source runs one (e.g.
+	// the docker source); empty for non-container backends. Surfaced into
+	// SessionEvent metadata so session hooks can reach the sandbox (e.g. a
+	// workspace-capture hook running `docker cp`).
+	ContainerID string
 }
 
 // MCPSource opens an MCP endpoint with caller-supplied args.

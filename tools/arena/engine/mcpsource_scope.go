@@ -25,8 +25,9 @@ const discoveryTimeout = 30 * time.Second
 // openEntry tracks one open (scope, instance, server-name) triple so
 // CloseAll can find and tear it down.
 type openEntry struct {
-	serverName string
-	closer     io.Closer
+	serverName  string
+	closer      io.Closer
+	containerID string // backing container ID when the source runs one (else "")
 }
 
 // mcpSourceScope manages per-scope open/close of source-backed MCP entries.
@@ -152,7 +153,27 @@ func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerCon
 		_ = closer.Close()
 		return openEntry{}, fmt.Errorf("mcp server %q: discover tools after Open failed: %w", entry.Name, err)
 	}
-	return openEntry{serverName: entry.Name, closer: closer}, nil
+	return openEntry{serverName: entry.Name, closer: closer, containerID: conn.ContainerID}, nil
+}
+
+// containerIDs returns the backing container ID for every currently-open source
+// that has one, keyed by server name. Surfaced into SessionEvent metadata so
+// session hooks can reach the sandbox container. Returns nil when none.
+func (m *mcpSourceScope) containerIDs() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]string{}
+	for _, entries := range m.opens {
+		for _, e := range entries {
+			if e.containerID != "" {
+				out[e.serverName] = e.containerID
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // discoverAndRegisterServerTools lists tools from the just-registered MCP

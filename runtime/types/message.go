@@ -113,6 +113,43 @@ type ToolDef struct {
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"` // Optional JSON Schema for output validation
 }
 
+// emptyJSONObject is substituted for an empty/nil json.RawMessage so json.Marshal
+// never fails with "unexpected end of JSON input".
+var emptyJSONObject = json.RawMessage("{}")
+
+// NormalizeRawMessage returns a valid JSON value for raw, substituting "{}" when
+// raw is nil, empty, OR not well-formed JSON. Two crash sources in the agent loop
+// motivate this: LLMs routinely emit tool calls with no arguments (empty), and a
+// streamed tool call cut off at max_tokens leaves *truncated* args (e.g.
+// `{"path":"foo`) — non-empty but invalid. Both fail json.RawMessage's encoder
+// with "unexpected end of JSON input". Provider request builders and the message
+// types call this at the boundary so a missing or broken blob degrades to {}
+// instead of crashing a request or losing a whole run's saved output.
+func NormalizeRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return emptyJSONObject
+	}
+	return raw
+}
+
+// MarshalJSON ensures Args is always valid JSON (empty -> {}). A tool call with
+// no arguments must never crash request building or result persistence.
+func (mtc MessageToolCall) MarshalJSON() ([]byte, error) {
+	type alias MessageToolCall
+	a := alias(mtc)
+	a.Args = NormalizeRawMessage(a.Args)
+	return json.Marshal(a)
+}
+
+// MarshalJSON ensures InputSchema is always valid JSON (empty -> {}). A tool with
+// no input schema must never crash a provider request.
+func (td ToolDef) MarshalJSON() ([]byte, error) { //nolint:gocritic // value receiver required for json.Marshaler
+	type alias ToolDef
+	a := alias(td)
+	a.InputSchema = NormalizeRawMessage(a.InputSchema)
+	return json.Marshal(a)
+}
+
 // CostInfo tracks token usage and associated costs for LLM operations.
 // All cost values are in USD. Used for both individual messages and aggregated tracking.
 type CostInfo struct {

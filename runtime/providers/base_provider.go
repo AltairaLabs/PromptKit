@@ -20,6 +20,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 )
 
 // Connection pooling defaults for HTTP transports shared across providers.
@@ -547,7 +548,12 @@ func (b *BaseProvider) RunStreamingRequest(
 	// fully drained so a slow caller does not hold an upstream slot.
 	go func() {
 		defer b.ReleaseStreamSlot()
-		consumer(ctx, result.Body, innerChan)
+		// Recover any panic from the provider-specific parser (malformed stream,
+		// bad chunk) so it can't crash the process. The consumer's own deferred
+		// close of innerChan still runs during unwinding, so the relay sees EOF.
+		safe.Run("provider-stream-consumer", func() {
+			consumer(ctx, result.Body, innerChan)
+		}, nil)
 	}()
 
 	// Relay goroutine: observes instrumentation while forwarding every
@@ -568,7 +574,11 @@ func (b *BaseProvider) RunStreamingRequest(
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
 		}()
-		b.relayStream(ctx, req, consumer, innerChan, outChan, metrics, providerID)
+		// Recover any panic so the relay can't crash the process; the deferred
+		// close(outChan) still runs, so the caller sees EOF instead of a hang.
+		safe.Run("provider-stream-relay", func() {
+			b.relayStream(ctx, req, consumer, innerChan, outChan, metrics, providerID)
+		}, nil)
 	}()
 
 	return outChan, nil
@@ -657,7 +667,11 @@ func midStreamRetry(
 
 	retryChan := make(chan StreamChunk, DefaultStreamBufferSize)
 	go func() {
-		consumer(ctx, retryResult.Body, retryChan)
+		// Recover any panic from the retry parser; consumer's deferred close of
+		// retryChan still runs so forwardChunks sees EOF rather than a crash.
+		safe.Run("provider-stream-retry-consumer", func() {
+			consumer(ctx, retryResult.Body, retryChan)
+		}, nil)
 	}()
 
 	forwardChunks(retryChan, outChan, metrics, providerID)

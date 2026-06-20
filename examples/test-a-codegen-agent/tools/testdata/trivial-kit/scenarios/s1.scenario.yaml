@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: thin
+spec:
+  id: thin
+  turns:
+    - role: user
+      content: "hi"
+      assertions:
+        - type: min_length
+          params:
+            min: 1

@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -196,6 +197,7 @@ func (e *EvalConversationExecutor) ExecuteConversationStream(
 
 	go func() {
 		defer close(outChan)
+		defer safe.Recover("arena-eval-conversation-stream")
 
 		// Execute non-streaming and send final result
 		result := e.ExecuteConversation(ctx, req)
@@ -298,10 +300,23 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 	convResults := assertions.ConvertEvalResults(evalResults)
 	results := make([]assertions.AssertionResult, len(convResults))
 	for i, cr := range convResults {
+		// Surface the assertion's configured message as the headline; keep the
+		// handler explanation under details.explanation.
+		dispMsg := cr.Message
+		details := cr.Details
+		if i < len(assertionConfigs) && assertionConfigs[i].Message != "" {
+			if details == nil {
+				details = map[string]interface{}{}
+			}
+			if cr.Message != "" {
+				details["explanation"] = cr.Message
+			}
+			dispMsg = assertionConfigs[i].Message
+		}
 		results[i] = assertions.AssertionResult{
 			Passed:  cr.Passed,
-			Details: cr.Details,
-			Message: cr.Message,
+			Details: details,
+			Message: dispMsg,
 		}
 	}
 

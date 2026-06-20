@@ -24,6 +24,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -31,6 +32,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -46,6 +48,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -94,6 +97,9 @@ type Engine struct {
 	audioMonitorMu       sync.RWMutex                 // Guards audioMonitorHooks
 	runCompletedHooks    []RunCompletedHook           // Subscribers fired when each run finishes
 	runCompletedMu       sync.RWMutex                 // Guards runCompletedHooks
+	sessionHooks         *hooks.Registry              // Optional — fires SessionHook lifecycle per run
+	outputDir            string                       // Resolved report output dir; exposes per-run artifacts base
+	artifactStore        artifacts.Store              // Persists per-run report artifacts (default: local backend)
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -132,10 +138,10 @@ func (e *Engine) RegisterAudioMonitorHook(hook AudioMonitorHook) {
 // hook does not race or deadlock with iteration.
 func (e *Engine) fireAudioMonitorHooks(runID string, router *arenaaudio.AudioRouter, rate int) {
 	e.audioMonitorMu.RLock()
-	hooks := make([]AudioMonitorHook, len(e.audioMonitorHooks))
-	copy(hooks, e.audioMonitorHooks)
+	audioHooks := make([]AudioMonitorHook, len(e.audioMonitorHooks))
+	copy(audioHooks, e.audioMonitorHooks)
 	e.audioMonitorMu.RUnlock()
-	for _, h := range hooks {
+	for _, h := range audioHooks {
 		h(runID, router, rate)
 	}
 }
@@ -165,12 +171,62 @@ func (e *Engine) RegisterRunCompletedHook(hook RunCompletedHook) {
 
 func (e *Engine) fireRunCompletedHooks(runID string, err error) {
 	e.runCompletedMu.RLock()
-	hooks := make([]RunCompletedHook, len(e.runCompletedHooks))
-	copy(hooks, e.runCompletedHooks)
+	runHooks := make([]RunCompletedHook, len(e.runCompletedHooks))
+	copy(runHooks, e.runCompletedHooks)
 	e.runCompletedMu.RUnlock()
-	for _, h := range hooks {
+	for _, h := range runHooks {
 		h(runID, err)
 	}
+}
+
+// WithSessionHooks configures session lifecycle hooks on the Engine.
+// When set, the engine fires OnSessionStart before the first turn,
+// OnSessionUpdate after each turn, and OnSessionEnd after the conversation
+// completes. A nil registry is a no-op — no hooks are fired.
+func (e *Engine) WithSessionHooks(reg *hooks.Registry) {
+	e.sessionHooks = reg
+}
+
+// outputDirPerm is the permission for engine-created output directories.
+const outputDirPerm = 0o750
+
+// WithOutputDir sets the resolved report output directory so the engine can
+// expose each run's artifacts base (<outputDir>/artifacts/<runID>) to hooks
+// via SessionEvent metadata. A nil/empty dir disables artifacts-base exposure.
+func (e *Engine) WithOutputDir(dir string) {
+	e.outputDir = dir
+}
+
+// WithArtifactStore sets the backend that persists per-run report artifacts.
+// Defaults to the local backend (bytes left in place) when unset.
+func (e *Engine) WithArtifactStore(s artifacts.Store) {
+	e.artifactStore = s
+}
+
+// sessionEventMetadata returns the per-event metadata map injected into every
+// SessionEvent fired by the engine. It includes the tool registry so that
+// SessionHook implementations (e.g. tool_exec eval) can access registered tools.
+func (e *Engine) sessionEventMetadata(runCtx context.Context, runID string) map[string]any {
+	meta := map[string]any{
+		"tool_registry": e.toolRegistry,
+	}
+	// Surface this run's open sandbox container IDs (keyed by server name) so
+	// session hooks can reach the sandbox — e.g. a workspace-capture hook running
+	// `docker cp`. The IDs come from the per-run MCP scope via the run context.
+	if cids := sandboxContainerIDsFromContext(runCtx); len(cids) > 0 {
+		meta["sandbox_containers"] = cids
+	}
+	// Expose this run's artifacts directory — the base path, owned by Arena from
+	// config (<outDir>/artifacts/<runID>). Hooks write their outputs here and
+	// record only relative filenames; the report links <base>/<filename>. Arena
+	// creates the dir so hooks don't have to know the output layout.
+	if e.outputDir != "" && runID != "" {
+		dir := filepath.Join(e.outputDir, "artifacts", runID)
+		if err := os.MkdirAll(dir, outputDirPerm); err == nil {
+			meta["artifacts_dir"] = dir
+		}
+	}
+	return meta
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -245,6 +301,15 @@ func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine,
 			a2aCleanup()
 		}
 		return nil, fmt.Errorf("failed to initialize memory: %w", err)
+	}
+
+	// Wire pass-through runtime config (cfg.Runtime): build hooks from
+	// cfg.Runtime.Hooks using the same runtime builder the SDK uses.
+	if err := eng.applyRuntimeHooks(); err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, fmt.Errorf("failed to apply runtime hooks: %w", err)
 	}
 
 	// Use the eval orchestrator from the conversation executor — it already

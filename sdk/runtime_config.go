@@ -36,79 +36,42 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
-// resolveSandboxes builds a map from declared sandbox names to ready
-// Sandbox instances by looking up each mode in the process-wide factory
-// registry. Factories are expected to have been registered via
-// sandbox.RegisterFactory, direct's init, or sdk.WithSandboxFactory
-// before RuntimeConfig is applied.
-func resolveSandboxes(specs map[string]*pkgconfig.SandboxConfig) (map[string]sandbox.Sandbox, error) {
-	if len(specs) == 0 {
-		return nil, nil
-	}
-	out := make(map[string]sandbox.Sandbox, len(specs))
-	for name, sb := range specs {
-		if sb == nil {
-			continue
-		}
-		factory, err := sandbox.LookupFactory(sb.Mode)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox %q: %w", name, err)
-		}
-		inst, err := factory(name, sb.Config)
-		if err != nil {
-			return nil, fmt.Errorf("building sandbox %q: %w", name, err)
-		}
-		out[name] = inst
-	}
-	return out, nil
-}
-
 // applyExecHooks creates exec hook adapters from RuntimeConfig hook bindings
-// and appends them to the appropriate hook slices in the SDK config.
-// Resolved sandboxes (from spec.Sandboxes) are looked up by name when a
-// binding sets its "sandbox:" field; unknown names are rejected.
+// and appends them to the appropriate hook slices in the SDK config. The
+// provider/tool/session conversion is shared with Arena via
+// hooks.BuildExecHooks so the two never drift; eval hooks live in the evals
+// package and are wired here.
 func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook, resolved map[string]sandbox.Sandbox) error {
+	provider, tool, session, err := hooks.BuildExecHooks(hookBindings, resolved)
+	if err != nil {
+		return err
+	}
+	c.providerHooks = append(c.providerHooks, provider...)
+	c.toolHooks = append(c.toolHooks, tool...)
+	c.sessionHooks = append(c.sessionHooks, session...)
+
 	for name, binding := range hookBindings {
-		if binding == nil {
+		if binding == nil || binding.Hook != hooks.HookTypeEval {
 			continue
 		}
 		var sb sandbox.Sandbox
 		if binding.Sandbox != "" {
-			var ok bool
-			sb, ok = resolved[binding.Sandbox]
+			s, ok := resolved[binding.Sandbox]
 			if !ok {
 				return fmt.Errorf("hook %q references undeclared sandbox %q", name, binding.Sandbox)
 			}
+			sb = s
 		}
-		cfg := &hooks.ExecHookConfig{
+		// Eval hooks are observational and have no phases or modes,
+		// so we only forward the fields that ExecEvalHook uses.
+		c.evalHooks = append(c.evalHooks, evals.NewExecEvalHook(&evals.ExecEvalHookConfig{
 			Name:      name,
 			Command:   binding.Command,
 			Args:      binding.Args,
 			Env:       binding.Env,
 			TimeoutMs: binding.TimeoutMs,
-			Phases:    binding.Phases,
-			Mode:      binding.Mode,
 			Sandbox:   sb,
-		}
-		switch binding.Hook {
-		case "provider":
-			c.providerHooks = append(c.providerHooks, hooks.NewExecProviderHook(cfg))
-		case "tool":
-			c.toolHooks = append(c.toolHooks, hooks.NewExecToolHook(cfg))
-		case "session":
-			c.sessionHooks = append(c.sessionHooks, hooks.NewExecSessionHook(cfg))
-		case "eval":
-			// Eval hooks are observational and have no phases or modes,
-			// so we only forward the fields that ExecEvalHook uses.
-			c.evalHooks = append(c.evalHooks, evals.NewExecEvalHook(&evals.ExecEvalHookConfig{
-				Name:      name,
-				Command:   binding.Command,
-				Args:      binding.Args,
-				Env:       binding.Env,
-				TimeoutMs: binding.TimeoutMs,
-				Sandbox:   sb,
-			}))
-		}
+		}))
 	}
 	return nil
 }
@@ -220,7 +183,7 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 
 	// Resolve declared sandboxes, then apply exec hooks (which may
 	// reference them by name).
-	resolved, err := resolveSandboxes(spec.Sandboxes)
+	resolved, err := hooks.ResolveSandboxes(spec.Sandboxes)
 	if err != nil {
 		return fmt.Errorf("resolving sandboxes from runtime config: %w", err)
 	}

@@ -67,10 +67,23 @@ func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 		convResults := arenaassertions.ConvertEvalResults(evalResults)
 		results := make([]arenaassertions.AssertionResult, len(convResults))
 		for i, cr := range convResults {
+			// Surface the assertion's configured message as the headline; keep the
+			// handler explanation under details.explanation.
+			dispMsg := cr.Message
+			details := cr.Details
+			if i < len(assertionConfigs) && assertionConfigs[i].Message != "" {
+				if details == nil {
+					details = map[string]interface{}{}
+				}
+				if cr.Message != "" {
+					details["explanation"] = cr.Message
+				}
+				dispMsg = assertionConfigs[i].Message
+			}
 			results[i] = arenaassertions.AssertionResult{
 				Passed:  cr.Passed,
-				Details: cr.Details,
-				Message: cr.Message,
+				Details: details,
+				Message: dispMsg,
 			}
 		}
 

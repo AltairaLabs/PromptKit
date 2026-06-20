@@ -3079,7 +3079,7 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	t.Run("aborts at threshold with identical args", func(t *testing.T) {
+	t.Run("nudges at threshold then aborts if it persists", func(t *testing.T) {
 		stg := NewProviderStage(provider, registry,
 			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
 			&ProviderConfig{},
@@ -3094,30 +3094,37 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 		loop.maxRounds = 10 // high so rounds don't interfere
 
 		identicalArgs := json.RawMessage(`{"query":"same"}`)
-		// Round 1 and 2: below threshold — should continue
-		for round := 1; round <= 2; round++ {
-			response := types.Message{
+		mkResponse := func(round int) *types.Message {
+			return &types.Message{
 				Role: "assistant",
 				ToolCalls: []types.MessageToolCall{
 					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool", Args: identicalArgs},
 				},
 			}
-			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+		}
+
+		// Rounds 1-2: below threshold — continue.
+		for round := 1; round <= 2; round++ {
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(round), true, round)
 			assert.False(t, done, "round %d: should not stop before threshold", round)
 			require.NoError(t, loopErr, "round %d: should not error before threshold", round)
 		}
 
-		// Round 3: hits threshold — must abort
-		response3 := types.Message{
-			Role: "assistant",
-			ToolCalls: []types.MessageToolCall{
-				{ID: "c3", Name: "loop_tool", Args: identicalArgs},
-			},
-		}
-		done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response3, true, 3)
-		assert.True(t, done, "should stop at threshold")
-		require.Error(t, loopErr, "should return error at threshold")
-		assert.Contains(t, loopErr.Error(), "tool loop detected")
+		// Round 3: hits threshold — NUDGE (continue, no error), feedback appended.
+		before := len(loop.messages)
+		done, msgs, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, 3)
+		assert.False(t, done, "threshold should nudge, not abort")
+		require.NoError(t, loopErr, "threshold nudge should not error")
+		require.Greater(t, len(msgs), before, "a feedback message should be appended")
+		require.NotNil(t, msgs[len(msgs)-1].ToolResult)
+		assert.Contains(t, msgs[len(msgs)-1].ToolResult.GetTextContent(), "Repeated call",
+			"the model should be told it repeated the call")
+
+		// Round 4: still looping after the nudge — ABORT.
+		done, _, loopErr = loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(4), true, 4)
+		assert.True(t, done, "should abort once the loop persists after a nudge")
+		require.Error(t, loopErr, "should error after the nudge fails")
+		assert.Contains(t, loopErr.Error(), "persisted after a self-correction nudge")
 		assert.Contains(t, loopErr.Error(), "loop_tool")
 	})
 

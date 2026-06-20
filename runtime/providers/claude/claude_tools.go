@@ -64,27 +64,32 @@ type claudeTool struct {
 }
 
 type claudeToolUse struct {
-	Type  string          `json:"type"`
-	ID    string          `json:"id"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
+	Type         string              `json:"type"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Input        json.RawMessage     `json:"input"`
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 type claudeToolResult struct {
-	Type      string      `json:"type"`
-	ToolUseID string      `json:"tool_use_id"`
-	Content   interface{} `json:"content"` // string for text-only, []interface{} for multimodal
+	Type         string              `json:"type"`
+	ToolUseID    string              `json:"tool_use_id"`
+	Content      interface{}         `json:"content"` // string for text-only, []interface{} for multimodal
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 type claudeToolMessage struct {
-	Role         string              `json:"role"`
-	Content      []any               `json:"content"`
-	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
+	Role    string `json:"role"`
+	Content []any  `json:"content"`
 }
 
 type claudeTextContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// CacheControl marks a prompt-cache breakpoint. Per the Anthropic API,
+	// cache_control is only valid on content blocks (and tools/system), never on
+	// the message object itself.
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 // BuildTooling converts tool descriptors to Claude format
@@ -98,7 +103,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		tools[i] = claudeTool{
 			Name:        desc.Name,
 			Description: desc.Description,
-			InputSchema: desc.InputSchema,
+			InputSchema: types.NormalizeRawMessage(desc.InputSchema),
 		}
 	}
 
@@ -243,15 +248,14 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
 		for _, toolCall := range msg.ToolCalls {
-			args := toolCall.Args
-			if len(args) == 0 || string(args) == "null" {
-				args = json.RawMessage("{}")
-			}
+			// Normalize empty/null/truncated args to {} — a streamed tool call cut
+			// off at max_tokens leaves non-empty-but-invalid JSON that would crash
+			// the request marshal on replay.
 			content = append(content, claudeToolUse{
 				Type:  "tool_use",
 				ID:    toolCall.ID,
 				Name:  toolCall.Name,
-				Input: args,
+				Input: types.NormalizeRawMessage(toolCall.Args),
 			})
 		}
 	}
@@ -351,13 +355,48 @@ func (p *ToolProvider) processMessageForTools(
 		Content: content,
 	}
 
-	// For caching: cache the first user message if tools are present and model supports caching
+	// For caching: cache the prefix through the first user message when tools are
+	// present and the model supports caching. cache_control must go on a CONTENT
+	// BLOCK (the last one) — the Anthropic API rejects cache_control on a message
+	// object ("messages.N.cache_control: Extra inputs are not permitted").
 	if p.supportsCaching() && msg.Role == roleUser && len(messages) == 0 && tools != nil {
-		claudeMsg.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+		last := len(claudeMsg.Content) - 1
+		if tc, ok := claudeMsg.Content[last].(claudeTextContent); ok {
+			tc.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
+			claudeMsg.Content[last] = tc
+		}
 	}
 
 	messages = append(messages, claudeMsg)
 	return messages, pendingToolResults
+}
+
+// markLastBlockCacheable sets a cache_control breakpoint on the final content
+// block of the most recent message so Anthropic caches the whole conversation
+// prefix up to that point. It walks back within the last message to find a block
+// type that can carry cache_control (text, tool_use, tool_result).
+func markLastBlockCacheable(messages []claudeToolMessage) {
+	if len(messages) == 0 {
+		return
+	}
+	last := &messages[len(messages)-1]
+	bp := &claudeCacheControl{Type: cacheTypeEphemeral}
+	for i := len(last.Content) - 1; i >= 0; i-- {
+		switch b := last.Content[i].(type) {
+		case claudeTextContent:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		case claudeToolUse:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		case claudeToolResult:
+			b.CacheControl = bp
+			last.Content[i] = b
+			return
+		}
+	}
 }
 
 func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
@@ -379,6 +418,16 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		messages = append(messages, flushPendingToolResults(pendingToolResults))
 	}
 
+	// Cache the GROWING conversation prefix. A cache_control breakpoint caches the
+	// entire prefix up to it, and Anthropic auto-matches earlier cached prefixes
+	// within a 20-block lookback, so marking the LAST block rolls the cache forward
+	// each round: round N reads round N-1's full prefix and writes the new one.
+	// (The static first-message breakpoint set above only cached the base, leaving
+	// the growing tool-result history re-billed at full price every round.)
+	if p.supportsCaching() && tools != nil {
+		markLastBlockCacheable(messages)
+	}
+
 	// Apply defaults to zero-valued request parameters
 	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
 
@@ -395,7 +444,12 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	}
 
 	if req.System != "" {
-		request["system"] = req.System
+		// Use the cache-aware system block builder so a long system prompt gets its
+		// own cache_control breakpoint — same as Predict/PredictStream. Sending the
+		// system as a raw string left the (often large) system prompt uncached on
+		// both tool paths (this powers the codegen agent loop), so every round
+		// re-paid full price for the system.
+		request["system"] = p.createSystemBlocks(req.System)
 	}
 
 	if tools != nil {

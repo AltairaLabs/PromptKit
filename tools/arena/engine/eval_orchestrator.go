@@ -262,10 +262,25 @@ func (h *EvalOrchestrator) RunAssertionsAsConversationResults(
 	converted := assertions.ConvertEvalResults(results)
 	// Restore original assertion type names — ConvertEvalResults adds pack_eval:
 	// prefix which is only appropriate for pack-defined evals, not scenario assertions.
+	// Also surface the assertion's configured message (e.g. "Gate 1: kit is
+	// schema-valid") as the headline, so reports label each assertion meaningfully
+	// instead of showing the handler's generic explanation. The handler explanation
+	// is preserved under Details["explanation"].
 	for i := range converted {
-		if i < len(assertionConfigs) {
-			converted[i].Type = assertionConfigs[i].Type
+		if i >= len(assertionConfigs) {
+			continue
 		}
+		converted[i].Type = assertionConfigs[i].Type
+		if assertionConfigs[i].Message == "" {
+			continue
+		}
+		if converted[i].Message != "" {
+			if converted[i].Details == nil {
+				converted[i].Details = map[string]interface{}{}
+			}
+			converted[i].Details["explanation"] = converted[i].Message
+		}
+		converted[i].Message = assertionConfigs[i].Message
 	}
 	return converted
 }

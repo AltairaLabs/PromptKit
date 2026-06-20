@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -93,6 +94,7 @@ func (e *ScriptedExecutor) ExecuteTurnStream(
 
 	go func() {
 		defer close(outChan)
+		defer safe.Recover("arena-scripted-stream")
 
 		// Handle non-streaming providers
 		if e.handleNonStreamingProvider(ctx, &req, outChan) {

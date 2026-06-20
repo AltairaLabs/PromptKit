@@ -113,7 +113,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		functions[i] = geminiFunctionDeclaration{
 			Name:        desc.Name,
 			Description: desc.Description,
-			Parameters:  desc.InputSchema,
+			Parameters:  types.NormalizeRawMessage(desc.InputSchema),
 		}
 	}
 
@@ -527,14 +527,15 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 		}
 	}
 
-	var tokensIn, tokensOut int
+	var tokensIn, tokensOut, cachedTokens int
 	if resp.UsageMetadata != nil {
 		tokensIn = resp.UsageMetadata.PromptTokenCount
 		tokensOut = resp.UsageMetadata.CandidatesTokenCount
+		cachedTokens = resp.UsageMetadata.CachedContentTokenCount
 	}
 
-	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
-	costBreakdown := p.Provider.CalculateCost(tokensIn, tokensOut, 0)
+	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
+	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
 	predictResp.Content = textBuilder.String()
 	predictResp.CostInfo = &costBreakdown

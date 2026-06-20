@@ -1,0 +1,24 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai
+spec:
+  id: openai
+  type: openai
+  model: gpt-4o
+  base_url: https://api.openai.com/v1
+  capabilities:
+    - text
+    - streaming
+    - tools
+    - json
+  defaults:
+    temperature: 0.3
+    max_tokens: 4096
+    top_p: 1.0
+  pricing:
+    input_cost_per_1k: 0.0025
+    output_cost_per_1k: 0.010
+  stream_retry:
+    enabled: true
+    max_attempts: 3

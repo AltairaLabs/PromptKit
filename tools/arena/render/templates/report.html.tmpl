@@ -412,7 +412,53 @@
             transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
             overflow: hidden;
         }
-        
+        .artifacts-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--mist);
+        }
+        .artifacts-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .artifacts-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--deep-space);
+        }
+        .artifacts-count {
+            font-size: 0.8rem;
+            color: var(--slate);
+            margin-left: auto;
+        }
+        .artifacts-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .artifacts-table thead th {
+            background: var(--cloud-white);
+            border: 1px solid var(--mist);
+            padding: 0.5rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--deep-space);
+        }
+        .artifacts-table tbody td {
+            border: 1px solid var(--mist);
+            padding: 0.5rem;
+            vertical-align: top;
+        }
+        .artifact-link {
+            color: #0969da;
+            text-decoration: none;
+        }
+        .artifact-link:hover {
+            text-decoration: underline;
+        }
+
         .result-card.collapsed .result-content {
             max-height: 0;
             opacity: 0;
@@ -2445,6 +2491,28 @@
 
                             {{if hasEvalResults $result}}
                             {{renderEvalResults (getEvalResults $result)}}
+                            {{end}}
+
+                            {{$artifacts := index $.ArtifactsByRun $result.RunID}}
+                            {{if $artifacts}}
+                            <div class="artifacts-section">
+                                <div class="artifacts-header">
+                                    <span class="artifacts-title">Artifacts</span>
+                                    <span class="artifacts-count">{{len $artifacts}}</span>
+                                </div>
+                                <table class="artifacts-table">
+                                    <thead><tr><th>Name</th><th>Description</th><th>Link</th></tr></thead>
+                                    <tbody>
+                                        {{range $artifacts}}
+                                        <tr>
+                                            <td>{{.Name}}</td>
+                                            <td>{{.Description}}</td>
+                                            <td><a class="artifact-link" href="{{.Path}}">📁 {{.Path}}</a></td>
+                                        </tr>
+                                        {{end}}
+                                    </tbody>
+                                </table>
+                            </div>
                             {{end}}
 
                             {{if $result.Error}}

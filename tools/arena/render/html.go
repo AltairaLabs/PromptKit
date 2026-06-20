@@ -28,7 +28,9 @@ import (
 	"github.com/russross/blackfriday/v2"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
@@ -55,6 +57,21 @@ type HTMLReportData struct {
 	Scenarios      []string           `json:"scenarios"`
 	Matrix         [][]MatrixCell     `json:"matrix"` // Deprecated: kept for backwards compatibility
 	ScenarioGroups []ScenarioGroup    `json:"scenario_groups"`
+	// ArtifactsByRun maps a run's RunID to artifacts a hook declared for it via a
+	// manifest at <outDir>/artifacts/<RunID>.json, rendered as per-run links. The
+	// report knows nothing about what hooks produce — it only surfaces what they
+	// declare. Empty when no manifest exists.
+	ArtifactsByRun map[string][]Artifact `json:"artifacts_by_run,omitempty"`
+}
+
+// Artifact is a hook-declared output surfaced in the report's per-run Artifacts
+// section. Hooks may record any number (a session hook a captured workspace, a
+// turn hook a per-turn dump, etc.). Path is relative to the report's output
+// directory so the link resolves when the report is opened from disk.
+type Artifact struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path"`
 }
 
 // ScenarioGroup represents a scenario with its provider×region matrix
@@ -97,38 +114,88 @@ type MatrixCell struct {
 	Cost       float64 `json:"cost"`
 }
 
-// GenerateHTMLReport creates an HTML report from run results
-func GenerateHTMLReport(results []engine.RunResult, outputPath string) error {
-	// Prepare data
+// loadRunArtifacts reads each run's RESOLVED artifact manifest
+// (<outDir>/artifacts/<RunID>/manifest.json, rewritten by the engine's artifact
+// store after the hook ran) and returns display artifacts keyed by RunID. Each
+// entry's Ref already resolves to the backend — a relative path for the local
+// store, a URL for a remote one — so the report links it directly. Missing or
+// malformed manifests are skipped; artifacts must never break report generation.
+func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Artifact {
+	byRun := make(map[string][]Artifact)
+	for i := range results {
+		runID := results[i].RunID
+		if runID == "" {
+			continue
+		}
+		manifestPath := filepath.Join(outDir, "artifacts", runID, "manifest.json")
+		raw, err := os.ReadFile(manifestPath) //nolint:gosec // outDir is the report output dir
+		if err != nil {
+			continue
+		}
+		var manifest artifacts.ResolvedManifest
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			continue
+		}
+		var arts []Artifact
+		for _, a := range manifest.Artifacts {
+			if a.Ref == "" {
+				continue
+			}
+			arts = append(arts, Artifact{
+				Name:        a.Name,
+				Description: a.Description,
+				// Ref already resolves to the backend (relative path or URL).
+				Path: string(a.Ref),
+			})
+		}
+		if len(arts) > 0 {
+			byRun[runID] = arts
+		}
+	}
+	return byRun
+}
+
+// Report output permissions.
+const (
+	reportDirPerm  = 0o750
+	reportFilePerm = 0o644
+)
+
+// GenerateHTMLReport creates an HTML report from run results.
+func GenerateHTMLReport(results []engine.RunResult, outputPath string) (err error) {
+	// A render panic on one malformed message must never crash the process or
+	// lose the whole report; degrade to an error instead.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("html report generation panicked (recovered): %v", r)
+		}
+	}()
+
 	data := prepareReportData(results)
+	// Surface any hook-declared per-run artifacts (e.g. a captured workspace) as
+	// links. Manifests live next to the report under artifacts/<RunID>/.
+	data.ArtifactsByRun = loadRunArtifacts(filepath.Dir(outputPath), results)
 
-	// Generate HTML
-	html, err := generateHTML(&data)
-	if err != nil {
-		return fmt.Errorf("failed to generate HTML: %w", err)
+	html, genErr := generateHTML(&data)
+	if genErr != nil {
+		return fmt.Errorf("failed to generate HTML: %w", genErr)
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(outputPath), reportDirPerm); mkErr != nil {
+		return fmt.Errorf("failed to create output directory: %w", mkErr)
+	}
+	if wErr := os.WriteFile(outputPath, []byte(html), reportFilePerm); wErr != nil {
+		return fmt.Errorf("failed to write HTML file: %w", wErr)
 	}
 
-	// Create output directory if needed
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Write HTML file
-	if err := os.WriteFile(outputPath, []byte(html), 0644); err != nil {
-		return fmt.Errorf("failed to write HTML file: %w", err)
-	}
-
-	// Generate companion JSON data file
+	// The companion JSON is a convenience; its failure must NOT fail the report —
+	// the HTML (the primary artifact) is already written. This is what previously
+	// lost the whole report when one message couldn't marshal.
 	jsonPath := strings.TrimSuffix(outputPath, ".html") + "-data.json"
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON data: %w", err)
+	if jsonData, jErr := json.MarshalIndent(data, "", "  "); jErr != nil {
+		logger.Warn("report companion JSON marshal failed; HTML report still written", "error", jErr)
+	} else if jErr := os.WriteFile(jsonPath, jsonData, reportFilePerm); jErr != nil {
+		logger.Warn("report companion JSON write failed; HTML report still written", "error", jErr)
 	}
-
-	if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
-		return fmt.Errorf("failed to write JSON data file: %w", err)
-	}
-
 	return nil
 }
 

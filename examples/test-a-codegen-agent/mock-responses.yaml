@@ -1,0 +1,114 @@
+scenarios:
+  refund-assistant-mock:
+    turns:
+      1:
+        response: "Scaffolding a minimal valid refund kit under /workspace/kit."
+        tool_calls:
+          - name: Bash
+            arguments:
+              description: "scaffold minimal refund kit with all required files"
+              command: |
+                set -e
+                mkdir -p /workspace/kit/scenarios /workspace/kit/prompts /workspace/kit/providers
+                cat > /workspace/kit/config.arena.yaml <<'CFG'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: Arena
+                metadata:
+                  name: refund-kit
+                spec:
+                  prompt_configs:
+                    - id: refund
+                      file: prompts/refund.yaml
+                  providers:
+                    - file: providers/mock-provider.yaml
+                  scenarios:
+                    - file: scenarios/eligible.scenario.yaml
+                  defaults:
+                    output:
+                      dir: out
+                      formats: ["json"]
+                CFG
+                cat > /workspace/kit/prompts/refund.yaml <<'P'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: PromptConfig
+                metadata:
+                  name: refund
+                spec:
+                  task_type: refund
+                  version: "v1.0.0"
+                  description: "Customer refund assistant prompt."
+                  system_template: "You are a refund assistant."
+                P
+                cat > /workspace/kit/providers/mock-provider.yaml <<'MP'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: Provider
+                metadata:
+                  name: mock
+                spec:
+                  id: mock
+                  type: mock
+                  model: mock
+                  additional_config:
+                    mock_config: mock-responses.yaml
+                MP
+                cat > /workspace/kit/scenarios/eligible.scenario.yaml <<'S'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: Scenario
+                metadata:
+                  name: eligible
+                spec:
+                  id: eligible-refund
+                  task_type: refund
+                  description: "Eligible refund request scenario."
+                  turns:
+                    - role: user
+                      content: "I want a refund"
+                      assertions:
+                        - type: content_includes
+                          params:
+                            patterns: ["refund"]
+                S
+                cat > /workspace/kit/mock-responses.yaml <<'MR'
+                scenarios:
+                  eligible:
+                    turns:
+                      1: "Your refund is approved."
+                MR
+      2: "Kit scaffolded successfully."
+  refund-broken-mock:
+    turns:
+      1:
+        response: "Scaffolding a broken kit (missing provider) to prove gates detect failures."
+        tool_calls:
+          - name: Bash
+            arguments:
+              description: "scaffold broken kit without a provider"
+              command: |
+                set -e
+                mkdir -p /workspace/kit/scenarios
+                cat > /workspace/kit/config.arena.yaml <<'CFG'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: Arena
+                metadata:
+                  name: broken-kit
+                spec:
+                  scenarios:
+                    - file: scenarios/x.scenario.yaml
+                  defaults:
+                    output:
+                      dir: out
+                      formats: ["json"]
+                CFG
+                cat > /workspace/kit/scenarios/x.scenario.yaml <<'S'
+                apiVersion: promptkit.altairalabs.ai/v1alpha1
+                kind: Scenario
+                metadata:
+                  name: x
+                spec:
+                  id: x
+                  description: "Broken scenario with no provider."
+                  turns:
+                    - role: user
+                      content: "hi"
+                S
+      2: "Broken kit scaffolded."

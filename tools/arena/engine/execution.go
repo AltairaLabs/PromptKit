@@ -5,16 +5,21 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
+	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -335,6 +340,50 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 	return finalProviders
 }
 
+// deferSessionEnd returns a once-only closure that fires OnSessionEnd and
+// ingests any staged artifacts using the latest *convResult (nil-safe). Call it
+// inline on the happy path (sandbox alive, before eval/save) and defer it as the
+// panic / early-return safety net so session-end always runs exactly once.
+func (e *Engine) deferSessionEnd(
+	ctx context.Context, runID string, meta map[string]any, convResult **ConversationResult,
+) func() {
+	done := false
+	return func() {
+		if done {
+			return
+		}
+		done = true
+		var msgs []types.Message
+		if cr := *convResult; cr != nil {
+			msgs = cr.Messages
+		}
+		_ = e.sessionHooks.RunSessionEnd(ctx, hooks.SessionEvent{
+			SessionID:      runID,
+			ConversationID: runID,
+			Messages:       msgs,
+			Metadata:       meta,
+		})
+		e.ingestArtifacts(ctx, runID)
+	}
+}
+
+// ingestArtifacts persists any artifacts a hook staged this run through the
+// artifact store (local backend leaves bytes in place). Best-effort — artifact
+// persistence must never fail a run.
+func (e *Engine) ingestArtifacts(ctx context.Context, runID string) {
+	if e.outputDir == "" {
+		return
+	}
+	store := e.artifactStore
+	if store == nil {
+		store = artifacts.NewLocal()
+	}
+	dir := filepath.Join(e.outputDir, "artifacts", runID)
+	if err := artifacts.Ingest(ctx, store, dir, runID); err != nil {
+		logger.Warn("artifact ingestion failed", "run", runID, "error", err)
+	}
+}
+
 // executeRun executes a single test combination: scenario OR eval.
 // This is the core execution method that coordinates all aspects of running one test:
 //
@@ -354,14 +403,16 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 //
 // Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed).
 // Returns the RunID. Results can be retrieved from StateStore using GetResult().
-func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
+//
+//nolint:gocognit,gocritic // pre-existing large orchestration func; resilience additions are minimal + extracted
+func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (runID string, err error) {
 	// Defer per-run timeout setup until after scenario lookup so duplex
 	// scenarios can stretch the deadline to their declared
 	// `duplex.timeout` (typically 10m for voice). For the eval-run path
 	// and the no-scenario edge case we fall through to the config /
 	// DefaultRunTimeout ladder.
 	startTime := time.Now()
-	runID := generateRunID(combo)
+	runID = generateRunID(combo)
 	runEmitter := e.createRunEmitter(ctx, runID, &combo)
 
 	// Get Arena state store
@@ -374,6 +425,19 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	saveError := func(errMsg string) (string, error) {
 		return e.saveRunError(ctx, arenaStore, combo, runID, startTime, errMsg, runEmitter)
 	}
+
+	// Recover any panic so one bad run can never crash the whole process (and
+	// take every other run with it). The deferred endSession registered later
+	// runs first under LIFO, so the session-end hook has already fired and
+	// sandbox state has been captured by the time we get here. Record the run as
+	// failed so the report still accounts for it.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("run panicked; recovered to protect the process",
+				"run", runID, "panic", r, "stack", string(debug.Stack()))
+			runID, err = saveError(fmt.Sprintf("run panicked: %v", r))
+		}
+	}()
 
 	// Check if this is an eval run
 	if combo.EvalID != "" {
@@ -469,6 +533,30 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		e.fireAudioMonitorHooks(runID, audioRouter, e.audioMonitorOpts.Rate)
 	}
 
+	// Fire SessionHook.OnSessionStart now that sandbox sources are open and
+	// the run context is fully prepared. The registry is nil-safe — if no
+	// hooks are registered this is a complete no-op.
+	sessionMeta := e.sessionEventMetadata(runCtx, runID)
+	_ = e.sessionHooks.RunSessionStart(runCtx, hooks.SessionEvent{
+		SessionID:      runID,
+		ConversationID: runID,
+		Metadata:       sessionMeta,
+	})
+
+	// Thread the session hook registry into the run context so per-turn
+	// update events can be fired deep inside the conversation executor
+	// without needing extra plumbing parameters.
+	runCtx = withSessionHookContext(runCtx, e.sessionHooks, runID, sessionMeta)
+
+	// Guarantee OnSessionEnd + artifact ingestion run exactly once, even if the
+	// run panics or returns early below — so sandbox state is always captured
+	// while the sandbox is still alive. Registered after mcpCleanup (LIFO) so it
+	// runs before the sandbox is torn down. The normal path calls it inline right
+	// after the conversation; this defer is the safety net for panics/early exits.
+	var convResult *ConversationResult
+	endSession := e.deferSessionEnd(runCtx, runID, sessionMeta, &convResult)
+	defer endSession()
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider:         provider,
@@ -500,7 +588,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// Use RunID as ConversationID for Arena executions
 	req.ConversationID = runID
 
-	convResult := e.conversationExecutor.ExecuteConversation(runCtx, req)
+	convResult = e.conversationExecutor.ExecuteConversation(runCtx, req)
+
+	// Fire OnSessionEnd + ingest artifacts now, while the sandbox is alive and
+	// before eval/save. The deferred endSession registered above becomes a no-op
+	// once this runs; it only fires if we never reach here (panic / early return).
+	endSession()
 
 	// Run timed out, but the executor may have produced a partial result
 	// (messages exchanged, conversation_assertions evaluated on what

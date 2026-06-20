@@ -1,0 +1,97 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: codegen-agent-test-gemini
+  annotations:
+    description: |
+      Brief-equipped codegen agent (Gemini 2.5 Flash) authors a PromptArena kit;
+      gates score the result. Live only (real Gemini + Docker). First-look config:
+      runs the single refund-assistant scenario.
+      Run:
+        export GEMINI_API_KEY=...   # or source .env
+        make build-codegen-agent-sandbox
+        cd examples/test-a-codegen-agent
+        promptarena run -c live-gemini.arena.yaml --ci --format html
+spec:
+  prompt_configs:
+    - id: authoring-agent
+      file: prompts/authoring-agent.yaml
+  providers:
+    - file: providers/gemini.provider.yaml
+  scenarios:
+    - file: scenarios/refund-assistant.scenario.yaml
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: codegen-agent-sandbox:local
+
+  # promptarena-authoring skill as a skill__activate tool (not preloaded).
+  skills:
+    - path: skills
+
+  globals:
+    conversation_assertions:
+      - type: tool_exec
+        message: "Gate 1: kit is schema-valid"
+        params:
+          tool: Bash
+          timeout_seconds: 120
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "promptarena validate /workspace/kit/config.arena.yaml && echo __GATE_OK__"
+            description: "Validate the generated kit's arena config against its schema"
+      - type: tool_exec
+        message: "Gate 2: kit compiles to a valid PromptPack"
+        params:
+          tool: Bash
+          timeout_seconds: 120
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json && echo __GATE_OK__"
+            description: "Compile the kit to a PromptPack and validate it"
+      - type: tool_exec
+        message: "Gate 3: generated scenarios run green offline"
+        params:
+          tool: Bash
+          timeout_seconds: 300
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "cd /workspace/kit && promptarena run --ci && echo __GATE_OK__"
+            description: "Run the generated kit's scenarios offline"
+      - type: tool_exec
+        message: "Gate 4: no unused files"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "unused-files.sh /workspace/kit && echo __GATE_OK__"
+            description: "Check the kit for unreferenced files"
+      - type: tool_exec
+        message: "Gate 5: kit is a competent test suite (non-trivial assertions)"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "kit-quality.sh /workspace/kit && echo __GATE_OK__"
+            description: "Deterministic adequacy check: every scenario has a non-trivial assertion"
+      - type: tool_exec
+        message: "Metric: idiom-trap + adequacy report (non-gating)"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          success_pattern: "__GATE_OK__"
+          args:
+            command: "idiom-traps.sh /workspace/kit && echo __GATE_OK__"
+            description: "Report idiom-trap and assertion-adequacy counts for the kit"
+  defaults:
+    temperature: 0.3
+    max_tokens: 8192
+    output:
+      dir: out-gemini
+      formats: ["json", "html"]
+      html:
+        file: report.html

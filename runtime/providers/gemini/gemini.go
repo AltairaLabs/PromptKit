@@ -590,16 +590,17 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	// Extract token counts
-	var tokensIn, tokensOut int
+	var tokensIn, tokensOut, cachedTokens int
 	if geminiResp.UsageMetadata != nil {
 		tokensIn = geminiResp.UsageMetadata.PromptTokenCount
 		tokensOut = geminiResp.UsageMetadata.CandidatesTokenCount
+		cachedTokens = geminiResp.UsageMetadata.CachedContentTokenCount
 	}
 
 	latency := time.Since(start)
 
-	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
-	costBreakdown := p.CalculateCost(tokensIn, tokensOut, 0)
+	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
+	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
 	// Extract all content parts (text + inline media + markdown images)
 	var contentParts []types.ContentPart
@@ -689,6 +690,12 @@ func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 		return proInput, proOutput, proCached
 	}
 }
+
+// SupportsPromptCaching reports that Gemini 2.5+ models apply implicit prompt
+// caching automatically, so the pipeline's caching-stall warning applies here.
+// Caching engages only when the request prefix is stable across rounds (see the
+// deterministic tool-order fix).
+func (p *Provider) SupportsPromptCaching() bool { return true }
 
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {

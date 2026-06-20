@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: refund-assistant-mock
+  labels:
+    use_case: support
+    complexity: medium
+spec:
+  id: refund-assistant-mock
+  task_type: authoring-agent
+  description: "Mock wiring check: scripted agent scaffolds a known-good kit; the shared gates must all PASS."
+  turns:
+    - role: user
+      content: "Scaffold a minimal valid refund kit under /workspace/kit."

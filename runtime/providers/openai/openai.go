@@ -616,6 +616,12 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	return p.predictWithMessages(ctx, req, messages)
 }
 
+// SupportsPromptCaching reports that OpenAI applies automatic prompt caching
+// (no cache_control needed) for prompts above its minimum, so the pipeline's
+// caching-stall warning applies here. Caching engages only when the request
+// prefix is stable across rounds (see the deterministic tool-order fix).
+func (p *Provider) SupportsPromptCaching() bool { return true }
+
 // CalculateCost calculates detailed cost breakdown including optional cached tokens
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64

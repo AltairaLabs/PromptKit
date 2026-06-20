@@ -62,12 +62,10 @@ func (p *Provider) PredictStream(
 	}
 
 	if req.System != "" {
-		claudeReq["system"] = []claudeContentBlock{
-			{
-				Type: "text",
-				Text: req.System,
-			},
-		}
+		// Use the cache-aware system block builder so a long system prompt gets a
+		// cache_control breakpoint. Building the block inline (as this did) skipped
+		// caching entirely on the streaming path — every round re-paid full price.
+		claudeReq["system"] = p.createSystemBlocks(req.System)
 	}
 
 	// Native structured outputs (output_config). PredictStream is the no-tools

@@ -6,10 +6,12 @@ package json
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 )
@@ -50,13 +52,19 @@ func (r *JSONResultRepository) SaveResults(runResults []engine.RunResult) error 
 		return fmt.Errorf(errFailedToCreateOutputDir, err)
 	}
 
-	// Save individual result files
+	// Save individual result files — best effort: a single result that fails to
+	// serialize (e.g. an unmarshalable field) must not lose all the others.
+	var errs []error
 	for i := range runResults {
 		if err := r.saveIndividualResult(&runResults[i]); err != nil {
-			return fmt.Errorf("failed to save result %s: %w", runResults[i].RunID, err)
+			logger.Warn("failed to save result; continuing", "run", runResults[i].RunID, "error", err)
+			errs = append(errs, fmt.Errorf("result %s: %w", runResults[i].RunID, err))
 		}
 	}
-
+	if len(errs) > 0 {
+		return fmt.Errorf("saved %d of %d results; %d failed: %w",
+			len(runResults)-len(errs), len(runResults), len(errs), errors.Join(errs...))
+	}
 	return nil
 }
 

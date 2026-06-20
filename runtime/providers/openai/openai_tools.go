@@ -86,7 +86,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	strict := p.useStrictTools()
 	tools := make([]openAITool, len(descriptors))
 	for i, desc := range descriptors {
-		params := desc.InputSchema
+		params := types.NormalizeRawMessage(desc.InputSchema)
 		if strict {
 			params = ensureStrictSchema(params)
 		}

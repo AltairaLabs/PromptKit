@@ -9,7 +9,7 @@ the task suite.
 ## What's here
 
 ```
-benchmarks/codegen-eval/
+examples/codegen-eval/
 ├── sonnet-baseline.arena.yaml       Bundle A — no skill
 ├── sonnet-disciplined.arena.yaml    Bundle D — with skill
 ├── scenarios/                       5 hand-rolled Go bugfix tasks

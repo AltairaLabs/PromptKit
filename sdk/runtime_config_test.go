@@ -696,25 +696,6 @@ func TestApplyExecHooks_UndeclaredSandboxReference(t *testing.T) {
 	assert.Contains(t, err.Error(), "ghost")
 }
 
-func TestResolveSandboxes_UnknownMode(t *testing.T) {
-	specs := map[string]*pkgconfig.SandboxConfig{
-		"x": {Mode: "not_a_registered_mode"},
-	}
-	_, err := resolveSandboxes(specs)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not_a_registered_mode")
-}
-
-func TestResolveSandboxes_NilAndEmpty(t *testing.T) {
-	out, err := resolveSandboxes(nil)
-	require.NoError(t, err)
-	assert.Nil(t, out)
-
-	out, err = resolveSandboxes(map[string]*pkgconfig.SandboxConfig{"skip": nil})
-	require.NoError(t, err)
-	assert.Empty(t, out)
-}
-
 func TestApplyTTSProviders_BuildsAndDefaults(t *testing.T) {
 	specs := []pkgconfig.TTSProviderConfig{
 		{ID: "voice", Type: "openai"},

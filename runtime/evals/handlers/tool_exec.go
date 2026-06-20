@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -85,6 +86,32 @@ func (h *ToolExecHandler) Eval(
 			Explanation: fmt.Sprintf("tool_exec: %q reported error: %s", toolName, result.Error),
 			Value:       map[string]any{"tool": toolName, "error": result.Error},
 		}, nil
+	}
+
+	// Pattern checks run against the human-readable output text.
+	outputText := extractResultText(result.Result)
+
+	if sp, _ := params["success_pattern"].(string); sp != "" {
+		rx, compileErr := regexp.Compile(sp)
+		if compileErr != nil {
+			msg := fmt.Sprintf("tool_exec: success_pattern %q is not a valid regex: %v", sp, compileErr)
+			return failResult(h.Type(), msg), nil
+		}
+		if !rx.MatchString(outputText) {
+			msg := fmt.Sprintf("tool_exec: %q succeeded but output did not match success_pattern %q", toolName, sp)
+			return failResult(h.Type(), msg), nil
+		}
+	}
+
+	if fp, _ := params["failure_pattern"].(string); fp != "" {
+		rx, compileErr := regexp.Compile(fp)
+		if compileErr != nil {
+			msg := fmt.Sprintf("tool_exec: failure_pattern %q is not a valid regex: %v", fp, compileErr)
+			return failResult(h.Type(), msg), nil
+		}
+		if rx.MatchString(outputText) {
+			return failResult(h.Type(), fmt.Sprintf("tool_exec: %q output matched failure_pattern %q", toolName, fp)), nil
+		}
 	}
 
 	value := map[string]any{
@@ -190,6 +217,22 @@ func (h *ToolExecHandler) timeout(params map[string]any) time.Duration {
 		return defaultToolExecTimeout
 	}
 	return time.Duration(secs) * time.Second
+}
+
+// extractResultText returns a plain-text string from a tool result payload
+// suitable for regex matching. The Bash MCP tool wraps its stdout in a
+// JSON string (e.g. `"exit: 1\nsome output\n"`), so we unwrap one level of
+// JSON string encoding when present. For any other JSON shape (objects,
+// arrays, numbers) we fall back to the raw JSON bytes.
+func extractResultText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // failResult is a small helper for the early-exit fail paths.

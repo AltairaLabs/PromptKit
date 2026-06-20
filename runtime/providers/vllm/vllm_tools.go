@@ -63,7 +63,7 @@ func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, e
 			Function: vllmToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
-				Parameters:  desc.InputSchema,
+				Parameters:  types.NormalizeRawMessage(desc.InputSchema),
 			},
 		}
 	}

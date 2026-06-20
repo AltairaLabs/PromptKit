@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: triage-router
+  labels:
+    use_case: workflow
+    complexity: hard
+spec:
+  id: triage-router
+  task_type: authoring-agent
+  description: "A developer asks (naively) for tests for a support-triage router; scored against the deterministic gates."
+  trials: 3
+  turns:
+    - role: user
+      content: |
+        I'm building an AI step that triages incoming support messages and routes
+        each one to the right team — billing, technical, or general. The thing I
+        need to be confident about is that it routes correctly: a billing question
+        actually goes to billing, a technical one to technical, and so on. I'd
+        like a test suite that proves that, and I want to run it locally without
+        hitting any APIs while I'm developing. Can you put it together in a `kit/`
+        folder?
