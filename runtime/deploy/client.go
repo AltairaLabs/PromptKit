@@ -258,23 +258,51 @@ func (c *AdapterClient) Plan(ctx context.Context, req *PlanRequest) (*PlanRespon
 
 // applyResult matches the adapter SDK's response shape for Apply.
 type applyResult struct {
-	AdapterState string `json:"adapter_state"`
+	AdapterState string        `json:"adapter_state"`
+	Events       []*ApplyEvent `json:"events,omitempty"`
 }
 
-// Apply executes the deployment. The callback is not invoked because the
-// current adapter protocol returns all events in the final response rather
-// than streaming them. The returned string is the opaque adapter state.
+type destroyResult struct {
+	Status string          `json:"status"`
+	Events []*DestroyEvent `json:"events,omitempty"`
+}
+
+// Apply executes the deployment. The adapter protocol returns all events in
+// the final response rather than streaming them; this method replays those
+// events to the callback (if non-nil) in order before returning. The returned
+// string is the opaque adapter state.
 func (c *AdapterClient) Apply(ctx context.Context, req *PlanRequest, callback ApplyCallback) (string, error) {
 	var result applyResult
 	if err := c.callCtx(ctx, methodApply, req, &result); err != nil {
 		return "", err
+	}
+	// The adapter collects streamed events and returns them in the response;
+	// replay them to the caller's callback in order.
+	if callback != nil {
+		for _, event := range result.Events {
+			if err := callback(event); err != nil {
+				return result.AdapterState, err
+			}
+		}
 	}
 	return result.AdapterState, nil
 }
 
 // Destroy tears down the deployment.
 func (c *AdapterClient) Destroy(ctx context.Context, req *DestroyRequest, callback DestroyCallback) error {
-	return c.callCtx(ctx, methodDestroy, req, nil)
+	var result destroyResult
+	if err := c.callCtx(ctx, methodDestroy, req, &result); err != nil {
+		return err
+	}
+	// Replay the adapter's collected events to the caller's callback in order.
+	if callback != nil {
+		for _, event := range result.Events {
+			if err := callback(event); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Status returns the current deployment status.

@@ -216,6 +216,42 @@ func printPlan(plan *deploy.PlanResponse) {
 	fmt.Println()
 }
 
+// resultStatusSymbol maps a resource result status to a display symbol,
+// consistent with printPlan's action symbols.
+func resultStatusSymbol(status string) string {
+	switch status {
+	case "created":
+		return "+"
+	case "updated":
+		return "~"
+	case "deleted":
+		return "-"
+	case "failed":
+		return "!"
+	default:
+		return " "
+	}
+}
+
+// printDeployEvent renders a streaming apply/destroy event to stdout. Apply and
+// Destroy share the same event shape (type, message, resource), so both
+// callbacks delegate here to surface per-resource progress live.
+func printDeployEvent(eventType, message string, res *deploy.ResourceResult) {
+	switch eventType {
+	case "resource":
+		if res != nil {
+			line := fmt.Sprintf("  %s %s.%s (%s)",
+				resultStatusSymbol(res.Status), res.Type, res.Name, res.Status)
+			if res.Detail != "" {
+				line += ": " + res.Detail
+			}
+			fmt.Println(line)
+		}
+	case "error":
+		fmt.Printf("  ! %s\n", message)
+	}
+}
+
 // printStatus displays a deployment status to the user.
 func printStatus(status *deploy.StatusResponse) {
 	fmt.Printf("  Status: %s\n", status.Status)
@@ -347,7 +383,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// Step 2: Apply.
 	fmt.Println("Step 2: Applying deployment...")
 
-	adapterState, err := client.Apply(ctx, planReq, nil)
+	adapterState, err := client.Apply(ctx, planReq, func(e *deploy.ApplyEvent) error {
+		printDeployEvent(e.Type, e.Message, e.Resource)
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
@@ -534,7 +573,10 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	adapterState, err := client.Apply(ctx, planReq, nil)
+	adapterState, err := client.Apply(ctx, planReq, func(e *deploy.ApplyEvent) error {
+		printDeployEvent(e.Type, e.Message, e.Resource)
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
@@ -690,7 +732,10 @@ func runDeployDestroy(cmd *cobra.Command, args []string) error {
 		DeployConfig: configJSON,
 		Environment:  env,
 		PriorState:   priorState.State,
-	}, nil)
+	}, func(e *deploy.DestroyEvent) error {
+		printDeployEvent(e.Type, e.Message, e.Resource)
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("destroy failed: %w", err)
 	}

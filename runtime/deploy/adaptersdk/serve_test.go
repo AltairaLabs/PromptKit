@@ -199,6 +199,10 @@ func TestServeIO_Apply(t *testing.T) {
 	if !strings.Contains(string(result), "state-123") {
 		t.Errorf("expected adapter_state in result, got %s", string(result))
 	}
+	// Apply must return the collected events so the client can replay them.
+	if !strings.Contains(string(result), "deploying") {
+		t.Errorf("expected streamed apply events in result, got %s", string(result))
+	}
 }
 
 func TestServeIO_ApplyError(t *testing.T) {
@@ -242,6 +246,11 @@ func TestServeIO_Destroy(t *testing.T) {
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	// Destroy must return the collected events so the client can replay them.
+	result, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(result), "destroying") {
+		t.Errorf("expected streamed destroy events in result, got %s", string(result))
 	}
 }
 
