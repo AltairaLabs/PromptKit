@@ -17,6 +17,8 @@ spec:
       file: prompts/authoring-agent.yaml
   providers:
     - file: providers/claude.provider.yaml
+    - file: providers/openai.provider.yaml
+    - file: providers/gemini.provider.yaml
   scenarios:
     - file: scenarios/refund-assistant.scenario.yaml
     - file: scenarios/faq-bot.scenario.yaml
