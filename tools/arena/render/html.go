@@ -17,6 +17,7 @@ import (
 	"html/template"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -112,11 +113,13 @@ type MatrixCell struct {
 	Cost       float64 `json:"cost"`
 }
 
-// loadRunArtifacts reads per-run artifact manifests that hooks write at
-// <outDir>/artifacts/<RunID>.json and returns them keyed by RunID. A manifest is
-// {"artifacts":[{"label":"...","path":"..."}]} with paths relative to outDir.
-// Missing or malformed manifests are skipped — artifacts are purely additive and
-// must never break report generation.
+// loadRunArtifacts reads per-run artifact manifests and returns display
+// artifacts keyed by RunID. Arena owns the base path
+// (<outDir>/artifacts/<RunID>/, created by the engine and handed to hooks via
+// SessionEvent metadata); a hook writes its files there and records only
+// {name, description, filename} in <base>/manifest.json. This joins the base and
+// the hook's filename into the report link. Missing/malformed manifests are
+// skipped — artifacts are purely additive and must never break report generation.
 func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Artifact {
 	byRun := make(map[string][]Artifact)
 	for i := range results {
@@ -124,19 +127,35 @@ func loadRunArtifacts(outDir string, results []engine.RunResult) map[string][]Ar
 		if runID == "" {
 			continue
 		}
-		manifestPath := filepath.Join(outDir, "artifacts", runID+".json")
+		manifestPath := filepath.Join(outDir, "artifacts", runID, "manifest.json")
 		raw, err := os.ReadFile(manifestPath) //nolint:gosec // outDir is the report output dir
 		if err != nil {
 			continue
 		}
 		var manifest struct {
-			Artifacts []Artifact `json:"artifacts"`
+			Artifacts []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Filename    string `json:"filename"`
+			} `json:"artifacts"`
 		}
 		if err := json.Unmarshal(raw, &manifest); err != nil {
 			continue
 		}
-		if len(manifest.Artifacts) > 0 {
-			byRun[runID] = manifest.Artifacts
+		var arts []Artifact
+		for _, a := range manifest.Artifacts {
+			if a.Filename == "" {
+				continue
+			}
+			arts = append(arts, Artifact{
+				Name:        a.Name,
+				Description: a.Description,
+				// Base is Arena's (relative to the report dir); filename is the hook's.
+				Path: path.Join("artifacts", runID, a.Filename),
+			})
+		}
+		if len(arts) > 0 {
+			byRun[runID] = arts
 		}
 	}
 	return byRun

@@ -201,6 +201,10 @@ func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *en
 		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
 	}
 
+	// Give the engine the resolved output dir so it can expose each run's
+	// artifacts base (<outDir>/artifacts/<runID>) to hooks via SessionEvent metadata.
+	eng.WithOutputDir(params.OutDir)
+
 	if err := configureMockProvider(eng, params); err != nil {
 		return nil, nil, err
 	}

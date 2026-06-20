@@ -24,6 +24,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -96,6 +97,7 @@ type Engine struct {
 	runCompletedHooks    []RunCompletedHook           // Subscribers fired when each run finishes
 	runCompletedMu       sync.RWMutex                 // Guards runCompletedHooks
 	sessionHooks         *hooks.Registry              // Optional — fires SessionHook lifecycle per run
+	outputDir            string                       // Resolved report output dir; exposes per-run artifacts base
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -183,10 +185,20 @@ func (e *Engine) WithSessionHooks(reg *hooks.Registry) {
 	e.sessionHooks = reg
 }
 
+// outputDirPerm is the permission for engine-created output directories.
+const outputDirPerm = 0o750
+
+// WithOutputDir sets the resolved report output directory so the engine can
+// expose each run's artifacts base (<outputDir>/artifacts/<runID>) to hooks
+// via SessionEvent metadata. A nil/empty dir disables artifacts-base exposure.
+func (e *Engine) WithOutputDir(dir string) {
+	e.outputDir = dir
+}
+
 // sessionEventMetadata returns the per-event metadata map injected into every
 // SessionEvent fired by the engine. It includes the tool registry so that
 // SessionHook implementations (e.g. tool_exec eval) can access registered tools.
-func (e *Engine) sessionEventMetadata(runCtx context.Context) map[string]any {
+func (e *Engine) sessionEventMetadata(runCtx context.Context, runID string) map[string]any {
 	meta := map[string]any{
 		"tool_registry": e.toolRegistry,
 	}
@@ -195,6 +207,16 @@ func (e *Engine) sessionEventMetadata(runCtx context.Context) map[string]any {
 	// `docker cp`. The IDs come from the per-run MCP scope via the run context.
 	if cids := sandboxContainerIDsFromContext(runCtx); len(cids) > 0 {
 		meta["sandbox_containers"] = cids
+	}
+	// Expose this run's artifacts directory — the base path, owned by Arena from
+	// config (<outDir>/artifacts/<runID>). Hooks write their outputs here and
+	// record only relative filenames; the report links <base>/<filename>. Arena
+	// creates the dir so hooks don't have to know the output layout.
+	if e.outputDir != "" && runID != "" {
+		dir := filepath.Join(e.outputDir, "artifacts", runID)
+		if err := os.MkdirAll(dir, outputDirPerm); err == nil {
+			meta["artifacts_dir"] = dir
+		}
 	}
 	return meta
 }

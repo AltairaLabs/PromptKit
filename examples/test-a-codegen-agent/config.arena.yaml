@@ -38,6 +38,18 @@ spec:
   skills:
     - path: skills
 
+  # Workspace capture as a regular runtime exec SessionHook (no promptarena flag).
+  # At session_end the host runs capture-workspace.sh, which docker-cp's each
+  # sandbox's /workspace into out/kit/<session>/. Needs PROMPTKIT_SCHEMA_SOURCE=local
+  # until the `runtime:` field is released.
+  runtime:
+    hooks:
+      capture-workspace:
+        hook: session
+        phases: ["session_end"]
+        mode: observe
+        command: tools/capture-workspace.sh
+
   globals:
     conversation_assertions:
       - type: tool_exec

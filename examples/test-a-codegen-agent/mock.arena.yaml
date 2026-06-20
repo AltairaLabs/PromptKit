@@ -49,7 +49,6 @@ spec:
         phases: ["session_end"]
         mode: observe
         command: tools/capture-workspace.sh
-        args: ["out-mock"]
 
   # The same gates as the live config, applied to BOTH scenarios so the report
   # shows discrimination directly: the good kit goes green, the broken kit red.
