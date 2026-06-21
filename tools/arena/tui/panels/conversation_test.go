@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 func TestNewConversationPanel(t *testing.T) {
@@ -1115,4 +1116,26 @@ func TestConversationPanel_SelectLast_NoOp(t *testing.T) {
 	panel2.res = &statestore.RunResult{Messages: []types.Message{}}
 	panel2.SelectLast()
 	assert.Equal(t, 0, panel2.selectedTurnIdx)
+}
+
+func TestConversationPanel_SetActive(t *testing.T) {
+	c := NewConversationPanel()
+	c.focus = focusConversationTurns
+
+	// Default (active): the focused sub-pane gets the focused border colour.
+	tb, db := c.getBorderColors()
+	assert.Equal(t, theme.BorderColorFocused(), tb)
+	assert.Equal(t, theme.BorderColorUnfocused(), db)
+
+	// Inactive: both sub-panes render with the unfocused border colour, so an
+	// external owner (the chat input box) can hold the visible focus.
+	c.SetActive(false)
+	tb, db = c.getBorderColors()
+	assert.Equal(t, theme.BorderColorUnfocused(), tb)
+	assert.Equal(t, theme.BorderColorUnfocused(), db)
+
+	// Re-activating restores the focused border.
+	c.SetActive(true)
+	tb, _ = c.getBorderColors()
+	assert.Equal(t, theme.BorderColorFocused(), tb)
 }

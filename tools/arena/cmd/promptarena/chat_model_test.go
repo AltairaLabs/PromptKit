@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 // ansiEscape strips ANSI escape sequences from a string so that plain-text
@@ -426,5 +427,36 @@ func TestChatModel_AutoScrollsToLast(t *testing.T) {
 	want := len(msgs) - 1
 	if m.panel.SelectedTurnIdx() != want {
 		t.Fatalf("expected selectedTurnIdx=%d (last), got %d", want, m.panel.SelectedTurnIdx())
+	}
+}
+
+// TestChatModel_InputBoxBorderReflectsFocus verifies the input box renders a
+// different (focus-aware) border depending on whether the input or the
+// conversation panel holds focus.
+func TestChatModel_InputBoxBorderReflectsFocus(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	// Input focused → highlighted border; conversation focused → dimmed.
+	m.panelFocused = false
+	if got := m.inputBorderColor(); got != theme.BorderColorFocused() {
+		t.Fatalf("input-focused: want focused border %v, got %v", theme.BorderColorFocused(), got)
+	}
+	m.panelFocused = true
+	if got := m.inputBorderColor(); got != theme.BorderColorUnfocused() {
+		t.Fatalf("conversation-focused: want unfocused border %v, got %v", theme.BorderColorUnfocused(), got)
 	}
 }

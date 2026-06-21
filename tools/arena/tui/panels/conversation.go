@@ -75,6 +75,11 @@ type ConversationPanel struct {
 	provider string
 	res      *statestore.RunResult
 
+	// inactive dims both sub-pane borders so an external owner (e.g. the chat
+	// input box) can hold the visible focus. The zero value is active/focused,
+	// preserving the run dashboard's behavior; only the chat sets it.
+	inactive bool
+
 	// Cache for glamour rendering
 	renderer         *glamour.TermRenderer
 	renderedCache    map[int]string // map[turnIndex]renderedContent
@@ -117,6 +122,14 @@ func (c *ConversationPanel) Reset() {
 func (c *ConversationPanel) SetDimensions(width, height int) {
 	c.width = width
 	c.height = height
+}
+
+// SetActive controls whether the panel renders with a focused border. Owners
+// that embed the panel alongside another focusable widget (e.g. the chat input
+// box) call SetActive(false) when the other widget holds focus, so only one
+// region looks focused at a time. Defaults to active.
+func (c *ConversationPanel) SetActive(active bool) {
+	c.inactive = !active
 }
 
 // SetAudioLevels updates the audio level meter state. Once active is true,
@@ -470,6 +483,12 @@ func (c *ConversationPanel) buildTitle() string {
 func (c *ConversationPanel) getBorderColors() (tableBorderColor, detailBorderColor lipgloss.Color) {
 	tableBorderColor = theme.BorderColorUnfocused()
 	detailBorderColor = theme.BorderColorUnfocused()
+
+	// When the panel is not the active widget (the chat input holds focus),
+	// keep both borders dim so focus reads correctly.
+	if c.inactive {
+		return
+	}
 
 	switch c.focus {
 	case focusConversationTurns:

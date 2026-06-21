@@ -7,12 +7,14 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
@@ -103,6 +105,8 @@ func (m *chatModel) initPanel() {
 	}
 	res := &statestore.RunResult{RunID: m.session.ConversationID()}
 	m.panel.SetData(m.session.ConversationID(), "", m.provider, res)
+	// The input box holds focus at chat start, so the conversation renders dim.
+	m.panel.SetActive(false)
 	panelHeight := m.height - inputHeight - footerHeight - 1 // 1 for status line
 	if panelHeight < 1 {
 		panelHeight = 1
@@ -306,6 +310,7 @@ func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			m.input.Focus()
 		}
+		m.panel.SetActive(m.panelFocused)
 		return textinput.Blink
 	}
 
@@ -440,12 +445,43 @@ func (m *chatModel) chatBindings() []views.KeyBinding {
 
 func (m *chatModel) chatView() string {
 	footer := views.NewHeaderFooterView(m.width).RenderFooter(m.chatBindings())
-	parts := []string{m.panel.View(), m.input.View()}
+	parts := []string{m.panel.View(), m.inputView()}
 	if m.statusLine != "" {
 		parts = append(parts, m.statusLine)
 	}
 	parts = append(parts, footer)
 	return strings.Join(parts, "\n")
+}
+
+// inputBorderChars is the horizontal space a rounded border adds (one column
+// each side), subtracted so the bordered input box spans the terminal width.
+const inputBorderChars = 2
+
+// inputBorderColor returns the input box's border color: highlighted when the
+// input holds focus, dimmed when the conversation panel does.
+func (m *chatModel) inputBorderColor() lipgloss.Color {
+	if m.panelFocused {
+		return theme.BorderColorUnfocused()
+	}
+	return theme.BorderColorFocused()
+}
+
+// inputView renders the text input inside a bordered box whose border reflects
+// focus, so exactly one region looks focused at a time.
+func (m *chatModel) inputView() string {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.inputBorderColor()).
+		Width(maxInt(m.width-inputBorderChars, 0)).
+		Render(m.input.View())
+}
+
+// maxInt returns the larger of two ints.
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (m *chatModel) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {
