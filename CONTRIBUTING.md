@@ -36,7 +36,7 @@ Before your first contribution can be merged you must sign our Contributor Licen
 
 > I have read the CLA Document and I hereby sign the CLA
 
-You sign **once** — the signature then applies to your future contributions across AltairaLabs repositories. The CLA is a **license grant**, not a copyright assignment: you keep ownership of your contribution and grant AltairaLabs a license to use and relicense it. You can read the full text [here](https://gist.github.com/chaholl/59e308a6c25cedeb6d1787aec2c70bcd).
+You sign **once** — the signature then applies to your future contributions across AltairaLabs repositories. The CLA is a **license grant**, not a copyright assignment: you keep ownership of your contribution and grant AltairaLabs a license to use and relicense it. You can read the full text [here](https://gist.github.com/chaholl/acc8f1f6c38376d00a162351f566b93e).
 
 ## How to Contribute
 
