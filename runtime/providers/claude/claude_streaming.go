@@ -263,7 +263,7 @@ func (p *Provider) processClaudeMessageStop(
 
 	if event.Message != nil {
 		if event.Message.StopReason != "" {
-			finishReason = event.Message.StopReason
+			finishReason = normalizeFinishReason(event.Message.StopReason)
 			finalChunk.FinishReason = &finishReason
 		}
 
@@ -433,7 +433,7 @@ func (p *Provider) streamResponse(
 
 		case "message_stop":
 			// Send final chunk with accumulated usage
-			finishReason := stopReason
+			finishReason := normalizeFinishReason(stopReason)
 			if finishReason == "" {
 				finishReason = finishReasonStop
 			}

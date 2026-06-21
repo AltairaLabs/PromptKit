@@ -724,6 +724,6 @@ func TestProcessClaudeMessageStop(t *testing.T) {
 	chunk := <-outChan
 	assert.Equal(t, "accumulated text", chunk.Content)
 	assert.NotNil(t, chunk.FinishReason)
-	assert.Equal(t, "end_turn", *chunk.FinishReason)
+	assert.Equal(t, types.FinishReasonStop, *chunk.FinishReason)
 	assert.NotNil(t, chunk.CostInfo)
 }
