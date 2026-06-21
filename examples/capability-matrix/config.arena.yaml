@@ -98,13 +98,12 @@ spec:
     - file: providers/anthropic-haiku45.provider.yaml
       group: text,streaming,vision,tools,json
 
-    # Claude 4.x family
+    # Claude 4.1
     - file: providers/anthropic-opus41.provider.yaml
       group: text,streaming,vision,tools,json
-    - file: providers/anthropic-opus4.provider.yaml
-      group: text,streaming,vision,tools,json
-    - file: providers/anthropic-sonnet4.provider.yaml
-      group: text,streaming,vision,tools,json
+    # Note: claude-opus-4 and claude-sonnet-4 (the 20250514 base 4.0 models)
+    # retired 2026-06-15 and were removed. Opus 4.1/4.5/4.6/4.7/4.8 and
+    # Sonnet 4.5/4.6 above cover the lineage.
 
     # ==========================================================================
     # Google Gemini Models (uses v1beta API endpoint)
