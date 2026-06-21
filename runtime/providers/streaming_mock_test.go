@@ -138,8 +138,8 @@ data: {"type":"message_stop"}
 		t.Errorf("Final content: got %q, want %q", final.Content, "Hello Claude")
 	}
 
-	if final.FinishReason == nil || *final.FinishReason != "end_turn" {
-		t.Errorf("Expected finish_reason=end_turn, got %v", final.FinishReason)
+	if final.FinishReason == nil || *final.FinishReason != types.FinishReasonStop {
+		t.Errorf("Expected finish_reason=%q, got %v", types.FinishReasonStop, final.FinishReason)
 	}
 }
 
@@ -193,8 +193,8 @@ func TestGeminiStreamResponse(t *testing.T) {
 		t.Errorf("Final content: got %q, want %q", final.Content, "Hello Gemini!")
 	}
 
-	if final.FinishReason == nil || *final.FinishReason != "STOP" {
-		t.Errorf("Expected finish_reason=STOP, got %v", final.FinishReason)
+	if final.FinishReason == nil || *final.FinishReason != types.FinishReasonStop {
+		t.Errorf("Expected finish_reason=%q, got %v", types.FinishReasonStop, final.FinishReason)
 	}
 }
 

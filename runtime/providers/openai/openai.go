@@ -938,8 +938,9 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		if choice.FinishReason != nil {
 			// If usage is included in this chunk, send final chunk now
 			if chunk.Usage != nil {
+				normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
 				finalChunk := p.createFinalStreamChunk(
-					sb.String(), accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
+					sb.String(), accumulatedToolCalls, totalTokens, &normalized, chunk.Usage)
 				outChan <- finalChunk
 				return
 			}
@@ -1157,6 +1158,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
+	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(openAIResp.Choices[0].FinishReason)
 
 	return predictResp, nil
 }

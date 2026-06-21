@@ -2195,6 +2195,51 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 // Idle Timeout End-to-End Tests (slow provider)
 // =============================================================================
 
+// finishReasonProvider is a non-streaming fake that returns a fixed canonical
+// finish reason, used to verify the provider stage copies it onto the message.
+type finishReasonProvider struct {
+	delayedStreamProvider
+}
+
+func (p *finishReasonProvider) SupportsStreaming() bool { return false }
+
+func (p *finishReasonProvider) Predict(
+	_ context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{
+		Content:      "done",
+		FinishReason: types.FinishReasonMaxOutputTokens,
+	}, nil
+}
+
+func TestProviderStage_CopiesFinishReasonToMessage(t *testing.T) {
+	provider := &finishReasonProvider{}
+
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "helper"
+	providerStage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, nil, turnState)
+
+	pl, err := NewPipelineBuilderWithConfig(DefaultPipelineConfig()).
+		Chain(providerStage).
+		Build()
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user", Content: "hi"}
+	result, err := pl.ExecuteSync(context.Background(), NewMessageElement(&userMsg))
+	require.NoError(t, err)
+
+	var assistant *types.Message
+	for i := range result.Messages {
+		if result.Messages[i].Role == "assistant" {
+			assistant = &result.Messages[i]
+		}
+	}
+	require.NotNil(t, assistant, "expected an assistant message")
+	assert.Equal(t, types.FinishReasonMaxOutputTokens, assistant.FinishReason)
+}
+
 // delayedStreamProvider simulates a provider that waits before producing its
 // first chunk — like Ollama queued behind other requests.
 type delayedStreamProvider struct {

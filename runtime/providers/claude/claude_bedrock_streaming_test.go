@@ -105,8 +105,8 @@ func TestBedrockPredictStream(t *testing.T) {
 	if lastChunk.FinishReason == nil {
 		t.Fatal("expected finish reason on last chunk")
 	}
-	if *lastChunk.FinishReason != "end_turn" {
-		t.Errorf("expected finish reason 'end_turn', got %q", *lastChunk.FinishReason)
+	if *lastChunk.FinishReason != types.FinishReasonStop {
+		t.Errorf("expected finish reason %q, got %q", types.FinishReasonStop, *lastChunk.FinishReason)
 	}
 	if lastChunk.Content != "Hello from Bedrock" {
 		t.Errorf("expected accumulated content 'Hello from Bedrock', got %q", lastChunk.Content)

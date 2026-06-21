@@ -823,6 +823,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
+	predictResp.FinishReason = normalizeFinishReason(claudeResp.StopReason)
 
 	return predictResp, nil
 }

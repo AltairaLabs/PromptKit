@@ -77,8 +77,8 @@ func TestStreamResponse_IncrementalParsing(t *testing.T) {
 		}
 
 		// Final chunk with finish reason
-		if chunks[3].FinishReason == nil || *chunks[3].FinishReason != "STOP" {
-			t.Errorf("expected finish reason 'STOP', got %v", chunks[3].FinishReason)
+		if chunks[3].FinishReason == nil || *chunks[3].FinishReason != types.FinishReasonStop {
+			t.Errorf("expected finish reason %q, got %v", types.FinishReasonStop, chunks[3].FinishReason)
 		}
 		if chunks[3].Content != "Hello world!" {
 			t.Errorf("expected final content 'Hello world!', got %q", chunks[3].Content)
@@ -116,8 +116,8 @@ func TestStreamResponse_IncrementalParsing(t *testing.T) {
 			t.Errorf("expected delta 'Done', got %q", chunks[0].Delta)
 		}
 
-		if chunks[1].FinishReason == nil || *chunks[1].FinishReason != "STOP" {
-			t.Errorf("expected finish reason 'STOP'")
+		if chunks[1].FinishReason == nil || *chunks[1].FinishReason != types.FinishReasonStop {
+			t.Errorf("expected finish reason %q", types.FinishReasonStop)
 		}
 	})
 

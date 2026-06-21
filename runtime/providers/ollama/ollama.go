@@ -337,7 +337,8 @@ func (p *Provider) streamResponse(
 			&accumulatedToolCalls, outChan,
 		)
 		if choice.FinishReason != nil {
-			finishReason = choice.FinishReason
+			normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
+			finishReason = &normalized
 		}
 	}
 
@@ -593,6 +594,7 @@ func (p *Provider) predictWithMessages(
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
+	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(ollamaResp.Choices[0].FinishReason)
 
 	return predictResp, nil
 }

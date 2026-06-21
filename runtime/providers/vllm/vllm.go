@@ -412,6 +412,7 @@ func (p *Provider) predictWithMessages(
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
+	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(vllmResp.Choices[0].FinishReason)
 
 	return predictResp, nil
 }
@@ -540,9 +541,10 @@ func (p *Provider) streamResponse(
 		// Send final chunk with finish reason and usage
 		if choice.FinishReason != "" && chunk.Usage != nil {
 			costInfo := p.CalculateCost(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0)
+			normalized := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
 			outChan <- providers.StreamChunk{
 				Content:      sb.String(),
-				FinishReason: &choice.FinishReason,
+				FinishReason: &normalized,
 				CostInfo:     &costInfo,
 			}
 		}
