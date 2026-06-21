@@ -308,16 +308,6 @@ func TestExplicitCaching_TTLConfig(t *testing.T) {
 	}
 }
 
-// Explicit caching degrades to implicit on Vertex (different CachedContent
-// endpoint/auth — a separate follow-up).
-func TestExplicitCaching_VertexDegrades(t *testing.T) {
-	p := &Provider{platform: vertexPlatform}
-	p.enableExplicitCaching(0) // 0 → default TTL
-	if got := p.resolveCachedContent(context.Background(), bigSystem, nil); got != "" {
-		t.Errorf("Vertex must degrade to implicit (return \"\"), got %q", got)
-	}
-}
-
 // The created CachedContent is reused across rounds: a second request with the
 // same prefix references the same resource without creating another.
 func TestExplicitCaching_ReusesAcrossRounds(t *testing.T) {

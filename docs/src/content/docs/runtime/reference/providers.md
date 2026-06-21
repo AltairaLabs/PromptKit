@@ -448,8 +448,9 @@ Notes:
 - **Explicit caching only creates a resource when the prefix is large enough**
   (~the model's cache floor) and degrades to implicit caching on any failure, so
   it never breaks a turn.
-- **Vertex** falls back to implicit caching (the CachedContent endpoint differs);
-  explicit caching applies to the direct (AI Studio) API.
+- **Works on both AI Studio and Vertex.** On Vertex the CachedContent resource is
+  created on the regional `aiplatform` endpoint using the same credential as the
+  generateContent calls (no extra setup).
 
 ## Mock Provider
 
