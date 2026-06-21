@@ -236,6 +236,12 @@ func (s *InteractiveSession) RunEvals(ctx context.Context) ([]evals.EvalResult, 
 	return orch.RunSessionEvals(ctx, msgs, s.conversationID), nil
 }
 
+// HasConfigEvals reports whether the config declares any evals the console can
+// run for scores.
+func (e *Engine) HasConfigEvals() bool {
+	return e.evalOrchestrator != nil && e.evalOrchestrator.HasEvals()
+}
+
 // Cost sums per-message cost across the transcript.
 func (s *InteractiveSession) Cost(ctx context.Context) (types.CostInfo, error) {
 	msgs, err := s.Messages(ctx)
