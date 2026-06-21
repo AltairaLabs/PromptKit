@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -134,16 +135,11 @@ func toFloat(v any) (float64, bool) {
 // resolveCachedContent returns the CachedContent resource name to reference for
 // the given stable prefix (system + tools), creating it on first use and reusing
 // it within TTL. It returns "" to signal "send the prefix inline" — when
-// explicit caching is disabled, the prefix is too small, the platform is
-// unsupported, or any create/lookup failed (degrade to implicit). toolsField is
+// explicit caching is disabled, the prefix is too small, or any create/lookup
+// failed (degrade to implicit). Works on both AI Studio and Vertex. toolsField is
 // the request's "tools" value ([]any{decl}) or nil.
 func (p *Provider) resolveCachedContent(ctx context.Context, systemText string, toolsField any) string {
 	if p.cache == nil {
-		return ""
-	}
-	// Vertex's CachedContent endpoint/auth differ from AI Studio's; explicit
-	// caching there is a separate follow-up. Degrade to implicit on Vertex.
-	if p.isVertex() {
 		return ""
 	}
 	return p.cache.getOrCreate(ctx, p, systemText, toolsField)
@@ -236,13 +232,14 @@ type cachedContentCreateResp struct {
 }
 
 // createCachedContent POSTs a CachedContent resource holding the stable prefix
-// and returns its resource name (e.g. "cachedContents/abc123"). AI Studio only;
-// Vertex is screened out in resolveCachedContent.
+// and returns its resource name. Works on both AI Studio (name like
+// "cachedContents/abc123") and Vertex (full "projects/.../cachedContents/123"
+// path) — the URL, model field, and auth vary by platform (see the helpers).
 func (p *Provider) createCachedContent(
 	ctx context.Context, systemText string, toolsField any, ttl time.Duration,
 ) (string, error) {
 	body := cachedContentCreateBody{
-		Model: "models/" + p.model,
+		Model: p.cachedContentModelField(),
 		TTL:   fmt.Sprintf("%ds", int(ttl.Seconds())),
 	}
 	if systemText != "" {
@@ -257,12 +254,14 @@ func (p *Provider) createCachedContent(
 		return "", fmt.Errorf("marshal cachedContent: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/cachedContents?key=%s", p.baseURL, p.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(raw))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.cachedContentsCreateURL(), bytes.NewReader(raw))
 	if err != nil {
 		return "", fmt.Errorf("create cachedContent request: %w", err)
 	}
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return "", fmt.Errorf("apply cachedContent auth: %w", authErr)
+	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 		return "", hdrErr
 	}
@@ -296,9 +295,11 @@ func (p *Provider) createCachedContent(
 
 // deleteCachedContent best-effort deletes a CachedContent resource (cleanup).
 func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
-	url := fmt.Sprintf("%s/%s?key=%s", p.baseURL, name, p.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, http.NoBody)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", p.cachedContentDeleteURL(name), http.NoBody)
 	if err != nil {
+		return
+	}
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 		return
 	}
 	resp, err := p.GetHTTPClient().Do(httpReq)
@@ -306,4 +307,41 @@ func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
 		return
 	}
 	_ = resp.Body.Close()
+}
+
+// CachedContent endpoints differ by platform. AI Studio (direct) uses
+// generativelanguage.googleapis.com/v1beta/cachedContents with the API key in
+// the query string and a "models/<model>" model field. Vertex uses the regional
+// aiplatform host under the project/location, Bearer auth (applied separately),
+// and a full publishers/google/models path; created resources are referenced by
+// their full returned resource name.
+
+// cachedContentsCreateURL returns the POST URL for creating a CachedContent.
+func (p *Provider) cachedContentsCreateURL() string {
+	if p.isVertex() {
+		// baseURL: .../projects/{proj}/locations/{loc}/publishers/google/models
+		return strings.TrimSuffix(p.baseURL, "/publishers/google/models") + "/cachedContents"
+	}
+	return fmt.Sprintf("%s/cachedContents?key=%s", p.baseURL, p.apiKey)
+}
+
+// cachedContentModelField returns the create-body "model" value.
+func (p *Provider) cachedContentModelField() string {
+	if p.isVertex() {
+		if i := strings.Index(p.baseURL, "projects/"); i >= 0 {
+			return p.baseURL[i:] + "/" + p.model
+		}
+	}
+	return "models/" + p.model
+}
+
+// cachedContentDeleteURL returns the DELETE URL for a CachedContent resource
+// name. On Vertex the name is a full resource path appended to the API root.
+func (p *Provider) cachedContentDeleteURL(name string) string {
+	if p.isVertex() {
+		if i := strings.Index(p.baseURL, "/v1/"); i >= 0 {
+			return p.baseURL[:i+len("/v1/")] + name
+		}
+	}
+	return fmt.Sprintf("%s/%s?key=%s", p.baseURL, name, p.apiKey)
 }
