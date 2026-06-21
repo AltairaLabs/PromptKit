@@ -103,6 +103,40 @@ func TestGoldenMainPage(t *testing.T) {
 	}
 }
 
+// TestGoldenMainPageLogsCollapsed locks the resize/collapse layout: with the
+// logs pane focused and collapsed via 'z', the result pane should fill the
+// bottom row. Seeded with a completed run so the runs table has no live clock.
+func TestGoldenMainPageLogsCollapsed(t *testing.T) {
+	sizes := []struct {
+		name string
+		w, h int
+	}{
+		{"100x30", 100, 30},
+		{"120x40", 120, 40},
+	}
+	for _, sz := range sizes {
+		t.Run(sz.name, func(t *testing.T) {
+			m := newGoldenModel()
+			m.activeRuns = []RunInfo{{
+				RunID:     "run-1",
+				Scenario:  "demo-scenario",
+				Provider:  "mock",
+				Region:    "us",
+				Status:    StatusCompleted,
+				Duration:  2 * time.Second,
+				StartTime: goldenFixedTime,
+			}}
+			m.setFocusToLogsPane()
+
+			tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(sz.w, sz.h))
+			tm.Send(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // collapse logs
+			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+			teatest.RequireEqualOutput(t, []byte(readFinal(t, tm)))
+		})
+	}
+}
+
 // goldenConversationResult is the fixed RunResult the conversation page
 // renders from. Using a completed run with an explicit Duration avoids the
 // runs panel's live time.Since(StartTime) clock, which would be non-stable.

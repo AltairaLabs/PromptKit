@@ -645,6 +645,8 @@ func (m *Model) View() string {
 			{Keys: "tab", Description: "cycle focus"},
 			{Keys: "enter", Description: "open conversation"},
 			{Keys: "f", Description: "browse results"},
+			{Keys: "ctrl+←↑↓→", Description: "resize"},
+			{Keys: "z", Description: "collapse"},
 			{Keys: "↑/↓", Description: "navigate/scroll"},
 		}
 	}
@@ -905,10 +907,20 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'f' {
+	switch msg.String() {
+	case "f":
 		m.fileBrowserPage.Reset()
 		m.currentPage = pageFileBrowser
 		return m, m.fileBrowserPage.Init()
+	case "z":
+		m.mainPage.ToggleCollapseFocused()
+		return m, nil
+	case "ctrl+up", "ctrl+right":
+		m.mainPage.GrowFocused(1)
+		return m, nil
+	case "ctrl+down", "ctrl+left":
+		m.mainPage.GrowFocused(-1)
+		return m, nil
 	}
 
 	cmd := m.delegateKeyToActivePane(msg)
