@@ -438,6 +438,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 				Audio     *openAIAudioResponse `json:"audio,omitempty"`
 				ToolCalls []openAIToolCall     `json:"tool_calls,omitempty"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens        int `json:"prompt_tokens"`
@@ -468,9 +469,10 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 	costBreakdown := p.Provider.CalculateCost(openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, cachedTokens)
 
 	resp := providers.PredictionResponse{
-		Content:  choice.Message.Content,
-		CostInfo: &costBreakdown,
-		Raw:      respBytes,
+		Content:      choice.Message.Content,
+		CostInfo:     &costBreakdown,
+		Raw:          respBytes,
+		FinishReason: providers.NormalizeOpenAIFinishReason(choice.FinishReason),
 	}
 
 	if audio := choice.Message.Audio; audio != nil {
@@ -586,7 +588,7 @@ func (p *ToolProvider) predictStreamWithToolsBedrockFallback(
 	}
 	finish := finishStop
 	if len(toolCalls) > 0 {
-		finish = "tool_calls"
+		finish = types.FinishReasonToolUse
 	}
 	out <- providers.StreamChunk{
 		Content:      resp.Content,

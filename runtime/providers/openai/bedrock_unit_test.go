@@ -332,8 +332,8 @@ func TestToolProvider_PredictStreamWithTools_BedrockEmitsSingleChunk(t *testing.
 	if len(last.ToolCalls) != 1 || last.ToolCalls[0].Name != "get_weather" {
 		t.Errorf("expected get_weather tool call, got %+v", last.ToolCalls)
 	}
-	if last.FinishReason == nil || *last.FinishReason != "tool_calls" {
-		t.Errorf("expected finish=tool_calls, got %v", last.FinishReason)
+	if last.FinishReason == nil || *last.FinishReason != types.FinishReasonToolUse {
+		t.Errorf("expected finish=%q, got %v", types.FinishReasonToolUse, last.FinishReason)
 	}
 }
 

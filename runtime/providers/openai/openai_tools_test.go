@@ -951,8 +951,8 @@ data: [DONE]
 	}
 
 	final := chunks[len(chunks)-1]
-	if final.FinishReason == nil || *final.FinishReason != "tool_calls" {
-		t.Errorf("Expected finish_reason=tool_calls, got %v", final.FinishReason)
+	if final.FinishReason == nil || *final.FinishReason != types.FinishReasonToolUse {
+		t.Errorf("Expected finish_reason=%q, got %v", types.FinishReasonToolUse, final.FinishReason)
 	}
 
 	if len(final.ToolCalls) != 1 {
