@@ -138,6 +138,7 @@ Please pay special attention to:
 
 **Before Submitting**
 - [ ] I have signed my commits with `git commit -s`
+- [ ] I have signed the CLA (the CLA Assistant bot will prompt on my first PR)
 - [ ] I have read the [Contributing Guidelines](./CONTRIBUTING.md)
 - [ ] I have followed the [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [ ] My code follows the project's coding standards
