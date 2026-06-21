@@ -23,6 +23,7 @@ promptarena [command] [flags]
 | `debug` | Debug configuration and prompt loading |
 | `prompt-debug` | Debug and test prompt generation |
 | `render` | Generate HTML report from existing results |
+| `chat` | Talk live to an agent defined in your Arena config (interactive TUI) |
 | `serve` | Start the live web UI with SSE streaming and REST API |
 | `validate` | Validate configuration files |
 | `view` | View test results |
@@ -1016,6 +1017,47 @@ cd tools/arena/web/frontend
 npm run dev
 # Open http://localhost:5173
 ```
+
+---
+
+## `promptarena chat`
+
+Talk live to an agent defined in your Arena config. Opens an interactive TUI chat session powered by the same provider pipeline as `promptarena run`.
+
+### Usage
+
+```bash
+promptarena chat [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | `config.arena.yaml` | Path to the Arena config file |
+| `--mock-provider` | bool | `false` | Replace all providers with a generic mock (no API keys needed) |
+| `--mock-config` | string | — | Path to a mock-responses YAML file (used with `--mock-provider`) |
+
+### Setup flow
+
+When the config declares more than one prompt config (agent) or more than one provider, `chat` presents selection menus before opening the chat window. Required prompt variables are collected interactively before the session starts. You can also opt in to live eval scores after each reply.
+
+### Examples
+
+```bash
+# Open chat for the current directory
+promptarena chat
+
+# Open chat for a specific config file
+promptarena chat --config ./examples/customer-support/config.arena.yaml
+
+# Try without API keys using a mock provider
+promptarena chat --mock-provider
+```
+
+### Guardrails and evals
+
+Guardrails are enforced on every turn exactly as they are in `promptarena run`. Assertions (test-only checks that compare model output against expected values) do not apply in a live chat session — they require a fixed expected output. If your config declares evals, the setup flow offers an optional toggle to display live scores after each reply.
 
 ---
 

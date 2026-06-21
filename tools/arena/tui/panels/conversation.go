@@ -75,6 +75,11 @@ type ConversationPanel struct {
 	provider string
 	res      *statestore.RunResult
 
+	// inactive dims both sub-pane borders so an external owner (e.g. the chat
+	// input box) can hold the visible focus. The zero value is active/focused,
+	// preserving the run dashboard's behavior; only the chat sets it.
+	inactive bool
+
 	// Cache for glamour rendering
 	renderer         *glamour.TermRenderer
 	renderedCache    map[int]string // map[turnIndex]renderedContent
@@ -117,6 +122,14 @@ func (c *ConversationPanel) Reset() {
 func (c *ConversationPanel) SetDimensions(width, height int) {
 	c.width = width
 	c.height = height
+}
+
+// SetActive controls whether the panel renders with a focused border. Owners
+// that embed the panel alongside another focusable widget (e.g. the chat input
+// box) call SetActive(false) when the other widget holds focus, so only one
+// region looks focused at a time. Defaults to active.
+func (c *ConversationPanel) SetActive(active bool) {
+	c.inactive = !active
 }
 
 // SetAudioLevels updates the audio level meter state. Once active is true,
@@ -190,6 +203,23 @@ func (c *ConversationPanel) AppendMessage(msg *types.Message) {
 		// Auto-advance to new message if we were viewing the previous last message
 		c.selectedTurnIdx = len(c.res.Messages) - 1
 	}
+	c.updateDetail(c.res)
+}
+
+// SelectedTurnIdx returns the index of the currently selected message, or 0 if
+// no message is selected.
+func (c *ConversationPanel) SelectedTurnIdx() int {
+	return c.selectedTurnIdx
+}
+
+// SelectLast moves the selection to the last message and refreshes the detail
+// pane. It is a no-op when the panel has no data or the table is not yet ready.
+func (c *ConversationPanel) SelectLast() {
+	if c.res == nil || len(c.res.Messages) == 0 || !c.tableReady {
+		return
+	}
+	c.selectedTurnIdx = len(c.res.Messages) - 1
+	c.table.SetCursor(c.selectedTurnIdx)
 	c.updateDetail(c.res)
 }
 
@@ -342,23 +372,16 @@ func (c *ConversationPanel) View() string {
 func (c *ConversationPanel) buildEmptyConversationView() string {
 	title := c.buildTitle()
 
-	// Build empty table view
-	tableBorderColor := theme.BorderColorFocused()
-	if c.focus != focusConversationTurns {
-		tableBorderColor = theme.BorderColorUnfocused()
-	}
+	// Share the focus/active-aware border colors with the populated view so the
+	// empty startup state dims correctly when the panel is inactive (e.g. the
+	// chat input box holds focus).
+	tableBorderColor, detailBorderColor := c.getBorderColors()
 
 	emptyTableContent := c.table.View()
 	tableView := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(tableBorderColor).
 		Render(emptyTableContent)
-
-	// Build detail view with waiting message
-	detailBorderColor := theme.BorderColorUnfocused()
-	if c.focus == focusConversationDetail {
-		detailBorderColor = theme.BorderColorFocused()
-	}
 
 	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
 	if width < conversationDetailMinWidth {
@@ -453,6 +476,12 @@ func (c *ConversationPanel) buildTitle() string {
 func (c *ConversationPanel) getBorderColors() (tableBorderColor, detailBorderColor lipgloss.Color) {
 	tableBorderColor = theme.BorderColorUnfocused()
 	detailBorderColor = theme.BorderColorUnfocused()
+
+	// When the panel is not the active widget (the chat input holds focus),
+	// keep both borders dim so focus reads correctly.
+	if c.inactive {
+		return
+	}
 
 	switch c.focus {
 	case focusConversationTurns:
