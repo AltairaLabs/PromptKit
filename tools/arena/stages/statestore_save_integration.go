@@ -27,6 +27,13 @@ type ArenaStateStoreSaveStage struct {
 	config    *pipeline.StateStoreConfig
 	turnState *stage.TurnState
 	emitter   *events.Emitter
+	// baseTranscriptLen is the persisted transcript length captured at build
+	// time (in WithEmitter, before the pipeline runs). Live broadcasts use it
+	// as the transcript-absolute base for this turn's new messages. Capturing
+	// at build time is race-free: the runtime ProviderStage write-through that
+	// appends this turn's messages only runs once the pipeline executes, so a
+	// read inside Process would race it and miscount.
+	baseTranscriptLen int
 }
 
 // NewArenaStateStoreSaveStage creates a new Arena state store save stage.
@@ -55,7 +62,29 @@ func NewArenaStateStoreSaveStageWithTurnState(
 // for replay and post-run results.
 func (s *ArenaStateStoreSaveStage) WithEmitter(emitter *events.Emitter) *ArenaStateStoreSaveStage {
 	s.emitter = emitter
+	s.baseTranscriptLen = s.captureBaseTranscriptLen()
 	return s
+}
+
+// captureBaseTranscriptLen reads the already-persisted transcript length for
+// this conversation. Called synchronously from WithEmitter at pipeline-build
+// time — before Execute — so it sees only prior turns, never this turn's own
+// write-through. Returns 0 when no store is wired or the load fails (a fresh
+// conversation reads as 0). Used as the transcript-absolute base for live
+// message broadcasts; the persisted state stays the source of truth.
+func (s *ArenaStateStoreSaveStage) captureBaseTranscriptLen() int {
+	if s.config == nil || s.config.Store == nil {
+		return 0
+	}
+	store, ok := s.config.Store.(arenaSaveStore)
+	if !ok {
+		return 0
+	}
+	state, err := store.Load(context.Background(), s.config.ConversationID)
+	if err != nil || state == nil {
+		return 0
+	}
+	return len(state.Messages)
 }
 
 // collectedData holds all data collected from stream elements.
@@ -248,15 +277,33 @@ func (s *ArenaStateStoreSaveStage) Process(
 	var cachedState *runtimeStatestore.ConversationState
 	ctxCanceled := false
 
-	// Broadcast the system prompt up-front so the live UI shows it as
-	// the first turn instead of waiting for the saved-result refresh.
-	// The persisted state already prepends a system message via
-	// persistState; this just mirrors that into the SSE stream.
-	cachedState = s.broadcastSystemPromptIfNeeded(ctx, arenaStore, cachedState)
+	// prevLen is the pre-turn transcript length captured at build time (see
+	// captureBaseTranscriptLen) — the count of messages the element stream
+	// replays before this turn's new ones. Elements at a stream position below
+	// it are history re-plays and must NOT be re-emitted (no re-fire of prior
+	// turns). Reading it here from the store would race the ProviderStage
+	// write-through that appends this turn's messages mid-stream.
+	prevLen := s.baseTranscriptLen
+
+	// The system prompt / offset are resolved lazily on the first element:
+	// the rendered system prompt is set by the upstream TemplateStage, which
+	// runs concurrently with this sink — at Process start it may not be ready.
+	// systemOffset accounts for a system message persistState will prepend
+	// that the element stream does not replay (first turn only).
+	var systemOffset int
+	broadcastReady := s.emitter == nil
 
 	for elem := range input {
+		if !broadcastReady {
+			s.broadcastSystemPromptIfNeeded(prevLen)
+			systemOffset = s.systemBroadcastOffset(prevLen)
+			broadcastReady = true
+		}
 		data.collectFromElement(&elem)
-		s.broadcastMessage(&elem, len(data.messages)-1)
+		pos := len(data.messages) - 1
+		if elem.Message != nil && pos >= prevLen {
+			s.broadcastMessage(&elem, pos+systemOffset)
+		}
 		cachedState = s.maybeIncrementalSave(ctx, arenaStore, &elem, data, cachedState, ctxCanceled)
 
 		// Try to forward element, but if context is canceled, just drain remaining input
@@ -290,21 +337,33 @@ func (s *ArenaStateStoreSaveStage) Process(
 	return nil
 }
 
-// broadcastSystemPromptIfNeeded emits a synthetic system MessageCreated
-// event when the conversation has no prior messages and the rendered
-// system prompt is available on TurnState (or fallback config metadata).
-// Without this the live UI never sees the system turn until the run
+// broadcastSystemPromptIfNeeded emits a synthetic system MessageCreated event
+// once, on the first turn of a conversation, when a rendered system prompt is
+// available. Without this the live UI never sees the system turn until the run
 // completes and the saved result is refetched — confusing during a demo.
 //
-// The conversation state is loaded eagerly here so we can detect "first
-// turn" by checking len(state.Messages) == 0. The cached state is
-// returned so subsequent maybeIncrementalSave calls can reuse it.
-func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(
-	ctx context.Context, arenaStore arenaSaveStore, cached *runtimeStatestore.ConversationState,
-) *runtimeStatestore.ConversationState {
-	if s.emitter == nil {
-		return cached
+// "First turn" is detected from prevLen (the pre-turn transcript length
+// captured race-free at build time): prevLen == 0 means no prior messages,
+// hence no system message has been emitted yet. Re-loading the store here to
+// count messages would race the ProviderStage write-through and intermittently
+// suppress or double-fire the system turn. Called on the first element so the
+// rendered system prompt (set by the concurrent TemplateStage) is ready.
+func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(prevLen int) {
+	if s.emitter == nil || prevLen > 0 {
+		return
 	}
+	sp := s.resolveSystemPrompt()
+	if sp == "" {
+		return
+	}
+	s.emitter.MessageCreated(roleSystem, sp, 0, nil, nil, nil)
+}
+
+// resolveSystemPrompt returns the rendered system prompt for this turn,
+// sourced from TurnState (set by TemplateStage) with a fallback to config
+// metadata for tests that wire the prompt through config. Mirrors the
+// resolution in persistState so broadcasts and persistence agree.
+func (s *ArenaStateStoreSaveStage) resolveSystemPrompt() string {
 	sp := ""
 	if s.turnState != nil {
 		sp = s.turnState.SystemPrompt
@@ -314,28 +373,33 @@ func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(
 			sp = v
 		}
 	}
-	if sp == "" {
-		return cached
+	return sp
+}
+
+// systemBroadcastOffset returns 1 when a system message will be prepended on
+// persist but is absent from both the pre-turn transcript and the replayed
+// element stream (the first turn of a conversation); otherwise 0. Adding it
+// keeps live indices aligned with the persisted transcript where index 0 is
+// the system prompt. prevLen is the pre-turn transcript length: when it is 0
+// the conversation has no persisted (hence no system) messages yet.
+func (s *ArenaStateStoreSaveStage) systemBroadcastOffset(prevLen int) int {
+	if s.emitter == nil {
+		return 0
 	}
-	loaded, err := s.ensureLoaded(ctx, arenaStore, cached)
-	if err != nil {
-		return cached
+	if prevLen == 0 && s.resolveSystemPrompt() != "" {
+		return 1
 	}
-	// Already have messages on this conversation — system prompt was
-	// emitted on a prior turn, don't double-broadcast.
-	if len(loaded.Messages) > 0 {
-		return loaded
-	}
-	s.emitter.MessageCreated("system", sp, 0, nil, nil, nil)
-	return loaded
+	return 0
 }
 
 // broadcastMessage publishes the just-arrived message to the event bus when
-// an emitter is configured. Skipped when the element carries no Message or
-// when the index is out of range. Live UI consumers (TUI, web SSE) subscribe
-// to the bus and update their views in real time.
+// an emitter is configured. Skipped when the element carries no Message, when
+// the index is out of range, or when the message is the system prompt (system
+// is broadcast once by broadcastSystemPromptIfNeeded). idx is the message's
+// transcript-absolute position. Live UI consumers (TUI, web SSE) subscribe to
+// the bus and update their views in real time.
 func (s *ArenaStateStoreSaveStage) broadcastMessage(elem *stage.StreamElement, idx int) {
-	if s.emitter == nil || elem.Message == nil || idx < 0 {
+	if s.emitter == nil || elem.Message == nil || idx < 0 || elem.Message.Role == roleSystem {
 		return
 	}
 	s.emitter.MessageCreated(
@@ -596,7 +660,7 @@ func mergeMetadata(a, b map[string]interface{}) map[string]interface{} {
 func createSystemMessage(systemPrompt string, timestamp time.Time) types.Message {
 	textContent := systemPrompt
 	return types.Message{
-		Role:    "system",
+		Role:    roleSystem,
 		Content: systemPrompt,
 		Parts: []types.ContentPart{
 			{
@@ -611,7 +675,7 @@ func createSystemMessage(systemPrompt string, timestamp time.Time) types.Message
 // prependSystemMessage prepends a system message if not already present.
 func prependSystemMessage(messages []types.Message, systemPrompt string) []types.Message {
 	// Check if first message is already a system message
-	if len(messages) > 0 && messages[0].Role == "system" {
+	if len(messages) > 0 && messages[0].Role == roleSystem {
 		// Already has system message, return as-is
 		result := make([]types.Message, len(messages))
 		copy(result, messages)
