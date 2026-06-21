@@ -6,6 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // goldenSizes is the terminal matrix every page is snapshotted across.
@@ -58,6 +61,10 @@ func readFinal(t *testing.T, tm *teatest.TestModel) string {
 	return string(data)
 }
 
+// goldenFixedTime is a constant timestamp used for every seeded run and
+// message so any time-derived rendering stays byte-stable.
+var goldenFixedTime = time.Date(2025, time.January, 1, 12, 0, 0, 0, time.UTC)
+
 func TestGoldenMainPage(t *testing.T) {
 	for _, sz := range goldenSizes {
 		t.Run(sz.name, func(t *testing.T) {
@@ -70,3 +77,59 @@ func TestGoldenMainPage(t *testing.T) {
 		})
 	}
 }
+
+// goldenConversationResult is the fixed RunResult the conversation page
+// renders from. Using a completed run with an explicit Duration avoids the
+// runs panel's live time.Since(StartTime) clock, which would be non-stable.
+func goldenConversationResult() *statestore.RunResult {
+	return &statestore.RunResult{
+		RunID:      "run-1",
+		ScenarioID: "demo-scenario",
+		ProviderID: "mock",
+		Region:     "us",
+		Duration:   2 * time.Second,
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello, can you help me?"},
+			{Role: "assistant", Content: "Of course! What do you need?"},
+		},
+	}
+}
+
+// TestGoldenConversationPage snapshots the conversation page. The page needs a
+// selected run and an attached state store, so the model is seeded into the
+// conversation-page state synchronously before handing it to teatest — the same
+// pattern the existing tui_test.go / integration_test.go suites use. This is
+// preferred over driving Enter through teatest because the runs table is only
+// populated on render, making async key navigation order-dependent. A completed
+// run with a fixed Duration (not a running run) keeps the output byte-stable,
+// since running runs render a live time.Since(StartTime) clock.
+func TestGoldenConversationPage(t *testing.T) {
+	for _, sz := range goldenSizes {
+		t.Run(sz.name, func(t *testing.T) {
+			m := newGoldenModel()
+			m.SetStateStore(&stateStoreStub{result: goldenConversationResult()})
+			m.activeRuns = []RunInfo{{
+				RunID:     "run-1",
+				Scenario:  "demo-scenario",
+				Provider:  "mock",
+				Region:    "us",
+				Status:    StatusCompleted,
+				Duration:  2 * time.Second,
+				Selected:  true,
+				StartTime: goldenFixedTime,
+			}}
+			m.currentPage = pageConversation
+			m.initializeConversationData(&m.activeRuns[0])
+
+			tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(sz.w, sz.h))
+			tm.Send(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+			teatest.RequireEqualOutput(t, []byte(readFinal(t, tm)))
+		})
+	}
+}
+
+// NOTE: The file browser page is not snapshotted here. It is not reachable
+// from the empty/seeded state through the model's key handling — it requires
+// a result file on disk to open. Capturing it deterministically belongs to
+// the later migration phase that touches that page; deferred per the plan.
