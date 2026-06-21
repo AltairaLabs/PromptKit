@@ -372,23 +372,16 @@ func (c *ConversationPanel) View() string {
 func (c *ConversationPanel) buildEmptyConversationView() string {
 	title := c.buildTitle()
 
-	// Build empty table view
-	tableBorderColor := theme.BorderColorFocused()
-	if c.focus != focusConversationTurns {
-		tableBorderColor = theme.BorderColorUnfocused()
-	}
+	// Share the focus/active-aware border colors with the populated view so the
+	// empty startup state dims correctly when the panel is inactive (e.g. the
+	// chat input box holds focus).
+	tableBorderColor, detailBorderColor := c.getBorderColors()
 
 	emptyTableContent := c.table.View()
 	tableView := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(tableBorderColor).
 		Render(emptyTableContent)
-
-	// Build detail view with waiting message
-	detailBorderColor := theme.BorderColorUnfocused()
-	if c.focus == focusConversationDetail {
-		detailBorderColor = theme.BorderColorFocused()
-	}
 
 	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
 	if width < conversationDetailMinWidth {
