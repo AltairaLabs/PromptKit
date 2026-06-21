@@ -199,6 +199,7 @@ func (s *InteractiveSession) SendUserMessage(
 		PromptVars:     s.promptVars,
 		BaseDir:        s.engine.config.ConfigDir,
 		ConversationID: s.conversationID,
+		RunID:          s.conversationID,
 		StateStoreConfig: &turnexecutors.StateStoreConfig{
 			Store: s.engine.GetStateStore(),
 		},

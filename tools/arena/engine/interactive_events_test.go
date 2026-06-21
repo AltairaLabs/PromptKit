@@ -200,3 +200,97 @@ func TestInteractiveSession_NoBusNoEmission(t *testing.T) {
 		t.Fatal("expected persisted messages")
 	}
 }
+
+// TestInteractiveSession_EmittedEventsCarryExecutionID verifies that
+// message.created SSE events emitted during SendUserMessage have
+// ExecutionID == conversationID. Without RunID set on the TurnRequest
+// the emitter uses an empty executionId, so the web frontend can't key
+// messages to the right run entry via event.executionId.
+func TestInteractiveSession_EmittedEventsCarryExecutionID(t *testing.T) {
+	eng := newFixtureEngine(t)
+	if err := eng.EnableMockProviderMode(""); err != nil {
+		t.Fatalf("mock: %v", err)
+	}
+	bus := events.NewEventBus()
+	eng.SetEventBus(bus, WithMessageEvents())
+
+	got := collectMessageEvents(bus)
+
+	sess, err := eng.NewInteractiveSession(InteractiveSessionOptions{
+		ProviderID: "mock", TaskType: "basic", Variables: map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+
+	// Drain one turn.
+	ch, err := sess.SendUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	for range ch { //nolint:revive
+	}
+
+	got.waitFor(1, 2*time.Second)
+	evs := got.snapshot()
+	if len(evs) == 0 {
+		t.Fatal("no message.created events emitted")
+	}
+
+	wantID := sess.ConversationID()
+	// Collect events via the raw bus to check ExecutionID (the emitter sets
+	// ExecutionID = RunID, ConversationID = ConversationID in every event).
+	var execIDCollector struct {
+		mu  sync.Mutex
+		ids []string
+	}
+	bus2 := events.NewEventBus()
+	eng2 := newFixtureEngine(t)
+	_ = eng2.EnableMockProviderMode("")
+	eng2.SetEventBus(bus2, WithMessageEvents())
+	bus2.Subscribe(events.EventMessageCreated, func(ev *events.Event) {
+		execIDCollector.mu.Lock()
+		defer execIDCollector.mu.Unlock()
+		execIDCollector.ids = append(execIDCollector.ids, ev.ExecutionID)
+	})
+	sess2, err := eng2.NewInteractiveSession(InteractiveSessionOptions{
+		ProviderID: "mock", TaskType: "basic", Variables: map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("session2: %v", err)
+	}
+	ch2, err := sess2.SendUserMessage(context.Background(), "world")
+	if err != nil {
+		t.Fatalf("send2: %v", err)
+	}
+	for range ch2 { //nolint:revive
+	}
+
+	// Give bus2 time to deliver async events.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		execIDCollector.mu.Lock()
+		n := len(execIDCollector.ids)
+		execIDCollector.mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	execIDCollector.mu.Lock()
+	ids := execIDCollector.ids
+	execIDCollector.mu.Unlock()
+
+	if len(ids) == 0 {
+		t.Fatal("bus2 received no message.created events")
+	}
+	wantID2 := sess2.ConversationID()
+	for _, id := range ids {
+		if id != wantID2 {
+			t.Fatalf("event ExecutionID = %q, want conversationID %q", id, wantID2)
+		}
+	}
+	// wantID only used to show intent for sess (suppress unused warning).
+	_ = wantID
+}
