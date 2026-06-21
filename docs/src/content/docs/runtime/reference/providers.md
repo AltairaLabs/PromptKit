@@ -413,6 +413,44 @@ toolProvider := gemini.NewToolProvider(
 response, toolCalls, err := toolProvider.PredictWithTools(ctx, req, tools, "auto")
 ```
 
+### Explicit caching & thinking (YAML config)
+
+Gemini-specific options are set under `additional_config` and apply to every
+generateContent path (non-streaming, streaming, and tool loops):
+
+```yaml
+spec:
+  id: "gemini"
+  type: gemini
+  model: gemini-2.5-flash
+  additional_config:
+    # Explicit context caching (CachedContent API). Off by default; relies on
+    # implicit caching otherwise. When on, the stable system+tools prefix is
+    # cached once and referenced on every call, so the cache hits from the
+    # first request instead of after an implicit-cache warmup.
+    explicit_caching: true
+    explicit_cache_ttl_seconds: 600   # optional; default 600
+
+    # Thinking control (2.5+/"thinking" models). Omit to use the model default
+    # (dynamic thinking). thinking_budget is a token ceiling on reasoning:
+    #   0  disables thinking (flash tier; pro models reject 0 — they require it)
+    #  -1  lets the model decide (dynamic)
+    #   N  caps reasoning at N tokens
+    thinking_budget: 0
+    include_thoughts: false           # return thought summaries
+```
+
+Notes:
+
+- **Reasoning tokens count toward `max_tokens`.** On thinking models a low
+  `max_tokens` can be exhausted by reasoning alone; keep `max_tokens` well above
+  `thinking_budget` (the default of 4096 has ample room).
+- **Explicit caching only creates a resource when the prefix is large enough**
+  (~the model's cache floor) and degrades to implicit caching on any failure, so
+  it never breaks a turn.
+- **Vertex** falls back to implicit caching (the CachedContent endpoint differs);
+  explicit caching applies to the direct (AI Studio) API.
+
 ## Mock Provider
 
 For testing and development.

@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -85,7 +86,7 @@ func TestToolProvider_ToolChoiceMapping(t *testing.T) {
 				Temperature: 0.7,
 			}
 
-			requestMap := provider.buildToolRequest(req, geminiTools, tt.toolChoice)
+			requestMap := provider.buildToolRequest(context.Background(), req, geminiTools, tt.toolChoice)
 
 			// Extract the mode from tool_config
 			toolConfig, ok := requestMap["tool_config"].(map[string]interface{})

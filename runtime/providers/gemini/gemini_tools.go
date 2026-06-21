@@ -19,6 +19,9 @@ const (
 	roleUser        = "user"
 	providerNameLog = "Gemini-Tools"
 
+	// keyGenerationConfig is the generateContent body key for generation params.
+	keyGenerationConfig = "generationConfig"
+
 	// providerMetaThoughtSignature is the MessageToolCall.ProviderMetadata key
 	// used to round-trip Gemini 3's opaque thoughtSignature on tool-call parts.
 	providerMetaThoughtSignature = "gemini.thought_signature"
@@ -136,7 +139,7 @@ func (p *ToolProvider) PredictWithTools(
 	p.currentRequest = &req
 
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(req, tools, toolChoice)
+	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -384,7 +387,7 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 
 //nolint:gocritic // hugeParam: method uses req value throughout
 func (p *ToolProvider) buildToolRequest(
-	req providers.PredictionRequest, tools any, toolChoice string,
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) map[string]any {
 	// Convert messages to Gemini format
 	contents := make([]map[string]any, 0, len(req.Messages))
@@ -436,13 +439,17 @@ func (p *ToolProvider) buildToolRequest(
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
+	genConfig := map[string]any{
+		"temperature":     temperature,
+		"topP":            topP,
+		"maxOutputTokens": maxTokens,
+	}
+	if tc := p.geminiThinkingConfigFor(maxTokens); tc != nil {
+		genConfig["thinkingConfig"] = tc
+	}
 	request := map[string]any{
-		"contents": contents,
-		"generationConfig": map[string]any{
-			"temperature":     temperature,
-			"topP":            topP,
-			"maxOutputTokens": maxTokens,
-		},
+		"contents":          contents,
+		keyGenerationConfig: genConfig,
 	}
 
 	if req.System != "" {
@@ -455,6 +462,18 @@ func (p *ToolProvider) buildToolRequest(
 
 	if tools != nil {
 		addToolConfig(request, tools, toolChoice)
+	}
+
+	// Explicit context caching: move the stable system+tools prefix into a
+	// CachedContent resource and reference it. The API rejects cachedContent
+	// alongside systemInstruction / tools / tool_config, so drop the inline
+	// prefix. request["tools"] is the wrapped []any{decl} that addToolConfig set;
+	// caching it keeps the cached and dropped tools identical.
+	if cc := p.resolveCachedContent(ctx, req.System, request["tools"]); cc != "" {
+		request["cachedContent"] = cc
+		delete(request, "systemInstruction")
+		delete(request, "tools")
+		delete(request, "tool_config")
 	}
 
 	return request
@@ -483,8 +502,9 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 		// Handle different finish reasons
 		switch candidate.FinishReason {
 		case "MAX_TOKENS":
-			// Don't use fallback - return error to see when this happens
-			return predictResp, nil, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
+			return predictResp, nil, fmt.Errorf("gemini hit the output-token limit before emitting any content: " +
+				"on 2.5 'thinking' models the reasoning budget counts toward maxOutputTokens, so a low max_tokens " +
+				"can be exhausted by thinking alone — raise max_tokens or set a smaller thinking_budget")
 		case "SAFETY":
 			return predictResp, nil, fmt.Errorf("response blocked by Gemini safety filters")
 		case "RECITATION":
@@ -617,7 +637,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(req, tools, toolChoice)
+	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	requestBytes, err := json.Marshal(geminiReq)
 	if err != nil {
@@ -691,6 +711,8 @@ func init() {
 					spec.Platform, spec.PlatformConfig,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				applyExplicitCachingConfig(tp.Provider, spec)
+				applyThinkingConfig(tp.Provider, spec)
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -698,6 +720,8 @@ func init() {
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				applyExplicitCachingConfig(tp.Provider, spec)
+				applyThinkingConfig(tp.Provider, spec)
 				return tp, nil
 			},
 		),

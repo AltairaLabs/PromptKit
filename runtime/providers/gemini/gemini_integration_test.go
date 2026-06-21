@@ -123,7 +123,7 @@ func TestPredict_Integration(t *testing.T) {
 			},
 			serverStatus: http.StatusOK,
 			wantErr:      true,
-			errContains:  "MAX_TOKENS",
+			errContains:  "output-token limit",
 		},
 	}
 
@@ -456,7 +456,7 @@ func TestHandleGeminiFinishReason(t *testing.T) {
 		{
 			name:         "MAX_TOKENS",
 			finishReason: "MAX_TOKENS",
-			errContains:  "MAX_TOKENS",
+			errContains:  "output-token limit",
 		},
 		{
 			name:         "SAFETY",

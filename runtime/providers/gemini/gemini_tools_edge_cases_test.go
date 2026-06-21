@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -11,9 +12,8 @@ import (
 
 func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 	msg := types.Message{
-		Role:    "user",
-		Parts:     []types.ContentPart{types.NewTextPart("Hello")},
-
+		Role:  "user",
+		Parts: []types.ContentPart{types.NewTextPart("Hello")},
 	}
 
 	parts := buildMessageParts(msg, []map[string]interface{}{})
@@ -24,9 +24,8 @@ func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 
 func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 	msg := types.Message{
-		Role:    "user",
-		Parts:     []types.ContentPart{types.NewTextPart("Process result")},
-
+		Role:  "user",
+		Parts: []types.ContentPart{types.NewTextPart("Process result")},
 	}
 
 	toolResults := []map[string]interface{}{
@@ -47,8 +46,8 @@ func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 
 func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 	msg := types.Message{
-		Role:    "assistant",
-		Parts:     []types.ContentPart{types.NewTextPart("Let me check that")},
+		Role:  "assistant",
+		Parts: []types.ContentPart{types.NewTextPart("Let me check that")},
 
 		ToolCalls: []types.MessageToolCall{
 			{
@@ -68,14 +67,13 @@ func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 
 func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 	msg := types.Message{
-		Role:    "tool",
-		Parts:     []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
+		Role:  "tool",
+		Parts: []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
 
 		ToolResult: &types.MessageToolResult{
-			ID:      "call_1",
-			Name:    "", // Empty name
-			Parts:     []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
-
+			ID:    "call_1",
+			Name:  "", // Empty name
+			Parts: []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
 		},
 	}
 
@@ -98,14 +96,13 @@ func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 
 func TestToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
 	msg := types.Message{
-		Role:    "tool",
-		Parts:     []types.ContentPart{types.NewTextPart("plain string result")},
+		Role:  "tool",
+		Parts: []types.ContentPart{types.NewTextPart("plain string result")},
 
 		ToolResult: &types.MessageToolResult{
-			ID:      "call_1",
-			Name:    "test_tool",
-			Parts:     []types.ContentPart{types.NewTextPart("plain string result")},
-
+			ID:    "call_1",
+			Name:  "test_tool",
+			Parts: []types.ContentPart{types.NewTextPart("plain string result")},
 		},
 	}
 
@@ -124,10 +121,9 @@ func TestToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
 		Role:    "tool",
 		Content: "42", // Numeric string
 		ToolResult: &types.MessageToolResult{
-			ID:      "call_1",
-			Name:    "get_number",
-			Parts:     []types.ContentPart{types.NewTextPart("42")},
-
+			ID:    "call_1",
+			Name:  "get_number",
+			Parts: []types.ContentPart{types.NewTextPart("42")},
 		},
 	}
 
@@ -220,7 +216,7 @@ func TestToolProvider_ParseToolResponse_MaxTokensError(t *testing.T) {
 		t.Error("Expected error for MAX_TOKENS finish reason")
 	}
 
-	if err != nil && err.Error() != "gemini returned MAX_TOKENS error (this should not happen with reasonable limits)" {
+	if err != nil && !strings.Contains(err.Error(), "output-token limit") {
 		t.Errorf("Unexpected error message: %v", err)
 	}
 }
@@ -307,7 +303,7 @@ func TestToolProvider_BuildToolRequest_EmptyMessages(t *testing.T) {
 
 	tools := []interface{}{map[string]interface{}{"name": "test"}}
 
-	geminiReq := provider.buildToolRequest(req, tools, "auto")
+	geminiReq := provider.buildToolRequest(context.Background(), req, tools, "auto")
 
 	contents, ok := geminiReq["contents"].([]map[string]interface{})
 	if !ok {
@@ -328,7 +324,7 @@ func TestToolProvider_BuildToolRequest_NilTools(t *testing.T) {
 		},
 	}
 
-	geminiReq := provider.buildToolRequest(req, nil, "")
+	geminiReq := provider.buildToolRequest(context.Background(), req, nil, "")
 
 	// Should not have tools or tool_config
 	if _, hasTools := geminiReq["tools"]; hasTools {
