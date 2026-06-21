@@ -1,9 +1,12 @@
 // Golden snapshot tests for the Arena TUI.
 //
 // These render whole pages at a fixed terminal-size matrix and compare against
-// committed testdata/*.golden files. They are the safety net for the layout
-// engine migration: capture today's output, refactor the layout engine
-// underneath, and these tests prove the result is byte-identical.
+// committed testdata/*.golden files — the safety net for the layout engine
+// migration.
+//
+// To stay byte-stable across environments (local vs CI) the snapshot is a
+// single warmed View() of the final model with ANSI escape sequences stripped,
+// NOT teatest's raw PTY output stream. See renderGolden for why.
 //
 // Regenerate after an intentional layout change:
 //
@@ -13,6 +16,7 @@
 package tui
 
 import (
+	"regexp"
 	"testing"
 	"time"
 
@@ -22,6 +26,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
+
+// ansiPattern matches ANSI/VT escape sequences (CSI). Glamour renders the
+// conversation markdown with 256-color SGR codes whose exact profile is
+// environment-dependent (it varies between a local terminal and CI); stripping
+// them keeps the goldens validating layout and text while staying byte-stable
+// across machines.
+var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+
+func stripANSI(s string) string {
+	return ansiPattern.ReplaceAllString(s, "")
+}
 
 // goldenSizes is the terminal matrix every page is snapshotted across.
 // The last entry is below the minimum supported size to capture degradation.
@@ -56,21 +71,23 @@ func newGoldenModel() *Model {
 	return m
 }
 
-// readFinal drains the program's final framebuffer into a string.
-func readFinal(t *testing.T, tm *teatest.TestModel) string {
-	t.Helper()
-	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-	b := tm.FinalOutput(t)
-	data := make([]byte, 0, 4096)
-	buf := make([]byte, 4096)
-	for {
-		n, rerr := b.Read(buf)
-		data = append(data, buf[:n]...)
-		if rerr != nil {
-			break
-		}
-	}
-	return string(data)
+// renderGolden drives the model to the given terminal size and returns its
+// final, warmed View() — a single deterministic frame.
+//
+// We deliberately do NOT snapshot teatest's PTY output stream: that stream
+// contains every intermediate frame the program emits (e.g. the initial 80x24
+// frame before the WindowSizeMsg resize) plus cursor-movement and teardown
+// escape sequences, and exactly which frames land in the buffer is
+// timing-dependent — it differs between a local run and CI. Capturing a single
+// View() of the final model state is environment-independent.
+//
+// The first View() warms up lazy panel initialization (e.g. the logs viewport's
+// "Waiting for logs..." placeholder becomes its real content); the second is the
+// stable frame we assert on.
+func renderGolden(m *Model, w, h int) string {
+	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	_ = m.View()
+	return stripANSI(m.View())
 }
 
 // goldenFixedTime is a constant timestamp used for every seeded run and
@@ -81,11 +98,7 @@ func TestGoldenMainPage(t *testing.T) {
 	for _, sz := range goldenSizes {
 		t.Run(sz.name, func(t *testing.T) {
 			m := newGoldenModel()
-			tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(sz.w, sz.h))
-			// Drive the render size, then quit so the final frame is captured.
-			tm.Send(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-			teatest.RequireEqualOutput(t, []byte(readFinal(t, tm)))
+			teatest.RequireEqualOutput(t, []byte(renderGolden(m, sz.w, sz.h)))
 		})
 	}
 }
@@ -133,10 +146,7 @@ func TestGoldenConversationPage(t *testing.T) {
 			m.currentPage = pageConversation
 			m.initializeConversationData(&m.activeRuns[0])
 
-			tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(sz.w, sz.h))
-			tm.Send(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-			teatest.RequireEqualOutput(t, []byte(readFinal(t, tm)))
+			teatest.RequireEqualOutput(t, []byte(renderGolden(m, sz.w, sz.h)))
 		})
 	}
 }

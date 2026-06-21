@@ -1,19 +1,19 @@
-[?25l[?2004h                     ✨ PromptArena ✨                      
-            .  •  [░░░░░░░░░░░░ 0/0]  •  ⏱  0ms             
-                                                            
-                                                            
-  🧭 Conversation • demo-scenario / mock                    
-  ╭────────────────────────────────────────╮ ╭──────────────
-  │ #     Role        Content              │ │Turn 1 • Role:
-  │────────────────────────────────────────│ │              
-  │ 1     user        Hello, can you help… │ │[38;5;39;1m[0m  [38;5;39;1m## 💬 Messag[0m[38;5;252m[38;5;252m[0m[38;5;252m[0m
-  │ 2     assistant   Of course! What do … │ │[0m  [38;5;252m            [0m
-  │                                        │ │[38;5;252m[0m  [38;5;252mHello, can y[0m
-  │                                        │ │              
-  │                                        │ │              
-  │                                        │ │              
-  │                                        │ │              
-  ╰────────────────────────────────────────╯ ╰──────────────
-                                                            
-                                                            
- q quit • esc back • tab focus turns/detail • ↑/↓ navigate  [2K[?2004l[?25h[?1002l[?1003l[?1006l
+                     ✨ PromptArena ✨                                                   
+            .  •  [░░░░░░░░░░░░ 0/0]  •  ⏱  0ms                                          
+                                                                                         
+                                                                                         
+  🧭 Conversation • demo-scenario / mock                                                 
+  ╭────────────────────────────────────────╮ ╭────────────────────────────────────────╮  
+  │ #     Role        Content              │ │Turn 1 • Role: user                     │  
+  │────────────────────────────────────────│ │                                        │  
+  │ 1     user        Hello, can you help… │ │  ## 💬 Message                         │  
+  │ 2     assistant   Of course! What do … │ │                                        │  
+  │                                        │ │  Hello, can you help me?               │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  ╰────────────────────────────────────────╯ ╰────────────────────────────────────────╯  
+                                                                                         
+                                                                                         
+ q quit • esc back • tab focus turns/detail • ↑/↓ navigate                               
