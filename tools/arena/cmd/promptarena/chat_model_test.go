@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
@@ -143,4 +144,75 @@ func TestChatModel_PanelRoundtrip(t *testing.T) {
 	p.SetDimensions(80, 24)
 	// Panel without data should not crash on View.
 	_ = p.View()
+}
+
+// TestChatModel_EvalMsgSetsStatusLine verifies that a chatEvalMsg with scored
+// results populates m.statusLine with the formatted scores.
+func TestChatModel_EvalMsgSetsStatusLine(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 80, 24
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+		RunEvals:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	score := 1.0
+	evalMsg := chatEvalMsg{results: []evals.EvalResult{{Type: "json_valid", Score: &score}}}
+	m2, _ := m.Update(evalMsg)
+	cm := m2.(*chatModel)
+
+	if !strings.Contains(cm.statusLine, "json_valid") {
+		t.Fatalf("expected statusLine to contain 'json_valid', got: %q", cm.statusLine)
+	}
+	if !strings.Contains(cm.statusLine, "1.00") {
+		t.Fatalf("expected statusLine to contain score '1.00', got: %q", cm.statusLine)
+	}
+}
+
+// TestChatModel_HandleStreamDone_ReturnsCmdWhenRunEvalsTrue verifies that
+// handleStreamDone returns a non-nil tea.Cmd when runEvals is true,
+// and nil when runEvals is false.
+func TestChatModel_HandleStreamDone_ReturnsCmdWhenRunEvalsTrue(t *testing.T) {
+	eng := fixtureEngine(t)
+
+	// runEvals = true → expect a non-nil cmd
+	m := newChatModel(eng)
+	m.width, m.height = 80, 24
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+		RunEvals:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.runEvals = true
+
+	cmd := m.handleStreamDone()
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd when runEvals=true")
+	}
+
+	// runEvals = false → expect nil cmd
+	m2 := newChatModel(eng)
+	m2.session = sess
+	m2.state = stateChat
+	m2.runEvals = false
+	cmd2 := m2.handleStreamDone()
+	if cmd2 != nil {
+		t.Fatal("expected nil cmd when runEvals=false")
+	}
 }

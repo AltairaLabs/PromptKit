@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
@@ -17,6 +18,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 )
+
+// chatEvalMsg carries eval results from a post-turn scoring run.
+type chatEvalMsg struct {
+	results []evals.EvalResult
+	err     error
+}
 
 // inputHeight is the number of terminal lines reserved for the text input.
 const inputHeight = 3
@@ -207,7 +214,15 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case chatStreamDoneMsg:
-		m.handleStreamDone()
+		cmd := m.handleStreamDone()
+		return m, cmd
+
+	case chatEvalMsg:
+		if v.err != nil {
+			m.statusLine = "evals: error: " + v.err.Error()
+		} else {
+			m.statusLine = formatEvalScores(v.results)
+		}
 		return m, nil
 
 	case chatErrMsg:
@@ -340,9 +355,17 @@ func (m *chatModel) sendCmd(text string) tea.Cmd {
 	}
 }
 
-func (m *chatModel) handleStreamDone() {
+func (m *chatModel) handleStreamDone() tea.Cmd {
 	m.busy = false
 	m.input.Focus()
+	if m.runEvals {
+		sess := m.session
+		return func() tea.Msg {
+			results, err := sess.RunEvals(context.Background())
+			return chatEvalMsg{results: results, err: err}
+		}
+	}
+	return nil
 }
 
 // View renders the current state.
@@ -435,6 +458,22 @@ func messageFromCreatedMsg(msg *tui.MessageCreatedMsg) types.Message {
 		m.ToolResult = &tr
 	}
 	return m
+}
+
+// formatEvalScores formats a slice of EvalResults as a short status line.
+// Returns an empty string when there are no scoreable results.
+func formatEvalScores(results []evals.EvalResult) string {
+	var parts []string
+	for i := range results {
+		if results[i].Score == nil {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%.2f", results[i].Type, *results[i].Score))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "evals: " + strings.Join(parts, " ")
 }
 
 // runChat is the cobra RunE handler for the `chat` command.
