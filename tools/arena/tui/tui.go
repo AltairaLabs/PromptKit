@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ const (
 	MinTerminalWidth  = 80
 	MinTerminalHeight = 24
 )
+
+// logLevelError is the log level used for error entries surfaced in the TUI.
+const logLevelError = "ERROR"
 
 // Display constants
 const (
@@ -53,6 +57,7 @@ type page int
 const (
 	pageMain page = iota
 	pageConversation
+	pageFileBrowser
 )
 
 // runResultStorer is a minimal interface to retrieve run results from the state store.
@@ -90,6 +95,7 @@ type Model struct {
 	// Page components
 	mainPage         *pages.MainPage
 	conversationPage *pages.ConversationPage
+	fileBrowserPage  *pages.FileBrowserPage
 
 	currentPage page
 
@@ -249,9 +255,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleLogMsg(&msg)
 		m.mu.Unlock()
 		return m, nil
+
+	case pages.FileSelectedMsg:
+		m.mu.Lock()
+		m.handleFileSelected(msg)
+		m.mu.Unlock()
+		return m, nil
 	}
 
 	return m, nil
+}
+
+// handleFileSelected loads a result file chosen in the file browser and opens
+// the conversation view for it. On failure it logs and stays on the browser so
+// the user can pick another file. Caller must hold m.mu.
+func (m *Model) handleFileSelected(msg pages.FileSelectedMsg) {
+	data, err := os.ReadFile(msg.Path)
+	if err != nil {
+		m.logError(fmt.Sprintf("failed to read %s: %v", msg.Path, err))
+		return
+	}
+	var res statestore.RunResult
+	if uerr := json.Unmarshal(data, &res); uerr != nil {
+		m.logError(fmt.Sprintf("invalid result file %s: %v", msg.Path, uerr))
+		return
+	}
+	runID := res.RunID
+	if runID == "" {
+		runID = msg.RunID
+	}
+	m.conversationPage.Reset()
+	m.conversationPage.SetData(runID, res.ScenarioID, res.ProviderID, &res)
+	m.currentPage = pageConversation
+	m.activePane = paneRuns
+}
+
+// logError appends an error-level entry to the log buffer. Caller must hold m.mu.
+func (m *Model) logError(message string) {
+	m.logs = append(m.logs, LogEntry{Level: logLevelError, Message: message})
+	m.trimLogs()
 }
 
 // handleRunStarted processes a run started event from the observer.
@@ -369,7 +411,7 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 	// Log the event
 	m.logs = append(m.logs, LogEntry{
 		Timestamp: msg.Time,
-		Level:     "ERROR",
+		Level:     logLevelError,
 		Message:   fmt.Sprintf("Failed: %s - %s", msg.RunID, errStr),
 	})
 	m.trimLogs()
@@ -417,7 +459,7 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 	level := "INFO"
 	text := fmt.Sprintf("Turn %d (%s) completed: %s", msg.TurnIndex+1, msg.Role, msg.RunID)
 	if msg.Error != nil {
-		level = "ERROR"
+		level = logLevelError
 		text = fmt.Sprintf("Turn %d (%s) failed: %s - %v", msg.TurnIndex+1, msg.Role, msg.RunID, msg.Error)
 	}
 
@@ -587,18 +629,22 @@ func (m *Model) View() string {
 
 	// Get key bindings based on current page
 	var keyBindings []views.KeyBinding
-	if m.currentPage == pageConversation {
+	switch m.currentPage {
+	case pageConversation:
 		keyBindings = []views.KeyBinding{
 			{Keys: "q", Description: "quit"},
 			{Keys: "esc", Description: "back"},
 			{Keys: "tab", Description: "focus turns/detail"},
 			{Keys: "↑/↓", Description: "navigate"},
 		}
-	} else {
+	case pageFileBrowser:
+		keyBindings = m.fileBrowserPage.GetKeyBindings()
+	case pageMain:
 		keyBindings = []views.KeyBinding{
 			{Keys: "q", Description: "quit"},
 			{Keys: "tab", Description: "cycle focus"},
 			{Keys: "enter", Description: "open conversation"},
+			{Keys: "f", Description: "browse results"},
 			{Keys: "↑/↓", Description: "navigate/scroll"},
 		}
 	}
@@ -617,6 +663,8 @@ func (m *Model) View() string {
 			switch m.currentPage {
 			case pageConversation:
 				return m.renderConversationPage(contentHeight)
+			case pageFileBrowser:
+				return m.renderFileBrowserPage(contentHeight)
 			case pageMain:
 				return m.renderMainPage(contentHeight)
 			default:
@@ -679,6 +727,11 @@ func (m *Model) renderConversationPage(contentHeight int) string {
 	// Just set dimensions and render - data was initialized in toggleSelection
 	m.conversationPage.SetDimensions(m.width, contentHeight)
 	return m.conversationPage.Render()
+}
+
+func (m *Model) renderFileBrowserPage(contentHeight int) string {
+	m.fileBrowserPage.SetDimensions(m.width, contentHeight)
+	return m.fileBrowserPage.Render()
 }
 
 // initializeConversationData loads initial conversation data when switching to conversation page
@@ -810,22 +863,35 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 	}
 
-	// Escape deselects a conversation and returns to main view
-	if msg.Type == tea.KeyEsc && m.currentPage == pageConversation {
-		m.deselectRuns()
-		m.conversationPage.Reset()
-		m.currentPage = pageMain
-		m.activePane = paneRuns
-		return m, nil
+	// Escape returns to the main view from any sub-page.
+	if msg.Type == tea.KeyEsc {
+		switch m.currentPage {
+		case pageConversation:
+			m.deselectRuns()
+			m.conversationPage.Reset()
+			m.currentPage = pageMain
+			m.activePane = paneRuns
+			return m, nil
+		case pageFileBrowser:
+			m.fileBrowserPage.Reset()
+			m.currentPage = pageMain
+			m.activePane = paneRuns
+			return m, nil
+		case pageMain:
+		}
 	}
 
-	if m.currentPage == pageMain {
+	switch m.currentPage {
+	case pageMain:
 		return m.handleMainPageKey(msg)
+	case pageFileBrowser:
+		_, cmd := m.fileBrowserPage.Update(msg)
+		return m, cmd
+	case pageConversation:
+		cmd := m.conversationPage.Update(msg)
+		return m, cmd
 	}
-
-	// Conversation page key handling
-	cmd := m.conversationPage.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -837,6 +903,12 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEnter && m.activePane == paneRuns {
 		m.toggleSelection()
 		return m, nil
+	}
+
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'f' {
+		m.fileBrowserPage.Reset()
+		m.currentPage = pageFileBrowser
+		return m, m.fileBrowserPage.Init()
 	}
 
 	cmd := m.delegateKeyToActivePane(msg)
@@ -1151,6 +1223,7 @@ func NewModel(configFile string, totalRuns int) *Model {
 		ctx:                  context.Background(),
 		mainPage:             pages.NewMainPage(),
 		conversationPage:     pages.NewConversationPage(),
+		fileBrowserPage:      pages.NewFileBrowserPage("."),
 		currentPage:          pageMain,
 		activePane:           paneRuns,
 		systemPrompts:        make(map[string]string),

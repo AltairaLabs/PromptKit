@@ -141,7 +141,9 @@ func TestGoldenConversationPage(t *testing.T) {
 	}
 }
 
-// NOTE: The file browser page is not snapshotted here. It is not reachable
-// from the empty/seeded state through the model's key handling — it requires
-// a result file on disk to open. Capturing it deterministically belongs to
-// the later migration phase that touches that page; deferred per the plan.
+// NOTE: The file browser page (reachable via 'f' on the main page) is
+// intentionally NOT covered by golden snapshots: its body is a bubbles
+// filepicker that renders live filesystem contents, so its output is not
+// deterministic across machines/CI. It is covered instead by unit tests in
+// tui_filebrowser_test.go (open/close, file selection, error handling) and
+// pages/file_browser_test.go (render + navigation).
