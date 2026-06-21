@@ -356,6 +356,37 @@ func TestChatModel_FooterHasFocusHint(t *testing.T) {
 	}
 }
 
+// TestChatModel_FooterShowsLeftRightWhenPanelFocused verifies the turns/detail
+// hint (←/→) appears only when the conversation panel has focus.
+func TestChatModel_FooterShowsLeftRightWhenPanelFocused(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	// Input-focused: no turns/detail hint.
+	if got := stripANSI(m.View()); strings.Contains(got, keyLabelArrows) {
+		t.Fatalf("did not expect %q in input-focused footer:\n%s", keyLabelArrows, got)
+	}
+
+	// Tab to the conversation: the ←/→ turns/detail hint becomes available.
+	m.panelFocused = true
+	if got := stripANSI(m.View()); !strings.Contains(got, keyLabelArrows) {
+		t.Fatalf("expected %q in panel-focused footer:\n%s", keyLabelArrows, got)
+	}
+}
+
 // TestChatModel_AutoScrollsToLast verifies that after handleStreamDone the panel
 // selection is on the last message, not the first.
 func TestChatModel_AutoScrollsToLast(t *testing.T) {

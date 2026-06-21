@@ -37,6 +37,7 @@ const (
 	keyLabelEsc    = "esc"
 	keyLabelSelect = "select"
 	keyLabelScroll = "↑/↓"
+	keyLabelArrows = "←/→"
 	keyLabelQuit   = "quit"
 	keyLabelTab    = "tab"
 )
@@ -417,18 +418,28 @@ func setupBindings() []views.KeyBinding {
 	}
 }
 
-// chatBindings returns key hints for the active chat state.
-func chatBindings() []views.KeyBinding {
+// chatBindings returns focus-aware key hints. When the conversation panel has
+// focus, left/right switch between the turns list and the detail pane; that
+// hint is only shown then ("when that's available").
+func (m *chatModel) chatBindings() []views.KeyBinding {
+	if m.panelFocused {
+		return []views.KeyBinding{
+			{Keys: keyLabelScroll, Description: "turns"},
+			{Keys: keyLabelArrows, Description: "turns/detail"},
+			{Keys: keyLabelTab, Description: "back to input"},
+			{Keys: keyLabelEsc + "/ctrl+c", Description: keyLabelQuit},
+		}
+	}
 	return []views.KeyBinding{
 		{Keys: keyNameEnter, Description: "send"},
-		{Keys: keyLabelTab, Description: "focus conv/input"},
 		{Keys: keyLabelScroll, Description: "scroll"},
+		{Keys: keyLabelTab, Description: "focus conversation"},
 		{Keys: keyLabelEsc + "/ctrl+c", Description: keyLabelQuit},
 	}
 }
 
 func (m *chatModel) chatView() string {
-	footer := views.NewHeaderFooterView(m.width).RenderFooter(chatBindings())
+	footer := views.NewHeaderFooterView(m.width).RenderFooter(m.chatBindings())
 	parts := []string{m.panel.View(), m.input.View()}
 	if m.statusLine != "" {
 		parts = append(parts, m.statusLine)
