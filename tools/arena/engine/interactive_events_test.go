@@ -130,9 +130,12 @@ func TestInteractiveSession_EmitsLiveMessagesLikeARun(t *testing.T) {
 	got.waitFor(len(msgs), 2*time.Second)
 	events := got.snapshot()
 
-	// Every persisted non-system message must have been emitted exactly once,
-	// with an index matching its transcript position. No message emitted more
-	// than once (no re-fire of prior turns).
+	// EVERY persisted message — system included — must have been emitted exactly
+	// once at its store index. Asserting system explicitly guards the index
+	// derivation in the save stage (Finding 1): the system message lives at
+	// transcript index 0 and the live offset must keep every later message
+	// aligned with the persisted transcript. No message emitted more than once
+	// (no re-fire of prior turns).
 	type key struct {
 		role    string
 		content string
@@ -143,18 +146,33 @@ func TestInteractiveSession_EmitsLiveMessagesLikeARun(t *testing.T) {
 		seen[key{e.Role, e.Content, e.Index}]++
 	}
 	for i := range msgs {
-		if msgs[i].Role == "system" {
-			continue
-		}
 		k := key{msgs[i].Role, msgs[i].GetContent(), i}
 		if seen[k] != 1 {
 			t.Fatalf("message #%d (%s) emitted %d times, want exactly 1; events=%+v",
 				i, msgs[i].Role, seen[k], events)
 		}
 	}
+
+	// Exactly one system event, and it must sit at index 0. This is the direct
+	// regression guard for the index arithmetic: a stale prevLen-based offset
+	// would either drop the system event or fire it at the wrong index.
+	systemCount := 0
+	for _, e := range events {
+		if e.Role != "system" {
+			continue
+		}
+		systemCount++
+		if e.Index != 0 {
+			t.Fatalf("system event at index %d, want 0; events=%+v", e.Index, events)
+		}
+	}
+	if systemCount != 1 {
+		t.Fatalf("got %d system events, want exactly 1; events=%+v", systemCount, events)
+	}
+
 	// And no event carries an index outside the transcript (no stale/duplicate indices).
 	for _, e := range events {
-		if e.Role != "system" && (e.Index < 0 || e.Index >= len(msgs)) {
+		if e.Index < 0 || e.Index >= len(msgs) {
 			t.Fatalf("event index %d out of range [0,%d): %+v", e.Index, len(msgs), e)
 		}
 	}

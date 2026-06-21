@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	runtimeStatestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -687,6 +688,122 @@ func TestArenaStateStoreSaveStage_WithSystemPrompt(t *testing.T) {
 	assert.Len(t, state.Messages, 2) // system + user
 	assert.Equal(t, "system", state.Messages[0].Role)
 	assert.Equal(t, "You are a helpful assistant", state.Messages[0].Content)
+}
+
+// syncBus is a deterministic, synchronous events.Bus for stage tests: listeners
+// fire inside Publish on the caller's goroutine, so assertions need no waiting.
+type syncBus struct {
+	created []events.MessageCreatedData
+}
+
+func (b *syncBus) Publish(ev *events.Event) bool {
+	if ev.Type != events.EventMessageCreated {
+		return true
+	}
+	switch d := ev.Data.(type) {
+	case *events.MessageCreatedData:
+		if d != nil {
+			b.created = append(b.created, *d)
+		}
+	case events.MessageCreatedData:
+		b.created = append(b.created, d)
+	}
+	return true
+}
+
+func (b *syncBus) Subscribe(events.EventType, events.Listener) func() { return func() {} }
+func (b *syncBus) SubscribeAll(events.Listener) func()                { return func() {} }
+func (b *syncBus) Close()                                             {}
+
+// emittedSystemIndices returns the indices of every emitted system event.
+func emittedSystemIndices(evs []events.MessageCreatedData) []int {
+	var out []int
+	for _, e := range evs {
+		if e.Role == "system" {
+			out = append(out, e.Index)
+		}
+	}
+	return out
+}
+
+// assertLiveIndicesMatchTranscript checks that every emitted message.created
+// event lands at the index of an identical (role+content) message in the
+// persisted transcript — i.e. the live index equals the store index — and that
+// the system message is emitted exactly once, at index 0.
+func assertLiveIndicesMatchTranscript(t *testing.T, evs []events.MessageCreatedData, msgs []types.Message) {
+	t.Helper()
+	if sys := emittedSystemIndices(evs); len(sys) != 1 || sys[0] != 0 {
+		t.Fatalf("system events at indices %v, want exactly [0]; events=%+v", sys, evs)
+	}
+	for _, e := range evs {
+		if e.Index < 0 || e.Index >= len(msgs) {
+			t.Fatalf("event index %d out of range [0,%d): %+v", e.Index, len(msgs), e)
+		}
+		if msgs[e.Index].Role != e.Role || msgs[e.Index].Content != e.Content {
+			t.Fatalf("event %+v does not match transcript[%d]=%+v", e, e.Index, msgs[e.Index])
+		}
+	}
+}
+
+// TestArenaStateStoreSaveStage_LiveIndexSystemInTurn1Stream is the regression
+// guard for the index-derivation fix (Finding 1): a provider that forwards a
+// system-role element on turn 1 must still produce live indices that line up
+// with the persisted transcript. The old prevLen-inferred offset shifted the
+// user message to index 2 (colliding with the assistant); the stream-derived
+// offset keeps system@0, user@1, assistant@2.
+func TestArenaStateStoreSaveStage_LiveIndexSystemInTurn1Stream(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+	cfg := &pipeline.StateStoreConfig{Store: store, ConversationID: "live-sys-in-stream"}
+
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are helpful"
+	s := NewArenaStateStoreSaveStageWithTurnState(cfg, turnState)
+
+	bus := &syncBus{}
+	s = s.WithEmitter(events.NewEmitter(bus, "exec", "sess", "live-sys-in-stream"))
+
+	// Provider forwards a system element first, then user + assistant.
+	inputs := []stage.StreamElement{
+		newTestMessageElement("system", "You are helpful"),
+		newTestMessageElement("user", "Hello"),
+		newTestMessageElement("assistant", "Hi there!"),
+	}
+	runStage(t, s, inputs)
+
+	state, err := store.Load(context.Background(), "live-sys-in-stream")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 3) // system + user + assistant (no double system)
+	assert.Equal(t, "system", state.Messages[0].Role)
+
+	assertLiveIndicesMatchTranscript(t, bus.created, state.Messages)
+}
+
+// TestArenaStateStoreSaveStage_LiveIndexSyntheticSystemTurn1 covers the common
+// path: no system element in the turn-1 stream, so persistState prepends a
+// synthetic system message and the live offset shifts new messages by one.
+func TestArenaStateStoreSaveStage_LiveIndexSyntheticSystemTurn1(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+	cfg := &pipeline.StateStoreConfig{Store: store, ConversationID: "live-synthetic-sys"}
+
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are helpful"
+	s := NewArenaStateStoreSaveStageWithTurnState(cfg, turnState)
+
+	bus := &syncBus{}
+	s = s.WithEmitter(events.NewEmitter(bus, "exec", "sess", "live-synthetic-sys"))
+
+	inputs := []stage.StreamElement{
+		newTestMessageElement("user", "Hello"),
+		newTestMessageElement("assistant", "Hi there!"),
+	}
+	runStage(t, s, inputs)
+
+	state, err := store.Load(context.Background(), "live-synthetic-sys")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 3) // synthetic system + user + assistant
+	assert.Equal(t, "system", state.Messages[0].Role)
+
+	assertLiveIndicesMatchTranscript(t, bus.created, state.Messages)
 }
 
 func TestArenaStateStoreSaveStage_WithCostInfo(t *testing.T) {

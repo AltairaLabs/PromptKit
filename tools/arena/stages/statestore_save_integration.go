@@ -285,24 +285,20 @@ func (s *ArenaStateStoreSaveStage) Process(
 	// write-through that appends this turn's messages mid-stream.
 	prevLen := s.baseTranscriptLen
 
-	// The system prompt / offset are resolved lazily on the first element:
-	// the rendered system prompt is set by the upstream TemplateStage, which
-	// runs concurrently with this sink — at Process start it may not be ready.
-	// systemOffset accounts for a system message persistState will prepend
-	// that the element stream does not replay (first turn only).
-	var systemOffset int
-	broadcastReady := s.emitter == nil
+	// liveBroadcaster derives each message's transcript-absolute index from the
+	// stream content itself (whether or not a system element appears), so the
+	// emitted index always matches the persisted transcript regardless of which
+	// provider supplies the elements. Created only when an emitter is wired.
+	var caster *liveBroadcaster
+	if s.emitter != nil {
+		caster = s.newLiveBroadcaster(prevLen)
+	}
 
 	for elem := range input {
-		if !broadcastReady {
-			s.broadcastSystemPromptIfNeeded(prevLen)
-			systemOffset = s.systemBroadcastOffset(prevLen)
-			broadcastReady = true
-		}
 		data.collectFromElement(&elem)
 		pos := len(data.messages) - 1
-		if elem.Message != nil && pos >= prevLen {
-			s.broadcastMessage(&elem, pos+systemOffset)
+		if caster != nil && elem.Message != nil {
+			caster.observe(&elem, pos)
 		}
 		cachedState = s.maybeIncrementalSave(ctx, arenaStore, &elem, data, cachedState, ctxCanceled)
 
@@ -337,26 +333,89 @@ func (s *ArenaStateStoreSaveStage) Process(
 	return nil
 }
 
-// broadcastSystemPromptIfNeeded emits a synthetic system MessageCreated event
-// once, on the first turn of a conversation, when a rendered system prompt is
-// available. Without this the live UI never sees the system turn until the run
-// completes and the saved result is refetched — confusing during a demo.
-//
-// "First turn" is detected from prevLen (the pre-turn transcript length
-// captured race-free at build time): prevLen == 0 means no prior messages,
-// hence no system message has been emitted yet. Re-loading the store here to
-// count messages would race the ProviderStage write-through and intermittently
-// suppress or double-fire the system turn. Called on the first element so the
-// rendered system prompt (set by the concurrent TemplateStage) is ready.
-func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(prevLen int) {
-	if s.emitter == nil || prevLen > 0 {
+// liveBroadcaster derives the transcript-absolute index of each streamed
+// message from the stream's own content, then publishes it to the event bus.
+// It exists so the live index matches the persisted transcript (persistState
+// is the source of truth) for ANY provider — including one that forwards a
+// system-role element on turn 1 — rather than inferring the system position
+// from prevLen. Invariants it upholds:
+//   - the system message is emitted exactly once per conversation, at index 0;
+//   - messages from prior turns (stream position < prevLen) are never re-emitted;
+//   - a non-system message at collected position pos is emitted at pos+offset,
+//     where offset is 1 iff persistState will prepend a synthetic system message
+//     (a system prompt exists and no system element leads the stream), else 0 —
+//     identical to the offset persistState itself applies.
+type liveBroadcaster struct {
+	stage         *ArenaStateStoreSaveStage
+	prevLen       int    // history replayed before this turn's new messages
+	systemPrompt  string // rendered system prompt, "" when none
+	offset        int    // +1 when persistState prepends a synthetic system msg
+	resolved      bool   // offset/system decision made on first observed message
+	systemEmitted bool   // system broadcast guard (exactly once per conversation)
+}
+
+// newLiveBroadcaster builds a broadcaster for one Process invocation. prevLen is
+// the race-free pre-turn transcript length captured at build time. The offset is
+// resolved lazily on the first observed message because the rendered system
+// prompt (set by the concurrent TemplateStage) may not be ready at Process start.
+func (s *ArenaStateStoreSaveStage) newLiveBroadcaster(prevLen int) *liveBroadcaster {
+	return &liveBroadcaster{stage: s, prevLen: prevLen}
+}
+
+// observe handles one streamed message at collected position pos. It resolves
+// the system offset once (from whether the stream itself leads with a system
+// element), emits the system message exactly once at index 0, and emits each
+// new non-system message at its derived transcript-absolute index.
+func (b *liveBroadcaster) observe(elem *stage.StreamElement, pos int) {
+	if !b.resolved {
+		b.resolve(elem, pos)
+	}
+
+	isSystem := elem.Message.Role == roleSystem
+	isNew := pos >= b.prevLen
+
+	// The system message is broadcast once at index 0. A system element only
+	// appears in the stream as replayed history (it is persisted on turn 1 and
+	// replayed thereafter) or when a provider forwards it on turn 1; in the
+	// former case it predates this turn and must not re-fire. The synthetic
+	// branch (no system element in the stream) is handled in resolve().
+	if isSystem {
+		if isNew {
+			b.emitSystem(elem.Message.Content)
+		}
 		return
 	}
-	sp := s.resolveSystemPrompt()
-	if sp == "" {
+
+	if isNew {
+		b.stage.broadcastMessage(elem, pos+b.offset)
+	}
+}
+
+// resolve fixes the system offset and, when no system element leads the stream,
+// emits the synthetic system prompt at index 0. Called once, on the first
+// observed message, so persistState's prepend decision and the live offset agree:
+// persistState prepends a system message iff a system prompt exists and the
+// first message is not already a system message.
+func (b *liveBroadcaster) resolve(elem *stage.StreamElement, pos int) {
+	b.resolved = true
+	b.systemPrompt = b.stage.resolveSystemPrompt()
+
+	leadsWithSystem := pos == 0 && elem.Message.Role == roleSystem
+	if b.systemPrompt != "" && !leadsWithSystem {
+		// persistState will prepend a synthetic system message at index 0; the
+		// stream never carries it, so shift new messages by one and emit it now.
+		b.offset = 1
+		b.emitSystem(b.systemPrompt)
+	}
+}
+
+// emitSystem publishes the system message at index 0 exactly once.
+func (b *liveBroadcaster) emitSystem(content string) {
+	if b.systemEmitted || content == "" {
 		return
 	}
-	s.emitter.MessageCreated(roleSystem, sp, 0, nil, nil, nil)
+	b.systemEmitted = true
+	b.stage.emitter.MessageCreated(roleSystem, content, 0, nil, nil, nil)
 }
 
 // resolveSystemPrompt returns the rendered system prompt for this turn,
@@ -374,22 +433,6 @@ func (s *ArenaStateStoreSaveStage) resolveSystemPrompt() string {
 		}
 	}
 	return sp
-}
-
-// systemBroadcastOffset returns 1 when a system message will be prepended on
-// persist but is absent from both the pre-turn transcript and the replayed
-// element stream (the first turn of a conversation); otherwise 0. Adding it
-// keeps live indices aligned with the persisted transcript where index 0 is
-// the system prompt. prevLen is the pre-turn transcript length: when it is 0
-// the conversation has no persisted (hence no system) messages yet.
-func (s *ArenaStateStoreSaveStage) systemBroadcastOffset(prevLen int) int {
-	if s.emitter == nil {
-		return 0
-	}
-	if prevLen == 0 && s.resolveSystemPrompt() != "" {
-		return 1
-	}
-	return 0
 }
 
 // broadcastMessage publishes the just-arrived message to the event bus when
