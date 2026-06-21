@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -230,9 +232,12 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case chatErrMsg:
-		m.err = v.err
+		// In-chat turn errors are recoverable: surface them inline and keep the
+		// session alive so the user can retry or switch provider. Sanitized so a
+		// provider's HTTP body can't corrupt the TUI.
 		m.busy = false
 		m.input.Focus()
+		m.statusLine = "⚠ " + sanitizeErrorLine(v.err)
 		return m, nil
 	}
 
@@ -344,15 +349,60 @@ func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 // sendCmd drains the stream channel; rendering happens via state store after the turn ends.
 func (m *chatModel) sendCmd(text string) tea.Cmd {
 	sess := m.session
-	return func() tea.Msg {
+	return func() (msg tea.Msg) {
+		// A provider panic must never tear down the terminal — convert it to a
+		// recoverable in-chat error.
+		defer func() {
+			if r := recover(); r != nil {
+				msg = chatErrMsg{err: fmt.Errorf("provider call panicked: %v", r)}
+			}
+		}()
 		ch, err := sess.SendUserMessage(context.Background(), text)
 		if err != nil {
 			return chatErrMsg{err: err}
 		}
-		for range ch {
+		// Drain the stream, surfacing the first error rather than dropping it.
+		for chunk := range ch {
+			if chunk.Error != nil {
+				return chatErrMsg{err: chunk.Error}
+			}
 		}
 		return chatStreamDoneMsg{}
 	}
+}
+
+// minErrorWidth is the floor for the fatal-error view width on tiny terminals.
+const minErrorWidth = 20
+
+// maxErrorLineLen bounds a sanitized error line so a provider's full HTTP body
+// cannot flood the status line.
+const maxErrorLineLen = 200
+
+// ansiSeq matches ANSI SGR escape sequences, stripped from error text so it
+// cannot corrupt the terminal.
+var ansiSeq = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// sanitizeErrorLine collapses an error into a single, control-character-free,
+// length-bounded line safe to render in the TUI. Provider errors can carry a
+// full multi-line HTTP body; rendering that raw is what corrupted the terminal.
+func sanitizeErrorLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := ansiSeq.ReplaceAllString(err.Error(), "")
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			b.WriteRune(' ') // newlines/tabs/etc → space
+			continue
+		}
+		b.WriteRune(r)
+	}
+	line := strings.Join(strings.Fields(b.String()), " ")
+	if runes := []rune(line); len(runes) > maxErrorLineLen {
+		line = string(runes[:maxErrorLineLen]) + "…"
+	}
+	return line
 }
 
 // handleStreamDone is called when the assistant stream finishes. It fetches the
@@ -394,7 +444,12 @@ func (m *chatModel) handleStreamDone() tea.Cmd {
 // View renders the current state.
 func (m *chatModel) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("error: %v\n\n(press ctrl+c to quit)", m.err)
+		// Fatal setup error (e.g. no providers): render sanitized + width-bounded
+		// so a long provider body can't overflow and corrupt the terminal.
+		body := lipgloss.NewStyle().
+			Width(maxInt(m.width-inputBorderChars, minErrorWidth)).
+			Render("error: " + sanitizeErrorLine(m.err))
+		return body + "\n\n(press ctrl+c to quit)"
 	}
 	switch m.state {
 	case stateSelectAgent:

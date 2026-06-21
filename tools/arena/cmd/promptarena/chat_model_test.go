@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -458,5 +459,57 @@ func TestChatModel_InputBoxBorderReflectsFocus(t *testing.T) {
 	m.panelFocused = true
 	if got := m.inputBorderColor(); got != theme.BorderColorUnfocused() {
 		t.Fatalf("conversation-focused: want unfocused border %v, got %v", theme.BorderColorUnfocused(), got)
+	}
+}
+
+// TestSanitizeErrorLine verifies provider errors are flattened to a single,
+// control-character-free, length-bounded line safe for the TUI.
+func TestSanitizeErrorLine(t *testing.T) {
+	if got := sanitizeErrorLine(nil); got != "" {
+		t.Fatalf("nil error: want empty, got %q", got)
+	}
+
+	raw := errors.New("API request failed with status 404:\n\t\x1b[31m{\n  \"error\": \"model not found\"\n}\x1b[0m")
+	got := sanitizeErrorLine(raw)
+	if strings.ContainsAny(got, "\n\t\r") {
+		t.Fatalf("expected no control chars, got %q", got)
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Fatalf("expected ANSI stripped, got %q", got)
+	}
+	if !strings.Contains(got, "status 404") || !strings.Contains(got, "model not found") {
+		t.Fatalf("expected key content preserved, got %q", got)
+	}
+
+	long := errors.New(strings.Repeat("x", 500))
+	if got := sanitizeErrorLine(long); len([]rune(got)) > maxErrorLineLen+1 {
+		t.Fatalf("expected truncation to ~%d runes, got %d", maxErrorLineLen, len([]rune(got)))
+	}
+}
+
+// TestChatModel_TurnErrorIsRecoverable verifies a turn error is surfaced inline
+// (status line) and does NOT take over the view or end the session.
+func TestChatModel_TurnErrorIsRecoverable(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+	m.state = stateChat
+	m.busy = true
+
+	turnErr := errors.New("API request failed with status 404: model not found")
+	updated, _ := m.Update(chatErrMsg{err: turnErr})
+	cm := updated.(*chatModel)
+
+	if cm.err != nil {
+		t.Fatalf("turn error must not become fatal m.err, got %v", cm.err)
+	}
+	if cm.state != stateChat {
+		t.Fatalf("session must stay in chat state, got %v", cm.state)
+	}
+	if cm.busy {
+		t.Fatal("busy must be cleared so the user can retry")
+	}
+	if !strings.Contains(cm.statusLine, "404") {
+		t.Fatalf("expected error surfaced in status line, got %q", cm.statusLine)
 	}
 }
