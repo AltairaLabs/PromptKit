@@ -42,10 +42,17 @@ func applyThinkingConfig(p *Provider, spec providers.ProviderSpec) {
 }
 
 // geminiThinkingConfigFor returns the thinkingConfig to attach to a request, or
-// nil when nothing is configured (the model applies its own default thinking).
-// maxTokens is the resolved maxOutputTokens for the request; when it cannot
-// cover the thinking budget plus any answer, a warning is logged — that
-// combination returns MAX_TOKENS with no usable answer.
+// nil when nothing is configured — in which case the model applies its own
+// default thinking. We deliberately do NOT auto-disable thinking based on model
+// name: that's a maintenance trap (every new model/tier would need a rule) and
+// unnecessary, since at the default maxOutputTokens (4096) thinking has ample
+// room and doesn't truncate. Callers who consider thinking unnecessary opt out
+// per provider with additional_config.thinking_budget: 0 (valid on flash;
+// pro/thinking-only models reject 0 with a clear API error).
+//
+// maxTokens is the resolved maxOutputTokens; when a positive budget can't leave
+// room for an answer, a warning is logged (that combination returns MAX_TOKENS
+// with no usable answer).
 func (p *Provider) geminiThinkingConfigFor(maxTokens int) *geminiThinkingConfig {
 	if p.thinkingBudget == nil && !p.includeThoughts {
 		return nil
@@ -55,8 +62,5 @@ func (p *Provider) geminiThinkingConfigFor(maxTokens int) *geminiThinkingConfig 
 			"maxOutputTokens must exceed thinking_budget (reasoning tokens count toward the output cap)",
 			"provider", p.ID(), "max_output_tokens", maxTokens, "thinking_budget", *p.thinkingBudget)
 	}
-	return &geminiThinkingConfig{
-		ThinkingBudget:  p.thinkingBudget,
-		IncludeThoughts: p.includeThoughts,
-	}
+	return &geminiThinkingConfig{ThinkingBudget: p.thinkingBudget, IncludeThoughts: p.includeThoughts}
 }
