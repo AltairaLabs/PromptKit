@@ -22,6 +22,9 @@ func TestChatCmd_Registered(t *testing.T) {
 	if cmd.Flag("mock-provider") == nil {
 		t.Fatalf("chat command missing --mock-provider flag")
 	}
+	if cmd.Flag("mock-config") == nil {
+		t.Fatalf("chat command missing --mock-config flag")
+	}
 }
 
 // interactiveFixtureAdapter builds an engineChatAdapter backed by the
@@ -81,8 +84,11 @@ func TestEngineChatAdapter_MissingRequiredVars(t *testing.T) {
 
 func TestEngineChatAdapter_HasConfigEvals(t *testing.T) {
 	a := interactiveFixtureAdapter(t)
-	// HasConfigEvals should not panic; the fixture may or may not have evals.
-	_ = a.HasConfigEvals()
+	// The interactive fixture declares one eval (json_valid, on_session_complete),
+	// so HasConfigEvals must return true.
+	if !a.HasConfigEvals() {
+		t.Fatal("want HasConfigEvals() == true for interactive fixture, got false")
+	}
 }
 
 func TestEngineChatAdapter_NewChatSession_OK(t *testing.T) {
