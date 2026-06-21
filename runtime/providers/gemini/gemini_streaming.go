@@ -146,10 +146,11 @@ func (p *Provider) processGeminiStreamChunk(
 			return totalTokens, toolCalls, true
 		}
 
+		normalized := normalizeFinishReason(candidate.FinishReason)
 		finalChunk := providers.StreamChunk{
 			Content:      sb.String(),
 			TokenCount:   totalTokens,
-			FinishReason: &candidate.FinishReason,
+			FinishReason: &normalized,
 			ToolCalls:    toolCalls,
 		}
 

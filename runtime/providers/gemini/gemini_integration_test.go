@@ -279,7 +279,7 @@ func TestPredictStream_Integration(t *testing.T) {
 			// Last chunk should have finish reason
 			lastChunk := chunks[len(chunks)-1]
 			assert.NotNil(t, lastChunk.FinishReason)
-			assert.Equal(t, "STOP", *lastChunk.FinishReason)
+			assert.Equal(t, types.FinishReasonStop, *lastChunk.FinishReason)
 			assert.NotNil(t, lastChunk.CostInfo)
 		})
 	}

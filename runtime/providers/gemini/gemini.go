@@ -680,6 +680,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
+	predictResp.FinishReason = normalizeFinishReason(candidate.FinishReason)
 
 	// Debug log the extracted parts
 	logger.Debug("Extracted content parts from Gemini response",
