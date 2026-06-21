@@ -918,13 +918,14 @@ func (s *ProviderStage) executeRound(
 
 	// Build response message with latency and cost info
 	responseMsg := types.Message{
-		Role:      "assistant",
-		Content:   resp.Content,
-		Parts:     resp.Parts,
-		ToolCalls: toolCalls,
-		Timestamp: timeNow(),
-		LatencyMs: duration.Milliseconds(),
-		CostInfo:  resp.CostInfo,
+		Role:         roleAssistant,
+		Content:      resp.Content,
+		Parts:        resp.Parts,
+		ToolCalls:    toolCalls,
+		Timestamp:    timeNow(),
+		LatencyMs:    duration.Milliseconds(),
+		CostInfo:     resp.CostInfo,
+		FinishReason: resp.FinishReason,
 	}
 
 	// Run AfterCall hooks

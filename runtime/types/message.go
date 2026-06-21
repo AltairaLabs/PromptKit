@@ -33,13 +33,26 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp,omitempty"`  // When the message was created
 	LatencyMs int64     `json:"latency_ms,omitempty"` // Time taken to generate (for assistant messages)
 	CostInfo  *CostInfo `json:"cost_info,omitempty"`  // Token usage and cost tracking
-	// Provider-reported reason the assistant stopped (e.g. "stop", "length", "tool_calls").
+	// Provider-reported reason the assistant stopped, normalized onto the
+	// canonical vocabulary (see FinishReason* constants). Empty if unreported.
 	FinishReason string                 `json:"finish_reason,omitempty"`
 	Meta         map[string]interface{} `json:"meta,omitempty"` // Custom metadata
 
 	// Validation results (for assistant messages)
 	Validations []ValidationResult `json:"validations,omitempty"`
 }
+
+// Canonical finish reasons. Each provider normalizes its raw wire value onto
+// one of these before populating Message.FinishReason, so consumers can
+// reliably detect e.g. an output-cap truncation regardless of provider. An
+// unknown provider value passes through verbatim rather than mapping here.
+const (
+	FinishReasonStop            = "stop"              // natural completion
+	FinishReasonMaxOutputTokens = "max_output_tokens" // output budget (incl. reasoning) exhausted
+	FinishReasonToolUse         = "tool_use"          // stopped to call tools
+	FinishReasonSafety          = "safety"            // blocked by safety / content filter
+	FinishReasonRefusal         = "refusal"           // model declined to answer
+)
 
 // MessageToolCall represents a request to call a tool within a Message.
 // The Args field contains the JSON-encoded arguments for the tool.

@@ -116,6 +116,9 @@ type PredictionResponse struct {
 	Raw        []byte                  `json:"raw,omitempty"`
 	RawRequest any                     `json:"raw_request,omitempty"` // Raw API request (for debugging)
 	ToolCalls  []types.MessageToolCall `json:"tool_calls,omitempty"`  // Tools called in this response
+	// FinishReason is the canonical (normalized) reason the model stopped,
+	// or "" if the provider did not report one. See runtime/types FinishReason* constants.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // Pricing defines cost per 1K tokens for input and output
