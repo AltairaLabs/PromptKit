@@ -15,6 +15,7 @@ import (
 const (
 	jsonKeyError    = "error"
 	jsonKeyTaskType = "taskType"
+	msgBadRequest   = "bad request"
 )
 
 // interactiveSessions holds live chat sessions keyed by conversation ID.
@@ -72,7 +73,7 @@ func (s *Server) handleInteractiveSession(w http.ResponseWriter, r *http.Request
 		Evals     bool              `json:"evals"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]any{jsonKeyError: msgBadRequest})
 		return
 	}
 	missing, err := s.interactiveEngine.MissingRequiredVars(body.Agent, body.Variables)
@@ -108,7 +109,7 @@ func (s *Server) handleInteractiveMessage(w http.ResponseWriter, r *http.Request
 		Text      string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]any{jsonKeyError: msgBadRequest})
 		return
 	}
 	sess, ok := s.interactive.get(body.SessionID)

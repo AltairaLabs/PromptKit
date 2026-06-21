@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -112,7 +113,7 @@ func TestInteractiveMessage_Roundtrip(t *testing.T) {
 	}
 
 	// Step 2: send a message.
-	msgBodyStr := `{"sessionId":"` + sessGot.SessionID + `","text":"Hello there"}`
+	msgBodyStr := fmt.Sprintf(`{"sessionId":%q,"text":"Hello there"}`, sessGot.SessionID)
 	msgReq := httptest.NewRequest("POST", "/api/interactive/message", strings.NewReader(msgBodyStr))
 	msgRec := httptest.NewRecorder()
 	srv.mux.ServeHTTP(msgRec, msgReq)
@@ -196,6 +197,13 @@ func TestInteractiveSession_BadJSON(t *testing.T) {
 	if rec.Code != 400 {
 		t.Fatalf("want 400 for bad JSON, got %d: %s", rec.Code, rec.Body.String())
 	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not JSON: %v — body: %s", err, rec.Body.String())
+	}
+	if got["error"] != "bad request" {
+		t.Fatalf("want error=bad request in JSON body, got %v", got)
+	}
 }
 
 func TestInteractiveMessage_BadJSON(t *testing.T) {
@@ -205,6 +213,13 @@ func TestInteractiveMessage_BadJSON(t *testing.T) {
 	srv.mux.ServeHTTP(rec, req)
 	if rec.Code != 400 {
 		t.Fatalf("want 400 for bad JSON, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not JSON: %v — body: %s", err, rec.Body.String())
+	}
+	if got["error"] != "bad request" {
+		t.Fatalf("want error=bad request in JSON body, got %v", got)
 	}
 }
 
