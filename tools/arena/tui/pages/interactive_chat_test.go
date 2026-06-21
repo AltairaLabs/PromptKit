@@ -75,7 +75,6 @@ func (sa *sessionAdapter) Cost(ctx context.Context) (types.CostInfo, error) { re
 func (sa *sessionAdapter) RunEvals(ctx context.Context) ([]evals.EvalResult, error) {
 	return sa.s.RunEvals(ctx)
 }
-func (sa *sessionAdapter) RunEvalsEnabled() bool { return sa.s.RunEvalsEnabled() }
 
 // ─── Stub ChatEngine for unit tests (no real engine required) ─────────────────
 
@@ -119,7 +118,6 @@ func (ss *stubSession) RunEvals(_ context.Context) ([]evals.EvalResult, error) {
 	score := 1.0
 	return []evals.EvalResult{{Type: "json_valid", Score: &score}}, nil
 }
-func (ss *stubSession) RunEvalsEnabled() bool { return false }
 
 // ─── Fixture engine (real engine with mock provider) ─────────────────────────
 

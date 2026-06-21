@@ -140,11 +140,16 @@ func (e *Engine) NewInteractiveSession(opts InteractiveSessionOptions) (*Interac
 		return nil, fmt.Errorf("scripted executor unavailable")
 	}
 
-	// Merge prompt-config vars (matched by task_type) under the user's vars.
+	// Merge prompt-config vars (matched by task_type, not by map key which is the
+	// ref ID for file-based configs) under the user's vars. This mirrors the
+	// canonical pattern in conversation_executor.go:355-363.
 	promptVars := map[string]string{}
-	if pc, ok2 := e.config.LoadedPromptConfigs[opts.TaskType]; ok2 && pc != nil {
-		for k, v := range pc.Vars {
-			promptVars[k] = v
+	for _, pc := range e.config.LoadedPromptConfigs {
+		if pc != nil && pc.TaskType == opts.TaskType {
+			for k, v := range pc.Vars {
+				promptVars[k] = v
+			}
+			break
 		}
 	}
 	for k, v := range opts.Variables {

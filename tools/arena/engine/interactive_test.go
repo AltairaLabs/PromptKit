@@ -6,12 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	turnexec "github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 )
-
-type turnexecutorsChunk = turnexec.MessageStreamChunk
 
 const interactiveFixture = "testdata/interactive/config.arena.yaml"
 
@@ -296,5 +292,27 @@ func TestInteractiveSession_RunEvals_Disabled(t *testing.T) {
 	}
 	if results != nil {
 		t.Fatalf("want nil results when evals disabled, got %v", results)
+	}
+}
+
+func TestNewInteractiveSession_PromptConfigVarsByTaskType(t *testing.T) {
+	eng, err := NewEngineFromConfigFile(filepath.Clean("testdata/interactive_idvars/config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("NewEngineFromConfigFile: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	if err := eng.EnableMockProviderMode(""); err != nil {
+		t.Fatalf("EnableMockProviderMode: %v", err)
+	}
+	sess, err := eng.NewInteractiveSession(InteractiveSessionOptions{
+		ProviderID: "mock",
+		TaskType:   "support",
+		// No Variables — rely solely on prompt-config vars.
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	if got := sess.promptVars["company"]; got != "FixtureCo" {
+		t.Fatalf("want promptVars[company]=FixtureCo, got %q (vars dropped by map-key mismatch?)", got)
 	}
 }

@@ -46,7 +46,6 @@ type ChatSession interface {
 	Messages(ctx context.Context) ([]types.Message, error)
 	Cost(ctx context.Context) (types.CostInfo, error)
 	RunEvals(ctx context.Context) ([]evals.EvalResult, error)
-	RunEvalsEnabled() bool
 }
 
 // ChatSessionOptions mirrors engine.InteractiveSessionOptions.
