@@ -1027,10 +1027,8 @@ Talk live to an agent defined in your Arena config. Opens an interactive TUI cha
 ### Usage
 
 ```bash
-promptarena chat [config-path] [flags]
+promptarena chat [flags]
 ```
-
-If `config-path` is a directory, looks for `config.arena.yaml` inside it. Defaults to the current directory.
 
 ### Flags
 
