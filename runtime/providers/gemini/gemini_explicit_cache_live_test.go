@@ -34,9 +34,14 @@ func TestExplicitCaching_Live(t *testing.T) {
 		p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
 			ID: "live-gemini", Type: "gemini", Model: "gemini-2.5-flash",
 			AdditionalConfig: map[string]any{"explicit_caching": true},
-			// gemini-2.5-flash spends "thinking" tokens before output, so the cap
-			// needs headroom or every call returns MAX_TOKENS with no content.
-			Defaults: providers.ProviderDefaults{MaxTokens: 512},
+			// maxOutputTokens caps the TOTAL output, and gemini-2.5-flash is a
+			// thinking model — it spends output budget on internal reasoning
+			// (thoughtsTokenCount) before any visible text, so a cap below the
+			// thinking spend returns finishReason=MAX_TOKENS with empty content,
+			// which the provider treats as an error. The cap is a ceiling, not a
+			// cost lever (cost is the tokens actually generated — a few here), so
+			// it's set generously rather than tuned to a fragile minimum.
+			Defaults: providers.ProviderDefaults{MaxTokens: 1024},
 		})
 		if err != nil {
 			t.Fatalf("CreateProviderFromSpec: %v", err)
