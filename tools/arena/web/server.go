@@ -49,11 +49,13 @@ type engineRunner interface {
 
 // Server is the Arena web UI HTTP server.
 type Server struct {
-	adapter    *EventAdapter
-	engine     engineRunner
-	stateStore *statestore.ArenaStateStore
-	outputDir  string
-	mux        *http.ServeMux
+	adapter           *EventAdapter
+	engine            engineRunner
+	interactiveEngine *engine.Engine
+	interactive       *interactiveSessions
+	stateStore        *statestore.ArenaStateStore
+	outputDir         string
+	mux               *http.ServeMux
 
 	// pending tracks background goroutines spawned by handleStartRun so
 	// tests can wait for outputDir writes to drain before TempDir
@@ -80,7 +82,9 @@ func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.Aren
 			})
 		}
 	}
-	return newServerWithRunner(adapter, runner, store, outputDir)
+	s := newServerWithRunner(adapter, runner, store, outputDir)
+	s.interactiveEngine = eng
+	return s
 }
 
 // newServerWithRunner creates a Server using the engineRunner interface (used for testing).
@@ -88,11 +92,12 @@ func newServerWithRunner(
 	adapter *EventAdapter, runner engineRunner, store *statestore.ArenaStateStore, outputDir string,
 ) *Server {
 	s := &Server{
-		adapter:    adapter,
-		engine:     runner,
-		stateStore: store,
-		outputDir:  outputDir,
-		mux:        http.NewServeMux(),
+		adapter:     adapter,
+		engine:      runner,
+		interactive: newInteractiveSessions(),
+		stateStore:  store,
+		outputDir:   outputDir,
+		mux:         http.NewServeMux(),
 	}
 	if runner != nil && store != nil && outputDir != "" {
 		runner.RegisterRunCompletedHook(func(runID string, _ error) {
@@ -107,6 +112,9 @@ func newServerWithRunner(
 	s.mux.HandleFunc("GET /api/media/{path...}", s.handleMedia)
 	s.mux.HandleFunc("DELETE /api/results", s.handleClearResults)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
+	s.mux.HandleFunc("GET /api/interactive/options", s.handleInteractiveOptions)
+	s.mux.HandleFunc("POST /api/interactive/session", s.handleInteractiveSession)
+	s.mux.HandleFunc("POST /api/interactive/message", s.handleInteractiveMessage)
 
 	// SPA fallback: serve embedded frontend
 	sub, subErr := fs.Sub(frontendFS, "frontend/dist")
