@@ -128,11 +128,10 @@ func TestGoldenMainPageLogsCollapsed(t *testing.T) {
 			}}
 			m.setFocusToLogsPane()
 
-			tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(sz.w, sz.h))
-			tm.Send(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // collapse logs
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-			teatest.RequireEqualOutput(t, []byte(readFinal(t, tm)))
+			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // collapse logs
+			_ = m.View()                                                 // warm up lazy panel init
+			teatest.RequireEqualOutput(t, []byte(stripANSI(m.View())))
 		})
 	}
 }
