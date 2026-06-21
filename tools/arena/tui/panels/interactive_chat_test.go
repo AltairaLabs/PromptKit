@@ -187,11 +187,20 @@ func TestInteractiveChatPanel_UpdateForwardsMessages(t *testing.T) {
 func TestInteractiveChatPanel_UpdateBusy(t *testing.T) {
 	p := NewInteractiveChatPanel()
 	p.SetDimensions(80, 24)
+
+	// Seed the input while not busy so we have known non-empty content.
+	seedMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("seed")}
+	_ = p.Update(seedMsg)
+	if got := p.InputValue(); got != "seed" {
+		t.Fatalf("pre-busy sanity: expected InputValue %q, got %q", "seed", got)
+	}
+
 	p.SetBusy(true)
 	// When busy the textarea is blurred; key runes must NOT be applied to it.
-	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")}
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")}
 	_ = p.Update(keyMsg)
-	if got := p.InputValue(); got != "" {
-		t.Fatalf("busy: expected empty InputValue, got %q", got)
+	// Content must remain "seed" — the busy gate dropped "X" without clearing existing content.
+	if got := p.InputValue(); got != "seed" {
+		t.Fatalf("busy: expected InputValue %q (unchanged), got %q", "seed", got)
 	}
 }
