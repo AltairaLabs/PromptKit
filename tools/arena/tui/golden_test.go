@@ -1,3 +1,15 @@
+// Golden snapshot tests for the Arena TUI.
+//
+// These render whole pages at a fixed terminal-size matrix and compare against
+// committed testdata/*.golden files. They are the safety net for the layout
+// engine migration: capture today's output, refactor the layout engine
+// underneath, and these tests prove the result is byte-identical.
+//
+// Regenerate after an intentional layout change:
+//
+//	go -C tools/arena test ./tui/ -update
+//
+// CI runs them without -update; a diff means the layout changed.
 package tui
 
 import (
