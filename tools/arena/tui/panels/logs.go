@@ -7,7 +7,6 @@ import (
 )
 
 const (
-	logsHeightDivisor   = 3
 	logsMinHeight       = 5
 	logsWidthPadding    = 50
 	logsMinWidth        = 40

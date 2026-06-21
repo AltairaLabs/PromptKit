@@ -52,8 +52,6 @@ const (
 	conversationColNumWidth      = 4
 	conversationColRoleWidth     = 10
 	conversationContentPadding   = 20
-	conversationArgsIndent       = 4
-	conversationResultIndent     = 2
 	scrollPercentThreshold       = 0.01
 	scrollPercentMultiplier      = 100
 	markdownExtraWidthPadding    = 4
