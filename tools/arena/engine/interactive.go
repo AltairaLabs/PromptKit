@@ -69,8 +69,14 @@ func (e *Engine) promptConfigForTaskType(taskType string) (*prompt.Config, error
 		if pd.TaskType != taskType {
 			continue
 		}
-		//nolint:forcetypeassert // Config is always *prompt.Config; set by loader.
-		return pd.Config.(*prompt.Config), nil
+		if pd.Config == nil {
+			return nil, fmt.Errorf("prompt config for task type %q has nil config", taskType)
+		}
+		cfg, ok := pd.Config.(*prompt.Config)
+		if !ok {
+			return nil, fmt.Errorf("prompt config for task type %q has invalid type", taskType)
+		}
+		return cfg, nil
 	}
 	return nil, fmt.Errorf("no prompt config found for task type %q", taskType)
 }
