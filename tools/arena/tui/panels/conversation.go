@@ -16,6 +16,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/layout"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
@@ -327,15 +328,27 @@ func (c *ConversationPanel) View() string {
 		detailView,
 	)
 
-	header := []string{title}
-	if meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive); meter != "" {
-		header = append(header, meter)
-	}
-	header = append(header, content)
+	return c.composeView(title, content)
+}
 
+// composeView stacks the title, an optional audio meter, and the two-pane
+// content using the layout engine. The audio meter is an optional element that
+// drops out cleanly when there is no active audio (no manual append/join math).
+func (c *ConversationPanel) composeView(title, content string) string {
+	meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive)
+	tree := layout.VSplit(
+		layout.Pane("title"),
+		layout.Optional(meter != "", layout.Pane("audio")),
+		layout.Pane("content"),
+	)
+	body := layout.RenderTree(tree, map[string]string{
+		"title":   title,
+		"audio":   meter,
+		"content": content,
+	})
 	return lipgloss.NewStyle().
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, header...))
+		Render(body)
 }
 
 // buildEmptyConversationView renders the two-panel layout with empty table and waiting message
@@ -392,15 +405,7 @@ func (c *ConversationPanel) buildEmptyConversationView() string {
 		detailView,
 	)
 
-	header := []string{title}
-	if meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive); meter != "" {
-		header = append(header, meter)
-	}
-	header = append(header, content)
-
-	return lipgloss.NewStyle().
-		Padding(conversationPanelPadding, conversationPanelHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, header...))
+	return c.composeView(title, content)
 }
 
 // renderAudioMeter formats a single 8-cell level bar from a 0.0–1.0 level.
