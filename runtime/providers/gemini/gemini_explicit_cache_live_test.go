@@ -91,6 +91,44 @@ func TestExplicitCaching_Live(t *testing.T) {
 		t.Logf("PredictWithTools: cachedTokens=%d inputTokens=%d", resp.CostInfo.CachedTokens, resp.CostInfo.InputTokens)
 	})
 
+	t.Run("ThinkingBudgetFixesCutoff", func(t *testing.T) {
+		// A tight maxTokens (32) is exhausted by thinking alone on 2.5-flash, so
+		// with default thinking it returns MAX_TOKENS with no content...
+		withThinking, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+			ID: "live-gemini", Type: "gemini", Model: "gemini-2.5-flash",
+			Defaults: providers.ProviderDefaults{MaxTokens: 32},
+		})
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec: %v", err)
+		}
+		if _, err := withThinking.Predict(context.Background(), providers.PredictionRequest{
+			Messages: []types.Message{{Role: "user", Content: "Reply with the single word OK."}},
+		}); err == nil {
+			t.Log("note: thinking did not exhaust 32 tokens this run; cutoff contrast is best-effort")
+		}
+
+		// ...but disabling thinking (thinking_budget: 0) leaves the whole cap for
+		// the answer, so the same tight cap now succeeds with content.
+		noThinking, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+			ID: "live-gemini", Type: "gemini", Model: "gemini-2.5-flash",
+			AdditionalConfig: map[string]any{"thinking_budget": 0},
+			Defaults:         providers.ProviderDefaults{MaxTokens: 32},
+		})
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec: %v", err)
+		}
+		resp, err := noThinking.Predict(context.Background(), providers.PredictionRequest{
+			Messages: []types.Message{{Role: "user", Content: "Reply with the single word OK."}},
+		})
+		if err != nil {
+			t.Fatalf("with thinking_budget=0 the tight cap must produce an answer, got: %v", err)
+		}
+		if strings.TrimSpace(resp.Content) == "" {
+			t.Fatal("expected non-empty content with thinking disabled")
+		}
+		t.Logf("thinking_budget=0 @ maxTokens=32: content=%q", resp.Content)
+	})
+
 	t.Run("PredictStream", func(t *testing.T) {
 		tp := newProvider(t)
 		ch, err := tp.PredictStream(context.Background(), providers.PredictionRequest{

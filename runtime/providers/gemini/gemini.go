@@ -60,6 +60,11 @@ type Provider struct {
 	// cache, when non-nil, enables explicit context caching (CachedContent API)
 	// for the stable system+tools prefix. nil means rely on implicit caching.
 	cache *cacheManager
+	// thinkingBudget caps reasoning tokens on 2.5 "thinking" models (nil = model
+	// default, 0 = disabled, -1 = dynamic). includeThoughts returns thought
+	// summaries. Both come from additional_config — see gemini_thinking.go.
+	thinkingBudget  *int
+	includeThoughts bool
 }
 
 // enableExplicitCaching turns on explicit context caching (#1404) with the given
@@ -196,11 +201,21 @@ type geminiInlineData struct {
 }
 
 type geminiGenConfig struct {
-	Temperature      float32     `json:"temperature"`
-	TopP             float32     `json:"topP"`
-	MaxOutputTokens  int         `json:"maxOutputTokens"`
-	ResponseMimeType string      `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
-	ResponseSchema   interface{} `json:"responseSchema,omitempty"`   // JSON Schema for structured output
+	Temperature      float32               `json:"temperature"`
+	TopP             float32               `json:"topP"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens"`
+	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
+	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
+	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+// geminiThinkingConfig controls Gemini 2.5 "thinking" models. ThinkingBudget is
+// a TOKEN ceiling on internal reasoning (0 disables on flash, -1 lets the model
+// decide); those tokens count toward maxOutputTokens. IncludeThoughts returns
+// thought summaries. See gemini_thinking.go.
+type geminiThinkingConfig struct {
+	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool `json:"includeThoughts,omitempty"`
 }
 
 type geminiSafety struct {
@@ -347,6 +362,7 @@ func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstructio
 			Temperature:     temperature,
 			TopP:            topP,
 			MaxOutputTokens: maxTokens,
+			ThinkingConfig:  p.geminiThinkingConfigFor(maxTokens),
 		},
 		SafetySettings: []geminiSafety{
 			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"},
@@ -426,7 +442,9 @@ func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp pro
 
 	switch finishReason {
 	case finishReasonMaxTokens:
-		return predictResp, fmt.Errorf("gemini returned MAX_TOKENS error (this should not happen with reasonable limits)")
+		return predictResp, fmt.Errorf("gemini hit the output-token limit before emitting any content: " +
+			"on 2.5 'thinking' models the reasoning budget counts toward maxOutputTokens, so a low max_tokens " +
+			"can be exhausted by thinking alone — raise max_tokens or set a smaller thinking_budget")
 	case finishReasonSafety:
 		return predictResp, fmt.Errorf("response blocked by Gemini safety filters")
 	case finishReasonRecitation:
