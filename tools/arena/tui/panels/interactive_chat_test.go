@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -85,9 +87,9 @@ func TestInteractiveChatPanel_BusyShowsSpinner(t *testing.T) {
 	p.SetDimensions(80, 24)
 	p.SetBusy(true)
 	out := p.View()
-	// Busy flag adds a placeholder "assistant: ..." line
-	if !strings.Contains(out, "assistant") {
-		t.Fatalf("busy state missing assistant indicator:\n%s", out)
+	// Busy flag adds the exact line "assistant: ..." to the transcript.
+	if !strings.Contains(out, "assistant: ...") {
+		t.Fatalf("busy state missing exact 'assistant: ...' indicator:\n%s", out)
 	}
 }
 
@@ -174,14 +176,22 @@ func TestInteractiveChatPanel_SetCostNil(t *testing.T) {
 func TestInteractiveChatPanel_UpdateForwardsMessages(t *testing.T) {
 	p := NewInteractiveChatPanel()
 	p.SetDimensions(80, 24)
-	// Update with a generic window size message should not panic.
-	_ = p.Update(nil)
+	// When not busy the textarea is focused; key runes must land in InputValue.
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")}
+	_ = p.Update(keyMsg)
+	if got := p.InputValue(); got != "hi" {
+		t.Fatalf("not-busy: expected InputValue %q, got %q", "hi", got)
+	}
 }
 
 func TestInteractiveChatPanel_UpdateBusy(t *testing.T) {
 	p := NewInteractiveChatPanel()
 	p.SetDimensions(80, 24)
 	p.SetBusy(true)
-	// While busy, textarea update is skipped; ensure no panic.
-	_ = p.Update(nil)
+	// When busy the textarea is blurred; key runes must NOT be applied to it.
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")}
+	_ = p.Update(keyMsg)
+	if got := p.InputValue(); got != "" {
+		t.Fatalf("busy: expected empty InputValue, got %q", got)
+	}
 }
