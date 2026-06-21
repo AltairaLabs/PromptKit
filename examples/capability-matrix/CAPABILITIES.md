@@ -48,10 +48,8 @@ This document tracks expected capabilities for each provider/model based on offi
 | claude-3.5-sonnet | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
 | claude-3.5-haiku | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Fast, efficient |
 | claude-3.7-sonnet | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Extended thinking |
-| claude-sonnet-4 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Deprecated, retires 2026-06-15 |
 | claude-sonnet-4.5 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
 | claude-sonnet-4.6 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
-| claude-opus-4 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Deprecated, retires 2026-06-15 |
 | claude-opus-4.1 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
 | claude-opus-4.5 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
 | claude-opus-4.6 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |

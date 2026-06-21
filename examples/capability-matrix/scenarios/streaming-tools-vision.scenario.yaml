@@ -15,7 +15,7 @@ spec:
   streaming: true
   providers:
     - openai-gpt41-mini
-    - anthropic-sonnet4
+    - anthropic-sonnet46
     - gemini-35-flash
 
   turns:
