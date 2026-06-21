@@ -193,6 +193,23 @@ func (c *ConversationPanel) AppendMessage(msg *types.Message) {
 	c.updateDetail(c.res)
 }
 
+// SelectedTurnIdx returns the index of the currently selected message, or 0 if
+// no message is selected.
+func (c *ConversationPanel) SelectedTurnIdx() int {
+	return c.selectedTurnIdx
+}
+
+// SelectLast moves the selection to the last message and refreshes the detail
+// pane. It is a no-op when the panel has no data or the table is not yet ready.
+func (c *ConversationPanel) SelectLast() {
+	if c.res == nil || len(c.res.Messages) == 0 || !c.tableReady {
+		return
+	}
+	c.selectedTurnIdx = len(c.res.Messages) - 1
+	c.table.SetCursor(c.selectedTurnIdx)
+	c.updateDetail(c.res)
+}
+
 // UpdateMessageMetadata updates cost/latency for a message
 func (c *ConversationPanel) UpdateMessageMetadata(index int, latencyMs int64, costInfo types.CostInfo) {
 	if c.res == nil || index < 0 || index >= len(c.res.Messages) {

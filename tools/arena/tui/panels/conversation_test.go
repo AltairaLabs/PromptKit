@@ -1072,3 +1072,47 @@ func TestConversationPanel_UpdateMessageMetadata(t *testing.T) {
 	assert.Equal(t, 10, panel.res.Messages[0].CostInfo.InputTokens)
 	assert.Equal(t, 0.001, panel.res.Messages[0].CostInfo.TotalCost)
 }
+
+// TestConversationPanel_SelectLast verifies that SelectLast moves the selection
+// to the last message index and updates the detail pane.
+func TestConversationPanel_SelectLast(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(100, 50)
+
+	result := &statestore.RunResult{
+		RunID: "run-sel",
+		Messages: []types.Message{
+			{Role: "user", Content: "First"},
+			{Role: "assistant", Content: "Second"},
+			{Role: "user", Content: "Third"},
+		},
+	}
+	panel.SetData("run-sel", "scenario", "provider", result)
+
+	// After SetData the cursor is at index 0.
+	assert.Equal(t, 0, panel.selectedTurnIdx)
+
+	panel.SelectLast()
+
+	assert.Equal(t, 2, panel.selectedTurnIdx)
+	// Detail should now show "Turn 3" (last message).
+	assert.True(t, panel.detailReady)
+	view := panel.View()
+	assert.Contains(t, strings.ReplaceAll(view, "\n", " "), "Turn 3")
+}
+
+// TestConversationPanel_SelectLast_NoOp verifies SelectLast is safe when the
+// panel has no data or the table is not yet initialized.
+func TestConversationPanel_SelectLast_NoOp(t *testing.T) {
+	// No data at all — should not panic.
+	panel := NewConversationPanel()
+	panel.SelectLast()
+	assert.Equal(t, 0, panel.selectedTurnIdx)
+
+	// Data set but zero messages — should not panic.
+	panel2 := NewConversationPanel()
+	panel2.SetDimensions(100, 50)
+	panel2.res = &statestore.RunResult{Messages: []types.Message{}}
+	panel2.SelectLast()
+	assert.Equal(t, 0, panel2.selectedTurnIdx)
+}

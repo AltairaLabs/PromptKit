@@ -38,6 +38,7 @@ const (
 	keyLabelSelect = "select"
 	keyLabelScroll = "↑/↓"
 	keyLabelQuit   = "quit"
+	keyLabelTab    = "tab"
 )
 
 type chatSetupState int
@@ -60,22 +61,23 @@ type chatStreamDoneMsg struct{}
 // the setup flow (agent / provider / variable selection) and the live chat
 // using panels.ConversationPanel driven from the state store after each turn.
 type chatModel struct {
-	engine   *engine.Engine
-	session  *engine.InteractiveSession
-	panel    *panels.ConversationPanel
-	input    textinput.Model
-	state    chatSetupState
-	agents   []engine.AgentInfo
-	taskType string
-	provider string
-	vars     map[string]string
-	required []string
-	varIdx   int
-	runEvals bool
-	busy     bool
-	width    int
-	height   int
-	err      error
+	engine       *engine.Engine
+	session      *engine.InteractiveSession
+	panel        *panels.ConversationPanel
+	input        textinput.Model
+	state        chatSetupState
+	agents       []engine.AgentInfo
+	taskType     string
+	provider     string
+	vars         map[string]string
+	required     []string
+	varIdx       int
+	runEvals     bool
+	busy         bool
+	panelFocused bool
+	width        int
+	height       int
+	err          error
 
 	statusLine string
 }
@@ -295,6 +297,23 @@ func (m *chatModel) handleEvalToggleKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
+	// Tab toggles focus between the text input and the conversation panel.
+	if msg.Type == tea.KeyTab {
+		m.panelFocused = !m.panelFocused
+		if m.panelFocused {
+			m.input.Blur()
+		} else {
+			m.input.Focus()
+		}
+		return textinput.Blink
+	}
+
+	// When the conversation panel has focus, forward all keys to the panel.
+	if m.panelFocused {
+		return m.panel.Update(msg)
+	}
+
+	// Input is focused. Send on Enter (when not empty and not busy).
 	if msg.Type == tea.KeyEnter && strings.TrimSpace(m.input.Value()) != "" && !m.busy {
 		text := m.input.Value()
 		m.input.Reset()
@@ -303,6 +322,14 @@ func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 		m.input.Blur()
 		return m.sendCmd(text)
 	}
+
+	// m.input is a single-line textinput — it does not consume vertical keys.
+	// Forward up/down/pgup/pgdn to the panel so users can scroll while typing.
+	switch msg.Type { //nolint:exhaustive // remaining cases are handled by the input below
+	case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:
+		return m.panel.Update(msg)
+	}
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return cmd
@@ -327,6 +354,7 @@ func (m *chatModel) sendCmd(text string) tea.Cmd {
 // preventing any duplication from earlier event-driven appends.
 func (m *chatModel) handleStreamDone() tea.Cmd {
 	m.busy = false
+	m.panelFocused = false
 	m.input.Focus()
 
 	// Refresh panel from the state store — single source of truth.
@@ -338,6 +366,7 @@ func (m *chatModel) handleStreamDone() tea.Cmd {
 				Messages: msgs,
 			}
 			m.panel.SetData(m.session.ConversationID(), "", m.provider, res)
+			m.panel.SelectLast()
 		}
 	}
 
@@ -392,6 +421,7 @@ func setupBindings() []views.KeyBinding {
 func chatBindings() []views.KeyBinding {
 	return []views.KeyBinding{
 		{Keys: keyNameEnter, Description: "send"},
+		{Keys: keyLabelTab, Description: "focus conv/input"},
 		{Keys: keyLabelScroll, Description: "scroll"},
 		{Keys: keyLabelEsc + "/ctrl+c", Description: keyLabelQuit},
 	}

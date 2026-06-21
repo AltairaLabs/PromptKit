@@ -281,3 +281,119 @@ func TestChatModel_SetupFooterContainsQuit(t *testing.T) {
 		t.Fatalf("expected setup state view to contain 'quit', got:\n%s", out)
 	}
 }
+
+// TestChatModel_TabTogglesFocus verifies that Tab toggles panelFocused and
+// blurs/focuses the text input accordingly.
+func TestChatModel_TabTogglesFocus(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+	m.input.Focus()
+
+	// Initially not panel-focused; input must be focused.
+	if m.panelFocused {
+		t.Fatal("expected panelFocused=false before first Tab")
+	}
+	if !m.input.Focused() {
+		t.Fatal("expected input to be focused before first Tab")
+	}
+
+	// First Tab → panel gets focus, input loses it.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	cm := m2.(*chatModel)
+	if !cm.panelFocused {
+		t.Fatal("expected panelFocused=true after first Tab")
+	}
+	if cm.input.Focused() {
+		t.Fatal("expected input to be blurred after first Tab")
+	}
+
+	// Second Tab → input regains focus.
+	m3, _ := cm.Update(tea.KeyMsg{Type: tea.KeyTab})
+	cm2 := m3.(*chatModel)
+	if cm2.panelFocused {
+		t.Fatal("expected panelFocused=false after second Tab")
+	}
+	if !cm2.input.Focused() {
+		t.Fatal("expected input to be focused after second Tab")
+	}
+}
+
+// TestChatModel_FooterHasFocusHint verifies that the chat-state footer includes
+// the "tab" keybinding hint.
+func TestChatModel_FooterHasFocusHint(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	out := stripANSI(m.View())
+	if !strings.Contains(strings.ToLower(out), "tab") {
+		t.Fatalf("expected footer to contain 'tab', got:\n%s", out)
+	}
+}
+
+// TestChatModel_AutoScrollsToLast verifies that after handleStreamDone the panel
+// selection is on the last message, not the first.
+func TestChatModel_AutoScrollsToLast(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	// Perform a real turn so the state store has ≥2 messages.
+	ch, err := sess.SendUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("SendUserMessage: %v", err)
+	}
+	for range ch {
+	}
+	m.handleStreamDone()
+
+	// The panel must hold the messages and the selection must be on the last one.
+	msgs, err := sess.Messages(context.Background())
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) < 2 {
+		t.Fatalf("expected ≥2 messages after a turn, got %d", len(msgs))
+	}
+	want := len(msgs) - 1
+	if m.panel.SelectedTurnIdx() != want {
+		t.Fatalf("expected selectedTurnIdx=%d (last), got %d", want, m.panel.SelectedTurnIdx())
+	}
+}
