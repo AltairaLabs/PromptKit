@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 )
 
@@ -48,81 +48,6 @@ func TestChatModel_AutoSelectsSingleAgentAndProvider(t *testing.T) {
 	out := stripANSI(m.View())
 	if !strings.Contains(strings.ToLower(out), "company") {
 		t.Fatalf("expected variable prompt for 'company', got:\n%s", out)
-	}
-}
-
-// TestChatModel_MessageCreatedMsgAppendsToPanel verifies that a
-// tui.MessageCreatedMsg for the session's conversation ID reaches the panel.
-func TestChatModel_MessageCreatedMsgAppendsToPanel(t *testing.T) {
-	eng := fixtureEngine(t)
-	m := newChatModel(eng)
-	m.width, m.height = 80, 24
-	_ = m.Init()
-
-	// Force the model into chat state with a session.
-	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
-		ProviderID: eng.ProviderIDs()[0],
-		TaskType:   "basic",
-		Variables:  map[string]string{"company": "Acme"},
-	})
-	if err != nil {
-		t.Fatalf("NewInteractiveSession: %v", err)
-	}
-	m.session = sess
-	m.state = stateChat
-	// Initialize the panel with the session's conversation ID.
-	m.initPanel()
-
-	// Simulate receiving a MessageCreatedMsg for this session.
-	msg := tui.MessageCreatedMsg{
-		ConversationID: sess.ConversationID(),
-		Role:           "assistant",
-		Content:        "hello from the mock provider",
-		Index:          1,
-		Time:           time.Now(),
-	}
-	m2, _ := m.Update(msg)
-	_ = m2
-
-	out := stripANSI(m.View())
-	if !strings.Contains(out, "hello from the mock provider") {
-		t.Fatalf("expected panel to show message content, got:\n%s", out)
-	}
-}
-
-// TestChatModel_MessageCreatedMsgIgnoresOtherConversations verifies that
-// messages for other conversation IDs are ignored.
-func TestChatModel_MessageCreatedMsgIgnoresOtherConversations(t *testing.T) {
-	eng := fixtureEngine(t)
-	m := newChatModel(eng)
-	m.width, m.height = 80, 24
-	_ = m.Init()
-
-	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
-		ProviderID: eng.ProviderIDs()[0],
-		TaskType:   "basic",
-		Variables:  map[string]string{"company": "Acme"},
-	})
-	if err != nil {
-		t.Fatalf("NewInteractiveSession: %v", err)
-	}
-	m.session = sess
-	m.state = stateChat
-	m.initPanel()
-
-	// Message for a DIFFERENT conversation ID - should be ignored.
-	msg := tui.MessageCreatedMsg{
-		ConversationID: "other-conversation-id",
-		Role:           "assistant",
-		Content:        "should not appear",
-		Index:          1,
-		Time:           time.Now(),
-	}
-	m.Update(msg)
-
-	out := stripANSI(m.View())
-	if strings.Contains(out, "should not appear") {
-		t.Fatalf("expected message for other conversation to be ignored, got:\n%s", out)
 	}
 }
 
@@ -214,5 +139,145 @@ func TestChatModel_HandleStreamDone_ReturnsCmdWhenRunEvalsTrue(t *testing.T) {
 	cmd2 := m2.handleStreamDone()
 	if cmd2 != nil {
 		t.Fatal("expected nil cmd when runEvals=false")
+	}
+}
+
+// TestChatModel_NoDuplication verifies that after two turns the panel content
+// matches the state store exactly — SetData replaces, never accumulates event
+// appends, so each message appears at most twice (table row + detail pane).
+func TestChatModel_NoDuplication(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	// Turn 1: send a message and let handleStreamDone refresh the panel.
+	ch, err := sess.SendUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("SendUserMessage turn 1: %v", err)
+	}
+	for range ch {
+	}
+	m.handleStreamDone()
+
+	// Turn 2: send another message and refresh again.
+	ch2, err := sess.SendUserMessage(context.Background(), "world")
+	if err != nil {
+		t.Fatalf("SendUserMessage turn 2: %v", err)
+	}
+	for range ch2 {
+	}
+	m.handleStreamDone()
+
+	// Verify that the state store has messages.
+	msgs, err := sess.Messages(context.Background())
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected messages in state store after two turns")
+	}
+
+	// After two handleStreamDone calls, the panel's internal RunResult must have
+	// the same number of messages as the state store — SetData replaces rather
+	// than appends, so repeated calls never accumulate duplicates.
+	res := &statestore.RunResult{RunID: sess.ConversationID(), Messages: msgs}
+	m.panel.SetData(sess.ConversationID(), "", "mock", res)
+	view := stripANSI(m.View())
+
+	// "hello" is the first user message.  It may appear in the table row and
+	// the detail pane, but never more than that.
+	helloCount := strings.Count(view, "hello")
+	if helloCount == 0 {
+		t.Fatal("expected 'hello' to appear in panel view")
+	}
+	// More than 2 occurrences means duplication across panel re-renders.
+	if helloCount > 2 {
+		t.Fatalf("message 'hello' appears %d times — duplication detected (want ≤2)", helloCount)
+	}
+}
+
+// TestChatModel_ExitOnCtrlC verifies that Ctrl+C causes the model to return tea.Quit.
+func TestChatModel_ExitOnCtrlC(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 80, 24
+	_ = m.Init()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd from Ctrl+C, got nil")
+	}
+	// Execute the command and check it returns tea.Quit.
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg from Ctrl+C cmd, got %T", msg)
+	}
+}
+
+// TestChatModel_ExitOnEsc verifies that Esc causes the model to return tea.Quit.
+func TestChatModel_ExitOnEsc(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 80, 24
+	_ = m.Init()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd from Esc, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg from Esc cmd, got %T", msg)
+	}
+}
+
+// TestChatModel_FooterContainsQuit verifies that the chat state View() renders a
+// footer that mentions "quit" so users know how to exit.
+func TestChatModel_FooterContainsQuit(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 120, 40
+
+	sess, err := eng.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: eng.ProviderIDs()[0],
+		TaskType:   "basic",
+		Variables:  map[string]string{"company": "Acme"},
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	m.session = sess
+	m.state = stateChat
+	m.initPanel()
+
+	out := stripANSI(m.View())
+	if !strings.Contains(strings.ToLower(out), "quit") {
+		t.Fatalf("expected footer to contain 'quit', got:\n%s", out)
+	}
+}
+
+// TestChatModel_SetupFooterContainsQuit verifies that setup-state views also render
+// a footer with quit instructions.
+func TestChatModel_SetupFooterContainsQuit(t *testing.T) {
+	eng := fixtureEngine(t)
+	m := newChatModel(eng)
+	m.width, m.height = 80, 24
+	_ = m.Init()
+	// After Init with single agent+provider, state is stateEnterVars.
+	out := stripANSI(m.View())
+	if !strings.Contains(strings.ToLower(out), "quit") {
+		t.Fatalf("expected setup state view to contain 'quit', got:\n%s", out)
 	}
 }

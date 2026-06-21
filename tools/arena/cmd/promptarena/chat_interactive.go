@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,12 +10,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // chatEvalMsg carries eval results from a post-turn scoring run.
@@ -34,6 +31,14 @@ const inputPadding = 4
 
 // keyNameEnter is the key string for the Enter key in string-based key comparisons.
 const keyNameEnter = "enter"
+
+// Key binding label constants used by footer helpers.
+const (
+	keyLabelEsc    = "esc"
+	keyLabelSelect = "select"
+	keyLabelScroll = "↑/↓"
+	keyLabelQuit   = "quit"
+)
 
 type chatSetupState int
 
@@ -53,7 +58,7 @@ type chatStreamDoneMsg struct{}
 
 // chatModel is a tea.Model that drives the interactive chat console. It owns
 // the setup flow (agent / provider / variable selection) and the live chat
-// using panels.ConversationPanel driven by tui.EventAdapter messages.
+// using panels.ConversationPanel driven from the state store after each turn.
 type chatModel struct {
 	engine   *engine.Engine
 	session  *engine.InteractiveSession
@@ -95,12 +100,15 @@ func (m *chatModel) initPanel() {
 	}
 	res := &statestore.RunResult{RunID: m.session.ConversationID()}
 	m.panel.SetData(m.session.ConversationID(), "", m.provider, res)
-	panelHeight := m.height - inputHeight - 1 // 1 for status line
+	panelHeight := m.height - inputHeight - footerHeight - 1 // 1 for status line
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
 	m.panel.SetDimensions(m.width, panelHeight)
 }
+
+// footerHeight is the number of lines the footer occupies.
+const footerHeight = 1
 
 // Init resolves the first setup step, auto-selecting when there is only one
 // agent or provider so simple configs drop straight into the variable prompt.
@@ -185,7 +193,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = v.Width, v.Height
 		if m.state == stateChat {
-			panelHeight := m.height - inputHeight - 1
+			panelHeight := m.height - inputHeight - footerHeight - 1
 			if panelHeight < 1 {
 				panelHeight = 1
 			}
@@ -195,23 +203,12 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if v.Type == tea.KeyCtrlC {
+		// Global exit bindings take priority over all state-specific handling.
+		if v.Type == tea.KeyCtrlC || v.Type == tea.KeyEsc {
 			return m, tea.Quit
 		}
 		cmd := m.handleKey(v)
 		return m, cmd
-
-	case tui.MessageCreatedMsg:
-		m.handleMessageCreated(&v)
-		return m, nil
-
-	case tui.MessageUpdatedMsg:
-		m.handleMessageUpdated(&v)
-		return m, nil
-
-	case tui.ConversationStartedMsg:
-		m.handleConversationStarted(&v)
-		return m, nil
 
 	case chatStreamDoneMsg:
 		cmd := m.handleStreamDone()
@@ -302,6 +299,7 @@ func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 		text := m.input.Value()
 		m.input.Reset()
 		m.busy = true
+		m.statusLine = "assistant is responding…"
 		m.input.Blur()
 		return m.sendCmd(text)
 	}
@@ -310,38 +308,7 @@ func (m *chatModel) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// handleMessageCreated appends the message to the panel when it belongs to this session.
-func (m *chatModel) handleMessageCreated(v *tui.MessageCreatedMsg) {
-	if m.session == nil || v.ConversationID != m.session.ConversationID() {
-		return
-	}
-	msg := messageFromCreatedMsg(v)
-	m.panel.AppendMessage(&msg)
-}
-
-// handleMessageUpdated updates message metadata in the panel when it belongs to this session.
-func (m *chatModel) handleMessageUpdated(v *tui.MessageUpdatedMsg) {
-	if m.session == nil || v.ConversationID != m.session.ConversationID() {
-		return
-	}
-	cost := types.CostInfo{
-		InputTokens:  v.InputTokens,
-		OutputTokens: v.OutputTokens,
-		TotalCost:    v.TotalCost,
-	}
-	m.panel.UpdateMessageMetadata(v.Index, v.LatencyMs, cost)
-}
-
-// handleConversationStarted prepends the system prompt when it belongs to this session.
-func (m *chatModel) handleConversationStarted(v *tui.ConversationStartedMsg) {
-	if m.session == nil || v.ConversationID != m.session.ConversationID() {
-		return
-	}
-	systemMsg := &types.Message{Role: "system", Content: v.SystemPrompt}
-	m.panel.PrependSystemPrompt(systemMsg)
-}
-
-// sendCmd drains the stream channel; rendering happens via event bus → EventAdapter.
+// sendCmd drains the stream channel; rendering happens via state store after the turn ends.
 func (m *chatModel) sendCmd(text string) tea.Cmd {
 	sess := m.session
 	return func() tea.Msg {
@@ -355,9 +322,30 @@ func (m *chatModel) sendCmd(text string) tea.Cmd {
 	}
 }
 
+// handleStreamDone is called when the assistant stream finishes. It fetches the
+// full transcript from the state store and replaces the panel content entirely,
+// preventing any duplication from earlier event-driven appends.
 func (m *chatModel) handleStreamDone() tea.Cmd {
 	m.busy = false
 	m.input.Focus()
+
+	// Refresh panel from the state store — single source of truth.
+	if m.session != nil {
+		msgs, err := m.session.Messages(context.Background())
+		if err == nil {
+			res := &statestore.RunResult{
+				RunID:    m.session.ConversationID(),
+				Messages: msgs,
+			}
+			m.panel.SetData(m.session.ConversationID(), "", m.provider, res)
+		}
+	}
+
+	// Clear the "responding" status unless the eval run will overwrite it.
+	if !m.runEvals {
+		m.statusLine = ""
+	}
+
 	if m.runEvals {
 		sess := m.session
 		return func() tea.Msg {
@@ -375,34 +363,58 @@ func (m *chatModel) View() string {
 	}
 	switch m.state {
 	case stateSelectAgent:
-		return m.renderPicker("Select an agent:", agentLabels(m.agents))
+		return m.renderPickerWithFooter("Select an agent:", agentLabels(m.agents), setupBindings())
 	case stateSelectProvider:
-		return m.renderPicker("Select a provider:", m.engine.ProviderIDs())
+		return m.renderPickerWithFooter("Select a provider:", m.engine.ProviderIDs(), setupBindings())
 	case stateEnterVars:
-		return fmt.Sprintf("Enter value for required variable %q:\n\n%s",
-			m.required[m.varIdx], m.input.View())
+		footer := views.NewHeaderFooterView(m.width).RenderFooter(setupBindings())
+		return fmt.Sprintf("Enter value for required variable %q:\n\n%s\n%s",
+			m.required[m.varIdx], m.input.View(), footer)
 	case stateEvalToggle:
-		return "Run evals each turn for live scores? [y/N]"
+		footer := views.NewHeaderFooterView(m.width).RenderFooter(setupBindings())
+		return "Run evals each turn for live scores? [y/N]\n" + footer
 	case stateChat:
 		return m.chatView()
 	}
 	return ""
 }
 
+// setupBindings returns key hints for the setup flow states.
+func setupBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: "1-9", Description: keyLabelSelect},
+		{Keys: keyNameEnter, Description: "confirm"},
+		{Keys: keyLabelEsc, Description: keyLabelQuit},
+	}
+}
+
+// chatBindings returns key hints for the active chat state.
+func chatBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: keyNameEnter, Description: "send"},
+		{Keys: keyLabelScroll, Description: "scroll"},
+		{Keys: keyLabelEsc + "/ctrl+c", Description: keyLabelQuit},
+	}
+}
+
 func (m *chatModel) chatView() string {
+	footer := views.NewHeaderFooterView(m.width).RenderFooter(chatBindings())
 	parts := []string{m.panel.View(), m.input.View()}
 	if m.statusLine != "" {
 		parts = append(parts, m.statusLine)
 	}
+	parts = append(parts, footer)
 	return strings.Join(parts, "\n")
 }
 
-func (m *chatModel) renderPicker(title string, items []string) string {
+func (m *chatModel) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {
 	var b strings.Builder
 	b.WriteString(title + "\n\n")
 	for i, it := range items {
 		fmt.Fprintf(&b, "  %d. %s\n", i+1, it)
 	}
+	footer := views.NewHeaderFooterView(m.width).RenderFooter(bindings)
+	b.WriteString("\n" + footer)
 	return b.String()
 }
 
@@ -428,36 +440,6 @@ func digitIndex(s string, n int) (int, bool) {
 		return 0, false
 	}
 	return idx, true
-}
-
-// messageFromCreatedMsg builds a types.Message from a tui.MessageCreatedMsg.
-func messageFromCreatedMsg(msg *tui.MessageCreatedMsg) types.Message {
-	m := types.Message{
-		Role:    msg.Role,
-		Content: msg.Content,
-	}
-	if len(msg.ToolCalls) > 0 {
-		tcs := make([]types.MessageToolCall, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			// events.MessageToolCall.Args is a string; types.MessageToolCall.Args
-			// is json.RawMessage — cast directly since a JSON string is valid RawMessage.
-			tcs[i] = types.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: json.RawMessage(tc.Args),
-			}
-		}
-		m.ToolCalls = tcs
-	}
-	if msg.ToolResult != nil {
-		tr := types.NewTextToolResult(msg.ToolResult.ID, msg.ToolResult.Name, "")
-		// Carry over the parts from the MessageToolResult.
-		if len(msg.ToolResult.Parts) > 0 {
-			tr.Parts = msg.ToolResult.Parts
-		}
-		m.ToolResult = &tr
-	}
-	return m
 }
 
 // formatEvalScores formats a slice of EvalResults as a short status line.
@@ -494,14 +476,8 @@ func runChat(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	bus := events.NewEventBus()
-	eng.SetEventBus(bus, engine.WithMessageEvents())
-	defer bus.Close()
-
 	m := newChatModel(eng)
 	program := tea.NewProgram(m, tea.WithAltScreen())
-	adapter := tui.NewEventAdapter(program)
-	adapter.Subscribe(bus)
 
 	_, runErr := program.Run()
 	return runErr

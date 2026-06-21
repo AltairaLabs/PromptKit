@@ -536,12 +536,6 @@ func (e *Engine) EnableMessageEvents() {
 		defaults := stage.DefaultRecordingStageConfig()
 		e.recordingConfig = &defaults
 	}
-	// RecordingStage requires a non-nil EventStore to activate. When no
-	// persistent store is configured, wire a lightweight bus-forwarding store
-	// so message.created events reach EventAdapter → TUI without disk I/O.
-	if e.eventStore == nil && e.eventBus != nil {
-		e.eventStore = &busPublishingStore{bus: e.eventBus}
-	}
 }
 
 // EnableSessionRecording enables session recording for all runs.
@@ -772,50 +766,6 @@ func (e *Engine) closeEventStore() error {
 
 	return nil
 }
-
-// busPublishingStore is a minimal events.EventStore that forwards every Append
-// call to the event bus. It is used by EnableMessageEvents to activate the
-// RecordingStage (which requires a non-nil EventStore) without writing anything
-// to disk. Only Append and Close are meaningful; the query/stream methods return
-// empty results because this store does not retain events.
-type busPublishingStore struct {
-	bus events.Bus
-}
-
-// Append publishes the event to the bus. Errors are always nil.
-func (s *busPublishingStore) Append(_ context.Context, event *events.Event) error {
-	if s.bus != nil {
-		s.bus.Publish(event)
-	}
-	return nil
-}
-
-// OnEvent is the bus.Listener signature; it publishes the event to the bus.
-func (s *busPublishingStore) OnEvent(event *events.Event) {
-	if s.bus != nil {
-		s.bus.Publish(event)
-	}
-}
-
-// Query always returns an empty result; this store does not retain events.
-func (s *busPublishingStore) Query(_ context.Context, _ *events.EventFilter) ([]*events.Event, error) {
-	return nil, nil
-}
-
-// QueryRaw always returns an empty result; this store does not retain events.
-func (s *busPublishingStore) QueryRaw(_ context.Context, _ *events.EventFilter) ([]*events.StoredEvent, error) {
-	return nil, nil
-}
-
-// Stream returns an immediately-closed channel; this store does not retain events.
-func (s *busPublishingStore) Stream(_ context.Context, _ string) (<-chan *events.Event, error) {
-	ch := make(chan *events.Event)
-	close(ch)
-	return ch, nil
-}
-
-// Close is a no-op; the bus lifecycle is managed by the caller.
-func (s *busPublishingStore) Close() error { return nil }
 
 // GetStateStore returns the engine's state store for accessing run results
 // Runs are executed concurrently up to the specified concurrency limit, with run IDs
