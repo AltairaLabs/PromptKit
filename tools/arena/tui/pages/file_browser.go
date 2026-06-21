@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/layout"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
@@ -195,8 +196,11 @@ func (p *FileBrowserPage) Render() string {
 	// Set filepicker height to use available space
 	p.filePicker.SetHeight(availableHeight)
 
-	// Build content
-	content := lipgloss.JoinVertical(lipgloss.Left, title, p.filePicker.View())
+	// Build content via the layout engine: title stacked over the file picker.
+	content := layout.RenderTree(
+		layout.VSplit(layout.Pane("title"), layout.Pane("picker")),
+		map[string]string{"title": title, "picker": p.filePicker.View()},
+	)
 
 	// Calculate inner width (account for border 2 + padding 4)
 	innerWidth := p.width - fileBrowserWidthChrome

@@ -29,6 +29,32 @@ func TestMainPage_Basic(t *testing.T) {
 	assert.Contains(t, view, "Active Runs")
 }
 
+func TestMainPage_RenderFocusAndSizes(t *testing.T) {
+	runs := []panels.RunInfo{
+		{RunID: "run-1", Scenario: "s1", Provider: "p1", Status: panels.StatusRunning},
+	}
+	logs := []panels.LogEntry{{Level: "INFO", Message: "hello"}}
+	result := &panels.ResultPanelData{}
+
+	for _, focus := range []string{"runs", "logs", "result"} {
+		for _, sz := range [][2]int{{100, 30}, {60, 20}, {200, 60}} {
+			page := NewMainPage()
+			page.SetDimensions(sz[0], sz[1])
+			page.SetData(runs, logs, focus, result)
+			page.SetFocusedPanel(focus)
+			view := page.Render()
+			assert.NotEmpty(t, view, "focus=%s size=%v", focus, sz)
+			assert.Contains(t, view, "Active Runs", "focus=%s size=%v", focus, sz)
+		}
+	}
+
+	// Direct-access getters used by key handling.
+	page := NewMainPage()
+	assert.NotNil(t, page.RunsPanel())
+	assert.NotNil(t, page.LogsPanel())
+	assert.NotNil(t, page.ResultPanel())
+}
+
 func TestConversationPage_Basic(t *testing.T) {
 	page := NewConversationPage()
 	page.SetDimensions(100, 30)

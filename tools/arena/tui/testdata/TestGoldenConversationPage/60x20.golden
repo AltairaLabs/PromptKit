@@ -1,0 +1,19 @@
+                     ✨ PromptArena ✨                                                   
+            .  •  [░░░░░░░░░░░░ 0/0]  •  ⏱  0ms                                          
+                                                                                         
+                                                                                         
+  🧭 Conversation • demo-scenario / mock                                                 
+  ╭────────────────────────────────────────╮ ╭────────────────────────────────────────╮  
+  │ #     Role        Content              │ │Turn 1 • Role: user                     │  
+  │────────────────────────────────────────│ │                                        │  
+  │ 1     user        Hello, can you help… │ │  ## 💬 Message                         │  
+  │ 2     assistant   Of course! What do … │ │                                        │  
+  │                                        │ │  Hello, can you help me?               │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  │                                        │ │                                        │  
+  ╰────────────────────────────────────────╯ ╰────────────────────────────────────────╯  
+                                                                                         
+                                                                                         
+ q quit • esc back • tab focus turns/detail • ↑/↓ navigate                               
