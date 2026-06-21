@@ -204,6 +204,8 @@ func (s *InteractiveSession) SendUserMessage(
 		},
 		ScriptedContent: text,
 		EventBus:        s.engine.eventBus,
+		RecordingConfig: s.engine.recordingConfig,
+		EventStore:      s.engine.eventStore,
 	}
 	return s.scripted.ExecuteTurnStream(ctx, req)
 }
