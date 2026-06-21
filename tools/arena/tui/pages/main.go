@@ -13,11 +13,34 @@ const (
 	paneIDResult = "result"
 )
 
+// Main page layout: runs on top (weight 1), logs and result split 50/50 below
+// (weight 2). Minimums are box heights (panel chrome included).
+const (
+	minRunsBox       = 8  // runs table minimum (3) + chrome (5)
+	minBottomBox     = 10 // logs/result minimum box height
+	mainRunsWeight   = 1
+	mainBottomWeight = 2
+)
+
+// mainLayoutTree builds the main page's layout tree. A fresh tree is created per
+// page so its weights/visibility can be mutated independently (resize/collapse).
+func mainLayoutTree() *layout.Node {
+	return layout.VSplit(
+		layout.Flex(mainRunsWeight, layout.Pane(paneIDRuns, layout.Min(0, minRunsBox))),
+		layout.Flex(mainBottomWeight, layout.HSplit(
+			layout.Pane(paneIDLogs, layout.Min(0, minBottomBox)),
+			layout.Pane(paneIDResult, layout.Min(0, minBottomBox)),
+		)),
+	)
+}
+
 // MainPage renders the primary view with active runs and logs.
 type MainPage struct {
 	runsPanel   *panels.RunsPanel
 	logsPanel   *panels.LogsPanel
 	resultPanel *panels.ResultPanel
+
+	layout *layout.Manager
 
 	// Stored data
 	width        int
@@ -34,6 +57,7 @@ func NewMainPage() *MainPage {
 		runsPanel:   panels.NewRunsPanel(),
 		logsPanel:   panels.NewLogsPanel(),
 		resultPanel: panels.NewResultPanel(),
+		layout:      layout.NewManager(mainLayoutTree()),
 	}
 }
 
@@ -53,36 +77,42 @@ func (p *MainPage) SetData(runs []panels.RunInfo, logs []panels.LogEntry, focuse
 	p.result = result
 }
 
-// Render builds the main page body using the layout engine: runs on top
-// (weight 1), logs and result split 50/50 below (weight 2). Each panel still
-// renders its own chrome and sizes its internal viewport/table from the box.
+// Render builds the main page body using the layout engine. Only visible panes
+// (not collapsed) are sized and composed; collapsed panes drop out and their
+// neighbors expand.
 func (p *MainPage) Render() string {
-	const (
-		minRunsBox   = 8  // runs table minimum (3) + chrome (5)
-		minBottomBox = 10 // logs/result minimum box height
-		runsWeight   = 1
-		bottomWeight = 2
-	)
+	p.layout.SetArea(layout.Rect{W: p.width, H: p.height})
 
-	tree := layout.VSplit(
-		layout.Flex(runsWeight, layout.Pane(paneIDRuns, layout.Min(0, minRunsBox))),
-		layout.Flex(bottomWeight, layout.HSplit(
-			layout.Pane(paneIDLogs, layout.Min(0, minBottomBox)),
-			layout.Pane(paneIDResult, layout.Min(0, minBottomBox)),
-		)),
-	)
-	rects := layout.Solve(tree, layout.Rect{W: p.width, H: p.height})
-
-	p.runsPanel.Update(p.runs, rects[paneIDRuns].W, rects[paneIDRuns].H)
-	p.logsPanel.Update(p.logs, rects[paneIDLogs].W, rects[paneIDLogs].H)
-	p.resultPanel.Update(rects[paneIDResult].W, rects[paneIDResult].H)
+	if r, ok := p.layout.Rect(paneIDRuns); ok {
+		p.runsPanel.Update(p.runs, r.W, r.H)
+	}
+	if r, ok := p.layout.Rect(paneIDLogs); ok {
+		p.logsPanel.Update(p.logs, r.W, r.H)
+	}
+	if r, ok := p.layout.Rect(paneIDResult); ok {
+		p.resultPanel.Update(r.W, r.H)
+	}
 
 	content := map[string]string{
 		paneIDRuns:   p.runsPanel.View(p.focusedPanel == paneIDRuns),
 		paneIDLogs:   p.logsPanel.View(p.focusedPanel == paneIDLogs),
 		paneIDResult: p.resultPanel.View(p.result, p.focusedPanel == paneIDResult),
 	}
-	return layout.RenderTree(tree, content)
+	return layout.RenderTree(p.layout.Root(), content)
+}
+
+// GrowFocused resizes the currently focused pane by delta weight steps.
+func (p *MainPage) GrowFocused(delta int) {
+	if p.focusedPanel != "" {
+		p.layout.Grow(p.focusedPanel, delta)
+	}
+}
+
+// ToggleCollapseFocused collapses or restores the currently focused pane.
+func (p *MainPage) ToggleCollapseFocused() {
+	if p.focusedPanel != "" {
+		p.layout.ToggleCollapse(p.focusedPanel)
+	}
 }
 
 // RunsPanel returns the runs panel for direct access (e.g., key handling)
