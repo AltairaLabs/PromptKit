@@ -255,3 +255,46 @@ func TestInteractiveSession_MessagesAfterTurn(t *testing.T) {
 		t.Fatal("want at least one message, got none")
 	}
 }
+
+func TestInteractiveSession_RunEvals_Enabled(t *testing.T) {
+	sess := newMockSession(t, true)
+	ctx := context.Background()
+
+	ch, err := sess.SendUserMessage(ctx, "say something")
+	if err != nil {
+		t.Fatalf("SendUserMessage: %v", err)
+	}
+	for range ch { //nolint:revive // draining
+	}
+
+	results, err := sess.RunEvals(ctx)
+	if err != nil {
+		t.Fatalf("RunEvals: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 eval result, got %d", len(results))
+	}
+	if results[0].Type != "json_valid" {
+		t.Fatalf("want json_valid result, got %q", results[0].Type)
+	}
+}
+
+func TestInteractiveSession_RunEvals_Disabled(t *testing.T) {
+	sess := newMockSession(t, false)
+	ctx := context.Background()
+
+	ch, err := sess.SendUserMessage(ctx, "hi")
+	if err != nil {
+		t.Fatalf("SendUserMessage: %v", err)
+	}
+	for range ch { //nolint:revive // draining
+	}
+
+	results, err := sess.RunEvals(ctx)
+	if err != nil {
+		t.Fatalf("RunEvals: %v", err)
+	}
+	if results != nil {
+		t.Fatalf("want nil results when evals disabled, got %v", results)
+	}
+}

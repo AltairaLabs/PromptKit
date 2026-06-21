@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -215,6 +216,24 @@ func (s *InteractiveSession) Messages(ctx context.Context) ([]types.Message, err
 		return nil, nil
 	}
 	return state.Messages, nil
+}
+
+// RunEvals runs the config's evals against the current transcript and returns
+// their raw scores. Returns nil when eval scoring is disabled for the session
+// or the config declares no evals. Evals are pure primitives (no pass/fail).
+func (s *InteractiveSession) RunEvals(ctx context.Context) ([]evals.EvalResult, error) {
+	if !s.runEvals {
+		return nil, nil
+	}
+	orch := s.engine.evalOrchestrator
+	if orch == nil || !orch.HasEvals() {
+		return nil, nil
+	}
+	msgs, err := s.Messages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return orch.RunSessionEvals(ctx, msgs, s.conversationID), nil
 }
 
 // Cost sums per-message cost across the transcript.
