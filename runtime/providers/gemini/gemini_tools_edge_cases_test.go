@@ -307,7 +307,7 @@ func TestToolProvider_BuildToolRequest_EmptyMessages(t *testing.T) {
 
 	tools := []interface{}{map[string]interface{}{"name": "test"}}
 
-	geminiReq := provider.buildToolRequest(req, tools, "auto")
+	geminiReq := provider.buildToolRequest(context.Background(), req, tools, "auto")
 
 	contents, ok := geminiReq["contents"].([]map[string]interface{})
 	if !ok {
@@ -328,7 +328,7 @@ func TestToolProvider_BuildToolRequest_NilTools(t *testing.T) {
 		},
 	}
 
-	geminiReq := provider.buildToolRequest(req, nil, "")
+	geminiReq := provider.buildToolRequest(context.Background(), req, nil, "")
 
 	// Should not have tools or tool_config
 	if _, hasTools := geminiReq["tools"]; hasTools {

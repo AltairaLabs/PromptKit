@@ -32,6 +32,13 @@ func (p *Provider) PredictStream(
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
 
+	// Explicit context caching: reference the cached system prefix and drop the
+	// inline systemInstruction (the API rejects sending both).
+	if cc := p.resolveCachedContent(ctx, req.System, nil); cc != "" {
+		geminiReq.CachedContent = cc
+		geminiReq.SystemInstruction = nil
+	}
+
 	// Apply response format if specified
 	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
 

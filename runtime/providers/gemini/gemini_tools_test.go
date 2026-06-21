@@ -258,7 +258,7 @@ func TestGeminiToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(req, nil, "")
+			request := provider.buildToolRequest(context.Background(), req, nil, "")
 
 			genConfig, ok := request["generationConfig"].(map[string]interface{})
 			if !ok {
@@ -787,7 +787,7 @@ func TestBuildToolRequest_WithSystemInstruction(t *testing.T) {
 		System:   "You are a helpful assistant",
 		Messages: []types.Message{{Role: "user", Content: "Hi"}},
 	}
-	result := provider.buildToolRequest(req, nil, "")
+	result := provider.buildToolRequest(context.Background(), req, nil, "")
 
 	if _, ok := result["systemInstruction"]; !ok {
 		t.Error("expected systemInstruction in request")

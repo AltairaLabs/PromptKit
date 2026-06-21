@@ -136,7 +136,7 @@ func (p *ToolProvider) PredictWithTools(
 	p.currentRequest = &req
 
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(req, tools, toolChoice)
+	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -384,7 +384,7 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 
 //nolint:gocritic // hugeParam: method uses req value throughout
 func (p *ToolProvider) buildToolRequest(
-	req providers.PredictionRequest, tools any, toolChoice string,
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) map[string]any {
 	// Convert messages to Gemini format
 	contents := make([]map[string]any, 0, len(req.Messages))
@@ -455,6 +455,18 @@ func (p *ToolProvider) buildToolRequest(
 
 	if tools != nil {
 		addToolConfig(request, tools, toolChoice)
+	}
+
+	// Explicit context caching: move the stable system+tools prefix into a
+	// CachedContent resource and reference it. The API rejects cachedContent
+	// alongside systemInstruction / tools / tool_config, so drop the inline
+	// prefix. request["tools"] is the wrapped []any{decl} that addToolConfig set;
+	// caching it keeps the cached and dropped tools identical.
+	if cc := p.resolveCachedContent(ctx, req.System, request["tools"]); cc != "" {
+		request["cachedContent"] = cc
+		delete(request, "systemInstruction")
+		delete(request, "tools")
+		delete(request, "tool_config")
 	}
 
 	return request
@@ -617,7 +629,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(req, tools, toolChoice)
+	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	requestBytes, err := json.Marshal(geminiReq)
 	if err != nil {
@@ -691,6 +703,7 @@ func init() {
 					spec.Platform, spec.PlatformConfig,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				applyExplicitCachingConfig(tp.Provider, spec)
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -698,6 +711,7 @@ func init() {
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				applyExplicitCachingConfig(tp.Provider, spec)
 				return tp, nil
 			},
 		),

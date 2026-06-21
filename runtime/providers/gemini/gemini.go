@@ -57,6 +57,16 @@ type Provider struct {
 	// When non-nil it is authoritative for multimodal support; nil falls back
 	// to Gemini's built-in defaults (images + audio + video + documents).
 	capabilities map[string]bool
+	// cache, when non-nil, enables explicit context caching (CachedContent API)
+	// for the stable system+tools prefix. nil means rely on implicit caching.
+	cache *cacheManager
+}
+
+// enableExplicitCaching turns on explicit context caching (#1404) with the given
+// TTL (<=0 uses the default). Gated off by default; the factory enables it from
+// additional_config.explicit_caching.
+func (p *Provider) enableExplicitCaching(ttl time.Duration) {
+	p.cache = newCacheManager(ttl)
 }
 
 // setCapabilities records the declared capability set on the provider.
@@ -153,6 +163,10 @@ type geminiRequest struct {
 	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
 	GenerationConfig  geminiGenConfig `json:"generationConfig"`
 	SafetySettings    []geminiSafety  `json:"safetySettings,omitempty"`
+	// CachedContent references a CachedContent resource holding the stable
+	// system (+tools) prefix for explicit caching. When set, SystemInstruction
+	// must be nil — the API rejects sending both (see gemini_cache.go).
+	CachedContent string `json:"cachedContent,omitempty"`
 }
 
 type geminiContent struct {
@@ -565,6 +579,14 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+
+	// Explicit context caching: move the stable system prefix into a
+	// CachedContent resource and reference it (no tools on this path). The API
+	// rejects cachedContent alongside systemInstruction, so drop the inline one.
+	if cc := p.resolveCachedContent(ctx, req.System, nil); cc != "" {
+		geminiReq.CachedContent = cc
+		geminiReq.SystemInstruction = nil
+	}
 
 	// Apply response format if specified
 	p.applyResponseFormat(&geminiReq, req.ResponseFormat)
