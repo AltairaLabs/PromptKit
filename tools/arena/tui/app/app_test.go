@@ -123,12 +123,41 @@ func TestApp_PopAtRootIsNoOp(t *testing.T) {
 	if !a.atRoot() {
 		t.Fatal("expected still at root after pop no-op")
 	}
-	_ = cmd // may be nil
+	if cmd != nil {
+		t.Fatalf("expected nil cmd, got %v", cmd)
+	}
+}
+
+func TestApp_PopReappliesSize(t *testing.T) {
+	root := &namedFakePage{name: "root"}
+	a := New(&AppContext{}, root)
+
+	// Store terminal dimensions.
+	a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// Push a child page; it gets sized immediately.
+	child := &namedFakePage{name: "child"}
+	a.Update(PushPageMsg{Page: child})
+
+	// Verify child was sized.
+	if child.lastW != 120 || child.lastH != 40 {
+		t.Fatalf("expected child SetSize(120,40), got (%d,%d)", child.lastW, child.lastH)
+	}
+
+	// Now pop the child; root should be re-sized with the stored dimensions.
+	a.Update(PopPageMsg{})
+
+	// Verify root received SetSize with the terminal dimensions.
+	if root.lastW != 120 || root.lastH != 40 {
+		t.Fatalf("expected root SetSize(120,40) after pop, got (%d,%d)", root.lastW, root.lastH)
+	}
 }
 
 func TestApp_InitCallsTopPageInit(t *testing.T) {
 	// Init() should run and return without panic; we can't easily assert the
 	// returned cmd without a real bubbletea runtime, so we just confirm no panic.
 	a := New(&AppContext{}, &namedFakePage{name: "home"})
-	_ = a.Init()
+	if cmd := a.Init(); cmd != nil {
+		t.Fatalf("expected nil cmd from Init, got %v", cmd)
+	}
 }

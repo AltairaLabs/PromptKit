@@ -89,6 +89,7 @@ func (a *App) pop() {
 		return
 	}
 	a.stack = a.stack[:len(a.stack)-1]
+	a.top().SetSize(a.w, a.h)
 }
 
 // atRoot reports whether the navigation stack has only one page (the root).
