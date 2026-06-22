@@ -3,7 +3,15 @@
 // tag; everything else here is pure Go so it builds and tests without cgo.
 package voice
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrVoiceNotCompiled is returned by NewAudioIO in builds without the `voice`
+// build tag. It is defined here (not in the stub) so callers can errors.Is
+// check it regardless of build mode.
+var ErrVoiceNotCompiled = errors.New("voice not compiled in (build with -tags voice)")
 
 const (
 	// CaptureSampleRate is the mic capture rate (16 kHz mono PCM16), matching
