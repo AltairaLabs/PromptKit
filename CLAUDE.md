@@ -6,15 +6,21 @@
 - Always use feature branches: `feat/<description>` or `feature/<issue-number>-<description>`.
 - Standard flow: branch → commit → push with `-u` → create PR via `gh pr create` → monitor CI → merge via `gh pr merge --squash`.
 - When continuing a previous session, check `git status`, `git log --oneline -5`, and any existing plan files before taking action.
+- **All commits must be signed off (DCO).** Every commit needs a `Signed-off-by: Name <email>` trailer matching the author — always commit with `git commit -s`. The `commit-msg` hook rejects commits without it. To fix the last commit: `git commit --amend -s --no-edit`. When committing via `git commit -F -`, add `-s` as well.
 
-## Pre-commit Hooks
+## Git Hooks
 
-The repo has a pre-commit hook at `.git/hooks/pre-commit` that runs on every commit:
+Install hooks once after cloning: `./scripts/install-hooks.sh` (sources are tracked under `scripts/`; the installed copies in `.git/hooks/` are not).
+
+**Pre-commit hook** (`scripts/pre-commit.sh` → `.git/hooks/pre-commit`) runs on every commit:
 - Lint changed files (`golangci-lint --new-from-rev=HEAD`)
 - Build changed modules
 - Run tests with coverage on changed packages (80% threshold on non-test files)
 
-**NEVER use `--no-verify` or skip the pre-commit hook.** The pre-commit checks mirror what SonarCloud enforces in CI — if the hook fails, the PR will also fail. Fix all issues before committing, including pre-existing issues in files you've touched.
+**Commit-msg hook** (`scripts/commit-msg.sh` → `.git/hooks/commit-msg`) enforces DCO:
+- Rejects any commit lacking a `Signed-off-by:` trailer matching the author. Commit with `git commit -s`.
+
+**NEVER use `--no-verify` or skip the hooks.** The pre-commit checks mirror what SonarCloud enforces in CI — if the hook fails, the PR will also fail. Fix all issues before committing, including pre-existing issues in files you've touched.
 
 ### Before committing
 1. Run `golangci-lint run ./...` and `go test ./... -count=1` first
