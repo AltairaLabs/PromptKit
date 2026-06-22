@@ -124,7 +124,7 @@ spec:
       assertions:
         - type: contains_any
           params:
-            values: ["Paris", "paris"]
+            patterns: ["Paris", "paris"]
           message: "Response should mention Paris"
         - type: max_length
           params:
