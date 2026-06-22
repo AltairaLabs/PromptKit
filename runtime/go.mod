@@ -5,6 +5,7 @@ go 1.26.0
 retract v1.4.0 // Published prematurely; missing StreamMediaData changes and breaking MediaDelta removal
 
 require (
+	github.com/AltairaLabs/PromptKit/pkg v1.5.1
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -32,10 +33,10 @@ require (
 	golang.org/x/image v0.42.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.21.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/sys v0.46.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.36.1
+	k8s.io/apimachinery v0.36.2
 )
 
 require (
