@@ -53,7 +53,9 @@ func sortedSubs(c *cobra.Command) []*cobra.Command {
 func writeFlagList(b *bytes.Buffer, c *cobra.Command) {
 	var flags []string
 	c.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Hidden {
+		// Skip hidden flags and the universal --help flag, which cobra adds
+		// lazily on Execute — including it would make output order-dependent.
+		if f.Hidden || f.Name == helpCmdName {
 			return
 		}
 		flags = append(flags, "`--"+f.Name+"`")

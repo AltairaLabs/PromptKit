@@ -15,6 +15,16 @@ import (
 // executes end-to-end and produces a report (content assertions may or may not
 // pass against the generic mock response — that is not what this guards).
 func TestQuickStartScaffold_RunsAgainstMock(t *testing.T) {
+	// init binds these package globals via cobra StringVar/BoolVar; Execute mutates
+	// them, so save and restore to keep the test hermetic for sibling tests.
+	savedTemplate, savedProvider, savedOutput := initTemplate, initProvider, initOutputDir
+	savedQuick, savedNoGit, savedNoEnv := initQuick, initNoGit, initNoEnv
+	t.Cleanup(func() {
+		initTemplate, initProvider, initOutputDir = savedTemplate, savedProvider, savedOutput
+		initQuick, initNoGit, initNoEnv = savedQuick, savedNoGit, savedNoEnv
+		rootCmd.SetArgs(nil)
+	})
+
 	dir := t.TempDir()
 
 	rootCmd.SetArgs([]string{"init", "mockkit",
