@@ -27,6 +27,10 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      # No GitHub-hosted Windows ARM64 runner exists; cannot CGO-build natively.
+      - goos: windows
+        goarch: arm64
     ldflags:
       - -s -w
       # main package vars (linker names package main as "main" regardless of import path)

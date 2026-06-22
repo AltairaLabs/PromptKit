@@ -757,7 +757,7 @@ jobs:
   # done via the GitHub UI or a token that holds workflow write permissions.
   # -----------------------------------------------------------------------
   build-voice:
-    name: Build Voice Binary (${{ matrix.os }})
+    name: Build Voice Binary (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ${{ matrix.os }}
     needs: [validate, create-release]
     if: ${{ inputs.phase == 'full' && needs.create-release.result == 'success' }}
@@ -765,11 +765,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # darwin/arm64 — Apple Silicon (macos-latest is arm64)
           - os: macos-latest
+            goos: darwin
+            goarch: arm64
             portaudio_install: brew install portaudio
+          # darwin/amd64 — Intel Mac (macos-13 is the last Intel runner)
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            portaudio_install: brew install portaudio
+          # linux/amd64
           - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
             portaudio_install: sudo apt-get update && sudo apt-get install -y portaudio19-dev
+          # linux/arm64
+          - os: ubuntu-24.04-arm64
+            goos: linux
+            goarch: arm64
+            portaudio_install: sudo apt-get update && sudo apt-get install -y portaudio19-dev
+          # windows/amd64 (windows/arm64 excluded — no GitHub-hosted runner exists)
           - os: windows-latest
+            goos: windows
+            goarch: amd64
             portaudio_install: vcpkg install portaudio:x64-windows
 
     steps:
@@ -803,7 +822,7 @@ jobs:
 
     - name: Upload voice artifacts to GitHub Release
       env:
-        GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         VERSION: ${{ needs.validate.outputs.version }}
         GITHUB_REPO: ${{ github.repository }}
       shell: bash
