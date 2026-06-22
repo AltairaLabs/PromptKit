@@ -875,12 +875,6 @@ func (e *Engine) GetDuplexExecutor() *DuplexConversationExecutor {
 	return nil
 }
 
-// GetEventBus returns the engine's event bus. May be nil if SetEventBus has not
-// been called. Used by the chat voice path to subscribe the TUI adapter.
-func (e *Engine) GetEventBus() events.Bus {
-	return e.eventBus
-}
-
 // buildMediaStorage creates a media storage service for media externalization.
 // It stores media files in the <output_dir>/media/ subdirectory using run-based organization.
 // This enables automatic externalization of large media content to reduce memory usage and
