@@ -32,6 +32,28 @@ func TestConcept_ToolBoundaryExists(t *testing.T) {
 	assert.Contains(t, c.Body, "mode: mock")
 }
 
+func TestConcept_ToolsFromAReferenceExists(t *testing.T) {
+	c, err := ConceptByID("tools-from-a-reference")
+	require.NoError(t, err)
+	assert.Contains(t, c.Body, "mode: mcp")
+	assert.Contains(t, c.Body, "OpenAPI")
+}
+
+func TestConcept_AgentPersonalityExists(t *testing.T) {
+	c, err := ConceptByID("agent-personality")
+	require.NoError(t, err)
+	assert.Contains(t, c.Body, "system_template")
+	assert.Contains(t, c.Body, "temperature")
+}
+
+func TestConcept_SelfPlayPersonasExists(t *testing.T) {
+	c, err := ConceptByID("self-play-personas")
+	require.NoError(t, err)
+	assert.Contains(t, c.Body, "kind: Persona")
+	assert.Contains(t, c.Body, "adversarial")
+	assert.Contains(t, c.Body, "self_play")
+}
+
 func TestParseConcept_Errors(t *testing.T) {
 	cases := map[string]string{
 		"missing frontmatter":     "no fence here\nbody",

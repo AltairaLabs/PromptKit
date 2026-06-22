@@ -18,13 +18,23 @@ catalogs in `reference/` instead of calling `promptarena explain`/`schema` repea
 3. **Draw the scope line — especially tools.** The pack defines tools; it does not
    implement them. Per tool decide: `mode: mock` (test-only), bind an existing API
    (`http`/`mcp`/`exec`), or have the agent build a separate external service. (See the
-   tool-boundary idiom below.)
-4. **Lay it out and scaffold.** Canonical layout and naming:
+   tool-boundary idiom below.) When the user names an **entity** that lives in or comes
+   from a backend or another agent, that is a tool — **ask for its source of truth** (an
+   MCP server, an API/OpenAPI spec, or sample payloads) and derive the schema from it
+   instead of guessing. See the "Derive a tool from a reference" idiom.
+4. **Lay it out, scaffold, and give it a personality.** Canonical layout and naming:
    `config.arena.yaml`, `prompts/*.prompt.yaml`, `providers/*.provider.yaml`,
    `scenarios/*.scenario.yaml`, `tools/*.tool.yaml`, `mock-responses.yaml`. Start from the
-   skeletons below; each carries a `$schema` modeline for editor autocomplete.
-5. **Build against mocks.** Use a `type: mock` provider; mock response keys match the
-   scenario's `metadata.name`, not `spec.id`. Tools still execute for real.
+   skeletons below; each carries a `$schema` modeline for editor autocomplete. When you
+   author the system prompt, **capture the agent's personality from the user** (identity,
+   tone, guidelines) — the user will have an opinion. See the "Capture the agent's
+   personality" idiom.
+5. **Build against mocks, then stress with self-play.** Use a `type: mock` provider; mock
+   response keys match the scenario's `metadata.name`, not `spec.id`. Tools still execute
+   for real. Because agents are non-deterministic, add **self-play personas** (a
+   cooperative, a confused, an impatient, and an adversarial user) to confirm your
+   guardrails fire and your assertions are sensible — the adversarial persona should trip
+   them. See the "Self-play personas" idiom.
 6. **Run it — pick a surface.**
    - **TUI** — does NOT run inside a Claude/Codex/Gemini session. Tell the user to run it
      in a separate terminal: `promptarena run` (no `--ci`).
