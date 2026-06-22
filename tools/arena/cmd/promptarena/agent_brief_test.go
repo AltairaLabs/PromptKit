@@ -13,6 +13,19 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
 
+func TestWriteAgentBrief_WritesReferenceDocs(t *testing.T) {
+	dir := t.TempDir()
+	res := &templates.GenerationResult{ProjectPath: dir, Success: true}
+	require.NoError(t, writeAgentBrief(res))
+
+	base := filepath.Join(dir, ".claude", "skills", "promptarena-authoring", "reference")
+	for _, name := range []string{"evals-and-assertions.md", "config-fields.md", "cli.md"} {
+		assert.FileExists(t, filepath.Join(base, name))
+		rel := filepath.Join(".claude", "skills", "promptarena-authoring", "reference", name)
+		assert.Contains(t, res.FilesCreated, rel)
+	}
+}
+
 func TestWriteAgentBrief_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
 	res := &templates.GenerationResult{ProjectPath: dir, Success: true}

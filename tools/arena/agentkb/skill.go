@@ -2,6 +2,7 @@ package agentkb
 
 import (
 	"bytes"
+	_ "embed"
 	"strings"
 )
 
@@ -11,13 +12,12 @@ description: Author valid PromptArena kit configs; use when building or editing 
 ---
 `
 
-const skillIntro = "Generated from the PromptArena agent knowledge base. " +
-	"Discover more with `promptarena explain --list` and `promptarena examples list`. " +
-	"Run `promptarena schema <type>` for authoritative config structure and " +
-	"`promptarena validate` to check your work.\n\n"
+//go:embed skill_spine.md
+var spineMD []byte
 
-// Skill assembles a SKILL.md from the embedded concepts. Concepts are the only
-// authored source, so the skill can never drift from them.
+// Skill assembles a SKILL.md from the authored lifecycle spine plus the embedded
+// concepts (the idioms). Both are authored sources, so the skill can never drift
+// from them.
 func Skill() ([]byte, error) {
 	cs, err := Concepts()
 	if err != nil {
@@ -25,10 +25,14 @@ func Skill() ([]byte, error) {
 	}
 	var b bytes.Buffer
 	b.WriteString(skillFrontmatter)
-	b.WriteString("\n# Authoring PromptArena Kits\n\n")
-	b.WriteString(skillIntro)
+	b.WriteByte('\n')
+	b.Write(spineMD)
+	if !bytes.HasSuffix(spineMD, []byte("\n")) {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n## Idioms\n\n")
 	for _, c := range cs {
-		b.WriteString("## ")
+		b.WriteString("### ")
 		b.WriteString(c.Title)
 		b.WriteString("\n\n")
 		b.WriteString(c.Body)
@@ -49,19 +53,21 @@ func AgentsBrief() []byte {
 const agentsBrief = `<!-- promptarena-authoring -->
 # PromptArena — notes for AI coding agents
 
-You are working in a PromptArena kit. Before authoring configs:
+You are in a PromptArena kit. Read the authoring skill first:
+` + "`.claude/skills/promptarena-authoring/SKILL.md`" + `, and the bundled catalogs in
+` + "`.claude/skills/promptarena-authoring/reference/`" + ` (evals-and-assertions,
+config-fields, cli) — prefer them over repeatedly calling ` + "`promptarena explain`/`schema`" + `.
 
-- Read the authoring skill at ` + "`.claude/skills/promptarena-authoring/SKILL.md`" + `.
-- Discover idioms and examples on demand:
-  ` + "`promptarena explain --list`" + `, ` + "`promptarena explain <id>`" + `,
-  ` + "`promptarena examples list`" + `, ` + "`promptarena examples show <name>`" + `.
-- Run ` + "`promptarena schema <type>`" + ` for the authoritative structure of a
-  scenario, provider, prompt, tool, or arena config. The embedded schema is the
-  version this binary's ` + "`promptarena validate`" + ` enforces — prefer it over
-  any web copy.
-- Run ` + "`promptarena validate`" + ` to check your work before ` + "`promptarena run`" + `.
-- Mock providers simulate the LLM only; tools execute for real. Mock response keys
-  match the scenario's ` + "`metadata.name`" + `, not ` + "`spec.id`" + `.
-- Assertions apply thresholds; eval handlers emit raw scores. Keep thresholds on the
-  ` + "`type: assertion`" + ` wrapper, never on the eval.
+Workflow (full detail in SKILL.md): define measurable success → map to concepts → draw
+the tool scope line → scaffold to the canonical layout → build against mocks → run
+(TUI in a separate terminal; ` + "`serve`" + ` as a background task; or ` + "`--ci`" + `) →
+real providers last → deploy.
+
+Idiom traps:
+- Mock response keys match the scenario's ` + "`metadata.name`" + `, not ` + "`spec.id`" + `.
+- Thresholds live on the ` + "`type: assertion`" + ` wrapper, never on the inner eval.
+- A pack ships tool **definitions** + bindings, never tool implementations.
+
+Do not gold-plate: working configs and passing measures first; no fancy docs until the
+kit runs green. Validate with ` + "`promptarena validate`" + ` before ` + "`promptarena run`" + `.
 `

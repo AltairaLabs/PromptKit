@@ -38,6 +38,9 @@ spec:
       notes:
         type: string
   
+  # mode: mock returns canned data for tests. To use a real backend, swap to a
+  # binding — mode: live with an `http:` block, mode: mcp, or mode: exec — and
+  # deploy that service separately. The pack ships this definition, not the impl.
   mode: mock
   mock_result:
     order_id: "ORD-12345"

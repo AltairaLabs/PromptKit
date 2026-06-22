@@ -10,21 +10,23 @@ spec:
     <!-- promptarena-authoring -->
     # PromptArena — notes for AI coding agents
 
-    You are working in a PromptArena kit. Before authoring configs:
+    You are in a PromptArena kit. Read the authoring skill first:
+    `.claude/skills/promptarena-authoring/SKILL.md`, and the bundled catalogs in
+    `.claude/skills/promptarena-authoring/reference/` (evals-and-assertions,
+    config-fields, cli) — prefer them over repeatedly calling `promptarena explain`/`schema`.
 
-    - Read the authoring skill at `.claude/skills/promptarena-authoring/SKILL.md`.
-    - Discover idioms and examples on demand:
-      `promptarena explain --list`, `promptarena explain <id>`,
-      `promptarena examples list`, `promptarena examples show <name>`.
-    - Run `promptarena schema <type>` for the authoritative structure of a
-      scenario, provider, prompt, tool, or arena config. The embedded schema is the
-      version this binary's `promptarena validate` enforces — prefer it over
-      any web copy.
-    - Run `promptarena validate` to check your work before `promptarena run`.
-    - Mock providers simulate the LLM only; tools execute for real. Mock response keys
-      match the scenario's `metadata.name`, not `spec.id`.
-    - Assertions apply thresholds; eval handlers emit raw scores. Keep thresholds on the
-      `type: assertion` wrapper, never on the eval.
+    Workflow (full detail in SKILL.md): define measurable success → map to concepts → draw
+    the tool scope line → scaffold to the canonical layout → build against mocks → run
+    (TUI in a separate terminal; `serve` as a background task; or `--ci`) →
+    real providers last → deploy.
+
+    Idiom traps:
+    - Mock response keys match the scenario's `metadata.name`, not `spec.id`.
+    - Thresholds live on the `type: assertion` wrapper, never on the inner eval.
+    - A pack ships tool **definitions** + bindings, never tool implementations.
+
+    Do not gold-plate: working configs and passing measures first; no fancy docs until the
+    kit runs green. Validate with `promptarena validate` before `promptarena run`.
 
   allowed_tools:
     - Read

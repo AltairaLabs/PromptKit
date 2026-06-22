@@ -208,8 +208,8 @@ func printSuccessMessage(projectName string, result *templates.GenerationResult,
 	}
 
 	if agentBriefed {
-		fmt.Println("📎 AI-agent brief written (.claude/skills + AGENTS.md) —")
-		fmt.Println("   open this folder in Claude Code or Codex and it'll know PromptArena conventions.")
+		fmt.Println("📎 AI-agent brief written (.claude/skills + reference/ + AGENTS.md) —")
+		fmt.Println("   open this folder in Claude Code, Codex, or Gemini and it'll know PromptArena conventions.")
 		fmt.Println()
 	}
 
