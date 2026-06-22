@@ -8,6 +8,8 @@ interface InteractiveChatProps {
   state: ArenaState;
   registerInteractiveRun: (sessionId: string) => void;
   onBack: () => void;
+  // Clicking a message opens the shared DevTools panel (same as the run view).
+  onSelectMessage?: (index: number, message: Message, allMessages: Message[]) => void;
 }
 
 // liveMessageToMessage maps in-flight SSE MessageCreatedData to the Message
@@ -23,7 +25,7 @@ function liveMessageToMessage(m: MessageCreatedData): Message {
 
 type Phase = "setup" | "vars" | "chat";
 
-export function InteractiveChat({ state, registerInteractiveRun, onBack }: InteractiveChatProps) {
+export function InteractiveChat({ state, registerInteractiveRun, onBack, onSelectMessage }: InteractiveChatProps) {
   const { fetchOptions, createSession, sendMessage, busy, error } = useInteractiveChat();
 
   // Setup phase state
@@ -52,6 +54,10 @@ export function InteractiveChat({ state, registerInteractiveRun, onBack }: Inter
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Auto-scroll: keep the conversation pinned to the bottom as messages arrive,
+  // unless the user has scrolled up to read history.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
   const phase: Phase = sessionId ? "chat" : missingVars.length > 0 ? "vars" : "setup";
 
@@ -142,6 +148,22 @@ export function InteractiveChat({ state, registerInteractiveRun, onBack }: Inter
       .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
       .map(liveMessageToMessage);
   }, [sessionId, state.runs]);
+
+  // Track whether the user is near the bottom so we only auto-stick when they
+  // haven't scrolled up to read history.
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
+  // Pin to the bottom as new messages stream in (when stuck to bottom).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [displayMessages, busy]);
 
   if (loadingOptions) {
     return (
@@ -329,13 +351,19 @@ export function InteractiveChat({ state, registerInteractiveRun, onBack }: Inter
       </div>
 
       {/* Conversation thread */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0">
         {displayMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-fg-muted">Send a message to start the conversation.</p>
           </div>
         ) : (
-          <ConversationThread messages={displayMessages} streaming={busy} />
+          <ConversationThread
+            messages={displayMessages}
+            streaming={busy}
+            onSelectMessage={
+              onSelectMessage ? (i, m) => onSelectMessage(i, m, displayMessages) : undefined
+            }
+          />
         )}
       </div>
 

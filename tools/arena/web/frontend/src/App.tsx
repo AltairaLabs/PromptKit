@@ -101,6 +101,8 @@ export default function App() {
   // Exclude synthetic interactive-chat entries from the runs-tab aggregates.
   const liveRuns = Object.values(state.runs).filter((r) => r.scenario !== "interactive");
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
+  // The active interactive-chat session, surfaced as the DevTools "run" on the chat tab.
+  const interactiveRun = Object.values(state.runs).find((r) => r.scenario === "interactive");
 
   const handleSelectMessage = (index: number, message?: Message, allMsgs?: Message[]) => {
     setDevToolsIndex(index);
@@ -174,7 +176,7 @@ export default function App() {
                 ? "bg-surface border-mist text-fg"
                 : "bg-canvas border-transparent text-fg-muted hover:text-fg hover:bg-surface"
             }`}
-            onClick={() => setActiveTab("runs")}
+            onClick={() => { setActiveTab("runs"); setDevToolsOpen(false); }}
           >
             Runs
           </button>
@@ -184,18 +186,31 @@ export default function App() {
                 ? "bg-surface border-mist text-fg"
                 : "bg-canvas border-transparent text-fg-muted hover:text-fg hover:bg-surface"
             }`}
-            onClick={() => setActiveTab("chat")}
+            onClick={() => { setActiveTab("chat"); setDevToolsOpen(false); }}
           >
             Interactive Chat
           </button>
         </div>
 
         {activeTab === "chat" ? (
-          <InteractiveChat
-            state={state}
-            registerInteractiveRun={registerInteractiveRun}
-            onBack={() => setActiveTab("runs")}
-          />
+          <>
+            <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
+              <InteractiveChat
+                state={state}
+                registerInteractiveRun={registerInteractiveRun}
+                onSelectMessage={handleSelectMessage}
+                onBack={() => setActiveTab("runs")}
+              />
+            </div>
+            <DevToolsPanel
+              message={devToolsMessage}
+              messageIndex={devToolsIndex}
+              allMessages={devToolsAllMessages}
+              run={interactiveRun}
+              open={devToolsOpen}
+              onClose={() => setDevToolsOpen(false)}
+            />
+          </>
         ) : (
           <>
             <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
