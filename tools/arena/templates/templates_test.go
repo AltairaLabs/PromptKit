@@ -570,6 +570,34 @@ func TestLoader_ReadTemplateFile(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestAllTemplates_YAMLHaveSchemaModeline(t *testing.T) {
+	loader := NewLoader("")
+	cases := map[string][]string{
+		"quick-start":        {"templates/arena.yaml.tmpl", "templates/prompt.yaml.tmpl", "templates/scenario.yaml.tmpl"},
+		"customer-support":   {"templates/arena.yaml.tmpl", "templates/tool-kb.yaml.tmpl", "templates/tool-order.yaml.tmpl"},
+		"code-assistant":     {"templates/arena.yaml.tmpl", "templates/provider.yaml.tmpl"},
+		"content-generation": {"templates/arena.yaml.tmpl", "templates/provider.yaml.tmpl"},
+		"mcp-integration":    {"templates/arena.yaml.tmpl", "templates/prompt.yaml.tmpl"},
+		"multimodal":         {"templates/arena.yaml.tmpl", "templates/provider.yaml.tmpl"},
+	}
+	const modeline = "# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/v1alpha1/"
+	for tmpl, files := range cases {
+		for _, f := range files {
+			data, err := loader.ReadTemplateFile(tmpl, f)
+			require.NoError(t, err, "%s/%s", tmpl, f)
+			assert.Contains(t, string(data), modeline, "%s/%s missing schema modeline", tmpl, f)
+		}
+	}
+}
+
+func TestCustomerSupportTool_HasSwapNote(t *testing.T) {
+	loader := NewLoader("")
+	data, err := loader.ReadTemplateFile("customer-support", "templates/tool-kb.yaml.tmpl")
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "mode: mock")
+	assert.Contains(t, string(data), "swap")
+}
+
 func TestQuickStartScenario_AssertionsAreValid(t *testing.T) {
 	loader := NewLoader("")
 	data, err := loader.ReadTemplateFile("quick-start", "templates/scenario.yaml.tmpl")
