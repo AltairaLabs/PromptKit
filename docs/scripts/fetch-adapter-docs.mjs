@@ -323,14 +323,11 @@ function rewriteLinks(content, adapter) {
           ];
           for (const pat of patterns) {
             if (url === pat) {
-              const prefix = url.startsWith("../")
-                ? "../"
-                : url.startsWith("./")
-                  ? "./"
-                  : "../";
               matched = true;
-              // Always add trailing slash so the link resolves as a sibling directory.
-              return `[${text}](${prefix}${newSlug}/)`;
+              // Starlight serves every page as a trailing-slash directory, so a
+              // sibling page is always reached via "../slug/" — never "./slug/"
+              // (which would resolve under the current page and 404).
+              return `[${text}](../${newSlug}/)`;
             }
           }
         }
