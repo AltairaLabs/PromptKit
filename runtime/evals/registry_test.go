@@ -57,6 +57,33 @@ func TestGetUnknownType(t *testing.T) {
 	}
 }
 
+func TestDefaultAliases_IncludesKnownAlias(t *testing.T) {
+	RegisterDefaultAlias("content_includes", "contains")
+	aliases := DefaultAliases()
+	if len(aliases) == 0 {
+		t.Fatal("DefaultAliases should not be empty")
+	}
+
+	found := false
+	for _, pair := range aliases {
+		if pair[0] == "content_includes" {
+			if pair[1] != "contains" {
+				t.Errorf("content_includes should alias %q, got %q", "contains", pair[1])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("content_includes alias must be present")
+	}
+
+	// Returned slice must be a copy: mutating it must not affect the next call.
+	aliases[0][0] = "MUTATED"
+	if DefaultAliases()[0][0] == "MUTATED" {
+		t.Error("DefaultAliases must return a copy, not the backing slice")
+	}
+}
+
 func TestHas(t *testing.T) {
 	r := NewEmptyEvalTypeRegistry()
 	r.Register(&stubHandler{typeName: "regex"})

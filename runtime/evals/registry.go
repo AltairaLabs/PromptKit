@@ -109,6 +109,16 @@ func RegisterDefaultAlias(aliasType, targetType string) {
 	defaultAliases = append(defaultAliases, [2]string{aliasType, targetType})
 }
 
+// DefaultAliases returns a sorted copy of the registered alias→target pairs.
+// Used by tooling (e.g. the agentkb reference generator) to render the alias
+// table without reaching into package-private state.
+func DefaultAliases() [][2]string {
+	out := make([][2]string, len(defaultAliases))
+	copy(out, defaultAliases)
+	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
+	return out
+}
+
 // Register adds a handler to the registry. If a handler with the same
 // type is already registered, it is replaced.
 func (r *EvalTypeRegistry) Register(handler EvalTypeHandler) {
