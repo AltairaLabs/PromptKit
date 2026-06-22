@@ -570,6 +570,21 @@ func TestLoader_ReadTemplateFile(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestQuickStartScenario_AssertionsAreValid(t *testing.T) {
+	loader := NewLoader("")
+	data, err := loader.ReadTemplateFile("quick-start", "templates/scenario.yaml.tmpl")
+	require.NoError(t, err)
+	s := string(data)
+
+	// Invalid (unregistered) assertion types must not appear in the scaffold.
+	assert.NotContains(t, s, "content_not_empty")
+	assert.NotContains(t, s, "max_tokens")
+	// Registered replacements are used instead.
+	assert.Contains(t, s, "min_length")
+	assert.Contains(t, s, "contains_any")
+	assert.Contains(t, s, "max_length")
+}
+
 func TestLoader_Validate(t *testing.T) {
 	loader := NewLoader("")
 

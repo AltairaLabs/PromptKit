@@ -13,10 +13,11 @@ spec:
     - role: user
       content: "Hello! How are you today?"
       assertions:
-        - type: content_not_empty
-          params: {}
+        - type: min_length
+          params:
+            min: 1
           message: "Response should not be empty"
-        
+
     - role: user
       content: "What's the capital of France?"
       assertions:
@@ -24,8 +25,8 @@ spec:
           params:
             values: ["Paris", "paris"]
           message: "Response should mention Paris"
-          
-        - type: max_tokens
+
+        - type: max_length
           params:
-            max: 100
+            max: 400
           message: "Response should be concise"
