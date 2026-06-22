@@ -451,7 +451,11 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 10. Arena state store save - saves messages with assertion metadata
 	if req.StateStoreConfig != nil && req.ConversationID != "" {
 		storeConfig := buildStateStoreConfig(req)
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
+		saveStage := arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState)
+		if emitter := emitterFromRequest(req); emitter != nil {
+			saveStage = saveStage.WithEmitter(emitter)
+		}
+		stages = append(stages, saveStage)
 	}
 
 	// Chain all stages together
@@ -736,7 +740,11 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	if hasStateStore(req) {
 		storeConfig := buildStateStoreConfig(req)
 		if cfg.UseArenaStateStoreSave {
-			stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
+			saveStage := arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState)
+			if emitter := emitterFromRequest(req); emitter != nil {
+				saveStage = saveStage.WithEmitter(emitter)
+			}
+			stages = append(stages, saveStage)
 		} else {
 			stages = append(stages, stage.NewIncrementalSaveStageWithTurnState(
 				&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig},

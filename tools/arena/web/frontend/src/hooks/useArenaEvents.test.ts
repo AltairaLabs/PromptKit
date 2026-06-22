@@ -151,4 +151,54 @@ describe("reducer", () => {
     expect(state.runs["run-1"].messages).toHaveLength(2);
     expect(state.runs["run-1"].messages.map((m) => m.role)).toEqual(["user", "assistant"]);
   });
+
+  it("MESSAGE_CREATED upserts by index — duplicate index replaces, not appends", () => {
+    let state = __reducer(__initialState, {
+      type: "RUN_STARTED",
+      runId: "run-upsert",
+      data: { provider: "mock", region: "default", scenario: "test" },
+      timestamp: "t0",
+    });
+    // First message at index 0
+    state = __reducer(state, {
+      type: "MESSAGE_CREATED",
+      runId: "run-upsert",
+      data: { role: "user", content: "hello", index: 0 },
+      timestamp: "t1",
+    });
+    // Second message at same index 0 — should replace, not append
+    state = __reducer(state, {
+      type: "MESSAGE_CREATED",
+      runId: "run-upsert",
+      data: { role: "user", content: "hello updated", index: 0 },
+      timestamp: "t2",
+    });
+    expect(state.runs["run-upsert"].messages).toHaveLength(1);
+    expect(state.runs["run-upsert"].messages[0].content).toBe("hello updated");
+  });
+
+  it("MESSAGE_CREATED with different indices inserts in index order", () => {
+    let state = __reducer(__initialState, {
+      type: "RUN_STARTED",
+      runId: "run-order",
+      data: { provider: "mock", region: "default", scenario: "test" },
+      timestamp: "t0",
+    });
+    // Insert index 1 first, then index 0 (out of order arrival)
+    state = __reducer(state, {
+      type: "MESSAGE_CREATED",
+      runId: "run-order",
+      data: { role: "assistant", content: "reply", index: 1 },
+      timestamp: "t1",
+    });
+    state = __reducer(state, {
+      type: "MESSAGE_CREATED",
+      runId: "run-order",
+      data: { role: "user", content: "question", index: 0 },
+      timestamp: "t2",
+    });
+    expect(state.runs["run-order"].messages).toHaveLength(2);
+    expect(state.runs["run-order"].messages[0].index).toBe(0);
+    expect(state.runs["run-order"].messages[1].index).toBe(1);
+  });
 });

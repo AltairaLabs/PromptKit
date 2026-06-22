@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer } from "react";
 import type {
   ArenaState,
   SSEEvent,
@@ -111,13 +111,19 @@ function reducer(state: ArenaState, action: Action): ArenaState {
     case "MESSAGE_CREATED": {
       const existing = state.runs[action.runId];
       if (!existing) return state;
+      const msgs = existing.messages;
+      const idx = msgs.findIndex((m) => m.index === action.data.index);
+      const updatedMsgs =
+        idx >= 0
+          ? msgs.map((m, i) => (i === idx ? action.data : m))
+          : [...msgs, action.data].sort((a, b) => a.index - b.index);
       return {
         ...state,
         runs: {
           ...state.runs,
           [action.runId]: {
             ...existing,
-            messages: [...existing.messages, action.data],
+            messages: updatedMsgs,
           },
         },
       };
@@ -230,5 +236,17 @@ export function useArenaEvents() {
     return () => eventSource.close();
   }, []);
 
-  return state;
+  // registerInteractiveRun seeds a run entry for an interactive session so
+  // MESSAGE_CREATED events are not silently dropped. Interactive sessions
+  // never emit arena.run.started, so the run entry must be seeded manually.
+  const registerInteractiveRun = useCallback((sessionId: string) => {
+    dispatch({
+      type: "RUN_STARTED",
+      runId: sessionId,
+      data: { scenario: "interactive", provider: "", region: "" },
+      timestamp: new Date().toISOString(),
+    });
+  }, []);
+
+  return { ...state, registerInteractiveRun };
 }

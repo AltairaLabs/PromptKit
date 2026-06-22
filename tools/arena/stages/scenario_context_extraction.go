@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	roleUser = "user"
+	roleUser   = "user"
+	roleSystem = "system"
 	// maxContextTruncationLength is the maximum length of context before truncation
 	maxContextTruncationLength = 150
 )
