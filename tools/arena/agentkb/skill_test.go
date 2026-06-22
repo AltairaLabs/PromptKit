@@ -43,3 +43,12 @@ func TestSkill_IncludesSpineAndPointers(t *testing.T) {
 func TestAgentsBrief_HasMarker(t *testing.T) {
 	assert.Contains(t, string(AgentsBrief()), "<!-- promptarena-authoring -->")
 }
+
+func TestAgentsBrief_MentionsReferenceAndTraps(t *testing.T) {
+	s := string(AgentsBrief())
+	assert.True(t, strings.HasPrefix(s, "<!-- promptarena-authoring -->"), "marker must stay first")
+	assert.Contains(t, s, "reference/")
+	assert.Contains(t, s, "metadata.name")
+	assert.Contains(t, s, "definitions") // tool boundary
+	assert.Contains(t, s, "Do not gold-plate")
+}
