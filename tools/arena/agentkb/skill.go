@@ -2,6 +2,7 @@ package agentkb
 
 import (
 	"bytes"
+	_ "embed"
 	"strings"
 )
 
@@ -11,13 +12,12 @@ description: Author valid PromptArena kit configs; use when building or editing 
 ---
 `
 
-const skillIntro = "Generated from the PromptArena agent knowledge base. " +
-	"Discover more with `promptarena explain --list` and `promptarena examples list`. " +
-	"Run `promptarena schema <type>` for authoritative config structure and " +
-	"`promptarena validate` to check your work.\n\n"
+//go:embed skill_spine.md
+var spineMD []byte
 
-// Skill assembles a SKILL.md from the embedded concepts. Concepts are the only
-// authored source, so the skill can never drift from them.
+// Skill assembles a SKILL.md from the authored lifecycle spine plus the embedded
+// concepts (the idioms). Both are authored sources, so the skill can never drift
+// from them.
 func Skill() ([]byte, error) {
 	cs, err := Concepts()
 	if err != nil {
@@ -25,10 +25,14 @@ func Skill() ([]byte, error) {
 	}
 	var b bytes.Buffer
 	b.WriteString(skillFrontmatter)
-	b.WriteString("\n# Authoring PromptArena Kits\n\n")
-	b.WriteString(skillIntro)
+	b.WriteByte('\n')
+	b.Write(spineMD)
+	if !bytes.HasSuffix(spineMD, []byte("\n")) {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n## Idioms\n\n")
 	for _, c := range cs {
-		b.WriteString("## ")
+		b.WriteString("### ")
 		b.WriteString(c.Title)
 		b.WriteString("\n\n")
 		b.WriteString(c.Body)
