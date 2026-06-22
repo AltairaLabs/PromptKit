@@ -96,3 +96,30 @@ func TestRMS_NonSilenceIsPositive(t *testing.T) {
 		t.Fatalf("expected positive rms, got %v", got)
 	}
 }
+
+func TestDriverWithGuard_DropsQuietMicWhileAgentSpeaks(t *testing.T) {
+	io := &fakeIO{capture: make(chan []byte, 2)}
+	var received [][]byte
+	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte)) error {
+		for f := range mic {
+			received = append(received, f)
+		}
+		return nil
+	}
+	guard := NewEchoGuard(0.5)
+	guard.SetAgentSpeaking(true) // simulate agent actively playing audio
+
+	d := NewDriverWithGuard(io, runner, nil, guard)
+
+	io.capture <- make([]byte, 64) // silence frame — should be gated
+	close(io.capture)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := d.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(received) != 0 {
+		t.Fatalf("expected quiet mic frame to be dropped, got %d frames", len(received))
+	}
+}

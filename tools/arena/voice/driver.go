@@ -13,11 +13,19 @@ type Driver struct {
 	io      AudioIO
 	run     LiveRunner
 	onLevel func(user, agent float32)
+	guard   *EchoGuard
 }
 
 // NewDriver constructs a Driver. onLevel may be nil.
 func NewDriver(io AudioIO, run LiveRunner, onLevel func(user, agent float32)) *Driver {
 	return &Driver{io: io, run: run, onLevel: onLevel}
+}
+
+// NewDriverWithGuard constructs a Driver with an optional half-duplex echo guard.
+// When guard is non-nil, mic frames are gated by g.Allow before reaching the runner,
+// and g.SetAgentSpeaking is toggled around each playback frame.
+func NewDriverWithGuard(io AudioIO, run LiveRunner, onLevel func(user, agent float32), guard *EchoGuard) *Driver {
+	return &Driver{io: io, run: run, onLevel: onLevel, guard: guard}
 }
 
 // Run starts audio I/O and drives the conversation until ctx ends or mic closes.
@@ -28,26 +36,38 @@ func (d *Driver) Run(ctx context.Context) error {
 	defer func() { _ = d.io.Close() }()
 
 	play := func(frame []byte) {
+		if d.guard != nil {
+			d.guard.SetAgentSpeaking(true)
+		}
 		d.io.Play(frame)
 		if d.onLevel != nil {
 			d.onLevel(0, rms(frame))
 		}
+		if d.guard != nil {
+			d.guard.SetAgentSpeaking(false)
+		}
 	}
 
 	mic := d.io.CaptureChunks()
-	if d.onLevel != nil {
+	if d.onLevel != nil || d.guard != nil {
 		mic = d.tapLevels(mic)
 	}
 	return d.run(ctx, mic, play)
 }
 
 // tapLevels forwards mic frames while reporting their RMS as the user level.
+// When a guard is configured, frames that fail Allow are dropped silently.
 func (d *Driver) tapLevels(in <-chan []byte) <-chan []byte {
 	out := make(chan []byte)
 	go func() {
 		defer close(out)
 		for f := range in {
-			d.onLevel(rms(f), 0)
+			if d.guard != nil && !d.guard.Allow(f) {
+				continue
+			}
+			if d.onLevel != nil {
+				d.onLevel(rms(f), 0)
+			}
 			out <- f
 		}
 	}()
