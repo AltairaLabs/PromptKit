@@ -1,0 +1,361 @@
+# Source metadata for reference/evals-and-assertions.md (generated).
+# One entry per canonical eval handler id. The completeness test
+# (TestEvalMeta_MatchesRegistry) fails if this set differs from the live
+# registry, so keep it in sync when handlers change.
+#
+# level: turn | session     (does it judge a single turn or the whole session?)
+# score: "0..1 raw signal" | "boolean gate" | "" (n/a, wrappers)
+handlers:
+  # --- structural wrappers ---
+  assertion:
+    level: turn
+    description: Structural wrapper — applies a pass/fail threshold to an inner eval's score. Thresholds live HERE, never on the inner eval.
+    score: ""
+  guardrail:
+    level: turn
+    description: Structural wrapper — enforces an eval primitive in production AND tests; assertions may observe its firings.
+    score: ""
+
+  # --- content / text ---
+  contains:
+    level: turn
+    description: Output text contains the given substring.
+    score: boolean gate
+  contains_any:
+    level: session
+    description: Output contains at least one of the given substrings, checked across the session.
+    score: boolean gate
+  content_excludes:
+    level: session
+    description: Output excludes all banned substrings across the session.
+    score: boolean gate
+  regex:
+    level: turn
+    description: Output matches the given regular expression.
+    score: boolean gate
+  min_length:
+    level: turn
+    description: Output is at least the given length (characters/tokens).
+    score: boolean gate
+  max_length:
+    level: turn
+    description: Output is at most the given length (characters/tokens).
+    score: boolean gate
+  sentence_count:
+    level: turn
+    description: Output sentence count falls within the given range.
+    score: boolean gate
+  field_presence:
+    level: turn
+    description: Required fields are present in the structured output.
+    score: boolean gate
+
+  # --- JSON ---
+  json_valid:
+    level: turn
+    description: Output is syntactically valid JSON.
+    score: boolean gate
+  json_schema:
+    level: turn
+    description: Output validates against the given JSON Schema.
+    score: boolean gate
+  json_path:
+    level: turn
+    description: A JSONPath expression over the output evaluates as expected.
+    score: boolean gate
+  invariant_fields_preserved:
+    level: turn
+    description: Named fields are unchanged across turns (invariants preserved).
+    score: boolean gate
+
+  # --- tool calls ---
+  tools_called:
+    level: turn
+    description: The named tool(s) were called this turn.
+    score: boolean gate
+  tools_not_called:
+    level: turn
+    description: The named tool(s) were not called this turn.
+    score: boolean gate
+  tools_called_session:
+    level: session
+    description: The named tool(s) were called somewhere in the session.
+    score: boolean gate
+  tools_not_called_session:
+    level: session
+    description: The named tool(s) were never called in the session.
+    score: boolean gate
+  tool_args:
+    level: turn
+    description: A tool was called with arguments matching the given spec.
+    score: boolean gate
+  tool_args_session:
+    level: session
+    description: A tool was called with matching arguments somewhere in the session.
+    score: boolean gate
+  tool_args_excluded_session:
+    level: session
+    description: No tool was called with the excluded arguments across the session.
+    score: boolean gate
+  tool_call_count:
+    level: turn
+    description: The number of tool invocations matches an exact value or range.
+    score: boolean gate
+  tool_call_sequence:
+    level: session
+    description: Tools were called in the specified order.
+    score: boolean gate
+  tool_call_chain:
+    level: session
+    description: Tool results chain into subsequent calls as specified.
+    score: boolean gate
+  tool_calls_with_args:
+    level: turn
+    description: Tools were called with the given argument sets.
+    score: boolean gate
+  tool_result_includes:
+    level: turn
+    description: A tool result contains the given text.
+    score: boolean gate
+  tool_result_matches:
+    level: turn
+    description: A tool result matches the given regular expression.
+    score: boolean gate
+  tool_result_has_media:
+    level: turn
+    description: A tool returned media (image/audio/video) content.
+    score: boolean gate
+  tool_result_media_type:
+    level: turn
+    description: A tool result's media type matches the expected type.
+    score: boolean gate
+  no_tool_errors:
+    level: turn
+    description: Tools executed without returning errors.
+    score: boolean gate
+  tool_anti_pattern:
+    level: session
+    description: Detects unwanted tool-use patterns across the session.
+    score: boolean gate
+  tool_no_repeat:
+    level: session
+    description: A tool was not called repeatedly with the same arguments.
+    score: boolean gate
+  tool_efficiency:
+    level: session
+    description: Tool-use efficiency metric for the session.
+    score: 0..1 raw signal
+  tool_exec:
+    level: turn
+    description: Executes a tool and gates on its success/return; used for codegen-style scoring.
+    score: boolean gate
+  cost_budget:
+    level: session
+    description: Total cost stays within the given budget.
+    score: boolean gate
+  latency_budget:
+    level: turn
+    description: Response latency stays within the given budget.
+    score: boolean gate
+
+  # --- agents / skills / guardrails ---
+  agent_invoked:
+    level: session
+    description: A sub-agent/skill was invoked.
+    score: boolean gate
+  agent_not_invoked:
+    level: session
+    description: A sub-agent/skill was not invoked.
+    score: boolean gate
+  agent_response_contains:
+    level: session
+    description: An agent response contains the given text.
+    score: boolean gate
+  guardrail_triggered:
+    level: session
+    description: A guardrail fired during the run.
+    score: boolean gate
+  skill_activated:
+    level: session
+    description: The named skill was activated.
+    score: boolean gate
+  skill_not_activated:
+    level: session
+    description: The named skill was not activated.
+    score: boolean gate
+  skill_activation_order:
+    level: session
+    description: Skills were activated in the specified order.
+    score: boolean gate
+
+  # --- workflow / composition ---
+  workflow_complete:
+    level: session
+    description: The workflow reached a terminal/complete state.
+    score: boolean gate
+  state_is:
+    level: session
+    description: The workflow is in the expected state.
+    score: boolean gate
+  transitioned_to:
+    level: session
+    description: The workflow transitioned to the expected state.
+    score: boolean gate
+  workflow_transition_order:
+    level: session
+    description: Workflow transitions occurred in the specified order.
+    score: boolean gate
+  workflow_tool_access:
+    level: session
+    description: A tool was accessible in the expected workflow state.
+    score: boolean gate
+  composition_step_output:
+    level: session
+    description: A composition step produced the expected output.
+    score: boolean gate
+  composition_branch_taken:
+    level: session
+    description: The composition took the expected branch.
+    score: boolean gate
+  composition_parallel_complete:
+    level: session
+    description: Parallel composition steps all completed.
+    score: boolean gate
+  composition_output:
+    level: session
+    description: The composition's final output matches expectations.
+    score: boolean gate
+
+  # --- media ---
+  image_format:
+    level: turn
+    description: Image output is in the expected format.
+    score: boolean gate
+  image_dimensions:
+    level: turn
+    description: Image dimensions match the expected size.
+    score: boolean gate
+  audio_format:
+    level: turn
+    description: Audio output is in the expected format.
+    score: boolean gate
+  audio_duration:
+    level: turn
+    description: Audio duration falls within the expected range.
+    score: boolean gate
+  video_duration:
+    level: turn
+    description: Video duration falls within the expected range.
+    score: boolean gate
+  video_resolution:
+    level: turn
+    description: Video resolution matches the expected size.
+    score: boolean gate
+
+  # --- classify-backed (raw signal 0..1) ---
+  audio_emotion:
+    level: turn
+    description: Classifier signal for the emotion conveyed in audio output.
+    score: 0..1 raw signal
+  image_moderation:
+    level: turn
+    description: Moderation signal for image output (e.g. NSFW likelihood).
+    score: 0..1 raw signal
+  text_toxicity:
+    level: turn
+    description: Classifier toxicity signal for the output (0 safe … 1 toxic).
+    score: 0..1 raw signal
+  text_sentiment:
+    level: turn
+    description: Classifier sentiment signal for the output.
+    score: 0..1 raw signal
+  cosine_similarity:
+    level: turn
+    description: Embedding cosine similarity between output and a reference.
+    score: 0..1 raw signal
+
+  # --- LLM judge ---
+  llm_judge:
+    level: turn
+    description: An LLM judges the turn output against a rubric. Requires a judge provider.
+    score: 0..1 raw signal
+  llm_judge_session:
+    level: session
+    description: An LLM judges the whole session against a rubric. Requires a judge provider.
+    score: 0..1 raw signal
+  llm_judge_tool_calls:
+    level: session
+    description: An LLM judges the session's tool calls against a rubric. Requires a judge provider.
+    score: 0..1 raw signal
+
+  # --- RAG-shape (LLM judge wrappers, raw signal 0..1) ---
+  faithfulness:
+    level: turn
+    description: Degree to which the answer is grounded in the provided context.
+    score: 0..1 raw signal
+  answer_relevancy:
+    level: turn
+    description: Degree to which the answer is relevant to the question.
+    score: 0..1 raw signal
+  contextual_precision:
+    level: turn
+    description: Precision of the retrieved context relative to the question.
+    score: 0..1 raw signal
+  contextual_recall:
+    level: turn
+    description: Recall of relevant facts in the retrieved context.
+    score: 0..1 raw signal
+  contextual_relevancy:
+    level: turn
+    description: Overall relevance of the retrieved context.
+    score: 0..1 raw signal
+  hallucination:
+    level: turn
+    description: Degree of hallucinated (unsupported) content in the output.
+    score: 0..1 raw signal
+
+  # --- safety (LLM-only unless noted; raw signal 0..1) ---
+  bias:
+    level: turn
+    description: Bias signal for the output. LLM judge required.
+    score: 0..1 raw signal
+  toxicity:
+    level: turn
+    description: Safety toxicity signal for the output. LLM judge required.
+    score: 0..1 raw signal
+  pii_leakage:
+    level: turn
+    description: PII-leakage signal; regex fallback when no judge is configured.
+    score: 0..1 raw signal
+  role_violation:
+    level: turn
+    description: Degree to which the output violates the expected role/persona. LLM judge required.
+    score: 0..1 raw signal
+
+  # --- behavioral ---
+  outcome_equivalent:
+    level: session
+    description: Whether two outputs are semantically equivalent.
+    score: 0..1 raw signal
+  directional:
+    level: session
+    description: Whether output improved or degraded versus a baseline.
+    score: 0..1 raw signal
+
+  # --- external ---
+  rest_eval:
+    level: turn
+    description: Calls an external REST endpoint to score the turn.
+    score: 0..1 raw signal
+  rest_eval_session:
+    level: session
+    description: Calls an external REST endpoint to score the session.
+    score: 0..1 raw signal
+  a2a_eval:
+    level: turn
+    description: Delegates turn scoring to an Agent-to-Agent evaluator.
+    score: 0..1 raw signal
+  a2a_eval_session:
+    level: session
+    description: Delegates session scoring to an Agent-to-Agent evaluator.
+    score: 0..1 raw signal
