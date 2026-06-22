@@ -2,6 +2,7 @@ package stages
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -1368,4 +1369,49 @@ func TestArenaStateStoreSaveStage_TranscriptionByTurnID(t *testing.T) {
 		"User 2 should have transcript 2 (matched by turn_id)")
 	assert.Equal(t, user2Original, state.Messages[1].Meta["original_text"],
 		"User 2 should preserve original text")
+}
+
+// TestArenaStateStoreSaveStage_LiveIndexToolCallRound verifies that a turn
+// containing a tool-call round (user -> assistant+tool_calls -> tool-result ->
+// assistant-final) produces correct transcript-absolute live broadcast indices.
+// The persisted transcript is: system(0) user(1) assistant+tc(2) tool(3) final(4).
+func TestArenaStateStoreSaveStage_LiveIndexToolCallRound(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+	cfg := &pipeline.StateStoreConfig{Store: store, ConversationID: "live-tool-round"}
+
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are helpful"
+	s := NewArenaStateStoreSaveStageWithTurnState(cfg, turnState)
+
+	bus := &syncBus{}
+	s = s.WithEmitter(events.NewEmitter(bus, "exec", "sess", "live-tool-round"))
+
+	// user turn
+	userElem := stage.NewMessageElement(&types.Message{Role: "user", Content: "run the tool"})
+
+	// assistant with tool call — Content intentionally empty (tool-call turn)
+	actWithTC := &types.Message{Role: "assistant", Content: ""}
+	actWithTC.ToolCalls = []types.MessageToolCall{
+		{ID: "call-1", Name: "my_tool", Args: json.RawMessage(`{"x":1}`)},
+	}
+	actWithTCElem := stage.NewMessageElement(actWithTC)
+
+	// tool result
+	toolRes := types.NewTextToolResult("call-1", "my_tool", "done")
+	toolResMsg := &types.Message{Role: "tool", Content: ""}
+	toolResMsg.ToolResult = &toolRes
+	toolResElem := stage.NewMessageElement(toolResMsg)
+
+	// assistant final
+	finalElem := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "All done."})
+
+	runStage(t, s, []stage.StreamElement{userElem, actWithTCElem, toolResElem, finalElem})
+
+	ctx := context.Background()
+	state, err := store.Load(ctx, "live-tool-round")
+	require.NoError(t, err)
+	// system(synthetic) + user + assistant+tc + tool-result + assistant-final
+	require.Len(t, state.Messages, 5)
+
+	assertLiveIndicesMatchTranscript(t, bus.created, state.Messages)
 }

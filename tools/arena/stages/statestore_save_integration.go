@@ -283,6 +283,11 @@ func (s *ArenaStateStoreSaveStage) Process(
 	// it are history re-plays and must NOT be re-emitted (no re-fire of prior
 	// turns). Reading it here from the store would race the ProviderStage
 	// write-through that appends this turn's messages mid-stream.
+	//
+	// COUPLING: prevLen is correct only because StateStoreLoadStage.emitHistoryMessages
+	// (runtime/pipeline/stage/stages_core.go) replays the full persisted transcript as
+	// stream elements before the new user message. If that replay is ever made lazy or
+	// optional, the live broadcast indices will silently miscount prior turns.
 	prevLen := s.baseTranscriptLen
 
 	// liveBroadcaster derives each message's transcript-absolute index from the
