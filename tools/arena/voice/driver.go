@@ -24,6 +24,12 @@ func NewDriver(io AudioIO, run LiveRunner, onLevel func(user, agent float32)) *D
 // NewDriverWithGuard constructs a Driver with an optional half-duplex echo guard.
 // When guard is non-nil, mic frames are gated by g.Allow before reaching the runner,
 // and g.SetAgentSpeaking is toggled around each playback frame.
+//
+// v1 limitation: the per-frame SetAgentSpeaking toggle is effective only for synchronous
+// playback (where Play blocks for the full frame duration). Real buffered hardware drivers
+// return from Play before the audio is audible, so the flag stays true for only microseconds
+// and does not suppress echo. Hardware wiring must hold SetAgentSpeaking true for the entire
+// audible playback duration — see the TODO in Driver.Run.
 func NewDriverWithGuard(io AudioIO, run LiveRunner, onLevel func(user, agent float32), guard *EchoGuard) *Driver {
 	return &Driver{io: io, run: run, onLevel: onLevel, guard: guard}
 }
@@ -37,6 +43,11 @@ func (d *Driver) Run(ctx context.Context) error {
 
 	play := func(frame []byte) {
 		if d.guard != nil {
+			// TODO(voice): hold SetAgentSpeaking for the audible playback duration, not just
+			// the Play call. Buffered hardware drivers return from Play before audio is emitted,
+			// so the guard window closes before the mic can pick up the echo. A future wiring
+			// should accept a playback-duration hint (e.g. frame length / sample rate) and
+			// defer SetAgentSpeaking(false) until after the audio is audible.
 			d.guard.SetAgentSpeaking(true)
 		}
 		d.io.Play(frame)
