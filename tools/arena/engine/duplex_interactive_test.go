@@ -2,12 +2,18 @@ package engine
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -177,8 +183,180 @@ func TestRunInteractiveVoice_NonStreamingProvider_ReturnsNotImplemented(t *testi
 	}
 }
 
+// fakeSTTService is a minimal stt.Service for the VAD voice test. It returns a
+// fixed transcript for any audio so the composed pipeline produces a
+// deterministic user message. It satisfies both base.STTProvider (via Transcribe)
+// and the extended stt.Service methods (TranscribeBytes, SupportedFormats).
+type fakeSTTService struct {
+	transcript string
+}
+
+func (f *fakeSTTService) Name() string                        { return "fake-stt" }
+func (f *fakeSTTService) Type() base.ProviderType             { return base.ProviderTypeSTT }
+func (f *fakeSTTService) Pricing() *base.PricingDescriptor    { return nil }
+func (f *fakeSTTService) Validate() error                     { return nil }
+func (f *fakeSTTService) Init(_ context.Context) error        { return nil }
+func (f *fakeSTTService) HealthCheck(_ context.Context) error { return nil }
+func (f *fakeSTTService) Close() error                        { return nil }
+
+func (f *fakeSTTService) Transcribe(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+	return base.STTResponse{Text: f.transcript}, nil
+}
+
+func (f *fakeSTTService) TranscribeBytes(
+	_ context.Context, _ []byte, _ stt.TranscriptionConfig,
+) (string, error) {
+	return f.transcript, nil
+}
+
+func (f *fakeSTTService) SupportedFormats() []string { return []string{stt.FormatPCM} }
+
+// hasRole reports whether any message in msgs has the given role.
+func hasRole(msgs []types.Message, role string) bool {
+	for i := range msgs {
+		if string(msgs[i].Role) == role {
+			return true
+		}
+	}
+	return false
+}
+
+// speechFrame returns a 20ms PCM16 mono frame at 16 kHz carrying a sine tone.
+// The non-zero waveform makes the AudioTurnStage's VAD register signal; even if
+// VAD never flips to "speaking", the accumulated buffer exceeds the stage's
+// min-audio threshold and is flushed as a turn when the mic channel closes.
+func speechFrame() []byte {
+	const samples = 320 // 20ms @ 16kHz
+	buf := make([]byte, samples*2)
+	for i := 0; i < samples; i++ {
+		v := int16(8000 * math.Sin(2*math.Pi*440*float64(i)/16000))
+		buf[i*2] = byte(v)
+		buf[i*2+1] = byte(v >> 8)
+	}
+	return buf
+}
+
+// newDuplexTestExecutorVAD builds a DuplexConversationExecutor wired for the
+// composed VAD voice path: a plain text mock provider (NOT StreamInputSupport),
+// a fake STT service resolved via the self-play STT registry, and a mock TTS
+// service resolved via the TTS registry. The request carries VoiceSTT (so the
+// STT branch is taken) and a TTS-role provider for VoiceOutputVoice resolution.
+func newDuplexTestExecutorVAD(
+	t *testing.T,
+) (*DuplexConversationExecutor, *ConversationRequest, *statestore.ArenaStateStore) {
+	t.Helper()
+
+	// Plain text mock provider: implements providers.Provider (Predict path) but
+	// not providers.StreamInputSupport, so RunInteractiveVoice routes to the VAD
+	// composed pipeline.
+	textProvider := mock.NewProvider("test-mock-text", "mock-model", false)
+	if _, ok := providers.Provider(textProvider).(providers.StreamInputSupport); ok {
+		t.Fatal("test setup error: mock text provider must NOT implement StreamInputSupport")
+	}
+
+	// Self-play registry provides the STT/TTS registries. Register fakes so the
+	// VAD runner resolves services without API keys.
+	reg := selfplay.NewRegistry(nil, nil, nil, nil)
+	reg.GetTTSRegistry().Register(selfplay.TTSProviderMock, selfplay.NewMockTTS())
+	reg.GetSTTRegistry().Register("fake-stt", &fakeSTTService{transcript: "hello there"})
+
+	executor := NewDuplexConversationExecutor(reg, nil, nil, nil, nil)
+
+	store := statestore.NewArenaStateStore()
+
+	sttProvider := &config.Provider{
+		ID:   "fake-stt",
+		Type: "fake-stt",
+		Role: config.RoleSTT,
+	}
+	ttsProvider := &config.Provider{
+		ID:   "mock-tts",
+		Type: selfplay.TTSProviderMock,
+		Role: config.RoleTTS,
+	}
+
+	scenario := &config.Scenario{
+		ID: "interactive-voice-vad-test",
+		Duplex: &config.DuplexConfig{
+			Timeout: "10s",
+			TurnDetection: &config.TurnDetectionConfig{
+				Mode: config.TurnDetectionModeVAD,
+			},
+		},
+		Turns: []config.TurnDefinition{},
+	}
+
+	cfg := &config.Config{
+		LoadedProviders:    map[string]*config.Provider{},
+		LoadedTTSProviders: map[string]*config.Provider{"mock-tts": ttsProvider},
+		Voices: []config.VoiceBinding{
+			{ID: "mock-tts", Provider: "mock-tts"},
+		},
+	}
+
+	req := &ConversationRequest{
+		Provider:         textProvider,
+		Scenario:         scenario,
+		Config:           cfg,
+		RunID:            "test-run-vad",
+		ConversationID:   "test-conv-vad",
+		VoiceSTT:         sttProvider,
+		VoiceOutputVoice: "mock-tts",
+		StateStoreConfig: &StateStoreConfig{
+			Store: store,
+		},
+	}
+
+	return executor, req, store
+}
+
+// TestRunInteractiveVoice_VAD_MaterializesTurn verifies the composed VAD voice
+// pipeline drives a plain text provider: mic audio is segmented into a turn,
+// transcribed (fake STT), answered by the text LLM, synthesized back to audio
+// (mock TTS), and the transcript + assistant reply are persisted to the state
+// store — materializing history identically to a text run.
+func TestRunInteractiveVoice_VAD_MaterializesTurn(t *testing.T) {
+	exec, req, store := newDuplexTestExecutorVAD(t)
+
+	mic := make(chan []byte, 64)
+	var played [][]byte
+	play := func(b []byte) { played = append(played, b) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Feed speech frames followed by trailing silence so the AudioTurnStage has a
+	// full utterance buffered; closing the mic flushes the turn downstream.
+	for i := 0; i < 20; i++ {
+		mic <- speechFrame()
+	}
+	for i := 0; i < 20; i++ {
+		mic <- make([]byte, 320) // silence
+	}
+	close(mic)
+
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+		t.Fatalf("RunInteractiveVoice: %v", err)
+	}
+
+	state, err := store.Load(ctx, req.ConversationID)
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	if !hasRole(state.Messages, "user") || !hasRole(state.Messages, "assistant") {
+		t.Fatalf("expected user+assistant messages, got %+v", state.Messages)
+	}
+	if len(played) == 0 {
+		t.Fatal("expected playback audio from the TTS stage, got none")
+	}
+}
+
 func init() {
 	// Verify ResponseRepository interface compliance at compile time.
 	var _ mock.ResponseRepository = (*interactiveVoiceTestRepo)(nil)
 	var _ providers.Provider = (*mockNonStreamingProvider)(nil) // already confirmed in duplex_conversation_executor_test.go
+	// Verify the fake STT satisfies the full stt.Service interface used by the VAD pipeline.
+	var _ stt.Service = (*fakeSTTService)(nil)
+	// Confirm the mock TTS satisfies tts.Service (the TTS stage's contract).
+	var _ tts.Service = (*selfplay.MockTTSService)(nil)
 }
