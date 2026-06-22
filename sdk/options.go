@@ -1114,6 +1114,27 @@ func WithMemoryRetriever(r memory.Retriever) MemoryOption {
 	return func(c *MemoryCapability) { c.retriever = r }
 }
 
+// WithMemoryToolsDisabled wires the memory retriever (and store/scope) for
+// ambient RAG injection without exposing the memory tools
+// (memory__remember / memory__recall, etc.) to the LLM.
+//
+// Use this when a host wants relevant memories injected into the system
+// prompt but does not want the model to be able to read or write memory
+// directly. Combine with [WithMemoryRetriever]:
+//
+//	conv, _ := sdk.Open(packPath, "chat",
+//	    sdk.WithMemory(store, scope,
+//	        sdk.WithMemoryRetriever(myRetriever),
+//	        sdk.WithMemoryToolsDisabled(),
+//	    ),
+//	)
+//
+// Without a retriever this option simply disables memory entirely (no tools,
+// no injection). See AltairaLabs/PromptKit#1427.
+func WithMemoryToolsDisabled() MemoryOption {
+	return func(c *MemoryCapability) { c.toolsDisabled = true }
+}
+
 // WithMemoryContextFormatter overrides how retrieved memories are rendered
 // into the "memory_context" template variable that the system prompt sees.
 // Composes with [WithMemory] / [WithMemoryRetriever]; ignored when no
