@@ -13,6 +13,10 @@ type MemoryCapability struct {
 	extractor memory.Extractor
 	retriever memory.Retriever
 	formatter memory.ContextFormatter
+	// toolsDisabled suppresses registration of the memory tools
+	// (memory__remember / memory__recall, etc.) and their executor,
+	// leaving only the retriever wired for ambient RAG injection.
+	toolsDisabled bool
 }
 
 // NewMemoryCapability creates a MemoryCapability with the given store and scope.
@@ -45,7 +49,16 @@ func (c *MemoryCapability) Init(_ CapabilityContext) error { return nil }
 // registered — the LLM simply doesn't see memory as an option. This
 // prevents confusing backend errors when the memory store rejects
 // operations without a user_id. See AltairaLabs/PromptKit#852.
+//
+// When tools are disabled via [WithMemoryToolsDisabled], no executor or
+// tool descriptors are registered at all — the LLM never sees memory as an
+// option, but ambient RAG injection still works because the retriever is
+// wired separately from this method (see AltairaLabs/PromptKit#1427).
 func (c *MemoryCapability) RegisterTools(registry *tools.Registry) {
+	if c.toolsDisabled {
+		logger.Debug("memory tools skipped: tools disabled (retriever-only mode)")
+		return
+	}
 	if c.scope["user_id"] == "" {
 		logger.Debug("memory tools skipped: scope has no user_id (anonymous user)")
 		return

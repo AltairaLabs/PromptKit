@@ -40,6 +40,51 @@ func TestMemoryCapability_RegisterTools(t *testing.T) {
 	}
 }
 
+func TestMemoryCapability_ToolsDisabled_SkipsRegistration(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+	cap := NewMemoryCapability(store, scope)
+	cap.toolsDisabled = true
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+
+	// No memory tools should be registered when tools are disabled,
+	// even though the user_id scope is present.
+	for _, name := range []string{
+		memory.RecallToolName,
+		memory.RememberToolName,
+		memory.ListToolName,
+		memory.ForgetToolName,
+	} {
+		if registry.Get(name) != nil {
+			t.Errorf("tool %q registered, want skipped when tools disabled", name)
+		}
+	}
+}
+
+func TestWithMemoryToolsDisabled_StoredOnCapability(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+
+	retriever := memory.Retriever(nil)
+	cfg := &config{}
+	opt := WithMemory(store, scope,
+		WithMemoryRetriever(retriever),
+		WithMemoryToolsDisabled(),
+	)
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithMemory: %v", err)
+	}
+	cap, ok := cfg.capabilities[0].(*MemoryCapability)
+	if !ok {
+		t.Fatalf("expected *MemoryCapability, got %T", cfg.capabilities[0])
+	}
+	if !cap.toolsDisabled {
+		t.Error("expected toolsDisabled to be true")
+	}
+}
+
 func TestMemoryCapability_WithExtractorRetriever(t *testing.T) {
 	store := memory.NewInMemoryStore()
 	cap := NewMemoryCapability(store, nil)
