@@ -25,6 +25,13 @@ func TestConcepts_ParseAllWithFrontmatter(t *testing.T) {
 	}
 }
 
+func TestConcept_ToolBoundaryExists(t *testing.T) {
+	c, err := ConceptByID("tools-definitions-not-implementations")
+	require.NoError(t, err)
+	assert.Contains(t, c.Body, "definition")
+	assert.Contains(t, c.Body, "mode: mock")
+}
+
 func TestParseConcept_Errors(t *testing.T) {
 	cases := map[string]string{
 		"missing frontmatter":     "no fence here\nbody",
