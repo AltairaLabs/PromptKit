@@ -22,6 +22,8 @@ const (
 
 var skillRelPath = filepath.Join(".claude", "skills", "promptarena-authoring", "SKILL.md")
 
+var referenceRelDir = filepath.Join(".claude", "skills", "promptarena-authoring", "reference")
+
 // agentBriefCmd installs the authoring brief — an AGENTS.md shim plus the full
 // promptarena-authoring skill — into an existing project so an AI coding agent
 // starts briefed. Unlike `init`, it scaffolds no sample kit; it only briefs the
@@ -82,12 +84,45 @@ func writeAgentBriefTo(projectPath string) ([]string, error) {
 	}
 	written = append(written, skillRelPath)
 
+	refs, err := writeReferenceDocs(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	written = append(written, refs...)
+
 	rel, err := writeAgentsFile(projectPath)
 	if err != nil {
 		return nil, err
 	}
 	if rel != "" {
 		written = append(written, rel)
+	}
+	return written, nil
+}
+
+// writeReferenceDocs writes the bundled reference catalogs (eval/assertion,
+// config-fields, CLI) into the skill's reference/ directory so the agent reads
+// them locally instead of shelling out to explain/schema repeatedly. Returns
+// the relative paths written.
+func writeReferenceDocs(projectPath string) ([]string, error) {
+	names, err := agentkb.ReferenceNames()
+	if err != nil {
+		return nil, fmt.Errorf("list reference docs: %w", err)
+	}
+	refDir := filepath.Join(projectPath, referenceRelDir)
+	if err = os.MkdirAll(refDir, skillDirPerm); err != nil {
+		return nil, fmt.Errorf("create reference dir: %w", err)
+	}
+	var written []string
+	for _, name := range names {
+		content, refErr := agentkb.Reference(name)
+		if refErr != nil {
+			return nil, refErr
+		}
+		if refErr = os.WriteFile(filepath.Join(refDir, name), content, briefFilePerm); refErr != nil {
+			return nil, fmt.Errorf("write reference %s: %w", name, refErr)
+		}
+		written = append(written, filepath.Join(referenceRelDir, name))
 	}
 	return written, nil
 }
