@@ -19,6 +19,7 @@ const (
 
 type portaudioIO struct {
 	mu        sync.Mutex
+	wg        sync.WaitGroup
 	inStream  *portaudio.Stream
 	outStream *portaudio.Stream
 	inBuf     []int16
@@ -70,12 +71,14 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 		return fmt.Errorf("start speaker: %w", err)
 	}
 	p.inStream, p.outStream, p.started = in, out, true
+	p.wg.Add(2)
 	go p.captureLoop(ctx)
 	go p.playLoop(ctx)
 	return nil
 }
 
 func (p *portaudioIO) captureLoop(ctx context.Context) {
+	defer p.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -99,6 +102,7 @@ func (p *portaudioIO) captureLoop(ctx context.Context) {
 }
 
 func (p *portaudioIO) playLoop(ctx context.Context) {
+	defer p.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -131,6 +135,7 @@ func (p *portaudioIO) Close() error {
 	}
 	p.closed = true
 	close(p.done)
+	p.wg.Wait()
 	if p.inStream != nil {
 		_ = p.inStream.Stop()
 		_ = p.inStream.Close()
