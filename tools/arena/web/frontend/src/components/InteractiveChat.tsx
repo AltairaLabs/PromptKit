@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Send } from "lucide-react";
 import { ConversationThread } from "@/components/ConversationThread";
 import { useInteractiveChat } from "@/hooks/useInteractiveChat";
-import type { ArenaState, MessageCreatedData } from "@/types";
-import type { Message } from "@/types";
+import type { ArenaState, MessageCreatedData, Message } from "@/types";
 
 interface InteractiveChatProps {
   state: ArenaState;

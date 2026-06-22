@@ -79,7 +79,10 @@ export default function App() {
   useEffect(() => {
     const ids = Object.keys(state.runs);
     if (pendingAutoSelect) {
-      const newId = ids.find((id) => !knownRunIdsRef.current.has(id));
+      // Skip synthetic interactive-chat runs — they have no RunDetail to show.
+      const newId = ids.find(
+        (id) => !knownRunIdsRef.current.has(id) && state.runs[id]?.scenario !== "interactive"
+      );
       if (newId) {
         setSelectedRunId(newId);
         setPendingAutoSelect(false);
@@ -95,7 +98,8 @@ export default function App() {
     };
   }, []);
 
-  const liveRuns = Object.values(state.runs);
+  // Exclude synthetic interactive-chat entries from the runs-tab aggregates.
+  const liveRuns = Object.values(state.runs).filter((r) => r.scenario !== "interactive");
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
 
   const handleSelectMessage = (index: number, message?: Message, allMsgs?: Message[]) => {

@@ -214,7 +214,16 @@ func TestInteractiveSession_EmittedEventsCarryExecutionID(t *testing.T) {
 	bus := events.NewEventBus()
 	eng.SetEventBus(bus, WithMessageEvents())
 
-	got := collectMessageEvents(bus)
+	// Collect ExecutionID from every message.created event on the primary bus.
+	var execIDCollector struct {
+		mu  sync.Mutex
+		ids []string
+	}
+	bus.Subscribe(events.EventMessageCreated, func(ev *events.Event) {
+		execIDCollector.mu.Lock()
+		defer execIDCollector.mu.Unlock()
+		execIDCollector.ids = append(execIDCollector.ids, ev.ExecutionID)
+	})
 
 	sess, err := eng.NewInteractiveSession(InteractiveSessionOptions{
 		ProviderID: "mock", TaskType: "basic", Variables: map[string]string{"company": "Acme"},
@@ -231,42 +240,8 @@ func TestInteractiveSession_EmittedEventsCarryExecutionID(t *testing.T) {
 	for range ch { //nolint:revive
 	}
 
-	got.waitFor(1, 2*time.Second)
-	evs := got.snapshot()
-	if len(evs) == 0 {
-		t.Fatal("no message.created events emitted")
-	}
-
+	// Give the bus time to deliver async events.
 	wantID := sess.ConversationID()
-	// Collect events via the raw bus to check ExecutionID (the emitter sets
-	// ExecutionID = RunID, ConversationID = ConversationID in every event).
-	var execIDCollector struct {
-		mu  sync.Mutex
-		ids []string
-	}
-	bus2 := events.NewEventBus()
-	eng2 := newFixtureEngine(t)
-	_ = eng2.EnableMockProviderMode("")
-	eng2.SetEventBus(bus2, WithMessageEvents())
-	bus2.Subscribe(events.EventMessageCreated, func(ev *events.Event) {
-		execIDCollector.mu.Lock()
-		defer execIDCollector.mu.Unlock()
-		execIDCollector.ids = append(execIDCollector.ids, ev.ExecutionID)
-	})
-	sess2, err := eng2.NewInteractiveSession(InteractiveSessionOptions{
-		ProviderID: "mock", TaskType: "basic", Variables: map[string]string{"company": "Acme"},
-	})
-	if err != nil {
-		t.Fatalf("session2: %v", err)
-	}
-	ch2, err := sess2.SendUserMessage(context.Background(), "world")
-	if err != nil {
-		t.Fatalf("send2: %v", err)
-	}
-	for range ch2 { //nolint:revive
-	}
-
-	// Give bus2 time to deliver async events.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		execIDCollector.mu.Lock()
@@ -283,14 +258,11 @@ func TestInteractiveSession_EmittedEventsCarryExecutionID(t *testing.T) {
 	execIDCollector.mu.Unlock()
 
 	if len(ids) == 0 {
-		t.Fatal("bus2 received no message.created events")
+		t.Fatal("no message.created events emitted")
 	}
-	wantID2 := sess2.ConversationID()
 	for _, id := range ids {
-		if id != wantID2 {
-			t.Fatalf("event ExecutionID = %q, want conversationID %q", id, wantID2)
+		if id != wantID {
+			t.Fatalf("event ExecutionID = %q, want conversationID %q", id, wantID)
 		}
 	}
-	// wantID only used to show intent for sess (suppress unused warning).
-	_ = wantID
 }
