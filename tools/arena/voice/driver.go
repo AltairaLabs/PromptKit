@@ -61,14 +61,16 @@ func (d *Driver) Run(ctx context.Context) error {
 
 	mic := d.io.CaptureChunks()
 	if d.onLevel != nil || d.guard != nil {
-		mic = d.tapLevels(mic)
+		mic = d.tapLevels(ctx, mic)
 	}
 	return d.run(ctx, mic, play)
 }
 
 // tapLevels forwards mic frames while reporting their RMS as the user level.
 // When a guard is configured, frames that fail Allow are dropped silently.
-func (d *Driver) tapLevels(in <-chan []byte) <-chan []byte {
+// The send to out is ctx-guarded so the goroutine exits promptly when ctx is
+// canceled instead of blocking on a full or closed downstream channel.
+func (d *Driver) tapLevels(ctx context.Context, in <-chan []byte) <-chan []byte {
 	out := make(chan []byte)
 	go func() {
 		defer close(out)
@@ -79,7 +81,11 @@ func (d *Driver) tapLevels(in <-chan []byte) <-chan []byte {
 			if d.onLevel != nil {
 				d.onLevel(rms(f), 0)
 			}
-			out <- f
+			select {
+			case out <- f:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	return out

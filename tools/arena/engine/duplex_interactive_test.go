@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"io"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -154,10 +156,10 @@ func TestRunInteractiveVoice_ASM_EchoesAudioToPlayback(t *testing.T) {
 	}
 }
 
-// TestRunInteractiveVoice_NonStreamingProvider_ReturnsNotImplemented verifies
-// that RunInteractiveVoice returns an error for providers that do not implement
-// StreamInputSupport (the VAD path, implemented in Task 7).
-func TestRunInteractiveVoice_NonStreamingProvider_ReturnsNotImplemented(t *testing.T) {
+// TestRunInteractiveVoice_VAD_RequiresSTTProvider verifies that RunInteractiveVoice
+// returns an error when a non-StreamInputSupport provider is used without an STT
+// provider configured (the VAD path requires --voice-stt to be set).
+func TestRunInteractiveVoice_VAD_RequiresSTTProvider(t *testing.T) {
 	exec := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 
 	req := &ConversationRequest{
@@ -346,6 +348,148 @@ func TestRunInteractiveVoice_VAD_MaterializesTurn(t *testing.T) {
 	if !hasRole(state.Messages, "user") || !hasRole(state.Messages, "assistant") {
 		t.Fatalf("expected user+assistant messages, got %+v", state.Messages)
 	}
+	if len(played) == 0 {
+		t.Fatal("expected playback audio from the TTS stage, got none")
+	}
+}
+
+// recordingTTS embeds *selfplay.MockTTSService (which satisfies both base.TTSProvider
+// and tts.Service) and overrides Synthesize to capture every text the pipeline
+// sends for synthesis. Thread-safe: the pipeline goroutine and the test goroutine
+// can both access inputs without a data race.
+type recordingTTS struct {
+	*selfplay.MockTTSService
+	mu     sync.Mutex
+	inputs []string
+}
+
+func (r *recordingTTS) Synthesize(
+	ctx context.Context, text string, cfg tts.SynthesisConfig,
+) (io.ReadCloser, error) {
+	r.mu.Lock()
+	r.inputs = append(r.inputs, text)
+	r.mu.Unlock()
+	return r.MockTTSService.Synthesize(ctx, text, cfg)
+}
+
+// Inputs returns a snapshot of the texts sent to Synthesize so far.
+func (r *recordingTTS) Inputs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := make([]string, len(r.inputs))
+	copy(cp, r.inputs)
+	return cp
+}
+
+// newDuplexTestExecutorVADWithRecordingTTS mirrors newDuplexTestExecutorVAD but
+// wraps the mock TTS in a recordingTTS so the test can assert which texts were
+// sent to synthesis.
+func newDuplexTestExecutorVADWithRecordingTTS(
+	t *testing.T,
+) (*DuplexConversationExecutor, *ConversationRequest, *statestore.ArenaStateStore, *recordingTTS) {
+	t.Helper()
+
+	textProvider := mock.NewProvider("test-mock-text-rec", "mock-model", false)
+	if _, ok := providers.Provider(textProvider).(providers.StreamInputSupport); ok {
+		t.Fatal("test setup error: mock text provider must NOT implement StreamInputSupport")
+	}
+
+	reg := selfplay.NewRegistry(nil, nil, nil, nil)
+	underlying := selfplay.NewMockTTS()
+	recorder := &recordingTTS{MockTTSService: underlying}
+	reg.GetTTSRegistry().Register(selfplay.TTSProviderMock, recorder)
+	reg.GetSTTRegistry().Register("fake-stt-rec", &fakeSTTService{transcript: "hello there"})
+
+	executor := NewDuplexConversationExecutor(reg, nil, nil, nil, nil)
+
+	store := statestore.NewArenaStateStore()
+
+	sttProvider := &config.Provider{
+		ID:   "fake-stt-rec",
+		Type: "fake-stt-rec",
+		Role: config.RoleSTT,
+	}
+	ttsProvider := &config.Provider{
+		ID:   "mock-tts-rec",
+		Type: selfplay.TTSProviderMock,
+		Role: config.RoleTTS,
+	}
+
+	scenario := &config.Scenario{
+		ID: "interactive-voice-vad-rec-test",
+		Duplex: &config.DuplexConfig{
+			Timeout: "10s",
+			TurnDetection: &config.TurnDetectionConfig{
+				Mode: config.TurnDetectionModeVAD,
+			},
+		},
+		Turns: []config.TurnDefinition{},
+	}
+
+	cfg := &config.Config{
+		LoadedProviders:    map[string]*config.Provider{},
+		LoadedTTSProviders: map[string]*config.Provider{"mock-tts-rec": ttsProvider},
+		Voices: []config.VoiceBinding{
+			{ID: "mock-tts-rec", Provider: "mock-tts-rec"},
+		},
+	}
+
+	req := &ConversationRequest{
+		Provider:         textProvider,
+		Scenario:         scenario,
+		Config:           cfg,
+		RunID:            "test-run-vad-rec",
+		ConversationID:   "test-conv-vad-rec",
+		VoiceSTT:         sttProvider,
+		VoiceOutputVoice: "mock-tts-rec",
+		StateStoreConfig: &StateStoreConfig{
+			Store: store,
+		},
+	}
+
+	return executor, req, store, recorder
+}
+
+// TestRunInteractiveVoice_VAD_AssistantOnlySynthesized asserts that the TTS
+// stage receives only the assistant's reply, never the user's own transcript.
+// Without the AssistantTTSFilterStage between the save stage and the TTS stage,
+// the user transcript (wrapped as a user Message by STTUserMessageStage) passes
+// through unchanged and the pipeline speaks the user's words back at them.
+// The filter drops any Message element whose Role is not "assistant".
+func TestRunInteractiveVoice_VAD_AssistantOnlySynthesized(t *testing.T) {
+	exec, req, _, recorder := newDuplexTestExecutorVADWithRecordingTTS(t)
+
+	mic := make(chan []byte, 64)
+	var played [][]byte
+	play := func(b []byte) { played = append(played, b) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := 0; i < 20; i++ {
+		mic <- speechFrame()
+	}
+	for i := 0; i < 20; i++ {
+		mic <- make([]byte, 320) // silence to flush the VAD turn
+	}
+	close(mic)
+
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+		t.Fatalf("RunInteractiveVoice: %v", err)
+	}
+
+	inputs := recorder.Inputs()
+	if len(inputs) == 0 {
+		t.Fatal("expected at least one TTS synthesis call, got none")
+	}
+
+	const userTranscript = "hello there"
+	for _, s := range inputs {
+		if s == userTranscript {
+			t.Errorf("TTS received the user transcript %q — only assistant messages should be synthesized", s)
+		}
+	}
+
 	if len(played) == 0 {
 		t.Fatal("expected playback audio from the TTS stage, got none")
 	}

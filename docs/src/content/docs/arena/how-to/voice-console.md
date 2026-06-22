@@ -98,7 +98,11 @@ promptarena-voice chat --voice \
 ```
 
 `--voice-stt` must match a provider declared under `stt_providers:` in the Arena
-config. `--voice-output-voice` must match a voice id declared under `voices:`.
+config. `--voice-output-voice` must match a voice id declared under `voices:`. The
+value is a **voice binding id** (the `id:` field in the `voices:` list), not a raw
+vendor voice name — the binding maps the id to the actual synthesis voice for the
+configured provider, so set the binding rather than a vendor-specific name unless the
+two happen to coincide.
 
 ## Echo Guard
 
