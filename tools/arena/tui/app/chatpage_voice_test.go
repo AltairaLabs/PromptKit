@@ -3,11 +3,16 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // fakeAudioIO is a stub AudioIO implementation for voice-mode tests. It uses
@@ -291,6 +296,126 @@ func TestChatPage_Activate_StoresSend(t *testing.T) {
 	_ = p.Activate(sentinel)
 	if p.send == nil {
 		t.Fatal("expected p.send to be set after Activate")
+	}
+}
+
+// ---- Task 3 tests: panel refresh, meter rendering, voice key handling ----
+
+// TestChatPage_ChatRefreshMsg_RefreshesPanel verifies that a chatRefreshMsg after
+// writing a user+assistant message into the voice state store causes the panel to
+// reflect those messages. The voiceStore/voiceConvID fields are set directly as
+// startVoice would, messages are saved via the runtime ConversationState, then
+// chatRefreshMsg is sent and the panel View() is checked for message role text.
+func TestChatPage_ChatRefreshMsg_RefreshesPanel(t *testing.T) {
+	store := arenastore.NewArenaStateStore()
+	convID := "test-voice-conv-1"
+
+	userMsg := types.Message{Role: "user", Content: "hello"}
+	assistantMsg := types.Message{Role: "assistant", Content: "world response"}
+	if err := writeVoiceMessages(t, store, convID, userMsg, assistantMsg); err != nil {
+		t.Fatalf("writeVoiceMessages: %v", err)
+	}
+
+	p := NewChatPage(&AppContext{Version: "vTEST"})
+	p.voice = &VoiceOptions{}
+	p.voiceStore = store
+	p.voiceConvID = convID
+	p.state = chatStateChat
+	p.width = 120
+	p.height = 40
+	p.panel.SetDimensions(120, 30)
+
+	_, _ = p.Update(chatRefreshMsg{})
+
+	view := p.panel.View()
+	if !strings.Contains(view, "user") && !strings.Contains(view, "assistant") {
+		t.Fatalf("expected panel View() to contain message roles after chatRefreshMsg; got:\n%s", view)
+	}
+}
+
+// writeVoiceMessages saves a slice of messages into an ArenaStateStore as a
+// ConversationState. ArenaStateStore.Save accepts *runtimestore.ConversationState,
+// so we construct one directly.
+func writeVoiceMessages(t *testing.T, store *arenastore.ArenaStateStore, convID string, msgs ...types.Message) error {
+	t.Helper()
+	cs := &runtimestore.ConversationState{
+		ID:       convID,
+		Messages: msgs,
+		Metadata: make(map[string]interface{}),
+	}
+	return store.Save(context.Background(), cs)
+}
+
+// TestChatPage_VoiceLevelMsg_UpdatesMeterAndView verifies that a voiceLevelMsg
+// updates p.micLevel and that, in voice mode, View() renders the mic status line
+// and the panel's built-in audio meter (filled cells) when the panel has data.
+// We seed the panel with a message first so it reaches composeView where the
+// meter is rendered; then confirm the meter glyphs appear after a non-zero level.
+func TestChatPage_VoiceLevelMsg_UpdatesMeterAndView(t *testing.T) {
+	store := arenastore.NewArenaStateStore()
+	convID := "test-voice-conv-level"
+	seedMsg := types.Message{Role: "user", Content: "hello"}
+	if err := writeVoiceMessages(t, store, convID, seedMsg); err != nil {
+		t.Fatalf("writeVoiceMessages: %v", err)
+	}
+
+	p := NewChatPage(&AppContext{Version: "vTEST"})
+	p.voice = &VoiceOptions{}
+	p.voiceStore = store
+	p.voiceConvID = convID
+	p.state = chatStateChat
+	p.width = 120
+	p.height = 40
+	p.panel.SetDimensions(120, 30)
+	// Seed the panel with data so composeView (which renders the meter) is reached.
+	p.refreshVoicePanel()
+
+	// Capture view with zero audio levels (meter is empty / inactive).
+	viewBefore := p.View()
+	if !strings.Contains(viewBefore, "mic active") {
+		t.Fatalf("expected 'mic active' status line before level update; got:\n%s", viewBefore)
+	}
+
+	// Send a voiceLevelMsg with a non-zero user level.
+	newPage, cmd := p.Update(voiceLevelMsg{user: 0.5, agent: 0.2})
+	pp := newPage.(*ChatPage)
+	if pp.micLevel != 0.5 {
+		t.Fatalf("expected micLevel=0.5 after voiceLevelMsg, got %f", pp.micLevel)
+	}
+	if cmd != nil {
+		t.Fatalf("expected nil cmd from voiceLevelMsg, got non-nil")
+	}
+
+	viewAfter := pp.View()
+
+	// The mic status line must still be present.
+	if !strings.Contains(viewAfter, "mic active") {
+		t.Fatalf("expected 'mic active' in voice View() after level update; got:\n%s", viewAfter)
+	}
+	// The audio meter filled glyph must appear — panel.SetAudioLevels activated
+	// the meter and 0.5 × 16 cells = 8 filled blocks.
+	const meterFilled = "████████"
+	if !strings.Contains(viewAfter, meterFilled) {
+		t.Fatalf("expected meter filled cells %q in View() after level=0.5; got:\n%s", meterFilled, viewAfter)
+	}
+}
+
+// TestChatPage_VoiceModeHandleChatKey_EnterDoesNotSend verifies that in voice
+// mode, pressing Enter in handleChatKey does NOT trigger a send (no cmd returned,
+// no busy flag set). The session is nil so any accidental send would panic.
+func TestChatPage_VoiceModeHandleChatKey_EnterDoesNotSend(t *testing.T) {
+	p := NewChatPage(&AppContext{Version: "vTEST"})
+	p.voice = &VoiceOptions{}
+	p.state = chatStateChat
+	p.input.SetValue("some text that should not be sent")
+
+	// Call handleChatKey with Enter directly.
+	cmd := p.handleChatKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected nil cmd from handleChatKey(Enter) in voice mode")
+	}
+	if p.busy {
+		t.Fatal("expected busy=false after Enter in voice mode")
 	}
 }
 

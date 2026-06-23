@@ -98,6 +98,8 @@ func (p *ChatPage) startVoice(send func(tea.Msg)) tea.Cmd {
 
 	// 6. Build an in-memory state store and event bus.
 	stateStore := arenastore.NewArenaStateStore()
+	p.voiceStore = stateStore
+	p.voiceConvID = conversationID
 	eventBus := events.NewEventBus()
 	p.engine.SetEventBus(eventBus, engine.WithMessageEvents())
 
