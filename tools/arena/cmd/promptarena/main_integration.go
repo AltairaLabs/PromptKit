@@ -45,7 +45,8 @@ conversation flows for various task types (customer support, code assistance, et
 				fmt.Fprintf(os.Stderr, "warning: could not load config %s: %v\n", cfgPath, loadErr)
 			} else {
 				// LoadConfig sets ResultsDir relative to the config file;
-				// override only if it is still empty.
+				// override only if it is still empty (defensive fallback — LoadConfig
+				// always sets it in practice, but guard against future refactors).
 				if ctx.ResultsDir == "" {
 					ctx.ResultsDir = filepath.Join(cwd, "out")
 				}

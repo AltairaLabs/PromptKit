@@ -72,8 +72,7 @@ func (s *Splash) Update(msg tea.Msg) (Page, tea.Cmd) {
 // centered within the allocated terminal size.
 func (s *Splash) View() string {
 	logoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.ColorIndigo)).
-		Align(lipgloss.Left)
+		Foreground(lipgloss.Color(theme.ColorIndigo))
 
 	logo := logoStyle.Render(pkLogo)
 

@@ -99,6 +99,8 @@ func (p *ViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 	case pages.FileSelectedMsg:
 		p.err = nil
 		if filepath.Base(m.Path) == "index.json" {
+			// m.RunID is intentionally unused for index/summary files; the run
+			// IDs are extracted from the file contents instead.
 			return p, loadSummaryFile(m.Path, p.resultsDir)
 		}
 		return p, loadRunResult(m.RunID, p.resultsDir)

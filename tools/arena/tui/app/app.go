@@ -47,6 +47,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case QuitMsg:
 		return a, tea.Quit
 
+	case ConfigChangedMsg:
+		// config changed: drop any cached engine so it rebuilds against the new config
+		a.ctx.Engine = nil
+		return a, nil
+
 	case tea.KeyMsg:
 		//nolint:exhaustive // Only handling specific navigation and quit keys.
 		switch m.Type {

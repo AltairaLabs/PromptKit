@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
 // namedFakePage extends fakePage with a name field so we can distinguish pages
@@ -159,5 +161,18 @@ func TestApp_InitCallsTopPageInit(t *testing.T) {
 	a := New(&AppContext{}, &namedFakePage{name: "home"})
 	if cmd := a.Init(); cmd != nil {
 		t.Fatalf("expected nil cmd from Init, got %v", cmd)
+	}
+}
+
+func TestApp_ConfigChangedClearsEngine(t *testing.T) {
+	ctx := &AppContext{Engine: &engine.Engine{}}
+	a := New(ctx, &namedFakePage{name: "home"})
+
+	_, cmd := a.Update(ConfigChangedMsg{Path: "/some/arena.yaml"})
+	if cmd != nil {
+		t.Fatalf("expected nil cmd from ConfigChangedMsg, got %v", cmd)
+	}
+	if ctx.Engine != nil {
+		t.Fatal("expected ctx.Engine to be nil after ConfigChangedMsg")
 	}
 }
