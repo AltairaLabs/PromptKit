@@ -106,6 +106,13 @@ type ChatPage struct {
 	height       int
 	engineErr    error
 	statusLine   string
+
+	// voice-mode fields (nil voice = text mode)
+	voice       *VoiceOptions
+	voiceCancel context.CancelFunc
+	micLevel    float32
+	agentLevel  float32
+	send        func(tea.Msg) // stored in Activate for use by voice goroutine
 }
 
 // NewChatPage constructs a ChatPage bound to the given AppContext.
@@ -118,15 +125,26 @@ func NewChatPage(ctx *AppContext) *ChatPage {
 		panel: panels.NewConversationPanel(),
 		input: ti,
 		vars:  map[string]string{},
+		voice: ctx.Voice,
 	}
 }
 
 // Title implements Page.
 func (p *ChatPage) Title() string { return "Chat" }
 
+// Close implements Closeable. It cancels any running voice driver so the mic
+// and pipeline shut down cleanly when the user quits.
+func (p *ChatPage) Close() {
+	if p.voiceCancel != nil {
+		p.voiceCancel()
+	}
+}
+
 // Activate implements Activatable. It is called by App before Init.
-// It calls EnsureEngine so Init can proceed.
+// It calls EnsureEngine so Init can proceed. The send handle is stored
+// so startVoice can push messages into the bubbletea loop from goroutines.
 func (p *ChatPage) Activate(send func(tea.Msg)) tea.Cmd {
+	p.send = send
 	eng, err := p.ctx.EnsureEngine()
 	if err != nil {
 		p.engineErr = err
@@ -197,6 +215,7 @@ func (p *ChatPage) afterVarsEntered() tea.Cmd {
 }
 
 // startSession creates the InteractiveSession and switches to chatStateChat.
+// In voice mode, the driver is launched instead of focusing the text input.
 func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	sess, err := p.engine.NewInteractiveSession(engine.InteractiveSessionOptions{
 		ProviderID: p.provider,
@@ -212,6 +231,10 @@ func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	p.runEvals = runEvals
 	p.state = chatStateChat
 	p.initPanel()
+	if p.voice != nil {
+		// Voice mode: start the audio driver instead of focusing the text input.
+		return p.startVoice(p.send)
+	}
 	p.input.Focus()
 	return textinput.Blink
 }
@@ -274,6 +297,18 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		p.busy = false
 		p.input.Focus()
 		p.statusLine = "⚠ " + chatSanitizeErrorLine(v.err)
+		return p, nil
+	}
+
+	// Voice-mode level and refresh messages — Task 3 will add rendering.
+	switch v := msg.(type) {
+	case voiceLevelMsg:
+		p.micLevel = v.user
+		p.agentLevel = v.agent
+		return p, nil
+	case chatRefreshMsg:
+		// A message.created event arrived from the voice pipeline; Task 3
+		// will reload the panel from the state store here.
 		return p, nil
 	}
 

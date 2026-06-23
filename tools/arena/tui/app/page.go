@@ -24,6 +24,13 @@ type Page interface {
 	SetSize(w, h int)
 }
 
+// Closeable is an optional interface a Page may implement to run cleanup logic
+// when the App exits (e.g. canceling a background voice driver). App calls
+// Close on every page in the stack when it processes a tea.Quit or QuitMsg.
+type Closeable interface {
+	Close()
+}
+
 // VoiceOptions carries the voice-mode parameters parsed from CLI flags.
 // A nil *VoiceOptions on AppContext means text-chat mode.
 type VoiceOptions struct {
