@@ -87,7 +87,6 @@ func chatMaxInt(a, b int) int {
 // Implements Page and Activatable.
 type ChatPage struct {
 	ctx     *AppContext
-	send    func(tea.Msg)
 	engine  *engine.Engine
 	session *engine.InteractiveSession
 	panel   *panels.ConversationPanel
@@ -126,9 +125,8 @@ func NewChatPage(ctx *AppContext) *ChatPage {
 func (p *ChatPage) Title() string { return "Chat" }
 
 // Activate implements Activatable. It is called by App before Init.
-// It stores the send func and calls EnsureEngine so Init can proceed.
+// It calls EnsureEngine so Init can proceed.
 func (p *ChatPage) Activate(send func(tea.Msg)) tea.Cmd {
-	p.send = send
 	eng, err := p.ctx.EnsureEngine()
 	if err != nil {
 		p.engineErr = err
