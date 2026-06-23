@@ -16,10 +16,19 @@ import (
 // RunInteractiveVoice drives a live, mic-fed voice conversation through the
 // duplex pipeline until mic is closed or ctx is canceled.
 //
-// Mode is selected by provider capability:
-//   - StreamInputSupport providers use the existing ASM pipeline
+// Mode selection (in priority order):
+//  1. req.VoiceSTT != nil → composed VAD pipeline (AudioTurn → STT → LLM → TTS).
+//     The caller explicitly configured an STT provider via --voice-stt, signaling
+//     the composed path even when the underlying provider also implements
+//     StreamInputSupport. The OpenAI provider implements StreamInputSupport
+//     unconditionally for every model (including plain text models like gpt-4o),
+//     so checking VoiceSTT first prevents a plain-text agent from being wrongly
+//     routed to the ASM/realtime session path (which would attempt to create a
+//     gpt-4o-realtime-preview session and fail with model_not_found).
+//  2. provider implements StreamInputSupport → ASM pipeline
 //     (buildDuplexPipeline → DuplexProviderStage → ArenaStateStoreSaveStage).
-//   - Text providers use the composed VAD pipeline (Task 7, not yet implemented).
+//  3. fallback → composed VAD pipeline (runInteractiveVADVoice will return an
+//     error if VoiceSTT is nil, explaining the missing --voice-stt flag).
 //
 // Mic frames (raw PCM16 mono @ 16 kHz or provider-preferred rate) are forwarded
 // to the pipeline input channel one element per frame. Response audio from the
@@ -39,9 +48,19 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 	mic <-chan []byte,
 	play func([]byte),
 ) error {
+	// VoiceSTT is an unambiguous "use the composed STT→LLM→TTS path" signal from
+	// the caller (--voice-stt flag). Check it before the StreamInputSupport
+	// type assertion: the OpenAI provider implements StreamInputSupport for every
+	// model — realtime and plain-text alike — so the type assertion alone cannot
+	// distinguish a gpt-4o-realtime session from a plain gpt-4o text agent.
+	if req.VoiceSTT != nil {
+		return de.runInteractiveVADVoice(ctx, req, mic, play)
+	}
+
 	streamProvider, ok := req.Provider.(providers.StreamInputSupport)
 	if !ok {
-		// Task 7 will implement a VAD-composed pipeline for text-only providers.
+		// Provider is text-only; runInteractiveVADVoice will return an error
+		// explaining that --voice-stt is required.
 		return de.runInteractiveVADVoice(ctx, req, mic, play)
 	}
 

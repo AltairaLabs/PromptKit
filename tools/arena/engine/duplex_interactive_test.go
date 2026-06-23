@@ -645,6 +645,150 @@ func TestRunInteractiveVoice_ASM_MaterializesUserTranscript(t *testing.T) {
 	}
 }
 
+// newDuplexTestExecutorVADWithStreamingProvider builds a DuplexConversationExecutor
+// whose LLM provider implements StreamInputSupport (like the OpenAI provider does
+// unconditionally) but has VoiceSTT set in the request. This is the exact scenario
+// that triggered the routing bug: the StreamInputSupport type assertion returned true
+// even for plain text models, routing to ASM and producing a model_not_found error.
+//
+// The helper mirrors newDuplexTestExecutorVAD but substitutes a StreamingProvider
+// for the text provider while still setting req.VoiceSTT. The streaming provider's
+// sessions list gives us a zero-cost observable to verify CreateStreamSession was
+// never called (ASM path not taken).
+func newDuplexTestExecutorVADWithStreamingProvider(
+	t *testing.T,
+) (*DuplexConversationExecutor, *ConversationRequest, *statestore.ArenaStateStore, *mock.StreamingProvider) {
+	t.Helper()
+
+	// StreamingProvider implements StreamInputSupport — this is the crux of the
+	// routing bug test. If VoiceSTT is set but the type assertion fires first,
+	// CreateStreamSession gets called (wrong). The fix must route to VAD first.
+	streamingProvider := mock.NewStreamingProvider("test-mock-streaming-vad", "mock-model", false)
+	// Configure auto-respond so the plain text Predict path (used by the VAD
+	// composed pipeline's ProviderStage) returns a deterministic assistant reply.
+	streamingProvider.WithAutoRespond("hello")
+
+	reg := selfplay.NewRegistry(nil, nil, nil, nil)
+	reg.GetTTSRegistry().Register(selfplay.TTSProviderMock, selfplay.NewMockTTS())
+	reg.GetSTTRegistry().Register("fake-stt-routing", &fakeSTTService{transcript: "route me to vad"})
+
+	executor := NewDuplexConversationExecutor(reg, nil, nil, nil, nil)
+
+	store := statestore.NewArenaStateStore()
+
+	sttProvider := &config.Provider{
+		ID:   "fake-stt-routing",
+		Type: "fake-stt-routing",
+		Role: config.RoleSTT,
+	}
+	ttsProvider := &config.Provider{
+		ID:   "mock-tts-routing",
+		Type: selfplay.TTSProviderMock,
+		Role: config.RoleTTS,
+	}
+
+	scenario := &config.Scenario{
+		ID: "interactive-voice-routing-test",
+		Duplex: &config.DuplexConfig{
+			Timeout: "10s",
+			TurnDetection: &config.TurnDetectionConfig{
+				Mode: config.TurnDetectionModeVAD,
+			},
+		},
+		Turns: []config.TurnDefinition{},
+	}
+
+	cfg := &config.Config{
+		LoadedProviders:    map[string]*config.Provider{},
+		LoadedTTSProviders: map[string]*config.Provider{"mock-tts-routing": ttsProvider},
+		Voices: []config.VoiceBinding{
+			{ID: "mock-tts-routing", Provider: "mock-tts-routing"},
+		},
+	}
+
+	req := &ConversationRequest{
+		Provider:         streamingProvider, // implements StreamInputSupport
+		Scenario:         scenario,
+		Config:           cfg,
+		RunID:            "test-run-vad-routing",
+		ConversationID:   "test-conv-vad-routing",
+		VoiceSTT:         sttProvider, // explicit composed-path signal
+		VoiceOutputVoice: "mock-tts-routing",
+		StateStoreConfig: &StateStoreConfig{
+			Store: store,
+		},
+	}
+
+	return executor, req, store, streamingProvider
+}
+
+// TestRunInteractiveVoice_RoutesToVADWhenVoiceSTTSet asserts that when req.VoiceSTT
+// is non-nil and the provider also implements StreamInputSupport, RunInteractiveVoice
+// takes the composed VAD path — NOT the ASM/realtime path.
+//
+// This is the bug regression test: before the fix the StreamInputSupport type
+// assertion fired first, CreateStreamSession was called, and the realtime session
+// attempted to start gpt-4o-realtime-preview → model_not_found. After the fix
+// the VoiceSTT guard routes to VAD before the type assertion runs.
+//
+// Assertions:
+//  1. streamingProvider.GetSessions() is empty — CreateStreamSession was never
+//     called, confirming the ASM branch was not entered.
+//  2. A user + assistant turn materialized in the state store — the VAD composed
+//     pipeline ran end-to-end (STT → text LLM → TTS → save).
+//  3. RunInteractiveVoice returned nil — the run completed without error.
+func TestRunInteractiveVoice_RoutesToVADWhenVoiceSTTSet(t *testing.T) {
+	exec, req, store, streamingProvider := newDuplexTestExecutorVADWithStreamingProvider(t)
+
+	// Sanity check: the streaming provider DOES implement StreamInputSupport —
+	// without the fix this would cause the ASM branch to be taken.
+	if _, ok := req.Provider.(providers.StreamInputSupport); !ok {
+		t.Fatal("test setup error: provider must implement StreamInputSupport for this test to be meaningful")
+	}
+
+	mic := make(chan []byte, 64)
+	var played [][]byte
+	play := func(b []byte) { played = append(played, b) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := 0; i < 20; i++ {
+		mic <- speechFrame()
+	}
+	for i := 0; i < 20; i++ {
+		mic <- make([]byte, 320) // silence to flush the VAD turn
+	}
+	close(mic)
+
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+		t.Fatalf("RunInteractiveVoice: %v", err)
+	}
+
+	// Assertion 1: ASM session must NOT have been created.
+	if sessions := streamingProvider.GetSessions(); len(sessions) != 0 {
+		t.Errorf(
+			"expected CreateStreamSession to not be called (VAD path should have been taken), "+
+				"but %d ASM session(s) were created",
+			len(sessions),
+		)
+	}
+
+	// Assertion 2: VAD pipeline persisted history (user + assistant turn).
+	state, err := store.Load(ctx, req.ConversationID)
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	if !hasRole(state.Messages, "user") || !hasRole(state.Messages, "assistant") {
+		t.Fatalf("expected user+assistant messages from the VAD pipeline, got %+v", state.Messages)
+	}
+
+	// Assertion 3: TTS produced audio.
+	if len(played) == 0 {
+		t.Fatal("expected playback audio from the TTS stage (VAD path), got none")
+	}
+}
+
 func init() {
 	// Verify ResponseRepository interface compliance at compile time.
 	var _ mock.ResponseRepository = (*interactiveVoiceTestRepo)(nil)
