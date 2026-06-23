@@ -133,12 +133,11 @@ func (m *mockRunResultStore) GetResult(ctx context.Context, runID string) (*stat
 	return m.result, m.err
 }
 
-func TestModel_View_SelectedRunShowsResult(t *testing.T) {
+func TestModel_View_HighlightedRunShowsResult(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.width = 120
 	m.height = 40
 	m.isTUIMode = true
-	m.currentPage = pageConversation // Switch to conversation page
 
 	m.activeRuns = []RunInfo{
 		{
@@ -147,7 +146,6 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 			Provider:  "prov",
 			Status:    StatusCompleted,
 			Duration:  2 * time.Second,
-			Selected:  true,
 			StartTime: time.Now().Add(-2 * time.Second),
 		},
 	}
@@ -174,13 +172,12 @@ func TestModel_View_SelectedRunShowsResult(t *testing.T) {
 		},
 	}
 
-	// Initialize conversation data (normally done in toggleSelection)
-	m.initializeConversationData(&m.activeRuns[0])
-
+	// The result pane in the main view loads the highlighted run from the
+	// state store; the view should render without panicking and surface the
+	// run's provider/scenario.
 	view := m.View()
-	assert.Contains(t, view, "Conversation")
-	assert.Contains(t, view, "hello")
-	assert.Contains(t, view, "assistant")
+	assert.Contains(t, view, "prov")
+	assert.Contains(t, view, "scn")
 }
 
 func TestModel_BuildSummary_FromStateStore(t *testing.T) {
@@ -282,11 +279,19 @@ func TestRenderHeaderFooter(t *testing.T) {
 
 func TestSelectedRunHelper(t *testing.T) {
 	m := NewModel("test.yaml", 1)
-	assert.Nil(t, m.selectedRun())
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
-	r := m.selectedRun()
-	require.NotNil(t, r)
+	// No pending selection.
+	_, ok := m.TakeSelectedRun()
+	assert.False(t, ok)
+
+	// A pending drill-down selection is returned once, then cleared.
+	m.activeRuns = []RunInfo{{RunID: "run-1"}}
+	m.selectedRunID = "run-1"
+	r, ok := m.TakeSelectedRun()
+	require.True(t, ok)
 	assert.Equal(t, "run-1", r.RunID)
+
+	_, ok = m.TakeSelectedRun()
+	assert.False(t, ok, "selection should be cleared after being taken")
 }
 
 func TestUtilsHelpers(t *testing.T) {
@@ -401,15 +406,6 @@ func TestRun_NotSupported(t *testing.T) {
 	err := Run(ctx, m)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "notty")
-}
-
-func TestEscapeClearsSelection(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
-	m.currentPage = pageConversation
-	msg := tea.KeyMsg{Type: tea.KeyEsc}
-	m.Update(msg)
-	assert.Nil(t, m.selectedRun())
 }
 
 func TestHandleLogMsg(t *testing.T) {
@@ -541,44 +537,6 @@ func TestRenderMainPage_WithResultData(t *testing.T) {
 
 	body := m.renderMainPage(35)
 	assert.NotEmpty(t, body)
-}
-
-func TestRenderConversationPage_NoSelection(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 100
-	m.height = 30
-	m.isTUIMode = true
-
-	body := m.renderConversationPage(25)
-	assert.Contains(t, body, "Select a run")
-}
-
-func TestRenderConversationPage_NoStateStore(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 100
-	m.height = 30
-	m.isTUIMode = true
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
-
-	body := m.renderConversationPage(25)
-	assert.Contains(t, body, "No state store")
-}
-
-func TestRenderConversationPage_LoadError(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.width = 100
-	m.height = 30
-	m.isTUIMode = true
-	m.activeRuns = []RunInfo{{RunID: "run-1", Scenario: "test", Provider: "openai", Selected: true}}
-	m.stateStore = &mockRunResultStore{err: fmt.Errorf("load failed")}
-
-	// Initialize conversation (normally done in toggleSelection)
-	m.initializeConversationData(&m.activeRuns[0])
-
-	body := m.renderConversationPage(25)
-	// When result doesn't exist (e.g., run in progress), show waiting message
-	// Real-time events will populate it as messages arrive
-	assert.Contains(t, body, "Waiting for conversation to start")
 }
 
 func TestView_SmallHeight(t *testing.T) {
@@ -779,27 +737,30 @@ func TestNewModel_InitializesPages(t *testing.T) {
 	m := NewModel("test.yaml", 5)
 
 	assert.NotNil(t, m.mainPage)
-	assert.NotNil(t, m.conversationPage)
-	assert.Equal(t, pageMain, m.currentPage)
+	assert.Empty(t, m.selectedRunID)
 }
 
 func TestContextUsage(t *testing.T) {
 	m := NewModel("test.yaml", 1)
+	m.width = 100
+	m.height = 30
+	m.isTUIMode = true
 	m.stateStore = &mockRunResultStore{
 		result: &statestore.RunResult{RunID: "run-1"},
 	}
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true}}
+	m.activeRuns = []RunInfo{{RunID: "run-1", Scenario: "scn", Provider: "prov"}}
 
-	// ctx is used internally when fetching from state store
-	// Verify it works with nil context (defaults to Background)
+	// ctx is used internally when fetching the highlighted run from the state
+	// store. Verify it works with nil context (defaults to Background).
 	m.ctx = nil
-	body := m.renderConversationPage(25)
+	body := m.renderMainPage(25)
 	assert.NotEmpty(t, body)
 
-	// Verify it works with a set context
+	// Verify it works with a set context.
+	//nolint:staticcheck // SA1029: test-only context key, collision not a concern.
 	ctx := context.WithValue(context.Background(), "key", "value")
 	m.ctx = ctx
-	body = m.renderConversationPage(25)
+	body = m.renderMainPage(25)
 	assert.NotEmpty(t, body)
 }
 
@@ -929,7 +890,7 @@ func TestHandleMainPageKey_TabSwitchingWithFocus(t *testing.T) {
 	assert.Equal(t, paneRuns, updatedM3.activePane)
 }
 
-func TestHandleMainPageKey_EnterToggleSelection(t *testing.T) {
+func TestHandleMainPageKey_EnterSelectsRunForDrillDown(t *testing.T) {
 	m := NewModel("test.yaml", 2)
 	m.width = 100
 	m.height = 30
@@ -940,22 +901,16 @@ func TestHandleMainPageKey_EnterToggleSelection(t *testing.T) {
 		{RunID: "run-2", Scenario: "scn2"},
 	}
 
-	// Enter selects the current run
+	// One render populates the runs table from m.activeRuns so the cursor is valid.
+	_ = m.View()
+
+	// Enter records the highlighted run as the pending drill-down selection.
 	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
-	updated, _ := m.Update(enterMsg)
-	updatedM := updated.(*Model)
+	m.Update(enterMsg)
 
-	// Should have selected run-1 (first in list)
-	assert.True(t, updatedM.activeRuns[0].Selected)
-	assert.Equal(t, pageConversation, updatedM.currentPage)
-
-	// Go back to main page
-	updatedM.currentPage = pageMain
-	updatedM.activeRuns[0].Selected = false
-
-	// Select second run by moving cursor (simulated)
-	// Note: In real usage, arrow keys would move cursor
-	// For this test, we verify the toggle behavior
+	run, ok := m.TakeSelectedRun()
+	require.True(t, ok, "Enter on the runs pane should record a drill-down selection")
+	assert.Equal(t, "run-1", run.RunID)
 }
 
 func TestHandleMainPageKey_ArrowKeysOnRunsTable(t *testing.T) {
@@ -1112,225 +1067,6 @@ func TestModel_Logs(t *testing.T) {
 	assert.Equal(t, "msg1", m.logs[0].Message)
 }
 
-// Tests for handleMessageCreated
-func TestHandleMessageCreated(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-
-	// Initialize conversation messages map
-	m.conversationMessages = make(map[string][]types.Message)
-
-	msg := MessageCreatedMsg{
-		ConversationID: "run-1",
-		Role:           "assistant",
-		Content:        "Hello, how can I help?",
-		Index:          0,
-		Time:           time.Now(),
-	}
-
-	m.handleMessageCreated(&msg)
-
-	// Check message was cached
-	assert.Len(t, m.conversationMessages["run-1"], 1)
-	assert.Equal(t, "assistant", m.conversationMessages["run-1"][0].Role)
-	assert.Equal(t, "Hello, how can I help?", m.conversationMessages["run-1"][0].Content)
-}
-
-func TestHandleMessageCreated_WithToolCalls(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-	m.conversationMessages = make(map[string][]types.Message)
-
-	msg := MessageCreatedMsg{
-		ConversationID: "run-1",
-		Role:           "assistant",
-		Content:        "",
-		Index:          0,
-		ToolCalls: []MessageToolCall{
-			{ID: "call-1", Name: "get_weather", Args: `{"city": "NYC"}`},
-		},
-		Time: time.Now(),
-	}
-
-	m.handleMessageCreated(&msg)
-
-	assert.Len(t, m.conversationMessages["run-1"], 1)
-	assert.Len(t, m.conversationMessages["run-1"][0].ToolCalls, 1)
-	assert.Equal(t, "get_weather", m.conversationMessages["run-1"][0].ToolCalls[0].Name)
-}
-
-func TestHandleMessageCreated_WithToolResult(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-	m.conversationMessages = make(map[string][]types.Message)
-
-	msg := MessageCreatedMsg{
-		ConversationID: "run-1",
-		Role:           "tool",
-		Content:        "",
-		Index:          1,
-		ToolResult: &MessageToolResult{
-			ID:        "call-1",
-			Name:      "get_weather",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temp": 72}`)},
-			LatencyMs: 100,
-		},
-		Time: time.Now(),
-	}
-
-	m.handleMessageCreated(&msg)
-
-	assert.Len(t, m.conversationMessages["run-1"], 1)
-	assert.NotNil(t, m.conversationMessages["run-1"][0].ToolResult)
-	assert.Equal(t, "get_weather", m.conversationMessages["run-1"][0].ToolResult.Name)
-}
-
-func TestHandleMessageCreated_DifferentConversation(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-	m.conversationMessages = make(map[string][]types.Message)
-
-	// Message for a different conversation
-	msg := MessageCreatedMsg{
-		ConversationID: "run-2",
-		Role:           "user",
-		Content:        "different conversation",
-		Index:          0,
-		Time:           time.Now(),
-	}
-
-	m.handleMessageCreated(&msg)
-
-	// Should still be cached even though not currently selected
-	assert.Len(t, m.conversationMessages["run-2"], 1)
-}
-
-// Tests for handleConversationStarted
-func TestHandleConversationStarted(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.systemPrompts = make(map[string]string)
-
-	msg := ConversationStartedMsg{
-		ConversationID: "run-1",
-		SystemPrompt:   "You are a helpful assistant.",
-		Time:           time.Now(),
-	}
-
-	m.handleConversationStarted(&msg)
-
-	// Check system prompt was cached
-	assert.Equal(t, "You are a helpful assistant.", m.systemPrompts["run-1"])
-}
-
-func TestHandleConversationStarted_WithSelectedRun(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-	m.systemPrompts = make(map[string]string)
-
-	msg := ConversationStartedMsg{
-		ConversationID: "run-1",
-		SystemPrompt:   "You are a helpful assistant.",
-		Time:           time.Now(),
-	}
-
-	m.handleConversationStarted(&msg)
-
-	assert.Equal(t, "You are a helpful assistant.", m.systemPrompts["run-1"])
-}
-
-// Tests for handleMessageUpdated
-func TestHandleMessageUpdated(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-
-	msg := MessageUpdatedMsg{
-		ConversationID: "run-1",
-		Index:          0,
-		LatencyMs:      500,
-		InputTokens:    100,
-		OutputTokens:   50,
-		TotalCost:      0.01,
-		Time:           time.Now(),
-	}
-
-	// Should not panic even without conversation page initialized
-	m.handleMessageUpdated(&msg)
-}
-
-func TestHandleMessageUpdated_WrongPage(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageMain // Not on conversation page
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-
-	msg := MessageUpdatedMsg{
-		ConversationID: "run-1",
-		Index:          0,
-		LatencyMs:      500,
-		InputTokens:    100,
-		OutputTokens:   50,
-		TotalCost:      0.01,
-		Time:           time.Now(),
-	}
-
-	// Should early return without processing
-	m.handleMessageUpdated(&msg)
-}
-
-func TestHandleMessageUpdated_DifferentConversation(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageConversation
-	m.activeRuns = []RunInfo{{RunID: "run-1", Selected: true, Status: StatusRunning}}
-
-	msg := MessageUpdatedMsg{
-		ConversationID: "run-2", // Different from selected
-		Index:          0,
-		LatencyMs:      500,
-		InputTokens:    100,
-		OutputTokens:   50,
-		TotalCost:      0.01,
-		Time:           time.Now(),
-	}
-
-	// Should early return without processing
-	m.handleMessageUpdated(&msg)
-}
-
-// Tests for applySystemPromptFromCache
-func TestApplySystemPromptFromCache(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.systemPrompts = map[string]string{
-		"run-1": "You are a helpful assistant.",
-	}
-	m.conversationPage.Reset() // Reset panel state
-
-	// No panic expected
-	m.applySystemPromptFromCache("run-1")
-}
-
-func TestApplySystemPromptFromCache_NoCache(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.systemPrompts = nil
-
-	// Should early return without panic
-	m.applySystemPromptFromCache("run-1")
-}
-
-func TestApplySystemPromptFromCache_NotInCache(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.systemPrompts = map[string]string{
-		"run-2": "Different prompt",
-	}
-
-	// Should early return without panic
-	m.applySystemPromptFromCache("run-1")
-}
-
 // Tests for handleResultPaneKey
 func TestHandleResultPaneKey(t *testing.T) {
 	m := NewModel("test.yaml", 1)
@@ -1381,115 +1117,3 @@ func TestDelegateKeyToActivePane_ResultPane(t *testing.T) {
 	_ = cmd
 }
 
-// Tests for getConversationResult - cache fallback path
-func TestGetConversationResult_RunningUsesCache(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.conversationMessages = map[string][]types.Message{
-		"run-1": {{Role: "user", Content: "cached message"}},
-	}
-
-	run := &RunInfo{RunID: "run-1", Status: StatusRunning}
-	result := m.getConversationResult(run)
-
-	require.NotNil(t, result)
-	require.Len(t, result.Messages, 1)
-	assert.Equal(t, "cached message", result.Messages[0].Content)
-}
-
-func TestGetConversationResult_CompletedUsesStateStore(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.stateStore = &mockRunResultStore{
-		result: &statestore.RunResult{
-			RunID:    "run-1",
-			Messages: []types.Message{{Role: "user", Content: "from store"}},
-		},
-	}
-
-	run := &RunInfo{RunID: "run-1", Status: StatusCompleted}
-	result := m.getConversationResult(run)
-
-	require.NotNil(t, result)
-	require.Len(t, result.Messages, 1)
-	assert.Equal(t, "from store", result.Messages[0].Content)
-}
-
-func TestGetConversationResult_CompletedFallsBackToCache(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.stateStore = &mockRunResultStore{err: fmt.Errorf("not found")}
-	m.conversationMessages = map[string][]types.Message{
-		"run-1": {{Role: "user", Content: "cached fallback"}},
-	}
-
-	run := &RunInfo{RunID: "run-1", Status: StatusCompleted}
-	result := m.getConversationResult(run)
-
-	require.NotNil(t, result)
-	require.Len(t, result.Messages, 1)
-	assert.Equal(t, "cached fallback", result.Messages[0].Content)
-}
-
-// Test for resultFromCache with empty cache
-func TestResultFromCache_Empty(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.conversationMessages = nil
-
-	result := m.resultFromCache("run-1")
-	require.NotNil(t, result)
-	assert.Empty(t, result.Messages)
-}
-
-// Tests for Update with new message types
-func TestUpdate_MessageCreatedMsg(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.conversationMessages = make(map[string][]types.Message)
-
-	msg := MessageCreatedMsg{
-		ConversationID: "run-1",
-		Role:           "user",
-		Content:        "Hello",
-		Index:          0,
-		Time:           time.Now(),
-	}
-
-	updatedModel, cmd := m.Update(msg)
-	assert.Nil(t, cmd)
-
-	updated := updatedModel.(*Model)
-	assert.Len(t, updated.conversationMessages["run-1"], 1)
-}
-
-func TestUpdate_MessageUpdatedMsg(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.currentPage = pageMain // Not on conversation page
-
-	msg := MessageUpdatedMsg{
-		ConversationID: "run-1",
-		Index:          0,
-		LatencyMs:      500,
-		InputTokens:    100,
-		OutputTokens:   50,
-		TotalCost:      0.01,
-		Time:           time.Now(),
-	}
-
-	updatedModel, cmd := m.Update(msg)
-	assert.Nil(t, cmd)
-	assert.NotNil(t, updatedModel)
-}
-
-func TestUpdate_ConversationStartedMsg(t *testing.T) {
-	m := NewModel("test.yaml", 1)
-	m.systemPrompts = make(map[string]string)
-
-	msg := ConversationStartedMsg{
-		ConversationID: "run-1",
-		SystemPrompt:   "You are helpful.",
-		Time:           time.Now(),
-	}
-
-	updatedModel, cmd := m.Update(msg)
-	assert.Nil(t, cmd)
-
-	updated := updatedModel.(*Model)
-	assert.Equal(t, "You are helpful.", updated.systemPrompts["run-1"])
-}

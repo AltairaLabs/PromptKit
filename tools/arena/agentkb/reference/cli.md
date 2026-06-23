@@ -30,6 +30,7 @@ Deploy the arena pack to a target environment
 
 - `promptarena deploy adapter` — Manage deploy adapter binaries
 - `promptarena deploy apply` — Apply the deployment
+- `promptarena deploy config` — Manage the deploy configuration
 - `promptarena deploy destroy` — Tear down a deployment
 - `promptarena deploy import` — Import a pre-existing resource into deployment state
 - `promptarena deploy plan` — Preview the deployment plan

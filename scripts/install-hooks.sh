@@ -46,6 +46,20 @@ cp "$HOOK_SOURCE" "$HOOK_DEST"
 chmod +x "$HOOK_DEST"
 echo -e "${GREEN}✓${NC} Pre-commit hook installed"
 
+# Install commit-msg hook (enforces DCO sign-off — see scripts/commit-msg.sh)
+MSG_HOOK_SOURCE="$SCRIPT_DIR/commit-msg.sh"
+MSG_HOOK_DEST="$REPO_ROOT/.git/hooks/commit-msg"
+
+if [ ! -f "$MSG_HOOK_SOURCE" ]; then
+    echo -e "${YELLOW}Error: commit-msg hook source not found${NC}"
+    echo "Expected: $MSG_HOOK_SOURCE"
+    exit 1
+fi
+
+cp "$MSG_HOOK_SOURCE" "$MSG_HOOK_DEST"
+chmod +x "$MSG_HOOK_DEST"
+echo -e "${GREEN}✓${NC} Commit-msg hook installed (DCO sign-off check)"
+
 echo ""
 echo -e "${BLUE}Checking prerequisites...${NC}"
 echo ""
@@ -94,15 +108,18 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${GREEN}✓ Git hooks installation complete!${NC}"
 echo -e "${BLUE}════════════════════════════════════════════${NC}"
 echo ""
-echo "The pre-commit hook will now run automatically before each commit."
+echo "The hooks will now run automatically on each commit."
 echo ""
-echo "What it does:"
+echo "Pre-commit hook:"
 echo "  • Lints only changed Go files (fast!)"
 echo "  • Runs tests on affected packages"
 echo "  • Checks coverage on changed lines (≥80%)"
 echo ""
-echo "To skip the hook (not recommended):"
-echo "  git commit -m \"your message [skip-pre-commit]\""
+echo "Commit-msg hook:"
+echo "  • Enforces a DCO Signed-off-by trailer (use 'git commit -s')"
+echo ""
+echo "To skip the pre-commit checks (not recommended):"
+echo "  git commit -s -m \"your message [skip-pre-commit]\""
 echo ""
 echo "To run checks manually:"
 echo "  make verify          # Run all checks"
