@@ -116,7 +116,7 @@ func TestStartVoice_VoiceNotCompiled(t *testing.T) {
 		t.Fatal("expected non-empty engineErr message")
 	}
 	// Verify the error message guides the user to the voice build tag.
-	if !containsStr(errStr, "voice") {
+	if !strings.Contains(errStr, "voice") {
 		t.Fatalf("expected engineErr to mention 'voice', got: %q", errStr)
 	}
 	// No messages should have been sent.
@@ -417,21 +417,6 @@ func TestChatPage_VoiceModeHandleChatKey_EnterDoesNotSend(t *testing.T) {
 	if p.busy {
 		t.Fatal("expected busy=false after Enter in voice mode")
 	}
-}
-
-// ---- helpers ----
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 // Compile-time check: fakeAudioIO implements voice.AudioIO interface.

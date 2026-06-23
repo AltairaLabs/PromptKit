@@ -1,5 +1,12 @@
 # Voice Console — ASM (native realtime) mode
 
+> **Status: experimental** — voice runs inside the interactive hub console
+> (`promptarena chat --voice`). ASM (native realtime) is the working path and
+> is what this example exercises. Composed VAD (voice over text agents) is
+> experimental; turn-by-turn conversation and barge-in are tracked in issue
+> [#1469](https://github.com/AltairaLabs/PromptKit/issues/1469) and not yet
+> complete.
+
 Talk to a native-realtime agent (OpenAI Realtime) by voice from the terminal.
 The provider does STT + LLM + TTS + turn detection server-side, so no STT/TTS
 config is needed.

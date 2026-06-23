@@ -121,6 +121,9 @@ func (p *ChatPage) startVoice(send func(tea.Msg)) tea.Cmd {
 	// triggers a chatRefreshMsg in the bubbletea loop. We use a direct
 	// SubscribeAll rather than the full tui.EventAdapter to avoid routing
 	// all tui.*Msg types through ChatPage.Update (which does not handle them).
+	// The unsubscribe func returned by SubscribeAll is intentionally discarded:
+	// the driver goroutine defers eventBus.Close(), which drains all listeners,
+	// making an explicit unsubscribe unnecessary.
 	eventBus.SubscribeAll(func(event *events.Event) {
 		if event.Type == events.EventMessageCreated {
 			send(chatRefreshMsg{})
