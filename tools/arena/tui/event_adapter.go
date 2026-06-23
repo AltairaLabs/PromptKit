@@ -17,13 +17,15 @@ const audioRMSSubscribeBuffer = 20
 
 // EventAdapter converts runtime events to bubbletea messages.
 type EventAdapter struct {
-	program *tea.Program
-	model   *Model // For headless mode
+	send  func(tea.Msg) // Delivery into the bubbletea event loop (e.g. *tea.Program.Send)
+	model *Model        // For headless mode
 }
 
-// NewEventAdapter creates an adapter that forwards events to the TUI program.
-func NewEventAdapter(program *tea.Program) *EventAdapter {
-	return &EventAdapter{program: program}
+// NewEventAdapter creates an adapter that forwards events via send. A
+// *tea.Program's Send method satisfies func(tea.Msg), so callers pass
+// program.Send to drive a running TUI program.
+func NewEventAdapter(send func(tea.Msg)) *EventAdapter {
+	return &EventAdapter{send: send}
 }
 
 // NewEventAdapterWithModel creates an adapter for headless mode.
@@ -50,7 +52,7 @@ func (a *EventAdapter) AttachAudioMonitor(monitor *arenaaudio.Monitor) {
 	rms := monitor.SubscribeRMS(audioRMSSubscribeBuffer)
 	go func() {
 		for frame := range rms {
-			a.send(AudioLevelMsg{
+			a.deliver(AudioLevelMsg{
 				UserLevel:  frame.UserLevel,
 				AgentLevel: frame.AgentLevel,
 			})
@@ -62,7 +64,7 @@ func (a *EventAdapter) AttachAudioMonitor(monitor *arenaaudio.Monitor) {
 func (a *EventAdapter) HandleEvent(event *events.Event) {
 	msg := a.mapEvent(event)
 	if msg != nil {
-		a.send(msg)
+		a.deliver(msg)
 	}
 }
 
@@ -354,9 +356,9 @@ func ternary[T any](cond bool, a, b T) T {
 	return b
 }
 
-func (a *EventAdapter) send(msg tea.Msg) {
-	if a.program != nil {
-		a.program.Send(msg)
+func (a *EventAdapter) deliver(msg tea.Msg) {
+	if a.send != nil {
+		a.send(msg)
 	} else if a.model != nil {
 		a.model.Update(msg)
 	}

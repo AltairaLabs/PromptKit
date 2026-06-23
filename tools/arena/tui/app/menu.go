@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -12,7 +10,7 @@ import (
 // DefaultMenu returns the canonical menu items for the Home page.
 //
 // View is always enabled (it only needs a results directory).
-// Run, Chat, and Inspect are phase-2 stubs that require a loaded config.
+// Run, Chat, and Inspect require a loaded config.
 //
 //nolint:revive // menuItem is intentionally unexported; callers pass the slice to NewHome unchanged.
 func DefaultMenu(ctx *AppContext) []menuItem {
@@ -28,21 +26,25 @@ func DefaultMenu(ctx *AppContext) []menuItem {
 			label:       "Run      — run scenarios against providers",
 			needsConfig: true,
 			make: func(c *AppContext) Page {
-				return placeholderPage("Run", "#1455")
+				p, err := NewRunPageFromContext(c)
+				if err != nil {
+					return placeholderPage("Run", err.Error())
+				}
+				return p
 			},
 		},
 		{
 			label:       "Chat     — interactive multi-turn session",
 			needsConfig: true,
 			make: func(c *AppContext) Page {
-				return placeholderPage("Chat", "#1455")
+				return NewChatPage(c)
 			},
 		},
 		{
 			label:       "Inspect  — explore config and state",
 			needsConfig: true,
 			make: func(c *AppContext) Page {
-				return placeholderPage("Inspect", "#1455")
+				return NewInspectPage(c)
 			},
 		},
 	}
@@ -52,18 +54,20 @@ func DefaultMenu(ctx *AppContext) []menuItem {
 // placeholderPage
 // ---------------------------------------------------------------------------
 
-// placeholder is a minimal Page used as a stub for hub menu items that are not
-// yet implemented. It renders a centered notice and exits on any keypress.
+// placeholder is a minimal Page that renders a centered notice and exits on
+// any keypress. It is used as a fallback error page when a menu factory fails
+// (e.g. EnsureEngine returns an error), displaying the error message so the
+// user knows why the page could not be built.
 type placeholder struct {
 	title string
 	issue string
 	w, h  int
 }
 
-// placeholderPage returns a stub Page that displays the item title and the
-// tracking issue for its implementation.
-func placeholderPage(title, issue string) Page {
-	return &placeholder{title: title, issue: issue}
+// placeholderPage returns a Page that renders title and message centered, then
+// pops back to Home on any keypress.
+func placeholderPage(title, message string) Page {
+	return &placeholder{title: title, issue: message}
 }
 
 // Init implements Page. No background command needed.
@@ -87,7 +91,7 @@ func (p *placeholder) View() string {
 
 	sub := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.ColorGray)).
-		Render(fmt.Sprintf("coming in a later phase (%s)", p.issue))
+		Render(p.issue)
 
 	hint := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.ColorLightGray)).

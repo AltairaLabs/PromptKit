@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,21 +51,58 @@ func TestDefaultMenu_ViewMakePage(t *testing.T) {
 	}
 }
 
-// TestDefaultMenu_StubMakePages verifies that Run/Chat/Inspect make functions
-// return placeholder pages (non-nil) that have the correct Title.
-func TestDefaultMenu_StubMakePages(t *testing.T) {
+// newMenuTestCtx loads the run-config fixture, builds a mock-provider engine,
+// and returns a ready-to-use AppContext for menu factory tests.
+func newMenuTestCtx(t *testing.T) *AppContext {
+	t.Helper()
+	fixturePath := filepath.Join("testdata", "run-config", "config.arena.yaml")
 	ctx := &AppContext{Version: "vTEST"}
+	if err := ctx.LoadConfig(fixturePath); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	eng, err := ctx.EnsureEngine()
+	if err != nil {
+		t.Fatalf("EnsureEngine: %v", err)
+	}
+	if err := eng.EnableMockProviderMode(""); err != nil {
+		t.Fatalf("EnableMockProviderMode: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	return ctx
+}
+
+// TestDefaultMenu_MakePages verifies that make() returns the correct concrete
+// Page types for all four menu items when a valid config is loaded.
+func TestDefaultMenu_MakePages(t *testing.T) {
+	ctx := newMenuTestCtx(t)
 	items := DefaultMenu(ctx)
-	wantTitles := []string{"Run", "Chat", "Inspect"}
-	for i, title := range wantTitles {
-		item := items[i+1]
-		p := item.make(ctx)
-		if p == nil {
-			t.Fatalf("item[%d] make() returned nil", i+1)
-		}
-		if got := p.Title(); got != title {
-			t.Errorf("item[%d].Title() = %q, want %q", i+1, got, title)
-		}
+
+	// View → *ViewPage
+	if p := items[0].make(ctx); p == nil {
+		t.Fatal("View make() returned nil")
+	} else if _, ok := p.(*ViewPage); !ok {
+		t.Fatalf("View: expected *ViewPage, got %T", p)
+	}
+
+	// Run → *RunPage (needs real engine+plan)
+	if p := items[1].make(ctx); p == nil {
+		t.Fatal("Run make() returned nil")
+	} else if _, ok := p.(*RunPage); !ok {
+		t.Fatalf("Run: expected *RunPage, got %T", p)
+	}
+
+	// Chat → *ChatPage
+	if p := items[2].make(ctx); p == nil {
+		t.Fatal("Chat make() returned nil")
+	} else if _, ok := p.(*ChatPage); !ok {
+		t.Fatalf("Chat: expected *ChatPage, got %T", p)
+	}
+
+	// Inspect → *InspectPage
+	if p := items[3].make(ctx); p == nil {
+		t.Fatal("Inspect make() returned nil")
+	} else if _, ok := p.(*InspectPage); !ok {
+		t.Fatalf("Inspect: expected *InspectPage, got %T", p)
 	}
 }
 
@@ -138,5 +176,21 @@ func TestPlaceholder_SetSize(t *testing.T) {
 	ph.SetSize(120, 40)
 	if ph.w != 120 || ph.h != 40 {
 		t.Fatalf("SetSize(120,40): got w=%d h=%d", ph.w, ph.h)
+	}
+}
+
+// TestDefaultMenu_RunItemFallsBackToPlaceholderOnError verifies that the Run
+// item's make() returns a *placeholder when the AppContext has no config loaded
+// (so EnsureEngine errors) rather than a *RunPage.
+func TestDefaultMenu_RunItemFallsBackToPlaceholderOnError(t *testing.T) {
+	ctx := &AppContext{Version: "vTEST"} // no config loaded → EnsureEngine will error
+	items := DefaultMenu(ctx)
+	// Run is items[1].
+	p := items[1].make(ctx)
+	if p == nil {
+		t.Fatal("make() returned nil, expected *placeholder")
+	}
+	if _, ok := p.(*placeholder); !ok {
+		t.Fatalf("expected *placeholder error fallback, got %T", p)
 	}
 }

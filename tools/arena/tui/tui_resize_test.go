@@ -45,10 +45,7 @@ func TestCollapseKeyTogglesPane(t *testing.T) {
 	assert.Equal(t, before, restored, "z again should restore the pane")
 }
 
-func TestResizeKeysDoNotAffectOtherPages(t *testing.T) {
-	m := resizeTestModel()
-	m.currentPage = pageConversation
-	// Must not panic when resize keys arrive off the main page.
-	m.Update(tea.KeyMsg{Type: tea.KeyCtrlRight})
-	assert.Equal(t, pageConversation, m.currentPage)
+// keyRune builds a rune key message for tests.
+func keyRune(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }

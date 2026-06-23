@@ -1,0 +1,603 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
+)
+
+// chatSetupState tracks which step of the interactive setup flow ChatPage is in.
+type chatSetupState int
+
+const (
+	chatStateSelectAgent    chatSetupState = iota
+	chatStateSelectProvider                // populated when multiple providers are configured
+	chatStateEnterVars
+	chatStateEvalToggle
+	chatStateChat
+)
+
+// chatStreamDoneMsg signals that the assistant stream has ended.
+type chatStreamDoneMsg struct{}
+
+// chatEvalMsg carries eval results from a post-turn scoring run.
+type chatEvalMsg struct {
+	results []evals.EvalResult
+	err     error
+}
+
+// chatErrMsg carries a non-fatal error to display.
+type chatErrMsg struct{ err error }
+
+// Key label constants used by footer helpers.
+const (
+	chatKeyNameEnter = "enter"
+	chatKeyLabelEsc  = "esc"
+	chatKeyLabelSel  = "select"
+	chatKeyLabelScrl = "↑/↓"
+	chatKeyLabelArrs = "←/→"
+	chatKeyLabelQuit = "quit"
+	chatKeyLabelTab  = "tab"
+)
+
+// Layout and sizing constants for the chat view.
+const (
+	// chatInputHeight is the number of terminal lines reserved for the text input.
+	chatInputHeight = 3
+	// chatInputPadding is the horizontal padding subtracted from terminal width
+	// when sizing the text input widget.
+	chatInputPadding = 4
+	// chatFooterHeight is the number of lines the footer occupies.
+	chatFooterHeight = 1
+	// chatInputBorderChars is the horizontal space a rounded border adds (one column
+	// each side), subtracted so the bordered input box spans the terminal width.
+	chatInputBorderChars = 2
+	// chatMinErrorWidth is the floor for the fatal-error view width on tiny terminals.
+	chatMinErrorWidth = 20
+	// chatMaxErrorLineLen bounds a sanitized error line so a provider's full HTTP body
+	// cannot flood the status line.
+	chatMaxErrorLineLen = 200
+)
+
+// chatMaxInt returns the larger of two ints.
+func chatMaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// ChatPage is a hub Page that drives the interactive chat console. It owns
+// the setup flow (agent / provider / variable selection) and the live chat
+// panel driven from the state store after each turn.
+//
+// Implements Page and Activatable.
+type ChatPage struct {
+	ctx     *AppContext
+	engine  *engine.Engine
+	session *engine.InteractiveSession
+	panel   *panels.ConversationPanel
+	input   textinput.Model
+
+	state        chatSetupState
+	agents       []engine.AgentInfo
+	taskType     string
+	provider     string
+	vars         map[string]string
+	required     []string
+	varIdx       int
+	runEvals     bool
+	busy         bool
+	panelFocused bool
+	width        int
+	height       int
+	engineErr    error
+	statusLine   string
+}
+
+// NewChatPage constructs a ChatPage bound to the given AppContext.
+// Activate must be called before Init to wire the engine.
+func NewChatPage(ctx *AppContext) *ChatPage {
+	ti := textinput.New()
+	ti.Prompt = "> "
+	return &ChatPage{
+		ctx:   ctx,
+		panel: panels.NewConversationPanel(),
+		input: ti,
+		vars:  map[string]string{},
+	}
+}
+
+// Title implements Page.
+func (p *ChatPage) Title() string { return "Chat" }
+
+// Activate implements Activatable. It is called by App before Init.
+// It calls EnsureEngine so Init can proceed.
+func (p *ChatPage) Activate(send func(tea.Msg)) tea.Cmd {
+	eng, err := p.ctx.EnsureEngine()
+	if err != nil {
+		p.engineErr = err
+		return nil
+	}
+	p.engine = eng
+	return nil
+}
+
+// Init implements Page. It resolves the first setup step, auto-selecting when
+// there is only one agent or provider so simple configs drop straight into chat.
+func (p *ChatPage) Init() tea.Cmd {
+	if p.engineErr != nil || p.engine == nil {
+		return nil
+	}
+	p.agents = p.engine.Agents()
+	switch {
+	case len(p.agents) == 0:
+		p.engineErr = fmt.Errorf("config declares no agents (prompt_configs)")
+		return nil
+	case len(p.agents) == 1:
+		p.taskType = p.agents[0].TaskType
+		return p.afterAgentSelected()
+	default:
+		p.state = chatStateSelectAgent
+		return nil
+	}
+}
+
+func (p *ChatPage) afterAgentSelected() tea.Cmd {
+	providerIDs := p.engine.ProviderIDs()
+	switch {
+	case len(providerIDs) == 0:
+		p.engineErr = fmt.Errorf("config declares no providers")
+		return nil
+	case len(providerIDs) == 1:
+		p.provider = providerIDs[0]
+		return p.afterProviderSelected()
+	default:
+		p.state = chatStateSelectProvider
+		return nil
+	}
+}
+
+func (p *ChatPage) afterProviderSelected() tea.Cmd {
+	missing, err := p.engine.MissingRequiredVars(p.taskType, p.vars)
+	if err != nil {
+		p.engineErr = err
+		return nil
+	}
+	p.required = missing
+	if len(missing) > 0 {
+		p.state = chatStateEnterVars
+		p.varIdx = 0
+		p.input.Placeholder = missing[0]
+		p.input.Focus()
+		return textinput.Blink
+	}
+	return p.afterVarsEntered()
+}
+
+func (p *ChatPage) afterVarsEntered() tea.Cmd {
+	if p.engine.HasConfigEvals() {
+		p.state = chatStateEvalToggle
+		return nil
+	}
+	return p.startSession(false)
+}
+
+// startSession creates the InteractiveSession and switches to chatStateChat.
+func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
+	sess, err := p.engine.NewInteractiveSession(engine.InteractiveSessionOptions{
+		ProviderID: p.provider,
+		TaskType:   p.taskType,
+		Variables:  p.vars,
+		RunEvals:   runEvals,
+	})
+	if err != nil {
+		p.engineErr = err
+		return nil
+	}
+	p.session = sess
+	p.runEvals = runEvals
+	p.state = chatStateChat
+	p.initPanel()
+	p.input.Focus()
+	return textinput.Blink
+}
+
+// initPanel hydrates the ConversationPanel with the current session so it can
+// start rendering live messages.
+func (p *ChatPage) initPanel() {
+	if p.session == nil {
+		return
+	}
+	res := &statestore.RunResult{RunID: p.session.ConversationID()}
+	p.panel.SetData(p.session.ConversationID(), "", p.provider, res)
+	// The input box holds focus at chat start, so the conversation renders dim.
+	p.panel.SetActive(false)
+	panelH := p.height - chatInputHeight - chatFooterHeight - 1 // 1 for status line
+	if panelH < 1 {
+		panelH = 1
+	}
+	p.panel.SetDimensions(p.width, panelH)
+}
+
+// SetSize implements Page.
+func (p *ChatPage) SetSize(w, h int) {
+	p.width, p.height = w, h
+	p.input.Width = chatMaxInt(w-chatInputPadding, 0)
+	if p.state == chatStateChat {
+		panelH := p.height - chatInputHeight - chatFooterHeight - 1
+		if panelH < 1 {
+			panelH = 1
+		}
+		p.panel.SetDimensions(w, panelH)
+	}
+}
+
+// Update implements Page. Routes messages by type and current state.
+// NOTE: Esc/Ctrl+C are handled globally by App — do not handle them here.
+// NOTE: WindowSizeMsg is routed by App via SetSize — do not handle it here.
+func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	switch v := msg.(type) {
+	case tea.KeyMsg:
+		cmd := p.handleKey(v)
+		return p, cmd
+
+	case chatStreamDoneMsg:
+		cmd := p.handleStreamDone()
+		return p, cmd
+
+	case chatEvalMsg:
+		if v.err != nil {
+			p.statusLine = "evals: error: " + v.err.Error()
+		} else {
+			p.statusLine = chatFormatEvalScores(v.results)
+		}
+		return p, nil
+
+	case chatErrMsg:
+		// In-chat turn errors are recoverable: surface them inline and keep the
+		// session alive so the user can retry. Sanitized so a provider's HTTP body
+		// can't corrupt the TUI.
+		p.busy = false
+		p.input.Focus()
+		p.statusLine = "⚠ " + chatSanitizeErrorLine(v.err)
+		return p, nil
+	}
+
+	if p.state == chatStateChat {
+		return p, p.panel.Update(msg)
+	}
+	return p, nil
+}
+
+func (p *ChatPage) handleKey(msg tea.KeyMsg) tea.Cmd {
+	switch p.state {
+	case chatStateSelectAgent:
+		return p.handleAgentKey(msg)
+	case chatStateSelectProvider:
+		return p.handleProviderKey(msg)
+	case chatStateEnterVars:
+		return p.handleVarKey(msg)
+	case chatStateEvalToggle:
+		return p.handleEvalToggleKey(msg)
+	case chatStateChat:
+		return p.handleChatKey(msg)
+	}
+	return nil
+}
+
+func (p *ChatPage) handleAgentKey(msg tea.KeyMsg) tea.Cmd {
+	if idx, ok := chatDigitIndex(msg.String(), len(p.agents)); ok {
+		p.taskType = p.agents[idx].TaskType
+		return p.afterAgentSelected()
+	}
+	return nil
+}
+
+func (p *ChatPage) handleProviderKey(msg tea.KeyMsg) tea.Cmd {
+	ids := p.engine.ProviderIDs()
+	if idx, ok := chatDigitIndex(msg.String(), len(ids)); ok {
+		p.provider = ids[idx]
+		return p.afterProviderSelected()
+	}
+	return nil
+}
+
+func (p *ChatPage) handleVarKey(msg tea.KeyMsg) tea.Cmd {
+	if msg.Type == tea.KeyEnter {
+		p.vars[p.required[p.varIdx]] = p.input.Value()
+		p.input.Reset()
+		p.varIdx++
+		if p.varIdx >= len(p.required) {
+			return p.afterVarsEntered()
+		}
+		p.input.Placeholder = p.required[p.varIdx]
+		return nil
+	}
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	return cmd
+}
+
+func (p *ChatPage) handleEvalToggleKey(msg tea.KeyMsg) tea.Cmd {
+	switch strings.ToLower(msg.String()) {
+	case "y":
+		return p.startSession(true)
+	case "n", chatKeyNameEnter:
+		return p.startSession(false)
+	}
+	return nil
+}
+
+func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
+	// Tab toggles focus between the text input and the conversation panel.
+	if msg.Type == tea.KeyTab {
+		p.panelFocused = !p.panelFocused
+		if p.panelFocused {
+			p.input.Blur()
+		} else {
+			p.input.Focus()
+		}
+		p.panel.SetActive(p.panelFocused)
+		return textinput.Blink
+	}
+
+	// When the conversation panel has focus, forward all keys to the panel.
+	if p.panelFocused {
+		return p.panel.Update(msg)
+	}
+
+	// Input is focused. Send on Enter (when not empty and not busy).
+	if msg.Type == tea.KeyEnter && strings.TrimSpace(p.input.Value()) != "" && !p.busy {
+		text := p.input.Value()
+		p.input.Reset()
+		p.busy = true
+		p.statusLine = "assistant is responding…"
+		p.input.Blur()
+		return p.sendCmd(text)
+	}
+
+	// p.input is a single-line textinput — it does not consume vertical keys.
+	// Forward up/down/pgup/pgdn to the panel so users can scroll while typing.
+	switch msg.Type { //nolint:exhaustive // remaining cases are handled by the input below
+	case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:
+		return p.panel.Update(msg)
+	}
+
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	return cmd
+}
+
+// sendCmd drains the stream channel; rendering happens via state store after the turn ends.
+func (p *ChatPage) sendCmd(text string) tea.Cmd {
+	sess := p.session
+	return func() (msg tea.Msg) {
+		// A provider panic must never tear down the terminal — convert it to a
+		// recoverable in-chat error.
+		defer func() {
+			if r := recover(); r != nil {
+				msg = chatErrMsg{err: fmt.Errorf("provider call panicked: %v", r)}
+			}
+		}()
+		ch, err := sess.SendUserMessage(context.Background(), text)
+		if err != nil {
+			return chatErrMsg{err: err}
+		}
+		// Drain the stream, surfacing the first error rather than dropping it.
+		for chunk := range ch {
+			if chunk.Error != nil {
+				return chatErrMsg{err: chunk.Error}
+			}
+		}
+		return chatStreamDoneMsg{}
+	}
+}
+
+// handleStreamDone is called when the assistant stream finishes. It fetches the
+// full transcript from the state store and replaces the panel content entirely,
+// preventing any duplication from earlier event-driven appends.
+func (p *ChatPage) handleStreamDone() tea.Cmd {
+	p.busy = false
+	p.panelFocused = false
+	p.input.Focus()
+
+	// Refresh panel from the state store — single source of truth.
+	if p.session != nil {
+		msgs, err := p.session.Messages(context.Background())
+		if err == nil {
+			res := &statestore.RunResult{
+				RunID:    p.session.ConversationID(),
+				Messages: msgs,
+			}
+			p.panel.SetData(p.session.ConversationID(), "", p.provider, res)
+			p.panel.SelectLast()
+		}
+	}
+
+	// Clear the "responding" status unless the eval run will overwrite it.
+	if !p.runEvals {
+		p.statusLine = ""
+	}
+
+	if p.runEvals {
+		sess := p.session
+		return func() tea.Msg {
+			results, err := sess.RunEvals(context.Background())
+			return chatEvalMsg{results: results, err: err}
+		}
+	}
+	return nil
+}
+
+// View implements Page. Renders the current state.
+func (p *ChatPage) View() string {
+	if p.engineErr != nil {
+		// Fatal setup error: render sanitized + width-bounded so a long provider
+		// body can't overflow and corrupt the terminal.
+		body := lipgloss.NewStyle().
+			Width(chatMaxInt(p.width-chatInputBorderChars, chatMinErrorWidth)).
+			Render("error: " + chatSanitizeErrorLine(p.engineErr))
+		return body + "\n\n(press ctrl+c to quit)"
+	}
+	switch p.state {
+	case chatStateSelectAgent:
+		return p.renderPickerWithFooter("Select an agent:", chatAgentLabels(p.agents), chatSetupBindings())
+	case chatStateSelectProvider:
+		return p.renderPickerWithFooter("Select a provider:", p.engine.ProviderIDs(), chatSetupBindings())
+	case chatStateEnterVars:
+		footer := views.NewHeaderFooterView(p.width).RenderFooter(chatSetupBindings())
+		return fmt.Sprintf("Enter value for required variable %q:\n\n%s\n%s",
+			p.required[p.varIdx], p.input.View(), footer)
+	case chatStateEvalToggle:
+		footer := views.NewHeaderFooterView(p.width).RenderFooter(chatSetupBindings())
+		return "Run evals each turn for live scores? [y/N]\n" + footer
+	case chatStateChat:
+		return p.chatView()
+	}
+	return ""
+}
+
+// chatSetupBindings returns key hints for the setup flow states.
+func chatSetupBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: "1-9", Description: chatKeyLabelSel},
+		{Keys: chatKeyNameEnter, Description: "confirm"},
+		{Keys: chatKeyLabelEsc, Description: chatKeyLabelQuit},
+	}
+}
+
+// chatBindings returns focus-aware key hints.
+func (p *ChatPage) chatBindings() []views.KeyBinding {
+	if p.panelFocused {
+		return []views.KeyBinding{
+			{Keys: chatKeyLabelScrl, Description: "turns"},
+			{Keys: chatKeyLabelArrs, Description: "turns/detail"},
+			{Keys: chatKeyLabelTab, Description: "back to input"},
+			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
+		}
+	}
+	return []views.KeyBinding{
+		{Keys: chatKeyNameEnter, Description: "send"},
+		{Keys: chatKeyLabelScrl, Description: "scroll"},
+		{Keys: chatKeyLabelTab, Description: "focus conversation"},
+		{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
+	}
+}
+
+func (p *ChatPage) chatView() string {
+	footer := views.NewHeaderFooterView(p.width).RenderFooter(p.chatBindings())
+	parts := []string{p.panel.View(), p.inputView()}
+	if p.statusLine != "" {
+		parts = append(parts, p.statusLine)
+	}
+	parts = append(parts, footer)
+	return strings.Join(parts, "\n")
+}
+
+// chatInputBorderColor returns the input box's border color: highlighted when
+// the input holds focus, dimmed when the conversation panel does.
+func (p *ChatPage) chatInputBorderColor() lipgloss.Color {
+	if p.panelFocused {
+		return theme.BorderColorUnfocused()
+	}
+	return theme.BorderColorFocused()
+}
+
+// inputView renders the text input inside a bordered box whose border reflects focus.
+func (p *ChatPage) inputView() string {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(p.chatInputBorderColor()).
+		Width(chatMaxInt(p.width-chatInputBorderChars, 0)).
+		Render(p.input.View())
+}
+
+func (p *ChatPage) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	for i, it := range items {
+		fmt.Fprintf(&b, "  %d. %s\n", i+1, it)
+	}
+	footer := views.NewHeaderFooterView(p.width).RenderFooter(bindings)
+	b.WriteString("\n" + footer)
+	return b.String()
+}
+
+// chatAgentLabels returns display strings for the agent picker.
+func chatAgentLabels(agents []engine.AgentInfo) []string {
+	out := make([]string, len(agents))
+	for i := range agents {
+		out[i] = agents[i].TaskType
+		if agents[i].Description != "" {
+			out[i] += " — " + agents[i].Description
+		}
+	}
+	return out
+}
+
+// chatDigitIndex parses "1".."9" into a zero-based index within [0,n).
+func chatDigitIndex(s string, n int) (int, bool) {
+	if len(s) != 1 || s[0] < '1' || s[0] > '9' {
+		return 0, false
+	}
+	idx := int(s[0] - '1')
+	if idx >= n {
+		return 0, false
+	}
+	return idx, true
+}
+
+// chatFormatEvalScores formats a slice of EvalResults as a short status line.
+func chatFormatEvalScores(results []evals.EvalResult) string {
+	var parts []string
+	for i := range results {
+		if results[i].Score == nil {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%.2f", results[i].Type, *results[i].Score))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "evals: " + strings.Join(parts, " ")
+}
+
+// chatAnsiSeq matches ANSI SGR escape sequences, stripped from error text so it
+// cannot corrupt the terminal.
+var chatAnsiSeq = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// chatSanitizeErrorLine collapses an error into a single, control-character-free,
+// length-bounded line safe to render in the TUI.
+func chatSanitizeErrorLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := chatAnsiSeq.ReplaceAllString(err.Error(), "")
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			b.WriteRune(' ') // newlines/tabs/etc → space
+			continue
+		}
+		b.WriteRune(r)
+	}
+	line := strings.Join(strings.Fields(b.String()), " ")
+	if runes := []rune(line); len(runes) > chatMaxErrorLineLen {
+		line = string(runes[:chatMaxErrorLineLen]) + "…"
+	}
+	return line
+}
