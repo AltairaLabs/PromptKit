@@ -63,6 +63,10 @@ func init() {
 	deployCmd.AddCommand(deployImportCmd)
 }
 
+// deployConfigureDocsURL points users at the how-to for setting up a deploy
+// configuration when one is missing or incomplete.
+const deployConfigureDocsURL = "https://promptkit.altairalabs.ai/arena/how-to/deploy/configure/"
+
 // loadDeployConfig loads the arena config and returns the deploy section.
 func loadDeployConfig() (*config.DeployConfig, error) {
 	_, deployCfg, err := loadFullConfig()
@@ -72,7 +76,10 @@ func loadDeployConfig() (*config.DeployConfig, error) {
 // loadFullConfig loads the arena config and returns both the full config and deploy section.
 func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 	if _, err := os.Stat(deployConfig); os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("config file not found: %s", deployConfig)
+		return nil, nil, fmt.Errorf(
+			"config file not found: %s\nSet up a deploy config — see %s",
+			deployConfig, deployConfigureDocsURL,
+		)
 	}
 
 	cfg, err := config.LoadConfig(deployConfig)
@@ -82,8 +89,8 @@ func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 
 	if cfg.Deploy == nil {
 		return nil, nil, fmt.Errorf(
-			"no deploy configuration found in %s\nAdd a 'deploy' section to your arena config",
-			deployConfig,
+			"no deploy configuration found in %s\nAdd a 'deploy' section to your arena config — see %s",
+			deployConfig, deployConfigureDocsURL,
 		)
 	}
 

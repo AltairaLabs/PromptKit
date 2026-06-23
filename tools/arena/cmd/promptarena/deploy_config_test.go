@@ -415,6 +415,50 @@ func TestRunDeployConfigImportFromStdin(t *testing.T) {
 	}
 }
 
+// withDeployConfigGlobal saves and restores the package-level deployConfig flag
+// that loadFullConfig reads, so tests can set it in isolation.
+func withDeployConfigGlobal(t *testing.T, cfgPath string) {
+	t.Helper()
+	old := deployConfig
+	t.Cleanup(func() { deployConfig = old })
+	deployConfig = cfgPath
+}
+
+func TestLoadFullConfigMissingFileLinksDocs(t *testing.T) {
+	withDeployConfigGlobal(t, filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+
+	_, _, err := loadFullConfig()
+	if err == nil {
+		t.Fatal("expected error when config file is missing")
+	}
+	if !strings.Contains(err.Error(), deployConfigureDocsURL) {
+		t.Errorf("error should link configure docs %q, got: %v", deployConfigureDocsURL, err)
+	}
+}
+
+func TestLoadFullConfigNoDeploySectionLinksDocs(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.arena.yaml")
+	// A valid arena manifest with no deploy: section.
+	manifest := arenaManifest("  providers: []\n")
+	if err := os.WriteFile(cfgPath, manifest, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	withDeployConfigGlobal(t, cfgPath)
+
+	_, _, err := loadFullConfig()
+	if err == nil {
+		t.Fatal("expected error when config has no deploy section")
+	}
+	if !strings.Contains(err.Error(), "no deploy configuration found") {
+		t.Errorf("error should mention missing deploy configuration, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), deployConfigureDocsURL) {
+		t.Errorf("error should link configure docs %q, got: %v", deployConfigureDocsURL, err)
+	}
+}
+
 func TestRunDeployConfigImportMissingConfigErrors(t *testing.T) {
 	dir := t.TempDir()
 	profPath := filepath.Join(dir, "profile.json")
