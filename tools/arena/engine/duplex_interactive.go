@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
@@ -341,13 +343,27 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 
 // buildInteractiveVADConfig returns the AudioTurnStage config for the interactive
 // VAD path. It reuses buildVADConfig when the scenario declares a duplex turn-
-// detection block, falling back to stage defaults for a bare interactive run
-// where the scenario carries no duplex configuration.
+// detection block, falling back to an AdaptiveVAD-equipped default config for a
+// bare interactive run where the scenario carries no duplex configuration.
+//
+// AdaptiveVAD is preferred over SimpleVAD for the interactive console because it
+// tracks the ambient noise floor at runtime, making it far more reliable for
+// "quiet mic" environments where SimpleVAD's fixed threshold would miss speech.
 func (de *DuplexConversationExecutor) buildInteractiveVADConfig(req *ConversationRequest) stage.AudioTurnConfig {
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
 		return de.buildVADConfig(req)
 	}
-	return stage.DefaultAudioTurnConfig()
+
+	cfg := stage.DefaultAudioTurnConfig()
+	vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
+	if err != nil {
+		// NewAdaptiveVAD only errors on invalid params; DefaultVADParams is always
+		// valid, so this branch is a safety net rather than an expected code path.
+		logger.Warn("buildInteractiveVADConfig: AdaptiveVAD init failed, falling back to SimpleVAD", "error", err)
+		return cfg
+	}
+	cfg.VAD = vad
+	return cfg
 }
 
 // buildInteractiveTTSConfig returns the TTS stage config, threading the agent
