@@ -495,6 +495,156 @@ func TestRunInteractiveVoice_VAD_AssistantOnlySynthesized(t *testing.T) {
 	}
 }
 
+// chunkInjectingStreamingProvider wraps *mock.StreamingProvider and injects
+// custom responseChunks into each session at CreateStreamSession time. This
+// lets tests configure exact StreamChunk sequences (including metadata like
+// input_transcription) without modifying the runtime mock package.
+type chunkInjectingStreamingProvider struct {
+	*mock.StreamingProvider
+	chunks []providers.StreamChunk
+}
+
+// CreateStreamSession delegates to the embedded provider and then injects
+// the configured response chunks into the created session.
+func (p *chunkInjectingStreamingProvider) CreateStreamSession(
+	ctx context.Context,
+	req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
+	sess, err := p.StreamingProvider.CreateStreamSession(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if mockSess, ok := sess.(*mock.MockStreamSession); ok {
+		mockSess.WithResponseChunks(p.chunks)
+	}
+	return sess, nil
+}
+
+// newDuplexTestExecutorASMWithTranscript builds a DuplexConversationExecutor
+// whose mock ASM session emits an input_transcription chunk followed by an
+// assistant turn. Used by TestRunInteractiveVoice_ASM_MaterializesUserTranscript
+// to verify that the interactive voice path creates a user message and populates
+// it with the transcription text.
+func newDuplexTestExecutorASMWithTranscript(
+	t *testing.T,
+) (*DuplexConversationExecutor, *ConversationRequest, *statestore.ArenaStateStore) {
+	t.Helper()
+
+	const scenarioID = "interactive-voice-transcript-test"
+	finishReason := "stop"
+	chunks := []providers.StreamChunk{
+		// input_transcription chunk — what the user said (mirrors Gemini Live API format)
+		{
+			Metadata: map[string]interface{}{
+				"type":          "input_transcription",
+				"transcription": "hello there from the user",
+			},
+		},
+		// assistant text chunk with FinishReason to close the turn
+		{
+			Content:      "hi, how can I help?",
+			Delta:        "hi, how can I help?",
+			FinishReason: &finishReason,
+		},
+	}
+
+	inner := mock.NewStreamingProvider("test-mock-transcript", "mock-model", false)
+	inner.WithAutoRespond("ok")
+	// Close the session after one turn so forwardResponseElements exits cleanly
+	// without waiting for the 30-second finalResponseTimeout.
+	inner.WithCloseAfterTurns(1)
+
+	mockProvider := &chunkInjectingStreamingProvider{
+		StreamingProvider: inner,
+		chunks:            chunks,
+	}
+
+	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
+	store := statestore.NewArenaStateStore()
+
+	scenario := &config.Scenario{
+		ID: scenarioID,
+		Duplex: &config.DuplexConfig{
+			Timeout: "10s",
+			TurnDetection: &config.TurnDetectionConfig{
+				Mode: config.TurnDetectionModeASM,
+			},
+		},
+		Turns: []config.TurnDefinition{},
+	}
+
+	req := &ConversationRequest{
+		Provider:       mockProvider,
+		Scenario:       scenario,
+		Config:         &config.Config{LoadedProviders: map[string]*config.Provider{}},
+		RunID:          "test-run-transcript",
+		ConversationID: "test-conv-transcript",
+		StateStoreConfig: &StateStoreConfig{
+			Store: store,
+		},
+	}
+
+	return executor, req, store
+}
+
+// TestRunInteractiveVoice_ASM_MaterializesUserTranscript verifies that when
+// the provider emits an input_transcription event, the interactive ASM voice
+// path creates a user message in the state store whose Content is set to the
+// transcript text (and that an assistant message is also persisted).
+//
+// RED phase: before the fix, no user message exists in the state store
+// (or the message has empty Content) because feedMicToPipeline never emits
+// a user Message element with a turn_id — so DuplexProviderStage silently
+// discards the transcription (gate: EndOfStream && turnID != "").
+func TestRunInteractiveVoice_ASM_MaterializesUserTranscript(t *testing.T) {
+	exec, req, store := newDuplexTestExecutorASMWithTranscript(t)
+
+	mic := make(chan []byte, 4)
+	play := func(_ []byte) {}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	mic <- make([]byte, 320) // one mic frame
+	close(mic)
+
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+		t.Fatalf("RunInteractiveVoice: %v", err)
+	}
+
+	state, err := store.Load(ctx, req.ConversationID)
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+
+	const wantTranscript = "hello there from the user"
+	const wantAssistant = "hi, how can I help?"
+
+	var foundUser, foundAssistant bool
+	for i := range state.Messages {
+		msg := &state.Messages[i]
+		switch string(msg.Role) {
+		case "user":
+			foundUser = true
+			if msg.Content != wantTranscript {
+				t.Errorf("user message Content = %q, want %q", msg.Content, wantTranscript)
+			}
+		case "assistant":
+			foundAssistant = true
+			if msg.Content != wantAssistant {
+				t.Errorf("assistant message Content = %q, want %q", msg.Content, wantAssistant)
+			}
+		}
+	}
+
+	if !foundUser {
+		t.Errorf("no user message in state store; got messages: %+v", state.Messages)
+	}
+	if !foundAssistant {
+		t.Errorf("no assistant message in state store; got messages: %+v", state.Messages)
+	}
+}
+
 func init() {
 	// Verify ResponseRepository interface compliance at compile time.
 	var _ mock.ResponseRepository = (*interactiveVoiceTestRepo)(nil)
@@ -503,4 +653,6 @@ func init() {
 	var _ stt.Service = (*fakeSTTService)(nil)
 	// Confirm the mock TTS satisfies tts.Service (the TTS stage's contract).
 	var _ tts.Service = (*selfplay.MockTTSService)(nil)
+	// Verify chunkInjectingStreamingProvider implements StreamInputSupport.
+	var _ providers.StreamInputSupport = (*chunkInjectingStreamingProvider)(nil)
 }

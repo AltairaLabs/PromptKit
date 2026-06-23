@@ -5,12 +5,21 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
+)
+
+const (
+	// metaKeyTurnID is the key used in Message.Meta to store the turn identifier
+	// that correlates user audio input with its provider-generated transcription.
+	metaKeyTurnID = "turn_id"
 )
 
 // RunInteractiveVoice drives a live, mic-fed voice conversation through the
@@ -72,6 +81,24 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 		close(inputChan)
 		wg.Wait()
 	}()
+
+	// Emit a user placeholder Message with a turn_id BEFORE streaming mic frames.
+	// This mirrors streamAudioTurn (duplex_executor_turns_integration.go ~line 437-457):
+	// DuplexProviderStage only queues turn_ids from Message elements — audio frames
+	// alone carry no turn_id — so without this placeholder the transcription gate
+	// (EndOfStream && turnID != "") never fires and ArenaStateStoreSaveStage never
+	// receives a transcription to apply to a user message.
+	//
+	// Multi-turn note: For continuous interactive sessions (multiple user utterances
+	// in one call), a new placeholder should be emitted after each assistant turn
+	// completes. That requires the drain goroutine to detect assistant Message +
+	// EndOfStream on outputChan and push a fresh placeholder into inputChan without
+	// racing the deferred close(inputChan). This coordination is non-trivial; see
+	// TODO(multi-turn-placeholder) in the package backlog.
+	if err := de.emitUserTurnPlaceholder(ctx, inputChan); err != nil {
+		return err
+	}
+
 	return de.feedMicToPipeline(ctx, mic, inputChan)
 }
 
@@ -82,6 +109,38 @@ func drainAudioOutput(outputChan <-chan stage.StreamElement, play func([]byte)) 
 		if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
 			play(elem.Audio.Samples)
 		}
+	}
+}
+
+// emitUserTurnPlaceholder sends a user Message element with an empty Content
+// and a fresh turn_id into inputChan before mic audio is streamed. This mirrors
+// the pattern used by streamAudioTurn (duplex_executor_turns_integration.go) and
+// is required so DuplexProviderStage can correlate the provider's
+// input_transcription event with the correct user message in the state store.
+//
+// Without this placeholder, DuplexProviderStage silently discards any
+// transcription it receives because the turn_id queue is empty and the gate
+// (EndOfStream && turnID != "") never fires.
+func (de *DuplexConversationExecutor) emitUserTurnPlaceholder(
+	ctx context.Context,
+	inputChan chan<- stage.StreamElement,
+) error {
+	turnID := uuid.New().String()
+	userMsg := &types.Message{
+		Role:  roleUser,
+		Parts: []types.ContentPart{},
+		Meta: map[string]interface{}{
+			metaKeyTurnID: turnID,
+		},
+	}
+	elem := stage.NewMessageElement(userMsg)
+	turnIDCopy := turnID
+	elem.Meta.TurnID = &turnIDCopy
+	select {
+	case inputChan <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
