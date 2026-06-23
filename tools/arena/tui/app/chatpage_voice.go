@@ -44,7 +44,6 @@ const echoGuardThreshold = 0.02
 //
 // Returns nil when voice.ErrVoiceNotCompiled is detected (sets p.engineErr with
 // build instructions instead of propagating the error as a crash).
-// startVoice mirrors the blueprint lifecycle; nolint:cyclop — splitting would obscure the flow.
 func (p *ChatPage) startVoice(send func(tea.Msg)) tea.Cmd {
 	if send == nil {
 		send = func(tea.Msg) {}
@@ -62,6 +61,17 @@ func (p *ChatPage) startVoice(send func(tea.Msg)) tea.Cmd {
 		return nil
 	}
 
+	return p.runVoice(audioIO, send)
+}
+
+// runVoice wires a live AudioIO to the duplex pipeline and launches the driver
+// goroutine. It is separated from startVoice so tests can inject a fake AudioIO
+// without needing a real PortAudio device.
+//
+// Steps 2-9 of the startVoice blueprint live here.
+//
+//nolint:cyclop // splitting would obscure the sequential lifecycle.
+func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 	// 2. Resolve duplex executor.
 	duplexExec := p.engine.GetDuplexExecutor()
 	if duplexExec == nil {
