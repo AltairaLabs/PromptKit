@@ -812,6 +812,11 @@ func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudio
 			"transcription": e.Transcript, // DuplexProviderStage expects this key
 			"item_id":       e.ItemID,
 			"content_index": e.ContentIndex,
+			// This fires on conversation.item.input_audio_transcription.completed —
+			// a discrete final event carrying the full user transcript. Mark it as
+			// final so DuplexProviderStage materializes the user turn immediately
+			// instead of waiting for the assistant's EndOfStream (latency fast path).
+			"transcription_final": true,
 		},
 	}
 }

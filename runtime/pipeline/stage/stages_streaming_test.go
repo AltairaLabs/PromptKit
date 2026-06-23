@@ -1018,10 +1018,139 @@ func assertUserTranscriptBeforeAssistant(
 		"user transcript message must be ordered BEFORE the assistant message")
 }
 
+// runStreamingTranscriptFastPath drives DuplexProviderStage with a NO-turn_id
+// input sequence and a mock session that emits an input_transcription chunk
+// carrying transcription_final=true (the full final user transcript) FOLLOWED by
+// streaming assistant content and a much later assistant FinishReason. It returns
+// the ordered output elements so callers can assert the user Message materialises
+// from the FINAL transcript marker — BEFORE the assistant turn completes — rather
+// than waiting for EndOfStream.
+//
+// The assistant FinishReason chunk arrives last; if the user turn only
+// materialised at EndOfStream (the fallback path), the user Message would appear
+// at/after the assistant element. The fast path must emit it immediately on the
+// transcription_final chunk, ahead of the assistant content.
+func runStreamingTranscriptFastPath(
+	t *testing.T, transcript, assistantText string,
+) []StreamElement {
+	t.Helper()
+
+	finishReason := "stop"
+	chunks := []providers.StreamChunk{
+		// FINAL input transcription marker — full user transcript, emitted the
+		// moment the user stops speaking (well before the assistant responds).
+		{
+			Metadata: map[string]interface{}{
+				"type":                "input_transcription",
+				"transcription":       transcript,
+				"transcription_final": true,
+			},
+		},
+		// Assistant streaming content (no FinishReason yet).
+		{
+			Content: assistantText,
+			Delta:   assistantText,
+		},
+		// Assistant turn completion arrives much later.
+		{
+			FinishReason: &finishReason,
+		},
+	}
+
+	inner := providersmock.NewStreamingProvider("test-stream", "mock-model", false)
+	inner.WithAutoRespond("ok")
+	inner.WithCloseAfterTurns(1)
+	provider := &chunkInjectingProvider{StreamingProvider: inner, chunks: chunks}
+
+	st := NewDuplexProviderStage(provider, baseConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 16)
+
+	input <- StreamElement{
+		Audio: &AudioData{
+			Samples:    []byte("audio data here!"),
+			SampleRate: 16000,
+			Format:     AudioFormatPCM16,
+		},
+	}
+	input <- StreamElement{EndOfStream: true}
+	close(input)
+
+	done := make(chan error, 1)
+	go func() { done <- st.Process(ctx, input, output) }()
+
+	var elements []StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	require.NoError(t, <-done)
+	return elements
+}
+
+// countUserMessages returns the number of user Messages in the output whose
+// content equals transcript. Used to assert the fast path and the EndOfStream
+// fallback never both fire for the same transcript (no double-emit).
+func countUserMessages(elements []StreamElement, transcript string) int {
+	n := 0
+	for i := range elements {
+		msg := elements[i].Message
+		if msg != nil && msg.Role == roleUser && msg.Content == transcript {
+			n++
+		}
+	}
+	return n
+}
+
+// TestDuplexProviderStage_StreamingFastPathMaterializesUserTurn verifies the
+// fast path: when an input_transcription chunk carries transcription_final=true
+// (no turn_id queued, non-empty transcript), the user Message is emitted
+// IMMEDIATELY — before the assistant turn's FinishReason/EndOfStream element —
+// and exactly once (no double-emit at EndOfStream).
+func TestDuplexProviderStage_StreamingFastPathMaterializesUserTurn(t *testing.T) {
+	const transcript = "hello from the user"
+	const assistantText = "hi, how can I help?"
+	elements := runStreamingTranscriptFastPath(t, transcript, assistantText)
+
+	// User message ordered before the assistant message.
+	assertUserTranscriptBeforeAssistant(t, elements, transcript, assistantText)
+
+	// Fast path proof: the user turn must appear BEFORE the assistant's streaming
+	// content element (the one carrying assistant Text). The fallback only emits
+	// at EndOfStream — i.e. AFTER all assistant content has streamed through — so
+	// this ordering is unique to the fast path firing on the transcription_final
+	// chunk.
+	userIdx, assistantContentIdx := -1, -1
+	for i := range elements {
+		if elements[i].Message != nil &&
+			elements[i].Message.Role == roleUser &&
+			elements[i].Message.Content == transcript {
+			userIdx = i
+		}
+		if assistantContentIdx == -1 && elements[i].Text != nil && *elements[i].Text == assistantText {
+			assistantContentIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, userIdx, 0, "expected a user Message from the final transcript")
+	require.GreaterOrEqual(t, assistantContentIdx, 0,
+		"expected the assistant streaming content element to flow to output")
+	assert.Less(t, userIdx, assistantContentIdx,
+		"fast path must emit the user turn BEFORE assistant content streams, not wait for EndOfStream")
+
+	// No double-emit: the EndOfStream fallback must not re-emit the same turn.
+	assert.Equal(t, 1, countUserMessages(elements, transcript),
+		"user transcript must materialise exactly once (fast path, not also fallback)")
+}
+
 // TestDuplexProviderStage_StreamingMaterializesUserTurn verifies the
-// continuous-streaming (no pre-created turn_id) case: when the provider reports
-// an input_transcription and the turn completes, the stage materialises a user
-// Message from the transcript and orders it before the assistant message.
+// continuous-streaming (no pre-created turn_id) FALLBACK case: when the provider
+// reports an input_transcription WITHOUT the transcription_final marker and the
+// turn completes, the stage materialises a user Message from the transcript at
+// EndOfStream and orders it before the assistant message. This covers providers
+// (e.g. Gemini Live) that never send the marker.
 //
 // This is PROVIDER-AGNOSTIC: both subtests use the identical normalized chunk
 // shape that OpenAI Realtime and Gemini Live both emit, so a single release path
