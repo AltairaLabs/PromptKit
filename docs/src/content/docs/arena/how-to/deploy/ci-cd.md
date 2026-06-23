@@ -42,10 +42,23 @@ jobs:
           go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 
       - name: Install adapter
-        run: promptarena deploy adapter install agentcore
+        run: promptarena deploy adapter install omnia
 
       - name: Compile pack
         run: packc compile --config arena.yaml --output app.pack.json --id my-app
+
+      - name: Deploy
+        env:
+          OMNIA_API_TOKEN: ${{ secrets.OMNIA_API_TOKEN }}
+        run: promptarena deploy --env production
+```
+
+The same workflow targets **AWS Bedrock AgentCore** by installing the `agentcore`
+adapter and supplying AWS credentials instead:
+
+```yaml
+      - name: Install adapter
+        run: promptarena deploy adapter install agentcore
 
       - name: Deploy
         env:
@@ -268,12 +281,19 @@ Install the adapter in your CI workflow before deploying:
 
 ```yaml
 - name: Install adapter
-  run: promptarena deploy adapter install agentcore
+  run: promptarena deploy adapter install omnia   # or: agentcore
 ```
 
 ### Credentials not available
 
-Ensure secrets are configured in your GitHub repository settings and referenced correctly:
+Ensure secrets are configured in your GitHub repository settings and referenced correctly. For Omnia:
+
+```yaml
+env:
+  OMNIA_API_TOKEN: ${{ secrets.OMNIA_API_TOKEN }}
+```
+
+For AWS Bedrock AgentCore:
 
 ```yaml
 env:
