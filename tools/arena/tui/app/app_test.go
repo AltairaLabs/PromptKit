@@ -9,6 +9,22 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
+// initTrackingPage is a fake Page that records Init calls so tests can assert
+// once-only semantics.
+type initTrackingPage struct {
+	name      string
+	initCount int
+}
+
+func (f *initTrackingPage) Init() tea.Cmd {
+	f.initCount++
+	return nil
+}
+func (f *initTrackingPage) Update(tea.Msg) (Page, tea.Cmd) { return f, nil }
+func (f *initTrackingPage) View() string                   { return f.name }
+func (f *initTrackingPage) Title() string                  { return f.name }
+func (f *initTrackingPage) SetSize(_, _ int)               {}
+
 // namedFakePage extends fakePage with a name field so we can distinguish pages
 // in View output and verify SetSize calls.
 type namedFakePage struct {
@@ -174,5 +190,70 @@ func TestApp_ConfigChangedClearsEngine(t *testing.T) {
 	}
 	if ctx.Engine != nil {
 		t.Fatal("expected ctx.Engine to be nil after ConfigChangedMsg")
+	}
+}
+
+// TestApp_SplashSeedInitOnReveal mirrors the production Run() seeding pattern:
+// stack = [root, splash], App.Init() inits only the splash (top page), then
+// PopPageMsg dismisses splash and root.Init() must fire exactly once (C1 fix).
+func TestApp_SplashSeedInitOnReveal(t *testing.T) {
+	root := &initTrackingPage{name: "root"}
+	a := New(&AppContext{}, root)
+
+	// Simulate Run(): append splash directly on top of root (not via push).
+	splash := &initTrackingPage{name: "splash"}
+	a.stack = append(a.stack, splash)
+
+	// App.Init() → initAndActivate(splash) → splash gets inited once.
+	a.Init()
+
+	if splash.initCount != 1 {
+		t.Fatalf("expected splash initCount=1 after App.Init(), got %d", splash.initCount)
+	}
+	if root.initCount != 0 {
+		t.Fatalf("expected root initCount=0 before splash dismiss, got %d", root.initCount)
+	}
+
+	// Splash dismiss → PopPageMsg → root becomes top → root.Init() must fire.
+	a.Update(PopPageMsg{})
+
+	if root.initCount != 1 {
+		t.Fatalf("expected root initCount=1 after splash dismiss, got %d", root.initCount)
+	}
+
+	// Sanity: root is now top (atRoot).
+	if !a.atRoot() {
+		t.Fatal("expected app to be at root after splash dismiss")
+	}
+}
+
+// TestApp_SplashSeedNoDoubleInit verifies that pushing then popping a child
+// page after the splash has been dismissed does NOT re-Init the root (C1 fix:
+// once-only guarantee for already-inited pages like mid-run RunPage).
+func TestApp_SplashSeedNoDoubleInit(t *testing.T) {
+	root := &initTrackingPage{name: "root"}
+	a := New(&AppContext{}, root)
+
+	// Seed as in Run(): splash on top, App.Init() inits splash.
+	splash := &initTrackingPage{name: "splash"}
+	a.stack = append(a.stack, splash)
+	a.Init()
+
+	// Dismiss splash → root inited once.
+	a.Update(PopPageMsg{})
+	if root.initCount != 1 {
+		t.Fatalf("setup: expected root initCount=1, got %d", root.initCount)
+	}
+
+	// Push a child page, then pop back to root — root must NOT be re-inited.
+	child := &initTrackingPage{name: "child"}
+	a.Update(PushPageMsg{Page: child})
+	a.Update(PopPageMsg{})
+
+	if root.initCount != 1 {
+		t.Fatalf("expected root initCount to remain 1 after push+pop, got %d", root.initCount)
+	}
+	if child.initCount != 1 {
+		t.Fatalf("expected child initCount=1 after push, got %d", child.initCount)
 	}
 }

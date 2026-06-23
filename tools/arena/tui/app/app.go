@@ -13,6 +13,7 @@ type App struct {
 	w, h      int
 	send      func(tea.Msg)
 	activated map[Page]bool // pages whose Activate has already fired (idempotency)
+	inited    map[Page]bool // pages whose Init has already been called (idempotency)
 }
 
 // SetSend stores the program's Send func so that Activatable pages can push
@@ -29,13 +30,14 @@ func New(ctx *AppContext, root Page) *App {
 		ctx:       ctx,
 		stack:     []Page{root},
 		activated: map[Page]bool{},
+		inited:    map[Page]bool{},
 	}
 }
 
-// Init implements tea.Model. It runs the top page's Init command. If the top
-// page also implements Activatable, its Activate cmd is batched with Init.
+// Init implements tea.Model. It runs the top page's Init command (once only)
+// and batches it with an optional Activate cmd if the page implements Activatable.
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(a.top().Init(), a.activateIfNeeded(a.top()))
+	return a.initAndActivate(a.top())
 }
 
 // Update implements tea.Model. It handles global navigation and key messages,
@@ -92,12 +94,33 @@ func (a *App) View() string {
 	return a.top().View()
 }
 
-// push pushes p onto the stack, calls SetSize, and returns its Init cmd
+// push pushes p onto the stack, calls SetSize, and returns its Init cmd (once only)
 // batched with an optional Activate cmd if p implements Activatable.
 func (a *App) push(p Page) tea.Cmd {
 	p.SetSize(a.w, a.h)
 	a.stack = append(a.stack, p)
-	return tea.Batch(p.Init(), a.activateIfNeeded(p))
+	return a.initAndActivate(p)
+}
+
+// initAndActivate calls p.Init() (first time only) and batches it with an
+// optional Activate cmd if p implements Activatable (also first time only).
+// It is the single gate used by App.Init(), push(), and pop() so that Init
+// fires exactly once regardless of how a page reaches the top of the stack.
+//
+// The once-only guarantee means:
+//   - Revealed roots (e.g. ChatPage deep-link) get Init() on splash dismiss.
+//   - Re-revealed pages (e.g. RunPage mid-run after popping ConversationViewPage)
+//     do NOT get a second Init() call.
+func (a *App) initAndActivate(p Page) tea.Cmd {
+	if a.inited == nil {
+		a.inited = map[Page]bool{}
+	}
+	var initCmd tea.Cmd
+	if !a.inited[p] {
+		a.inited[p] = true
+		initCmd = p.Init()
+	}
+	return tea.Batch(initCmd, a.activateIfNeeded(p))
 }
 
 // activateIfNeeded calls Activate on p if it implements Activatable and has not
@@ -124,17 +147,22 @@ func (a *App) activateIfNeeded(p Page) tea.Cmd {
 	return act.Activate(send)
 }
 
-// pop removes the top page from the stack and returns the Activate cmd of the
-// revealed page (if it is an Activatable not yet activated — e.g. an Activatable
-// root revealed when the splash dismisses). It is a no-op when at root.
+// pop removes the top page from the stack and returns Init+Activate for the
+// revealed page (Init runs once only — it will not re-Init a page that was already
+// inited, so popping back to a mid-run RunPage is safe). It is a no-op when at root.
 func (a *App) pop() tea.Cmd {
 	if a.atRoot() {
 		return nil
 	}
+	popped := a.top()
 	a.stack = a.stack[:len(a.stack)-1]
+	// Remove the popped page from tracking maps so it does not leak for the
+	// lifetime of the App (M3).
+	delete(a.activated, popped)
+	delete(a.inited, popped)
 	revealed := a.top()
 	revealed.SetSize(a.w, a.h)
-	return a.activateIfNeeded(revealed)
+	return a.initAndActivate(revealed)
 }
 
 // atRoot reports whether the navigation stack has only one page (the root).

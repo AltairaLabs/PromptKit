@@ -18,13 +18,24 @@ type InspectPage struct {
 	w, h    int
 }
 
-// NewInspectPage creates an InspectPage. If ctx is nil or has no config loaded,
-// a placeholder message is shown instead.
+// NewInspectPage creates an InspectPage with default render options.
+// If ctx is nil or has no config loaded, a placeholder message is shown instead.
+// This is the entry point used by the Home menu.
 func NewInspectPage(ctx *AppContext) *InspectPage {
+	return NewInspectPageWithOptions(ctx, inspect.RenderOptions{})
+}
+
+// NewInspectPageWithOptions creates an InspectPage with the given render options,
+// allowing callers to thread --verbose/--section/--stats/--short flags through
+// from the CLI. If ctx is nil or has no config loaded, a placeholder is shown.
+func NewInspectPageWithOptions(ctx *AppContext, opts inspect.RenderOptions) *InspectPage {
 	p := &InspectPage{}
 	if ctx != nil && ctx.Config != nil {
 		data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
-		p.content = inspect.RenderText(data, inspect.RenderOptions{})
+		if opts.Stats {
+			data.CacheStats = inspect.CollectCacheStats(ctx.Config, opts.Verbose)
+		}
+		p.content = inspect.RenderText(data, opts)
 	} else {
 		p.content = "No configuration loaded."
 	}

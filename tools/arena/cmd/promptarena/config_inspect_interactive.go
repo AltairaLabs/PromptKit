@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
 
@@ -128,7 +129,12 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 		ResultsDir: app.ResultsDirFromConfig(configFile),
 		Version:    GetVersion(),
 	}
-	return app.Run(appCtx, app.NewInspectPage(appCtx))
+	renderOpts := inspect.RenderOptions{
+		Verbose: inspectVerbose,
+		Section: inspectSection,
+		Stats:   inspectStats,
+	}
+	return app.Run(appCtx, app.NewInspectPageWithOptions(appCtx, renderOpts))
 }
 
 func emitConfigInspectValidationDiagnostics(configFile string) error {
