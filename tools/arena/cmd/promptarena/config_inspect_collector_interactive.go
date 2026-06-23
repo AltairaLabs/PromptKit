@@ -10,7 +10,7 @@ import (
 func collectInspectionData(cfg *config.Config, configFile string) *inspect.InspectionData {
 	data := inspect.CollectInspectionData(cfg, configFile)
 	if inspectStats {
-		data.CacheStats = inspect.CollectCacheStats(cfg)
+		data.CacheStats = inspect.CollectCacheStats(cfg, inspectVerbose)
 	}
 	return data
 }

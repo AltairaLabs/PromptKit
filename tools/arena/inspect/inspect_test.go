@@ -111,7 +111,7 @@ func TestCollectInspectionData_SelfPlay(t *testing.T) {
 // TestCollectCacheStats exercises CollectCacheStats.
 func TestCollectCacheStats(t *testing.T) {
 	cfg := minimalCfg()
-	stats := inspect.CollectCacheStats(cfg)
+	stats := inspect.CollectCacheStats(cfg, false)
 	if stats == nil {
 		t.Fatal("CollectCacheStats returned nil")
 	}
@@ -128,7 +128,7 @@ func TestCollectCacheStats_WithSelfPlay(t *testing.T) {
 			{ID: "assistant", Provider: "mock-prov"},
 		},
 	}
-	stats := inspect.CollectCacheStats(cfg)
+	stats := inspect.CollectCacheStats(cfg, false)
 	if stats == nil {
 		t.Fatal("CollectCacheStats returned nil")
 	}
@@ -143,7 +143,7 @@ func TestCollectCacheStats_Empty(t *testing.T) {
 		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
 		LoadedPersonas:      map[string]*config.UserPersonaPack{},
 	}
-	stats := inspect.CollectCacheStats(cfg)
+	stats := inspect.CollectCacheStats(cfg, false)
 	if stats == nil {
 		t.Fatal("CollectCacheStats returned nil")
 	}
@@ -244,7 +244,7 @@ func TestRenderText_NilConfig(t *testing.T) {
 		ConfigFile:       "test.yaml",
 		ValidationPassed: true,
 	}
-	out := inspect.RenderText(data)
+	out := inspect.RenderText(data, inspect.RenderOptions{})
 	if !strings.Contains(out, "Validation") {
 		t.Errorf("RenderText output missing Validation section; got:\n%s", out)
 	}
@@ -337,7 +337,7 @@ func TestRenderText_FullData(t *testing.T) {
 		},
 	}
 
-	out := inspect.RenderText(data)
+	out := inspect.RenderText(data, inspect.RenderOptions{Verbose: true})
 	if out == "" {
 		t.Fatal("RenderText returned empty string")
 	}
@@ -360,7 +360,7 @@ func TestRenderText_ToolModes(t *testing.T) {
 		},
 		ValidationPassed: true,
 	}
-	out := inspect.RenderText(data)
+	out := inspect.RenderText(data, inspect.RenderOptions{})
 	if out == "" {
 		t.Fatal("RenderText returned empty string")
 	}
@@ -371,7 +371,7 @@ func TestRenderText_CollectAndRender(t *testing.T) {
 	cfg := minimalCfg()
 	data := inspect.CollectInspectionData(cfg, "/tmp/arena.yaml")
 	data.ValidationPassed = true
-	out := inspect.RenderText(data)
+	out := inspect.RenderText(data, inspect.RenderOptions{})
 	if !strings.Contains(out, "Validation") {
 		t.Errorf("output missing Validation section; got:\n%s", out)
 	}
@@ -546,5 +546,76 @@ func TestCollectInspectionData_ToolEmptyData(t *testing.T) {
 	// Should not panic; tool with no data gets a stub entry
 	if len(data.Tools) == 0 {
 		t.Error("expected empty-data tool to still produce a ToolInspectData entry")
+	}
+}
+
+// TestRenderText_VerboseDiffers verifies that verbose mode includes extra detail
+// lines absent in the default non-verbose output.
+func TestRenderText_VerboseDiffers(t *testing.T) {
+	data := &inspect.InspectionData{
+		ConfigFile: "x.yaml",
+		PromptConfigs: []inspect.PromptInspectData{
+			{
+				ID:          "p1",
+				File:        "p1.yaml",
+				Description: "verbose-only-description",
+				Version:     "1.0",
+				Variables:   []string{"name"},
+			},
+		},
+		ValidationPassed: true,
+	}
+	nonVerbose := inspect.RenderText(data, inspect.RenderOptions{})
+	verbose := inspect.RenderText(data, inspect.RenderOptions{Verbose: true})
+
+	if strings.Contains(nonVerbose, "verbose-only-description") {
+		t.Error("non-verbose output should NOT contain verbose-only description")
+	}
+	if !strings.Contains(verbose, "verbose-only-description") {
+		t.Error("verbose output MUST contain description")
+	}
+}
+
+// TestRenderText_SectionFilter verifies that --section only shows the requested
+// section and suppresses others.
+func TestRenderText_SectionFilter(t *testing.T) {
+	data := &inspect.InspectionData{
+		ConfigFile: "x.yaml",
+		PromptConfigs: []inspect.PromptInspectData{
+			{ID: "p1", File: "p1.yaml"},
+		},
+		Providers: []inspect.ProviderInspectData{
+			{ID: "prov1", File: "prov1.yaml"},
+		},
+		ValidationPassed: true,
+	}
+	out := inspect.RenderText(data, inspect.RenderOptions{Section: "providers"})
+
+	if !strings.Contains(out, "Providers") {
+		t.Error("section=providers output must contain Providers header")
+	}
+	if strings.Contains(out, "Prompt Configs") {
+		t.Error("section=providers output must NOT contain Prompt Configs header")
+	}
+}
+
+// TestRenderText_StatsSection verifies that --stats includes the cache statistics
+// section when CacheStats is non-nil, and omits it otherwise.
+func TestRenderText_StatsSection(t *testing.T) {
+	data := &inspect.InspectionData{
+		ConfigFile:       "x.yaml",
+		ValidationPassed: true,
+		CacheStats: &inspect.CacheStatsData{
+			PromptCache: inspect.CacheInfo{Size: 2},
+		},
+	}
+	withStats := inspect.RenderText(data, inspect.RenderOptions{Stats: true})
+	withoutStats := inspect.RenderText(data, inspect.RenderOptions{Stats: false})
+
+	if !strings.Contains(withStats, "Cache Statistics") {
+		t.Error("Stats=true output must contain Cache Statistics header")
+	}
+	if strings.Contains(withoutStats, "Cache Statistics") {
+		t.Error("Stats=false output must NOT contain Cache Statistics header")
 	}
 }

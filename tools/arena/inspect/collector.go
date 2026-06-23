@@ -35,8 +35,11 @@ func CollectInspectionData(cfg *config.Config, configFile string) *InspectionDat
 }
 
 // CollectCacheStats collects cache statistics from a loaded config.
-func CollectCacheStats(cfg *config.Config) *CacheStatsData {
-	// Collect basic cache information from loaded config
+// When verbose is true, the Entries fields are populated with individual entry
+// names; otherwise only the Size counts are set.
+func CollectCacheStats(cfg *config.Config, verbose bool) *CacheStatsData {
+	// Collect basic cache information from loaded config.
+	// Always build the slice so we have an accurate Size even in non-verbose mode.
 	loadedPrompts := make([]string, 0, len(cfg.LoadedPromptConfigs))
 	for taskType := range cfg.LoadedPromptConfigs {
 		loadedPrompts = append(loadedPrompts, taskType)
@@ -44,12 +47,14 @@ func CollectCacheStats(cfg *config.Config) *CacheStatsData {
 
 	stats := &CacheStatsData{
 		PromptCache: CacheInfo{
-			Size:    len(cfg.LoadedPromptConfigs),
-			Entries: loadedPrompts,
+			Size: len(cfg.LoadedPromptConfigs),
 		},
 		FragmentCache: CacheInfo{
 			Size: 0, // Fragment cache is internal to prompt registry, not directly accessible
 		},
+	}
+	if verbose {
+		stats.PromptCache.Entries = loadedPrompts
 	}
 
 	// Collect self-play cache stats if available
@@ -65,6 +70,9 @@ func CollectCacheStats(cfg *config.Config) *CacheStatsData {
 
 		stats.SelfPlayCache = CacheInfo{
 			Size: len(cachedPairs),
+		}
+		if verbose {
+			stats.SelfPlayCache.Entries = cachedPairs
 		}
 	}
 

@@ -12,7 +12,11 @@ import (
 // parameter is unused (kept for backward compatibility with tests that call
 // outputText(data, nil)).
 func outputText(data *inspect.InspectionData, _ interface{}) error {
-	fmt.Print(inspect.RenderText(data))
+	fmt.Print(inspect.RenderText(data, inspect.RenderOptions{
+		Verbose: inspectVerbose,
+		Section: inspectSection,
+		Stats:   inspectStats,
+	}))
 	return nil
 }
 

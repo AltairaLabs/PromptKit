@@ -178,3 +178,16 @@ type SectionVisibility struct {
 	Defaults   bool
 	Validation bool
 }
+
+// RenderOptions controls which details are shown in text output.
+// It mirrors the CLI flags --verbose, --section, and --stats.
+type RenderOptions struct {
+	// Verbose enables per-item detail lines (file contents, variables, etc.)
+	// that are suppressed in the default non-verbose view.
+	Verbose bool
+	// Section restricts output to a single named section (e.g. "providers").
+	// An empty string means all sections.
+	Section string
+	// Stats includes the cache statistics section when CacheStats is non-nil.
+	Stats bool
+}

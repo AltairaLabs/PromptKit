@@ -95,21 +95,22 @@ var (
 			Padding(0, 1)
 )
 
-// RenderText renders all inspection sections to a string (all sections shown,
-// verbose details always included). It captures stdout so that the lipgloss
-// Print calls are collected into the returned string.
-func RenderText(data *InspectionData) string {
+// RenderText renders all inspection sections to a string.
+// opts controls which sections and detail levels are included.
+// It captures stdout so that the lipgloss Print calls are collected into
+// the returned string.
+func RenderText(data *InspectionData, opts RenderOptions) string {
 	// Capture everything written to stdout during rendering.
 	origStdout := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
 		// Fallback: render directly to stdout and return empty string.
-		outputText(data)
+		outputText(data, opts)
 		return ""
 	}
 	os.Stdout = w
 
-	outputText(data)
+	outputText(data, opts)
 
 	// Restore stdout and collect output.
 	_ = w.Close()
@@ -122,9 +123,9 @@ func RenderText(data *InspectionData) string {
 	return buf.String()
 }
 
-func outputText(data *InspectionData) {
+func outputText(data *InspectionData, opts RenderOptions) {
 	printBanner(data.ConfigFile)
-	printSections(data)
+	printSections(data, opts)
 }
 
 // printBanner prints the inspector header banner
@@ -156,28 +157,31 @@ func getSectionVisibility(section string) SectionVisibility {
 }
 
 // printSections prints all visible sections
-func printSections(data *InspectionData) {
-	vis := getSectionVisibility("")
-	printConfigSections(data, vis)
-	printSummarySections(data, vis)
+func printSections(data *InspectionData, opts RenderOptions) {
+	vis := getSectionVisibility(opts.Section)
+	printConfigSections(data, vis, opts)
+	printSummarySections(data, vis, opts)
+	if opts.Stats && data.CacheStats != nil {
+		printCacheStatistics(data.CacheStats)
+	}
 }
 
 // printConfigSections prints the main configuration sections
-func printConfigSections(data *InspectionData, vis SectionVisibility) {
+func printConfigSections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
 	if vis.Prompts && len(data.PromptConfigs) > 0 {
-		printPromptsSection(data)
+		printPromptsSection(data, opts)
 	}
 	if vis.Providers && len(data.Providers) > 0 {
-		printProvidersSection(data)
+		printProvidersSection(data, opts)
 	}
 	if vis.Scenarios && len(data.Scenarios) > 0 {
-		printScenariosSection(data)
+		printScenariosSection(data, opts)
 	}
 	if vis.Tools && len(data.Tools) > 0 {
-		printToolsSection(data)
+		printToolsSection(data, opts)
 	}
 	if vis.Selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0) {
-		printPersonasSection(data)
+		printPersonasSection(data, opts)
 	}
 	if vis.Judges && len(data.Judges) > 0 {
 		printJudgesSection(data)
@@ -185,36 +189,39 @@ func printConfigSections(data *InspectionData, vis SectionVisibility) {
 }
 
 // printSummarySections prints the summary sections (defaults, validation)
-func printSummarySections(data *InspectionData, vis SectionVisibility) {
+func printSummarySections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
 	if vis.Defaults && data.Defaults != nil {
-		printDefaultsSection(data)
+		printDefaultsSection(data, opts)
 	}
 	if vis.Validation {
 		printValidationSection(data)
 	}
 }
 
-func printPromptsSection(data *InspectionData) {
+func printPromptsSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 📋 Prompt Configs (%d) ", len(data.PromptConfigs))))
 	fmt.Println()
 
 	for i := range data.PromptConfigs {
 		p := &data.PromptConfigs[i]
-		lines := buildPromptLines(p)
+		lines := buildPromptLines(p, opts)
 		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 	}
 	fmt.Println()
 }
 
-// buildPromptLines builds display lines for a prompt config (always verbose)
-func buildPromptLines(p *PromptInspectData) []string {
+// buildPromptLines builds display lines for a prompt config.
+// Verbose detail lines are only included when opts.Verbose is true.
+func buildPromptLines(p *PromptInspectData, opts RenderOptions) []string {
 	lines := []string{highlightStyle.Render(p.ID)}
 
 	if p.TaskType != "" {
 		lines = append(lines, labelStyle.Render(labelTaskType)+tagStyle.Render(p.TaskType))
 	}
 	lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(p.File))
-	lines = append(lines, buildPromptVerboseLines(p)...)
+	if opts.Verbose {
+		lines = append(lines, buildPromptVerboseLines(p)...)
+	}
 	return lines
 }
 
@@ -246,7 +253,7 @@ func buildPromptVerboseLines(p *PromptInspectData) []string {
 	return lines
 }
 
-func printProvidersSection(data *InspectionData) {
+func printProvidersSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🔌 Providers (%d) ", len(data.Providers))))
 	fmt.Println()
 
@@ -256,7 +263,7 @@ func printProvidersSection(data *InspectionData) {
 	for _, group := range groups {
 		fmt.Println(labelStyle.Render("Group: ") + tagStyle.Render(group))
 		for _, p := range byGroup[group] {
-			lines := buildProviderLines(&p)
+			lines := buildProviderLines(&p, opts)
 			fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 		}
 	}
@@ -286,8 +293,9 @@ func getSortedGroups(byGroup map[string][]ProviderInspectData) []string {
 	return groups
 }
 
-// buildProviderLines builds display lines for a provider (always verbose)
-func buildProviderLines(p *ProviderInspectData) []string {
+// buildProviderLines builds display lines for a provider.
+// Temperature and MaxTokens are only included when opts.Verbose is true.
+func buildProviderLines(p *ProviderInspectData, opts RenderOptions) []string {
 	headerLine := highlightStyle.Render(p.ID)
 	if p.Type != "" {
 		headerLine += dimStyle.Render(" (") + valueStyle.Render(p.Type) + dimStyle.Render(")")
@@ -298,29 +306,32 @@ func buildProviderLines(p *ProviderInspectData) []string {
 		lines = append(lines, labelStyle.Render(labelModel)+valueStyle.Render(p.Model))
 	}
 	lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(p.File))
-	if p.Temperature > 0 {
-		lines = append(lines, labelStyle.Render(labelTemperature)+valueStyle.Render(fmt.Sprintf("%.2f", p.Temperature)))
-	}
-	if p.MaxTokens > 0 {
-		lines = append(lines, labelStyle.Render(labelMaxTok)+valueStyle.Render(fmt.Sprintf("%d", p.MaxTokens)))
+	if opts.Verbose {
+		if p.Temperature > 0 {
+			lines = append(lines, labelStyle.Render(labelTemperature)+valueStyle.Render(fmt.Sprintf("%.2f", p.Temperature)))
+		}
+		if p.MaxTokens > 0 {
+			lines = append(lines, labelStyle.Render(labelMaxTok)+valueStyle.Render(fmt.Sprintf("%d", p.MaxTokens)))
+		}
 	}
 	return lines
 }
 
-func printScenariosSection(data *InspectionData) {
+func printScenariosSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🎬 Scenarios (%d) ", len(data.Scenarios))))
 	fmt.Println()
 
 	for i := range data.Scenarios {
 		s := &data.Scenarios[i]
-		lines := buildScenarioLines(s)
+		lines := buildScenarioLines(s, opts)
 		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 	}
 	fmt.Println()
 }
 
-// buildScenarioLines builds display lines for a scenario (always verbose)
-func buildScenarioLines(s *ScenarioInspectData) []string {
+// buildScenarioLines builds display lines for a scenario.
+// Verbose detail lines are only included when opts.Verbose is true.
+func buildScenarioLines(s *ScenarioInspectData, opts RenderOptions) []string {
 	headerLine := highlightStyle.Render(s.ID)
 	if s.Mode != "" {
 		headerLine += dimStyle.Render(" [") + tagStyle.Render(s.Mode) + dimStyle.Render("]")
@@ -330,7 +341,9 @@ func buildScenarioLines(s *ScenarioInspectData) []string {
 	infoLine += dimStyle.Render(" • ") + labelStyle.Render("Turns: ") + valueStyle.Render(fmt.Sprintf("%d", s.TurnCount))
 
 	lines := []string{headerLine, infoLine}
-	lines = append(lines, buildScenarioVerboseLines(s)...)
+	if opts.Verbose {
+		lines = append(lines, buildScenarioVerboseLines(s)...)
+	}
 	return lines
 }
 
@@ -373,19 +386,20 @@ func buildScenarioFlags(s *ScenarioInspectData) []string {
 	return flags
 }
 
-func printToolsSection(data *InspectionData) {
+func printToolsSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🔧 Tools (%d) ", len(data.Tools))))
 	fmt.Println()
 
 	for _, t := range data.Tools {
-		lines := buildToolLines(&t)
+		lines := buildToolLines(&t, opts)
 		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 	}
 	fmt.Println()
 }
 
-// buildToolLines builds display lines for a tool (always verbose)
-func buildToolLines(t *ToolInspectData) []string {
+// buildToolLines builds display lines for a tool.
+// Verbose detail lines are only included when opts.Verbose is true.
+func buildToolLines(t *ToolInspectData, opts RenderOptions) []string {
 	var lines []string
 
 	// Header with name or filename
@@ -403,7 +417,9 @@ func buildToolLines(t *ToolInspectData) []string {
 		lines = append(lines, labelStyle.Render(labelFile)+dimStyle.Render(filepath.Base(t.File)))
 	}
 
-	lines = append(lines, buildToolVerboseLines(t)...)
+	if opts.Verbose {
+		lines = append(lines, buildToolVerboseLines(t)...)
+	}
 	return lines
 }
 
@@ -446,7 +462,7 @@ func buildToolVerboseLines(t *ToolInspectData) []string {
 	return lines
 }
 
-func printPersonasSection(data *InspectionData) {
+func printPersonasSection(data *InspectionData, opts RenderOptions) {
 	// Combined Self-Play section showing personas and roles together
 	header := fmt.Sprintf(" 🎭 Self-Play (%d personas, %d roles) ", len(data.Personas), len(data.SelfPlayRoles))
 	fmt.Println(sectionHeaderStyle.Render(header))
@@ -456,7 +472,7 @@ func printPersonasSection(data *InspectionData) {
 	if len(data.Personas) > 0 {
 		fmt.Println(labelStyle.Render("Personas:"))
 		for _, p := range data.Personas {
-			lines := buildPersonaLines(&p)
+			lines := buildPersonaLines(&p, opts)
 			fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
 		}
 	}
@@ -480,17 +496,20 @@ func printPersonasSection(data *InspectionData) {
 	fmt.Println()
 }
 
-// buildPersonaLines builds display lines for a persona (always verbose)
-func buildPersonaLines(p *PersonaInspectData) []string {
+// buildPersonaLines builds display lines for a persona.
+// Description and Goals are only included when opts.Verbose is true.
+func buildPersonaLines(p *PersonaInspectData, opts RenderOptions) []string {
 	lines := []string{highlightStyle.Render(p.ID)}
 
-	if p.Description != "" {
-		desc := truncateInspectString(p.Description, maxDescLength)
-		lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
-	}
-	if len(p.Goals) > 0 {
-		lines = append(lines, labelStyle.Render(labelGoals))
-		lines = append(lines, buildGoalLines(p.Goals)...)
+	if opts.Verbose {
+		if p.Description != "" {
+			desc := truncateInspectString(p.Description, maxDescLength)
+			lines = append(lines, labelStyle.Render(labelDesc)+valueStyle.Render(desc))
+		}
+		if len(p.Goals) > 0 {
+			lines = append(lines, labelStyle.Render(labelGoals))
+			lines = append(lines, buildGoalLines(p.Goals)...)
+		}
 	}
 	return lines
 }
@@ -527,7 +546,7 @@ func printJudgesSection(data *InspectionData) {
 	fmt.Println()
 }
 
-func printDefaultsSection(data *InspectionData) {
+func printDefaultsSection(data *InspectionData, _ RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(" ⚙️  Defaults "))
 	fmt.Println()
 
@@ -660,6 +679,38 @@ func filterActionableWarnings(warnings []string) []string {
 		actionable = append(actionable, w)
 	}
 	return actionable
+}
+
+// printCacheStatistics prints cache statistics when --stats is enabled.
+func printCacheStatistics(stats *CacheStatsData) {
+	fmt.Println(sectionHeaderStyle.Render(" 📊 Cache Statistics "))
+	fmt.Println()
+
+	var lines []string
+
+	promptVal := valueStyle.Render(fmt.Sprintf("%d entries", stats.PromptCache.Size))
+	lines = append(lines, labelStyle.Render("Prompt Cache: ")+promptVal)
+	if len(stats.PromptCache.Entries) > 0 {
+		lines = append(lines, dimStyle.Render("  "+strings.Join(stats.PromptCache.Entries, ", ")))
+	}
+
+	if stats.FragmentCache.Size > 0 {
+		fragVal := valueStyle.Render(fmt.Sprintf("%d entries", stats.FragmentCache.Size))
+		lines = append(lines, labelStyle.Render("Fragment Cache: ")+fragVal)
+	}
+
+	if stats.SelfPlayCache.Size > 0 {
+		spVal := valueStyle.Render(fmt.Sprintf("%d pairs", stats.SelfPlayCache.Size))
+		lines = append(lines, labelStyle.Render("Self-Play Cache: ")+spVal)
+		if len(stats.SelfPlayCache.Entries) > 0 {
+			lines = append(lines, dimStyle.Render("  "+strings.Join(stats.SelfPlayCache.Entries, ", ")))
+		}
+	}
+
+	if len(lines) > 0 {
+		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+	}
+	fmt.Println()
 }
 
 // truncateInspectString truncates a string to the given length with ellipsis

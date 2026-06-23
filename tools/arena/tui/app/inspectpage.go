@@ -24,7 +24,7 @@ func NewInspectPage(ctx *AppContext) *InspectPage {
 	p := &InspectPage{}
 	if ctx != nil && ctx.Config != nil {
 		data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
-		p.content = inspect.RenderText(data)
+		p.content = inspect.RenderText(data, inspect.RenderOptions{})
 	} else {
 		p.content = "No configuration loaded."
 	}
