@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
 
 var rootCmd = &cobra.Command{
@@ -18,11 +20,40 @@ var rootCmd = &cobra.Command{
 	Version:       GetVersion(),
 	SilenceUsage:  true,  // Don't print usage on error
 	SilenceErrors: false, // Do print errors
-	Long: `PromptKit Arena is a testing framework for running multi-turn conversation 
+	Long: `PromptKit Arena is a testing framework for running multi-turn conversation
 simulations across multiple LLM providers and system prompts.
 
 It evaluates tone consistency, content quality, prompt adherence, and validates
 conversation flows for various task types (customer support, code assistance, etc.).`,
+	// RunE fires only when no sub-command is provided (bare `promptarena`).
+	// Sub-commands registered via rootCmd.AddCommand() take precedence and
+	// RunE is NOT called for them, so existing commands are unaffected.
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("could not determine working directory: %w", err)
+		}
+
+		ctx := &app.AppContext{
+			Version:    GetVersion(),
+			ResultsDir: filepath.Join(cwd, "out"),
+		}
+
+		if cfgPath, found := app.DiscoverConfig(cwd); found {
+			if loadErr := ctx.LoadConfig(cfgPath); loadErr != nil {
+				// Non-fatal: launch hub without a config rather than aborting.
+				fmt.Fprintf(os.Stderr, "warning: could not load config %s: %v\n", cfgPath, loadErr)
+			} else {
+				// LoadConfig sets ResultsDir relative to the config file;
+				// override only if it is still empty.
+				if ctx.ResultsDir == "" {
+					ctx.ResultsDir = filepath.Join(cwd, "out")
+				}
+			}
+		}
+
+		return app.Run(ctx, app.NewHome(ctx, app.DefaultMenu(ctx)))
+	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Initialize logger based on verbose flag if present
 		// This runs before all subcommands
