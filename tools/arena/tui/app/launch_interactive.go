@@ -24,6 +24,7 @@ func Run(ctx *AppContext, root Page) error {
 	app.stack = append(app.stack, splash)
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	app.SetSend(p.Send)
 	if _, err := p.Run(); err != nil {
 		return err
 	}

@@ -11,6 +11,14 @@ type App struct {
 	ctx   *AppContext
 	stack []Page
 	w, h  int
+	send  func(tea.Msg)
+}
+
+// SetSend stores the program's Send func so that Activatable pages can push
+// messages back into the bubbletea event loop from goroutines. Call this after
+// tea.NewProgram and before p.Run().
+func (a *App) SetSend(send func(tea.Msg)) {
+	a.send = send
 }
 
 // New creates a new App with root as the initial (bottom) page on the stack.
@@ -22,9 +30,10 @@ func New(ctx *AppContext, root Page) *App {
 	}
 }
 
-// Init implements tea.Model. It runs the top page's Init command.
+// Init implements tea.Model. It runs the top page's Init command. If the top
+// page also implements Activatable, its Activate cmd is batched with Init.
 func (a *App) Init() tea.Cmd {
-	return a.top().Init()
+	return tea.Batch(a.top().Init(), a.activateIfNeeded(a.top()))
 }
 
 // Update implements tea.Model. It handles global navigation and key messages,
@@ -81,11 +90,27 @@ func (a *App) View() string {
 	return a.top().View()
 }
 
-// push pushes p onto the stack, calls SetSize, and returns its Init cmd.
+// push pushes p onto the stack, calls SetSize, and returns its Init cmd
+// batched with an optional Activate cmd if p implements Activatable.
 func (a *App) push(p Page) tea.Cmd {
 	p.SetSize(a.w, a.h)
 	a.stack = append(a.stack, p)
-	return p.Init()
+	return tea.Batch(p.Init(), a.activateIfNeeded(p))
+}
+
+// activateIfNeeded calls Activate on p if it implements Activatable and returns
+// the resulting tea.Cmd. It never passes a nil send to Activate — if a.send has
+// not been set (headless/test), a no-op func is used instead.
+func (a *App) activateIfNeeded(p Page) tea.Cmd {
+	act, ok := p.(Activatable)
+	if !ok {
+		return nil
+	}
+	send := a.send
+	if send == nil {
+		send = func(tea.Msg) {}
+	}
+	return act.Activate(send)
 }
 
 // pop removes the top page from the stack. It is a no-op when at root.
