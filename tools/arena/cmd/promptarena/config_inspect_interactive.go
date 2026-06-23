@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
 
 var configInspectCmd = &cobra.Command{
@@ -27,6 +28,10 @@ Use --short/-s for quick validation-only output.`,
 const (
 	// Section names
 	sectionValidation = "validation"
+
+	// Output format names for --format flag.
+	inspectFormatJSON = "json"
+	inspectFormatText = "text"
 )
 
 var (
@@ -104,15 +109,26 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	// Add additional connectivity checks
 	inspection.ValidationChecks = append(inspection.ValidationChecks, collectConnectivityChecks(inspection)...)
 
-	// Output results
-	switch inspectFormat {
-	case "json":
+	// JSON goes straight to stdout — no TUI.
+	if inspectFormat == inspectFormatJSON {
 		return outputJSON(inspection)
-	case "text":
-		return outputText(inspection, cfg)
-	default:
+	}
+
+	// Interactive text path: launch the hub with InspectPage as the root so
+	// the user gets a scrollable, keyboard-navigable view of the config.
+	// If the format is unrecognized, fall through to a clear error rather than
+	// silently opening the TUI.
+	if inspectFormat != inspectFormatText {
 		return fmt.Errorf("unsupported format: %s", inspectFormat)
 	}
+
+	appCtx := &app.AppContext{
+		Config:     cfg,
+		ConfigPath: configFile,
+		ResultsDir: app.ResultsDirFromConfig(configFile),
+		Version:    GetVersion(),
+	}
+	return app.Run(appCtx, app.NewInspectPage(appCtx))
 }
 
 func emitConfigInspectValidationDiagnostics(configFile string) error {

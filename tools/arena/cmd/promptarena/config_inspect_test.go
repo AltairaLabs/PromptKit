@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// outputText renders inspection data as styled terminal output. The second
+// parameter is unused (kept for backward compatibility with existing test calls).
+// This is a test-only helper; the production text path launches the TUI InspectPage.
+func outputText(data *inspect.InspectionData, _ interface{}) error {
+	fmt.Print(inspect.RenderText(data, inspect.RenderOptions{
+		Verbose: inspectVerbose,
+		Section: inspectSection,
+		Stats:   inspectStats,
+	}))
+	return nil
+}
 
 func withCapturedStdout(t *testing.T, fn func()) string {
 	t.Helper()

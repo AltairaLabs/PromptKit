@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
@@ -591,6 +592,9 @@ func formatEvalScores(results []evals.EvalResult) string {
 }
 
 // runChat is the cobra RunE handler for the `chat` command.
+// It builds an AppContext around the loaded engine and launches the TUI hub
+// with ChatPage as the root, so the user arrives directly in the chat console.
+// The hub's Esc/q binding exits back to the shell.
 func runChat(cmd *cobra.Command, _ []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 	useMock, _ := cmd.Flags().GetBool("mock-provider")
@@ -608,9 +612,14 @@ func runChat(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	m := newChatModel(eng)
-	program := tea.NewProgram(m, tea.WithAltScreen())
+	appCtx := &app.AppContext{
+		Config:     eng.GetConfig(),
+		ConfigPath: configPath,
+		ResultsDir: app.ResultsDirFromConfig(configPath),
+		Engine:     eng,
+		StateStore: eng.GetStateStore(),
+		Version:    GetVersion(),
+	}
 
-	_, runErr := program.Run()
-	return runErr
+	return app.Run(appCtx, app.NewChatPage(appCtx))
 }

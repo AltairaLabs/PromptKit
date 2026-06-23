@@ -33,6 +33,14 @@ func DiscoverConfig(dir string) (path string, found bool) {
 	return candidate, true
 }
 
+// ResultsDirFromConfig returns the conventional results directory (out/) next
+// to the given config file. Callers that build an AppContext directly (e.g.
+// chat/config-inspect subcommands) use this so the path matches what
+// LoadConfig would have set.
+func ResultsDirFromConfig(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "out")
+}
+
 // LoadConfig loads the arena configuration from path, sets Config and
 // ConfigPath on the context, and derives ResultsDir as the out/ directory
 // next to the config file.
@@ -43,6 +51,6 @@ func (c *AppContext) LoadConfig(path string) error {
 	}
 	c.Config = cfg
 	c.ConfigPath = path
-	c.ResultsDir = filepath.Join(filepath.Dir(path), "out")
+	c.ResultsDir = ResultsDirFromConfig(path)
 	return nil
 }

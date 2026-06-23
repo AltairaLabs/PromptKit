@@ -199,3 +199,20 @@ func (p *RunPage) SetSize(w, h int) {
 
 // Model exposes the wrapped tui.Model for testing.
 func (p *RunPage) Model() *tui.Model { return p.model }
+
+// NewRunPageFromContext is a convenience constructor for the Home menu factory.
+// It calls EnsureEngine, generates a full (unfiltered) run plan, and returns a
+// RunPage ready to be pushed onto the navigation stack. The default concurrency
+// is 1 so the menu can always succeed without extra flags.
+func NewRunPageFromContext(ctx *AppContext) (*RunPage, error) {
+	eng, err := ctx.EnsureEngine()
+	if err != nil {
+		return nil, err
+	}
+	plan, err := eng.GenerateRunPlan(nil, nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	totalRuns := len(plan.Combinations)
+	return NewRunPage(ctx, eng, plan, 1, ctx.ConfigPath, totalRuns), nil
+}
