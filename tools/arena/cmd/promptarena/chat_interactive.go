@@ -17,6 +17,10 @@ func runChat(cmd *cobra.Command, _ []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 	useMock, _ := cmd.Flags().GetBool("mock-provider")
 	mockConfig, _ := cmd.Flags().GetString("mock-config")
+	useVoice, _ := cmd.Flags().GetBool("voice")
+	voiceSTT, _ := cmd.Flags().GetString("voice-stt")
+	voiceOutputVoice, _ := cmd.Flags().GetString("voice-output-voice")
+	echoGuard, _ := cmd.Flags().GetBool("echo-guard")
 
 	eng, err := engine.NewEngineFromConfigFile(configPath)
 	if err != nil {
@@ -37,6 +41,14 @@ func runChat(cmd *cobra.Command, _ []string) error {
 		Engine:     eng,
 		StateStore: eng.GetStateStore(),
 		Version:    GetVersion(),
+	}
+
+	if useVoice {
+		appCtx.Voice = &app.VoiceOptions{
+			STTProviderID: voiceSTT,
+			OutputVoice:   voiceOutputVoice,
+			EchoGuard:     echoGuard,
+		}
 	}
 
 	return app.Run(appCtx, app.NewChatPage(appCtx))

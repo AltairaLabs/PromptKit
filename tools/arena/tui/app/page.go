@@ -24,6 +24,14 @@ type Page interface {
 	SetSize(w, h int)
 }
 
+// VoiceOptions carries the voice-mode parameters parsed from CLI flags.
+// A nil *VoiceOptions on AppContext means text-chat mode.
+type VoiceOptions struct {
+	STTProviderID string // --voice-stt ("" = ASM/native realtime mode)
+	OutputVoice   string // --voice-output-voice
+	EchoGuard     bool   // --echo-guard
+}
+
 // AppContext carries the shared runtime dependencies injected into every Page
 // by the hub shell. Fields are set once at startup and then treated as
 // read-only by pages.
@@ -36,6 +44,7 @@ type AppContext struct {
 	StateStore statestore.Store
 	Engine     *engine.Engine
 	Version    string
+	Voice      *VoiceOptions // nil => text chat
 }
 
 // HasConfig reports whether a config has been loaded into this context.
