@@ -19,7 +19,8 @@ import (
 func Run(ctx *AppContext, root Page) error {
 	app := New(ctx, root)
 
-	// Push the splash on top so it is visible at startup and its Init fires.
+	// Splash is appended directly (not via push): it owns Init() at startup via App.Init().
+	// If a future top-of-stack startup page needs Activatable wiring, route it through push instead.
 	splash := NewSplash(ctx)
 	app.stack = append(app.stack, splash)
 

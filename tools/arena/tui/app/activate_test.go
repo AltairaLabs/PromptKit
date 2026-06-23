@@ -64,8 +64,8 @@ func TestActivatable_NonActivatablePageUnaffected(t *testing.T) {
 	child := &namedFakePage{name: "child"}
 	a.Update(PushPageMsg{Page: child})
 
-	if !a.atRoot() == false {
-		// atRoot should be false (child is on stack)
+	if a.atRoot() {
+		t.Fatal("expected stack depth > 1 after pushing a child page")
 	}
 	if a.top().Title() != "child" {
 		t.Fatalf("expected top page to be child, got %q", a.top().Title())
