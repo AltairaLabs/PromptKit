@@ -22,7 +22,7 @@ Speak naturally; the agent replies in voice. Press `q` or `Ctrl-C` to exit.
 
 - A `-tags voice` binary (`make build-arena-voice` or a `promptarena-voice-*` release binary).
 - PortAudio installed at runtime (`brew install portaudio` on macOS).
-- `OPENAI_API_KEY` (the agent uses `gpt-4o-realtime-preview`).
+- `OPENAI_API_KEY` (the agent uses `gpt-realtime`).
 - **Headphones** — the mic stays open the whole session; speaker audio feeds
   back into the mic without them. For laptop speakers add `--echo-guard`
   (best-effort).

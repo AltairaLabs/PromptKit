@@ -13,7 +13,7 @@
 //
 // Requirements:
 //   - OpenAI API key with Realtime API access
-//   - Model: gpt-4o-realtime-preview or gpt-4o-realtime-preview-2024-12-17
+//   - Model: gpt-realtime
 //
 // Run with:
 //
@@ -56,7 +56,7 @@ func main() {
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
 		"assistant",
-		sdk.WithModel("gpt-4o-realtime-preview"),
+		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{

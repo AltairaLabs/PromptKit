@@ -74,7 +74,7 @@ The default config uses text mock providers so the demo runs keyless. To run acr
    spec:
      id: openai-realtime
      type: openai
-     model: gpt-4o-realtime-preview
+     model: gpt-realtime
      audio_modality: true
    ```
 
