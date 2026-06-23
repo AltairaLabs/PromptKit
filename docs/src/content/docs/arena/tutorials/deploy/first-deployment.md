@@ -210,17 +210,17 @@ The deploy workflow follows a plan-apply pattern:
 promptarena deploy adapter install agentcore
 ```
 
-### Issue: no pack file found
+### Issue: pack file not found
 
-**Solution:** Compile your pack before deploying:
+`promptarena deploy` compiles the pack from `arena.yaml` automatically, so this usually only appears when you pass `--pack` pointing at a file that does not exist.
 
-```bash
-packc compile --config arena.yaml --output app.pack.json --id my-app
-```
-
-Or specify the pack file explicitly:
+**Solution:** Drop `--pack` to compile from `arena.yaml`, or point it at an existing pre-compiled pack:
 
 ```bash
+# Compile from arena.yaml (default)
+promptarena deploy --env production
+
+# Or deploy a pre-compiled pack
 promptarena deploy --pack app.pack.json
 ```
 

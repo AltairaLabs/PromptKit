@@ -151,10 +151,7 @@ Production uses different instance types and enables autoscaling as configured i
 When you update your pack, you can redeploy to a single environment:
 
 ```bash
-# Recompile after prompt changes
-packc compile --config arena.yaml --output app.pack.json --id my-app
-
-# Deploy updated pack to dev first
+# Deploy updated pack to dev first (recompiles from arena.yaml automatically)
 promptarena deploy --env dev
 
 # Plan will show updates instead of creates
