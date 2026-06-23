@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,38 +25,6 @@ Use --short/-s for quick validation-only output.`,
 }
 
 const (
-	indentedItemFormat  = "  - %s\n"
-	boxWidth            = 78
-	maxDescLength       = 55
-	maxDescLengthPrompt = 60
-	maxGoalsDisplayed   = 3
-	maxGoalLength       = 50
-	percentMultiplier   = 100
-
-	// Label constants for display output
-	labelFile        = "  File: "
-	labelDesc        = "  Desc: "
-	labelModel       = "  Model: "
-	labelTemperature = "  Temperature: "
-	labelMaxTok      = "  Max Tokens: "
-	labelTaskType    = "  Task Type: "
-	labelTask        = "  Task: "
-	labelVersion     = "  Version: "
-	labelVariables   = "  Variables: "
-	labelTools       = "  Tools: "
-	labelValidators  = "  Validators: "
-	labelMedia       = "  Media: "
-	labelMode        = "  Mode: "
-	labelParams      = "  Params: "
-	labelTimeout     = "  Timeout: "
-	labelFeatures    = "  Features: "
-	labelFlags       = "  Flags: "
-	labelProviders   = "  Providers: "
-	labelGoals       = "  Goals:"
-
-	// Format strings
-	entriesFormat = "%d entries"
-
 	// Section names
 	sectionValidation = "validation"
 )
@@ -150,10 +117,4 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 
 func emitConfigInspectValidationDiagnostics(configFile string) error {
 	return runValidationChecks(configFile, "auto", false, false)
-}
-
-func outputJSON(data *InspectionData) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
 }

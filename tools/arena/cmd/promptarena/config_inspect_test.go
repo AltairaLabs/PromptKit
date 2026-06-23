@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -355,7 +356,7 @@ func TestCollectCacheStats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := collectCacheStats(tt.cfg)
+			result := inspect.CollectCacheStats(tt.cfg)
 
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectedPromptSize, result.PromptCache.Size)
