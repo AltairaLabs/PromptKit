@@ -43,11 +43,8 @@ func NewHome(ctx *AppContext, items []menuItem) *Home {
 // Init implements Page. Home has no background commands to start.
 func (h *Home) Init() tea.Cmd { return nil }
 
-// Update implements Page. It handles cursor movement (up/down/j/k) and
-// selection (Enter). Disabled items are skipped during navigation and silently
-// ignored on Enter.
-//
-// 'c' config-switcher is wired in Task 6 (#1454).
+// Update implements Page. It handles cursor movement (up/down/j/k),
+// selection (Enter), and the 'c' key to open the config switcher.
 func (h *Home) Update(msg tea.Msg) (Page, tea.Cmd) {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -72,6 +69,10 @@ func (h *Home) Update(msg tea.Msg) (Page, tea.Cmd) {
 			h.cursor = h.prevEnabled(h.cursor)
 		case len(km.Runes) == 1 && km.Runes[0] == 'j':
 			h.cursor = h.nextEnabled(h.cursor)
+		case len(km.Runes) == 1 && km.Runes[0] == 'c':
+			startDir := configSwitcherStartDir(h.ctx)
+			p := NewConfigSwitchPage(h.ctx, startDir)
+			return h, func() tea.Msg { return PushPageMsg{Page: p} }
 		}
 	}
 	return h, nil
@@ -94,7 +95,6 @@ func (h *Home) View() string {
 	} else {
 		configLine = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.ColorGray)).
-			// 'c' switcher wired in Task 6 (#1454).
 			Render("no config — press c to pick, or run `promptarena init`")
 	}
 
@@ -195,4 +195,15 @@ func configName(path string) string {
 		return filepath.Base(path)
 	}
 	return dir
+}
+
+// configSwitcherStartDir returns the initial directory for the config switcher.
+// When a config is already loaded it uses that config's directory; otherwise ".".
+func configSwitcherStartDir(ctx *AppContext) string {
+	if ctx.ConfigPath != "" {
+		if dir := filepath.Dir(ctx.ConfigPath); dir != "" && dir != "." {
+			return dir
+		}
+	}
+	return "."
 }
