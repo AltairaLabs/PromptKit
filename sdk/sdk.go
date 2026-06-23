@@ -907,6 +907,72 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	return conv, nil
 }
 
+// ResumeDuplex loads an existing conversation from state storage and opens it as
+// a duplex (audio/realtime) conversation seeded with the persisted history.
+//
+// It is the duplex counterpart to [Resume]: where Resume restores a unary
+// conversation, ResumeDuplex restores a streaming voice conversation so a new
+// process (e.g. a fresh Kubernetes pod after disruption) can open a new provider
+// session that continues "with memory." The live provider socket cannot migrate,
+// so recovery means reconstructing context from durable state, not the socket.
+//
+//	store := statestore.NewRedisStore("redis://localhost:6379")
+//	conv, err := sdk.ResumeDuplex("session-123", "./chat.pack.json", "assistant",
+//	    sdk.WithStateStore(store),
+//	    sdk.WithProvider(realtimeProvider),
+//	)
+//	if errors.Is(err, sdk.ErrConversationNotFound) {
+//	    // No persisted state for this ID → start fresh
+//	    conv, _ = sdk.OpenDuplex("./chat.pack.json", "assistant",
+//	        sdk.WithStateStore(store),
+//	        sdk.WithProvider(realtimeProvider),
+//	        sdk.WithConversationID("session-123"),
+//	    )
+//	}
+//
+// ResumeDuplex requires a state store to be configured. If no state store is
+// provided, it returns [ErrNoStateStore]. If no persisted state exists for the
+// given conversationID, it returns [ErrConversationNotFound].
+//
+// The persisted message history is seeded into the duplex pipeline by the same
+// StateStore load stage that the unary path uses; no separate replay is needed.
+func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error) {
+	// Options are applied twice intentionally: first here to extract the state
+	// store for loading, then again inside OpenDuplex() for full initialization.
+	// This is safe because options are idempotent config setters.
+	cfg := &config{}
+	for _, opt := range opts {
+		if err := opt(cfg); err != nil {
+			return nil, fmt.Errorf("failed to apply option: %w", err)
+		}
+	}
+
+	if cfg.stateStore == nil {
+		return nil, ErrNoStateStore
+	}
+
+	// Try to load existing state
+	ctx := context.Background()
+	state, err := cfg.stateStore.Load(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load conversation state: %w", err)
+	}
+	if state == nil {
+		return nil, ErrConversationNotFound
+	}
+
+	// Open the duplex conversation with the loaded state.
+	// Add WithConversationID to preserve the original ID so the duplex pipeline's
+	// StateStore load stage seeds the persisted history.
+	opts = append(opts, WithConversationID(conversationID))
+	conv, err := OpenDuplex(packPath, promptName, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return conv, nil
+}
+
 // OpenComposition loads a pack and creates a Conversation that runs the named
 // composition directly (RFC 0010 function-mode surface).
 //

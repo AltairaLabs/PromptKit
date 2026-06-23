@@ -405,6 +405,107 @@ func TestResumeWithMockStateStore(t *testing.T) {
 	})
 }
 
+func TestResumeDuplexWithMockStateStore(t *testing.T) {
+	// Create a valid pack file
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {
+			"main": {
+				"system_template": "You are a helpful assistant."
+			}
+		}
+	}`
+	err := os.WriteFile(packFile, []byte(packContent), 0644)
+	require.NoError(t, err)
+
+	t.Run("no state store returns error", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		_, err := ResumeDuplex("conv-123", packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+		)
+		assert.ErrorIs(t, err, ErrNoStateStore)
+	})
+
+	t.Run("conversation not found", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		store := newMockStore()
+		_, err := ResumeDuplex("nonexistent", packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+			WithStateStore(store),
+		)
+		assert.ErrorIs(t, err, ErrConversationNotFound)
+	})
+
+	t.Run("state load error", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		store := newMockStore()
+		store.loadErr = errors.New("storage failure")
+		_, err := ResumeDuplex("conv-123", packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+			WithStateStore(store),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "storage failure")
+	})
+
+	t.Run("successful resume seeds duplex session", func(t *testing.T) {
+		mockProv := &mockStreamingProvider{}
+		store := newMockStore()
+		store.conversations["conv-123"] = &statestore.ConversationState{
+			ID: "conv-123",
+			Messages: []types.Message{
+				{Role: "user", Content: "earlier turn"},
+			},
+		}
+
+		conv, err := ResumeDuplex("conv-123", packFile, "main",
+			WithProvider(mockProv),
+			WithSkipSchemaValidation(),
+			WithStateStore(store),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, conv)
+		defer conv.Close()
+		assert.Equal(t, "conv-123", conv.ID())
+		assert.Equal(t, DuplexMode, conv.mode)
+		assert.NotNil(t, conv.duplexSession)
+		assert.Nil(t, conv.unarySession)
+	})
+
+	t.Run("fails with non-streaming provider", func(t *testing.T) {
+		store := newMockStore()
+		store.conversations["conv-123"] = &statestore.ConversationState{
+			ID: "conv-123",
+		}
+		_, err := ResumeDuplex("conv-123", packFile, "main",
+			WithProvider(&mockProvider{}),
+			WithSkipSchemaValidation(),
+			WithStateStore(store),
+		)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support duplex streaming")
+	})
+
+	t.Run("resume with option error", func(t *testing.T) {
+		store := newMockStore()
+		store.conversations["conv-123"] = &statestore.ConversationState{
+			ID: "conv-123",
+		}
+		_, err := ResumeDuplex("conv-123", packFile, "main",
+			WithSkipSchemaValidation(),
+			WithStateStore(store),
+			func(c *config) error { return errors.New("option error") },
+		)
+		assert.Error(t, err)
+	})
+}
+
 func TestApplyOptions(t *testing.T) {
 	t.Run("empty options", func(t *testing.T) {
 		cfg, err := applyOptions("test-prompt", nil)
