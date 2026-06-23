@@ -214,5 +214,7 @@ func NewRunPageFromContext(ctx *AppContext) (*RunPage, error) {
 		return nil, err
 	}
 	totalRuns := len(plan.Combinations)
+	// Concurrency 1 keeps runs sequential so the user can interrupt without
+	// losing intermediate output — contrast with the CLI's params.Concurrency.
 	return NewRunPage(ctx, eng, plan, 1, ctx.ConfigPath, totalRuns), nil
 }

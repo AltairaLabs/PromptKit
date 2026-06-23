@@ -178,3 +178,19 @@ func TestPlaceholder_SetSize(t *testing.T) {
 		t.Fatalf("SetSize(120,40): got w=%d h=%d", ph.w, ph.h)
 	}
 }
+
+// TestDefaultMenu_RunItemFallsBackToPlaceholderOnError verifies that the Run
+// item's make() returns a *placeholder when the AppContext has no config loaded
+// (so EnsureEngine errors) rather than a *RunPage.
+func TestDefaultMenu_RunItemFallsBackToPlaceholderOnError(t *testing.T) {
+	ctx := &AppContext{Version: "vTEST"} // no config loaded → EnsureEngine will error
+	items := DefaultMenu(ctx)
+	// Run is items[1].
+	p := items[1].make(ctx)
+	if p == nil {
+		t.Fatal("make() returned nil, expected *placeholder")
+	}
+	if _, ok := p.(*placeholder); !ok {
+		t.Fatalf("expected *placeholder error fallback, got %T", p)
+	}
+}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -806,6 +807,121 @@ func TestGoldenChatPage_Setup(t *testing.T) {
 	p.state = chatStateSelectAgent
 	out := stripANSI(p.View())
 	teatest.RequireEqualOutput(t, []byte(out))
+}
+
+// TestChatPage_PanelRoundtrip verifies ConversationPanel can be created and
+// rendered without data without panicking.
+func TestChatPage_PanelRoundtrip(t *testing.T) {
+	p := NewChatPage(&AppContext{Version: "vTEST"})
+	p.SetSize(80, 24)
+	_ = p.View()
+}
+
+// TestChatPage_HandleStreamDone_RunEvalsTrue verifies that when runEvals is
+// true, handleStreamDone returns a non-nil tea.Cmd (the eval runner cmd), and
+// when runEvals is false it returns nil.
+func TestChatPage_HandleStreamDone_RunEvalsTrue(t *testing.T) {
+	fixturePath := filepath.Join("testdata", "chat-config", "config.arena.yaml")
+	ctx := &AppContext{Version: "vTEST"}
+	if err := ctx.LoadConfig(fixturePath); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	p := NewChatPage(ctx)
+	_ = p.Activate(func(tea.Msg) {})
+	_ = p.Init()
+	p.SetSize(80, 24)
+	if p.session == nil {
+		t.Fatal("expected session to be initialized after Init with single-agent fixture")
+	}
+	p.runEvals = true
+	cmd := p.handleStreamDone()
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from handleStreamDone when runEvals=true")
+	}
+	p2 := NewChatPage(ctx)
+	_ = p2.Activate(func(tea.Msg) {})
+	_ = p2.Init()
+	p2.SetSize(80, 24)
+	p2.runEvals = false
+	cmd2 := p2.handleStreamDone()
+	if cmd2 != nil {
+		t.Fatal("expected nil cmd from handleStreamDone when runEvals=false")
+	}
+}
+
+// TestChatPage_NoDuplication verifies that after two turns the panel content
+// matches the state store exactly — SetData replaces, never accumulates event
+// appends, so each message appears at most twice (table row + detail pane).
+func TestChatPage_NoDuplication(t *testing.T) {
+	fixturePath := filepath.Join("testdata", "chat-config", "config.arena.yaml")
+	ctx := &AppContext{Version: "vTEST"}
+	if err := ctx.LoadConfig(fixturePath); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	p := NewChatPage(ctx)
+	_ = p.Activate(func(tea.Msg) {})
+	_ = p.Init()
+	p.SetSize(120, 40)
+	if p.session == nil {
+		t.Fatal("expected session to be initialized after Init with single-agent fixture")
+	}
+	ch, err := p.session.SendUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("SendUserMessage turn 1: %v", err)
+	}
+	for range ch {
+	}
+	p.handleStreamDone()
+	ch2, err := p.session.SendUserMessage(context.Background(), "world")
+	if err != nil {
+		t.Fatalf("SendUserMessage turn 2: %v", err)
+	}
+	for range ch2 {
+	}
+	p.handleStreamDone()
+	view := stripANSI(p.View())
+	helloCount := strings.Count(view, "hello")
+	if helloCount == 0 {
+		t.Fatal("expected 'hello' to appear in panel view")
+	}
+	if helloCount > 2 {
+		t.Fatalf("message 'hello' appears %d times — duplication detected (want ≤2)", helloCount)
+	}
+}
+
+// TestChatPage_AutoScrollsToLast verifies that after handleStreamDone the panel
+// selection is on the last message, not the first.
+func TestChatPage_AutoScrollsToLast(t *testing.T) {
+	fixturePath := filepath.Join("testdata", "chat-config", "config.arena.yaml")
+	ctx := &AppContext{Version: "vTEST"}
+	if err := ctx.LoadConfig(fixturePath); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	p := NewChatPage(ctx)
+	_ = p.Activate(func(tea.Msg) {})
+	_ = p.Init()
+	p.SetSize(120, 40)
+	if p.session == nil {
+		t.Fatal("expected session to be initialized after Init with single-agent fixture")
+	}
+	ch, err := p.session.SendUserMessage(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("SendUserMessage: %v", err)
+	}
+	for range ch {
+	}
+	p.handleStreamDone()
+	msgs, err := p.session.Messages(context.Background())
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) < 2 {
+		t.Fatalf("expected ≥2 messages after a turn, got %d", len(msgs))
+	}
+	want := len(msgs) - 1
+	if p.panel.SelectedTurnIdx() != want {
+		t.Fatalf("expected selectedTurnIdx=%d (last), got %d", want, p.panel.SelectedTurnIdx())
+	}
 }
 
 // Compile-time assert: textinput.Blink is a tea.Cmd (verifies import compiles).
