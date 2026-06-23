@@ -17,8 +17,13 @@ const (
 	pcmBytesPerSample = 2
 	// pcmMaxAmplitude is the maximum amplitude for 16-bit signed audio.
 	pcmMaxAmplitude = 32768.0
-	// maxExpectedRMS is the expected maximum RMS for voice audio.
-	maxExpectedRMS = 0.5
+	// maxExpectedRMS is the RMS (normalized 0..1) at which speech maps to full
+	// confidence. Measured 16 kHz PCM16 speech sits around 0.08–0.11 RMS (peaks
+	// ~0.7), so the previous value of 0.5 mapped normal speech to only ~0.18
+	// probability — below the 0.5 confidence gate — and the VAD never detected
+	// speech. Calibrated to 0.1 so typical speech saturates above the gate while
+	// background/silence (RMS < ~0.04) stays below it.
+	maxExpectedRMS = 0.1
 )
 
 // SimpleVAD is a basic voice activity detector using RMS (Root Mean Square) analysis.
