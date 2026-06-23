@@ -95,6 +95,7 @@ type Model struct {
 
 	// audioMonitor lets the model switch host playback between concurrent
 	// runs. Nil when audio monitoring is disabled or unavailable.
+	// Retained pending hub audio re-wire — see AltairaLabs/PromptKit#1460.
 	audioMonitor audioMonitor
 }
 
@@ -841,6 +842,7 @@ func (m *Model) SetStateStore(store runResultStorer) {
 
 // SetAudioMonitor attaches an audio monitor so the TUI can re-route host
 // playback when the user navigates between concurrent runs. Nil-safe.
+// Retained pending hub audio re-wire — see AltairaLabs/PromptKit#1460.
 func (m *Model) SetAudioMonitor(monitor audioMonitor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

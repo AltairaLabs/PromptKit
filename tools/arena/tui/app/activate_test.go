@@ -8,11 +8,13 @@ import (
 )
 
 // fakeActivatable is a Page that also implements Activatable. It records
-// whether Activate was called and stores the send func it received.
+// whether Activate was called, how many times it was called, and stores the
+// send func it received.
 type fakeActivatable struct {
-	name         string
-	activated    bool
-	receivedSend func(tea.Msg)
+	name          string
+	activated     bool
+	activateCount int
+	receivedSend  func(tea.Msg)
 }
 
 func (f *fakeActivatable) Init() tea.Cmd                  { return nil }
@@ -22,6 +24,7 @@ func (f *fakeActivatable) Title() string                  { return f.name }
 func (f *fakeActivatable) SetSize(_, _ int)               {}
 func (f *fakeActivatable) Activate(send func(tea.Msg)) tea.Cmd {
 	f.activated = true
+	f.activateCount++
 	f.receivedSend = send
 	return nil
 }
@@ -115,4 +118,76 @@ func TestActivatable_NilSendFallback(t *testing.T) {
 	}
 	// Calling the no-op must not panic.
 	root.receivedSend(tea.KeyMsg{})
+}
+
+// TestActivatable_PopActivatesRoot verifies the linchpin of the RunPage
+// activation flow: when a non-Activatable page (e.g. a splash) sits on top of
+// an Activatable root (e.g. RunPage) and is popped, the root's Activate fires
+// exactly once with the App's send func.
+//
+// This mirrors the pattern used at launch:
+//
+//	stack = [RunPage (Activatable), splash (non-Activatable)]
+//	→ PopPageMsg dismisses splash → RunPage.Activate called once
+func TestActivatable_PopActivatesRoot(t *testing.T) {
+	root := &fakeActivatable{name: "run-page"}
+	a := New(&AppContext{}, root)
+
+	var sentCount int64
+	sentinel := func(tea.Msg) { atomic.AddInt64(&sentCount, 1) }
+	a.SetSend(sentinel)
+
+	// Push a plain (non-Activatable) page on top — mimics a splash screen.
+	splash := &namedFakePage{name: "splash"}
+	a.Update(PushPageMsg{Page: splash})
+
+	// Root must NOT have been activated yet (only the pushed page's Activate
+	// fires on push, and splash is not Activatable).
+	if root.activated {
+		t.Fatal("root should not be activated before pop")
+	}
+
+	// Pop the splash — the root is now top and must be activated.
+	a.Update(PopPageMsg{})
+
+	if !root.activated {
+		t.Fatal("expected root Activate to fire after pop")
+	}
+	if root.activateCount != 1 {
+		t.Fatalf("expected Activate called exactly once, got %d", root.activateCount)
+	}
+	if root.receivedSend == nil {
+		t.Fatal("expected root to receive a non-nil send func")
+	}
+
+	// Verify the delivered send is the sentinel.
+	root.receivedSend(tea.KeyMsg{})
+	if atomic.LoadInt64(&sentCount) != 1 {
+		t.Fatalf("expected sentCount=1, got %d", atomic.LoadInt64(&sentCount))
+	}
+}
+
+// TestActivatable_PopDoesNotReActivateRoot verifies idempotency: if the root
+// was already activated (e.g. via Init), a subsequent pop that reveals it again
+// must NOT call Activate a second time.
+func TestActivatable_PopDoesNotReActivateRoot(t *testing.T) {
+	root := &fakeActivatable{name: "run-page"}
+	a := New(&AppContext{}, root)
+	a.SetSend(func(tea.Msg) {})
+
+	// Activate the root via Init (simulates direct root activation path).
+	a.Init()
+	if root.activateCount != 1 {
+		t.Fatalf("expected 1 activation after Init, got %d", root.activateCount)
+	}
+
+	// Push a non-Activatable overlay then pop it — root is revealed again.
+	splash := &namedFakePage{name: "splash"}
+	a.Update(PushPageMsg{Page: splash})
+	a.Update(PopPageMsg{})
+
+	// Count must still be 1 — idempotency set blocks the second activation.
+	if root.activateCount != 1 {
+		t.Fatalf("expected activateCount to remain 1 after re-reveal, got %d", root.activateCount)
+	}
 }
