@@ -151,10 +151,7 @@ When you update a pack and redeploy, the adapter receives the prior state and ca
 # Update your prompt
 vim prompts/greeting.yaml
 
-# Recompile
-packc compile --config arena.yaml --output app.pack.json --id my-app
-
-# Plan shows updates
+# Plan shows updates (deploy recompiles from arena.yaml automatically)
 promptarena deploy plan --env production
 
 # Apply updates
