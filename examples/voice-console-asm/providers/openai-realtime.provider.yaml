@@ -15,7 +15,10 @@ metadata:
 spec:
   id: openai-realtime
   type: openai
-  model: gpt-4o-realtime-preview
+  # gpt-realtime is the GA realtime model (the older gpt-4o-realtime-preview
+  # was removed from the API in 2026). gpt-realtime-2 is the newer, most-capable
+  # option if your account has access.
+  model: gpt-realtime
   defaults:
     temperature: 0.7
     top_p: 1.0
