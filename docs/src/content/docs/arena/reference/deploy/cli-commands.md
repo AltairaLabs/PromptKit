@@ -45,7 +45,7 @@ promptarena deploy --env production
 promptarena deploy --pack dist/app.pack.json
 
 # Deploy with custom config
-promptarena deploy --config deploy.yaml --env staging
+promptarena deploy --config staging.arena.yaml --env staging
 ```
 
 **Process:**

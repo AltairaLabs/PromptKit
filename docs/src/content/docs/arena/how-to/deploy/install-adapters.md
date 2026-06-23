@@ -12,15 +12,22 @@ Install, list, and remove deploy adapter plugins.
 
 ## Install an Adapter
 
-Install an adapter from the default registry:
+Install the Omnia adapter (the primary Altaira platform target) from the default registry:
 
 ```bash
-promptarena deploy adapter install agentcore
+promptarena deploy adapter install omnia
 ```
 
 Install a specific version:
 
 ```bash
+promptarena deploy adapter install omnia@1.0.0
+```
+
+Or install the AWS Bedrock AgentCore adapter instead:
+
+```bash
+promptarena deploy adapter install agentcore
 promptarena deploy adapter install agentcore@0.2.0
 ```
 
@@ -28,7 +35,7 @@ promptarena deploy adapter install agentcore@0.2.0
 
 1. The CLI looks up the adapter in the built-in registry
 2. Downloads the binary from the adapter's GitHub Releases for your OS and architecture
-3. Installs it to `~/.promptarena/adapters/promptarena-deploy-agentcore`
+3. Installs it to `~/.promptarena/adapters/promptarena-deploy-{provider}` (e.g. `promptarena-deploy-omnia`)
 4. Sets executable permissions (0755)
 
 ### Download URL Format
@@ -42,7 +49,7 @@ https://github.com/{repo}/releases/download/v{version}/promptarena-deploy-{provi
 For example, on macOS ARM64:
 
 ```
-https://github.com/AltairaLabs/promptarena-deploy-agentcore/releases/download/v0.2.0/promptarena-deploy-agentcore_darwin_arm64
+https://github.com/AltairaLabs/PromptArena-deploy-omnia/releases/download/v1.0.0/promptarena-deploy-omnia_darwin_arm64
 ```
 
 ## List Installed Adapters
@@ -57,6 +64,7 @@ promptarena deploy adapter list
 
 ```
 Installed adapters:
+  omnia      ~/.promptarena/adapters/promptarena-deploy-omnia
   agentcore  ~/.promptarena/adapters/promptarena-deploy-agentcore
 ```
 
@@ -70,7 +78,7 @@ The list command searches two locations:
 Remove an installed adapter:
 
 ```bash
-promptarena deploy adapter remove agentcore
+promptarena deploy adapter remove omnia
 ```
 
 This removes the binary from `~/.promptarena/adapters/`.
@@ -112,6 +120,7 @@ chmod 755 .promptarena/adapters/promptarena-deploy-myprovider
 
 | Adapter | Provider | Description |
 |---------|----------|-------------|
+| `omnia` | Omnia Kubernetes platform | Deploy to the Altaira Omnia workspace (PromptPack, AgentRuntime, ToolRegistry CRDs) |
 | `agentcore` | AWS Bedrock AgentCore | Deploy to AWS Bedrock AgentCore |
 
 ## Verification
@@ -141,7 +150,7 @@ ls -la ~/.promptarena/adapters/
 Fix executable permissions:
 
 ```bash
-chmod 755 ~/.promptarena/adapters/promptarena-deploy-agentcore
+chmod 755 ~/.promptarena/adapters/promptarena-deploy-omnia
 ```
 
 ### Wrong architecture
@@ -149,8 +158,8 @@ chmod 755 ~/.promptarena/adapters/promptarena-deploy-agentcore
 If you see exec format errors, the binary was built for a different OS/architecture. Reinstall:
 
 ```bash
-promptarena deploy adapter remove agentcore
-promptarena deploy adapter install agentcore
+promptarena deploy adapter remove omnia
+promptarena deploy adapter install omnia
 ```
 
 ## See Also

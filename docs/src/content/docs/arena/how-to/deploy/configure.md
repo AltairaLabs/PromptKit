@@ -13,13 +13,14 @@ Set up the deploy section in arena.yaml to target a cloud provider.
 
 ## Basic Configuration
 
-Add a `deploy` section to your arena.yaml:
+Add a `deploy` section to your arena.yaml. Lead with the Omnia provider (the primary Altaira platform target):
 
 ```yaml
 deploy:
-  provider: agentcore
+  provider: omnia
   config:
-    region: us-west-2
+    api_endpoint: https://omnia.example.com
+    workspace: my-workspace
 ```
 
 | Field | Required | Description |
@@ -32,7 +33,45 @@ deploy:
 
 The `config` section is opaque to the CLI — its contents are defined by each adapter. Check your adapter's documentation for supported fields.
 
-Example for the agentcore adapter:
+### Omnia
+
+The Omnia adapter targets an Altaira Omnia Kubernetes workspace. It needs the workspace API endpoint, the workspace name, an API token, and the provider bindings to wire into the deployed `AgentRuntime`:
+
+```yaml
+deploy:
+  provider: omnia
+  config:
+    api_endpoint: https://omnia.example.com
+    workspace: my-workspace
+    api_token: ${OMNIA_API_TOKEN}        # or export OMNIA_API_TOKEN
+    providers:
+      - { name: default,    ref: claude-prod,  role: llm }
+      - { name: embeddings, ref: text-embed-3, role: embedding }
+    runtime:
+      replicas: 2
+      autoscaling:
+        enabled: true
+        type: hpa                        # hpa | keda (keda enables scale-to-zero)
+        min_replicas: 2
+        max_replicas: 10
+    labels:
+      team: platform
+```
+
+Key Omnia config fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `api_endpoint` | Yes | Omnia workspace API base URL |
+| `workspace` | Yes | Omnia workspace name (lowercase alphanumeric + hyphens) |
+| `api_token` | No | `omnia_sk_` bearer token (or set `OMNIA_API_TOKEN`) |
+| `providers` | Yes | Role-aware bindings `[{name, ref, role}]` (roles: `llm`, `embedding`, `tts`, `stt`, `image`, `inference`) |
+| `runtime` | No | Replica count, resource requests, and HPA/KEDA autoscaling passthrough |
+| `labels` | No | Extra labels merged onto every created resource |
+
+### AgentCore
+
+The AWS Bedrock AgentCore adapter targets an AWS account and region:
 
 ```yaml
 deploy:
@@ -121,22 +160,32 @@ promptarena deploy --pack dist/app.pack.json
 
 ## Specifying the Config File
 
-By default, the CLI looks for `arena.yaml`. To use a different file:
+By default, the CLI looks for `arena.yaml` (no `--config` flag needed). To use a different file:
 
 ```bash
-promptarena deploy --config deploy.yaml
+promptarena deploy --config staging.arena.yaml
 ```
 
 ## Minimal Example
 
-The simplest possible deploy configuration:
+The simplest possible Omnia deploy configuration:
+
+```yaml
+deploy:
+  provider: omnia
+  config:
+    api_endpoint: https://omnia.example.com
+    workspace: my-workspace
+    providers:
+      - { name: default, ref: claude-prod, role: llm }
+```
+
+The equivalent for AgentCore, using the adapter's defaults and the `"default"` environment:
 
 ```yaml
 deploy:
   provider: agentcore
 ```
-
-This uses the adapter's defaults with no custom config and the `"default"` environment.
 
 ## Complete Example
 
@@ -179,7 +228,7 @@ Ensure your arena.yaml has a `deploy` key at the top level:
 
 ```yaml
 deploy:
-  provider: agentcore
+  provider: omnia
 ```
 
 ### Error: provider required
@@ -191,7 +240,7 @@ The `provider` field is mandatory. Add it to your deploy config.
 The CLI can't find a binary named `promptarena-deploy-{provider}`. Install the adapter:
 
 ```bash
-promptarena deploy adapter install agentcore
+promptarena deploy adapter install omnia
 ```
 
 ## See Also
