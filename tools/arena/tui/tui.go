@@ -1,20 +1,21 @@
 // Package tui provides a terminal user interface for PromptArena execution monitoring.
 // It implements a multi-pane display showing active runs, metrics, and logs in real-time.
+//
+// The model renders the live 3-pane run view (runs / logs / result). Page
+// navigation (conversation drill-down, file browsing) is owned by the hub
+// shell (tui/app): the model exposes the run the user selected via
+// TakeSelectedRun so the hub can push a conversation page onto its stack.
 package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
@@ -52,20 +53,12 @@ const (
 	paneResult
 )
 
-type page int
-
-const (
-	pageMain page = iota
-	pageConversation
-	pageFileBrowser
-)
-
 // runResultStorer is a minimal interface to retrieve run results from the state store.
 type runResultStorer interface {
 	GetResult(ctx context.Context, runID string) (*statestore.RunResult, error)
 }
 
-// Model represents the bubbletea application state
+// Model represents the bubbletea application state for the live run view.
 type Model struct {
 	mu sync.Mutex
 
@@ -92,27 +85,13 @@ type Model struct {
 
 	activePane pane
 
-	// Page components
-	mainPage         *pages.MainPage
-	conversationPage *pages.ConversationPage
-	fileBrowserPage  *pages.FileBrowserPage
+	// mainPage renders the live 3-pane view (runs / logs / result).
+	mainPage *pages.MainPage
 
-	currentPage page
-
-	// Cache of system prompts by conversation ID for when user navigates to conversation page
-	systemPrompts map[string]string
-
-	// Cache of messages by conversation ID for running conversations
-	// This allows real-time message accumulation regardless of which page is displayed
-	conversationMessages map[string][]types.Message
-
-	// Audio level meter state. audioActive is set on the first AudioLevelMsg
-	// (i.e. on duplex runs only) and gates rendering of the level meter in
-	// the conversation panel. Reset when a new run starts so stale levels
-	// from a prior run never display.
-	userAudioLevel  float32
-	agentAudioLevel float32
-	audioActive     bool
+	// selectedRunID is set when the user presses Enter on the runs pane to
+	// drill into a run. The hub consumes it via TakeSelectedRun and pushes a
+	// conversation page; the model itself never switches pages.
+	selectedRunID string
 
 	// audioMonitor lets the model switch host playback between concurrent
 	// runs. Nil when audio monitoring is disabled or unavailable.
@@ -219,81 +198,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
-	case MessageCreatedMsg:
-		m.mu.Lock()
-		m.handleMessageCreated(&msg)
-		m.mu.Unlock()
-		return m, nil
-
-	case MessageUpdatedMsg:
-		m.mu.Lock()
-		m.handleMessageUpdated(&msg)
-		m.mu.Unlock()
-		return m, nil
-
-	case ConversationStartedMsg:
-		m.mu.Lock()
-		m.handleConversationStarted(&msg)
-		m.mu.Unlock()
-		return m, nil
-
-	case AudioLevelMsg:
-		m.mu.Lock()
-		m.userAudioLevel = msg.UserLevel
-		m.agentAudioLevel = msg.AgentLevel
-		m.audioActive = true
-		if m.conversationPage != nil {
-			if panel := m.conversationPage.Panel(); panel != nil {
-				panel.SetAudioLevels(msg.UserLevel, msg.AgentLevel, true)
-			}
-		}
-		m.mu.Unlock()
-		return m, nil
-
 	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
 		m.mu.Unlock()
 		return m, nil
-
-	case pages.FileSelectedMsg:
-		m.mu.Lock()
-		m.handleFileSelected(msg)
-		m.mu.Unlock()
-		return m, nil
 	}
 
 	return m, nil
-}
-
-// handleFileSelected loads a result file chosen in the file browser and opens
-// the conversation view for it. On failure it logs and stays on the browser so
-// the user can pick another file. Caller must hold m.mu.
-func (m *Model) handleFileSelected(msg pages.FileSelectedMsg) {
-	data, err := os.ReadFile(msg.Path)
-	if err != nil {
-		m.logError(fmt.Sprintf("failed to read %s: %v", msg.Path, err))
-		return
-	}
-	var res statestore.RunResult
-	if uerr := json.Unmarshal(data, &res); uerr != nil {
-		m.logError(fmt.Sprintf("invalid result file %s: %v", msg.Path, uerr))
-		return
-	}
-	runID := res.RunID
-	if runID == "" {
-		runID = msg.RunID
-	}
-	m.conversationPage.Reset()
-	m.conversationPage.SetData(runID, res.ScenarioID, res.ProviderID, &res)
-	m.currentPage = pageConversation
-	m.activePane = paneRuns
-}
-
-// logError appends an error-level entry to the log buffer. Caller must hold m.mu.
-func (m *Model) logError(message string) {
-	m.logs = append(m.logs, LogEntry{Level: logLevelError, Message: message})
-	m.trimLogs()
 }
 
 // handleRunStarted processes a run started event from the observer.
@@ -308,16 +220,6 @@ func (m *Model) handleRunStarted(msg *RunStartedMsg) {
 		Status:    StatusRunning,
 		StartTime: msg.Time,
 	})
-
-	// Reset audio meter state so stale levels from a prior run don't display.
-	m.userAudioLevel = 0
-	m.agentAudioLevel = 0
-	m.audioActive = false
-	if m.conversationPage != nil {
-		if panel := m.conversationPage.Panel(); panel != nil {
-			panel.SetAudioLevels(0, 0, false)
-		}
-	}
 
 	// Log the event
 	m.logs = append(m.logs, LogEntry{
@@ -357,27 +259,6 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 		Message:   fmt.Sprintf("Completed: %s (%.1fs, $%.4f)", msg.RunID, msg.Duration.Seconds(), msg.Cost),
 	})
 	m.trimLogs()
-
-	// If the user is currently viewing this run's conversation page, reload
-	// the panel from the state store now that the run has finished. Without
-	// this the panel sticks on "Waiting for conversation to start..." because
-	// initializeConversationData only runs on selection toggle.
-	if m.currentPage == pageConversation {
-		if selected := m.selectedRun(); selected != nil && selected.RunID == msg.RunID {
-			m.initializeConversationData(selected)
-		}
-	}
-
-	// Clean up cached messages for this run (state store now has the data)
-	if m.conversationMessages != nil {
-		delete(m.conversationMessages, msg.RunID)
-	}
-	// Also clean up system prompt cache
-	if m.systemPrompts != nil {
-		delete(m.systemPrompts, msg.RunID)
-	}
-
-	// Remove from active runs after a brief display (keep for visual feedback)
 }
 
 // handleRunFailed processes a run failed event from the observer.
@@ -415,14 +296,6 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 		Message:   fmt.Sprintf("Failed: %s - %s", msg.RunID, errStr),
 	})
 	m.trimLogs()
-
-	// Clean up cached messages for this run
-	if m.conversationMessages != nil {
-		delete(m.conversationMessages, msg.RunID)
-	}
-	if m.systemPrompts != nil {
-		delete(m.systemPrompts, msg.RunID)
-	}
 }
 
 // handleTurnStarted updates the run with turn information.
@@ -471,129 +344,6 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 	m.trimLogs()
 }
 
-// handleMessageCreated processes a message.created event for real-time conversation updates
-func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
-	logger.Debug("MessageCreatedMsg received",
-		"conversation_id", msg.ConversationID,
-		"role", msg.Role,
-		"index", msg.Index,
-		"current_page", m.currentPage)
-
-	// Convert message data to types.Message
-	var toolCalls []types.MessageToolCall
-	for _, tc := range msg.ToolCalls {
-		toolCalls = append(toolCalls, types.MessageToolCall{
-			ID:   tc.ID,
-			Name: tc.Name,
-			Args: json.RawMessage(tc.Args),
-		})
-	}
-	var toolResult *types.MessageToolResult
-	if msg.ToolResult != nil {
-		partsCopy := make([]types.ContentPart, len(msg.ToolResult.Parts))
-		copy(partsCopy, msg.ToolResult.Parts)
-		toolResult = &types.MessageToolResult{
-			ID:        msg.ToolResult.ID,
-			Name:      msg.ToolResult.Name,
-			Parts:     partsCopy,
-			Error:     msg.ToolResult.Error,
-			LatencyMs: msg.ToolResult.LatencyMs,
-		}
-	}
-	newMsg := types.Message{
-		Role:       msg.Role,
-		Content:    msg.Content,
-		Timestamp:  msg.Time,
-		ToolCalls:  toolCalls,
-		ToolResult: toolResult,
-	}
-
-	// Always cache the message for this conversation (regardless of current page/selection)
-	if m.conversationMessages == nil {
-		m.conversationMessages = make(map[string][]types.Message)
-	}
-	m.conversationMessages[msg.ConversationID] = append(m.conversationMessages[msg.ConversationID], newMsg)
-	logger.Debug("Message cached",
-		"conversation_id", msg.ConversationID,
-		"total_cached", len(m.conversationMessages[msg.ConversationID]))
-
-	// Also update the panel if we're viewing this conversation
-	if m.currentPage == pageConversation {
-		selected := m.selectedRun()
-		if selected != nil && selected.RunID == msg.ConversationID {
-			if m.conversationPage != nil {
-				panel := m.conversationPage.Panel()
-				if panel != nil {
-					panel.AppendMessage(&newMsg)
-					logger.Debug("Message appended to conversation panel",
-						"tool_calls", len(toolCalls),
-						"has_tool_result", toolResult != nil)
-				}
-			}
-		}
-	}
-}
-
-// handleConversationStarted processes a conversation.started event to set the system prompt
-func (m *Model) handleConversationStarted(msg *ConversationStartedMsg) {
-	logger.Debug("ConversationStartedMsg received",
-		"conversation_id", msg.ConversationID)
-
-	// Store the system prompt for this conversation so it can be displayed
-	// when the user navigates to the conversation page
-	if m.conversationPage != nil {
-		panel := m.conversationPage.Panel()
-		if panel != nil && !panel.HasSystemPrompt() {
-			// Check if this is for the currently selected run
-			selected := m.selectedRun()
-			if selected != nil && selected.RunID == msg.ConversationID {
-				newMsg := types.Message{
-					Role:      "system",
-					Content:   msg.SystemPrompt,
-					Timestamp: msg.Time,
-				}
-				panel.PrependSystemPrompt(&newMsg)
-				logger.Debug("System prompt set from conversation.started event")
-			}
-		}
-	}
-
-	// Also store in a map for later use when user navigates to conversation page
-	if m.systemPrompts == nil {
-		m.systemPrompts = make(map[string]string)
-	}
-	m.systemPrompts[msg.ConversationID] = msg.SystemPrompt
-}
-
-// handleMessageUpdated processes a message.updated event for cost/latency updates
-func (m *Model) handleMessageUpdated(msg *MessageUpdatedMsg) {
-	logger.Debug("MessageUpdatedMsg received",
-		"conversation_id", msg.ConversationID,
-		"index", msg.Index)
-
-	// Only update if we're viewing the conversation page and the message is for the selected run
-	if m.currentPage != pageConversation {
-		return
-	}
-
-	selected := m.selectedRun()
-	if selected == nil || selected.RunID != msg.ConversationID {
-		return
-	}
-
-	if m.conversationPage != nil {
-		panel := m.conversationPage.Panel()
-		if panel != nil {
-			costInfo := types.CostInfo{
-				InputTokens:  msg.InputTokens,
-				OutputTokens: msg.OutputTokens,
-				TotalCost:    msg.TotalCost,
-			}
-			panel.UpdateMessageMetadata(msg.Index, msg.LatencyMs, costInfo)
-		}
-	}
-}
-
 // handleLogMsg processes a log message from the interceptor
 func (m *Model) handleLogMsg(msg *logging.Msg) {
 	m.logs = append(m.logs, LogEntry{
@@ -616,7 +366,7 @@ func (m *Model) trimLogs() {
 	}
 }
 
-// View renders the TUI
+// View renders the live 3-pane run view.
 func (m *Model) View() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -624,31 +374,19 @@ func (m *Model) View() string {
 	if !m.isTUIMode {
 		return ""
 	}
+	if m.width == 0 || m.height == 0 {
+		return "Loading..."
+	}
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
-	// Get key bindings based on current page
-	var keyBindings []views.KeyBinding
-	switch m.currentPage {
-	case pageConversation:
-		keyBindings = []views.KeyBinding{
-			{Keys: "q", Description: "quit"},
-			{Keys: "esc", Description: "back"},
-			{Keys: "tab", Description: "focus turns/detail"},
-			{Keys: "↑/↓", Description: "navigate"},
-		}
-	case pageFileBrowser:
-		keyBindings = m.fileBrowserPage.GetKeyBindings()
-	case pageMain:
-		keyBindings = []views.KeyBinding{
-			{Keys: "q", Description: "quit"},
-			{Keys: "tab", Description: "cycle focus"},
-			{Keys: "enter", Description: "open conversation"},
-			{Keys: "f", Description: "browse results"},
-			{Keys: "ctrl+←↑↓→", Description: "resize"},
-			{Keys: "z", Description: "collapse"},
-			{Keys: "↑/↓", Description: "navigate/scroll"},
-		}
+	keyBindings := []views.KeyBinding{
+		{Keys: "q", Description: "quit"},
+		{Keys: "tab", Description: "cycle focus"},
+		{Keys: "enter", Description: "open conversation"},
+		{Keys: "ctrl+←↑↓→", Description: "resize"},
+		{Keys: "z", Description: "collapse"},
+		{Keys: "↑/↓", Description: "navigate/scroll"},
 	}
 
 	return views.RenderWithChrome(
@@ -662,16 +400,7 @@ func (m *Model) View() string {
 			KeyBindings:    keyBindings,
 		},
 		func(contentHeight int) string {
-			switch m.currentPage {
-			case pageConversation:
-				return m.renderConversationPage(contentHeight)
-			case pageFileBrowser:
-				return m.renderFileBrowserPage(contentHeight)
-			case pageMain:
-				return m.renderMainPage(contentHeight)
-			default:
-				return m.renderMainPage(contentHeight)
-			}
+			return m.renderMainPage(contentHeight)
 		},
 	)
 }
@@ -715,89 +444,6 @@ func (m *Model) renderMainPage(contentHeight int) string {
 	m.mainPage.SetDimensions(m.width, contentHeight)
 	m.mainPage.SetData(runs, logs, focusedPanel, resultData)
 	return m.mainPage.Render()
-}
-
-func (m *Model) renderConversationPage(contentHeight int) string {
-	selected := m.selectedRun()
-	if selected == nil {
-		return "Select a run to view the conversation."
-	}
-	if m.stateStore == nil {
-		return "No state store attached."
-	}
-
-	// Just set dimensions and render - data was initialized in toggleSelection
-	m.conversationPage.SetDimensions(m.width, contentHeight)
-	return m.conversationPage.Render()
-}
-
-func (m *Model) renderFileBrowserPage(contentHeight int) string {
-	m.fileBrowserPage.SetDimensions(m.width, contentHeight)
-	return m.fileBrowserPage.Render()
-}
-
-// initializeConversationData loads initial conversation data when switching to conversation page
-func (m *Model) initializeConversationData(run *RunInfo) {
-	res := m.getConversationResult(run)
-	m.conversationPage.SetData(run.RunID, run.Scenario, run.Provider, res)
-	m.applySystemPromptFromCache(run.RunID)
-}
-
-// getConversationResult returns the conversation result for display.
-// For running conversations, uses cached messages from real-time events.
-// For completed runs, loads from state store with fallback to cache.
-func (m *Model) getConversationResult(run *RunInfo) *statestore.RunResult {
-	// For running conversations, use cached messages
-	if run.Status == StatusRunning {
-		return m.resultFromCache(run.RunID)
-	}
-
-	// For completed runs, try state store first
-	if m.stateStore != nil {
-		ctx := m.ctx
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		if res, err := m.stateStore.GetResult(ctx, run.RunID); err == nil {
-			return res
-		}
-		logger.Debug("Could not load from state store, using cached messages", "run_id", run.RunID)
-	}
-
-	// Fall back to cached messages
-	return m.resultFromCache(run.RunID)
-}
-
-// resultFromCache creates a RunResult from cached messages for a conversation.
-func (m *Model) resultFromCache(runID string) *statestore.RunResult {
-	messages := []types.Message{}
-	if m.conversationMessages != nil {
-		if cached, ok := m.conversationMessages[runID]; ok {
-			messages = cached
-		}
-	}
-	return &statestore.RunResult{Messages: messages}
-}
-
-// applySystemPromptFromCache prepends cached system prompt to the conversation panel if available.
-func (m *Model) applySystemPromptFromCache(runID string) {
-	if m.systemPrompts == nil {
-		return
-	}
-	systemPrompt, ok := m.systemPrompts[runID]
-	if !ok {
-		return
-	}
-	panel := m.conversationPage.Panel()
-	if panel == nil || panel.HasSystemPrompt() {
-		return
-	}
-	newMsg := types.Message{
-		Role:    "system",
-		Content: systemPrompt,
-	}
-	panel.PrependSystemPrompt(&newMsg)
-	logger.Debug("System prompt set from cache during initialization")
 }
 
 // convertToRunInfos converts model's activeRuns to panel RunInfo format
@@ -847,35 +493,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 	}
 
-	// Escape returns to the main view from any sub-page.
-	if msg.Type == tea.KeyEsc {
-		switch m.currentPage {
-		case pageConversation:
-			m.deselectRuns()
-			m.conversationPage.Reset()
-			m.currentPage = pageMain
-			m.activePane = paneRuns
-			return m, nil
-		case pageFileBrowser:
-			m.fileBrowserPage.Reset()
-			m.currentPage = pageMain
-			m.activePane = paneRuns
-			return m, nil
-		case pageMain:
-		}
-	}
-
-	switch m.currentPage {
-	case pageMain:
-		return m.handleMainPageKey(msg)
-	case pageFileBrowser:
-		_, cmd := m.fileBrowserPage.Update(msg)
-		return m, cmd
-	case pageConversation:
-		cmd := m.conversationPage.Update(msg)
-		return m, cmd
-	}
-	return m, nil
+	return m.handleMainPageKey(msg)
 }
 
 func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -885,15 +503,11 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.Type == tea.KeyEnter && m.activePane == paneRuns {
-		m.toggleSelection()
+		m.selectHighlightedRun()
 		return m, nil
 	}
 
 	switch msg.String() {
-	case "f":
-		m.fileBrowserPage.Reset()
-		m.currentPage = pageFileBrowser
-		return m, m.fileBrowserPage.Init()
 	case "z":
 		m.mainPage.ToggleCollapseFocused()
 		return m, nil
@@ -995,46 +609,44 @@ func (m *Model) handleResultPaneKey(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-func (m *Model) toggleSelection() {
+// selectHighlightedRun records the run under the runs-table cursor as the
+// drill-down selection. The hub consumes it via TakeSelectedRun and pushes a
+// conversation page. Re-routes host audio playback to the selected run when an
+// audio monitor is attached.
+func (m *Model) selectHighlightedRun() {
 	table := m.mainPage.RunsPanel().Table()
 	idx := table.Cursor()
 	if idx < 0 || idx >= len(m.activeRuns) {
 		return
 	}
+	m.selectedRunID = m.activeRuns[idx].RunID
 
-	targetSelected := m.activeRuns[idx].Selected
-	m.deselectRuns()
-	m.activeRuns[idx].Selected = !targetSelected
-	if m.activeRuns[idx].Selected {
-		m.conversationPage.Reset()
-		m.currentPage = pageConversation
-
-		// Initialize conversation data when switching to conversation page
-		m.initializeConversationData(&m.activeRuns[idx])
-
-		// Re-route host playback to the run we're now viewing. The Monitor
-		// silently ignores unknown run IDs (e.g. completed runs whose
-		// router has already closed), so this is safe at any lifecycle
-		// stage — we just stop hearing the previously selected run.
-		if m.audioMonitor != nil {
-			m.audioMonitor.SetActiveRun(m.activeRuns[idx].RunID)
-		}
+	// Re-route host playback to the run we're now viewing. The Monitor
+	// silently ignores unknown run IDs (e.g. completed runs whose router has
+	// already closed), so this is safe at any lifecycle stage.
+	if m.audioMonitor != nil {
+		m.audioMonitor.SetActiveRun(m.activeRuns[idx].RunID)
 	}
 }
 
-func (m *Model) deselectRuns() {
-	for i := range m.activeRuns {
-		m.activeRuns[i].Selected = false
+// TakeSelectedRun returns the run the user last selected for drill-down (Enter
+// on the runs pane), clearing the pending selection. The bool reports whether a
+// selection was pending. Safe for concurrent use.
+func (m *Model) TakeSelectedRun() (RunInfo, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.selectedRunID == "" {
+		return RunInfo{}, false
 	}
-}
-
-func (m *Model) selectedRun() *RunInfo {
 	for i := range m.activeRuns {
-		if m.activeRuns[i].Selected {
-			return &m.activeRuns[i]
+		if m.activeRuns[i].RunID == m.selectedRunID {
+			run := m.activeRuns[i]
+			m.selectedRunID = ""
+			return run, true
 		}
 	}
-	return nil
+	m.selectedRunID = ""
+	return RunInfo{}, false
 }
 
 // BuildSummary creates a Summary from the current model state with output directory and HTML report path.
@@ -1205,23 +817,18 @@ func NewModel(configFile string, totalRuns int) *Model {
 	}
 
 	return &Model{
-		configFile:           configFile,
-		totalRuns:            totalRuns,
-		startTime:            time.Now(),
-		activeRuns:           make([]RunInfo, 0),
-		logs:                 make([]LogEntry, 0, maxLogBufferSize),
-		width:                width,
-		height:               height,
-		isTUIMode:            supported,
-		fallbackReason:       reason,
-		ctx:                  context.Background(),
-		mainPage:             pages.NewMainPage(),
-		conversationPage:     pages.NewConversationPage(),
-		fileBrowserPage:      pages.NewFileBrowserPage("."),
-		currentPage:          pageMain,
-		activePane:           paneRuns,
-		systemPrompts:        make(map[string]string),
-		conversationMessages: make(map[string][]types.Message),
+		configFile:     configFile,
+		totalRuns:      totalRuns,
+		startTime:      time.Now(),
+		activeRuns:     make([]RunInfo, 0),
+		logs:           make([]LogEntry, 0, maxLogBufferSize),
+		width:          width,
+		height:         height,
+		isTUIMode:      supported,
+		fallbackReason: reason,
+		ctx:            context.Background(),
+		mainPage:       pages.NewMainPage(),
+		activePane:     paneRuns,
 	}
 }
 
@@ -1266,6 +873,16 @@ func (m *Model) Logs() []LogEntry {
 	cpy := make([]LogEntry, len(m.logs))
 	copy(cpy, m.logs)
 	return cpy
+}
+
+// EnableTUIMode forces the model to render its interactive view regardless of
+// the standalone terminal-size probe. The hub shell (tui/app) owns terminal
+// detection and the bubbletea program, so a model wrapped by a hub Page should
+// always render; the isTUIMode gate only applies to the standalone Run path.
+func (m *Model) EnableTUIMode() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.isTUIMode = true
 }
 
 // Run starts the TUI application

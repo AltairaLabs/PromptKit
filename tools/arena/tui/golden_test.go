@@ -22,9 +22,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
-
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // ansiPattern matches ANSI/VT escape sequences (CSI). Glamour renders the
@@ -136,57 +133,6 @@ func TestGoldenMainPageLogsCollapsed(t *testing.T) {
 	}
 }
 
-// goldenConversationResult is the fixed RunResult the conversation page
-// renders from. Using a completed run with an explicit Duration avoids the
-// runs panel's live time.Since(StartTime) clock, which would be non-stable.
-func goldenConversationResult() *statestore.RunResult {
-	return &statestore.RunResult{
-		RunID:      "run-1",
-		ScenarioID: "demo-scenario",
-		ProviderID: "mock",
-		Region:     "us",
-		Duration:   2 * time.Second,
-		Messages: []types.Message{
-			{Role: "user", Content: "Hello, can you help me?"},
-			{Role: "assistant", Content: "Of course! What do you need?"},
-		},
-	}
-}
-
-// TestGoldenConversationPage snapshots the conversation page. The page needs a
-// selected run and an attached state store, so the model is seeded into the
-// conversation-page state synchronously before handing it to teatest — the same
-// pattern the existing tui_test.go / integration_test.go suites use. This is
-// preferred over driving Enter through teatest because the runs table is only
-// populated on render, making async key navigation order-dependent. A completed
-// run with a fixed Duration (not a running run) keeps the output byte-stable,
-// since running runs render a live time.Since(StartTime) clock.
-func TestGoldenConversationPage(t *testing.T) {
-	for _, sz := range goldenSizes {
-		t.Run(sz.name, func(t *testing.T) {
-			m := newGoldenModel()
-			m.SetStateStore(&stateStoreStub{result: goldenConversationResult()})
-			m.activeRuns = []RunInfo{{
-				RunID:     "run-1",
-				Scenario:  "demo-scenario",
-				Provider:  "mock",
-				Region:    "us",
-				Status:    StatusCompleted,
-				Duration:  2 * time.Second,
-				Selected:  true,
-				StartTime: goldenFixedTime,
-			}}
-			m.currentPage = pageConversation
-			m.initializeConversationData(&m.activeRuns[0])
-
-			teatest.RequireEqualOutput(t, []byte(renderGolden(m, sz.w, sz.h)))
-		})
-	}
-}
-
-// NOTE: The file browser page (reachable via 'f' on the main page) is
-// intentionally NOT covered by golden snapshots: its body is a bubbles
-// filepicker that renders live filesystem contents, so its output is not
-// deterministic across machines/CI. It is covered instead by unit tests in
-// tui_filebrowser_test.go (open/close, file selection, error handling) and
-// pages/file_browser_test.go (render + navigation).
+// NOTE: Conversation drill-down and the file browser are no longer rendered by
+// this Model — they moved to the hub shell (tui/app). Their golden coverage
+// lives in tui/app (TestGoldenViewPage, ConversationViewPage) and pages/.

@@ -8,10 +8,11 @@ import (
 // App is the root bubbletea model for the PromptArena TUI hub shell.
 // It owns the page navigation stack and routes messages globally.
 type App struct {
-	ctx   *AppContext
-	stack []Page
-	w, h  int
-	send  func(tea.Msg)
+	ctx       *AppContext
+	stack     []Page
+	w, h      int
+	send      func(tea.Msg)
+	activated map[Page]bool // pages whose Activate has already fired (idempotency)
 }
 
 // SetSend stores the program's Send func so that Activatable pages can push
@@ -25,8 +26,9 @@ func (a *App) SetSend(send func(tea.Msg)) {
 // root must not be nil.
 func New(ctx *AppContext, root Page) *App {
 	return &App{
-		ctx:   ctx,
-		stack: []Page{root},
+		ctx:       ctx,
+		stack:     []Page{root},
+		activated: map[Page]bool{},
 	}
 }
 
@@ -50,8 +52,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case PopPageMsg:
-		a.pop()
-		return a, nil
+		cmd := a.pop()
+		return a, cmd
 
 	case QuitMsg:
 		return a, tea.Quit
@@ -68,8 +70,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		case tea.KeyEsc:
 			if !a.atRoot() {
-				a.pop()
-				return a, nil
+				cmd := a.pop()
+				return a, cmd
 			}
 			return a, tea.Quit
 		case tea.KeyRunes:
@@ -98,14 +100,23 @@ func (a *App) push(p Page) tea.Cmd {
 	return tea.Batch(p.Init(), a.activateIfNeeded(p))
 }
 
-// activateIfNeeded calls Activate on p if it implements Activatable and returns
-// the resulting tea.Cmd. It never passes a nil send to Activate — if a.send has
-// not been set (headless/test), a no-op func is used instead.
+// activateIfNeeded calls Activate on p if it implements Activatable and has not
+// already been activated, returning the resulting tea.Cmd. It never passes a
+// nil send to Activate — if a.send has not been set (headless/test), a no-op
+// func is used instead. Activation is tracked so a page is activated at most
+// once even when it is revealed again by a pop.
 func (a *App) activateIfNeeded(p Page) tea.Cmd {
 	act, ok := p.(Activatable)
 	if !ok {
 		return nil
 	}
+	if a.activated == nil {
+		a.activated = map[Page]bool{}
+	}
+	if a.activated[p] {
+		return nil
+	}
+	a.activated[p] = true
 	send := a.send
 	if send == nil {
 		send = func(tea.Msg) {}
@@ -113,13 +124,17 @@ func (a *App) activateIfNeeded(p Page) tea.Cmd {
 	return act.Activate(send)
 }
 
-// pop removes the top page from the stack. It is a no-op when at root.
-func (a *App) pop() {
+// pop removes the top page from the stack and returns the Activate cmd of the
+// revealed page (if it is an Activatable not yet activated — e.g. an Activatable
+// root revealed when the splash dismisses). It is a no-op when at root.
+func (a *App) pop() tea.Cmd {
 	if a.atRoot() {
-		return
+		return nil
 	}
 	a.stack = a.stack[:len(a.stack)-1]
-	a.top().SetSize(a.w, a.h)
+	revealed := a.top()
+	revealed.SetSize(a.w, a.h)
+	return a.activateIfNeeded(revealed)
 }
 
 // atRoot reports whether the navigation stack has only one page (the root).

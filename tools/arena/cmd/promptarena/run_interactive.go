@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
-	bubbletea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -20,7 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
 
 const (
@@ -290,143 +288,61 @@ func shouldUseTUI(params *RunParameters) (useTUI bool, reason string) {
 	return true, ""
 }
 
-// executeWithTUI runs simulations with the TUI interface.
-// This function manages the full TUI lifecycle including log interception, observer setup,
-// and background execution. It is excluded from coverage testing as it requires real
-// terminal interaction and cannot be easily tested in a CI environment.
+// executeWithTUI runs simulations through the PromptArena TUI hub.
+//
+// It builds an AppContext around the already-created engine/plan and launches
+// the hub with a RunPage as the root page. The RunPage wires the event bus +
+// adapter and starts ExecuteRuns on Activate; runtime events stream into the
+// live 3-pane view, and selecting a run drills into its conversation via the
+// hub's page stack. The run results persist to the engine's state store, so
+// after the hub exits we collect the run IDs (from the RunPage, falling back to
+// the state store) and return them for report generation.
+//
+// It is excluded from coverage testing as it requires real terminal
+// interaction and cannot be easily tested in a CI environment.
 func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan, params *RunParameters) ([]string, error) {
-	// Create TUI model
-	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
-	if arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore); ok {
-		model.SetStateStore(arenaStore)
+	// Build the hub context around the already-constructed engine. EnsureEngine
+	// short-circuits to this engine and derives the state store from it.
+	appCtx := &app.AppContext{
+		Config:     eng.GetConfig(),
+		ConfigPath: params.ConfigFile,
+		ResultsDir: params.OutDir,
+		Engine:     eng,
+		StateStore: eng.GetStateStore(),
+		Version:    GetVersion(),
 	}
 
-	// Create bubbletea program (needed for observer and log interceptor)
-	program := bubbletea.NewProgram(
-		model,
-		bubbletea.WithAltScreen(),
-		bubbletea.WithMouseCellMotion(), // Enable mouse support for scrolling
-	)
+	runPage := app.NewRunPage(appCtx, eng, plan, params.Concurrency, params.ConfigFile, params.TotalRuns)
 
-	// Create event bus and adapter for TUI updates
-	eventBus := events.NewEventBus()
-	eng.SetEventBus(eventBus)
-	adapter := tui.NewEventAdapter(program)
-	adapter.Subscribe(eventBus)
+	// Launch the hub (blocks until the user quits with 'q' or Ctrl+C).
+	if runErr := app.Run(appCtx, runPage); runErr != nil {
+		runPage.Cancel()
+		return nil, fmt.Errorf("TUI error: %w", runErr)
+	}
 
-	// Wire host-audio playback and the level meter through one process-wide
-	// Monitor. The engine still publishes per-run AudioRouters via the hook,
-	// but the Monitor decides which run is currently routed to oto so we
-	// don't try to open the audio device twice in concurrent runs.
-	//
-	// Lifecycle: the Monitor opens oto once here and stays alive for the
-	// duration of executeWithTUI. AttachRouter is called per run; the
-	// Monitor auto-detaches when each run's router closes.
-	var audioMonitor *arenaaudio.Monitor
-	if eng.AudioMonitorEnabled() {
-		opts := eng.AudioMonitorOptions()
-		monitor, monitorErr := arenaaudio.NewMonitor(arenaaudio.MonitorConfig{
-			Rate:            opts.Rate,
-			EnableLocalSink: opts.LocalSink,
-			// AUDIO_CAPTURE_PATH=/tmp/x.s16le opts every byte oto pulls
-			// from the sink to a file for offline inspection. Only useful
-			// for debugging; left empty in normal runs.
-			CapturePath: os.Getenv("AUDIO_CAPTURE_PATH"),
-		})
-		if monitorErr != nil {
-			logger.Warn("audio monitor: disabled (sink unavailable)", "error", monitorErr)
-		} else {
-			audioMonitor = monitor
-			defer audioMonitor.Close()
+	// Cancel any still-running execution now that the hub has exited (early quit).
+	runPage.Cancel()
 
-			eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, _ int) {
-				audioMonitor.AttachRouter(runID, router)
-			})
-
-			adapter.AttachAudioMonitor(audioMonitor)
-			model.SetAudioMonitor(audioMonitor)
+	// Collect the run IDs produced by ExecuteRuns. If the user quit before the
+	// run finished, fall back to whatever the state store recorded so reports
+	// still cover the completed runs.
+	runIDs, _, execErr := runPage.Results()
+	if len(runIDs) == 0 {
+		if arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore); ok {
+			if ids, listErr := arenaStore.ListRunIDs(ctx); listErr == nil {
+				runIDs = ids
+			}
 		}
 	}
 
-	// Setup log interceptor to capture logs in TUI
-	var logInterceptor *logging.Interceptor
-	var logFilePath string
-	if params.Verbose {
-		logFilePath = filepath.Join(params.OutDir, "promptarena.log")
-	}
-
-	// Get the current default logger handler and set level based on verbose flag
-	logLevel := slog.LevelInfo
-	if params.Verbose {
-		logLevel = slog.LevelDebug
-	}
-	currentHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
-	})
-
-	// Create interceptor - buffer stderr output to write after TUI exits
-	var err error
-	logInterceptor, err = logging.NewInterceptor(currentHandler, program, logFilePath, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create log interceptor: %w", err)
-	}
-	// Install the interceptor as the default logger and runtime logger.
-	// Use SetLogger so the customHandler guard is updated correctly.
-	interceptedLogger := slog.New(logInterceptor)
-	logger.SetLogger(interceptedLogger)
-
-	// Use a cancellable context so background work stops when the TUI exits.
-	ctx, cancel := context.WithCancel(ctx)
-
-	// Start execution in background
-	var runIDs []string
-	var execErr error
-	doneChan := make(chan struct{})
-
-	go func() {
-		defer close(doneChan)
-		runIDs, execErr = eng.ExecuteRuns(ctx, plan, params.Concurrency)
-		// Execution complete - user can quit TUI to see summary
-	}()
-
-	// Run the TUI (blocks until user quits with 'q' or Ctrl+C)
-	if _, tuiErr := program.Run(); tuiErr != nil {
-		cancel()
-		return nil, fmt.Errorf("TUI error: %w", tuiErr)
-	}
-
-	// Cancel background work now that the TUI has exited.
-	cancel()
-
-	// Check if execution completed, but don't block - user might have quit early
-	select {
-	case <-doneChan:
-		// Execution finished
-	default:
-		// Still running, that's OK - user quit early
-	}
-
-	// Close event bus to drain pending events and stop worker goroutines.
-	eventBus.Close()
-
-	if execErr != nil {
-		return nil, execErr
-	}
-
-	// Flush buffered logs to stderr and close log file (if verbose mode)
-	if logInterceptor != nil {
-		logInterceptor.FlushBuffer()
-		_ = logInterceptor.Close()
-	}
-
-	// Reset the logger to the built-in default now that the TUI interceptor is done.
-	logger.SetLogger(nil)
-
-	// Build and print summary after TUI exits
-	summary := model.BuildSummary(params.OutDir, params.HTMLFile)
+	// Build and print the summary after the hub exits.
+	summary := runPage.Model().BuildSummary(params.OutDir, params.HTMLFile)
 	fmt.Println()
 	fmt.Println(tui.RenderSummary(summary, 80))
 
+	if execErr != nil {
+		return runIDs, execErr
+	}
 	return runIDs, nil
 }
 
