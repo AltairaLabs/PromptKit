@@ -75,8 +75,26 @@ func setupVersion() {
 	rootCmd.SetVersionTemplate(GetVersionInfo() + "\n")
 }
 
+// normalizeHelpArgs returns a copy of args with every standalone "-?" token
+// replaced by "--help". Cobra reserves -h/--help internally and does not allow
+// registering "?" as a shorthand on the help flag, so we translate the alias
+// before cobra parses the arguments. Only the exact token "-?" is rewritten;
+// "--help", "-h", and unrelated arguments pass through unchanged.
+func normalizeHelpArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if a == "-?" {
+			out[i] = "--help"
+			continue
+		}
+		out[i] = a
+	}
+	return out
+}
+
 func Execute() {
 	setupVersion()
+	rootCmd.SetArgs(normalizeHelpArgs(os.Args[1:]))
 	err := rootCmd.Execute()
 	if err != nil {
 		// Error already printed by cobra
