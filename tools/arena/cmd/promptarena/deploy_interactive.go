@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/tools/packc/compiler"
 )
 
 var deployCmd = &cobra.Command{
@@ -53,7 +52,8 @@ func init() {
 
 	deployCmd.PersistentFlags().StringVarP(&deployEnv, "env", "e", "", "Target environment")
 	deployCmd.PersistentFlags().StringVar(&deployConfig, "config", "arena.yaml", "Config file path")
-	deployCmd.PersistentFlags().StringVar(&deployPackFile, "pack", "", "Pack file path (default: auto-detect *.pack.json)")
+	deployCmd.PersistentFlags().StringVar(&deployPackFile, "pack", "",
+		"Optional pre-compiled *.pack.json to deploy (default: compile from --config)")
 
 	deployCmd.AddCommand(deployPlanCmd)
 	deployCmd.AddCommand(deployApplyCmd)
@@ -120,37 +120,29 @@ func resolveEnvironment() string {
 	return defaultEnvironment
 }
 
-// resolvePackFile finds and reads the .pack.json file. If --pack is set, use
-// that; otherwise look for a single *.pack.json in the current directory.
+// resolvePackFile resolves the pack JSON to deploy. If --pack is set, it reads
+// that pre-compiled *.pack.json file (explicit override). Otherwise it compiles
+// the arena config (--config) on the fly and returns the freshly compiled JSON,
+// so users do not need to run a separate compile step before deploying.
 func resolvePackFile() ([]byte, error) {
-	path := deployPackFile
-	if path == "" {
-		matches, err := filepath.Glob("*.pack.json")
+	if deployPackFile != "" {
+		data, err := os.ReadFile(deployPackFile) //nolint:gosec // path is from user flag
 		if err != nil {
-			return nil, fmt.Errorf("failed to search for pack files: %w", err)
+			return nil, fmt.Errorf("failed to read pack file %s: %w", deployPackFile, err)
 		}
-		switch len(matches) {
-		case 0:
-			return nil, fmt.Errorf(
-				"no .pack.json file found in the current directory\n" +
-					"Run 'packc compile' first or specify --pack <file>",
-			)
-		case 1:
-			path = matches[0]
-		default:
-			return nil, fmt.Errorf(
-				"multiple .pack.json files found: %s\nSpecify one with --pack <file>",
-				strings.Join(matches, ", "),
-			)
-		}
+		fmt.Printf("  Pack file:   %s\n", deployPackFile)
+		return data, nil
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // path is from user flag or glob
+	result, err := compiler.Compile(deployConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read pack file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to compile pack from %s: %w", deployConfig, err)
 	}
-	fmt.Printf("  Pack file:   %s\n", path)
-	return data, nil
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	fmt.Printf("  Pack:        compiled from %s\n", deployConfig)
+	return result.JSON, nil
 }
 
 // mergedDeployConfigJSON merges the base deploy config with environment-specific
