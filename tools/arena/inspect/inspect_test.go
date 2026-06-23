@@ -619,3 +619,28 @@ func TestRenderText_StatsSection(t *testing.T) {
 		t.Error("Stats=false output must NOT contain Cache Statistics header")
 	}
 }
+
+// TestRenderText_StatsSection_AllCaches exercises the FragmentCache and
+// SelfPlayCache branches in printCacheStatistics (entries + size > 0).
+func TestRenderText_StatsSection_AllCaches(t *testing.T) {
+	data := &inspect.InspectionData{
+		ConfigFile:       "x.yaml",
+		ValidationPassed: true,
+		CacheStats: &inspect.CacheStatsData{
+			PromptCache:   inspect.CacheInfo{Size: 1, Entries: []string{"prompt-a"}},
+			FragmentCache: inspect.CacheInfo{Size: 2},
+			SelfPlayCache: inspect.CacheInfo{Size: 3, Entries: []string{"pair-1", "pair-2"}},
+		},
+	}
+	out := inspect.RenderText(data, inspect.RenderOptions{Stats: true})
+
+	if !strings.Contains(out, "Fragment Cache") {
+		t.Error("output must contain Fragment Cache label")
+	}
+	if !strings.Contains(out, "Self-Play Cache") {
+		t.Error("output must contain Self-Play Cache label")
+	}
+	if !strings.Contains(out, "pair-1") {
+		t.Error("output must contain self-play cache entry names")
+	}
+}
