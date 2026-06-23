@@ -427,6 +427,12 @@ func (de *DuplexConversationExecutor) buildBaseSessionConfig(
 		Metadata: make(map[string]interface{}),
 	}
 
+	// Explicitly enable input-audio transcription so the OpenAI Realtime provider
+	// emits conversation.item.input_audio_transcription.completed events.
+	// The provider defaults to enabled when the key is absent, but setting it
+	// explicitly prevents accidental suppression by later metadata writes.
+	cfg.Metadata["input_transcription"] = true
+
 	de.applyResponseModalities(cfg, req)
 	de.applySelfPlayVADConfig(cfg, req)
 	de.applyScenarioVADConfig(cfg, req)

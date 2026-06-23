@@ -284,10 +284,11 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 	// assistant Messages carry text the TTS stage should synthesize; forwarding
 	// user/system/tool Messages would cause the pipeline to speak the user's own
 	// words back at them.
-	stages = append(stages, arenastages.NewAssistantTTSFilterStage())
-
 	// 7. TTS: assistant text → audio for playback.
-	stages = append(stages, stage.NewTTSStageWithInterruption(ttsSvc, de.buildInteractiveTTSConfig(req)))
+	stages = append(stages,
+		arenastages.NewAssistantTTSFilterStage(),
+		stage.NewTTSStageWithInterruption(ttsSvc, de.buildInteractiveTTSConfig(req)),
+	)
 
 	return builder.Chain(stages...).Build()
 }

@@ -103,17 +103,29 @@ func (p *portaudioIO) captureLoop(ctx context.Context) {
 
 func (p *portaudioIO) playLoop(ctx context.Context) {
 	defer p.wg.Done()
+	// buffer accumulates incoming PCM bytes across frames so we only write
+	// complete outBuf-sized blocks to PortAudio (prevents truncation and
+	// stale-sample padding that cause choppy output).
+	buffer := make([]byte, 0, len(p.outBuf)*4)
+	blockBytes := len(p.outBuf) * 2 // one int16 == 2 bytes per sample
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-p.done:
 			return
-		case frame := <-p.playCh:
-			for i := 0; i < len(p.outBuf) && i*2+1 < len(frame); i++ {
-				p.outBuf[i] = int16(binary.LittleEndian.Uint16(frame[i*2:]))
+		case frame, ok := <-p.playCh:
+			if !ok {
+				return
 			}
-			_ = p.outStream.Write()
+			buffer = append(buffer, frame...)
+			for len(buffer) >= blockBytes {
+				for i := 0; i < len(p.outBuf); i++ {
+					p.outBuf[i] = int16(binary.LittleEndian.Uint16(buffer[i*2:]))
+				}
+				_ = p.outStream.Write()
+				buffer = buffer[blockBytes:]
+			}
 		}
 	}
 }
