@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# OpenAI Realtime — native bidirectional voice (ASM mode).
+#
+# This provider implements streaming audio input/output, so the voice console
+# uses it directly: mic PCM streams into the connection and the provider does
+# STT + LLM + TTS + turn detection server-side. No STT/TTS/voices config needed.
+#
+# Requires OPENAI_API_KEY in the environment.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-realtime
+spec:
+  id: openai-realtime
+  type: openai
+  model: gpt-4o-realtime-preview
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+  additional_config:
+    realtime: true
+    voice: alloy
+    audio_format: pcm16
