@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
@@ -170,11 +171,8 @@ func (de *DuplexConversationExecutor) runInteractiveVADVoice(
 	if req.VoiceSTT == nil {
 		return fmt.Errorf("voice over a text agent requires an STT provider (--voice-stt)")
 	}
-	if de.selfPlayRegistry == nil {
-		return fmt.Errorf("voice over a text agent requires a self-play registry for STT/TTS resolution")
-	}
 
-	sttSvc, err := de.selfPlayRegistry.GetSTTRegistry().GetForProvider(req.VoiceSTT)
+	sttSvc, err := de.sttRegistry().GetForProvider(req.VoiceSTT)
 	if err != nil {
 		return fmt.Errorf("resolve STT: %w", err)
 	}
@@ -223,7 +221,7 @@ func (de *DuplexConversationExecutor) resolveInteractiveTTS(
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent voice: %w", err)
 	}
-	ttsBase, err := de.selfPlayRegistry.GetTTSRegistry().GetForProvider(ttsProvider)
+	ttsBase, err := de.ttsRegistry().GetForProvider(ttsProvider)
 	if err != nil {
 		return nil, fmt.Errorf("resolve TTS: %w", err)
 	}
@@ -232,6 +230,27 @@ func (de *DuplexConversationExecutor) resolveInteractiveTTS(
 		return nil, fmt.Errorf("TTS provider %s does not implement tts.Service", ttsProvider.ID)
 	}
 	return ttsSvc, nil
+}
+
+// sttRegistry returns the STT registry for resolving speech-to-text services.
+// STT resolution is stateless and does not depend on self-play, but the
+// registries are currently housed on the self-play registry. The interactive
+// voice console runs configs without a `self_play` section, so selfPlayRegistry
+// is nil; in that case a fresh registry is used (resolution reads provider
+// config + env, no shared state needed).
+func (de *DuplexConversationExecutor) sttRegistry() *selfplay.STTRegistry {
+	if de.selfPlayRegistry != nil {
+		return de.selfPlayRegistry.GetSTTRegistry()
+	}
+	return selfplay.NewSTTRegistry()
+}
+
+// ttsRegistry mirrors sttRegistry for text-to-speech service resolution.
+func (de *DuplexConversationExecutor) ttsRegistry() *selfplay.TTSRegistry {
+	if de.selfPlayRegistry != nil {
+		return de.selfPlayRegistry.GetTTSRegistry()
+	}
+	return selfplay.NewTTSRegistry()
 }
 
 // buildVADComposedPipeline mirrors the SDK's buildVADPipelineStages

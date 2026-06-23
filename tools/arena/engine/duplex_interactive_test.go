@@ -800,3 +800,18 @@ func init() {
 	// Verify chunkInjectingStreamingProvider implements StreamInputSupport.
 	var _ providers.StreamInputSupport = (*chunkInjectingStreamingProvider)(nil)
 }
+
+// TestDuplexExecutor_RegistryFallbackWhenNoSelfPlay locks the fix for the
+// interactive voice console: configs without a self_play section leave the
+// executor's selfPlayRegistry nil, but STT/TTS resolution must still work (it
+// is stateless). The VAD path previously errored "requires a self-play
+// registry"; the registry accessors now fall back to fresh registries.
+func TestDuplexExecutor_RegistryFallbackWhenNoSelfPlay(t *testing.T) {
+	de := &DuplexConversationExecutor{} // selfPlayRegistry is nil
+	if de.sttRegistry() == nil {
+		t.Fatal("sttRegistry() must fall back to a fresh registry when selfPlayRegistry is nil")
+	}
+	if de.ttsRegistry() == nil {
+		t.Fatal("ttsRegistry() must fall back to a fresh registry when selfPlayRegistry is nil")
+	}
+}
