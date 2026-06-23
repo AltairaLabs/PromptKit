@@ -58,6 +58,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case QuitMsg:
+		a.closeAll()
 		return a, tea.Quit
 
 	case ConfigChangedMsg:
@@ -69,15 +70,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:exhaustive // Only handling specific navigation and quit keys.
 		switch m.Type {
 		case tea.KeyCtrlC:
+			a.closeAll()
 			return a, tea.Quit
 		case tea.KeyEsc:
 			if !a.atRoot() {
 				cmd := a.pop()
 				return a, cmd
 			}
+			a.closeAll()
 			return a, tea.Quit
 		case tea.KeyRunes:
 			if len(m.Runes) == 1 && m.Runes[0] == 'q' {
+				a.closeAll()
 				return a, tea.Quit
 			}
 		}
@@ -173,4 +177,15 @@ func (a *App) atRoot() bool {
 // top returns the current top-of-stack page.
 func (a *App) top() Page {
 	return a.stack[len(a.stack)-1]
+}
+
+// closeAll calls Close on every page in the stack that implements Closeable.
+// This is invoked before returning tea.Quit so background goroutines (e.g. the
+// voice driver) are signaled to stop before the process exits.
+func (a *App) closeAll() {
+	for _, p := range a.stack {
+		if c, ok := p.(Closeable); ok {
+			c.Close()
+		}
+	}
 }

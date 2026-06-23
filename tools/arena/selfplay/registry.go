@@ -23,6 +23,7 @@ type Registry struct {
 	roles            []config.SelfPlayRoleGroup         // Self-play role configurations
 	userGenerators   map[CacheKey]*ContentGenerator     // Cache for created user generators
 	ttsRegistry      *TTSRegistry                       // TTS service registry for audio generation
+	sttRegistry      *STTRegistry                       // STT service registry for audio transcription
 	cacheHits        int                                // Track cache hits for observability
 	cacheMisses      int                                // Track cache misses for observability
 	mu               sync.RWMutex                       // Protects concurrent access to cache
@@ -42,6 +43,7 @@ func NewRegistry(
 		roles:            roles,
 		userGenerators:   make(map[CacheKey]*ContentGenerator),
 		ttsRegistry:      NewTTSRegistry(),
+		sttRegistry:      NewSTTRegistry(),
 		cacheHits:        0,
 		cacheMisses:      0,
 	}
@@ -157,6 +159,9 @@ func (r *Registry) GetAudioContentGenerator(
 func (r *Registry) GetTTSRegistry() *TTSRegistry {
 	return r.ttsRegistry
 }
+
+// GetSTTRegistry returns the shared STT registry.
+func (r *Registry) GetSTTRegistry() *STTRegistry { return r.sttRegistry }
 
 // IsValidRole checks if a role is configured for self-play
 func (r *Registry) IsValidRole(role string) bool {

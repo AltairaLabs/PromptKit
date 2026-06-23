@@ -201,3 +201,30 @@ func TestSimpleVAD_EmptyAudio(t *testing.T) {
 		t.Errorf("Analyze(nil) = %v, want 0", prob)
 	}
 }
+
+// TestSimpleVAD_Analyze_NormalSpeechLevel guards the maxExpectedRMS calibration.
+// Real 16 kHz PCM16 speech measures ~0.1 RMS (a sine of amplitude 0.14 ≈ 0.099
+// RMS). The prior maxExpectedRMS=0.5 mapped that to ~0.18 probability — below
+// the 0.5 confidence gate — so the VAD never detected normal speech. (The older
+// speech test used amplitude 0.5 ≈ 0.35 RMS, artificially loud, which is why it
+// passed and the miscalibration went unnoticed.) This test fails if the
+// constant regresses to a value that can't detect realistic speech.
+func TestSimpleVAD_Analyze_NormalSpeechLevel(t *testing.T) {
+	vad, _ := NewSimpleVAD(DefaultVADParams())
+	normalSpeech := generatePCMAudio(1600, 0.14) // ~0.1 RMS, realistic speech
+
+	var lastProb float64
+	for i := 0; i < 5; i++ {
+		prob, err := vad.Analyze(context.Background(), normalSpeech)
+		if err != nil {
+			t.Fatalf("Analyze() error = %v", err)
+		}
+		lastProb = prob
+	}
+	if lastProb <= 0 {
+		t.Errorf("Analyze(normal-speech ~0.1 RMS) probability = %v, want > 0 (VAD must detect normal speech)", lastProb)
+	}
+	if state := vad.State(); state != VADStateSpeaking && state != VADStateStarting {
+		t.Errorf("State() = %v, want Speaking or Starting for normal speech", state)
+	}
+}

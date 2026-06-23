@@ -862,6 +862,19 @@ func (e *Engine) GetStateStore() statestore.Store {
 	return e.stateStore
 }
 
+// GetDuplexExecutor returns the DuplexConversationExecutor from the engine's
+// composite executor, or nil if the engine was not built with a duplex executor.
+// Used by the chat command's voice path to drive RunInteractiveVoice.
+func (e *Engine) GetDuplexExecutor() *DuplexConversationExecutor {
+	if ce, ok := e.conversationExecutor.(*CompositeConversationExecutor); ok {
+		return ce.GetDuplexExecutor()
+	}
+	if de, ok := e.conversationExecutor.(*DuplexConversationExecutor); ok {
+		return de
+	}
+	return nil
+}
+
 // buildMediaStorage creates a media storage service for media externalization.
 // It stores media files in the <output_dir>/media/ subdirectory using run-based organization.
 // This enables automatic externalization of large media content to reduce memory usage and

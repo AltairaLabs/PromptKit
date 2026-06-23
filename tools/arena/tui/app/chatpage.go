@@ -106,6 +106,15 @@ type ChatPage struct {
 	height       int
 	engineErr    error
 	statusLine   string
+
+	// voice-mode fields (nil voice = text mode)
+	voice       *VoiceOptions
+	voiceCancel context.CancelFunc
+	micLevel    float32
+	agentLevel  float32
+	send        func(tea.Msg)               // stored in Activate for use by voice goroutine
+	voiceStore  *statestore.ArenaStateStore // state store owned by the voice driver
+	voiceConvID string                      // conversation ID used by the voice driver
 }
 
 // NewChatPage constructs a ChatPage bound to the given AppContext.
@@ -118,15 +127,26 @@ func NewChatPage(ctx *AppContext) *ChatPage {
 		panel: panels.NewConversationPanel(),
 		input: ti,
 		vars:  map[string]string{},
+		voice: ctx.Voice,
 	}
 }
 
 // Title implements Page.
 func (p *ChatPage) Title() string { return "Chat" }
 
+// Close implements Closeable. It cancels any running voice driver so the mic
+// and pipeline shut down cleanly when the user quits.
+func (p *ChatPage) Close() {
+	if p.voiceCancel != nil {
+		p.voiceCancel()
+	}
+}
+
 // Activate implements Activatable. It is called by App before Init.
-// It calls EnsureEngine so Init can proceed.
+// It calls EnsureEngine so Init can proceed. The send handle is stored
+// so startVoice can push messages into the bubbletea loop from goroutines.
 func (p *ChatPage) Activate(send func(tea.Msg)) tea.Cmd {
+	p.send = send
 	eng, err := p.ctx.EnsureEngine()
 	if err != nil {
 		p.engineErr = err
@@ -197,6 +217,7 @@ func (p *ChatPage) afterVarsEntered() tea.Cmd {
 }
 
 // startSession creates the InteractiveSession and switches to chatStateChat.
+// In voice mode, the driver is launched instead of focusing the text input.
 func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	sess, err := p.engine.NewInteractiveSession(engine.InteractiveSessionOptions{
 		ProviderID: p.provider,
@@ -212,6 +233,10 @@ func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	p.runEvals = runEvals
 	p.state = chatStateChat
 	p.initPanel()
+	if p.voice != nil {
+		// Voice mode: start the audio driver instead of focusing the text input.
+		return p.startVoice(p.send)
+	}
 	p.input.Focus()
 	return textinput.Blink
 }
@@ -274,6 +299,21 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		p.busy = false
 		p.input.Focus()
 		p.statusLine = "⚠ " + chatSanitizeErrorLine(v.err)
+		return p, nil
+	}
+
+	// Voice-mode level and refresh messages.
+	switch v := msg.(type) {
+	case voiceLevelMsg:
+		p.micLevel = v.user
+		p.agentLevel = v.agent
+		// Update the panel's built-in audio meter so it renders the live levels.
+		p.panel.SetAudioLevels(v.user, v.agent, true)
+		return p, nil
+	case chatRefreshMsg:
+		// A message.created event arrived from the voice pipeline; reload the
+		// conversation panel from the voice state store (single source of truth).
+		p.refreshVoicePanel()
 		return p, nil
 	}
 
@@ -343,21 +383,38 @@ func (p *ChatPage) handleEvalToggleKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
-	// Tab toggles focus between the text input and the conversation panel.
+	// Tab toggles focus between the panel and the input (or just the panel in
+	// voice mode — there is no text input to return to).
 	if msg.Type == tea.KeyTab {
 		p.panelFocused = !p.panelFocused
-		if p.panelFocused {
-			p.input.Blur()
-		} else {
-			p.input.Focus()
+		if p.voice == nil {
+			if p.panelFocused {
+				p.input.Blur()
+			} else {
+				p.input.Focus()
+			}
 		}
 		p.panel.SetActive(p.panelFocused)
-		return textinput.Blink
+		if p.voice == nil {
+			return textinput.Blink
+		}
+		return nil
 	}
 
 	// When the conversation panel has focus, forward all keys to the panel.
 	if p.panelFocused {
 		return p.panel.Update(msg)
+	}
+
+	// In voice mode there is no text input: only allow scroll keys to reach
+	// the panel. All other keys (including Enter) are intentionally ignored —
+	// the mic is the input channel.
+	if p.voice != nil {
+		switch msg.Type { //nolint:exhaustive // only scroll keys forwarded in voice mode
+		case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:
+			return p.panel.Update(msg)
+		}
+		return nil
 	}
 
 	// Input is focused. Send on Enter (when not empty and not busy).
@@ -405,6 +462,25 @@ func (p *ChatPage) sendCmd(text string) tea.Cmd {
 		}
 		return chatStreamDoneMsg{}
 	}
+}
+
+// refreshVoicePanel reloads the conversation panel from the voice state store.
+// It mirrors handleStreamDone's panel.SetData pattern but reads from voiceStore
+// instead of the text session, so that voice turns appear live as they arrive.
+func (p *ChatPage) refreshVoicePanel() {
+	if p.voiceStore == nil || p.voiceConvID == "" {
+		return
+	}
+	state, err := p.voiceStore.Load(context.Background(), p.voiceConvID)
+	if err != nil {
+		return
+	}
+	res := &statestore.RunResult{
+		RunID:    p.voiceConvID,
+		Messages: state.Messages,
+	}
+	p.panel.SetData(p.voiceConvID, "", p.provider, res)
+	p.panel.SelectLast()
 }
 
 // handleStreamDone is called when the assistant stream finishes. It fetches the
@@ -482,6 +558,14 @@ func chatSetupBindings() []views.KeyBinding {
 
 // chatBindings returns focus-aware key hints.
 func (p *ChatPage) chatBindings() []views.KeyBinding {
+	// Voice mode: no text input, mic is the input channel.
+	if p.voice != nil {
+		return []views.KeyBinding{
+			{Keys: "🎤 listening", Description: ""},
+			{Keys: chatKeyLabelTab, Description: "focus convo"},
+			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
+		}
+	}
 	if p.panelFocused {
 		return []views.KeyBinding{
 			{Keys: chatKeyLabelScrl, Description: "turns"},
@@ -500,12 +584,29 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 
 func (p *ChatPage) chatView() string {
 	footer := views.NewHeaderFooterView(p.width).RenderFooter(p.chatBindings())
-	parts := []string{p.panel.View(), p.inputView()}
+	var parts []string
+	parts = append(parts, p.panel.View())
+	if p.voice != nil {
+		// Voice mode: show a mic status line in place of the text input box.
+		// The panel already renders the audio level meter via SetAudioLevels.
+		parts = append(parts, p.voiceStatusLine())
+	} else {
+		parts = append(parts, p.inputView())
+	}
 	if p.statusLine != "" {
 		parts = append(parts, p.statusLine)
 	}
 	parts = append(parts, footer)
 	return strings.Join(parts, "\n")
+}
+
+// voiceStatusLine renders a one-line mic status for voice mode. The panel's
+// built-in audio meter (driven by SetAudioLevels) shows the actual levels; this
+// line provides a simple human-readable status beneath the panel.
+func (p *ChatPage) voiceStatusLine() string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7dd3fc")). // sky-300 — matches theme
+		Render("🎤 mic active — speak to send a message")
 }
 
 // chatInputBorderColor returns the input box's border color: highlighted when

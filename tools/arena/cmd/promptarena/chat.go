@@ -12,5 +12,11 @@ func init() {
 	chatCmd.Flags().String("config", "config.arena.yaml", "Path to the Arena config file")
 	chatCmd.Flags().Bool("mock-provider", false, "Replace all providers with a generic mock")
 	chatCmd.Flags().String("mock-config", "", "Mock response file (used with --mock-provider)")
+	chatCmd.Flags().Bool("voice", false, "Hands-free voice mode (requires a build with -tags voice)")
+	chatCmd.Flags().String("voice-stt", "", "STT provider id for voice over text agents (VAD mode)")
+	chatCmd.Flags().String("voice-output-voice", "", "TTS voice id the agent speaks in (VAD mode)")
+	chatCmd.Flags().Bool("echo-guard", false,
+		"Gate mic while the agent speaks (for laptop speakers; default off assumes headphones)")
+	chatCmd.Flags().BoolP("verbose", "v", false, "Enable verbose debug logging (raw provider events, transcription)")
 	rootCmd.AddCommand(chatCmd)
 }

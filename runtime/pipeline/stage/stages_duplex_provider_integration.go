@@ -886,6 +886,28 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	}
 }
 
+// transcriptionFinal reports whether a chunk carries the normalized
+// Metadata["transcription_final"] == true marker, set by providers on the FINAL
+// input-transcription chunk of a user turn. It is provider-agnostic: the stage
+// keys only off this bool, never off provider names.
+func (s *DuplexProviderStage) transcriptionFinal(chunk *providers.StreamChunk) bool {
+	if chunk.Metadata == nil {
+		return false
+	}
+	final, _ := chunk.Metadata["transcription_final"].(bool)
+	return final
+}
+
+// hasQueuedTurnID reports whether a turn_id is queued, i.e. the scenario path
+// (a user Message was pre-created with a turn_id). In that case neither the fast
+// path nor the EndOfStream fallback materializes a new user Message — the
+// existing overwrite-on-EndOfStream behavior owns the user turn.
+func (s *DuplexProviderStage) hasQueuedTurnID() bool {
+	s.turnIDMu.Lock()
+	defer s.turnIDMu.Unlock()
+	return len(s.turnIDQueue) > 0
+}
+
 // handleResponseChunk processes and forwards a single response chunk.
 // It accumulates text and media content across chunks within a turn,
 // then resets the accumulation when the turn completes.
@@ -942,6 +964,48 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
 	}
 
+	// Fast-path streaming user-turn materialization (provider-agnostic).
+	//
+	// When a provider marks an input_transcription chunk as the FINAL transcript
+	// of the user turn (Metadata["transcription_final"] == true), the user's input
+	// is known the moment they stop speaking — long before the assistant finishes
+	// responding. Emit the user Message immediately so the UI shows the user turn
+	// without waiting for the assistant's EndOfStream (which adds the whole
+	// assistant-response duration of lag).
+	//
+	// Guards (all required):
+	//   - transcription_final == true on this chunk
+	//   - streaming case only: no turn_id queued (the scenario path pre-creates the
+	//     user Message and overwrites it on EndOfStream — leave it untouched)
+	//   - buffered transcript is non-empty (accumulated deltas + this final)
+	//
+	// After emitting we RESET the input-transcription buffer. The EndOfStream
+	// fallback (in this same method, below) is guarded on a non-empty buffer, so
+	// once we reset it cannot double-emit this turn. Providers that never send the
+	// marker fall through to that fallback unchanged.
+	if isInputTranscription && s.transcriptionFinal(chunk) && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID() {
+		transcript := s.inputTranscription.String()
+		userMsg := &types.Message{
+			Role:    roleUser,
+			Content: transcript,
+			Parts: []types.ContentPart{{
+				Type: types.ContentTypeText,
+				Text: &transcript,
+			}},
+		}
+		logger.Debug("DuplexProviderStage: fast-path materializing user turn from final transcript",
+			"transcriptLen", len(transcript))
+		select {
+		case output <- StreamElement{Message: userMsg}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		// Reset so the EndOfStream fallback below cannot re-emit this turn, and so
+		// the next streaming turn starts with a clean buffer.
+		s.inputTranscription.Reset()
+		return nil
+	}
+
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it
 		s.accumulatedText.WriteString(chunk.Delta)
@@ -979,6 +1043,49 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		// Late-arriving transcription chunks will be ignored until a new user turn starts.
 		// The transcription buffer will be reset when sendAudioElement is called.
 		s.transcriptionCaptured = true
+	}
+
+	// Continuous-streaming user-turn materialization (provider-agnostic).
+	//
+	// In the scenario path a user Message is pre-created with a turn_id, so
+	// chunkToElement releases the transcript by attaching elem.Meta.Transcription
+	// + elem.Meta.TurnID (consumed by ArenaStateStoreSaveStage to overwrite the
+	// pre-created user message). In the continuous-streaming path (interactive
+	// console / SDK realtime) NO user Message is pre-queued, so turnID is empty
+	// and chunkToElement leaves elem.Meta.Transcription nil — the transcript
+	// would otherwise be silently dropped.
+	//
+	// Here we detect that case (turn-completing EndOfStream, a buffered input
+	// transcript, and no scenario-path transcription attached) and emit a NEW
+	// user Message element from the buffered transcript, ordered BEFORE the
+	// assistant element for this turn. The buffer is then reset so each
+	// subsequent streaming turn materializes its own user message.
+	//
+	// This keys only off s.inputTranscription (populated from the normalized
+	// input_transcription chunk that both OpenAI Realtime and Gemini Live emit)
+	// and the shared EndOfStream machinery — no per-provider event names.
+	if elem.EndOfStream && s.inputTranscription.Len() > 0 && elem.Meta.Transcription == nil {
+		transcript := s.inputTranscription.String()
+		userMsg := &types.Message{
+			Role:    roleUser,
+			Content: transcript,
+			Parts: []types.ContentPart{{
+				Type: types.ContentTypeText,
+				Text: &transcript,
+			}},
+		}
+		userElem := StreamElement{Message: userMsg}
+		logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
+			"transcriptLen", len(transcript))
+		select {
+		case output <- userElem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		// Reset the per-turn transcription buffer so the next streaming turn
+		// starts clean (mirrors the reset in sendAudioElement for the scenario
+		// path). transcriptionCaptured is already set above on turn completion.
+		s.inputTranscription.Reset()
 	}
 
 	logger.Debug("DuplexProviderStage: forwarding response element",

@@ -727,6 +727,21 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		chunk.Error = elem.Error
 	}
 
+	// Surface the user's input transcription to the caller.
+	//
+	// In continuous (streaming) realtime voice the DuplexProviderStage
+	// materializes the user's spoken turn as a user Message element (Role=user
+	// with Content) once the provider reports the transcription and the turn
+	// completes. The scenario path instead carries the transcript on
+	// elem.Meta.Transcription. Either way, expose it under a single stable key
+	// so realtime callers can render the user's turn.
+	if transcript := userTranscriptFromElement(elem); transcript != "" {
+		if chunk.Metadata == nil {
+			chunk.Metadata = make(map[string]interface{})
+		}
+		chunk.Metadata["input_transcription"] = transcript
+	}
+
 	// Detect pending client tools (pipeline suspended)
 	if len(elem.Meta.PendingTools) > 0 {
 		chunk.PendingTools = elem.Meta.PendingTools
@@ -734,4 +749,18 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	}
 
 	return chunk
+}
+
+// userTranscriptFromElement extracts the user's input transcription from a
+// stage element, whether it arrives as a materialized user Message (continuous
+// streaming) or as typed transcription metadata (scenario path). Returns "" when
+// the element carries no user transcript.
+func userTranscriptFromElement(elem *stage.StreamElement) string {
+	if elem.Message != nil && elem.Message.Role == "user" && elem.Message.Content != "" {
+		return elem.Message.Content
+	}
+	if elem.Meta.Transcription != nil {
+		return elem.Meta.Transcription.Text
+	}
+	return ""
 }

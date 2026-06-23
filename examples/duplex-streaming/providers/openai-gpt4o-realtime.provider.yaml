@@ -11,7 +11,7 @@ metadata:
 spec:
   id: openai-gpt4o-realtime
   type: openai
-  # GA model — ~3x cheaper than gpt-4o-realtime-preview ($0.032/1K vs $0.10/1K
+  # GA model — ~3x cheaper than the preview model ($0.032/1K vs $0.10/1K
   # input audio). Requires the GA Realtime API session schema (no OpenAI-Beta
   # header; type/output_modalities/audio.{input,output} nesting).
   model: gpt-realtime

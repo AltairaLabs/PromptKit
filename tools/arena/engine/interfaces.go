@@ -77,6 +77,14 @@ type ConversationRequest struct {
 	// isolated workflow metadata). If nil, the executor's shared orchestrator is used.
 	EvalOrchestrator *EvalOrchestrator
 
+	// VoiceSTT is the STT provider for the VAD voice path (Task 7). Nil in ASM mode.
+	// Set from --voice-stt by the chat command; consumed by runInteractiveVADVoice.
+	VoiceSTT *config.Provider
+
+	// VoiceOutputVoice is the TTS voice ID for the VAD voice path (Task 7).
+	// Set from --voice-output-voice by the chat command; consumed by runInteractiveVADVoice.
+	VoiceOutputVoice string
+
 	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
 	// If nil, no recording stages are added.
 	RecordingConfig *stage.RecordingStageConfig

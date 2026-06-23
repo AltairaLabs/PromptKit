@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# OpenAI TTS — synthesizes the agent's text replies into audio. Bound to the
+# `agent-voice` voice id in config.arena.yaml (referenced by
+# `--voice-output-voice agent-voice`).
+#
+# Requires OPENAI_API_KEY in the environment.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-tts
+spec:
+  id: openai-tts
+  type: openai
+  role: tts
+  voice: alloy
+  sample_rate: 24000

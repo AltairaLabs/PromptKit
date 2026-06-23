@@ -12,7 +12,7 @@
 //
 // Requirements:
 //   - OpenAI API key with Realtime API access
-//   - Model: gpt-4o-realtime-preview
+//   - Model: gpt-realtime
 //   - Microphone input (for interactive mode)
 //   - PortAudio library (brew install portaudio on macOS)
 //
@@ -105,7 +105,7 @@ func runInteractiveMode(ctx context.Context, apiKey string) error {
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
 		"assistant",
-		sdk.WithModel("gpt-4o-realtime-preview"),
+		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{
@@ -195,7 +195,7 @@ func runToolsDemo(ctx context.Context, apiKey string) error {
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
 		"assistant",
-		sdk.WithModel("gpt-4o-realtime-preview"),
+		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{
@@ -301,7 +301,7 @@ func runTranslatorMode(ctx context.Context, apiKey string) error {
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
 		"translator",
-		sdk.WithModel("gpt-4o-realtime-preview"),
+		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
 		sdk.WithVariables(map[string]string{
 			"target_language": "Spanish",
@@ -493,7 +493,7 @@ func (ah *AudioHandler) processResponses(ctx context.Context) {
 
 				// Handle input transcription
 				if chunk.Metadata != nil {
-					if transcript, ok := chunk.Metadata["input_transcript"].(string); ok && transcript != "" {
+					if transcript, ok := chunk.Metadata["input_transcription"].(string); ok && transcript != "" {
 						fmt.Printf("\n\033[33m[You said: %s]\033[0m\n", transcript)
 					}
 				}
