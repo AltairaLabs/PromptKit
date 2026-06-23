@@ -981,6 +981,49 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		s.transcriptionCaptured = true
 	}
 
+	// Continuous-streaming user-turn materialization (provider-agnostic).
+	//
+	// In the scenario path a user Message is pre-created with a turn_id, so
+	// chunkToElement releases the transcript by attaching elem.Meta.Transcription
+	// + elem.Meta.TurnID (consumed by ArenaStateStoreSaveStage to overwrite the
+	// pre-created user message). In the continuous-streaming path (interactive
+	// console / SDK realtime) NO user Message is pre-queued, so turnID is empty
+	// and chunkToElement leaves elem.Meta.Transcription nil — the transcript
+	// would otherwise be silently dropped.
+	//
+	// Here we detect that case (turn-completing EndOfStream, a buffered input
+	// transcript, and no scenario-path transcription attached) and emit a NEW
+	// user Message element from the buffered transcript, ordered BEFORE the
+	// assistant element for this turn. The buffer is then reset so each
+	// subsequent streaming turn materializes its own user message.
+	//
+	// This keys only off s.inputTranscription (populated from the normalized
+	// input_transcription chunk that both OpenAI Realtime and Gemini Live emit)
+	// and the shared EndOfStream machinery — no per-provider event names.
+	if elem.EndOfStream && s.inputTranscription.Len() > 0 && elem.Meta.Transcription == nil {
+		transcript := s.inputTranscription.String()
+		userMsg := &types.Message{
+			Role:    roleUser,
+			Content: transcript,
+			Parts: []types.ContentPart{{
+				Type: types.ContentTypeText,
+				Text: &transcript,
+			}},
+		}
+		userElem := StreamElement{Message: userMsg}
+		logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
+			"transcriptLen", len(transcript))
+		select {
+		case output <- userElem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		// Reset the per-turn transcription buffer so the next streaming turn
+		// starts clean (mirrors the reset in sendAudioElement for the scenario
+		// path). transcriptionCaptured is already set above on turn completion.
+		s.inputTranscription.Reset()
+	}
+
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
 		"hasAudio", elem.Audio != nil,

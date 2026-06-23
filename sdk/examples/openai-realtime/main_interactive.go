@@ -493,7 +493,7 @@ func (ah *AudioHandler) processResponses(ctx context.Context) {
 
 				// Handle input transcription
 				if chunk.Metadata != nil {
-					if transcript, ok := chunk.Metadata["input_transcript"].(string); ok && transcript != "" {
+					if transcript, ok := chunk.Metadata["input_transcription"].(string); ok && transcript != "" {
 						fmt.Printf("\n\033[33m[You said: %s]\033[0m\n", transcript)
 					}
 				}

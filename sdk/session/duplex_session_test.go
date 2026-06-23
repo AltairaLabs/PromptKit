@@ -782,6 +782,46 @@ func TestError_StreamedThroughResponse(t *testing.T) {
 	})
 }
 
+// TestStreamElementToStreamChunk_InputTranscription verifies that the user's
+// input transcription is surfaced to realtime callers under the stable
+// "input_transcription" metadata key — both when it arrives as a materialized
+// user Message (continuous streaming) and as typed transcription metadata
+// (scenario path).
+func TestStreamElementToStreamChunk_InputTranscription(t *testing.T) {
+	t.Run("materialized user message (streaming)", func(t *testing.T) {
+		const transcript = "hello from the user"
+		elem := stage.NewMessageElement(&types.Message{
+			Role:    "user",
+			Content: transcript,
+		})
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		require.NotNil(t, chunk.Metadata, "expected metadata to be populated")
+		assert.Equal(t, transcript, chunk.Metadata["input_transcription"])
+	})
+
+	t.Run("transcription metadata (scenario path)", func(t *testing.T) {
+		const transcript = "scenario transcript"
+		elem := stage.StreamElement{}
+		elem.Meta.Transcription = &stage.Transcription{Text: transcript}
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		require.NotNil(t, chunk.Metadata)
+		assert.Equal(t, transcript, chunk.Metadata["input_transcription"])
+	})
+
+	t.Run("no transcript leaves metadata untouched", func(t *testing.T) {
+		text := "assistant reply"
+		elem := stage.StreamElement{Text: &text}
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		assert.Nil(t, chunk.Metadata, "non-transcript elements must not allocate metadata")
+	})
+}
+
 func TestClear_Success(t *testing.T) {
 	ctx := context.Background()
 

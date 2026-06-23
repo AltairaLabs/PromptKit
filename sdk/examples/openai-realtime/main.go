@@ -111,7 +111,7 @@ func main() {
 
 		// Handle transcription (if input_transcription is enabled)
 		if chunk.Metadata != nil {
-			if transcript, ok := chunk.Metadata["input_transcript"].(string); ok {
+			if transcript, ok := chunk.Metadata["input_transcription"].(string); ok {
 				fmt.Printf("\n[Input transcript: %s]", transcript)
 			}
 		}

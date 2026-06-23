@@ -894,3 +894,153 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 		require.Len(t, chunks, 1, "Expected only audio chunk (image with empty data should be skipped)")
 	})
 }
+
+// chunkInjectingProvider wraps *mock.StreamingProvider and injects a fixed
+// sequence of response chunks (including input_transcription metadata) into each
+// session at CreateStreamSession time. This lets the streaming-materialization
+// tests drive an exact StreamChunk sequence without modifying the mock package.
+type chunkInjectingProvider struct {
+	*providersmock.StreamingProvider
+	chunks []providers.StreamChunk
+}
+
+func (p *chunkInjectingProvider) CreateStreamSession(
+	ctx context.Context,
+	req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
+	sess, err := p.StreamingProvider.CreateStreamSession(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if mockSess, ok := sess.(*providersmock.MockStreamSession); ok {
+		mockSess.WithResponseChunks(p.chunks)
+	}
+	return sess, nil
+}
+
+// runStreamingTranscriptMaterialization drives DuplexProviderStage with a
+// NO-turn_id input sequence (audio + EndOfStream) and a mock session that emits
+// an input_transcription chunk followed by an assistant chunk carrying a
+// FinishReason. It returns the ordered output elements so callers can assert
+// that a user Message materialises from the transcript BEFORE the assistant
+// message — proving the provider-agnostic streaming release path.
+//
+// transcript is the user-speech text the provider reports; assistantText is the
+// model's reply. Both OpenAI Realtime and Gemini Live emit the identical
+// normalized input_transcription chunk shape, so this single helper exercises
+// the shared release logic for both providers.
+func runStreamingTranscriptMaterialization(
+	t *testing.T, transcript, assistantText string,
+) []StreamElement {
+	t.Helper()
+
+	finishReason := "stop"
+	chunks := []providers.StreamChunk{
+		{
+			Metadata: map[string]interface{}{
+				"type":          "input_transcription",
+				"transcription": transcript,
+			},
+		},
+		{
+			Content:      assistantText,
+			Delta:        assistantText,
+			FinishReason: &finishReason,
+		},
+	}
+
+	inner := providersmock.NewStreamingProvider("test-stream", "mock-model", false)
+	inner.WithAutoRespond("ok")
+	inner.WithCloseAfterTurns(1)
+	provider := &chunkInjectingProvider{StreamingProvider: inner, chunks: chunks}
+
+	st := NewDuplexProviderStage(provider, baseConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 16)
+
+	// NO pre-created user Message / turn_id — this is the continuous streaming
+	// (interactive console / SDK realtime) path. Just audio then EndOfStream.
+	input <- StreamElement{
+		Audio: &AudioData{
+			Samples:    []byte("audio data here!"),
+			SampleRate: 16000,
+			Format:     AudioFormatPCM16,
+		},
+	}
+	input <- StreamElement{EndOfStream: true}
+	close(input)
+
+	done := make(chan error, 1)
+	go func() { done <- st.Process(ctx, input, output) }()
+
+	var elements []StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	require.NoError(t, <-done)
+	return elements
+}
+
+// assertUserTranscriptBeforeAssistant asserts that a user Message materialised
+// from the input transcript appears in the output BEFORE the assistant message.
+func assertUserTranscriptBeforeAssistant(
+	t *testing.T, elements []StreamElement, transcript, assistantText string,
+) {
+	t.Helper()
+
+	userIdx, assistantIdx := -1, -1
+	for i := range elements {
+		msg := elements[i].Message
+		if msg == nil {
+			continue
+		}
+		switch msg.Role {
+		case roleUser:
+			if msg.Content == transcript {
+				userIdx = i
+			}
+		case roleAssistant:
+			if msg.Content == assistantText {
+				assistantIdx = i
+			}
+		}
+	}
+
+	require.GreaterOrEqual(t, userIdx, 0,
+		"expected a user Message with the transcript content to be emitted")
+	require.GreaterOrEqual(t, assistantIdx, 0,
+		"expected the assistant Message to still flow to output")
+	assert.Less(t, userIdx, assistantIdx,
+		"user transcript message must be ordered BEFORE the assistant message")
+}
+
+// TestDuplexProviderStage_StreamingMaterializesUserTurn verifies the
+// continuous-streaming (no pre-created turn_id) case: when the provider reports
+// an input_transcription and the turn completes, the stage materialises a user
+// Message from the transcript and orders it before the assistant message.
+//
+// This is PROVIDER-AGNOSTIC: both subtests use the identical normalized chunk
+// shape that OpenAI Realtime and Gemini Live both emit, so a single release path
+// covers both providers.
+func TestDuplexProviderStage_StreamingMaterializesUserTurn(t *testing.T) {
+	t.Run("OpenAI Realtime path", func(t *testing.T) {
+		const transcript = "hello from the user"
+		const assistantText = "hi, how can I help?"
+		elements := runStreamingTranscriptMaterialization(t, transcript, assistantText)
+		assertUserTranscriptBeforeAssistant(t, elements, transcript, assistantText)
+	})
+
+	// Gemini Live emits the SAME normalized input_transcription chunk
+	// (Metadata{"type":"input_transcription","transcription":...}), so the shared
+	// release path materialises the user turn identically — no per-provider code.
+	t.Run("Gemini Live path", func(t *testing.T) {
+		const transcript = "what is the weather today"
+		const assistantText = "it is sunny"
+		elements := runStreamingTranscriptMaterialization(t, transcript, assistantText)
+		assertUserTranscriptBeforeAssistant(t, elements, transcript, assistantText)
+	})
+}
