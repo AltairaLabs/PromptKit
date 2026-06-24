@@ -359,31 +359,40 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 }
 
 // buildInteractiveVADConfig returns the AudioTurnStage config for the interactive
-// VAD path. It reuses buildVADConfig when the scenario declares a duplex turn-
-// detection block, falling back to an AdaptiveVAD-equipped default config for a
-// bare interactive run where the scenario carries no duplex configuration.
+// VAD path. It picks up scenario-declared turn-detection thresholds (silence /
+// min-speech) when the scenario carries a duplex block, but ALWAYS equips the
+// stage with AdaptiveVAD (unless a test injects a VAD override).
 //
-// AdaptiveVAD is preferred over SimpleVAD for the interactive console because it
-// tracks the ambient noise floor at runtime, making it far more reliable for
-// "quiet mic" environments where SimpleVAD's fixed threshold would miss speech.
+// This matters: the live console always builds a scenario with a Duplex block,
+// and buildVADConfig leaves cfg.VAD nil — which NewAudioTurnStage fills with
+// SimpleVAD. SimpleVAD's fixed threshold does not reliably detect real mic
+// speech (speechDetected never flips, so no turn ever completes and the user
+// gets no reply). AdaptiveVAD tracks the ambient noise floor at runtime and
+// detects speech relative to it, so it works across mic gains and quiet rooms.
 func (de *DuplexConversationExecutor) buildInteractiveVADConfig(req *ConversationRequest) stage.AudioTurnConfig {
+	cfg := stage.DefaultAudioTurnConfig()
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
-		cfg := de.buildVADConfig(req)
-		if req.vadOverride != nil {
-			cfg.VAD = req.vadOverride
-		}
-		return cfg
+		// Honor any scenario-declared silence/min-speech/max-duration thresholds.
+		cfg = de.buildVADConfig(req)
 	}
 
-	cfg := stage.DefaultAudioTurnConfig()
-	vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
-	if err != nil {
-		// NewAdaptiveVAD only errors on invalid params; DefaultVADParams is always
-		// valid, so this branch is a safety net rather than an expected code path.
-		logger.Warn("buildInteractiveVADConfig: AdaptiveVAD init failed, falling back to SimpleVAD", "error", err)
-		return cfg
+	// A test override wins; otherwise the interactive console always uses
+	// AdaptiveVAD. buildVADConfig leaves cfg.VAD nil (→ SimpleVAD), so this is
+	// what actually makes live mic speech detectable.
+	switch {
+	case req.vadOverride != nil:
+		cfg.VAD = req.vadOverride
+	case cfg.VAD == nil:
+		vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
+		if err != nil {
+			// NewAdaptiveVAD only errors on invalid params; DefaultVADParams is
+			// always valid, so this is a safety net, not an expected path. The
+			// stage then falls back to SimpleVAD.
+			logger.Warn("buildInteractiveVADConfig: AdaptiveVAD init failed, falling back to SimpleVAD", "error", err)
+		} else {
+			cfg.VAD = vad
+		}
 	}
-	cfg.VAD = vad
 	return cfg
 }
 

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
@@ -141,10 +142,12 @@ func TestBuildInteractiveVADConfig_WithDuplexScenario(t *testing.T) {
 		Config: &config.Config{},
 	}
 	cfg := de.buildInteractiveVADConfig(req)
-	// buildVADConfig leaves VAD nil (AudioTurnStage builds its own SimpleVAD).
-	// If this were the NoDuplex branch, AdaptiveVAD would be set (non-nil).
-	assert.Nil(t, cfg.VAD,
-		"expected VAD==nil from buildVADConfig delegation (AudioTurnStage creates its own)")
+	// The interactive console always equips AdaptiveVAD, even with a Duplex
+	// scenario: buildVADConfig leaves VAD nil (which AudioTurnStage would fill
+	// with SimpleVAD), and SimpleVAD does not reliably detect real mic speech.
+	if _, ok := cfg.VAD.(*audio.AdaptiveVAD); !ok {
+		t.Fatalf("expected AdaptiveVAD on the interactive path, got %T", cfg.VAD)
+	}
 	// SilenceDuration is non-zero because buildVADConfig calls DefaultAudioTurnConfig.
 	assert.NotZero(t, cfg.SilenceDuration,
 		"expected SilenceDuration set by DefaultAudioTurnConfig via buildVADConfig")
