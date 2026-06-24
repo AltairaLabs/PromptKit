@@ -203,4 +203,58 @@ func TestDeployAdapterLoadDefaultRegistry(t *testing.T) {
 	if _, ok := reg.Adapters["agentcore"]; !ok {
 		t.Error("expected agentcore in default registry")
 	}
+	if _, ok := reg.Adapters["omnia"]; !ok {
+		t.Error("expected omnia in default registry")
+	}
 }
+
+func TestResolveInstallVersion(t *testing.T) {
+	t.Run("prefers live latest over embedded default", func(t *testing.T) {
+		orig := latestVersionFunc
+		t.Cleanup(func() { latestVersionFunc = orig })
+		latestVersionFunc = func(_ string) (string, error) { return "1.1.0", nil }
+
+		got := resolveInstallVersion("omnia", adapterRegistryEntry{
+			Repo: "AltairaLabs/PromptArena-deploy-omnia", Latest: "1.0.0",
+		})
+		if got != "1.1.0" {
+			t.Errorf("got %q, want live latest 1.1.0", got)
+		}
+	})
+
+	t.Run("falls back to embedded default when lookup fails", func(t *testing.T) {
+		orig := latestVersionFunc
+		t.Cleanup(func() { latestVersionFunc = orig })
+		latestVersionFunc = func(_ string) (string, error) {
+			return "", errTestNoNetwork
+		}
+
+		got := resolveInstallVersion("omnia", adapterRegistryEntry{
+			Repo: "AltairaLabs/PromptArena-deploy-omnia", Latest: "1.0.0",
+		})
+		if got != "1.0.0" {
+			t.Errorf("got %q, want embedded fallback 1.0.0", got)
+		}
+	})
+
+	t.Run("returns empty when neither source yields a version", func(t *testing.T) {
+		orig := latestVersionFunc
+		t.Cleanup(func() { latestVersionFunc = orig })
+		latestVersionFunc = func(_ string) (string, error) {
+			return "", errTestNoNetwork
+		}
+
+		got := resolveInstallVersion("omnia", adapterRegistryEntry{
+			Repo: "AltairaLabs/PromptArena-deploy-omnia", Latest: "",
+		})
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+}
+
+var errTestNoNetwork = errTestErr("network unavailable")
+
+type errTestErr string
+
+func (e errTestErr) Error() string { return string(e) }

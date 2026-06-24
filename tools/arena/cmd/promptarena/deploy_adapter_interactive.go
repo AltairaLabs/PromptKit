@@ -207,6 +207,72 @@ func httpDownload(url string) ([]byte, error) {
 	return data, nil
 }
 
+// latestVersionFunc resolves the most recent published version for an adapter
+// repo. It is a package var so tests can stub network access.
+var latestVersionFunc = githubLatestVersion
+
+// githubLatestRelease is the subset of the GitHub releases/latest response read
+// to discover the newest adapter version.
+type githubLatestRelease struct {
+	TagName string `json:"tag_name"`
+}
+
+// githubLatestVersion queries the GitHub Releases API for the newest published
+// release of repo and returns its version with any leading "v" stripped
+// (e.g. "v1.2.0" -> "1.2.0"). Resolving the version live means a newly
+// published adapter release is installable WITHOUT rebuilding the CLI: the
+// embedded registry only supplies the repo, never a frozen version.
+func githubLatestVersion(repo string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("resolve latest version: %w", err)
+	}
+	// api.github.com rejects requests with no User-Agent.
+	req.Header.Set("User-Agent", "promptarena")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("resolve latest version: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("resolve latest version: HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	var rel githubLatestRelease
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return "", fmt.Errorf("parse latest release for %s: %w", repo, err)
+	}
+	tag := strings.TrimPrefix(rel.TagName, "v")
+	if tag == "" {
+		return "", fmt.Errorf("no published release found for %s", repo)
+	}
+	return tag, nil
+}
+
+// resolveInstallVersion picks the version to install when the user did not pin
+// one. It prefers the live latest release from GitHub; if that lookup fails
+// (offline, rate-limited), it falls back to the registry's embedded default so
+// installs still work without network access to the API. Returns "" only when
+// neither source yields a version.
+func resolveInstallVersion(provider string, entry adapterRegistryEntry) string {
+	resolved, err := latestVersionFunc(entry.Repo)
+	if err == nil && resolved != "" {
+		return resolved
+	}
+	if entry.Latest != "" {
+		fmt.Fprintf(os.Stderr,
+			"warning: could not resolve latest %s from GitHub (%v); "+
+				"falling back to registry default v%s\n",
+			provider, err, entry.Latest,
+		)
+		return entry.Latest
+	}
+	return ""
+}
+
 func runAdapterInstall(_ *cobra.Command, args []string) error {
 	provider, version := parseProviderVersion(args[0])
 
@@ -224,7 +290,13 @@ func runAdapterInstall(_ *cobra.Command, args []string) error {
 	}
 
 	if version == "" {
-		version = entry.Latest
+		version = resolveInstallVersion(provider, entry)
+		if version == "" {
+			return fmt.Errorf(
+				"could not resolve a version for adapter %q; specify one explicitly (e.g. %s@<version>)",
+				provider, provider,
+			)
+		}
 	}
 
 	goos := runtime.GOOS
