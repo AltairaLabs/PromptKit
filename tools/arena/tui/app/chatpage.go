@@ -47,6 +47,12 @@ type chatErrMsg struct{ err error }
 // console no longer looks hung with a dead mic meter. A nil err is a clean end.
 type voiceEndedMsg struct{ err error }
 
+// Voice-mode status-line labels shown during a turn.
+const (
+	voiceStatusListening = "🎧 listening…"
+	voiceStatusThinking  = "💭 thinking…"
+)
+
 // Key label constants used by footer helpers.
 const (
 	chatKeyNameEnter = "enter"
@@ -240,6 +246,9 @@ func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	p.initPanel()
 	if p.voice != nil {
 		// Voice mode: start the audio driver instead of focusing the text input.
+		// Show an initial status so the console isn't blank while the first turn
+		// spins up (mic, VAD calibration, first STT/LLM/TTS calls).
+		p.statusLine = voiceStatusListening
 		return p.startVoice(p.send)
 	}
 	p.input.Focus()
@@ -496,6 +505,17 @@ func (p *ChatPage) refreshVoicePanel() {
 	}
 	p.panel.SetData(p.voiceConvID, "", p.provider, res)
 	p.panel.SelectLast()
+
+	// Reflect where we are in the turn so the STT→LLM→TTS lag isn't dead air: a
+	// user transcript with no reply yet means we're waiting on the model.
+	if n := len(state.Messages); n > 0 {
+		switch state.Messages[n-1].Role {
+		case "user":
+			p.statusLine = voiceStatusThinking
+		case "assistant":
+			p.statusLine = voiceStatusListening
+		}
+	}
 }
 
 // handleStreamDone is called when the assistant stream finishes. It fetches the
