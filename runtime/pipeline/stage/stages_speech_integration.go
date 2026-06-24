@@ -2,9 +2,11 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
@@ -602,8 +604,70 @@ func NewTTSStageWithInterruption(
 	}
 }
 
+// ttsWorkBuffer bounds the in-flight element queue between the input reader and
+// the synthesis loop. A barge-in Interrupt cancels in-flight synthesis out of
+// band (see readTTSInput), so this buffer only needs to absorb a single
+// assistant turn's worth of elements — far below this bound in practice.
+const ttsWorkBuffer = 64
+
+// synthCanceller hands the synthesis loop a cancelable child of the pipeline
+// context and lets a barge-in cancel the in-flight synthesis from another
+// goroutine. refresh() rolls a fresh context for the next turn after an
+// interrupt; the canceled context drops both the in-flight call and any text
+// already queued behind it (their context is already done).
+type synthCanceller struct {
+	parent context.Context
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func newSynthCanceller(parent context.Context) *synthCanceller {
+	c := &synthCanceller{parent: parent}
+	c.refresh()
+	return c
+}
+
+// refresh cancels the current synthesis context (if any) and starts a new one.
+func (c *synthCanceller) refresh() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.ctx, c.cancel = context.WithCancel(c.parent)
+}
+
+// interrupt cancels the in-flight synthesis context without rolling a new one.
+func (c *synthCanceller) interrupt() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
+// context returns the current synthesis context.
+func (c *synthCanceller) context() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ctx
+}
+
+// stop releases the final context on shutdown.
+func (c *synthCanceller) stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
 // Process implements the Stage interface.
-// Synthesizes audio for text elements with interruption support.
+// Synthesizes audio for text elements with interruption support. A concurrent
+// reader cancels in-flight synthesis the instant a barge-in Interrupt arrives,
+// so a long synthesis call cannot swallow the interrupt; queued text behind the
+// interrupt is dropped too, and synthesis resumes on the next turn.
 func (s *TTSStageWithInterruption) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -611,8 +675,24 @@ func (s *TTSStageWithInterruption) Process(
 ) error {
 	defer close(output)
 
-	for elem := range input {
-		if err := s.processElement(ctx, &elem, output); err != nil {
+	canceller := newSynthCanceller(ctx)
+	defer canceller.stop()
+
+	work := make(chan StreamElement, ttsWorkBuffer)
+	go readTTSInput(input, work, canceller)
+
+	for elem := range work {
+		if elem.Interrupt {
+			// In-flight synthesis was already canceled out of band by the
+			// reader. Roll a fresh context for the next turn and forward the
+			// Interrupt downstream so playback can flush too.
+			canceller.refresh()
+			if err := s.forwardElement(ctx, elem, output); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.processElement(ctx, canceller.context(), &elem, output); err != nil {
 			return err
 		}
 	}
@@ -620,22 +700,41 @@ func (s *TTSStageWithInterruption) Process(
 	return nil
 }
 
-// processElement handles a single element in the TTS pipeline.
+// readTTSInput drains input into work, canceling any in-flight synthesis the
+// instant an Interrupt arrives (out of band) so a barge-in preempts a synthesis
+// call that would otherwise block the loop. Order is preserved: the Interrupt is
+// still forwarded through work so the synthesis loop refreshes the context and
+// emits it downstream.
+func readTTSInput(input <-chan StreamElement, work chan<- StreamElement, c *synthCanceller) {
+	defer close(work)
+	for elem := range input {
+		if elem.Interrupt {
+			c.interrupt()
+		}
+		work <- elem
+	}
+}
+
+// processElement handles a single element in the TTS pipeline. forwardCtx (the
+// pipeline context) carries pass-through of non-synthesizable elements; synthCtx
+// (cancelable per turn) governs synthesis so a barge-in can abort it. They
+// differ only in the window after an interrupt cancels synthCtx but before the
+// loop refreshes it — forwarding a queued control element must not fail then.
 func (s *TTSStageWithInterruption) processElement(
-	ctx context.Context,
+	forwardCtx, synthCtx context.Context,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
 	text := s.extractText(elem)
 	if text == "" {
-		return s.forwardElement(ctx, *elem, output)
+		return s.forwardElement(forwardCtx, *elem, output)
 	}
 
 	if s.shouldSkipText(text) {
 		return nil
 	}
 
-	return s.synthesizeAndEmit(ctx, text, elem, output)
+	return s.synthesizeAndEmit(synthCtx, text, elem, output)
 }
 
 // shouldSkipText checks if text should be skipped based on config.
@@ -733,14 +832,21 @@ func (s *TTSStageWithInterruption) performSynthesis(
 }
 
 // handleSynthesisError handles synthesis errors and emits error element.
+// A context cancellation means a barge-in interrupt (or pipeline shutdown)
+// aborted the synthesis — that audio is intentionally dropped, not an error to
+// surface downstream.
 func (s *TTSStageWithInterruption) handleSynthesisError(
 	ctx context.Context,
 	err error,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
-	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
 	s.setBotSpeaking(false)
+	if errors.Is(err, context.Canceled) {
+		logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
+		return nil
+	}
+	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
 	elem.Error = err
 	return s.forwardElement(ctx, *elem, output)
 }

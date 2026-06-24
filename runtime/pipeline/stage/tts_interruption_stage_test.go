@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +90,83 @@ func TestTTSStageWithInterruption_MultipleTexts(t *testing.T) {
 	}
 	assert.Equal(t, 3, audioCount, "Expected 3 audio outputs")
 	assert.Equal(t, 3, synthesizeCount, "Expected 3 synthesize calls")
+}
+
+func TestTTSStageWithInterruption_DropsInFlightOnInterrupt(t *testing.T) {
+	started := make(chan struct{})
+	mock := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+			close(started)
+			<-ctx.Done() // block until barge-in cancels the synthesis context
+			return nil, ctx.Err()
+		},
+	}
+	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
+
+	input := make(chan stage.StreamElement)
+	output := make(chan stage.StreamElement, 16)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	input <- makeTextElement("hello, this is the bot speaking at length")
+	<-started // synthesis is in-flight
+	input <- stage.NewInterruptElement()
+	close(input)
+
+	require.NoError(t, <-done)
+
+	var audioCount, interruptCount int
+	for e := range output {
+		if e.Audio != nil {
+			audioCount++
+		}
+		if e.Interrupt {
+			interruptCount++
+		}
+	}
+	assert.Equal(t, 0, audioCount, "in-flight audio must be dropped on barge-in")
+	assert.Equal(t, 1, interruptCount, "the Interrupt must be forwarded downstream")
+}
+
+func TestTTSStageWithInterruption_SynthesizesAfterInterrupt(t *testing.T) {
+	var calls int32
+	firstStarted := make(chan struct{})
+	mock := &mockTTSService{
+		synthesizeFunc: func(ctx context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+			if atomic.AddInt32(&calls, 1) == 1 {
+				close(firstStarted)
+				<-ctx.Done() // first turn: interrupted
+				return nil, ctx.Err()
+			}
+			return io.NopCloser(strings.NewReader("second-turn-audio")), nil
+		},
+	}
+	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
+
+	input := make(chan stage.StreamElement)
+	output := make(chan stage.StreamElement, 16)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	input <- makeTextElement("first reply, interrupted")
+	<-firstStarted
+	input <- stage.NewInterruptElement()
+	input <- makeTextElement("second reply, after barge-in")
+	close(input)
+
+	require.NoError(t, <-done)
+
+	var audioCount, interruptCount int
+	for e := range output {
+		if e.Audio != nil {
+			audioCount++
+		}
+		if e.Interrupt {
+			interruptCount++
+		}
+	}
+	assert.Equal(t, 1, interruptCount, "the Interrupt is forwarded")
+	assert.Equal(t, 1, audioCount, "synthesis resumes with a fresh context after the interrupt")
 }
 
 func TestTTSStageWithInterruption_ExtractText_FromMessage(t *testing.T) {
