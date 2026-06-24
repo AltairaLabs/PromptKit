@@ -135,7 +135,8 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 		return
 	}
 
-	// Skip control signals (errors, end-of-stream)
+	// Skip control signals (end-of-stream, end-of-turn, interrupt) — they carry
+	// no content to record. Errors fall through to be recorded below.
 	if elem.IsControl() && elem.Error == nil {
 		return
 	}

@@ -90,7 +90,9 @@ type StreamElement struct {
 	Meta ElementMetadata
 
 	// Control signals
-	EndOfStream bool  // No more elements after this
+	EndOfStream bool  // No more elements after this (session over)
+	EndOfTurn   bool  // End of one conversational turn's input; stream stays open
+	Interrupt   bool  // Barge-in: cancel in-flight generation/playback
 	Error       error // Error propagation
 }
 
@@ -379,6 +381,28 @@ func NewEndOfStreamElement() StreamElement {
 	}
 }
 
+// NewEndOfTurnElement marks the end of one conversational turn's input within a
+// still-open stream. Distinct from NewEndOfStreamElement (session over): the
+// streaming provider stage fires its tool loop on EndOfTurn and stays open for
+// the next turn.
+func NewEndOfTurnElement() StreamElement {
+	return StreamElement{
+		EndOfTurn: true,
+		Timestamp: time.Now(),
+		Priority:  PriorityCritical,
+	}
+}
+
+// NewInterruptElement signals barge-in: downstream stages cancel in-flight
+// generation/playback and drop queued audio. Travels at PriorityCritical.
+func NewInterruptElement() StreamElement {
+	return StreamElement{
+		Interrupt: true,
+		Timestamp: time.Now(),
+		Priority:  PriorityCritical,
+	}
+}
+
 // IsEmpty returns true if the element contains no content.
 func (e *StreamElement) IsEmpty() bool {
 	return e.Text == nil &&
@@ -390,6 +414,8 @@ func (e *StreamElement) IsEmpty() bool {
 		e.Part == nil &&
 		e.MediaData == nil &&
 		!e.EndOfStream &&
+		!e.EndOfTurn &&
+		!e.Interrupt &&
 		e.Error == nil
 }
 
@@ -405,9 +431,10 @@ func (e *StreamElement) HasContent() bool {
 		e.MediaData != nil
 }
 
-// IsControl returns true if the element is a control signal (error or end-of-stream).
+// IsControl returns true if the element is a control signal (error, end-of-stream,
+// end-of-turn, or interrupt) rather than content.
 func (e *StreamElement) IsControl() bool {
-	return e.Error != nil || e.EndOfStream
+	return e.Error != nil || e.EndOfStream || e.EndOfTurn || e.Interrupt
 }
 
 // WithSource sets the source stage name for this element.
