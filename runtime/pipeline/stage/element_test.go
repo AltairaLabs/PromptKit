@@ -422,6 +422,48 @@ func TestVideoData_EnsureLoaded_Error(t *testing.T) {
 	}
 }
 
+func TestNewEndOfTurnElement(t *testing.T) {
+	e := NewEndOfTurnElement()
+	if !e.EndOfTurn {
+		t.Fatal("expected EndOfTurn true")
+	}
+	if e.EndOfStream {
+		t.Fatal("EndOfTurn element must not set EndOfStream")
+	}
+	if e.Priority != PriorityCritical {
+		t.Fatalf("expected PriorityCritical, got %v", e.Priority)
+	}
+	if !e.IsControl() {
+		t.Fatal("EndOfTurn element must be a control signal")
+	}
+	if e.IsEmpty() {
+		t.Fatal("EndOfTurn element must not be empty")
+	}
+}
+
+func TestNewInterruptElement(t *testing.T) {
+	e := NewInterruptElement()
+	if !e.Interrupt {
+		t.Fatal("expected Interrupt true")
+	}
+	if e.Priority != PriorityCritical {
+		t.Fatalf("expected PriorityCritical, got %v", e.Priority)
+	}
+	if !e.IsControl() {
+		t.Fatal("Interrupt element must be a control signal")
+	}
+	if e.IsEmpty() {
+		t.Fatal("Interrupt element must not be empty")
+	}
+}
+
+func TestControlSignals_DefaultFalse(t *testing.T) {
+	e := NewTextElement("hi")
+	if e.EndOfTurn || e.Interrupt {
+		t.Fatal("new content element must default EndOfTurn/Interrupt to false")
+	}
+}
+
 func TestImageData_EnsureLoaded_Error(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockMediaStorageService{
