@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -89,6 +90,55 @@ func (p *erroringProvider) Predict(
 	_ context.Context, _ providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{}, fmt.Errorf("boom")
+}
+
+// blockingProvider blocks in Predict until its context is cancelled, signaling
+// when generation is in-flight so a test can drive a barge-in mid-generation.
+type blockingProvider struct {
+	multiTurnRecordingProvider
+	started chan struct{}
+	once    sync.Once
+}
+
+func (p *blockingProvider) Predict(
+	ctx context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.once.Do(func() { close(p.started) })
+	<-ctx.Done()
+	return providers.PredictionResponse{}, ctx.Err()
+}
+
+// TestProviderStage_Streaming_InterruptCancelsGeneration verifies a barge-in
+// Interrupt cancels in-flight provider generation: the turn is dropped (no
+// assistant reply), the Interrupt is forwarded, and the session survives.
+func TestProviderStage_Streaming_InterruptCancelsGeneration(t *testing.T) {
+	prov := &blockingProvider{started: make(chan struct{})}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement)
+	output := make(chan StreamElement, 16)
+	done := make(chan error, 1)
+	go func() { done <- stage.Process(context.Background(), input, output) }()
+
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "hello"})
+	input <- NewEndOfTurnElement()
+	<-prov.started // generation is in-flight
+	input <- NewInterruptElement()
+	close(input)
+
+	require.NoError(t, <-done)
+
+	var assistant, interrupts int
+	for e := range output {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			assistant++
+		}
+		if e.Interrupt {
+			interrupts++
+		}
+	}
+	assert.Equal(t, 0, assistant, "interrupted generation must yield no assistant reply")
+	assert.Equal(t, 1, interrupts, "the Interrupt must be forwarded downstream")
 }
 
 // TestProviderStage_Streaming_NilTurnState verifies streaming mode works when no

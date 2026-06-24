@@ -359,6 +359,14 @@ func TestAudioTurnStage_Interruption_ResetsState(t *testing.T) {
 	// Reset the handler to clear the interruption
 	handler.Reset()
 
+	// Barge-in emits an Interrupt element first.
+	select {
+	case elem := <-output:
+		assert.True(t, elem.Interrupt, "barge-in should emit an Interrupt element first")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for Interrupt element")
+	}
+
 	// Send another chunk and close
 	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
 	close(input)
@@ -372,6 +380,37 @@ func TestAudioTurnStage_Interruption_ResetsState(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for post-interruption audio")
 	}
+}
+
+func TestAudioTurnStage_EmitsInterruptOnBargeIn(t *testing.T) {
+	config := stage.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second // Won't trigger via silence
+
+	// A single Speaking chunk while the bot is speaking is a barge-in.
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{audio.VADStateSpeaking},
+	}
+	config.VAD = mockVAD
+
+	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	handler.SetBotSpeaking(true)
+	config.InterruptionHandler = handler
+
+	s, err := stage.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	inputs := []stage.StreamElement{
+		makeAudioElement(generateTestPCMAudio(160), 16000),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	sawInterrupt := false
+	for _, r := range results {
+		if r.Interrupt {
+			sawInterrupt = true
+		}
+	}
+	assert.True(t, sawInterrupt, "barge-in (user speech while bot speaking) must emit an Interrupt element")
 }
 
 func TestAudioTurnStage_MultipleTurns(t *testing.T) {

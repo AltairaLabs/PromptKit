@@ -284,13 +284,30 @@ func (s *ProviderStage) processStreaming(
 	output chan<- StreamElement,
 ) error {
 	cfg := s.streamingTurnState()
+
+	// A concurrent reader cancels in-flight generation the instant a barge-in
+	// Interrupt arrives, so a blocking provider call cannot swallow it.
+	canceller := newTurnCanceller(ctx)
+	defer canceller.stop()
+	work := make(chan StreamElement, interruptWorkBuffer)
+	go drainCancelingOnInterrupt(input, work, canceller)
+
 	var history []types.Message
 	var pending []types.Message
 
-	for elem := range input {
+	for elem := range work {
 		switch {
+		case elem.Interrupt:
+			// Barge-in: in-flight generation was already canceled out of band by
+			// the reader. Drop the partial turn's input, roll a fresh context,
+			// and forward the Interrupt downstream.
+			pending = nil
+			canceller.refresh()
+			if err := sendStreamElement(ctx, elem, output); err != nil {
+				return err
+			}
 		case elem.EndOfTurn:
-			next, err := s.fireIfPending(ctx, &history, pending, cfg, output)
+			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
 			if err != nil {
 				return err
 			}
@@ -298,12 +315,12 @@ func (s *ProviderStage) processStreaming(
 		case elem.EndOfStream:
 			// Session over: fire any partial turn, then stop. Closing output
 			// downstream signals end-of-conversation to the next stages.
-			_, err := s.fireIfPending(ctx, &history, pending, cfg, output)
+			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
 			return err
 		case elem.Message != nil:
 			pending = append(pending, *elem.Message)
 		default:
-			// Control signals (Interrupt) and any stray content pass through.
+			// Stray content passes through unchanged.
 			if err := sendStreamElement(ctx, elem, output); err != nil {
 				return err
 			}
@@ -311,14 +328,16 @@ func (s *ProviderStage) processStreaming(
 	}
 
 	// Input closed without an explicit EndOfStream: fire any trailing turn.
-	_, err := s.fireIfPending(ctx, &history, pending, cfg, output)
+	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
 	return err
 }
 
 // fireIfPending fires a streaming turn when there is buffered input, returning
 // the reset pending slice. A no-op (returning pending unchanged) when empty.
+// forwardCtx carries the downstream emits; genCtx (cancelable per turn) governs
+// the provider call so a barge-in can abort it.
 func (s *ProviderStage) fireIfPending(
-	ctx context.Context,
+	forwardCtx, genCtx context.Context,
 	history *[]types.Message,
 	pending []types.Message,
 	cfg streamingConfig,
@@ -327,7 +346,7 @@ func (s *ProviderStage) fireIfPending(
 	if len(pending) == 0 {
 		return pending, nil
 	}
-	if err := s.fireStreamingTurn(ctx, history, pending, cfg, output); err != nil {
+	if err := s.fireStreamingTurn(forwardCtx, genCtx, history, pending, cfg, output); err != nil {
 		return pending, err
 	}
 	return nil, nil
@@ -337,11 +356,16 @@ func (s *ProviderStage) fireIfPending(
 // emits only this turn's new messages (the turn's user transcript plus the
 // assistant reply and any tool messages — the provider drains its input, so it
 // must re-emit the user messages itself for the save stage), advances history to
-// the full conversation, and emits an EndOfTurn boundary. A turn-level error is
-// surfaced as an error element but does not tear down the session — a live
-// conversation survives one failed turn.
+// the full conversation, and emits an EndOfTurn boundary.
+//
+// genCtx governs the provider call: a barge-in cancels it, which drops the turn
+// (no reply) without tearing down the session. A non-cancellation error is
+// surfaced as an error element but likewise keeps the session alive — a live
+// conversation survives one failed turn. forwardCtx carries the downstream emits
+// so a late interrupt that cancels genCtx after a successful generation does not
+// abort the emit.
 func (s *ProviderStage) fireStreamingTurn(
-	ctx context.Context,
+	forwardCtx, genCtx context.Context,
 	history *[]types.Message,
 	pending []types.Message,
 	cfg streamingConfig,
@@ -366,27 +390,31 @@ func (s *ProviderStage) fireStreamingTurn(
 	var full []types.Message
 	var err error
 	if s.provider.SupportsStreaming() {
-		full, err = s.executeStreamingMultiRound(ctx, acc, output)
+		full, err = s.executeStreamingMultiRound(genCtx, acc, output)
 	} else {
-		full, err = s.executeMultiRound(ctx, acc)
+		full, err = s.executeMultiRound(genCtx, acc)
 	}
 	if err != nil {
-		// Surface the failure but keep the session alive (return nil on a
-		// successful send; ctx cancellation still propagates).
+		if errors.Is(err, context.Canceled) {
+			// Barge-in (or shutdown) canceled this turn's generation; drop it.
+			// The session continues with a fresh context.
+			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown), dropping")
+			return nil
+		}
 		logger.Error("ProviderStage streaming turn failed", "error", err)
-		return sendStreamElement(ctx, NewErrorElement(err), output)
+		return sendStreamElement(forwardCtx, NewErrorElement(err), output)
 	}
 
 	// full = (history + pending) + new assistant/tool messages. Emit everything
 	// after the prior history: this turn's user messages and the new reply.
 	if priorLen <= len(full) {
-		if emitErr := s.emitResponseMessages(ctx, full[priorLen:], output); emitErr != nil {
+		if emitErr := s.emitResponseMessages(forwardCtx, full[priorLen:], output); emitErr != nil {
 			return emitErr
 		}
 	}
 	*history = full
 
-	return sendStreamElement(ctx, NewEndOfTurnElement(), output)
+	return sendStreamElement(forwardCtx, NewEndOfTurnElement(), output)
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.
