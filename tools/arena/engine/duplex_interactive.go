@@ -282,8 +282,21 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 	builder := stage.NewPipelineBuilderWithConfig(
 		stage.DefaultPipelineConfig().WithExecutionTimeout(0),
 	)
-	// 1. VAD turn segmentation: N audio chunks → 1 audio utterance.
-	vadStage, err := stage.NewAudioTurnStage(de.buildInteractiveVADConfig(req))
+
+	// Shared interruption handler coordinates barge-in across the AudioTurn and
+	// TTS stages: TTS marks when the bot is speaking, AudioTurn fires an Interrupt
+	// when the user speaks over it. Immediate strategy — under --echo-guard the
+	// driver gates the mic during output, so no speech reaches AudioTurn and
+	// barge-in is naturally suppressed without changing the strategy here.
+	interruptionHandler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+
+	// 1. VAD turn segmentation: N audio chunks → 1 audio utterance, emitting an
+	// EndOfTurn boundary per turn (so the streaming provider fires per turn) and
+	// an Interrupt on barge-in.
+	vadCfg := de.buildInteractiveVADConfig(req)
+	vadCfg.EmitEndOfTurn = true
+	vadCfg.InterruptionHandler = interruptionHandler
+	vadStage, err := stage.NewAudioTurnStage(vadCfg)
 	if err != nil {
 		return nil, fmt.Errorf("audio turn stage: %w", err)
 	}
@@ -308,7 +321,7 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 		stage.NewPromptAssemblyStageWithTurnState(de.promptRegistry, taskType, mergedVars, turnState),
 		stage.NewTemplateStageWithTurnState(nil, turnState),
 		stage.NewProviderStageWithTurnState(
-			req.Provider, de.toolRegistry, nil, &stage.ProviderConfig{}, emitter, nil, turnState,
+			req.Provider, de.toolRegistry, nil, &stage.ProviderConfig{Streaming: true}, emitter, nil, turnState,
 		),
 	}
 
@@ -332,10 +345,14 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 	// assistant Messages carry text the TTS stage should synthesize; forwarding
 	// user/system/tool Messages would cause the pipeline to speak the user's own
 	// words back at them.
-	// 7. TTS: assistant text → audio for playback.
+	// 7. TTS: assistant text → audio for playback. Shares the interruption
+	// handler with the AudioTurn stage so it knows when the bot is speaking and
+	// drops in-flight audio on barge-in.
+	ttsCfg := de.buildInteractiveTTSConfig(req)
+	ttsCfg.InterruptionHandler = interruptionHandler
 	stages = append(stages,
 		arenastages.NewAssistantTTSFilterStage(),
-		stage.NewTTSStageWithInterruption(ttsSvc, de.buildInteractiveTTSConfig(req)),
+		stage.NewTTSStageWithInterruption(ttsSvc, ttsCfg),
 	)
 
 	return builder.Chain(stages...).Build()
@@ -351,7 +368,11 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 // "quiet mic" environments where SimpleVAD's fixed threshold would miss speech.
 func (de *DuplexConversationExecutor) buildInteractiveVADConfig(req *ConversationRequest) stage.AudioTurnConfig {
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
-		return de.buildVADConfig(req)
+		cfg := de.buildVADConfig(req)
+		if req.vadOverride != nil {
+			cfg.VAD = req.vadOverride
+		}
+		return cfg
 	}
 
 	cfg := stage.DefaultAudioTurnConfig()

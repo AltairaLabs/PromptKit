@@ -45,6 +45,12 @@ type AudioTurnConfig struct {
 	// SampleRate is the audio sample rate for output AudioData.
 	// Default: 16000
 	SampleRate int
+
+	// EmitEndOfTurn, when true, emits an EndOfTurn control element after each
+	// completed turn's audio. The streaming (continuous multi-turn) composed-VAD
+	// pipeline sets this so the streaming provider stage fires once per turn.
+	// Default false preserves single-shot behavior for every other consumer.
+	EmitEndOfTurn bool
 }
 
 const (
@@ -219,8 +225,27 @@ func (s *AudioTurnStage) processAudioElement(
 			return err
 		}
 		s.resetState(state)
+		// Mark the conversational turn boundary so the streaming provider stage
+		// fires this turn. The trailing turn at stream close is fired by the
+		// EndOfStream that follows, so it is not marked here.
+		if s.config.EmitEndOfTurn {
+			if err := s.emitEndOfTurn(ctx, output); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// emitEndOfTurn sends an EndOfTurn control element downstream, marking the end
+// of one conversational turn's input within the still-open session.
+func (s *AudioTurnStage) emitEndOfTurn(ctx context.Context, output chan<- StreamElement) error {
+	select {
+	case output <- NewEndOfTurnElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // emitInterrupt sends an Interrupt control element downstream so the provider
