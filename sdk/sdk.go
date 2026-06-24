@@ -870,9 +870,24 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 // Resume requires a state store to be configured. If no state store is provided,
 // it returns [ErrNoStateStore].
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error) {
-	// Options are applied twice intentionally: first here to extract the state
-	// store for loading, then again inside Open() for full initialization.
-	// This is safe because options are idempotent config setters.
+	return resumeWith(Open, conversationID, packPath, promptName, opts...)
+}
+
+// resumeWith is the shared implementation behind [Resume] and [ResumeDuplex].
+//
+// It applies the options once to extract the configured state store, verifies a
+// persisted conversation exists, then delegates to opener (Open or OpenDuplex)
+// with WithConversationID appended so the pipeline's StateStore load stage seeds
+// the prior history into the new session.
+//
+// Options are applied twice intentionally: first here to read the state store,
+// then again inside opener for full initialization. This is safe because options
+// are idempotent config setters.
+func resumeWith(
+	opener func(packPath, promptName string, opts ...Option) (*Conversation, error),
+	conversationID, packPath, promptName string,
+	opts ...Option,
+) (*Conversation, error) {
 	cfg := &config{}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {
@@ -894,17 +909,10 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 		return nil, ErrConversationNotFound
 	}
 
-	// Open conversation with the loaded state
-	// Add WithConversationID to preserve the original ID
+	// Open conversation with the loaded state. WithConversationID preserves the
+	// original ID so the StateStore load stage seeds the persisted history.
 	opts = append(opts, WithConversationID(conversationID))
-	conv, err := Open(packPath, promptName, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	// The session now has the correct conversation ID from WithConversationID option
-
-	return conv, nil
+	return opener(packPath, promptName, opts...)
 }
 
 // ResumeDuplex loads an existing conversation from state storage and opens it as
@@ -937,40 +945,7 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 // The persisted message history is seeded into the duplex pipeline by the same
 // StateStore load stage that the unary path uses; no separate replay is needed.
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error) {
-	// Options are applied twice intentionally: first here to extract the state
-	// store for loading, then again inside OpenDuplex() for full initialization.
-	// This is safe because options are idempotent config setters.
-	cfg := &config{}
-	for _, opt := range opts {
-		if err := opt(cfg); err != nil {
-			return nil, fmt.Errorf("failed to apply option: %w", err)
-		}
-	}
-
-	if cfg.stateStore == nil {
-		return nil, ErrNoStateStore
-	}
-
-	// Try to load existing state
-	ctx := context.Background()
-	state, err := cfg.stateStore.Load(ctx, conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load conversation state: %w", err)
-	}
-	if state == nil {
-		return nil, ErrConversationNotFound
-	}
-
-	// Open the duplex conversation with the loaded state.
-	// Add WithConversationID to preserve the original ID so the duplex pipeline's
-	// StateStore load stage seeds the persisted history.
-	opts = append(opts, WithConversationID(conversationID))
-	conv, err := OpenDuplex(packPath, promptName, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return conv, nil
+	return resumeWith(OpenDuplex, conversationID, packPath, promptName, opts...)
 }
 
 // OpenComposition loads a pack and creates a Conversation that runs the named
