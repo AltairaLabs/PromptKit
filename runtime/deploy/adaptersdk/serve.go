@@ -23,6 +23,8 @@ const (
 	MethodDestroy         = "destroy"
 	MethodStatus          = "status"
 	MethodImport          = "import"
+	MethodGetLoginURL     = "get_login_url"
+	MethodCompleteLogin   = "complete_login"
 )
 
 // Standard JSON-RPC 2.0 error codes.
@@ -155,6 +157,10 @@ func dispatch(provider deploy.Provider, req *request) response {
 		return handleStatus(ctx, provider, req)
 	case MethodImport:
 		return handleImport(ctx, provider, req)
+	case MethodGetLoginURL:
+		return handleGetLoginURL(ctx, provider, req)
+	case MethodCompleteLogin:
+		return handleCompleteLogin(ctx, provider, req)
 	default:
 		return response{
 			JSONRPC: jsonRPCVersion,
@@ -288,6 +294,51 @@ func handleImport(
 		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	result, err := provider.Import(ctx, &params)
+	if err != nil {
+		return errResponse(req.ID, CodeInternalError, err.Error())
+	}
+	return okResponse(req.ID, result)
+}
+
+// handleGetLoginURL handles the get_login_url method. It is served only when
+// the provider implements the optional deploy.LoginProvider; otherwise the
+// caller receives a method-not-found error and treats login as unsupported.
+func handleGetLoginURL(
+	ctx context.Context,
+	provider deploy.Provider,
+	req *request,
+) response {
+	lp, ok := provider.(deploy.LoginProvider)
+	if !ok {
+		return errResponse(req.ID, CodeMethodNotFound, "method not found: "+req.Method)
+	}
+	var params deploy.LoginURLRequest
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
+	}
+	result, err := lp.GetLoginURL(ctx, &params)
+	if err != nil {
+		return errResponse(req.ID, CodeInternalError, err.Error())
+	}
+	return okResponse(req.ID, result)
+}
+
+// handleCompleteLogin handles the complete_login method. Like get_login_url it
+// is served only when the provider implements deploy.LoginProvider.
+func handleCompleteLogin(
+	ctx context.Context,
+	provider deploy.Provider,
+	req *request,
+) response {
+	lp, ok := provider.(deploy.LoginProvider)
+	if !ok {
+		return errResponse(req.ID, CodeMethodNotFound, "method not found: "+req.Method)
+	}
+	var params deploy.CompleteLoginRequest
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
+	}
+	result, err := lp.CompleteLogin(ctx, &params)
 	if err != nil {
 		return errResponse(req.ID, CodeInternalError, err.Error())
 	}
