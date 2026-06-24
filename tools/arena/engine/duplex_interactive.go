@@ -368,7 +368,11 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 // "quiet mic" environments where SimpleVAD's fixed threshold would miss speech.
 func (de *DuplexConversationExecutor) buildInteractiveVADConfig(req *ConversationRequest) stage.AudioTurnConfig {
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
-		return de.buildVADConfig(req)
+		cfg := de.buildVADConfig(req)
+		if req.vadOverride != nil {
+			cfg.VAD = req.vadOverride
+		}
+		return cfg
 	}
 
 	cfg := stage.DefaultAudioTurnConfig()

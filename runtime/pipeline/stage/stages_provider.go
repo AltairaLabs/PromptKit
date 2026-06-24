@@ -283,8 +283,6 @@ func (s *ProviderStage) processStreaming(
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
-	cfg := s.streamingTurnState()
-
 	// A concurrent reader cancels in-flight generation the instant a barge-in
 	// Interrupt arrives, so a blocking provider call cannot swallow it.
 	canceller := newTurnCanceller(ctx)
@@ -307,7 +305,7 @@ func (s *ProviderStage) processStreaming(
 				return err
 			}
 		case elem.EndOfTurn:
-			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
+			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 			if err != nil {
 				return err
 			}
@@ -315,7 +313,7 @@ func (s *ProviderStage) processStreaming(
 		case elem.EndOfStream:
 			// Session over: fire any partial turn, then stop. Closing output
 			// downstream signals end-of-conversation to the next stages.
-			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
+			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 			return err
 		case elem.Message != nil:
 			pending = append(pending, *elem.Message)
@@ -328,7 +326,7 @@ func (s *ProviderStage) processStreaming(
 	}
 
 	// Input closed without an explicit EndOfStream: fire any trailing turn.
-	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, cfg, output)
+	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 	return err
 }
 
@@ -340,13 +338,12 @@ func (s *ProviderStage) fireIfPending(
 	forwardCtx, genCtx context.Context,
 	history *[]types.Message,
 	pending []types.Message,
-	cfg streamingConfig,
 	output chan<- StreamElement,
 ) ([]types.Message, error) {
 	if len(pending) == 0 {
 		return pending, nil
 	}
-	if err := s.fireStreamingTurn(forwardCtx, genCtx, history, pending, cfg, output); err != nil {
+	if err := s.fireStreamingTurn(forwardCtx, genCtx, history, pending, output); err != nil {
 		return pending, err
 	}
 	return nil, nil
@@ -368,9 +365,14 @@ func (s *ProviderStage) fireStreamingTurn(
 	forwardCtx, genCtx context.Context,
 	history *[]types.Message,
 	pending []types.Message,
-	cfg streamingConfig,
 	output chan<- StreamElement,
 ) error {
+	// Read the per-session invariants here, not before the loop: upstream
+	// prompt/template stages write TurnState lazily as elements flow, and this
+	// turn's messages have already passed through them by fire time, so the read
+	// is safely ordered after those writes (channel happens-before).
+	cfg := s.streamingTurnState()
+
 	priorLen := len(*history)
 	messages := make([]types.Message, 0, priorLen+len(pending))
 	messages = append(messages, *history...)

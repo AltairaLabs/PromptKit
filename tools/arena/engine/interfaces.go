@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	audioseam "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -129,6 +130,13 @@ type ConversationRequest struct {
 	// message produced by the just-completed turn. No-op when meta is nil. This is
 	// side-effect-only and must never alter turn output, error, or flow.
 	StampWorkflowState func(meta map[string]interface{})
+
+	// vadOverride, when non-nil, replaces the VAD analyzer the composed-VAD
+	// pipeline would otherwise construct. Test-only seam: the real VAD's
+	// speech/silence detection on synthetic audio is non-deterministic, so the
+	// continuous-conversation integration test injects a scripted VAD here to
+	// drive exact turn boundaries. Unexported — never set on a production path.
+	vadOverride audioseam.VADAnalyzer
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena
