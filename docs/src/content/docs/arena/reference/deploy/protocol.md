@@ -148,6 +148,7 @@ Validates provider configuration before planning.
 |--------------|------|-------------|
 | `valid` | bool | Whether config is valid |
 | `errors` | string[] | Validation error messages |
+| `warnings` | string[] | Non-blocking advisories (do not affect `valid`); the CLI prints them with a ⚠ prefix |
 
 ---
 
@@ -208,6 +209,7 @@ Analyzes the pack and config to determine what resources need to change.
 |--------------|------|-------------|
 | `changes` | ResourceChange[] | List of planned resource changes |
 | `summary` | string | Human-readable summary |
+| `warnings` | string[] | Non-blocking advisories printed before the plan changes (⚠ prefix) |
 
 **ResourceChange:**
 
@@ -473,6 +475,70 @@ Imports a pre-existing resource into deployment state. This lets the CLI manage 
 |--------------|------|-------------|
 | `resource` | ResourceStatus | Imported resource details |
 | `state` | string | Updated opaque adapter state |
+
+---
+
+### get_login_url
+
+**Optional.** Served only by adapters that advertise the `login` capability and
+implement the `LoginProvider` interface; others return method-not-found. Returns
+the provider's browser authorize URL for `deploy login`.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "get_login_url",
+  "params": {
+    "callback_url": "http://127.0.0.1:53219/callback",
+    "state": "9f2c…",
+    "config": "{\"api_endpoint\":\"https://omnia.example.com\"}"
+  }
+}
+```
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `callback_url` | string | The CLI's loopback callback the provider must redirect to |
+| `state` | string | CSRF nonce the provider must echo back |
+| `config` | string | JSON-encoded (possibly partial) deploy config — provider coordinates such as `api_endpoint` |
+
+| Result Field | Type | Description |
+|--------------|------|-------------|
+| `authorize_url` | string | The URL the CLI opens in the browser |
+
+---
+
+### complete_login
+
+**Optional.** Exchanges the captured callback parameters for a deploy profile and
+a scoped token.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "complete_login",
+  "params": {
+    "params": { "code": "one-time-code", "state": "9f2c…" },
+    "config": "{\"api_endpoint\":\"https://omnia.example.com\"}"
+  }
+}
+```
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `params` | object | All query parameters captured from the loopback callback (opaque to the CLI) |
+| `config` | string | JSON-encoded deploy config |
+
+| Result Field | Type | Description |
+|--------------|------|-------------|
+| `profile` | object | The deploy profile to merge into the config (endpoint, workspace, providers, skills) |
+| `token` | string | The scoped secret token (stored in the credentials file, never in the config) |
 
 ## Error Codes
 
