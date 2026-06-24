@@ -125,6 +125,7 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 		EventBus:         eventBus,
 		VoiceSTT:         voiceSTT,
 		VoiceOutputVoice: p.voice.OutputVoice,
+		VoiceBargeIn:     p.voice.BargeIn,
 	}
 
 	// 7. Subscribe directly to the event bus so each message.created event
@@ -164,11 +165,16 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 
 	go func() {
 		defer eventBus.Close()
-		if driverErr := drv.Run(ctx); driverErr != nil && !errors.Is(driverErr, context.Canceled) {
-			// Non-cancellation errors are surfaced as a status line update via
-			// chatErrMsg which is already handled by ChatPage.Update.
-			send(chatErrMsg{err: fmt.Errorf("voice driver: %w", driverErr)})
+		driverErr := drv.Run(ctx)
+		// Always tell the UI the voice session ended, however it ended (idle
+		// timeout, pipeline error, or mic close). Without this the driver
+		// goroutine exited silently and the console looked hung — a dead mic
+		// meter with no explanation. A context cancellation is a clean end (idle
+		// timeout or user quit), so it carries no error.
+		if errors.Is(driverErr, context.Canceled) {
+			driverErr = nil
 		}
+		send(voiceEndedMsg{err: driverErr})
 	}()
 
 	return nil

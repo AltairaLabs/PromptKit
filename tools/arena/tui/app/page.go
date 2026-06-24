@@ -37,6 +37,7 @@ type VoiceOptions struct {
 	STTProviderID string // --voice-stt ("" = ASM/native realtime mode)
 	OutputVoice   string // --voice-output-voice
 	EchoGuard     bool   // --echo-guard
+	BargeIn       bool   // --barge-in (interrupt the agent mid-reply; opt-in)
 }
 
 // AppContext carries the shared runtime dependencies injected into every Page

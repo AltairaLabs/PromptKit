@@ -348,6 +348,40 @@ func TestProviderStage_Streaming_ThreadsHistory(t *testing.T) {
 	assert.Equal(t, "second question", prov.requests[1][2].Content)
 }
 
+// TestProviderStage_Streaming_UserEmittedBeforeReply verifies the user transcript
+// is emitted (and thus persisted/displayed) BEFORE the assistant reply, not
+// together with it after generation — so the UI shows the user's words while the
+// model is still thinking.
+func TestProviderStage_Streaming_UserEmittedBeforeReply(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "hello"})
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 16)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	firstUser, firstAssistant := -1, -1
+	i := 0
+	for e := range output {
+		if e.Message != nil {
+			if e.Message.Role == "user" && firstUser < 0 {
+				firstUser = i
+			}
+			if e.Message.Role == roleAssistant && firstAssistant < 0 {
+				firstAssistant = i
+			}
+		}
+		i++
+	}
+	require.GreaterOrEqual(t, firstUser, 0, "user message must be emitted")
+	require.GreaterOrEqual(t, firstAssistant, 0, "assistant message must be emitted")
+	assert.Less(t, firstUser, firstAssistant, "user transcript must be emitted before the assistant reply")
+}
+
 // TestProviderStage_Streaming_EmitsUserMessages verifies the user transcript for
 // each turn is forwarded downstream (so the save stage persists it), not just
 // the assistant reply. The provider drains its input, so it must re-emit the

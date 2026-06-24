@@ -119,12 +119,19 @@ func (a *App) initAndActivate(p Page) tea.Cmd {
 	if a.inited == nil {
 		a.inited = map[Page]bool{}
 	}
+	// Activate wires a page's dependencies (ChatPage's engine, RunPage's event
+	// bus + the send func) and MUST run before Init, which consumes them —
+	// ChatPage.Init reads the engine that Activate sets. Running Init first left
+	// it reading a nil engine, bailing, and falling through to its zero-value
+	// state (an empty "Select an agent" picker). Neither page's Activate depends
+	// on Init having run, so ordering Activate first is safe.
+	activateCmd := a.activateIfNeeded(p)
 	var initCmd tea.Cmd
 	if !a.inited[p] {
 		a.inited[p] = true
 		initCmd = p.Init()
 	}
-	return tea.Batch(initCmd, a.activateIfNeeded(p))
+	return tea.Batch(activateCmd, initCmd)
 }
 
 // activateIfNeeded calls Activate on p if it implements Activatable and has not

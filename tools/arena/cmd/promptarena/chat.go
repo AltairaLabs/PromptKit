@@ -17,6 +17,8 @@ func init() {
 	chatCmd.Flags().String("voice-output-voice", "", "TTS voice id the agent speaks in (VAD mode)")
 	chatCmd.Flags().Bool("echo-guard", false,
 		"Gate mic while the agent speaks (for laptop speakers; default off assumes headphones)")
+	chatCmd.Flags().Bool("barge-in", false,
+		"Allow interrupting the agent mid-reply (opt-in; needs headphones/AEC, off by default)")
 	chatCmd.Flags().BoolP("verbose", "v", false, "Enable verbose debug logging (raw provider events, transcription)")
 	rootCmd.AddCommand(chatCmd)
 }

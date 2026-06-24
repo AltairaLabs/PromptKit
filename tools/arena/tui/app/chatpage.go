@@ -42,6 +42,17 @@ type chatEvalMsg struct {
 // chatErrMsg carries a non-fatal error to display.
 type chatErrMsg struct{ err error }
 
+// voiceEndedMsg signals the voice driver goroutine exited — the voice session is
+// over (idle timeout, pipeline error, or mic close). The UI reflects this so the
+// console no longer looks hung with a dead mic meter. A nil err is a clean end.
+type voiceEndedMsg struct{ err error }
+
+// Voice-mode status-line labels shown during a turn.
+const (
+	voiceStatusListening = "🎧 listening…"
+	voiceStatusThinking  = "💭 thinking…"
+)
+
 // Key label constants used by footer helpers.
 const (
 	chatKeyNameEnter = "enter"
@@ -235,6 +246,9 @@ func (p *ChatPage) startSession(runEvals bool) tea.Cmd {
 	p.initPanel()
 	if p.voice != nil {
 		// Voice mode: start the audio driver instead of focusing the text input.
+		// Show an initial status so the console isn't blank while the first turn
+		// spins up (mic, VAD calibration, first STT/LLM/TTS calls).
+		p.statusLine = voiceStatusListening
 		return p.startVoice(p.send)
 	}
 	p.input.Focus()
@@ -314,6 +328,16 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		// A message.created event arrived from the voice pipeline; reload the
 		// conversation panel from the voice state store (single source of truth).
 		p.refreshVoicePanel()
+		return p, nil
+	case voiceEndedMsg:
+		// The voice driver exited. Reflect it so the console doesn't look hung:
+		// freeze the audio meter and show an ended status.
+		p.panel.SetAudioLevels(0, 0, false)
+		if v.err != nil {
+			p.statusLine = "🛑 voice session ended: " + chatSanitizeErrorLine(v.err)
+		} else {
+			p.statusLine = "🛑 voice session ended (idle timeout or mic closed) — press q to exit"
+		}
 		return p, nil
 	}
 
@@ -481,6 +505,17 @@ func (p *ChatPage) refreshVoicePanel() {
 	}
 	p.panel.SetData(p.voiceConvID, "", p.provider, res)
 	p.panel.SelectLast()
+
+	// Reflect where we are in the turn so the STT→LLM→TTS lag isn't dead air: a
+	// user transcript with no reply yet means we're waiting on the model.
+	if n := len(state.Messages); n > 0 {
+		switch state.Messages[n-1].Role {
+		case "user":
+			p.statusLine = voiceStatusThinking
+		case "assistant":
+			p.statusLine = voiceStatusListening
+		}
+	}
 }
 
 // handleStreamDone is called when the assistant stream finishes. It fetches the

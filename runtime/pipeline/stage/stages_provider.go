@@ -373,6 +373,13 @@ func (s *ProviderStage) fireStreamingTurn(
 	// is safely ordered after those writes (channel happens-before).
 	cfg := s.streamingTurnState()
 
+	// Emit this turn's user transcript(s) BEFORE generation, so the UI shows what
+	// the user said immediately (and the save stage persists it) instead of the
+	// transcript and the reply appearing together after the LLM responds.
+	if emitErr := s.emitResponseMessages(forwardCtx, pending, output); emitErr != nil {
+		return emitErr
+	}
+
 	priorLen := len(*history)
 	messages := make([]types.Message, 0, priorLen+len(pending))
 	messages = append(messages, *history...)
@@ -407,10 +414,11 @@ func (s *ProviderStage) fireStreamingTurn(
 		return sendStreamElement(forwardCtx, NewErrorElement(err), output)
 	}
 
-	// full = (history + pending) + new assistant/tool messages. Emit everything
-	// after the prior history: this turn's user messages and the new reply.
-	if priorLen <= len(full) {
-		if emitErr := s.emitResponseMessages(forwardCtx, full[priorLen:], output); emitErr != nil {
+	// full = (history + pending) + new assistant/tool messages. The user
+	// messages (pending) were already emitted above, so emit only the new reply.
+	newStart := priorLen + len(pending)
+	if newStart <= len(full) {
+		if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
 			return emitErr
 		}
 	}

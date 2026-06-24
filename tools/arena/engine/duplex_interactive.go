@@ -283,16 +283,22 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 		stage.DefaultPipelineConfig().WithExecutionTimeout(0),
 	)
 
-	// Shared interruption handler coordinates barge-in across the AudioTurn and
-	// TTS stages: TTS marks when the bot is speaking, AudioTurn fires an Interrupt
-	// when the user speaks over it. Immediate strategy — under --echo-guard the
-	// driver gates the mic during output, so no speech reaches AudioTurn and
-	// barge-in is naturally suppressed without changing the strategy here.
-	interruptionHandler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	// Barge-in is OPT-IN (--barge-in). When enabled, a shared interruption
+	// handler coordinates it across the AudioTurn and TTS stages: TTS marks when
+	// the bot is speaking, AudioTurn fires an Interrupt when the user speaks over
+	// it. It is off by default because it only works cleanly on headphones / with
+	// AEC, and stopping in-flight playback needs audio-sink flush support that is
+	// not wired yet — so by default the console does clean turn-taking (the agent
+	// finishes speaking before the next turn is captured). A nil handler makes
+	// AudioTurn never emit an Interrupt and the TTS interrupt checks no-op.
+	var interruptionHandler *audio.InterruptionHandler
+	if req.VoiceBargeIn {
+		interruptionHandler = audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	}
 
 	// 1. VAD turn segmentation: N audio chunks → 1 audio utterance, emitting an
-	// EndOfTurn boundary per turn (so the streaming provider fires per turn) and
-	// an Interrupt on barge-in.
+	// EndOfTurn boundary per turn (so the streaming provider fires per turn) and,
+	// when barge-in is enabled, an Interrupt when the user speaks over the agent.
 	vadCfg := de.buildInteractiveVADConfig(req)
 	vadCfg.EmitEndOfTurn = true
 	vadCfg.InterruptionHandler = interruptionHandler
@@ -352,6 +358,10 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 	ttsCfg.InterruptionHandler = interruptionHandler
 	stages = append(stages,
 		arenastages.NewAssistantTTSFilterStage(),
+		// Batch the provider's streaming text deltas into complete sentences so
+		// TTS speaks smooth phrases (and starts after the first sentence) instead
+		// of synthesizing every token chunk separately.
+		arenastages.NewTTSSentenceAggregatorStage(),
 		stage.NewTTSStageWithInterruption(ttsSvc, ttsCfg),
 	)
 
@@ -359,31 +369,40 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 }
 
 // buildInteractiveVADConfig returns the AudioTurnStage config for the interactive
-// VAD path. It reuses buildVADConfig when the scenario declares a duplex turn-
-// detection block, falling back to an AdaptiveVAD-equipped default config for a
-// bare interactive run where the scenario carries no duplex configuration.
+// VAD path. It picks up scenario-declared turn-detection thresholds (silence /
+// min-speech) when the scenario carries a duplex block, but ALWAYS equips the
+// stage with AdaptiveVAD (unless a test injects a VAD override).
 //
-// AdaptiveVAD is preferred over SimpleVAD for the interactive console because it
-// tracks the ambient noise floor at runtime, making it far more reliable for
-// "quiet mic" environments where SimpleVAD's fixed threshold would miss speech.
+// This matters: the live console always builds a scenario with a Duplex block,
+// and buildVADConfig leaves cfg.VAD nil — which NewAudioTurnStage fills with
+// SimpleVAD. SimpleVAD's fixed threshold does not reliably detect real mic
+// speech (speechDetected never flips, so no turn ever completes and the user
+// gets no reply). AdaptiveVAD tracks the ambient noise floor at runtime and
+// detects speech relative to it, so it works across mic gains and quiet rooms.
 func (de *DuplexConversationExecutor) buildInteractiveVADConfig(req *ConversationRequest) stage.AudioTurnConfig {
+	cfg := stage.DefaultAudioTurnConfig()
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
-		cfg := de.buildVADConfig(req)
-		if req.vadOverride != nil {
-			cfg.VAD = req.vadOverride
-		}
-		return cfg
+		// Honor any scenario-declared silence/min-speech/max-duration thresholds.
+		cfg = de.buildVADConfig(req)
 	}
 
-	cfg := stage.DefaultAudioTurnConfig()
-	vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
-	if err != nil {
-		// NewAdaptiveVAD only errors on invalid params; DefaultVADParams is always
-		// valid, so this branch is a safety net rather than an expected code path.
-		logger.Warn("buildInteractiveVADConfig: AdaptiveVAD init failed, falling back to SimpleVAD", "error", err)
-		return cfg
+	// A test override wins; otherwise the interactive console always uses
+	// AdaptiveVAD. buildVADConfig leaves cfg.VAD nil (→ SimpleVAD), so this is
+	// what actually makes live mic speech detectable.
+	switch {
+	case req.vadOverride != nil:
+		cfg.VAD = req.vadOverride
+	case cfg.VAD == nil:
+		vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
+		if err != nil {
+			// NewAdaptiveVAD only errors on invalid params; DefaultVADParams is
+			// always valid, so this is a safety net, not an expected path. The
+			// stage then falls back to SimpleVAD.
+			logger.Warn("buildInteractiveVADConfig: AdaptiveVAD init failed, falling back to SimpleVAD", "error", err)
+		} else {
+			cfg.VAD = vad
+		}
 	}
-	cfg.VAD = vad
 	return cfg
 }
 
@@ -393,8 +412,13 @@ func (de *DuplexConversationExecutor) buildInteractiveTTSConfig(
 	req *ConversationRequest,
 ) stage.TTSStageWithInterruptionConfig {
 	cfg := stage.DefaultTTSStageWithInterruptionConfig()
-	if req.VoiceOutputVoice != "" {
-		cfg.Voice = req.VoiceOutputVoice
+	// VoiceOutputVoice is a `voices:` binding id (e.g. "agent-voice"), NOT a
+	// vendor voice name. Resolve it to the bound TTS provider's configured voice
+	// (e.g. "alloy"). Passing the binding id straight through makes the vendor
+	// reject every synthesis ("voice must be one of nova/alloy/..."), so no audio
+	// ever comes back. Fall back to the default voice if resolution fails.
+	if prov, err := req.Config.ResolveVoice(req.VoiceOutputVoice); err == nil && prov.Voice != "" {
+		cfg.Voice = prov.Voice
 	}
 	return cfg
 }
