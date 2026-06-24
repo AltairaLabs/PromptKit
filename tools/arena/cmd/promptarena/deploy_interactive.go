@@ -183,9 +183,18 @@ func connectAdapter(provider, projectDir string) (*deploy.AdapterClient, error) 
 	return client, nil
 }
 
+// printDeployWarnings renders non-blocking adapter warnings to stderr with a
+// "⚠" prefix. It is a no-op when there are none.
+func printDeployWarnings(warnings []string) {
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "⚠ %s\n", w)
+	}
+}
+
 // printPlan displays a deployment plan to the user.
 func printPlan(plan *deploy.PlanResponse) {
 	fmt.Println()
+	printDeployWarnings(plan.Warnings)
 	fmt.Printf("Plan: %s\n", plan.Summary)
 	fmt.Println()
 	if len(plan.Changes) == 0 {

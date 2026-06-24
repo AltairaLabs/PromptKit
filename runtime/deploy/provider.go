@@ -31,6 +31,9 @@ type ValidateRequest struct {
 type ValidateResponse struct {
 	Valid  bool     `json:"valid"`
 	Errors []string `json:"errors,omitempty"`
+	// Warnings are non-blocking advisories surfaced to the user. Unlike
+	// Errors, they do not make Valid false; the deployment proceeds.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanRequest is the input to Plan.
@@ -46,6 +49,9 @@ type PlanRequest struct {
 type PlanResponse struct {
 	Changes []ResourceChange `json:"changes"`
 	Summary string           `json:"summary"`
+	// Warnings are non-blocking advisories surfaced to the user before the
+	// plan changes (e.g. a config that deploys but behaves surprisingly).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ResourceChange describes a single resource modification.
