@@ -340,6 +340,7 @@ func validateDeployConfig() error {
 		return fmt.Errorf("deploy config validation failed (%d error(s))", len(resp.Errors))
 	}
 
+	printDeployWarnings(resp.Warnings)
 	fmt.Println("Config is valid.")
 	return nil
 }
