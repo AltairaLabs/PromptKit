@@ -21,6 +21,7 @@ func runChat(cmd *cobra.Command, _ []string) error {
 	voiceSTT, _ := cmd.Flags().GetString("voice-stt")
 	voiceOutputVoice, _ := cmd.Flags().GetString("voice-output-voice")
 	echoGuard, _ := cmd.Flags().GetBool("echo-guard")
+	bargeIn, _ := cmd.Flags().GetBool("barge-in")
 
 	eng, err := engine.NewEngineFromConfigFile(configPath)
 	if err != nil {
@@ -48,6 +49,7 @@ func runChat(cmd *cobra.Command, _ []string) error {
 			STTProviderID: voiceSTT,
 			OutputVoice:   voiceOutputVoice,
 			EchoGuard:     echoGuard,
+			BargeIn:       bargeIn,
 		}
 	}
 

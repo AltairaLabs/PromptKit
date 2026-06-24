@@ -10,7 +10,7 @@ Write the authoring brief (AGENTS.md + .claude/skills) into a project
 
 Chat interactively with an agent defined in an Arena config
 
-Flags: `--config`, `--echo-guard`, `--mock-config`, `--mock-provider`, `--verbose`, `--voice-output-voice`, `--voice-stt`, `--voice`
+Flags: `--barge-in`, `--config`, `--echo-guard`, `--mock-config`, `--mock-provider`, `--verbose`, `--voice-output-voice`, `--voice-stt`, `--voice`
 
 ## promptarena config-inspect
 

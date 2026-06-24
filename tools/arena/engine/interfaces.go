@@ -86,6 +86,12 @@ type ConversationRequest struct {
 	// Set from --voice-output-voice by the chat command; consumed by runInteractiveVADVoice.
 	VoiceOutputVoice string
 
+	// VoiceBargeIn enables barge-in (interrupting the agent mid-reply) on the
+	// composed-VAD voice path. Opt-in (--barge-in) because it needs headphones /
+	// AEC and audio-sink flush support; off by default the console does clean
+	// turn-taking.
+	VoiceBargeIn bool
+
 	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
 	// If nil, no recording stages are added.
 	RecordingConfig *stage.RecordingStageConfig

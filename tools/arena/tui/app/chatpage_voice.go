@@ -125,6 +125,7 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 		EventBus:         eventBus,
 		VoiceSTT:         voiceSTT,
 		VoiceOutputVoice: p.voice.OutputVoice,
+		VoiceBargeIn:     p.voice.BargeIn,
 	}
 
 	// 7. Subscribe directly to the event bus so each message.created event

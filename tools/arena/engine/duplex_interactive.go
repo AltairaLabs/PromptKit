@@ -283,16 +283,22 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 		stage.DefaultPipelineConfig().WithExecutionTimeout(0),
 	)
 
-	// Shared interruption handler coordinates barge-in across the AudioTurn and
-	// TTS stages: TTS marks when the bot is speaking, AudioTurn fires an Interrupt
-	// when the user speaks over it. Immediate strategy — under --echo-guard the
-	// driver gates the mic during output, so no speech reaches AudioTurn and
-	// barge-in is naturally suppressed without changing the strategy here.
-	interruptionHandler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	// Barge-in is OPT-IN (--barge-in). When enabled, a shared interruption
+	// handler coordinates it across the AudioTurn and TTS stages: TTS marks when
+	// the bot is speaking, AudioTurn fires an Interrupt when the user speaks over
+	// it. It is off by default because it only works cleanly on headphones / with
+	// AEC, and stopping in-flight playback needs audio-sink flush support that is
+	// not wired yet — so by default the console does clean turn-taking (the agent
+	// finishes speaking before the next turn is captured). A nil handler makes
+	// AudioTurn never emit an Interrupt and the TTS interrupt checks no-op.
+	var interruptionHandler *audio.InterruptionHandler
+	if req.VoiceBargeIn {
+		interruptionHandler = audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	}
 
 	// 1. VAD turn segmentation: N audio chunks → 1 audio utterance, emitting an
-	// EndOfTurn boundary per turn (so the streaming provider fires per turn) and
-	// an Interrupt on barge-in.
+	// EndOfTurn boundary per turn (so the streaming provider fires per turn) and,
+	// when barge-in is enabled, an Interrupt when the user speaks over the agent.
 	vadCfg := de.buildInteractiveVADConfig(req)
 	vadCfg.EmitEndOfTurn = true
 	vadCfg.InterruptionHandler = interruptionHandler
