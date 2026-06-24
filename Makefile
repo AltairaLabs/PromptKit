@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-tools build-arena build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci capability-matrix capability-matrix-live build-codegen-agent-sandbox
+.PHONY: help build build-tools build-arena build-arena-voice build-packc build-inspect-state test test-tools test-race lint clean coverage install install-tools install-tools-user uninstall-tools test-npm-init test-getting-started test-templates test-ci-examples test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci capability-matrix capability-matrix-live build-codegen-agent-sandbox
  
 # Route unknown targets to help
 .DEFAULT:
@@ -68,6 +68,23 @@ build-arena: ## Build promptarena CLI (includes frontend if node_modules present
 		-ldflags "-X main.version=$$VERSION -X main.gitCommit=$$COMMIT -X main.buildDate=$$DATE" \
 		-o ../../bin/promptarena ./cmd/promptarena
 	@echo "promptarena built successfully -> bin/promptarena"
+
+build-arena-voice: ## Build promptarena with voice (cgo + PortAudio; requires portaudio installed)
+	@echo "Building promptarena (voice)..."
+	@LATEST_TAG=$$(git tag -l "tools/arena/v*" --sort=-v:refname | head -1 | sed 's|^tools/arena/||'); \
+	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown"); \
+	if git describe --tags --match "tools/arena/v*" --dirty 2>/dev/null | grep -q "tools/arena"; then \
+		VERSION=$$(git describe --tags --match "tools/arena/v*" --dirty 2>/dev/null | sed 's|^tools/arena/||'); \
+	else \
+		DIRTY=$$(git diff --quiet 2>/dev/null || echo "-dirty"); \
+		VERSION="$$LATEST_TAG-$$BRANCH+$$COMMIT$$DIRTY"; \
+	fi; \
+	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+	cd tools/arena && CGO_ENABLED=1 go build -tags voice \
+		-ldflags "-X main.version=$$VERSION-voice -X main.gitCommit=$$COMMIT -X main.buildDate=$$DATE" \
+		-o ../../bin/promptarena-voice ./cmd/promptarena
+	@echo "promptarena-voice built successfully -> bin/promptarena-voice"
 
 build-packc: ## Build packc CLI
 	@echo "Building packc..."

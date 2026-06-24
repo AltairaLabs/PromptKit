@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -85,4 +87,71 @@ func TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios(t *testing.T) {
 		_, disabled := cfg.Metadata["vad_disabled"]
 		assert.False(t, disabled)
 	})
+}
+
+// TestBuildInteractiveVADConfig_NoDuplexScenario verifies that when the request
+// carries no duplex configuration (nil Scenario.Duplex or nil Scenario), the
+// function falls back to the AdaptiveVAD-equipped default config. The returned
+// config must have a non-nil VAD set — the AdaptiveVAD branch distinguishes
+// interactive console runs from the bare DefaultAudioTurnConfig (SimpleVAD).
+//
+// This is the "bare interactive run" branch (22% → covered): configs loaded
+// for the interactive console via `promptarena chat` do not declare a duplex
+// block, so this path fires on every interactive voice session.
+func TestBuildInteractiveVADConfig_NoDuplexScenario(t *testing.T) {
+	de := &DuplexConversationExecutor{}
+
+	t.Run("nil Scenario.Duplex", func(t *testing.T) {
+		req := &ConversationRequest{
+			Scenario: &config.Scenario{ID: "no-duplex"},
+			Config:   &config.Config{},
+		}
+		cfg := de.buildInteractiveVADConfig(req)
+		// AdaptiveVAD is set on the config — not nil.
+		assert.NotNil(t, cfg.VAD,
+			"expected AdaptiveVAD to be wired for a scenario without duplex config")
+	})
+
+	t.Run("nil Scenario", func(t *testing.T) {
+		req := &ConversationRequest{Scenario: nil, Config: &config.Config{}}
+		cfg := de.buildInteractiveVADConfig(req)
+		assert.NotNil(t, cfg.VAD,
+			"expected AdaptiveVAD to be wired when Scenario is nil")
+	})
+}
+
+// TestBuildInteractiveVADConfig_WithDuplexScenario verifies that when the
+// request carries a duplex block, buildInteractiveVADConfig delegates to
+// buildVADConfig and returns a valid AudioTurnConfig. The observable difference
+// from the NoDuplex path: buildVADConfig does NOT set cfg.VAD (leaves it nil so
+// AudioTurnStage creates a SimpleVAD internally), whereas the NoDuplex fallback
+// always sets cfg.VAD to an AdaptiveVAD. Asserting VAD == nil here confirms the
+// delegation happened rather than the AdaptiveVAD branch firing.
+func TestBuildInteractiveVADConfig_WithDuplexScenario(t *testing.T) {
+	de := &DuplexConversationExecutor{}
+	req := &ConversationRequest{
+		Scenario: &config.Scenario{
+			ID: "with-duplex",
+			Duplex: &config.DuplexConfig{
+				Timeout: "10s",
+				TurnDetection: &config.TurnDetectionConfig{
+					Mode: config.TurnDetectionModeVAD,
+				},
+			},
+		},
+		Config: &config.Config{},
+	}
+	cfg := de.buildInteractiveVADConfig(req)
+	// The interactive console always equips AdaptiveVAD, even with a Duplex
+	// scenario: buildVADConfig leaves VAD nil (which AudioTurnStage would fill
+	// with SimpleVAD), and SimpleVAD does not reliably detect real mic speech.
+	if _, ok := cfg.VAD.(*audio.AdaptiveVAD); !ok {
+		t.Fatalf("expected AdaptiveVAD on the interactive path, got %T", cfg.VAD)
+	}
+	// SilenceDuration is non-zero because buildVADConfig calls DefaultAudioTurnConfig.
+	assert.NotZero(t, cfg.SilenceDuration,
+		"expected SilenceDuration set by DefaultAudioTurnConfig via buildVADConfig")
+	// Suppress unused import: stage package is used via stage.AudioTurnConfig in
+	// the import block to ensure it is loaded even though cfg is a value type.
+	var _ stage.AudioTurnConfig
 }

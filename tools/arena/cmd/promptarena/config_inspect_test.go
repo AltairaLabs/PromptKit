@@ -3,15 +3,29 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// outputText renders inspection data as styled terminal output. The second
+// parameter is unused (kept for backward compatibility with existing test calls).
+// This is a test-only helper; the production text path launches the TUI InspectPage.
+func outputText(data *inspect.InspectionData, _ interface{}) error {
+	fmt.Print(inspect.RenderText(data, inspect.RenderOptions{
+		Verbose: inspectVerbose,
+		Section: inspectSection,
+		Stats:   inspectStats,
+	}))
+	return nil
+}
 
 func withCapturedStdout(t *testing.T, fn func()) string {
 	t.Helper()
@@ -355,7 +369,7 @@ func TestCollectCacheStats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := collectCacheStats(tt.cfg)
+			result := inspect.CollectCacheStats(tt.cfg, false)
 
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectedPromptSize, result.PromptCache.Size)

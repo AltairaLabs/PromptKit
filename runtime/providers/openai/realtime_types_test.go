@@ -2,7 +2,38 @@ package openai
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
+
+// TestHandleInputTranscription_MarksFinal verifies that the OpenAI Realtime
+// input-transcription chunk (emitted on the discrete .completed event) carries
+// the normalized transcription_final=true marker, so DuplexProviderStage can
+// materialize the user turn immediately instead of waiting for EndOfStream.
+func TestHandleInputTranscription_MarksFinal(t *testing.T) {
+	s := &RealtimeSession{responseCh: make(chan providers.StreamChunk, 1)}
+
+	s.handleInputTranscription(&ConversationItemInputAudioTranscriptionCompletedEvent{
+		ItemID:       "item_001",
+		ContentIndex: 0,
+		Transcript:   "Hello, how are you?",
+	})
+
+	chunk := <-s.responseCh
+	if chunk.Metadata == nil {
+		t.Fatal("expected metadata on input transcription chunk")
+	}
+	if chunk.Metadata["type"] != "input_transcription" {
+		t.Errorf("expected type=input_transcription, got %v", chunk.Metadata["type"])
+	}
+	if chunk.Metadata["transcription"] != "Hello, how are you?" {
+		t.Errorf("expected transcription text, got %v", chunk.Metadata["transcription"])
+	}
+	final, ok := chunk.Metadata["transcription_final"].(bool)
+	if !ok || !final {
+		t.Errorf("expected transcription_final=true, got %v", chunk.Metadata["transcription_final"])
+	}
+}
 
 func TestDefaultRealtimeSessionConfig(t *testing.T) {
 	config := DefaultRealtimeSessionConfig()

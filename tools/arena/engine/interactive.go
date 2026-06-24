@@ -177,6 +177,10 @@ func (e *Engine) NewInteractiveSession(opts InteractiveSessionOptions) (*Interac
 // ConversationID returns this session's persistence key.
 func (s *InteractiveSession) ConversationID() string { return s.conversationID }
 
+// Provider returns the resolved provider for this session. Used by the voice
+// chat path to obtain the provider handle without a separate registry lookup.
+func (s *InteractiveSession) Provider() providers.Provider { return s.provider }
+
 // RunEvalsEnabled reports whether eval scoring is on for this session.
 func (s *InteractiveSession) RunEvalsEnabled() bool { return s.runEvals }
 
@@ -199,6 +203,7 @@ func (s *InteractiveSession) SendUserMessage(
 		PromptVars:     s.promptVars,
 		BaseDir:        s.engine.config.ConfigDir,
 		ConversationID: s.conversationID,
+		RunID:          s.conversationID,
 		StateStoreConfig: &turnexecutors.StateStoreConfig{
 			Store: s.engine.GetStateStore(),
 		},

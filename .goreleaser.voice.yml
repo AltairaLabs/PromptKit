@@ -1,0 +1,71 @@
+# GoReleaser configuration for the voice-enabled promptarena binary.
+#
+# This is a SEPARATE config from .goreleaser.yml. The default release pipeline
+# (CGO_ENABLED=0, pure Go) MUST remain unchanged and cross-compile cleanly on a
+# single host. The voice binary requires CGO_ENABLED=1 and PortAudio, which
+# cannot be cross-compiled — each OS runner builds only its own native target
+# via `goreleaser build --config .goreleaser.voice.yml --single-target --clean`.
+#
+# Trigger: per-OS matrix job in .github/workflows/release.yml (macos-latest,
+# ubuntu-latest, windows-latest), each after installing PortAudio for its
+# platform.
+
+version: 2
+
+builds:
+  - id: promptarena-voice
+    binary: promptarena-voice
+    main: ./tools/arena/cmd/promptarena
+    flags:
+      - -tags=voice
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # No GitHub-hosted Windows ARM64 runner exists; cannot CGO-build natively.
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      # main package vars (linker names package main as "main" regardless of import path)
+      - -X main.version={{.Version}}
+      - -X main.gitCommit={{.Commit}}
+      - -X main.buildDate={{.Date}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+# Archive the voice binaries under a distinct name so they sit alongside the
+# default archives without colliding.
+archives:
+  - id: voice
+    ids:
+      - promptarena-voice
+    name_template: >-
+      promptarena-voice_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums-voice.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+# No changelog / homebrew / release block — the main .goreleaser.yml owns
+# the GitHub Release. This config only builds and uploads artifacts; the
+# matrix job passes --skip=publish (build-only) or uploads via actions/upload-artifact.
+release:
+  disable: true

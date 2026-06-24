@@ -8,6 +8,7 @@ import { DevToolsPanel } from "@/components/DevToolsPanel";
 import { RunControls } from "@/components/RunControls";
 import { EmptyStateLauncher } from "@/components/EmptyStateLauncher";
 import { HistoricalResults } from "@/components/HistoricalResults";
+import { InteractiveChat } from "@/components/InteractiveChat";
 import { useArenaEvents } from "@/hooks/useArenaEvents";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
 import { AudioPlayer } from "@/audio/player";
@@ -42,7 +43,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 export default function App() {
-  const state = useArenaEvents();
+  const { registerInteractiveRun, ...state } = useArenaEvents();
+  const [activeTab, setActiveTab] = useState<"runs" | "chat">("runs");
   const { startRun, getResults, getResult, clearResults, loading } = useArenaAPI();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [devToolsMessage, setDevToolsMessage] = useState<Message | undefined>();
@@ -77,7 +79,10 @@ export default function App() {
   useEffect(() => {
     const ids = Object.keys(state.runs);
     if (pendingAutoSelect) {
-      const newId = ids.find((id) => !knownRunIdsRef.current.has(id));
+      // Skip synthetic interactive-chat runs — they have no RunDetail to show.
+      const newId = ids.find(
+        (id) => !knownRunIdsRef.current.has(id) && state.runs[id]?.scenario !== "interactive"
+      );
       if (newId) {
         setSelectedRunId(newId);
         setPendingAutoSelect(false);
@@ -93,8 +98,11 @@ export default function App() {
     };
   }, []);
 
-  const liveRuns = Object.values(state.runs);
+  // Exclude synthetic interactive-chat entries from the runs-tab aggregates.
+  const liveRuns = Object.values(state.runs).filter((r) => r.scenario !== "interactive");
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
+  // The active interactive-chat session, surfaced as the DevTools "run" on the chat tab.
+  const interactiveRun = Object.values(state.runs).find((r) => r.scenario === "interactive");
 
   const handleSelectMessage = (index: number, message?: Message, allMsgs?: Message[]) => {
     setDevToolsIndex(index);
@@ -150,75 +158,124 @@ export default function App() {
       <Layout
         connected={state.connected}
         headerActions={
-          <RunControls
-            connected={state.connected}
-            loading={loading}
-            startError={startError}
-            onStart={handleStartRun}
-          />
+          activeTab === "runs" ? (
+            <RunControls
+              connected={state.connected}
+              loading={loading}
+              startError={startError}
+              onStart={handleStartRun}
+            />
+          ) : null
         }
       >
-        <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
-          {selectedRunId ? (
-            <RunDetail
-              runId={selectedRunId}
-              liveRun={state.runs[selectedRunId]}
-              listeningRunId={listeningRunId}
-              onToggleListen={handleListen}
-              onBack={() => { setSelectedRunId(null); setDevToolsOpen(false); }}
-              onSelectMessage={handleSelectMessage}
-            />
-          ) : showEmptyHero ? (
-            <div className="max-w-2xl mx-auto">
-              <EmptyStateLauncher
-                connected={state.connected}
-                loading={loading}
-                startError={startError}
-                onStart={handleStartRun}
-              />
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {startError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-[#EF4444]">{startError}</div>
-              )}
-              <SummaryCards
-                totalRuns={liveRuns.length + historicalResults.length}
-                activeRuns={liveRuns.filter((r) => r.status === "running").length}
-                completedRuns={liveRuns.filter((r) => r.status !== "running").length + historicalResults.length}
-                failedRuns={liveRuns.filter((r) => r.status === "failed").length + historicalResults.filter((r) => !!r.Error).length}
-                totalCost={state.totalCost + historicalResults.reduce((sum, r) => sum + (r.Cost?.total_cost_usd || 0), 0)}
-                totalTokens={state.totalTokens + historicalResults.reduce((sum, r) => sum + (r.Cost?.input_tokens || 0) + (r.Cost?.output_tokens || 0), 0)}
-              />
-              {liveRuns.length > 0 && (
-                <RunProgress
-                  runs={liveRuns}
-                  listeningRunId={listeningRunId}
-                  onSelectRun={setSelectedRunId}
-                  onToggleListen={handleListen}
-                />
-              )}
-              {historicalResults.length > 0 && (
-                <HistoricalResults
-                  results={historicalResults}
-                  onSelectRun={setSelectedRunId}
-                  onClear={async () => {
-                    await clearResults();
-                    setHistoricalResults([]);
-                  }}
-                />
-              )}
-            </div>
-          )}
+        {/* Tab bar */}
+        <div className="flex gap-1 mb-6 border-b border-mist pb-0">
+          <button
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+              activeTab === "runs"
+                ? "bg-surface border-mist text-fg"
+                : "bg-canvas border-transparent text-fg-muted hover:text-fg hover:bg-surface"
+            }`}
+            onClick={() => { setActiveTab("runs"); setDevToolsOpen(false); }}
+          >
+            Runs
+          </button>
+          <button
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-colors ${
+              activeTab === "chat"
+                ? "bg-surface border-mist text-fg"
+                : "bg-canvas border-transparent text-fg-muted hover:text-fg hover:bg-surface"
+            }`}
+            onClick={() => { setActiveTab("chat"); setDevToolsOpen(false); }}
+          >
+            Interactive Chat
+          </button>
         </div>
-        <DevToolsPanel
-          message={devToolsMessage}
-          messageIndex={devToolsIndex}
-          allMessages={devToolsAllMessages}
-          run={selectedRun}
-          open={devToolsOpen}
-          onClose={() => setDevToolsOpen(false)}
-        />
+
+        {activeTab === "chat" ? (
+          <>
+            <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
+              <InteractiveChat
+                state={state}
+                registerInteractiveRun={registerInteractiveRun}
+                onSelectMessage={handleSelectMessage}
+                onBack={() => setActiveTab("runs")}
+              />
+            </div>
+            <DevToolsPanel
+              message={devToolsMessage}
+              messageIndex={devToolsIndex}
+              allMessages={devToolsAllMessages}
+              run={interactiveRun}
+              open={devToolsOpen}
+              onClose={() => setDevToolsOpen(false)}
+            />
+          </>
+        ) : (
+          <>
+            <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
+              {selectedRunId ? (
+                <RunDetail
+                  runId={selectedRunId}
+                  liveRun={state.runs[selectedRunId]}
+                  listeningRunId={listeningRunId}
+                  onToggleListen={handleListen}
+                  onBack={() => { setSelectedRunId(null); setDevToolsOpen(false); }}
+                  onSelectMessage={handleSelectMessage}
+                />
+              ) : showEmptyHero ? (
+                <div className="max-w-2xl mx-auto">
+                  <EmptyStateLauncher
+                    connected={state.connected}
+                    loading={loading}
+                    startError={startError}
+                    onStart={handleStartRun}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {startError && (
+                    <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-[#EF4444]">{startError}</div>
+                  )}
+                  <SummaryCards
+                    totalRuns={liveRuns.length + historicalResults.length}
+                    activeRuns={liveRuns.filter((r) => r.status === "running").length}
+                    completedRuns={liveRuns.filter((r) => r.status !== "running").length + historicalResults.length}
+                    failedRuns={liveRuns.filter((r) => r.status === "failed").length + historicalResults.filter((r) => !!r.Error).length}
+                    totalCost={state.totalCost + historicalResults.reduce((sum, r) => sum + (r.Cost?.total_cost_usd || 0), 0)}
+                    totalTokens={state.totalTokens + historicalResults.reduce((sum, r) => sum + (r.Cost?.input_tokens || 0) + (r.Cost?.output_tokens || 0), 0)}
+                  />
+                  {liveRuns.length > 0 && (
+                    <RunProgress
+                      runs={liveRuns}
+                      listeningRunId={listeningRunId}
+                      onSelectRun={setSelectedRunId}
+                      onToggleListen={handleListen}
+                    />
+                  )}
+                  {historicalResults.length > 0 && (
+                    <HistoricalResults
+                      results={historicalResults}
+                      onSelectRun={setSelectedRunId}
+                      onClear={async () => {
+                        await clearResults();
+                        setHistoricalResults([]);
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            <DevToolsPanel
+              message={devToolsMessage}
+              messageIndex={devToolsIndex}
+              allMessages={devToolsAllMessages}
+              run={selectedRun}
+              open={devToolsOpen}
+              onClose={() => setDevToolsOpen(false)}
+            />
+          </>
+        )}
       </Layout>
     </ErrorBoundary>
   );

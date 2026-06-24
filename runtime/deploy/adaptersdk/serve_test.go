@@ -177,6 +177,33 @@ func TestServeIO_Plan(t *testing.T) {
 	}
 }
 
+func TestServeIO_Plan_Warnings(t *testing.T) {
+	provider := newFakeProvider()
+	provider.planResp.Warnings = []string{"no binding named default"}
+	params := deploy.PlanRequest{PackJSON: "{}", DeployConfig: "{}"}
+	input := makeRequest("plan", params, 7) + "\n"
+	var out bytes.Buffer
+
+	if err := ServeIO(provider, strings.NewReader(input), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+
+	var resp response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	// Round-trip the result back into a typed PlanResponse — the same path the
+	// AdapterClient takes — and confirm the warning survived the protocol.
+	raw, _ := json.Marshal(resp.Result)
+	var plan deploy.PlanResponse
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		t.Fatalf("unmarshal plan: %v", err)
+	}
+	if len(plan.Warnings) != 1 || plan.Warnings[0] != "no binding named default" {
+		t.Errorf("warnings did not pass through: %+v", plan.Warnings)
+	}
+}
+
 func TestServeIO_Apply(t *testing.T) {
 	provider := newFakeProvider()
 	params := deploy.PlanRequest{PackJSON: "{}", DeployConfig: "{}"}

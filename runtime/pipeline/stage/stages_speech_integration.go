@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -44,6 +45,12 @@ type AudioTurnConfig struct {
 	// SampleRate is the audio sample rate for output AudioData.
 	// Default: 16000
 	SampleRate int
+
+	// EmitEndOfTurn, when true, emits an EndOfTurn control element after each
+	// completed turn's audio. The streaming (continuous multi-turn) composed-VAD
+	// pipeline sets this so the streaming provider stage fires once per turn.
+	// Default false preserves single-shot behavior for every other consumer.
+	EmitEndOfTurn bool
 }
 
 const (
@@ -205,9 +212,11 @@ func (s *AudioTurnStage) processAudioElement(
 		return err
 	}
 
-	// Check for interruption
+	// Check for interruption (barge-in): user spoke while the bot was talking.
+	// Emit an Interrupt control element so the provider and TTS stages cancel
+	// in-flight generation/playback, then drop the partial turn.
 	if s.checkInterruption(ctx, state) {
-		return nil
+		return s.emitInterrupt(ctx, output)
 	}
 
 	// Check if turn is complete
@@ -216,8 +225,39 @@ func (s *AudioTurnStage) processAudioElement(
 			return err
 		}
 		s.resetState(state)
+		// Mark the conversational turn boundary so the streaming provider stage
+		// fires this turn. The trailing turn at stream close is fired by the
+		// EndOfStream that follows, so it is not marked here.
+		if s.config.EmitEndOfTurn {
+			if err := s.emitEndOfTurn(ctx, output); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// emitEndOfTurn sends an EndOfTurn control element downstream, marking the end
+// of one conversational turn's input within the still-open session.
+func (s *AudioTurnStage) emitEndOfTurn(ctx context.Context, output chan<- StreamElement) error {
+	select {
+	case output <- NewEndOfTurnElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// emitInterrupt sends an Interrupt control element downstream so the provider
+// and TTS stages can cancel in-flight generation and playback on barge-in.
+func (s *AudioTurnStage) emitInterrupt(ctx context.Context, output chan<- StreamElement) error {
+	logger.Debug("AudioTurnStage: barge-in detected, emitting Interrupt")
+	select {
+	case output <- NewInterruptElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // checkInterruption checks for user interruption and resets state if detected.
@@ -589,7 +629,10 @@ func NewTTSStageWithInterruption(
 }
 
 // Process implements the Stage interface.
-// Synthesizes audio for text elements with interruption support.
+// Synthesizes audio for text elements with interruption support. A concurrent
+// reader cancels in-flight synthesis the instant a barge-in Interrupt arrives,
+// so a long synthesis call cannot swallow the interrupt; queued text behind the
+// interrupt is dropped too, and synthesis resumes on the next turn.
 func (s *TTSStageWithInterruption) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -597,8 +640,24 @@ func (s *TTSStageWithInterruption) Process(
 ) error {
 	defer close(output)
 
-	for elem := range input {
-		if err := s.processElement(ctx, &elem, output); err != nil {
+	canceller := newTurnCanceller(ctx)
+	defer canceller.stop()
+
+	work := make(chan StreamElement, interruptWorkBuffer)
+	go drainCancelingOnInterrupt(input, work, canceller)
+
+	for elem := range work {
+		if elem.Interrupt {
+			// In-flight synthesis was already canceled out of band by the
+			// reader. Roll a fresh context for the next turn and forward the
+			// Interrupt downstream so playback can flush too.
+			canceller.refresh()
+			if err := s.forwardElement(ctx, elem, output); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.processElement(ctx, canceller.context(), &elem, output); err != nil {
 			return err
 		}
 	}
@@ -606,22 +665,26 @@ func (s *TTSStageWithInterruption) Process(
 	return nil
 }
 
-// processElement handles a single element in the TTS pipeline.
+// processElement handles a single element in the TTS pipeline. forwardCtx (the
+// pipeline context) carries pass-through of non-synthesizable elements; synthCtx
+// (cancelable per turn) governs synthesis so a barge-in can abort it. They
+// differ only in the window after an interrupt cancels synthCtx but before the
+// loop refreshes it — forwarding a queued control element must not fail then.
 func (s *TTSStageWithInterruption) processElement(
-	ctx context.Context,
+	forwardCtx, synthCtx context.Context,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
 	text := s.extractText(elem)
 	if text == "" {
-		return s.forwardElement(ctx, *elem, output)
+		return s.forwardElement(forwardCtx, *elem, output)
 	}
 
 	if s.shouldSkipText(text) {
 		return nil
 	}
 
-	return s.synthesizeAndEmit(ctx, text, elem, output)
+	return s.synthesizeAndEmit(synthCtx, text, elem, output)
 }
 
 // shouldSkipText checks if text should be skipped based on config.
@@ -719,14 +782,21 @@ func (s *TTSStageWithInterruption) performSynthesis(
 }
 
 // handleSynthesisError handles synthesis errors and emits error element.
+// A context cancellation means a barge-in interrupt (or pipeline shutdown)
+// aborted the synthesis — that audio is intentionally dropped, not an error to
+// surface downstream.
 func (s *TTSStageWithInterruption) handleSynthesisError(
 	ctx context.Context,
 	err error,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
-	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
 	s.setBotSpeaking(false)
+	if errors.Is(err, context.Canceled) {
+		logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
+		return nil
+	}
+	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
 	elem.Error = err
 	return s.forwardElement(ctx, *elem, output)
 }

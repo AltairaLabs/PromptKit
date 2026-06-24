@@ -115,6 +115,7 @@ Focused guides for specific tasks:
 
 Deep dives into Deploy internals:
 
+- [Anatomy of a Deployment](/arena/explanation/deploy/anatomy/) - How a pack and a deploy config combine; what's portable vs environment-bound
 - [Adapter Architecture](/arena/explanation/deploy/adapter-architecture/) - Plugin pattern, JSON-RPC, stdio communication
 - [State Management](/arena/explanation/deploy/state-management/) - State file, checksums, and deployment lifecycle
 

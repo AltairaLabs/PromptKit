@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/tools/packc/compiler"
 )
 
 var deployCmd = &cobra.Command{
@@ -53,7 +52,8 @@ func init() {
 
 	deployCmd.PersistentFlags().StringVarP(&deployEnv, "env", "e", "", "Target environment")
 	deployCmd.PersistentFlags().StringVar(&deployConfig, "config", "arena.yaml", "Config file path")
-	deployCmd.PersistentFlags().StringVar(&deployPackFile, "pack", "", "Pack file path (default: auto-detect *.pack.json)")
+	deployCmd.PersistentFlags().StringVar(&deployPackFile, "pack", "",
+		"Optional pre-compiled *.pack.json to deploy (default: compile from --config)")
 
 	deployCmd.AddCommand(deployPlanCmd)
 	deployCmd.AddCommand(deployApplyCmd)
@@ -62,6 +62,10 @@ func init() {
 	deployCmd.AddCommand(deployRefreshCmd)
 	deployCmd.AddCommand(deployImportCmd)
 }
+
+// deployConfigureDocsURL points users at the how-to for setting up a deploy
+// configuration when one is missing or incomplete.
+const deployConfigureDocsURL = "https://promptkit.altairalabs.ai/arena/how-to/deploy/configure/"
 
 // loadDeployConfig loads the arena config and returns the deploy section.
 func loadDeployConfig() (*config.DeployConfig, error) {
@@ -72,7 +76,10 @@ func loadDeployConfig() (*config.DeployConfig, error) {
 // loadFullConfig loads the arena config and returns both the full config and deploy section.
 func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 	if _, err := os.Stat(deployConfig); os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("config file not found: %s", deployConfig)
+		return nil, nil, fmt.Errorf(
+			"config file not found: %s\nSet up a deploy config — see %s",
+			deployConfig, deployConfigureDocsURL,
+		)
 	}
 
 	cfg, err := config.LoadConfig(deployConfig)
@@ -82,8 +89,8 @@ func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 
 	if cfg.Deploy == nil {
 		return nil, nil, fmt.Errorf(
-			"no deploy configuration found in %s\nAdd a 'deploy' section to your arena config",
-			deployConfig,
+			"no deploy configuration found in %s\nAdd a 'deploy' section to your arena config — see %s",
+			deployConfig, deployConfigureDocsURL,
 		)
 	}
 
@@ -113,37 +120,29 @@ func resolveEnvironment() string {
 	return defaultEnvironment
 }
 
-// resolvePackFile finds and reads the .pack.json file. If --pack is set, use
-// that; otherwise look for a single *.pack.json in the current directory.
+// resolvePackFile resolves the pack JSON to deploy. If --pack is set, it reads
+// that pre-compiled *.pack.json file (explicit override). Otherwise it compiles
+// the arena config (--config) on the fly and returns the freshly compiled JSON,
+// so users do not need to run a separate compile step before deploying.
 func resolvePackFile() ([]byte, error) {
-	path := deployPackFile
-	if path == "" {
-		matches, err := filepath.Glob("*.pack.json")
+	if deployPackFile != "" {
+		data, err := os.ReadFile(deployPackFile) //nolint:gosec // path is from user flag
 		if err != nil {
-			return nil, fmt.Errorf("failed to search for pack files: %w", err)
+			return nil, fmt.Errorf("failed to read pack file %s: %w", deployPackFile, err)
 		}
-		switch len(matches) {
-		case 0:
-			return nil, fmt.Errorf(
-				"no .pack.json file found in the current directory\n" +
-					"Run 'packc compile' first or specify --pack <file>",
-			)
-		case 1:
-			path = matches[0]
-		default:
-			return nil, fmt.Errorf(
-				"multiple .pack.json files found: %s\nSpecify one with --pack <file>",
-				strings.Join(matches, ", "),
-			)
-		}
+		fmt.Printf("  Pack file:   %s\n", deployPackFile)
+		return data, nil
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // path is from user flag or glob
+	result, err := compiler.Compile(deployConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read pack file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to compile pack from %s: %w", deployConfig, err)
 	}
-	fmt.Printf("  Pack file:   %s\n", path)
-	return data, nil
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	fmt.Printf("  Pack:        compiled from %s\n", deployConfig)
+	return result.JSON, nil
 }
 
 // mergedDeployConfigJSON merges the base deploy config with environment-specific
@@ -184,9 +183,18 @@ func connectAdapter(provider, projectDir string) (*deploy.AdapterClient, error) 
 	return client, nil
 }
 
+// printDeployWarnings renders non-blocking adapter warnings to stderr with a
+// "⚠" prefix. It is a no-op when there are none.
+func printDeployWarnings(warnings []string) {
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "⚠ %s\n", w)
+	}
+}
+
 // printPlan displays a deployment plan to the user.
 func printPlan(plan *deploy.PlanResponse) {
 	fmt.Println()
+	printDeployWarnings(plan.Warnings)
 	fmt.Printf("Plan: %s\n", plan.Summary)
 	fmt.Println()
 	if len(plan.Changes) == 0 {
@@ -408,527 +416,5 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	_ = stateStore.DeletePlan()
 
 	fmt.Println("Deployment complete.")
-	return nil
-}
-
-// --- deploy plan ---
-
-var deployPlanCmd = &cobra.Command{
-	Use:   "plan",
-	Short: "Preview the deployment plan",
-	Long: `Show what resources would be created, updated, or destroyed
-without making any changes. The plan is saved so that 'deploy apply'
-can execute it without re-planning.
-
-Examples:
-  promptarena deploy plan --env staging
-  promptarena deploy plan --config custom.yaml`,
-	RunE: runDeployPlan,
-}
-
-func runDeployPlan(cmd *cobra.Command, args []string) error {
-	arenaCfg, deployCfg, err := loadFullConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	fmt.Printf("Deploy plan for environment: %s (provider: %s)\n", env, deployCfg.Provider)
-
-	packData, err := resolvePackFile()
-	if err != nil {
-		return err
-	}
-
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	// Refresh state from the adapter before planning.
-	priorStateStr := refreshState(ctx, client, stateStore, priorState, configJSON, env)
-
-	planReq := &deploy.PlanRequest{
-		PackJSON:     string(packData),
-		DeployConfig: configJSON,
-		ArenaConfig:  serializeArenaConfig(arenaCfg),
-		Environment:  env,
-		PriorState:   priorStateStr,
-	}
-
-	plan, err := client.Plan(ctx, planReq)
-	if err != nil {
-		return fmt.Errorf("plan failed: %w", err)
-	}
-
-	printPlan(plan)
-
-	// Save plan for later apply.
-	savedPlan := deploy.NewSavedPlan(
-		deployCfg.Provider, env, deploy.ComputePackChecksum(packData), plan, planReq,
-	)
-	if err := stateStore.SavePlan(savedPlan); err != nil {
-		return fmt.Errorf("failed to save plan: %w", err)
-	}
-	fmt.Println("Plan saved. Run 'promptarena deploy apply' to execute.")
-	return nil
-}
-
-// --- deploy apply ---
-
-var deployApplyCmd = &cobra.Command{
-	Use:   "apply",
-	Short: "Apply the deployment",
-	Long: `Apply the deployment plan to the target environment.
-If a saved plan exists (from 'deploy plan'), it will be used.
-Otherwise, a new plan is generated before applying.
-
-Examples:
-  promptarena deploy apply --env staging
-  promptarena deploy apply --env production --config custom.yaml`,
-	RunE: runDeployApply,
-}
-
-func runDeployApply(cmd *cobra.Command, args []string) error {
-	arenaCfg, deployCfg, err := loadFullConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	// Acquire deploy lock.
-	unlock, err := acquireLock(projectDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	fmt.Printf("Applying deployment to environment: %s (provider: %s)\n", env, deployCfg.Provider)
-
-	packData, err := resolvePackFile()
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	packChecksum := deploy.ComputePackChecksum(packData)
-
-	// Check for a saved plan.
-	var planReq *deploy.PlanRequest
-	savedPlan, err := stateStore.LoadPlan()
-	if err != nil {
-		return fmt.Errorf("failed to load saved plan: %w", err)
-	}
-	if savedPlan != nil && savedPlan.PackChecksum == packChecksum && savedPlan.Environment == env {
-		fmt.Println("  Using saved plan.")
-		planReq = savedPlan.Request
-	} else {
-		if savedPlan != nil {
-			fmt.Println("  Saved plan is stale (pack or environment changed), re-planning...")
-		}
-		configJSON, mergeErr := mergedDeployConfigJSON(deployCfg, env)
-		if mergeErr != nil {
-			return mergeErr
-		}
-
-		priorState, loadErr := stateStore.Load()
-		if loadErr != nil {
-			return fmt.Errorf("failed to load deploy state: %w", loadErr)
-		}
-		var priorStateStr string
-		if priorState != nil {
-			priorStateStr = priorState.State
-		}
-
-		planReq = &deploy.PlanRequest{
-			PackJSON:     string(packData),
-			DeployConfig: configJSON,
-			ArenaConfig:  serializeArenaConfig(arenaCfg),
-			Environment:  env,
-			PriorState:   priorStateStr,
-		}
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	adapterState, err := client.Apply(ctx, planReq, func(e *deploy.ApplyEvent) error {
-		printDeployEvent(e.Type, e.Message, e.Resource)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("apply failed: %w", err)
-	}
-
-	info, _ := client.GetProviderInfo(ctx)
-	adapterVersion := ""
-	if info != nil {
-		adapterVersion = info.Version
-	}
-
-	newState := deploy.NewState(
-		deployCfg.Provider, env, "", packChecksum, adapterVersion,
-	)
-	newState.State = adapterState
-	if err := stateStore.Save(newState); err != nil {
-		return fmt.Errorf("failed to save deploy state: %w", err)
-	}
-	_ = stateStore.DeletePlan()
-
-	fmt.Println()
-	fmt.Println("Apply complete.")
-	return nil
-}
-
-// --- deploy status ---
-
-var deployStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show deployment status",
-	Long: `Show the current status of a deployment in the target environment.
-
-Examples:
-  promptarena deploy status --env production
-  promptarena deploy status --env staging`,
-	RunE: runDeployStatus,
-}
-
-func runDeployStatus(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	fmt.Printf("Deployment status for environment: %s (provider: %s)\n", env, deployCfg.Provider)
-
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
-	}
-
-	if priorState == nil {
-		fmt.Println()
-		fmt.Println("  No deployment state found. Run 'promptarena deploy' first.")
-		return nil
-	}
-
-	var priorStateStr string
-	if priorState != nil {
-		priorStateStr = priorState.State
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	status, err := client.Status(ctx, &deploy.StatusRequest{
-		DeployConfig: configJSON,
-		Environment:  env,
-		PriorState:   priorStateStr,
-	})
-	if err != nil {
-		return fmt.Errorf("status check failed: %w", err)
-	}
-
-	fmt.Println()
-	printStatus(status)
-
-	fmt.Printf("  Last deployed: %s\n", priorState.LastDeployed)
-	fmt.Printf("  Pack checksum: %s\n", priorState.PackChecksum)
-	return nil
-}
-
-// --- deploy destroy ---
-
-var deployDestroyCmd = &cobra.Command{
-	Use:   "destroy",
-	Short: "Tear down a deployment",
-	Long: `Destroy all resources associated with a deployment in the target environment.
-
-This is a destructive operation. Use with caution.
-
-Examples:
-  promptarena deploy destroy --env staging
-  promptarena deploy destroy --env production`,
-	RunE: runDeployDestroy,
-}
-
-func runDeployDestroy(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	// Acquire deploy lock.
-	unlock, err := acquireLock(projectDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	fmt.Printf("Destroying deployment in environment: %s (provider: %s)\n", env, deployCfg.Provider)
-
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
-	}
-
-	if priorState == nil {
-		fmt.Println()
-		fmt.Println("  No deployment state found. Nothing to destroy.")
-		return nil
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	err = client.Destroy(ctx, &deploy.DestroyRequest{
-		DeployConfig: configJSON,
-		Environment:  env,
-		PriorState:   priorState.State,
-	}, func(e *deploy.DestroyEvent) error {
-		printDeployEvent(e.Type, e.Message, e.Resource)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("destroy failed: %w", err)
-	}
-
-	if err := stateStore.Delete(); err != nil {
-		return fmt.Errorf("failed to remove deploy state: %w", err)
-	}
-
-	fmt.Println()
-	fmt.Println("Deployment destroyed.")
-	return nil
-}
-
-// --- deploy refresh ---
-
-var deployRefreshCmd = &cobra.Command{
-	Use:   "refresh",
-	Short: "Refresh local state from the live environment",
-	Long: `Query the deploy adapter for the current state of all resources
-and update local state to match reality. Use this to detect drift
-between local state and cloud resources.
-
-Examples:
-  promptarena deploy refresh --env production
-  promptarena deploy refresh --env staging`,
-	RunE: runDeployRefresh,
-}
-
-func runDeployRefresh(cmd *cobra.Command, args []string) error {
-	deployCfg, err := loadDeployConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	// Acquire deploy lock.
-	unlock, err := acquireLock(projectDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	fmt.Printf("Refreshing state for environment: %s (provider: %s)\n", env, deployCfg.Provider)
-
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
-	}
-
-	if priorState == nil {
-		fmt.Println()
-		fmt.Println("  No deployment state found. Run 'promptarena deploy' first.")
-		return nil
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	status, err := client.Status(ctx, &deploy.StatusRequest{
-		DeployConfig: configJSON,
-		Environment:  env,
-		PriorState:   priorState.State,
-	})
-	if err != nil {
-		return fmt.Errorf("refresh failed: %w", err)
-	}
-
-	if status.State != "" {
-		priorState.State = status.State
-	}
-	priorState.LastRefreshed = time.Now().UTC().Format(time.RFC3339)
-	if err := stateStore.Save(priorState); err != nil {
-		return fmt.Errorf("failed to save refreshed state: %w", err)
-	}
-
-	fmt.Println()
-	printStatus(status)
-	fmt.Println("State refreshed successfully.")
-	return nil
-}
-
-// --- deploy import ---
-
-var deployImportCmd = &cobra.Command{
-	Use:   "import <type> <name> <id>",
-	Short: "Import a pre-existing resource into deployment state",
-	Long: `Import a resource that already exists in the target environment
-into the local deployment state. This allows PromptKit to manage
-resources that were created outside of the deploy workflow.
-
-Arguments:
-  type   Resource type (e.g., "agent_runtime", "a2a_endpoint")
-  name   Resource name to assign in local state
-  id     Provider-specific resource identifier
-
-Examples:
-  promptarena deploy import agent_runtime my-agent container-abc123
-  promptarena deploy import a2a_endpoint my-ep endpoint-xyz789`,
-	Args: cobra.ExactArgs(importArgCount),
-	RunE: runDeployImport,
-}
-
-func runDeployImport(cmd *cobra.Command, args []string) error {
-	resourceType := args[0]
-	resourceName := args[1]
-	identifier := args[2]
-
-	deployCfg, err := loadDeployConfig()
-	if err != nil {
-		return err
-	}
-
-	env := resolveEnvironment()
-	projectDir, _ := os.Getwd()
-	ctx := context.Background()
-
-	// Acquire deploy lock.
-	unlock, err := acquireLock(projectDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	fmt.Printf("Importing %s.%s (%s) into environment: %s\n", resourceType, resourceName, identifier, env)
-
-	configJSON, err := mergedDeployConfigJSON(deployCfg, env)
-	if err != nil {
-		return err
-	}
-
-	stateStore := deploy.NewStateStore(projectDir)
-	priorState, err := stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load deploy state: %w", err)
-	}
-
-	var priorStateStr string
-	if priorState != nil {
-		priorStateStr = priorState.State
-	}
-
-	client, err := connectAdapter(deployCfg.Provider, projectDir)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	resp, err := client.Import(ctx, &deploy.ImportRequest{
-		ResourceType: resourceType,
-		ResourceName: resourceName,
-		Identifier:   identifier,
-		DeployConfig: configJSON,
-		Environment:  env,
-		PriorState:   priorStateStr,
-	})
-	if err != nil {
-		return fmt.Errorf("import failed: %w", err)
-	}
-
-	// Update or create state with the new adapter state.
-	if priorState == nil {
-		info, _ := client.GetProviderInfo(ctx)
-		adapterVersion := ""
-		if info != nil {
-			adapterVersion = info.Version
-		}
-		priorState = deploy.NewState(deployCfg.Provider, env, "", "", adapterVersion)
-	}
-	if resp.State != "" {
-		priorState.State = resp.State
-	}
-	priorState.LastRefreshed = time.Now().UTC().Format(time.RFC3339)
-	if err := stateStore.Save(priorState); err != nil {
-		return fmt.Errorf("failed to save state after import: %w", err)
-	}
-
-	fmt.Println()
-	fmt.Printf("  Imported: %s.%s — %s\n", resp.Resource.Type, resp.Resource.Name, resp.Resource.Status)
-	if resp.Resource.Detail != "" {
-		fmt.Printf("  Detail:   %s\n", resp.Resource.Detail)
-	}
-	fmt.Println()
 	return nil
 }

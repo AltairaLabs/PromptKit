@@ -9,8 +9,9 @@ Automate deployments with GitHub Actions.
 ## Prerequisites
 
 - Deploy configuration in arena.yaml
-- A compiled `.pack.json` committed to your repository (or compiled in CI)
 - Cloud provider credentials configured as GitHub secrets
+
+`promptarena deploy` compiles the pack from `arena.yaml` automatically, so no separate compile step is required. Pre-compiling with `packc` is optional — see the [Multi-Environment Pipeline](#multi-environment-pipeline) below for when it helps.
 
 ## GitHub Actions Workflow
 
@@ -37,15 +38,23 @@ jobs:
           go-version: '1.22'
 
       - name: Install PromptKit
-        run: |
-          go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
-          go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+        run: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
 
       - name: Install adapter
-        run: promptarena deploy adapter install agentcore
+        run: promptarena deploy adapter install omnia
 
-      - name: Compile pack
-        run: packc compile --config arena.yaml --output app.pack.json --id my-app
+      - name: Deploy
+        env:
+          OMNIA_API_TOKEN: ${{ secrets.OMNIA_API_TOKEN }}
+        run: promptarena deploy --env production
+```
+
+The same workflow targets **AWS Bedrock AgentCore** by installing the `agentcore`
+adapter and supplying AWS credentials instead:
+
+```yaml
+      - name: Install adapter
+        run: promptarena deploy adapter install agentcore
 
       - name: Deploy
         env:
@@ -78,15 +87,10 @@ jobs:
           go-version: '1.22'
 
       - name: Install PromptKit
-        run: |
-          go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
-          go install github.com/AltairaLabs/PromptKit/tools/packc@latest
+        run: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
 
       - name: Install adapter
         run: promptarena deploy adapter install agentcore
-
-      - name: Compile pack
-        run: packc compile --config arena.yaml --output app.pack.json --id my-app
 
       - name: Plan deployment
         env:
@@ -98,7 +102,7 @@ jobs:
 
 ### Multi-Environment Pipeline
 
-Deploy to staging first, then production after approval:
+Deploy to staging first, then production after approval. This pipeline pre-compiles the pack once with `packc` and deploys the **same** `app.pack.json` artifact to every environment (via `--pack`), guaranteeing byte-identical deploys across stages. For single-environment deploys you can skip the compile step — `promptarena deploy` compiles from `arena.yaml` automatically.
 
 ```yaml
 # .github/workflows/deploy-pipeline.yml
@@ -268,12 +272,19 @@ Install the adapter in your CI workflow before deploying:
 
 ```yaml
 - name: Install adapter
-  run: promptarena deploy adapter install agentcore
+  run: promptarena deploy adapter install omnia   # or: agentcore
 ```
 
 ### Credentials not available
 
-Ensure secrets are configured in your GitHub repository settings and referenced correctly:
+Ensure secrets are configured in your GitHub repository settings and referenced correctly. For Omnia:
+
+```yaml
+env:
+  OMNIA_API_TOKEN: ${{ secrets.OMNIA_API_TOKEN }}
+```
+
+For AWS Bedrock AgentCore:
 
 ```yaml
 env:

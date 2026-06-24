@@ -951,6 +951,10 @@ Start a local web server with the Arena live UI. Streams run events to the brows
 
 The web UI loads any existing results from the output directory on startup, so previous runs are immediately visible. New runs can be started from the browser and their progress streams in real time.
 
+### Interactive chat
+
+The web UI also includes an **Interactive Chat** tab to talk live to an agent defined in the config. Pick an agent (prompt config) and provider, fill in any required prompt variables, optionally enable evals, then chat — your message drives a turn and the reply streams into the **same** conversation view a run uses (tool calls, guardrail firings, and cost included). Guardrails are enforced; assertions don't apply. Use `--mock-provider` to try it without API keys.
+
 ### Usage
 
 ```bash

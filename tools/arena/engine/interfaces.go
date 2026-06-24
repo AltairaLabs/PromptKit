@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	audioseam "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -77,6 +78,20 @@ type ConversationRequest struct {
 	// isolated workflow metadata). If nil, the executor's shared orchestrator is used.
 	EvalOrchestrator *EvalOrchestrator
 
+	// VoiceSTT is the STT provider for the VAD voice path (Task 7). Nil in ASM mode.
+	// Set from --voice-stt by the chat command; consumed by runInteractiveVADVoice.
+	VoiceSTT *config.Provider
+
+	// VoiceOutputVoice is the TTS voice ID for the VAD voice path (Task 7).
+	// Set from --voice-output-voice by the chat command; consumed by runInteractiveVADVoice.
+	VoiceOutputVoice string
+
+	// VoiceBargeIn enables barge-in (interrupting the agent mid-reply) on the
+	// composed-VAD voice path. Opt-in (--barge-in) because it needs headphones /
+	// AEC and audio-sink flush support; off by default the console does clean
+	// turn-taking.
+	VoiceBargeIn bool
+
 	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
 	// If nil, no recording stages are added.
 	RecordingConfig *stage.RecordingStageConfig
@@ -121,6 +136,13 @@ type ConversationRequest struct {
 	// message produced by the just-completed turn. No-op when meta is nil. This is
 	// side-effect-only and must never alter turn output, error, or flow.
 	StampWorkflowState func(meta map[string]interface{})
+
+	// vadOverride, when non-nil, replaces the VAD analyzer the composed-VAD
+	// pipeline would otherwise construct. Test-only seam: the real VAD's
+	// speech/silence detection on synthetic audio is non-deterministic, so the
+	// continuous-conversation integration test injects a scripted VAD here to
+	// drive exact turn boundaries. Unexported — never set on a production path.
+	vadOverride audioseam.VADAnalyzer
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

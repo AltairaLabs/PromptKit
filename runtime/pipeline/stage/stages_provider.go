@@ -75,6 +75,15 @@ type ProviderConfig struct {
 	// exceeds the configured threshold. Nil = disabled.
 	Compactor CompactionStrategy
 
+	// Streaming enables continuous multi-turn mode: instead of draining the
+	// input channel and firing the provider once at close (the unary default,
+	// correct for Arena's "pipeline per turn"), the stage fires the tool loop
+	// on each EndOfTurn control element, emits that turn's reply, stays open,
+	// and threads conversation history across turns within the session. Used by
+	// the composed-VAD voice path (one continuous mic session). Default false
+	// preserves today's fire-once-at-close behavior for every existing pipeline.
+	Streaming bool
+
 	// ToolSelector, when set, narrows the pack-declared allowedTools
 	// each turn before tools are sent to the provider. The selector
 	// receives the latest user message as its query and the current
@@ -195,6 +204,10 @@ func (s *ProviderStage) Process(
 		return errors.New("provider stage: no provider configured")
 	}
 
+	if s.config != nil && s.config.Streaming {
+		return s.processStreaming(ctx, input, output)
+	}
+
 	accumulated := s.accumulateInput(input)
 
 	logger.Debug("ProviderStage accumulated input",
@@ -232,6 +245,198 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 	}
 
 	return acc
+}
+
+// streamingConfig holds the per-session invariants for continuous multi-turn
+// mode, read once from TurnState. The metadata map is copied so per-turn
+// mutation does not leak back onto TurnState.
+type streamingConfig struct {
+	systemPrompt string
+	allowedTools []string
+	baseMeta     map[string]interface{}
+}
+
+// streamingTurnState snapshots the per-session invariants for a streaming run.
+func (s *ProviderStage) streamingTurnState() streamingConfig {
+	cfg := streamingConfig{baseMeta: map[string]interface{}{}}
+	if s.turnState == nil {
+		return cfg
+	}
+	cfg.systemPrompt = s.turnState.SystemPrompt
+	cfg.allowedTools = s.turnState.AllowedTools
+	cfg.baseMeta = make(map[string]interface{}, len(s.turnState.ProviderRequestMetadata))
+	for k, v := range s.turnState.ProviderRequestMetadata {
+		cfg.baseMeta[k] = v
+	}
+	return cfg
+}
+
+// processStreaming runs the continuous multi-turn mode. It accumulates Message
+// elements until an EndOfTurn control element arrives, fires the existing tool
+// loop on the accumulated history, emits that turn's new messages, re-emits an
+// EndOfTurn boundary, and stays open for the next turn. History threads across
+// turns within the session. Non-Message, non-control elements (e.g. an Interrupt
+// arriving between turns) are forwarded downstream unchanged so later stages and
+// follow-up work (the barge-in path) can act on them.
+func (s *ProviderStage) processStreaming(
+	ctx context.Context,
+	input <-chan StreamElement,
+	output chan<- StreamElement,
+) error {
+	// A concurrent reader cancels in-flight generation the instant a barge-in
+	// Interrupt arrives, so a blocking provider call cannot swallow it.
+	canceller := newTurnCanceller(ctx)
+	defer canceller.stop()
+	work := make(chan StreamElement, interruptWorkBuffer)
+	go drainCancelingOnInterrupt(input, work, canceller)
+
+	var history []types.Message
+	var pending []types.Message
+
+	for elem := range work {
+		switch {
+		case elem.Interrupt:
+			// Barge-in: in-flight generation was already canceled out of band by
+			// the reader. Drop the partial turn's input, roll a fresh context,
+			// and forward the Interrupt downstream.
+			pending = nil
+			canceller.refresh()
+			if err := sendStreamElement(ctx, elem, output); err != nil {
+				return err
+			}
+		case elem.EndOfTurn:
+			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+			if err != nil {
+				return err
+			}
+			pending = next
+		case elem.EndOfStream:
+			// Session over: fire any partial turn, then stop. Closing output
+			// downstream signals end-of-conversation to the next stages.
+			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+			return err
+		case elem.Message != nil:
+			pending = append(pending, *elem.Message)
+		default:
+			// Stray content passes through unchanged.
+			if err := sendStreamElement(ctx, elem, output); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Input closed without an explicit EndOfStream: fire any trailing turn.
+	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+	return err
+}
+
+// fireIfPending fires a streaming turn when there is buffered input, returning
+// the reset pending slice. A no-op (returning pending unchanged) when empty.
+// forwardCtx carries the downstream emits; genCtx (cancelable per turn) governs
+// the provider call so a barge-in can abort it.
+func (s *ProviderStage) fireIfPending(
+	forwardCtx, genCtx context.Context,
+	history *[]types.Message,
+	pending []types.Message,
+	output chan<- StreamElement,
+) ([]types.Message, error) {
+	if len(pending) == 0 {
+		return pending, nil
+	}
+	if err := s.fireStreamingTurn(forwardCtx, genCtx, history, pending, output); err != nil {
+		return pending, err
+	}
+	return nil, nil
+}
+
+// fireStreamingTurn runs the tool loop for one turn against (history + pending),
+// emits only this turn's new messages (the turn's user transcript plus the
+// assistant reply and any tool messages — the provider drains its input, so it
+// must re-emit the user messages itself for the save stage), advances history to
+// the full conversation, and emits an EndOfTurn boundary.
+//
+// genCtx governs the provider call: a barge-in cancels it, which drops the turn
+// (no reply) without tearing down the session. A non-cancellation error is
+// surfaced as an error element but likewise keeps the session alive — a live
+// conversation survives one failed turn. forwardCtx carries the downstream emits
+// so a late interrupt that cancels genCtx after a successful generation does not
+// abort the emit.
+func (s *ProviderStage) fireStreamingTurn(
+	forwardCtx, genCtx context.Context,
+	history *[]types.Message,
+	pending []types.Message,
+	output chan<- StreamElement,
+) error {
+	// Read the per-session invariants here, not before the loop: upstream
+	// prompt/template stages write TurnState lazily as elements flow, and this
+	// turn's messages have already passed through them by fire time, so the read
+	// is safely ordered after those writes (channel happens-before).
+	cfg := s.streamingTurnState()
+
+	// Emit this turn's user transcript(s) BEFORE generation, so the UI shows what
+	// the user said immediately (and the save stage persists it) instead of the
+	// transcript and the reply appearing together after the LLM responds.
+	if emitErr := s.emitResponseMessages(forwardCtx, pending, output); emitErr != nil {
+		return emitErr
+	}
+
+	priorLen := len(*history)
+	messages := make([]types.Message, 0, priorLen+len(pending))
+	messages = append(messages, *history...)
+	messages = append(messages, pending...)
+
+	metadata := make(map[string]interface{}, len(cfg.baseMeta))
+	for k, v := range cfg.baseMeta {
+		metadata[k] = v
+	}
+	acc := &providerInput{
+		messages:     messages,
+		systemPrompt: cfg.systemPrompt,
+		allowedTools: cfg.allowedTools,
+		metadata:     metadata,
+	}
+
+	var full []types.Message
+	var err error
+	if s.provider.SupportsStreaming() {
+		full, err = s.executeStreamingMultiRound(genCtx, acc, output)
+	} else {
+		full, err = s.executeMultiRound(genCtx, acc)
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Barge-in (or shutdown) canceled this turn's generation; drop it.
+			// The session continues with a fresh context.
+			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown), dropping")
+			return nil
+		}
+		logger.Error("ProviderStage streaming turn failed", "error", err)
+		return sendStreamElement(forwardCtx, NewErrorElement(err), output)
+	}
+
+	// full = (history + pending) + new assistant/tool messages. The user
+	// messages (pending) were already emitted above, so emit only the new reply.
+	newStart := priorLen + len(pending)
+	if newStart <= len(full) {
+		if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
+			return emitErr
+		}
+	}
+	*history = full
+
+	return sendStreamElement(forwardCtx, NewEndOfTurnElement(), output)
+}
+
+// sendStreamElement forwards one element downstream, honoring cancellation.
+//
+//nolint:gocritic // hugeParam: StreamElement is the channel element type, passed by value throughout the pipeline
+func sendStreamElement(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
+	select {
+	case output <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // executeAndEmit runs provider execution and emits results.

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/arena.json
+#
+# Voice Console — ASM (native realtime) mode
+#
+# Minimal config for talking to a native-realtime agent by voice:
+#   promptarena-voice chat --voice --config config.arena.yaml
+#
+# The single provider (OpenAI Realtime) supports streaming audio, so the voice
+# console streams mic audio straight into it and plays the audio it returns —
+# no STT/TTS/voices wiring required. Use headphones (the mic stays open).
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: voice-console-asm
+spec:
+  prompt_configs:
+    - id: voice-assistant
+      file: prompts/assistant.prompt.yaml
+
+  providers:
+    - file: providers/openai-realtime.provider.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 1

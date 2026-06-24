@@ -89,7 +89,7 @@ go run -tags portaudio . translator
 |              OpenAI Realtime API                |
 |              (WebSocket Connection)             |
 |                                                 |
-|  - gpt-4o-realtime-preview model               |
+|  - gpt-realtime model               |
 |  - Server-side VAD (Voice Activity Detection)  |
 |  - Function/Tool calling                       |
 |  - Audio transcription                         |
@@ -121,7 +121,7 @@ func main() {
     conv, _ := sdk.OpenDuplex(
         "./openai-realtime.pack.json",
         "assistant",
-        sdk.WithModel("gpt-4o-realtime-preview"),
+        sdk.WithModel("gpt-realtime"),
         sdk.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
         sdk.WithStreamingConfig(&providers.StreamingInputConfig{
             Config: types.StreamingMediaConfig{

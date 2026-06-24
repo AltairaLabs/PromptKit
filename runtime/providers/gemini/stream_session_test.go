@@ -1059,6 +1059,16 @@ func TestProcessServerMessage_InputTranscription(t *testing.T) {
 		if chunk.Metadata["transcription"] != "Hello world" {
 			t.Errorf("Expected transcription='Hello world', got %v", chunk.Metadata["transcription"])
 		}
+		// Gemini Live has NO clean per-turn user-input-final signal: the wire
+		// Transcription struct carries only Text, input transcription streams as
+		// deltas, and turnComplete is the MODEL-turn boundary (fires at the same
+		// point as EndOfStream, not when the user stops speaking). So Gemini does
+		// NOT set the transcription_final fast-path marker — it relies on the
+		// DuplexProviderStage EndOfStream fallback, which never emits a partial
+		// transcript. Assert the marker is absent to lock in that decision.
+		if final, ok := chunk.Metadata["transcription_final"].(bool); ok && final {
+			t.Errorf("Gemini must NOT set transcription_final (no clean per-turn final signal); got true")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for input transcription")
 	}

@@ -35,7 +35,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         fetch-depth: 0
 
@@ -140,7 +140,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         fetch-depth: 0
     
@@ -250,7 +250,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         fetch-depth: 0
 
@@ -625,7 +625,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         fetch-depth: 0
 
@@ -742,10 +742,102 @@ jobs:
           -f "client_payload[version]=$VERSION"
         echo "✓ Dispatched to promptarena-deploy-omnia"
 
+  # -----------------------------------------------------------------------
+  # Voice binary matrix — runs AFTER the GitHub Release is created so the
+  # artifacts can be uploaded to the existing draft release.
+  #
+  # Each runner installs PortAudio natively, builds promptarena-voice for
+  # its own platform (--single-target), and uploads the archive as a
+  # release asset.  The build is CGO_ENABLED=1 and cannot cross-compile,
+  # so a separate per-OS matrix is required.
+  #
+  # NOTE: This job touches .github/workflows/release.yml which requires the
+  # `workflow` scope on the GITHUB_TOKEN / PAT.  The gh CLI used in local
+  # development lacks that scope, so merging changes to this file must be
+  # done via the GitHub UI or a token that holds workflow write permissions.
+  # -----------------------------------------------------------------------
+  build-voice:
+    name: Build Voice Binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.os }}
+    needs: [validate, create-release]
+    if: ${{ inputs.phase == 'full' && needs.create-release.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # darwin/arm64 — Apple Silicon (macos-latest is arm64)
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            portaudio_install: brew install portaudio
+          # darwin/amd64 — Intel Mac (macos-13 is the last Intel runner)
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            portaudio_install: brew install portaudio
+          # linux/amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            portaudio_install: sudo apt-get update && sudo apt-get install -y portaudio19-dev
+          # linux/arm64
+          - os: ubuntu-24.04-arm64
+            goos: linux
+            goarch: arm64
+            portaudio_install: sudo apt-get update && sudo apt-get install -y portaudio19-dev
+          # windows/amd64 (windows/arm64 excluded — no GitHub-hosted runner exists)
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            portaudio_install: vcpkg install portaudio:x64-windows
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Fetch release tag
+      # Ensure the root version tag pushed by tag-dependencies is visible
+      # to GoReleaser's git state inspection on this runner.
+      run: git fetch --tags --force origin
+
+    - name: Install PortAudio
+      run: ${{ matrix.portaudio_install }}
+
+    - name: Setup Go
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version: '1.26.0'
+        cache: false
+
+    - name: Build voice binary (native target only)
+      uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+      with:
+        distribution: goreleaser
+        version: latest
+        args: build --config .goreleaser.voice.yml --single-target --clean
+      env:
+        CGO_ENABLED: "1"
+
+    - name: Upload voice artifacts to GitHub Release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ needs.validate.outputs.version }}
+        GITHUB_REPO: ${{ github.repository }}
+      shell: bash
+      run: |
+        echo "Uploading voice artifacts for $VERSION on ${{ matrix.os }}..."
+        # GoReleaser build --single-target writes to dist/
+        gh release upload "$VERSION" dist/**/* \
+          --repo "$GITHUB_REPO" \
+          --clobber
+        echo "✓ Voice artifacts uploaded"
+
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [validate, tag-dependencies, update-tools, create-release, verify-docs, notify-downstream]
+    needs: [validate, tag-dependencies, update-tools, create-release, verify-docs, notify-downstream, build-voice]
     if: always()
     
     steps:
@@ -758,6 +850,7 @@ jobs:
         RELEASE_RESULT: ${{ needs.create-release.result }}
         DOCS_RESULT: ${{ needs.verify-docs.result }}
         DOWNSTREAM_RESULT: ${{ needs.notify-downstream.result }}
+        VOICE_RESULT: ${{ needs.build-voice.result }}
         GITHUB_REPO: ${{ github.repository }}
       run: |
         cat >> $GITHUB_STEP_SUMMARY << EOF
@@ -771,7 +864,8 @@ jobs:
         - GitHub Release: $RELEASE_RESULT
         - Docs Deployment: $DOCS_RESULT
         - Downstream Notification: $DOWNSTREAM_RESULT
-        
+        - Voice Binary Build: $VOICE_RESULT
+
         ## Installation
         
         **SDK Library:**

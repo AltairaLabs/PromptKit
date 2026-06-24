@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
 
 var configInspectCmd = &cobra.Command{
@@ -26,40 +27,12 @@ Use --short/-s for quick validation-only output.`,
 }
 
 const (
-	indentedItemFormat  = "  - %s\n"
-	boxWidth            = 78
-	maxDescLength       = 55
-	maxDescLengthPrompt = 60
-	maxGoalsDisplayed   = 3
-	maxGoalLength       = 50
-	percentMultiplier   = 100
-
-	// Label constants for display output
-	labelFile        = "  File: "
-	labelDesc        = "  Desc: "
-	labelModel       = "  Model: "
-	labelTemperature = "  Temperature: "
-	labelMaxTok      = "  Max Tokens: "
-	labelTaskType    = "  Task Type: "
-	labelTask        = "  Task: "
-	labelVersion     = "  Version: "
-	labelVariables   = "  Variables: "
-	labelTools       = "  Tools: "
-	labelValidators  = "  Validators: "
-	labelMedia       = "  Media: "
-	labelMode        = "  Mode: "
-	labelParams      = "  Params: "
-	labelTimeout     = "  Timeout: "
-	labelFeatures    = "  Features: "
-	labelFlags       = "  Flags: "
-	labelProviders   = "  Providers: "
-	labelGoals       = "  Goals:"
-
-	// Format strings
-	entriesFormat = "%d entries"
-
 	// Section names
 	sectionValidation = "validation"
+
+	// Output format names for --format flag.
+	inspectFormatJSON = "json"
+	inspectFormatText = "text"
 )
 
 var (
@@ -137,23 +110,33 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	// Add additional connectivity checks
 	inspection.ValidationChecks = append(inspection.ValidationChecks, collectConnectivityChecks(inspection)...)
 
-	// Output results
-	switch inspectFormat {
-	case "json":
+	// JSON goes straight to stdout — no TUI.
+	if inspectFormat == inspectFormatJSON {
 		return outputJSON(inspection)
-	case "text":
-		return outputText(inspection, cfg)
-	default:
+	}
+
+	// Interactive text path: launch the hub with InspectPage as the root so
+	// the user gets a scrollable, keyboard-navigable view of the config.
+	// If the format is unrecognized, fall through to a clear error rather than
+	// silently opening the TUI.
+	if inspectFormat != inspectFormatText {
 		return fmt.Errorf("unsupported format: %s", inspectFormat)
 	}
+
+	appCtx := &app.AppContext{
+		Config:     cfg,
+		ConfigPath: configFile,
+		ResultsDir: app.ResultsDirFromConfig(configFile),
+		Version:    GetVersion(),
+	}
+	renderOpts := inspect.RenderOptions{
+		Verbose: inspectVerbose,
+		Section: inspectSection,
+		Stats:   inspectStats,
+	}
+	return app.Run(appCtx, app.NewInspectPageWithOptions(appCtx, renderOpts))
 }
 
 func emitConfigInspectValidationDiagnostics(configFile string) error {
 	return runValidationChecks(configFile, "auto", false, false)
-}
-
-func outputJSON(data *InspectionData) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
 }

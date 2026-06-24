@@ -30,7 +30,7 @@ promptarena deploy plan --env production
 
 ```
 Planning deployment (env: production)...
-Provider: agentcore v0.2.0
+Provider: omnia v1.0.0
 
 Changes:
   + agent_runtime.greeting    Create agent runtime
@@ -79,8 +79,10 @@ promptarena deploy --pack dist/app.pack.json
 
 ### Using a Different Config File
 
+The CLI reads `arena.yaml` by default. To point at a different file:
+
 ```bash
-promptarena deploy --config deploy.yaml
+promptarena deploy --config staging.arena.yaml
 ```
 
 ## Check Deployment Status
@@ -149,10 +151,7 @@ When you update a pack and redeploy, the adapter receives the prior state and ca
 # Update your prompt
 vim prompts/greeting.yaml
 
-# Recompile
-packc compile --config arena.yaml --output app.pack.json --id my-app
-
-# Plan shows updates
+# Plan shows updates (deploy recompiles from arena.yaml automatically)
 promptarena deploy plan --env production
 
 # Apply updates
@@ -209,7 +208,7 @@ promptarena deploy refresh --env production
 
 ```
 Refreshing state (env: production)...
-Provider: agentcore v0.2.0
+Provider: omnia v1.0.0
 
 Resources:
   agent_runtime.greeting: healthy

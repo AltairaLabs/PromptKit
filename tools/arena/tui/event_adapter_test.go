@@ -383,16 +383,16 @@ func TestEventAdapter_ArenaCustomEvents(t *testing.T) {
 func TestEventAdapter_SendMethods(t *testing.T) {
 	t.Parallel()
 
-	t.Run("send with program", func(t *testing.T) {
+	t.Run("send with nil send func", func(t *testing.T) {
 		adapter := NewEventAdapter(nil)
-		// Should not panic with nil program
-		adapter.send(logging.Msg{Message: "test"})
+		// Should not panic with nil send func
+		adapter.deliver(logging.Msg{Message: "test"})
 	})
 
 	t.Run("send with model", func(t *testing.T) {
 		model := NewModel("cfg", 1)
 		adapter := NewEventAdapterWithModel(model)
-		adapter.send(logging.Msg{Level: "INFO", Message: "test message"})
+		adapter.deliver(logging.Msg{Level: "INFO", Message: "test message"})
 		if len(model.logs) == 0 {
 			t.Error("expected log message to be added to model")
 		}
@@ -401,7 +401,7 @@ func TestEventAdapter_SendMethods(t *testing.T) {
 	t.Run("send with neither", func(t *testing.T) {
 		adapter := &EventAdapter{}
 		// Should not panic
-		adapter.send(logging.Msg{Message: "test"})
+		adapter.deliver(logging.Msg{Message: "test"})
 	})
 }
 
@@ -876,12 +876,15 @@ func TestEventAdapter_MapEvent_NewEventTypes(t *testing.T) {
 func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 	t.Parallel()
 
+	// Conversation/message events are no longer consumed by the run Model
+	// (conversation drill-down moved to the hub stack), but the adapter must
+	// still forward them without panicking. The message-mapping itself is
+	// covered by TestEventAdapter_HandleMessageCreated /
+	// TestEventAdapter_HandleConversationStarted.
 	model := NewModel("cfg", 1)
 	adapter := NewEventAdapterWithModel(model)
 
-	t.Run("message created flows to model", func(t *testing.T) {
-		model.conversationMessages = make(map[string][]types.Message)
-
+	t.Run("message created flows without panic", func(t *testing.T) {
 		evt := &events.Event{
 			Type:           events.EventMessageCreated,
 			ConversationID: "run-1",
@@ -892,18 +895,10 @@ func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 				Index:   0,
 			},
 		}
-
 		adapter.HandleEvent(evt)
-
-		// Message should be cached in model
-		model.mu.Lock()
-		defer model.mu.Unlock()
-		assert.Len(t, model.conversationMessages["run-1"], 1)
 	})
 
-	t.Run("conversation started flows to model", func(t *testing.T) {
-		model.systemPrompts = make(map[string]string)
-
+	t.Run("conversation started flows without panic", func(t *testing.T) {
 		evt := &events.Event{
 			Type:           events.EventConversationStarted,
 			ConversationID: "run-2",
@@ -912,12 +907,6 @@ func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 				SystemPrompt: "You are a helpful assistant.",
 			},
 		}
-
 		adapter.HandleEvent(evt)
-
-		// System prompt should be cached in model
-		model.mu.Lock()
-		defer model.mu.Unlock()
-		assert.Equal(t, "You are a helpful assistant.", model.systemPrompts["run-2"])
 	})
 }
