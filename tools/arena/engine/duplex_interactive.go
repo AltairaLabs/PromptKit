@@ -352,6 +352,10 @@ func (de *DuplexConversationExecutor) buildVADComposedPipeline(
 	ttsCfg.InterruptionHandler = interruptionHandler
 	stages = append(stages,
 		arenastages.NewAssistantTTSFilterStage(),
+		// Batch the provider's streaming text deltas into complete sentences so
+		// TTS speaks smooth phrases (and starts after the first sentence) instead
+		// of synthesizing every token chunk separately.
+		arenastages.NewTTSSentenceAggregatorStage(),
 		stage.NewTTSStageWithInterruption(ttsSvc, ttsCfg),
 	)
 
