@@ -51,6 +51,185 @@ func (p *multiTurnRecordingProvider) PredictStream(
 	return ch, nil
 }
 
+// streamingRecordingProvider is the streaming counterpart of
+// multiTurnRecordingProvider: SupportsStreaming reports true so the stage takes
+// the executeStreamingMultiRound sub-path.
+type streamingRecordingProvider struct {
+	multiTurnRecordingProvider
+}
+
+func (p *streamingRecordingProvider) SupportsStreaming() bool { return true }
+
+func (p *streamingRecordingProvider) PredictStream(
+	_ context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	msgs := make([]types.Message, len(req.Messages))
+	copy(msgs, req.Messages)
+	p.requests = append(p.requests, msgs)
+	reply := fmt.Sprintf("reply-%d", len(p.requests))
+	ch := make(chan providers.StreamChunk, 1)
+	stop := "stop"
+	ch <- providers.StreamChunk{
+		Content:      reply,
+		Delta:        reply,
+		FinishReason: &stop,
+		FinalResult:  &providers.PredictionResponse{Content: reply},
+	}
+	close(ch)
+	return ch, nil
+}
+
+// erroringProvider always fails its Predict call, to exercise the turn-level
+// error path (the session must survive).
+type erroringProvider struct {
+	multiTurnRecordingProvider
+}
+
+func (p *erroringProvider) Predict(
+	_ context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, fmt.Errorf("boom")
+}
+
+// TestProviderStage_Streaming_NilTurnState verifies streaming mode works when no
+// TurnState is wired (the ad-hoc construction path).
+func TestProviderStage_Streaming_NilTurnState(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStage(prov, nil, nil, &ProviderConfig{Streaming: true})
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "hi"})
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 16)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	require.Len(t, prov.requests, 1)
+}
+
+// TestProviderStage_Streaming_EndOfStreamFires verifies an EndOfStream fires the
+// trailing turn (no explicit EndOfTurn needed) and then stops.
+func TestProviderStage_Streaming_EndOfStreamFires(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "last words"})
+	input <- NewEndOfStreamElement()
+	close(input)
+
+	output := make(chan StreamElement, 16)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	require.Len(t, prov.requests, 1, "EndOfStream fires the buffered turn")
+}
+
+// TestProviderStage_Streaming_ForwardsInterrupt verifies an Interrupt element is
+// passed through downstream (for the barge-in path), not swallowed.
+func TestProviderStage_Streaming_ForwardsInterrupt(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 2)
+	input <- NewInterruptElement()
+	close(input)
+
+	output := make(chan StreamElement, 8)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	sawInterrupt := false
+	for e := range output {
+		if e.Interrupt {
+			sawInterrupt = true
+		}
+	}
+	assert.True(t, sawInterrupt, "Interrupt must be forwarded downstream")
+}
+
+// TestProviderStage_Streaming_EndOfTurnNoPending verifies an EndOfTurn with no
+// buffered messages is a no-op (no provider call, no panic).
+func TestProviderStage_Streaming_EndOfTurnNoPending(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 2)
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 4)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	assert.Empty(t, prov.requests, "EndOfTurn with no pending input must not call the provider")
+}
+
+// TestProviderStage_Streaming_StreamingProvider verifies the streaming-provider
+// sub-path (executeStreamingMultiRound) produces a reply per turn.
+func TestProviderStage_Streaming_StreamingProvider(t *testing.T) {
+	prov := &streamingRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "stream turn"})
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 32)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	require.Len(t, prov.requests, 1)
+	var assistant []*types.Message
+	for e := range output {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			m := e.Message
+			assistant = append(assistant, m)
+		}
+	}
+	require.Len(t, assistant, 1, "streaming provider yields one assistant reply for the turn")
+	assert.Equal(t, "reply-1", assistant[0].Content)
+}
+
+// TestProviderStage_Streaming_TurnErrorSurvives verifies a failed turn emits an
+// error element but keeps the session alive for the next turn.
+func TestProviderStage_Streaming_TurnErrorSurvives(t *testing.T) {
+	prov := &erroringProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "will fail"})
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 8)
+	require.NoError(t, stage.Process(context.Background(), input, output), "a turn error must not tear down the session")
+
+	sawError := false
+	for e := range output {
+		if e.Error != nil {
+			sawError = true
+		}
+	}
+	assert.True(t, sawError, "a failed turn surfaces an error element")
+}
+
+// TestProviderStage_Streaming_ContextCancelled verifies sending honors context
+// cancellation while forwarding an element.
+func TestProviderStage_Streaming_ContextCancelled(t *testing.T) {
+	prov := &multiTurnRecordingProvider{}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before processing
+
+	input := make(chan StreamElement, 1)
+	input <- NewInterruptElement() // routed to the forwarding (default) path
+	close(input)
+
+	output := make(chan StreamElement) // unbuffered: send blocks, ctx.Done wins
+	err := stage.Process(ctx, input, output)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 // TestProviderStage_Streaming_OneReplyPerTurn verifies that with Streaming
 // enabled, the provider fires once per EndOfTurn (not once at channel close),
 // emits an assistant reply per turn, and re-emits an EndOfTurn boundary after
