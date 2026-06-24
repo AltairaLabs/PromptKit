@@ -108,6 +108,7 @@ Focused guides for specific tasks:
 
 - [Install Adapters](/arena/how-to/deploy/install-adapters/) - Install, list, and remove adapters
 - [Configure Deploy](/arena/how-to/deploy/configure/) - Set up the deploy section in arena.yaml
+- [Log In](/arena/how-to/deploy/login/) - Authenticate in the browser and write the config automatically
 - [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) - Plan, apply, status, and destroy workflows
 - [CI/CD Integration](/arena/how-to/deploy/ci-cd/) - Automate deployments with GitHub Actions
 
