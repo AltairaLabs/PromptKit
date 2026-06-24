@@ -205,9 +205,11 @@ func (s *AudioTurnStage) processAudioElement(
 		return err
 	}
 
-	// Check for interruption
+	// Check for interruption (barge-in): user spoke while the bot was talking.
+	// Emit an Interrupt control element so the provider and TTS stages cancel
+	// in-flight generation/playback, then drop the partial turn.
 	if s.checkInterruption(ctx, state) {
-		return nil
+		return s.emitInterrupt(ctx, output)
 	}
 
 	// Check if turn is complete
@@ -218,6 +220,18 @@ func (s *AudioTurnStage) processAudioElement(
 		s.resetState(state)
 	}
 	return nil
+}
+
+// emitInterrupt sends an Interrupt control element downstream so the provider
+// and TTS stages can cancel in-flight generation and playback on barge-in.
+func (s *AudioTurnStage) emitInterrupt(ctx context.Context, output chan<- StreamElement) error {
+	logger.Debug("AudioTurnStage: barge-in detected, emitting Interrupt")
+	select {
+	case output <- NewInterruptElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // checkInterruption checks for user interruption and resets state if detected.
