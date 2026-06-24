@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,5 +46,25 @@ func TestApp_ChatPageRevealedAfterSplash_AutoAdvances(t *testing.T) {
 	}
 	if chat.state != chatStateChat {
 		t.Fatalf("expected chatStateChat after revealing a single-agent config, got state=%v", chat.state)
+	}
+}
+
+// TestChatPage_VoiceEnded_ReflectedInStatus verifies the UI reflects a voice
+// session ending (idle timeout, mic close, or pipeline error) instead of
+// looking hung with a dead meter.
+func TestChatPage_VoiceEnded_ReflectedInStatus(t *testing.T) {
+	p := NewChatPage(&AppContext{Version: "vTEST"})
+	p.SetSize(80, 24)
+
+	// Clean end (idle timeout / mic close): nil err.
+	_, _ = p.Update(voiceEndedMsg{})
+	if !strings.Contains(p.statusLine, "ended") {
+		t.Fatalf("expected status to reflect the ended voice session, got %q", p.statusLine)
+	}
+
+	// Error end: the driver error surfaces in the status.
+	_, _ = p.Update(voiceEndedMsg{err: fmt.Errorf("pipeline boom")})
+	if !strings.Contains(p.statusLine, "boom") {
+		t.Fatalf("expected status to include the driver error, got %q", p.statusLine)
 	}
 }

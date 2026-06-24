@@ -42,6 +42,11 @@ type chatEvalMsg struct {
 // chatErrMsg carries a non-fatal error to display.
 type chatErrMsg struct{ err error }
 
+// voiceEndedMsg signals the voice driver goroutine exited — the voice session is
+// over (idle timeout, pipeline error, or mic close). The UI reflects this so the
+// console no longer looks hung with a dead mic meter. A nil err is a clean end.
+type voiceEndedMsg struct{ err error }
+
 // Key label constants used by footer helpers.
 const (
 	chatKeyNameEnter = "enter"
@@ -314,6 +319,16 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		// A message.created event arrived from the voice pipeline; reload the
 		// conversation panel from the voice state store (single source of truth).
 		p.refreshVoicePanel()
+		return p, nil
+	case voiceEndedMsg:
+		// The voice driver exited. Reflect it so the console doesn't look hung:
+		// freeze the audio meter and show an ended status.
+		p.panel.SetAudioLevels(0, 0, false)
+		if v.err != nil {
+			p.statusLine = "🛑 voice session ended: " + chatSanitizeErrorLine(v.err)
+		} else {
+			p.statusLine = "🛑 voice session ended (idle timeout or mic closed) — press q to exit"
+		}
 		return p, nil
 	}
 

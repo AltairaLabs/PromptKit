@@ -402,8 +402,13 @@ func (de *DuplexConversationExecutor) buildInteractiveTTSConfig(
 	req *ConversationRequest,
 ) stage.TTSStageWithInterruptionConfig {
 	cfg := stage.DefaultTTSStageWithInterruptionConfig()
-	if req.VoiceOutputVoice != "" {
-		cfg.Voice = req.VoiceOutputVoice
+	// VoiceOutputVoice is a `voices:` binding id (e.g. "agent-voice"), NOT a
+	// vendor voice name. Resolve it to the bound TTS provider's configured voice
+	// (e.g. "alloy"). Passing the binding id straight through makes the vendor
+	// reject every synthesis ("voice must be one of nova/alloy/..."), so no audio
+	// ever comes back. Fall back to the default voice if resolution fails.
+	if prov, err := req.Config.ResolveVoice(req.VoiceOutputVoice); err == nil && prov.Voice != "" {
+		cfg.Voice = prov.Voice
 	}
 	return cfg
 }

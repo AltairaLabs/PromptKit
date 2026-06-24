@@ -521,22 +521,19 @@ func TestRunVoice_SetsUpWiringAndGoroutine(t *testing.T) {
 	msgs := append([]tea.Msg(nil), received...)
 	mu.Unlock()
 
-	// At least one chatErrMsg must have arrived. Verify it carries an error that
-	// describes the audio failure — confirming the error path ran end-to-end.
-	var foundErrMsg bool
+	// At least one voiceEndedMsg must have arrived carrying the driver error —
+	// the voice session ended (it failed to open audio), and the UI reflects it.
+	var foundEndMsg bool
 	for _, m := range msgs {
-		if em, ok := m.(chatErrMsg); ok {
-			foundErrMsg = true
+		if em, ok := m.(voiceEndedMsg); ok {
+			foundEndMsg = true
 			if em.err == nil {
-				t.Fatal("chatErrMsg.err must be non-nil")
-			}
-			if !strings.Contains(em.err.Error(), "voice driver") {
-				t.Fatalf("expected chatErrMsg.err to mention 'voice driver', got: %v", em.err)
+				t.Fatal("voiceEndedMsg.err must be non-nil on a driver failure")
 			}
 		}
 	}
-	if !foundErrMsg {
-		t.Fatalf("expected chatErrMsg from runVoice goroutine, got: %v", msgs)
+	if !foundEndMsg {
+		t.Fatalf("expected voiceEndedMsg from runVoice goroutine, got: %v", msgs)
 	}
 
 	// Teardown: cancel the context so any background goroutines can exit.
@@ -570,18 +567,18 @@ func TestRunVoice_EchoGuardPath(t *testing.T) {
 		t.Fatal("expected p.voiceCancel set in EchoGuard path")
 	}
 
-	// Goroutine delivers chatErrMsg on audio Start failure.
+	// Goroutine delivers voiceEndedMsg on audio Start failure.
 	select {
 	case msg := <-gotMsg:
-		em, ok := msg.(chatErrMsg)
+		em, ok := msg.(voiceEndedMsg)
 		if !ok {
-			t.Fatalf("expected chatErrMsg, got %T: %v", msg, msg)
+			t.Fatalf("expected voiceEndedMsg, got %T: %v", msg, msg)
 		}
 		if em.err == nil {
-			t.Fatal("chatErrMsg.err must be non-nil in EchoGuard path")
+			t.Fatal("voiceEndedMsg.err must be non-nil in EchoGuard path")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for chatErrMsg in EchoGuard path")
+		t.Fatal("timed out waiting for voiceEndedMsg in EchoGuard path")
 	}
 
 	p.voiceCancel()
@@ -625,14 +622,14 @@ func TestRunVoice_EventBusSubscriptionWired(t *testing.T) {
 		t.Fatal("expected voiceStore and voiceConvID set (step 6 of runVoice)")
 	}
 
-	// Wait for the driver goroutine to exit (it sends chatErrMsg after the Start
-	// failure). This ensures eventBus.Close() has been deferred and will fire
-	// after the goroutine returns — but we drain the chatErrMsg here.
+	// Wait for the driver goroutine to exit (it sends voiceEndedMsg after the
+	// Start failure). This ensures eventBus.Close() has been deferred and will
+	// fire after the goroutine returns — but we drain the voiceEndedMsg here.
 	deadline := time.After(2 * time.Second)
 	for {
 		select {
 		case msg := <-gotMsg:
-			if _, ok := msg.(chatErrMsg); ok {
+			if _, ok := msg.(voiceEndedMsg); ok {
 				// Driver goroutine finished.
 				p.voiceCancel()
 				return
@@ -729,15 +726,15 @@ func TestRunVoice_STTProviderIDSet_NotInConfig(t *testing.T) {
 
 	select {
 	case msg := <-gotMsg:
-		em, ok := msg.(chatErrMsg)
+		em, ok := msg.(voiceEndedMsg)
 		if !ok {
-			t.Fatalf("expected chatErrMsg, got %T", msg)
+			t.Fatalf("expected voiceEndedMsg, got %T", msg)
 		}
 		if em.err == nil {
-			t.Fatal("chatErrMsg.err must be non-nil")
+			t.Fatal("voiceEndedMsg.err must be non-nil")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for chatErrMsg in STT provider ID test")
+		t.Fatal("timed out waiting for voiceEndedMsg in STT provider ID test")
 	}
 
 	p.voiceCancel()

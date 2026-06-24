@@ -26,3 +26,23 @@ func TestBuildInteractiveVADConfig_OverrideWins(t *testing.T) {
 		t.Fatalf("vadOverride must win; got %T", cfg.VAD)
 	}
 }
+
+// TestBuildInteractiveTTSConfig_ResolvesVendorVoice pins the fix for "no audio
+// comes back": VoiceOutputVoice is a voices: binding id (e.g. "agent-voice"),
+// which must resolve to the bound provider's vendor voice ("alloy"). Passing the
+// binding id straight through made OpenAI reject every synthesis.
+func TestBuildInteractiveTTSConfig_ResolvesVendorVoice(t *testing.T) {
+	de := &DuplexConversationExecutor{}
+	cfg := &config.Config{
+		LoadedTTSProviders: map[string]*config.Provider{
+			"openai-tts": {ID: "openai-tts", Role: config.RoleTTS, Voice: "alloy"},
+		},
+		Voices: []config.VoiceBinding{{ID: "agent-voice", Provider: "openai-tts"}},
+	}
+	req := &ConversationRequest{Config: cfg, VoiceOutputVoice: "agent-voice"}
+
+	got := de.buildInteractiveTTSConfig(req)
+	if got.Voice != "alloy" {
+		t.Fatalf("expected resolved vendor voice %q, got %q (binding id leaked through?)", "alloy", got.Voice)
+	}
+}
