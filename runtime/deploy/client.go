@@ -33,6 +33,8 @@ const (
 	methodDestroy      = "destroy"
 	methodStatus       = "status"
 	methodImport       = "import"
+	methodGetLoginURL  = "get_login_url"
+	methodCompleteLgin = "complete_login"
 )
 
 // rpcRequest is a JSON-RPC 2.0 request envelope.
@@ -323,5 +325,28 @@ func (c *AdapterClient) Import(ctx context.Context, req *ImportRequest) (*Import
 	return &resp, nil
 }
 
-// Verify AdapterClient implements Provider at compile time.
-var _ Provider = (*AdapterClient)(nil)
+// GetLoginURL asks the adapter for the provider's browser authorize URL. A
+// method-not-found error means the adapter does not implement login.
+func (c *AdapterClient) GetLoginURL(ctx context.Context, req *LoginURLRequest) (*LoginURLResponse, error) {
+	var resp LoginURLResponse
+	if err := c.callCtx(ctx, methodGetLoginURL, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// CompleteLogin hands the adapter the captured callback params and returns the
+// resolved deploy profile and scoped token.
+func (c *AdapterClient) CompleteLogin(ctx context.Context, req *CompleteLoginRequest) (*CompleteLoginResponse, error) {
+	var resp CompleteLoginResponse
+	if err := c.callCtx(ctx, methodCompleteLgin, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Verify AdapterClient implements Provider and LoginProvider at compile time.
+var (
+	_ Provider      = (*AdapterClient)(nil)
+	_ LoginProvider = (*AdapterClient)(nil)
+)

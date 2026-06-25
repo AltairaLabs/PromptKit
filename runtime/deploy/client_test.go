@@ -37,10 +37,10 @@ func mockServer(r io.Reader, w io.Writer, handler func(method string, params jso
 		result, rpcErr := handler(req.Method, req.Params)
 
 		resp := struct {
-			JSONRPC string   `json:"jsonrpc"`
-			Result  any      `json:"result,omitempty"`
+			JSONRPC string    `json:"jsonrpc"`
+			Result  any       `json:"result,omitempty"`
 			Error   *rpcError `json:"error,omitempty"`
-			ID      int      `json:"id"`
+			ID      int       `json:"id"`
 		}{
 			JSONRPC: "2.0",
 			Result:  result,
@@ -109,6 +109,19 @@ func defaultHandler(method string, params json.RawMessage) (any, *rpcError) {
 			State: "state-after-import",
 		}, nil
 
+	case methodGetLoginURL:
+		var req LoginURLRequest
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, &rpcError{Code: -32700, Message: err.Error()}
+		}
+		return &LoginURLResponse{AuthorizeURL: "https://omnia/cli/authorize?state=" + req.State}, nil
+
+	case methodCompleteLgin:
+		return &CompleteLoginResponse{
+			Profile: map[string]interface{}{"workspace": "demo"},
+			Token:   "omnia_sk_tok",
+		}, nil
+
 	default:
 		return nil, &rpcError{Code: -32601, Message: "method not found: " + method}
 	}
@@ -149,6 +162,43 @@ func TestClientGetProviderInfo(t *testing.T) {
 	}
 	if len(info.Capabilities) != 2 {
 		t.Errorf("Capabilities = %v, want 2 items", info.Capabilities)
+	}
+}
+
+func TestClientGetLoginURL(t *testing.T) {
+	client := startTestClient(t, defaultHandler)
+	resp, err := client.GetLoginURL(context.Background(),
+		&LoginURLRequest{CallbackURL: "http://127.0.0.1:5000/cb", State: "st8"})
+	if err != nil {
+		t.Fatalf("GetLoginURL: %v", err)
+	}
+	if !strings.Contains(resp.AuthorizeURL, "state=st8") {
+		t.Errorf("authorize URL = %q, want it to carry the state", resp.AuthorizeURL)
+	}
+}
+
+func TestClientCompleteLogin(t *testing.T) {
+	client := startTestClient(t, defaultHandler)
+	resp, err := client.CompleteLogin(context.Background(),
+		&CompleteLoginRequest{Params: map[string]string{"code": "c"}})
+	if err != nil {
+		t.Fatalf("CompleteLogin: %v", err)
+	}
+	if resp.Token != "omnia_sk_tok" || resp.Profile["workspace"] != "demo" {
+		t.Errorf("unexpected result: token=%q profile=%v", resp.Token, resp.Profile)
+	}
+}
+
+func TestClientLogin_Errors(t *testing.T) {
+	errHandler := func(_ string, _ json.RawMessage) (any, *rpcError) {
+		return nil, &rpcError{Code: -32603, Message: "boom"}
+	}
+	client := startTestClient(t, errHandler)
+	if _, err := client.GetLoginURL(context.Background(), &LoginURLRequest{}); err == nil {
+		t.Error("expected error from GetLoginURL")
+	}
+	if _, err := client.CompleteLogin(context.Background(), &CompleteLoginRequest{}); err == nil {
+		t.Error("expected error from CompleteLogin")
 	}
 }
 

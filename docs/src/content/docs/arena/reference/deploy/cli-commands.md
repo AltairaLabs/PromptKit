@@ -271,6 +271,54 @@ promptarena deploy import agent_runtime my-agent container-abc123 --env producti
 
 ---
 
+### deploy login
+
+Authenticate in the browser and write the deploy config. Available only for
+adapters that advertise the `login` capability.
+
+```bash
+promptarena deploy login [--provider <name>]
+```
+
+**Examples:**
+
+```bash
+# Provider read from the config's deploy section
+promptarena deploy login
+
+# Explicit provider
+promptarena deploy login --provider omnia
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--provider` | Adapter to log in with. Defaults to the `deploy.provider` already in the config. |
+
+**Process:**
+
+1. Resolve the provider (`--provider` or the config's `deploy.provider`).
+2. Connect the adapter and verify it advertises the `login` capability.
+3. Start a loopback callback server on `127.0.0.1` and open the browser to the
+   adapter's authorize URL (with a CSRF `state`).
+4. The provider authenticates the user (it brokers OIDC — the CLI never sees the
+   identity provider) and redirects back to the loopback with a one-time code.
+5. Exchange the code via the adapter for a deploy profile and a scoped token.
+6. Merge the profile into the arena config and store the token in
+   `~/.promptarena/credentials` — **never** in `arena.yaml`.
+
+At deploy time the stored token is loaded automatically when the config carries
+no `api_token` (precedence: explicit `api_token` > provider env var > credentials
+store).
+
+:::note
+`deploy login` needs a local browser. Run it on your workstation, not in CI —
+CI should supply the token via the provider's environment variable.
+:::
+
+---
+
 ### deploy adapter install
 
 Install an adapter binary from the registry.

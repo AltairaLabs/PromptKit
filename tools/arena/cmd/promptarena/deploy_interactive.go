@@ -157,6 +157,14 @@ func mergedDeployConfigJSON(deployCfg *config.DeployConfig, env string) (string,
 			merged[k] = v
 		}
 	}
+	// `deploy login` keeps the token out of the config file. If the config has
+	// no api_token, inject the one stored at login time so the adapter can
+	// authenticate. Explicit config / env-var tokens still take precedence.
+	if tok, ok := merged["api_token"].(string); !ok || tok == "" {
+		if stored, found := lookupDeployCredential(deployCfg.Provider, deployConfig); found {
+			merged["api_token"] = stored
+		}
+	}
 	data, err := json.Marshal(merged)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal deploy config: %w", err)

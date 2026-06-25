@@ -33,6 +33,7 @@ Deploy the arena pack to a target environment
 - `promptarena deploy config` — Manage the deploy configuration
 - `promptarena deploy destroy` — Tear down a deployment
 - `promptarena deploy import` — Import a pre-existing resource into deployment state
+- `promptarena deploy login` — Authenticate in the browser and write the deploy config
 - `promptarena deploy plan` — Preview the deployment plan
 - `promptarena deploy refresh` — Refresh local state from the live environment
 - `promptarena deploy status` — Show deployment status

@@ -371,6 +371,31 @@ type Provider interface {
 }
 ```
 
+## Optional: LoginProvider
+
+Adapters may implement `LoginProvider` to support `promptarena deploy login`
+(browser-based autoconfigure). Advertise `deploy.LoginCapability` in
+`ProviderInfo.Capabilities`; the SDK then dispatches `get_login_url` /
+`complete_login` to your provider. Adapters that don't implement it are
+unaffected — the CLI reports login as unsupported.
+
+```go
+type LoginProvider interface {
+    // GetLoginURL returns the provider's browser authorize URL. The CLI supplies
+    // the loopback callback it is listening on and a CSRF state nonce.
+    GetLoginURL(ctx context.Context, req *LoginURLRequest) (*LoginURLResponse, error)
+
+    // CompleteLogin exchanges the captured callback params for a deploy profile
+    // (merged into the config) and a scoped token (stored in credentials).
+    CompleteLogin(ctx context.Context, req *CompleteLoginRequest) (*CompleteLoginResponse, error)
+}
+```
+
+The provider brokers its own authentication (e.g. OIDC) — the CLI never learns
+the identity provider. `LoginURLRequest`/`CompleteLoginRequest` both carry the
+current deploy `Config` (JSON, possibly partial) so the adapter can read
+provider coordinates such as an endpoint.
+
 ## Types
 
 ### ProviderInfo
@@ -392,8 +417,33 @@ type ValidateRequest struct {
 }
 
 type ValidateResponse struct {
-    Valid  bool     `json:"valid"`
-    Errors []string `json:"errors,omitempty"`
+    Valid    bool     `json:"valid"`
+    Errors   []string `json:"errors,omitempty"`
+    Warnings []string `json:"warnings,omitempty"` // non-blocking advisories
+}
+```
+
+### Login Types
+
+```go
+type LoginURLRequest struct {
+    CallbackURL string `json:"callback_url"`
+    State       string `json:"state"`
+    Config      string `json:"config,omitempty"` // current deploy config (JSON)
+}
+
+type LoginURLResponse struct {
+    AuthorizeURL string `json:"authorize_url"`
+}
+
+type CompleteLoginRequest struct {
+    Params map[string]string `json:"params"` // captured callback query params
+    Config string            `json:"config,omitempty"`
+}
+
+type CompleteLoginResponse struct {
+    Profile map[string]interface{} `json:"profile"` // merged into the arena config
+    Token   string                 `json:"token,omitempty"` // stored in credentials
 }
 ```
 
@@ -409,8 +459,9 @@ type PlanRequest struct {
 }
 
 type PlanResponse struct {
-    Changes []ResourceChange `json:"changes"`
-    Summary string           `json:"summary"`
+    Changes  []ResourceChange `json:"changes"`
+    Summary  string           `json:"summary"`
+    Warnings []string         `json:"warnings,omitempty"` // non-blocking advisories
 }
 ```
 

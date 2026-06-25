@@ -204,6 +204,70 @@ func TestServeIO_Plan_Warnings(t *testing.T) {
 	}
 }
 
+// fakeLoginProvider is a fakeProvider that also implements deploy.LoginProvider.
+type fakeLoginProvider struct {
+	*fakeProvider
+}
+
+func (f *fakeLoginProvider) GetLoginURL(
+	_ context.Context, req *deploy.LoginURLRequest,
+) (*deploy.LoginURLResponse, error) {
+	return &deploy.LoginURLResponse{
+		AuthorizeURL: "https://omnia.example.com/cli/authorize?callback=" +
+			req.CallbackURL + "&state=" + req.State,
+	}, nil
+}
+
+func (f *fakeLoginProvider) CompleteLogin(
+	_ context.Context, req *deploy.CompleteLoginRequest,
+) (*deploy.CompleteLoginResponse, error) {
+	return &deploy.CompleteLoginResponse{
+		Profile: map[string]interface{}{"workspace": req.Params["code"]},
+		Token:   "omnia_sk_minted",
+	}, nil
+}
+
+func TestServeIO_Login_Supported(t *testing.T) {
+	provider := &fakeLoginProvider{fakeProvider: newFakeProvider()}
+
+	urlIn := makeRequest("get_login_url",
+		deploy.LoginURLRequest{CallbackURL: "http://127.0.0.1:5000/cb", State: "xyz"}, 8) + "\n"
+	var urlOut bytes.Buffer
+	if err := ServeIO(provider, strings.NewReader(urlIn), &urlOut); err != nil {
+		t.Fatalf("ServeIO get_login_url: %v", err)
+	}
+	if !strings.Contains(urlOut.String(), "authorize_url") || !strings.Contains(urlOut.String(), "state=xyz") {
+		t.Errorf("expected authorize_url with state, got %s", urlOut.String())
+	}
+
+	doneIn := makeRequest("complete_login",
+		deploy.CompleteLoginRequest{Params: map[string]string{"code": "demo"}}, 9) + "\n"
+	var doneOut bytes.Buffer
+	if err := ServeIO(provider, strings.NewReader(doneIn), &doneOut); err != nil {
+		t.Fatalf("ServeIO complete_login: %v", err)
+	}
+	if !strings.Contains(doneOut.String(), "omnia_sk_minted") || !strings.Contains(doneOut.String(), "demo") {
+		t.Errorf("expected token + profile, got %s", doneOut.String())
+	}
+}
+
+func TestServeIO_Login_Unsupported(t *testing.T) {
+	// The plain fakeProvider does not implement deploy.LoginProvider.
+	provider := newFakeProvider()
+	in := makeRequest("get_login_url", deploy.LoginURLRequest{}, 10) + "\n"
+	var out bytes.Buffer
+	if err := ServeIO(provider, strings.NewReader(in), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+	var resp response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != CodeMethodNotFound {
+		t.Errorf("expected method-not-found for login-less provider, got %+v", resp.Error)
+	}
+}
+
 func TestServeIO_Apply(t *testing.T) {
 	provider := newFakeProvider()
 	params := deploy.PlanRequest{PackJSON: "{}", DeployConfig: "{}"}

@@ -146,3 +146,53 @@ type Provider interface {
 	Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error)
 	Import(ctx context.Context, req *ImportRequest) (*ImportResponse, error)
 }
+
+// LoginCapability is the ProviderInfo capability string an adapter advertises
+// when it implements LoginProvider (browser-based autoconfigure).
+const LoginCapability = "login"
+
+// LoginURLRequest asks the adapter for the provider's authorize URL to open in
+// the browser. The CLI supplies the loopback callback it is listening on and a
+// CSRF state nonce.
+type LoginURLRequest struct {
+	CallbackURL string `json:"callback_url"`
+	State       string `json:"state"`
+	// Config is the current deploy config as JSON (may be partial or empty). The
+	// adapter reads provider-specific coordinates from it — e.g. the Omnia
+	// adapter needs api_endpoint to build the authorize URL.
+	Config string `json:"config,omitempty"`
+}
+
+// LoginURLResponse carries the provider-specific authorize URL the CLI opens.
+type LoginURLResponse struct {
+	AuthorizeURL string `json:"authorize_url"`
+}
+
+// CompleteLoginRequest hands the adapter the opaque query parameters captured
+// from the browser's loopback callback (e.g. code, state). The adapter knows
+// which it needs and how to exchange them.
+type CompleteLoginRequest struct {
+	Params map[string]string `json:"params"`
+	// Config is the current deploy config as JSON (may be partial or empty),
+	// carrying provider-specific coordinates the adapter needs to exchange the
+	// callback (e.g. the Omnia api_endpoint for the back-channel call).
+	Config string `json:"config,omitempty"`
+}
+
+// CompleteLoginResponse is the result of a completed login: the deploy profile
+// to merge into the arena config (same shape as a dashboard-exported profile)
+// and the scoped secret token to store outside the config file.
+type CompleteLoginResponse struct {
+	Profile map[string]interface{} `json:"profile"`
+	Token   string                 `json:"token,omitempty"`
+}
+
+// LoginProvider is the OPTIONAL deploy capability for browser-based
+// autoconfigure. Adapters that implement it advertise LoginCapability in
+// ProviderInfo.Capabilities. The adaptersdk exposes get_login_url /
+// complete_login only for providers that satisfy this interface, and the CLI
+// degrades gracefully (method not found) for those that don't.
+type LoginProvider interface {
+	GetLoginURL(ctx context.Context, req *LoginURLRequest) (*LoginURLResponse, error)
+	CompleteLogin(ctx context.Context, req *CompleteLoginRequest) (*CompleteLoginResponse, error)
+}
