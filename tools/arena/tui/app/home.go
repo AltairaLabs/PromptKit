@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // menuItem describes a single entry in the Home page menu.
@@ -131,7 +132,20 @@ func (h *Home) View() string {
 		strings.Join(menuLines, "\n"),
 	}, "\n")
 
-	return lipgloss.Place(h.w, h.h, lipgloss.Left, lipgloss.Top, content)
+	// Consistent footer key-hint bar (shared with chat / conversation pages).
+	footer := views.NewHeaderFooterView(h.w).RenderFooter(homeBindings())
+	placed := lipgloss.Place(h.w, max(h.h-1, 1), lipgloss.Left, lipgloss.Top, content)
+	return placed + "\n" + footer
+}
+
+// homeBindings are the footer key hints for the Home menu.
+func homeBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: chatKeyLabelScrl, Description: "move"},
+		{Keys: keyEnter, Description: "select"},
+		{Keys: "c", Description: "config"},
+		{Keys: "q", Description: "quit"},
+	}
 }
 
 // Title implements Page.

@@ -7,6 +7,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
+)
+
+// Shared footer key-hint labels.
+const (
+	keyHintScroll = "scroll"
+	keyHintBack   = "back"
 )
 
 // InspectPage is a scrollable hub page that displays the configuration
@@ -69,12 +76,23 @@ func (p *InspectPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 	return p, nil
 }
 
-// View implements Page.
+// View implements Page. Renders the scrollable content above a consistent
+// footer key-hint bar (shared with the other hub pages).
 func (p *InspectPage) View() string {
+	footer := views.NewHeaderFooterView(p.w).RenderFooter(inspectBindings())
 	if !p.ready {
-		return strings.TrimSpace(p.content)
+		return strings.TrimSpace(p.content) + "\n" + footer
 	}
-	return p.vp.View()
+	return p.vp.View() + "\n" + footer
+}
+
+// inspectBindings are the footer key hints for the Inspect page.
+func inspectBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: chatKeyLabelScrl, Description: keyHintScroll},
+		{Keys: "g/G", Description: "top/bottom"},
+		{Keys: chatKeyLabelEsc, Description: keyHintBack},
+	}
 }
 
 // Title implements Page.
