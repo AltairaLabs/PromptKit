@@ -80,7 +80,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.closeAll()
 			return a, tea.Quit
 		case tea.KeyRunes:
-			if len(m.Runes) == 1 && m.Runes[0] == 'q' {
+			// 'q' quits only at the root, matching esc. In a sub-page it falls
+			// through to the page (esc is the way back); this keeps navigation
+			// keys consistent across the hub.
+			if len(m.Runes) == 1 && m.Runes[0] == 'q' && a.atRoot() {
 				a.closeAll()
 				return a, tea.Quit
 			}

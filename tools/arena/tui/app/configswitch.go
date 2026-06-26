@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // ConfigSwitchPage wraps the file browser to let the user pick an arena config
@@ -65,26 +66,37 @@ func (p *ConfigSwitchPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 // View implements Page. Shows the file browser, or an error banner when the
 // last selection failed.
 func (p *ConfigSwitchPage) View() string {
-	p.browser.SetDimensions(p.w, p.h)
-
-	if p.err != nil {
-		errorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorError)).
-			Bold(true)
-		helpStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorGray)).
-			Italic(true)
-
-		banner := lipgloss.JoinVertical(lipgloss.Left,
-			errorStyle.Render("error: "+p.err.Error()),
-			helpStyle.Render("select a valid .arena.yaml file, or press Esc to go back"),
-			"",
-			p.browser.Render(),
-		)
-		return banner
-	}
-
-	return p.browser.Render()
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:  p.w,
+			Height: p.h,
+			Title:  "Choose config",
+			KeyBindings: []views.KeyBinding{
+				{Keys: "↑/↓", Description: "navigate"},
+				{Keys: "enter", Description: "select"},
+				{Keys: "←/h", Description: "parent dir"},
+				{Keys: "esc", Description: "back"},
+			},
+		},
+		func(contentHeight int) string {
+			p.browser.SetDimensions(p.w, contentHeight)
+			if p.err != nil {
+				errorStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorError)).
+					Bold(true)
+				helpStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorGray)).
+					Italic(true)
+				return lipgloss.JoinVertical(lipgloss.Left,
+					errorStyle.Render("error: "+p.err.Error()),
+					helpStyle.Render("select a valid .arena.yaml file, or press Esc to go back"),
+					"",
+					p.browser.Render(),
+				)
+			}
+			return p.browser.Render()
+		},
+	)
 }
 
 // Title implements Page.

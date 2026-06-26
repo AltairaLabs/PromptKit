@@ -376,24 +376,27 @@ func (m *Model) View() string {
 		return ""
 	}
 	if m.width == 0 || m.height == 0 {
-		return "Loading..."
+		// Render nothing until sized — a placeholder here caused a visible
+		// "Loading…"→full-frame snap (the header appearing to arrive last).
+		return ""
 	}
 
 	elapsed := time.Since(m.startTime).Truncate(time.Second)
 
 	keyBindings := []views.KeyBinding{
-		{Keys: "q", Description: "quit"},
+		{Keys: "↑/↓", Description: "navigate/scroll"},
 		{Keys: "tab", Description: "cycle focus"},
 		{Keys: "enter", Description: "open conversation"},
-		{Keys: "ctrl+←↑↓→", Description: "resize"},
 		{Keys: "z", Description: "collapse"},
-		{Keys: "↑/↓", Description: "navigate/scroll"},
+		{Keys: "esc", Description: "back"},
+		{Keys: "q", Description: "quit"},
 	}
 
 	return views.RenderWithChrome(
 		views.ChromeConfig{
 			Width:          m.width,
 			Height:         m.height,
+			ShowProgress:   true,
 			ConfigFile:     m.configFile,
 			CompletedCount: m.completedCount,
 			TotalRuns:      m.totalRuns,
@@ -512,13 +515,10 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "z":
 		m.mainPage.ToggleCollapseFocused()
 		return m, nil
-	case "ctrl+up", "ctrl+right":
-		m.mainPage.GrowFocused(1)
-		return m, nil
-	case "ctrl+down", "ctrl+left":
-		m.mainPage.GrowFocused(-1)
-		return m, nil
 	}
+	// Note: manual pane resize (formerly ctrl+arrows) was removed — those
+	// chords are swallowed by common terminals (iTerm2/tmux). Panes auto-layout;
+	// `z` collapses/expands the focused pane.
 
 	cmd := m.delegateKeyToActivePane(msg)
 	return m, cmd

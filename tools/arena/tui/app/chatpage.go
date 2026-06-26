@@ -655,27 +655,58 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 }
 
 func (p *ChatPage) chatView() string {
-	footer := views.NewHeaderFooterView(p.width).RenderFooter(p.chatBindings())
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       p.width,
+			Height:      p.height,
+			Title:       p.chatTitle(),
+			KeyBindings: p.chatBindings(),
+		},
+		func(contentHeight int) string {
+			// When the logs overlay is toggled on it replaces the conversation
+			// body so runtime logs are inspectable without leaving the chat.
+			if p.logs.Visible() {
+				p.logs.SetSize(p.width, contentHeight)
+				return p.logs.View()
+			}
 
-	// When the logs overlay is toggled on it replaces the conversation body so
-	// runtime logs are inspectable without leaving the chat.
-	if p.logs.Visible() {
-		p.logs.SetSize(p.width, p.height)
-		return p.logs.View() + "\n" + footer
-	}
+			// Size the conversation panel to fill the body minus the composer
+			// (and optional status line).
+			composerH := chatInputHeight
+			if p.voice != nil {
+				composerH = 1
+			}
+			statusH := 0
+			if p.statusLine != "" {
+				statusH = 1
+			}
+			panelH := contentHeight - composerH - statusH
+			if panelH < 1 {
+				panelH = 1
+			}
+			p.panel.SetDimensions(p.width, panelH)
 
-	var parts []string
-	parts = append(parts, p.panel.View())
-	// The Composer renders the mic indicator (voice) or the bordered text box
-	// (typed). In voice mode the panel itself renders the live audio meter via
-	// SetAudioLevels. Input focus = the conversation panel is not focused.
-	p.composer.SetSpeech(p.voice != nil)
-	parts = append(parts, p.composer.View(p.input.View(), !p.panelFocused))
-	if p.statusLine != "" {
-		parts = append(parts, p.statusLine)
+			var parts []string
+			parts = append(parts, p.panel.View())
+			// The Composer renders the mic indicator (voice) or the bordered
+			// text box (typed). In voice mode the panel renders the live audio
+			// meter via SetAudioLevels. Input focus = panel not focused.
+			p.composer.SetSpeech(p.voice != nil)
+			parts = append(parts, p.composer.View(p.input.View(), !p.panelFocused))
+			if p.statusLine != "" {
+				parts = append(parts, p.statusLine)
+			}
+			return strings.Join(parts, "\n")
+		},
+	)
+}
+
+// chatTitle is the page-context line shown in the chrome header.
+func (p *ChatPage) chatTitle() string {
+	if p.taskType != "" && p.provider != "" {
+		return fmt.Sprintf("Chat · %s / %s", p.taskType, p.provider)
 	}
-	parts = append(parts, footer)
-	return strings.Join(parts, "\n")
+	return "Chat"
 }
 
 func (p *ChatPage) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {

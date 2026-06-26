@@ -80,6 +80,27 @@ func (v *HeaderFooterView) RenderHeader(
 	return lipgloss.JoinVertical(lipgloss.Left, banner, infoLine)
 }
 
+// RenderTitleHeader renders the banner plus a centered page-title line. Used by
+// non-run pages (Home, View, Chat, Inspect, …) where the run progress bar /
+// timer would be meaningless.
+func (v *HeaderFooterView) RenderTitleHeader(title string) string {
+	bannerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(theme.ColorPrimary)).
+		Align(lipgloss.Center).
+		Width(v.width)
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
+		Align(lipgloss.Center).
+		Width(v.width)
+
+	banner := bannerStyle.Render("✨ PromptArena ✨")
+	if title == "" {
+		return banner
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, banner, titleStyle.Render(title))
+}
+
 // RenderFooter renders the bottom help text with dynamic key bindings
 func (v *HeaderFooterView) RenderFooter(keyBindings []KeyBinding) string {
 	legendStyle := lipgloss.NewStyle().

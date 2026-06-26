@@ -82,11 +82,6 @@ func (h *Home) Update(msg tea.Msg) (Page, tea.Cmd) {
 // View implements Page. It renders a small heading, a config indicator line,
 // and the menu with disabled items rendered faint/greyed.
 func (h *Home) View() string {
-	heading := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(theme.ColorPrimary)).
-		Render("PromptArena")
-
 	var configLine string
 	if h.ctx.HasConfig() {
 		name := configName(h.ctx.ConfigPath)
@@ -125,17 +120,22 @@ func (h *Home) View() string {
 	}
 
 	content := strings.Join([]string{
-		heading,
-		"",
 		configLine,
 		"",
 		strings.Join(menuLines, "\n"),
 	}, "\n")
 
-	// Consistent footer key-hint bar (shared with chat / conversation pages).
-	footer := views.NewHeaderFooterView(h.w).RenderFooter(homeBindings())
-	placed := lipgloss.Place(h.w, max(h.h-1, 1), lipgloss.Left, lipgloss.Top, content)
-	return placed + "\n" + footer
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       h.w,
+			Height:      h.h,
+			Title:       "Home",
+			KeyBindings: homeBindings(),
+		},
+		func(contentHeight int) string {
+			return lipgloss.Place(h.w, contentHeight, lipgloss.Left, lipgloss.Top, content)
+		},
+	)
 }
 
 // homeBindings are the footer key hints for the Home menu.

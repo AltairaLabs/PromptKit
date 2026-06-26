@@ -22,9 +22,13 @@ func TestInspectPage_TitleIsInspect(t *testing.T) {
 // produces a non-empty View with a placeholder message.
 func TestInspectPage_NilCtxRendersPlaceholder(t *testing.T) {
 	p := NewInspectPage(nil)
+	p.SetSize(80, 24) // chrome renders nothing until sized
 	view := p.View()
 	if view == "" {
 		t.Fatal("View() returned empty string for nil ctx")
+	}
+	if !strings.Contains(view, "No configuration loaded") {
+		t.Fatalf("expected placeholder text, got: %q", view)
 	}
 }
 

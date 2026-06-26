@@ -126,25 +126,37 @@ func (p *ViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 
 // View implements Page.
 func (p *ViewPage) View() string {
-	p.browser.SetDimensions(p.w, p.h)
-
-	if p.err != nil {
-		errorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorError)).
-			Bold(true)
-		helpStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorGray)).
-			Italic(true)
-
-		return lipgloss.JoinVertical(lipgloss.Left,
-			errorStyle.Render("error: "+p.err.Error()),
-			helpStyle.Render("select a different file, or press Esc to go back"),
-			"",
-			p.browser.Render(),
-		)
-	}
-
-	return p.browser.Render()
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:  p.w,
+			Height: p.h,
+			Title:  "View results",
+			KeyBindings: []views.KeyBinding{
+				{Keys: "↑/↓", Description: "navigate"},
+				{Keys: "enter", Description: "open"},
+				{Keys: "←/h", Description: "parent dir"},
+				{Keys: "esc", Description: "back"},
+			},
+		},
+		func(contentHeight int) string {
+			p.browser.SetDimensions(p.w, contentHeight)
+			if p.err != nil {
+				errorStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorError)).
+					Bold(true)
+				helpStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorGray)).
+					Italic(true)
+				return lipgloss.JoinVertical(lipgloss.Left,
+					errorStyle.Render("error: "+p.err.Error()),
+					helpStyle.Render("select a different file, or press Esc to go back"),
+					"",
+					p.browser.Render(),
+				)
+			}
+			return p.browser.Render()
+		},
+	)
 }
 
 // Title implements Page.
@@ -252,16 +264,13 @@ func (p *ResultsPage) handleRunSelection() (Page, tea.Cmd) {
 func (p *ResultsPage) View() string {
 	return views.RenderWithChrome(
 		views.ChromeConfig{
-			Width:          p.w,
-			Height:         p.h,
-			ConfigFile:     titleResults,
-			CompletedCount: 0,
-			TotalRuns:      0,
-			Elapsed:        0,
+			Width:  p.w,
+			Height: p.h,
+			Title:  titleResults,
 			KeyBindings: []views.KeyBinding{
+				{Keys: "↑/↓", Description: "navigate"},
 				{Keys: "tab", Description: "cycle focus"},
 				{Keys: "enter", Description: "open conversation"},
-				{Keys: "↑/↓", Description: "navigate"},
 				{Keys: "esc", Description: "back"},
 			},
 		},
@@ -379,7 +388,7 @@ func (p *ConversationViewPage) View() string {
 		views.ChromeConfig{
 			Width:       p.w,
 			Height:      p.h,
-			ConfigFile:  titleConversation,
+			Title:       titleConversation,
 			KeyBindings: bindings,
 		},
 		func(contentHeight int) string {

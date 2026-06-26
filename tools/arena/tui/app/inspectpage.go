@@ -79,11 +79,21 @@ func (p *InspectPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 // View implements Page. Renders the scrollable content above a consistent
 // footer key-hint bar (shared with the other hub pages).
 func (p *InspectPage) View() string {
-	footer := views.NewHeaderFooterView(p.w).RenderFooter(inspectBindings())
-	if !p.ready {
-		return strings.TrimSpace(p.content) + "\n" + footer
-	}
-	return p.vp.View() + "\n" + footer
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       p.w,
+			Height:      p.h,
+			Title:       "Inspect",
+			KeyBindings: inspectBindings(),
+		},
+		func(contentHeight int) string {
+			if !p.ready {
+				return strings.TrimSpace(p.content)
+			}
+			p.vp.Height = contentHeight
+			return p.vp.View()
+		},
+	)
 }
 
 // inspectBindings are the footer key hints for the Inspect page.

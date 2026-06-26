@@ -18,18 +18,9 @@ func resizeTestModel() *Model {
 	return m
 }
 
-func TestResizeKeysChangeMainLayout(t *testing.T) {
-	m := resizeTestModel()
-	before := m.View()
-
-	m.Update(tea.KeyMsg{Type: tea.KeyCtrlUp}) // grow focused (runs)
-	grown := m.View()
-	assert.NotEqual(t, before, grown, "ctrl+up should resize the focused pane")
-
-	m.Update(tea.KeyMsg{Type: tea.KeyCtrlDown}) // shrink back
-	shrunk := m.View()
-	assert.NotEqual(t, grown, shrunk, "ctrl+down should resize the focused pane")
-}
+// Manual pane resize (ctrl+arrows) was removed — those chords are swallowed by
+// common terminals (iTerm2/tmux). Panes auto-layout; `z` collapses the focused
+// pane (see TestCollapseKeyTogglesPane).
 
 func TestCollapseKeyTogglesPane(t *testing.T) {
 	m := resizeTestModel()
