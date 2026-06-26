@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/reader/filesystem"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
@@ -294,6 +295,8 @@ type ConversationViewPage struct {
 	live  bool
 	runID string
 	feed  *liveFeed
+
+	logs *LogsOverlay
 }
 
 // NewConversationViewPage creates a ConversationViewPage pre-loaded with the
@@ -301,7 +304,7 @@ type ConversationViewPage struct {
 func NewConversationViewPage(runID, scenarioID, providerID string, result *statestore.RunResult) *ConversationViewPage {
 	cp := pages.NewConversationPage()
 	cp.SetData(runID, scenarioID, providerID, result)
-	return &ConversationViewPage{convPage: cp}
+	return &ConversationViewPage{convPage: cp, logs: NewLogsOverlay()}
 }
 
 // NewLiveConversationViewPage creates a ConversationViewPage that streams the
@@ -323,6 +326,7 @@ func NewLiveConversationViewPage(
 		live:     true,
 		runID:    runID,
 		feed:     newLiveFeed(runID, len(seed.Messages)),
+		logs:     NewLogsOverlay(),
 	}
 }
 
@@ -333,6 +337,20 @@ func (p *ConversationViewPage) Init() tea.Cmd { return nil }
 // via the feed; run completion flips the page back to static. Other messages
 // (scroll/focus keys) forward to the underlying conversation panel.
 func (p *ConversationViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	// Buffer runtime logs and toggle the logs overlay with 'L'. While the
+	// overlay is visible it consumes scroll keys.
+	if lm, ok := msg.(logging.Msg); ok {
+		p.logs.Append(lm)
+		return p, nil
+	}
+	if km, ok := msg.(tea.KeyMsg); ok && km.String() == "L" {
+		p.logs.Toggle()
+		return p, nil
+	}
+	if p.logs.Visible() {
+		return p, p.logs.Update(msg)
+	}
+
 	if p.live {
 		switch m := msg.(type) {
 		case tui.RunCompletedMsg:
@@ -352,16 +370,23 @@ func (p *ConversationViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-// View implements Page.
+// View implements Page. When the logs overlay is visible it replaces the
+// conversation body; otherwise the conversation renders as usual.
 func (p *ConversationViewPage) View() string {
+	bindings := p.convPage.GetKeyBindings()
+	bindings = append(bindings, views.KeyBinding{Keys: "L", Description: "logs"})
 	return views.RenderWithChrome(
 		views.ChromeConfig{
 			Width:       p.w,
 			Height:      p.h,
 			ConfigFile:  titleConversation,
-			KeyBindings: p.convPage.GetKeyBindings(),
+			KeyBindings: bindings,
 		},
 		func(contentHeight int) string {
+			if p.logs.Visible() {
+				p.logs.SetSize(p.w, contentHeight)
+				return p.logs.View()
+			}
 			p.convPage.SetDimensions(p.w, contentHeight)
 			return p.convPage.Render()
 		},
@@ -374,6 +399,7 @@ func (p *ConversationViewPage) Title() string { return titleConversation }
 // SetSize implements Page.
 func (p *ConversationViewPage) SetSize(w, h int) {
 	p.w, p.h = w, h
+	p.logs.SetSize(w, h)
 }
 
 // ---------------------------------------------------------------------------

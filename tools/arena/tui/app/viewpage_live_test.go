@@ -4,10 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
 // TestConversationViewPage_LiveAppendsAndMeter verifies a live page appends a
@@ -47,6 +49,19 @@ func TestConversationViewPage_StaticIgnoresLiveEvents(t *testing.T) {
 		p.Update(tui.MessageCreatedMsg{ConversationID: "run-1", Index: 0, Role: "user", Content: "hi"})
 	})
 	require.NotContains(t, p.View(), "hi")
+}
+
+// TestConversationViewPage_LogsToggle verifies buffered logs surface when the
+// 'L' overlay is toggled on.
+func TestConversationViewPage_LogsToggle(t *testing.T) {
+	p := NewLiveConversationViewPage("run-1", "scn", "prov", nil)
+	p.SetSize(100, 30)
+
+	p.Update(logging.Msg{Level: "INFO", Message: "engine call started"})
+	require.NotContains(t, p.View(), "engine call started", "logs hidden until toggled")
+
+	p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")})
+	require.Contains(t, p.View(), "engine call started", "logs visible after toggle")
 }
 
 // TestGoldenLiveConversation snapshots a live drill-in after a streamed user
