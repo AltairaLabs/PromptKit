@@ -14,8 +14,15 @@ func Setup(logger *slog.Logger, program *tea.Program, logFilePath string, suppre
 	// Get the current handler
 	handler := logger.Handler()
 
+	// A *tea.Program's Send satisfies func(tea.Msg); guard nil so a missing
+	// program degrades to file/stderr-only interception instead of panicking.
+	var send func(tea.Msg)
+	if program != nil {
+		send = program.Send
+	}
+
 	// Create interceptor
-	interceptor, err := NewInterceptor(handler, program, logFilePath, suppressStderr)
+	interceptor, err := NewInterceptor(handler, send, logFilePath, suppressStderr)
 	if err != nil {
 		return nil, err
 	}

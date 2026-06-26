@@ -2,9 +2,11 @@ package logging
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,23 +15,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestInterceptor_SendFunc_DeliversLog verifies a log emitted through the
+// interceptor is delivered to the injected send func as a logging.Msg.
+func TestInterceptor_SendFunc_DeliversLog(t *testing.T) {
+	var mu sync.Mutex
+	var got []Msg
+	send := func(m tea.Msg) {
+		if lm, ok := m.(Msg); ok {
+			mu.Lock()
+			got = append(got, lm)
+			mu.Unlock()
+		}
+	}
+	ic, err := NewInterceptor(slog.NewTextHandler(io.Discard, nil), send, "", true)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ic.Close() })
+
+	slog.New(ic).Info("hello-tui")
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) == 1 && got[0].Message == "hello-tui"
+	}, time.Second, 5*time.Millisecond)
+}
+
 func TestNewInterceptor(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
-	program := &tea.Program{}
+	send := func(tea.Msg) {}
 
 	t.Run("without log file", func(t *testing.T) {
-		interceptor, err := NewInterceptor(handler, program, "", false)
+		interceptor, err := NewInterceptor(handler, send, "", false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.Nil(t, interceptor.logFile)
-		assert.Equal(t, program, interceptor.program)
+		assert.NotNil(t, interceptor.send)
 	})
 
 	t.Run("with log file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewInterceptor(handler, program, logPath, false)
+		interceptor, err := NewInterceptor(handler, send, logPath, false)
 		require.NoError(t, err)
 		assert.NotNil(t, interceptor)
 		assert.NotNil(t, interceptor.logFile)
@@ -40,7 +67,7 @@ func TestNewInterceptor(t *testing.T) {
 	})
 
 	t.Run("invalid log file path", func(t *testing.T) {
-		interceptor, err := NewInterceptor(handler, program, "/nonexistent/dir/test.log", false)
+		interceptor, err := NewInterceptor(handler, send, "/nonexistent/dir/test.log", false)
 		assert.Error(t, err)
 		assert.Nil(t, interceptor)
 	})
@@ -48,10 +75,10 @@ func TestNewInterceptor(t *testing.T) {
 
 func TestInterceptor_Close(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
-	program := &tea.Program{}
+	send := func(tea.Msg) {}
 
 	t.Run("with no log file", func(t *testing.T) {
-		interceptor, err := NewInterceptor(handler, program, "", false)
+		interceptor, err := NewInterceptor(handler, send, "", false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -62,7 +89,7 @@ func TestInterceptor_Close(t *testing.T) {
 		tmpDir := t.TempDir()
 		logPath := filepath.Join(tmpDir, "test.log")
 
-		interceptor, err := NewInterceptor(handler, program, logPath, false)
+		interceptor, err := NewInterceptor(handler, send, logPath, false)
 		require.NoError(t, err)
 
 		err = interceptor.Close()
@@ -72,9 +99,9 @@ func TestInterceptor_Close(t *testing.T) {
 
 func TestInterceptor_Enabled(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
-	program := &tea.Program{}
+	send := func(tea.Msg) {}
 
-	interceptor, err := NewInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, send, "", false)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -123,9 +150,9 @@ func TestInterceptor_Handle(t *testing.T) {
 
 func TestInterceptor_WithAttrs(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
-	program := &tea.Program{}
+	send := func(tea.Msg) {}
 
-	interceptor, err := NewInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, send, "", false)
 	require.NoError(t, err)
 
 	attrs := []slog.Attr{slog.String("key", "value")}
@@ -141,9 +168,9 @@ func TestInterceptor_WithAttrs(t *testing.T) {
 
 func TestInterceptor_WithGroup(t *testing.T) {
 	handler := slog.NewTextHandler(os.Stderr, nil)
-	program := &tea.Program{}
+	send := func(tea.Msg) {}
 
-	interceptor, err := NewInterceptor(handler, program, "", false)
+	interceptor, err := NewInterceptor(handler, send, "", false)
 	require.NoError(t, err)
 
 	newHandler := interceptor.WithGroup("test-group")
