@@ -27,26 +27,27 @@ type ChromeConfig struct {
 	KeyBindings []KeyBinding
 }
 
-// chromeOverhead is the vertical space the chrome consumes: banner+info (2) +
-// footer (1) + a blank separator above and below the body (2).
-const chromeOverhead = 5
+// bodySeparators is the number of blank lines the chrome inserts around the
+// body (one above, one below).
+const bodySeparators = 2
 
 // RenderWithChrome renders a page body with consistent banner, title/progress
 // header, and footer. Every hub page (except the splash) routes through this so
 // the shell looks like one app.
+//
+// Heights are MEASURED, not assumed: the header can be 1 or 2 lines, so we
+// render it and the footer first, then give the body exactly the remaining rows
+// (padded and capped to that exact height). This keeps the header pinned to the
+// top and the footer to the bottom regardless of body content — no brittle
+// magic-number math.
 func RenderWithChrome(config ChromeConfig, renderBody func(contentHeight int) string) string {
 	width := config.Width
 	height := config.Height
 
-	// Render nothing until sized — returning placeholder text here caused a
-	// visible "Loading…"→full-frame snap on first paint.
+	// Render nothing until sized — a placeholder here caused a visible
+	// "Loading…"→full-frame snap on first paint.
 	if width == 0 || height == 0 {
 		return ""
-	}
-
-	contentHeight := height - chromeOverhead
-	if contentHeight < 1 {
-		contentHeight = 1
 	}
 
 	headerView := NewHeaderFooterView(width)
@@ -56,14 +57,22 @@ func RenderWithChrome(config ChromeConfig, renderBody func(contentHeight int) st
 	} else {
 		header = headerView.RenderTitleHeader(config.Title)
 	}
-	// Hard-cap the body to its allotment so an over-tall or over-wide page body
-	// (e.g. a file browser listing more rows than fit) can't push the header off
-	// the top or wrap past the edge.
+	footer := headerView.RenderFooter(config.KeyBindings)
+
+	// Exact remaining rows for the body after the (measured) header, footer,
+	// and the two blank separators.
+	bodyHeight := height - lipgloss.Height(header) - lipgloss.Height(footer) - bodySeparators
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+
+	// Height + MaxHeight forces the body to exactly bodyHeight rows (padding if
+	// short, clipping if tall); MaxWidth stops any over-wide line from wrapping.
 	body := lipgloss.NewStyle().
 		MaxWidth(width).
-		MaxHeight(contentHeight).
-		Render(renderBody(contentHeight))
-	footer := headerView.RenderFooter(config.KeyBindings)
+		Height(bodyHeight).
+		MaxHeight(bodyHeight).
+		Render(renderBody(bodyHeight))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 }

@@ -5,27 +5,31 @@ import (
 	"testing"
 )
 
-// TestRenderWithChrome_CapsOversizedBody verifies an over-tall / over-wide body
-// is clipped to its allotment so it can't push the header off-screen or wrap.
-func TestRenderWithChrome_CapsOversizedBody(t *testing.T) {
+// TestRenderWithChrome_FillsExactArea verifies the output is exactly the
+// terminal height and within its width for both an over-tall body (must not
+// push the header off the top) and a short body (footer must stay pinned to the
+// bottom, not float up).
+func TestRenderWithChrome_FillsExactArea(t *testing.T) {
 	const w, h = 40, 20
-	out := RenderWithChrome(ChromeConfig{Width: w, Height: h, Title: "T"}, func(int) string {
-		// A body far taller and wider than the area.
-		var b strings.Builder
-		for i := 0; i < 200; i++ {
-			b.WriteString(strings.Repeat("x", 200) + "\n")
-		}
-		return b.String()
-	})
-
-	lines := strings.Split(out, "\n")
-	if len(lines) > h {
-		t.Fatalf("output has %d lines, exceeds terminal height %d (header pushed off)", len(lines), h)
+	cases := map[string]func(int) string{
+		"tall body": func(int) string {
+			return strings.Repeat(strings.Repeat("x", 200)+"\n", 200)
+		},
+		"short body": func(int) string { return "one line" },
 	}
-	for i, ln := range lines {
-		if n := len([]rune(ln)); n > w {
-			t.Fatalf("line %d width %d exceeds terminal width %d", i, n, w)
-		}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			out := RenderWithChrome(ChromeConfig{Width: w, Height: h, Title: "T"}, body)
+			lines := strings.Split(out, "\n")
+			if len(lines) != h {
+				t.Fatalf("output has %d lines, want exactly %d (header/footer must stay pinned)", len(lines), h)
+			}
+			for i, ln := range lines {
+				if n := len([]rune(ln)); n > w {
+					t.Fatalf("line %d width %d exceeds terminal width %d", i, n, w)
+				}
+			}
+		})
 	}
 }
 
