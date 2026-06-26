@@ -410,19 +410,7 @@ func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 	// Tab toggles focus between the panel and the input (or just the panel in
 	// voice mode — there is no text input to return to).
 	if msg.Type == tea.KeyTab {
-		p.panelFocused = !p.panelFocused
-		if p.voice == nil {
-			if p.panelFocused {
-				p.input.Blur()
-			} else {
-				p.input.Focus()
-			}
-		}
-		p.panel.SetActive(p.panelFocused)
-		if p.voice == nil {
-			return textinput.Blink
-		}
-		return nil
+		return p.handleChatTab()
 	}
 
 	// When the conversation panel has focus, forward all keys to the panel.
@@ -461,6 +449,22 @@ func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	p.input, cmd = p.input.Update(msg)
 	return cmd
+}
+
+// handleChatTab toggles focus between the conversation panel and the text
+// input. In voice mode there is no text input, so only the panel focus flips.
+func (p *ChatPage) handleChatTab() tea.Cmd {
+	p.panelFocused = !p.panelFocused
+	p.panel.SetActive(p.panelFocused)
+	if p.voice != nil {
+		return nil
+	}
+	if p.panelFocused {
+		p.input.Blur()
+	} else {
+		p.input.Focus()
+	}
+	return textinput.Blink
 }
 
 // sendCmd drains the stream channel; rendering happens via state store after the turn ends.
