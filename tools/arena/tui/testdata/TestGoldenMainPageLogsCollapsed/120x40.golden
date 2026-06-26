@@ -4,9 +4,9 @@
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                      │
 │  📊 Active Runs                                                                                                      │
-│   Status      Provider              Scenario                        Region        Duration      Cost        Notes    │
+│   Status    Provider           Scenario                         Region      Duration    Cost      Notes              │
 │  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────  │
-│   ✓ Done      mock                  demo-scenario                   us            2s            $0.0000              │
+│   ✓ Done    mock               demo-scenario                    us          2s          $0.0000                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
