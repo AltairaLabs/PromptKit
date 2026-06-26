@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
@@ -42,6 +43,11 @@ type RunPage struct {
 	runErr   error
 	finished bool
 	runIDs   []string
+
+	// audioMonitor is the process-wide host-playback monitor, created only
+	// for realtime/duplex runs. Nil for ordinary text runs — which is what
+	// keeps the meter realtime-only (no monitor ⇒ no AudioLevelMsg ⇒ no meter).
+	audioMonitor *arenaaudio.Monitor
 }
 
 // NewRunPage builds a RunPage for the given engine and run plan. The run
@@ -112,6 +118,7 @@ func (p *RunPage) Activate(send func(tea.Msg)) tea.Cmd {
 
 	adapter := tui.NewEventAdapter(send)
 	adapter.Subscribe(bus)
+	p.attachAudioMonitor(adapter)
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
@@ -137,6 +144,9 @@ func (p *RunPage) Activate(send func(tea.Msg)) tea.Cmd {
 func (p *RunPage) Cancel() {
 	if p.cancel != nil {
 		p.cancel()
+	}
+	if p.audioMonitor != nil {
+		p.audioMonitor.Close()
 	}
 }
 
