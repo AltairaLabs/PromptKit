@@ -53,6 +53,12 @@ type AppContext struct {
 	Engine     *engine.Engine
 	Version    string
 	Voice      *VoiceOptions // nil => text chat
+
+	// Verbose raises the hub's log interceptor to debug level and (with
+	// LogDir set) tees logs to <LogDir>/promptarena.log. LogDir is the
+	// directory for that file — usually the run's output dir.
+	Verbose bool
+	LogDir  string
 }
 
 // HasConfig reports whether a config has been loaded into this context.
