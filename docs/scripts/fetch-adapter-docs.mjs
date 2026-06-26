@@ -183,6 +183,10 @@ const ADAPTERS = [
     "AltairaLabs/PromptArena-deploy-omnia",
     {
       // Extra files specific to omnia.
+      "how-to/login.md": {
+        target: "how-to/deploy/omnia/login.md",
+        order: 40,
+      },
       "how-to/labels.md": {
         target: "how-to/deploy/omnia/labels.md",
         order: 41,
