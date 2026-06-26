@@ -231,7 +231,13 @@ func (e *workflowTransitionExecutor) applyPostCommit(
 		if run.scenario != nil {
 			run.scenario.TaskType = newState.PromptTask
 		}
-		run.transExec.RegisterForState(e.registry, newState)
+		// Re-register the transition tool for the new state's events, but never
+		// unregister it: e.registry is shared across every scenario run, so the
+		// unregister that runtime's RegisterForState performs on terminal-state
+		// entry would strip workflow__transition from sibling runs that still
+		// need it (issue #1480). registerTransitionTool no-ops on terminal
+		// states, leaving the tool registered for other runs.
+		registerTransitionTool(e.registry, newState)
 		run.skillFilter = newState.Skills
 	}
 }
