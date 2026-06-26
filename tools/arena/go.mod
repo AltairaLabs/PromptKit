@@ -4,16 +4,10 @@ go 1.26.0
 
 retract v1.4.0 // Published prematurely; use v1.4.1+
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
-
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
-
-replace github.com/AltairaLabs/PromptKit/tools/packc => ../../tools/packc
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.1
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/tools/packc v0.0.0-00010101000000-000000000000
+	github.com/AltairaLabs/PromptKit/pkg v1.5.3
+	github.com/AltairaLabs/PromptKit/runtime v1.5.3
+	github.com/AltairaLabs/PromptKit/tools/packc v1.5.3
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
