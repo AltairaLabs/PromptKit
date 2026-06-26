@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
@@ -62,6 +63,8 @@ const (
 	chatKeyLabelArrs = "←/→"
 	chatKeyLabelQuit = "quit"
 	chatKeyLabelTab  = "tab"
+	chatKeyLabelLogs = "logs"
+	chatKeyCtrlL     = "ctrl+l"
 )
 
 // Layout and sizing constants for the chat view.
@@ -126,6 +129,8 @@ type ChatPage struct {
 	send        func(tea.Msg)               // stored in Activate for use by voice goroutine
 	voiceStore  *statestore.ArenaStateStore // state store owned by the voice driver
 	voiceConvID string                      // conversation ID used by the voice driver
+
+	logs *LogsOverlay // toggleable in-chat runtime log view (ctrl+l)
 }
 
 // NewChatPage constructs a ChatPage bound to the given AppContext.
@@ -139,6 +144,7 @@ func NewChatPage(ctx *AppContext) *ChatPage {
 		input: ti,
 		vars:  map[string]string{},
 		voice: ctx.Voice,
+		logs:  NewLogsOverlay(),
 	}
 }
 
@@ -276,6 +282,7 @@ func (p *ChatPage) initPanel() {
 func (p *ChatPage) SetSize(w, h int) {
 	p.width, p.height = w, h
 	p.input.Width = chatMaxInt(w-chatInputPadding, 0)
+	p.logs.SetSize(w, h)
 	if p.state == chatStateChat {
 		panelH := p.height - chatInputHeight - chatFooterHeight - 1
 		if panelH < 1 {
@@ -289,6 +296,23 @@ func (p *ChatPage) SetSize(w, h int) {
 // NOTE: Esc/Ctrl+C are handled globally by App — do not handle them here.
 // NOTE: WindowSizeMsg is routed by App via SetSize — do not handle it here.
 func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	// Buffer runtime logs and toggle the in-chat log overlay with ctrl+l
+	// (ctrl+l avoids colliding with text typed into the input). While visible,
+	// the overlay consumes scroll keys.
+	if lm, ok := msg.(logging.Msg); ok {
+		p.logs.Append(lm)
+		return p, nil
+	}
+	if km, ok := msg.(tea.KeyMsg); ok && km.Type == tea.KeyCtrlL {
+		p.logs.Toggle()
+		return p, nil
+	}
+	if p.logs.Visible() {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			return p, p.logs.Update(km)
+		}
+	}
+
 	switch v := msg.(type) {
 	case tea.KeyMsg:
 		cmd := p.handleKey(v)
@@ -602,6 +626,7 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 		return []views.KeyBinding{
 			{Keys: "🎤 listening", Description: ""},
 			{Keys: chatKeyLabelTab, Description: "focus convo"},
+			{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
 			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 		}
 	}
@@ -610,6 +635,7 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 			{Keys: chatKeyLabelScrl, Description: "turns"},
 			{Keys: chatKeyLabelArrs, Description: "turns/detail"},
 			{Keys: chatKeyLabelTab, Description: "back to input"},
+			{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
 			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 		}
 	}
@@ -617,12 +643,21 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 		{Keys: chatKeyNameEnter, Description: "send"},
 		{Keys: chatKeyLabelScrl, Description: "scroll"},
 		{Keys: chatKeyLabelTab, Description: "focus conversation"},
+		{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
 		{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 	}
 }
 
 func (p *ChatPage) chatView() string {
 	footer := views.NewHeaderFooterView(p.width).RenderFooter(p.chatBindings())
+
+	// When the logs overlay is toggled on it replaces the conversation body so
+	// runtime logs are inspectable without leaving the chat.
+	if p.logs.Visible() {
+		p.logs.SetSize(p.width, p.height)
+		return p.logs.View() + "\n" + footer
+	}
+
 	var parts []string
 	parts = append(parts, p.panel.View())
 	if p.voice != nil {

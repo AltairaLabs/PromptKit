@@ -374,7 +374,7 @@ func (p *ConversationViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 // conversation body; otherwise the conversation renders as usual.
 func (p *ConversationViewPage) View() string {
 	bindings := p.convPage.GetKeyBindings()
-	bindings = append(bindings, views.KeyBinding{Keys: "L", Description: "logs"})
+	bindings = append(bindings, views.KeyBinding{Keys: "L", Description: resultsPageFocusLogs})
 	return views.RenderWithChrome(
 		views.ChromeConfig{
 			Width:       p.w,
