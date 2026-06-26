@@ -807,24 +807,21 @@ func (m *Model) buildSummaryFromStateStore(outputDir, htmlReport string) *Summar
 
 // NewModel creates a new TUI model with the specified configuration file and total run count.
 func NewModel(configFile string, totalRuns int) *Model {
-	width, height, supported, reason := CheckTerminalSize()
-
-	// Ensure we always have minimum dimensions
-	if width < MinTerminalWidth {
-		width = MinTerminalWidth
-	}
-	if height < MinTerminalHeight {
-		height = MinTerminalHeight
-	}
+	_, _, supported, reason := CheckTerminalSize()
 
 	return &Model{
-		configFile:     configFile,
-		totalRuns:      totalRuns,
-		startTime:      time.Now(),
-		activeRuns:     make([]RunInfo, 0),
-		logs:           make([]LogEntry, 0, maxLogBufferSize),
-		width:          width,
-		height:         height,
+		configFile: configFile,
+		totalRuns:  totalRuns,
+		startTime:  time.Now(),
+		activeRuns: make([]RunInfo, 0),
+		logs:       make([]LogEntry, 0, maxLogBufferSize),
+		// Leave the size at 0 until the first WindowSizeMsg. Pre-seeding from the
+		// current terminal made the model paint once at that size and then
+		// repaint at the real size — the visible "draw, resize, draw again" jank.
+		// View() renders nothing while unsized, so the first paint is the
+		// correctly-sized one.
+		width:          0,
+		height:         0,
 		isTUIMode:      supported,
 		fallbackReason: reason,
 		ctx:            context.Background(),
