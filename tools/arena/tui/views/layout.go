@@ -56,7 +56,13 @@ func RenderWithChrome(config ChromeConfig, renderBody func(contentHeight int) st
 	} else {
 		header = headerView.RenderTitleHeader(config.Title)
 	}
-	body := renderBody(contentHeight)
+	// Hard-cap the body to its allotment so an over-tall or over-wide page body
+	// (e.g. a file browser listing more rows than fit) can't push the header off
+	// the top or wrap past the edge.
+	body := lipgloss.NewStyle().
+		MaxWidth(width).
+		MaxHeight(contentHeight).
+		Render(renderBody(contentHeight))
 	footer := headerView.RenderFooter(config.KeyBindings)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
