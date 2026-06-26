@@ -106,7 +106,9 @@ func (p *RunPage) Activate(send func(tea.Msg)) tea.Cmd {
 
 	bus := events.NewEventBus()
 	p.bus = bus
-	p.engine.SetEventBus(bus)
+	// WithMessageEvents enables message.created/updated emission so the live
+	// drill-in can stream a run's conversation as it progresses.
+	p.engine.SetEventBus(bus, engine.WithMessageEvents())
 
 	adapter := tui.NewEventAdapter(send)
 	adapter.Subscribe(bus)
@@ -165,26 +167,36 @@ func (p *RunPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 }
 
 // drillDownCmd builds a command that pushes a ConversationViewPage for the
-// selected run, loading its result from the state store. Returns nil when no
-// store is attached or the result cannot be loaded.
+// selected run. A still-running run gets a live page that streams the
+// conversation (seeded with whatever the store has so far, possibly nothing);
+// a finished run gets a static snapshot and is skipped if no result is
+// available yet.
 func (p *RunPage) drillDownCmd(run *tui.RunInfo) tea.Cmd {
-	if p.store == nil {
-		return nil
+	scenarioID, providerID := run.Scenario, run.Provider
+
+	var result *statestore.RunResult
+	if p.store != nil {
+		if r, err := p.store.GetResult(context.Background(), run.RunID); err == nil && r != nil {
+			result = r
+			if result.ScenarioID != "" {
+				scenarioID = result.ScenarioID
+			}
+			if result.ProviderID != "" {
+				providerID = result.ProviderID
+			}
+		}
 	}
-	result, err := p.store.GetResult(context.Background(), run.RunID)
-	if err != nil || result == nil {
-		logger.Debug("run drill-down: result not available", "run_id", run.RunID, "error", err)
-		return nil
+
+	var cvp *ConversationViewPage
+	if run.Status == tui.StatusRunning {
+		cvp = NewLiveConversationViewPage(run.RunID, scenarioID, providerID, result)
+	} else {
+		if result == nil {
+			logger.Debug("run drill-down: result not available", "run_id", run.RunID)
+			return nil
+		}
+		cvp = NewConversationViewPage(run.RunID, scenarioID, providerID, result)
 	}
-	scenarioID := result.ScenarioID
-	if scenarioID == "" {
-		scenarioID = run.Scenario
-	}
-	providerID := result.ProviderID
-	if providerID == "" {
-		providerID = run.Provider
-	}
-	cvp := NewConversationViewPage(run.RunID, scenarioID, providerID, result)
 	return func() tea.Msg { return PushPageMsg{Page: cvp} }
 }
 

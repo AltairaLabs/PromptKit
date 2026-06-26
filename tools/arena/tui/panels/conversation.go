@@ -207,6 +207,15 @@ func (c *ConversationPanel) SelectedTurnIdx() int {
 	return c.selectedTurnIdx
 }
 
+// MessageCount returns the number of messages currently held (including any
+// prepended system prompt), or zero when no data has been loaded.
+func (c *ConversationPanel) MessageCount() int {
+	if c.res == nil {
+		return 0
+	}
+	return len(c.res.Messages)
+}
+
 // SelectLast moves the selection to the last message and refreshes the detail
 // pane. It is a no-op when the panel has no data or the table is not yet ready.
 func (c *ConversationPanel) SelectLast() {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/reader/filesystem"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
@@ -283,26 +284,70 @@ func (p *ResultsPage) SetSize(w, h int) {
 // ---------------------------------------------------------------------------
 
 // ConversationViewPage wraps pages.ConversationPage for use inside the hub
-// shell navigation stack.
+// shell navigation stack. When live, it streams runtime events into the panel
+// (new turns, audio meter) until the run completes; otherwise it shows a static
+// snapshot loaded from the state store.
 type ConversationViewPage struct {
 	convPage *pages.ConversationPage
 	w, h     int
+
+	live  bool
+	runID string
+	feed  *liveFeed
 }
 
 // NewConversationViewPage creates a ConversationViewPage pre-loaded with the
-// given run data.
+// given (completed-run) snapshot. It does not stream live events.
 func NewConversationViewPage(runID, scenarioID, providerID string, result *statestore.RunResult) *ConversationViewPage {
 	cp := pages.NewConversationPage()
 	cp.SetData(runID, scenarioID, providerID, result)
 	return &ConversationViewPage{convPage: cp}
 }
 
+// NewLiveConversationViewPage creates a ConversationViewPage that streams the
+// conversation live while focused. seed may be a partial snapshot (turns so
+// far) or nil; later runtime events are tailed via liveFeed and deduped against
+// the seed. The page reverts to static once the run completes or fails.
+func NewLiveConversationViewPage(
+	runID, scenarioID, providerID string, seed *statestore.RunResult,
+) *ConversationViewPage {
+	cp := pages.NewConversationPage()
+	// The panel only appends when it holds a non-nil result, so seed an empty
+	// one when there is no snapshot yet.
+	if seed == nil {
+		seed = &statestore.RunResult{}
+	}
+	cp.SetData(runID, scenarioID, providerID, seed)
+	return &ConversationViewPage{
+		convPage: cp,
+		live:     true,
+		runID:    runID,
+		feed:     newLiveFeed(runID, len(seed.Messages)),
+	}
+}
+
 // Init implements Page.
 func (p *ConversationViewPage) Init() tea.Cmd { return nil }
 
-// Update implements Page. Forwards messages to the underlying conversation
-// panel.
+// Update implements Page. While live, runtime events are applied to the panel
+// via the feed; run completion flips the page back to static. Other messages
+// (scroll/focus keys) forward to the underlying conversation panel.
 func (p *ConversationViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	if p.live {
+		switch m := msg.(type) {
+		case tui.RunCompletedMsg:
+			if m.RunID == p.runID {
+				p.live = false
+			}
+		case tui.RunFailedMsg:
+			if m.RunID == p.runID {
+				p.live = false
+			}
+		}
+		if p.feed.Apply(p.convPage.Panel(), msg) {
+			return p, nil
+		}
+	}
 	cmd := p.convPage.Update(msg)
 	return p, cmd
 }
