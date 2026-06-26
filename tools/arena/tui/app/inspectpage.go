@@ -19,7 +19,11 @@ const (
 // InspectPage is a scrollable hub page that displays the configuration
 // inspector output (the same content as `promptarena config-inspect`).
 type InspectPage struct {
-	vp      viewport.Model
+	vp   viewport.Model
+	data *inspect.InspectionData
+	opts inspect.RenderOptions
+	// content is the rendered inspector text (or a placeholder when no config is
+	// loaded). It is (re)rendered at the live terminal width on SetSize.
 	content string
 	ready   bool
 	w, h    int
@@ -36,17 +40,29 @@ func NewInspectPage(ctx *AppContext) *InspectPage {
 // allowing callers to thread --verbose/--section/--stats/--short flags through
 // from the CLI. If ctx is nil or has no config loaded, a placeholder is shown.
 func NewInspectPageWithOptions(ctx *AppContext, opts inspect.RenderOptions) *InspectPage {
-	p := &InspectPage{}
+	p := &InspectPage{opts: opts}
 	if ctx != nil && ctx.Config != nil {
 		data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
 		if opts.Stats {
 			data.CacheStats = inspect.CollectCacheStats(ctx.Config, opts.Verbose)
 		}
-		p.content = inspect.RenderText(data, opts)
+		p.data = data
+		p.renderContent() // populate at default width; SetSize re-renders to fit
 	} else {
 		p.content = "No configuration loaded."
 	}
 	return p
+}
+
+// renderContent (re)renders the inspector text at the current terminal width so
+// the boxes fill the available space. No-op when no config is loaded (the
+// placeholder set in the constructor stands).
+func (p *InspectPage) renderContent() {
+	if p.data == nil {
+		return
+	}
+	p.opts.Width = p.w
+	p.content = inspect.RenderText(p.data, p.opts)
 }
 
 // Init implements Page.
@@ -111,6 +127,7 @@ func (p *InspectPage) Title() string { return titleInspect }
 // SetSize implements Page. Initializes (or re-initializes) the viewport.
 func (p *InspectPage) SetSize(w, h int) {
 	p.w, p.h = w, h
+	p.renderContent()
 	p.vp = viewport.New(w, h)
 	p.vp.SetContent(p.content)
 	p.ready = true

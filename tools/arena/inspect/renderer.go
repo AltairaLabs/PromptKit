@@ -13,7 +13,12 @@ import (
 )
 
 const (
-	boxWidth            = 78
+	boxWidth = 78
+	// boxChrome is the horizontal space a box's border (2) + padding (2) adds on
+	// top of its content width.
+	boxChrome = 4
+	// minBoxWidth keeps boxes readable on very narrow terminals.
+	minBoxWidth         = 40
 	maxDescLength       = 55
 	maxDescLengthPrompt = 60
 	maxGoalsDisplayed   = 3
@@ -97,7 +102,25 @@ var (
 // opts controls which sections and detail levels are included.
 // It captures stdout so that the lipgloss Print calls are collected into
 // the returned string.
+// effectiveBoxWidth returns the content width for boxes: the terminal width
+// minus the box border/padding when a width is supplied (TUI), else the default
+// fixed print width (CLI).
+func effectiveBoxWidth(termWidth int) int {
+	if termWidth <= 0 {
+		return boxWidth
+	}
+	if w := termWidth - boxChrome; w > minBoxWidth {
+		return w
+	}
+	return minBoxWidth
+}
+
 func RenderText(data *InspectionData, opts RenderOptions) string {
+	// Size the shared box style to the requested width. The renderer is
+	// single-threaded (it captures global stdout), so mutating the package style
+	// per call is safe and keeps every section consistent.
+	boxStyle = boxStyle.Width(effectiveBoxWidth(opts.Width))
+
 	// Capture everything written to stdout during rendering.
 	origStdout := os.Stdout
 	r, w, err := os.Pipe()

@@ -190,4 +190,8 @@ type RenderOptions struct {
 	Section string
 	// Stats includes the cache statistics section when CacheStats is non-nil.
 	Stats bool
+	// Width is the terminal width to render boxes at. Zero means the default
+	// fixed print width (CLI behavior); the TUI passes the live terminal width
+	// so the inspector fills the available space instead of a fixed column.
+	Width int
 }
