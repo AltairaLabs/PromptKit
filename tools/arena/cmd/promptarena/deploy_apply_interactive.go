@@ -56,9 +56,11 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load saved plan: %w", err)
 	}
+	usedSavedPlan := false
 	if savedPlan != nil && savedPlan.PackChecksum == packChecksum && savedPlan.Environment == env {
 		fmt.Println("  Using saved plan.")
 		planReq = savedPlan.Request
+		usedSavedPlan = true
 	} else {
 		if savedPlan != nil {
 			fmt.Println("  Saved plan is stale (pack or environment changed), re-planning...")
@@ -92,6 +94,11 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
+	// Surface the plan's non-blocking advisories before applying — the same
+	// warnings the plan command shows — from the saved plan, or a fresh plan when
+	// re-planning. Apply streams resource events but has no Warnings channel.
+	printDeployWarnings(applyWarnings(ctx, client, usedSavedPlan, savedPlan, planReq))
+
 	adapterState, err := client.Apply(ctx, planReq, func(e *deploy.ApplyEvent) error {
 		printDeployEvent(e.Type, e.Message, e.Resource)
 		return nil
@@ -117,5 +124,27 @@ func runDeployApply(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Println("Apply complete.")
+	return nil
+}
+
+// planWarner fetches a plan for its non-blocking warnings. It's satisfied by
+// *deploy.AdapterClient; an interface so applyWarnings is unit-testable.
+type planWarner interface {
+	Plan(context.Context, *deploy.PlanRequest) (*deploy.PlanResponse, error)
+}
+
+// applyWarnings returns the plan-time advisories to surface before an apply: the
+// reused saved plan's warnings, otherwise a fresh plan's. A plan error is
+// non-fatal here — apply proceeds and runs its own validation.
+func applyWarnings(
+	ctx context.Context, client planWarner,
+	usedSavedPlan bool, savedPlan *deploy.SavedPlan, planReq *deploy.PlanRequest,
+) []string {
+	if usedSavedPlan && savedPlan != nil && savedPlan.Plan != nil {
+		return savedPlan.Plan.Warnings
+	}
+	if plan, err := client.Plan(ctx, planReq); err == nil {
+		return plan.Warnings
+	}
 	return nil
 }
