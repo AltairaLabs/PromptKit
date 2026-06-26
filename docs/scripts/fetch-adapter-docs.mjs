@@ -183,6 +183,14 @@ const ADAPTERS = [
     "AltairaLabs/PromptArena-deploy-omnia",
     {
       // Extra files specific to omnia.
+      "explanation/agent-anatomy.md": {
+        target: "explanation/deploy/omnia/agent-anatomy.md",
+        order: 38,
+      },
+      "explanation/configuration-mapping.md": {
+        target: "explanation/deploy/omnia/configuration-mapping.md",
+        order: 39,
+      },
       "how-to/login.md": {
         target: "how-to/deploy/omnia/login.md",
         order: 40,
@@ -406,11 +414,18 @@ function rewriteLinks(content, adapter) {
         }
       }
 
-      // Check if this looks like an internal adapter section link
-      const stripped = url.replace(/^\//, "");
-      const firstSegment = stripped.split("/")[0];
+      // Internal adapter section link (e.g. /explanation/resource-lifecycle/#x).
+      // Scope it under the adapter's deploy subtree — same mapping Strategy 4
+      // uses — so /<section>/<rest> → /arena/<section>/deploy/<adapter>/<rest>/.
+      // A bare /arena prefix points at the top-level (non-adapter) page and 404s.
+      const hashIdx = url.indexOf("#");
+      const linkPath = hashIdx === -1 ? url : url.slice(0, hashIdx);
+      const fragment = hashIdx === -1 ? "" : url.slice(hashIdx);
+      const pathSegments = linkPath.replace(/^\//, "").replace(/\/$/, "").split("/");
+      const firstSegment = pathSegments[0];
       if (ADAPTER_SECTIONS.includes(firstSegment)) {
-        const arenaUrl = `/arena${url}`;
+        const rest = pathSegments.slice(1).join("/");
+        const arenaUrl = `/arena/${firstSegment}/deploy/${adapter.name}/${rest ? `${rest}/` : ""}${fragment}`;
         return `[${text}](${arenaUrl})`;
       }
 
