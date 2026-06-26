@@ -92,36 +92,30 @@ func TestVoiceOptions_NilWhenNoVoice(t *testing.T) {
 	}
 }
 
-// TestStartVoice_VoiceNotCompiled verifies that when voice.NewAudioIO returns
-// ErrVoiceNotCompiled, startVoice sets p.engineErr with the build instruction
-// message and returns nil (no panic or crash).
-//
-// In the stub (non-voice) build, voice.NewAudioIO always returns
-// ErrVoiceNotCompiled, so this test exercises the real stub code path.
-func TestStartVoice_VoiceNotCompiled(t *testing.T) {
-	p := &ChatPage{
-		voice: &VoiceOptions{},
-	}
+// TestStartVoice_AudioDeviceError verifies that when the audio device cannot be
+// opened, startVoice sets p.engineErr and returns nil (no panic or crash) and
+// does not deliver any messages.
+func TestStartVoice_AudioDeviceError(t *testing.T) {
+	restore := overrideAudioIO(func() (voice.AudioIO, error) {
+		return nil, fmt.Errorf("simulated: no audio device")
+	})
+	defer restore()
+
+	p := &ChatPage{voice: &VoiceOptions{}}
 
 	var sendCalls []tea.Msg
 	send := func(msg tea.Msg) { sendCalls = append(sendCalls, msg) }
 
 	cmd := p.startVoice(send)
 	if cmd != nil {
-		t.Fatalf("expected nil cmd when voice not compiled, got non-nil")
+		t.Fatalf("expected nil cmd when the audio device fails to open, got non-nil")
 	}
 	if p.engineErr == nil {
-		t.Fatal("expected engineErr to be set when voice not compiled")
+		t.Fatal("expected engineErr to be set when the audio device fails to open")
 	}
-	errStr := p.engineErr.Error()
-	if len(errStr) == 0 {
-		t.Fatal("expected non-empty engineErr message")
+	if !strings.Contains(p.engineErr.Error(), "audio device") {
+		t.Fatalf("expected engineErr to mention 'audio device', got: %q", p.engineErr.Error())
 	}
-	// Verify the error message guides the user to the voice build tag.
-	if !strings.Contains(errStr, "voice") {
-		t.Fatalf("expected engineErr to mention 'voice', got: %q", errStr)
-	}
-	// No messages should have been sent.
 	if len(sendCalls) != 0 {
 		t.Fatalf("expected 0 send calls, got %d", len(sendCalls))
 	}
@@ -252,10 +246,14 @@ func TestApp_EscAtRoot_CallsCloseAll(t *testing.T) {
 
 // TestStartVoice_NilSendDoesNotPanic verifies startVoice handles a nil send
 // func gracefully (the nil guard substitutes a no-op before any send call).
-//
-// In the stub build, voice.NewAudioIO returns ErrVoiceNotCompiled so the
-// function returns before any send call. This confirms no panic.
+// The audio constructor is overridden to fail so the driver is not launched and
+// no real device is opened.
 func TestStartVoice_NilSendDoesNotPanic(t *testing.T) {
+	restore := overrideAudioIO(func() (voice.AudioIO, error) {
+		return nil, fmt.Errorf("simulated: no audio device")
+	})
+	defer restore()
+
 	p := &ChatPage{voice: &VoiceOptions{}}
 	// Must not panic even with nil send.
 	_ = p.startVoice(nil)
@@ -445,14 +443,27 @@ func newVoiceChatPage(t *testing.T) *ChatPage {
 	}
 	// Auto-advance through the setup flow: 1 agent, 1 provider, no required vars,
 	// no evals. The auto-select branches advance directly to chatStateChat and set
-	// p.session. startSession calls startVoice in voice mode, but since
-	// voice.NewAudioIO() returns ErrVoiceNotCompiled in the stub build the driver
-	// is not launched; p.session remains valid.
+	// p.session. startSession calls startVoice in voice mode; override the audio
+	// constructor so Init does not open a real microphone — p.session is set by
+	// startSession before startVoice runs, so it remains valid regardless.
+	restore := overrideAudioIO(func() (voice.AudioIO, error) {
+		return nil, fmt.Errorf("no audio device in tests")
+	})
+	defer restore()
 	_ = p.Init()
 	if p.session == nil {
 		t.Fatal("expected p.session to be set after Init() with single-agent/provider fixture")
 	}
 	return p
+}
+
+// overrideAudioIO swaps the package audio constructor for the duration of a
+// test so the voice setup path can run without opening a real device. The
+// returned func restores the original.
+func overrideAudioIO(fn func() (voice.AudioIO, error)) (restore func()) {
+	orig := newAudioIO
+	newAudioIO = fn
+	return func() { newAudioIO = orig }
 }
 
 // TestRunVoice_SetsUpWiringAndGoroutine verifies that runVoice (the inner wiring

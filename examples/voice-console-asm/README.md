@@ -14,20 +14,18 @@ config is needed.
 ## Run
 
 ```bash
-# Build the voice binary (needs PortAudio — see the voice docs)
-make build-arena-voice
+# Voice is built into promptarena; install PortAudio to use it (see voice docs)
 
 export OPENAI_API_KEY=sk-...
 
 # Run from this directory
-../../bin/promptarena-voice chat --voice --config config.arena.yaml
+../../bin/promptarena chat --voice --config config.arena.yaml
 ```
 
 Speak naturally; the agent replies in voice. Press `q` or `Ctrl-C` to exit.
 
 ## Requirements
 
-- A `-tags voice` binary (`make build-arena-voice` or a `promptarena-voice-*` release binary).
 - PortAudio installed at runtime (`brew install portaudio` on macOS).
 - `OPENAI_API_KEY` (the agent uses `gpt-realtime`).
 - **Headphones** — the mic stays open the whole session; speaker audio feeds
