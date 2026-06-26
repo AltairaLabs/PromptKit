@@ -785,11 +785,14 @@ jobs:
             goos: linux
             goarch: arm64
             portaudio_install: sudo apt-get update && sudo apt-get install -y portaudio19-dev
-          # windows/amd64 (windows/arm64 excluded — no GitHub-hosted runner exists)
+          # windows/amd64 (windows/arm64 excluded — no GitHub-hosted runner exists).
+          # PortAudio is installed via MSYS2/MinGW below (not the shared run step),
+          # so CGO's gcc, pkg-config, and libportaudio are all MinGW-consistent.
+          # vcpkg's x64-windows PortAudio is MSVC-built and its .pc file is not on
+          # the runner's pkg-config path, which broke the v1.5.3 build (#1497).
           - os: windows-latest
             goos: windows
             goarch: amd64
-            portaudio_install: vcpkg install portaudio:x64-windows
 
     steps:
     - name: Checkout code
@@ -802,8 +805,34 @@ jobs:
       # to GoReleaser's git state inspection on this runner.
       run: git fetch --tags --force origin
 
-    - name: Install PortAudio
+    - name: Install PortAudio (macOS/Linux)
+      if: matrix.goos != 'windows'
       run: ${{ matrix.portaudio_install }}
+
+    # Windows: install PortAudio + a matching MinGW toolchain via MSYS2. The
+    # gordonklaus/portaudio binding uses `#cgo pkg-config: portaudio-2.0`, so
+    # CGO must find portaudio-2.0.pc and link libportaudio with the SAME
+    # toolchain it compiles with. MSYS2's MinGW64 provides gcc, pkgconf, and
+    # libportaudio together; putting mingw64/bin first on PATH makes CGO use
+    # them instead of the runner's Strawberry Perl gcc/pkg-config (#1497).
+    - name: Install PortAudio + MinGW (Windows)
+      if: matrix.goos == 'windows'
+      id: msys2
+      uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-portaudio
+          mingw-w64-x86_64-pkgconf
+
+    - name: Put MinGW64 on PATH (Windows)
+      if: matrix.goos == 'windows'
+      shell: pwsh
+      run: |
+        "${{ steps.msys2.outputs.msys2-location }}/mingw64/bin" `
+          | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Setup Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
