@@ -111,7 +111,10 @@ func (p *RunsPanel) Init(height int) {
 // terminals and grow to fill wide ones; a floor keeps each readable.
 func responsiveRunsColumns(avail int) []table.Column {
 	titles := []string{"Status", "Provider", "Scenario", "Region", "Duration", "Cost", "Notes"}
-	weights := []int{statusColWidth, providerColWidth, scenarioColWidth, regionColWidth, durationColWidth, costColWidth, notesColWidth}
+	weights := []int{
+		statusColWidth, providerColWidth, scenarioColWidth, regionColWidth,
+		durationColWidth, costColWidth, notesColWidth,
+	}
 
 	const colFloor = 4
 	// bubbles renders one padding column between cells; reserve that budget.

@@ -83,7 +83,7 @@ func (p *InspectPage) View() string {
 		views.ChromeConfig{
 			Width:       p.w,
 			Height:      p.h,
-			Title:       "Inspect",
+			Title:       titleInspect,
 			KeyBindings: inspectBindings(),
 		},
 		func(contentHeight int) string {
@@ -106,7 +106,7 @@ func inspectBindings() []views.KeyBinding {
 }
 
 // Title implements Page.
-func (p *InspectPage) Title() string { return "Inspect" }
+func (p *InspectPage) Title() string { return titleInspect }
 
 // SetSize implements Page. Initializes (or re-initializes) the viewport.
 func (p *InspectPage) SetSize(w, h int) {

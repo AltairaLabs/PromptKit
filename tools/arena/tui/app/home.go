@@ -129,7 +129,7 @@ func (h *Home) View() string {
 		views.ChromeConfig{
 			Width:       h.w,
 			Height:      h.h,
-			Title:       "Home",
+			Title:       titleHome,
 			KeyBindings: homeBindings(),
 		},
 		func(contentHeight int) string {
@@ -142,14 +142,14 @@ func (h *Home) View() string {
 func homeBindings() []views.KeyBinding {
 	return []views.KeyBinding{
 		{Keys: chatKeyLabelScrl, Description: "move"},
-		{Keys: keyEnter, Description: "select"},
+		{Keys: keyEnter, Description: chatKeyLabelSel},
 		{Keys: "c", Description: "config"},
 		{Keys: "q", Description: "quit"},
 	}
 }
 
 // Title implements Page.
-func (h *Home) Title() string { return "Home" }
+func (h *Home) Title() string { return titleHome }
 
 // SetSize implements Page.
 func (h *Home) SetSize(width, height int) {

@@ -27,10 +27,18 @@ const (
 	keyTab   = "tab"
 	keyEnter = "enter"
 
-	// Page title constants (used in Title() and ChromeConfig.ConfigFile).
-	titleView         = "View"
+	// Shared footer key-hint labels.
+	keyHintNavigate  = "navigate"
+	keyHintParentDir = "parent dir"
+	keyHintArrowH    = "←/h"
+
+	// Page title constants (used in Title() and the chrome header).
+	titleView         = "View results"
 	titleResults      = "Results"
 	titleConversation = "Conversation"
+	titleHome         = "Home"
+	titleInspect      = "Inspect"
+	titleChooseConfig = "Choose config"
 )
 
 // ---------------------------------------------------------------------------
@@ -130,12 +138,12 @@ func (p *ViewPage) View() string {
 		views.ChromeConfig{
 			Width:  p.w,
 			Height: p.h,
-			Title:  "View results",
+			Title:  titleView,
 			KeyBindings: []views.KeyBinding{
-				{Keys: "↑/↓", Description: "navigate"},
-				{Keys: "enter", Description: "open"},
-				{Keys: "←/h", Description: "parent dir"},
-				{Keys: "esc", Description: "back"},
+				{Keys: chatKeyLabelScrl, Description: keyHintNavigate},
+				{Keys: keyEnter, Description: "open"},
+				{Keys: keyHintArrowH, Description: keyHintParentDir},
+				{Keys: chatKeyLabelEsc, Description: keyHintBack},
 			},
 		},
 		func(contentHeight int) string {
@@ -268,10 +276,10 @@ func (p *ResultsPage) View() string {
 			Height: p.h,
 			Title:  titleResults,
 			KeyBindings: []views.KeyBinding{
-				{Keys: "↑/↓", Description: "navigate"},
+				{Keys: chatKeyLabelScrl, Description: keyHintNavigate},
 				{Keys: "tab", Description: "cycle focus"},
-				{Keys: "enter", Description: "open conversation"},
-				{Keys: "esc", Description: "back"},
+				{Keys: keyEnter, Description: "open conversation"},
+				{Keys: chatKeyLabelEsc, Description: keyHintBack},
 			},
 		},
 		func(contentHeight int) string {

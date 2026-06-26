@@ -21,7 +21,9 @@ func TestConversationViewPage_LiveAppendsAndMeter(t *testing.T) {
 	p.Update(tui.MessageCreatedMsg{ConversationID: "run-1", Index: 0, Role: "user", Content: "hi there"})
 	p.Update(tui.AudioLevelMsg{UserLevel: 0.5, AgentLevel: 0.2})
 
-	v := p.View()
+	// Strip ANSI: glamour styles the detail text per-word, so the raw view splits
+	// "hi there" across escape spans.
+	v := stripANSI(p.View())
 	require.Contains(t, v, "hi there", "streamed message should render")
 	require.Contains(t, v, "█", "audio meter bar should render once levels arrive")
 }

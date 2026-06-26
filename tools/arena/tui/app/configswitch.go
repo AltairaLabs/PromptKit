@@ -70,12 +70,12 @@ func (p *ConfigSwitchPage) View() string {
 		views.ChromeConfig{
 			Width:  p.w,
 			Height: p.h,
-			Title:  "Choose config",
+			Title:  titleChooseConfig,
 			KeyBindings: []views.KeyBinding{
-				{Keys: "↑/↓", Description: "navigate"},
-				{Keys: "enter", Description: "select"},
-				{Keys: "←/h", Description: "parent dir"},
-				{Keys: "esc", Description: "back"},
+				{Keys: chatKeyLabelScrl, Description: keyHintNavigate},
+				{Keys: keyEnter, Description: chatKeyLabelSel},
+				{Keys: keyHintArrowH, Description: keyHintParentDir},
+				{Keys: chatKeyLabelEsc, Description: keyHintBack},
 			},
 		},
 		func(contentHeight int) string {

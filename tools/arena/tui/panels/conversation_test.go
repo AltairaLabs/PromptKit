@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -245,21 +246,17 @@ func TestConversationPanel_GetBorderColors(t *testing.T) {
 func TestConversationPanel_CalculateViewportWidth(t *testing.T) {
 	panel := NewConversationPanel()
 
-	tests := []struct {
-		name     string
-		width    int
-		expected int
-	}{
-		{"large width", 200, 200 - conversationListWidth - conversationPanelGap - conversationDetailWidthPad},
-		{"small width", 50, conversationDetailMinWidth},
-		{"exact minimum", conversationListWidth + conversationPanelGap + conversationDetailWidthPad + conversationDetailMinWidth, conversationDetailMinWidth},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			panel.width = tt.width
-			result := panel.calculateViewportWidth()
-			assert.Equal(t, tt.expected, result)
+	// The detail viewport gets the panel width minus the (responsive) turns
+	// list, gap, and padding, floored at the detail minimum.
+	for _, width := range []int{200, 50, 87} {
+		t.Run(fmt.Sprintf("width-%d", width), func(t *testing.T) {
+			panel.width = width
+			want := width - panel.listWidth() - conversationPanelGap - conversationDetailWidthPad
+			if want < conversationDetailMinWidth {
+				want = conversationDetailMinWidth
+			}
+			assert.Equal(t, want, panel.calculateViewportWidth())
+			assert.GreaterOrEqual(t, panel.calculateViewportWidth(), conversationDetailMinWidth)
 		})
 	}
 }

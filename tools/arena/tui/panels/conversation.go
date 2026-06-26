@@ -35,7 +35,14 @@ const (
 )
 
 const (
-	conversationListWidth        = 40
+	// conversationListWidth is the fallback turns-list width before the panel
+	// has been sized; once sized, listWidth() scales it to the panel width.
+	conversationListWidth = 40
+	// conversationListPct is the share of the panel width the turns list takes
+	// (the detail pane gets the rest), so the list grows on wide terminals.
+	conversationListPct          = 38
+	conversationPctDenominator   = 100
+	conversationListMinWidth     = 24
 	conversationPanelPadding     = 1
 	conversationPanelGap         = 1
 	conversationPanelHorizontal  = 2
@@ -238,6 +245,24 @@ func (c *ConversationPanel) UpdateMessageMetadata(index int, latencyMs int64, co
 	delete(c.renderedCache, index)
 }
 
+// listWidth returns the responsive turns-list width: a share of the panel
+// width, clamped so the detail pane keeps its minimum and the list stays
+// readable. This lets the turns list grow to fill a wide terminal instead of
+// staying at a fixed width.
+func (c *ConversationPanel) listWidth() int {
+	if c.width <= 0 {
+		return conversationListWidth
+	}
+	w := c.width * conversationListPct / conversationPctDenominator
+	if maxW := c.width - conversationDetailMinWidth - conversationPanelGap - conversationDetailWidthPad; w > maxW {
+		w = maxW
+	}
+	if w < conversationListMinWidth {
+		w = conversationListMinWidth
+	}
+	return w
+}
+
 func (c *ConversationPanel) ensureTable(runID string) {
 	if c.tableReady && c.lastRunID == runID {
 		return
@@ -347,8 +372,14 @@ func (c *ConversationPanel) updateTable(res *statestore.RunResult) {
 		height = conversationTableMinHeight
 	}
 
+	lw := c.listWidth()
 	c.table.SetHeight(height)
-	c.table.SetWidth(conversationListWidth)
+	c.table.SetWidth(lw)
+	c.table.SetColumns([]table.Column{
+		{Title: "#", Width: conversationColNumWidth},
+		{Title: "Role", Width: conversationColRoleWidth},
+		{Title: "Content", Width: lw - conversationColNumWidth - conversationColRoleWidth - conversationContentPadding},
+	})
 
 	rows := make([]table.Row, 0, len(res.Messages))
 	for i := range res.Messages {
@@ -401,7 +432,7 @@ func (c *ConversationPanel) updateDetail(res *statestore.RunResult) {
 	msg := res.Messages[c.selectedTurnIdx]
 	lines := c.buildDetailLines(res, &msg)
 
-	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
+	width := c.width - c.listWidth() - conversationPanelGap - conversationDetailWidthPad
 	if width < conversationDetailMinWidth {
 		width = conversationDetailMinWidth
 	}

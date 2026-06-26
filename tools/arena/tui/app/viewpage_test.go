@@ -36,11 +36,11 @@ func TestViewPage_RendersFileBrowser(t *testing.T) {
 	}
 }
 
-// TestViewPage_TitleIsView verifies Title() returns "View".
+// TestViewPage_TitleIsView verifies Title() returns the view page title.
 func TestViewPage_TitleIsView(t *testing.T) {
 	p := NewViewPage(".")
-	if got := p.Title(); got != "View" {
-		t.Fatalf("Title() = %q, want %q", got, "View")
+	if got := p.Title(); got != titleView {
+		t.Fatalf("Title() = %q, want %q", got, titleView)
 	}
 }
 
