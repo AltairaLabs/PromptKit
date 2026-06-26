@@ -123,6 +123,38 @@ func TestWorkflowTransitionExecutor_TerminalState(t *testing.T) {
 	assert.Equal(t, true, meta["workflow_complete"])
 }
 
+// TestWorkflowTransitionExecutor_TerminalKeepsToolForSiblingRuns guards against
+// regression of issue #1480: the transition tool descriptor lives in a registry
+// that Arena shares across every scenario run, but per-run state machines are
+// isolated. When one run reaches a terminal state, committing that transition
+// must NOT unregister workflow__transition from the shared registry — doing so
+// strips the tool from sibling runs that still need it, so their pipelines take
+// the no-tools provider path and silently drop transition tool calls.
+func TestWorkflowTransitionExecutor_TerminalKeepsToolForSiblingRuns(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	// Register the transition tool for the entry state, mirroring initWorkflow.
+	registerTransitionTool(registry, spec.States[spec.Entry])
+	require.NotNil(t, registry.Get(workflow.TransitionToolName),
+		"transition tool should be registered after init")
+
+	// Run a scenario all the way to the terminal "closed" state.
+	scenario := &config.Scenario{ID: "s1", TaskType: "intake"}
+	exec.RegisterRun("s1", scenario)
+	args, _ := json.Marshal(map[string]string{"event": "Resolve"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "s1"), nil, args)
+	require.NoError(t, err)
+	require.NoError(t, exec.CommitPendingTransition("s1", nil))
+	require.Equal(t, true, exec.RunMetadata("s1")["workflow_complete"])
+
+	// The shared registry must still expose the transition tool so a sibling
+	// run can drive its own transitions.
+	assert.NotNil(t, registry.Get(workflow.TransitionToolName),
+		"reaching a terminal state must not unregister the shared transition tool")
+}
+
 func TestWorkflowTransitionExecutor_ConcurrentRuns(t *testing.T) {
 	spec := testWorkflowSpec()
 	registry := tools.NewRegistry()
