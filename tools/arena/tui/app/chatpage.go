@@ -16,7 +16,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
@@ -130,7 +129,8 @@ type ChatPage struct {
 	voiceStore  *statestore.ArenaStateStore // state store owned by the voice driver
 	voiceConvID string                      // conversation ID used by the voice driver
 
-	logs *LogsOverlay // toggleable in-chat runtime log view (ctrl+l)
+	logs     *LogsOverlay // toggleable in-chat runtime log view (ctrl+l)
+	composer *Composer    // input affordance: text box or mic indicator
 }
 
 // NewChatPage constructs a ChatPage bound to the given AppContext.
@@ -138,13 +138,18 @@ type ChatPage struct {
 func NewChatPage(ctx *AppContext) *ChatPage {
 	ti := textinput.New()
 	ti.Prompt = "> "
+	composer := NewTextComposer()
+	if ctx.Voice != nil {
+		composer = NewSpeechComposer()
+	}
 	return &ChatPage{
-		ctx:   ctx,
-		panel: panels.NewConversationPanel(),
-		input: ti,
-		vars:  map[string]string{},
-		voice: ctx.Voice,
-		logs:  NewLogsOverlay(),
+		ctx:      ctx,
+		panel:    panels.NewConversationPanel(),
+		input:    ti,
+		vars:     map[string]string{},
+		voice:    ctx.Voice,
+		logs:     NewLogsOverlay(),
+		composer: composer,
 	}
 }
 
@@ -283,6 +288,7 @@ func (p *ChatPage) SetSize(w, h int) {
 	p.width, p.height = w, h
 	p.input.Width = chatMaxInt(w-chatInputPadding, 0)
 	p.logs.SetSize(w, h)
+	p.composer.SetWidth(w)
 	if p.state == chatStateChat {
 		panelH := p.height - chatInputHeight - chatFooterHeight - 1
 		if panelH < 1 {
@@ -660,45 +666,16 @@ func (p *ChatPage) chatView() string {
 
 	var parts []string
 	parts = append(parts, p.panel.View())
-	if p.voice != nil {
-		// Voice mode: show a mic status line in place of the text input box.
-		// The panel already renders the audio level meter via SetAudioLevels.
-		parts = append(parts, p.voiceStatusLine())
-	} else {
-		parts = append(parts, p.inputView())
-	}
+	// The Composer renders the mic indicator (voice) or the bordered text box
+	// (typed). In voice mode the panel itself renders the live audio meter via
+	// SetAudioLevels. Input focus = the conversation panel is not focused.
+	p.composer.SetSpeech(p.voice != nil)
+	parts = append(parts, p.composer.View(p.input.View(), !p.panelFocused))
 	if p.statusLine != "" {
 		parts = append(parts, p.statusLine)
 	}
 	parts = append(parts, footer)
 	return strings.Join(parts, "\n")
-}
-
-// voiceStatusLine renders a one-line mic status for voice mode. The panel's
-// built-in audio meter (driven by SetAudioLevels) shows the actual levels; this
-// line provides a simple human-readable status beneath the panel.
-func (p *ChatPage) voiceStatusLine() string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7dd3fc")). // sky-300 — matches theme
-		Render("🎤 mic active — speak to send a message")
-}
-
-// chatInputBorderColor returns the input box's border color: highlighted when
-// the input holds focus, dimmed when the conversation panel does.
-func (p *ChatPage) chatInputBorderColor() lipgloss.Color {
-	if p.panelFocused {
-		return theme.BorderColorUnfocused()
-	}
-	return theme.BorderColorFocused()
-}
-
-// inputView renders the text input inside a bordered box whose border reflects focus.
-func (p *ChatPage) inputView() string {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.chatInputBorderColor()).
-		Width(chatMaxInt(p.width-chatInputBorderChars, 0)).
-		Render(p.input.View())
 }
 
 func (p *ChatPage) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {

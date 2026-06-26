@@ -565,27 +565,17 @@ func TestChatPage_Update_chatStreamDoneMsg(t *testing.T) {
 	}
 }
 
-// TestChatPage_InputView_FocusColors verifies input border changes with focus.
+// TestChatPage_InputView_FocusColors verifies the text composer renders a
+// different border depending on input focus.
 func TestChatPage_InputView_FocusColors(t *testing.T) {
-	p := NewChatPage(&AppContext{Version: "vTEST"})
-	p.SetSize(80, 24)
+	c := NewTextComposer()
+	c.SetWidth(80)
 
-	p.panelFocused = false
-	colorFocused := p.chatInputBorderColor()
-	p.panelFocused = true
-	colorUnfocused := p.chatInputBorderColor()
-
-	if colorFocused == colorUnfocused {
-		t.Fatal("expected different border colors for focused vs unfocused input")
+	if c.View("hello", true) == "" || c.View("hello", false) == "" {
+		t.Fatal("expected non-empty composer output")
 	}
-
-	// inputView should render without panic in both states.
-	p.panelFocused = false
-	v1 := p.inputView()
-	p.panelFocused = true
-	v2 := p.inputView()
-	if v1 == "" || v2 == "" {
-		t.Fatal("expected non-empty inputView")
+	if c.borderColor(true) == c.borderColor(false) {
+		t.Fatal("expected different border color for focused vs unfocused input")
 	}
 }
 
