@@ -170,6 +170,12 @@ func (a *App) pop() tea.Cmd {
 	}
 	popped := a.top()
 	a.stack = a.stack[:len(a.stack)-1]
+	// Release any resources the popped page held — e.g. ChatPage's voice driver
+	// keeps the mic open and the pipeline running until Close cancels it.
+	// Without this, navigating away from chat left the session capturing audio.
+	if c, ok := popped.(Closeable); ok {
+		c.Close()
+	}
 	// Remove the popped page from tracking maps so it does not leak for the
 	// lifetime of the App (M3).
 	delete(a.activated, popped)

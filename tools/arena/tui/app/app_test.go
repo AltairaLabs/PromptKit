@@ -257,3 +257,30 @@ func TestApp_SplashSeedNoDoubleInit(t *testing.T) {
 		t.Fatalf("expected child initCount=1 after push, got %d", child.initCount)
 	}
 }
+
+// closeableFakePage records whether Close was called, to verify navigation pops
+// release page resources (e.g. ChatPage's voice driver).
+type closeableFakePage struct {
+	namedFakePage
+	closed int
+}
+
+func (f *closeableFakePage) Close() { f.closed++ }
+
+func TestApp_PopClosesPage(t *testing.T) {
+	a := New(&AppContext{}, &namedFakePage{name: "home"})
+	a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	child := &closeableFakePage{namedFakePage: namedFakePage{name: "chat"}}
+	a.Update(PushPageMsg{Page: child})
+
+	// Navigate away (esc → pop). The popped page must be Closed so its voice
+	// driver / mic is released.
+	_, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !a.atRoot() {
+		t.Fatal("expected back at root after pop")
+	}
+	if child.closed != 1 {
+		t.Fatalf("popped page Close() called %d times, want 1", child.closed)
+	}
+}
