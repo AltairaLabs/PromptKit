@@ -57,7 +57,7 @@ func loadPortAudio() (*portAudioLib, error) {
 	var handle uintptr
 	var lastErr error
 	for _, name := range portAudioCandidates() {
-		h, err := purego.Dlopen(name, purego.RTLD_NOW|purego.RTLD_GLOBAL)
+		h, err := openSharedLib(name)
 		if err == nil && h != 0 {
 			handle = h
 			break
