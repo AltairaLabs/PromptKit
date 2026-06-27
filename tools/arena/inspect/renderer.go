@@ -64,11 +64,6 @@ var (
 			BorderForeground(lipgloss.Color(theme.ColorPrimary)).
 			Padding(0, 1)
 
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(theme.ColorPrimary)).
-			MarginBottom(1)
-
 	sectionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color(theme.ColorWhite)).
@@ -260,15 +255,14 @@ func RenderText(data *InspectionData, opts RenderOptions) string {
 }
 
 func outputText(data *InspectionData, opts RenderOptions) {
-	printBanner(data.ConfigFile)
+	printConfigHeader(data.ConfigFile)
 	printSections(data, opts)
 }
 
-// printBanner prints the inspector header banner
-func printBanner(configFile string) {
-	banner := headerStyle.Render("✨ PromptArena Configuration Inspector ✨")
-	fmt.Println(banner)
-	fmt.Println()
+// printConfigHeader prints the inspected config's path. The "PromptArena" banner
+// and "Inspect" title are supplied by the surrounding chrome, so no title is
+// repeated here.
+func printConfigHeader(configFile string) {
 	fmt.Println(boxStyle.Width(fullBoxWidth).Render(
 		labelStyle.Render("Configuration: ") + highlightStyle.Render(configFile),
 	))
