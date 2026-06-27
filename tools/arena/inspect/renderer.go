@@ -157,45 +157,77 @@ func columnWidth(termWidth, cols int) int {
 	return minBoxWidth
 }
 
-// printBoxes renders each line set as a box and flows them into the active grid.
-// A single box (or single-column layout) spans the full width; multiple boxes
-// pack into columns so wide terminals aren't wasted.
+// printBoxes renders each line set as a box, stacked vertically. Boxes take the
+// full width in single-column layout and a column width when the sections are
+// laid out as a grid (so each section fits within its column).
 func printBoxes(lineSets [][]string) {
-	if len(lineSets) == 0 {
-		return
+	width := fullBoxWidth
+	if activeColumns > 1 {
+		width = colBoxWidth
 	}
-	if len(lineSets) == 1 || activeColumns <= 1 {
-		for _, ls := range lineSets {
-			fmt.Println(boxStyle.Width(fullBoxWidth).Render(strings.Join(ls, "\n")))
-		}
-		return
+	for _, ls := range lineSets {
+		fmt.Println(boxStyle.Width(width).Render(strings.Join(ls, "\n")))
 	}
-	boxes := make([]string, len(lineSets))
-	for i, ls := range lineSets {
-		boxes[i] = boxStyle.Width(colBoxWidth).Render(strings.Join(ls, "\n"))
-	}
-	fmt.Println(arrangeGrid(boxes, activeColumns))
 }
 
-// arrangeGrid lays boxes out left-to-right, cols per row, with colGap spacing.
-func arrangeGrid(boxes []string, cols int) string {
-	gap := strings.Repeat(" ", colGap)
-	var rows []string
-	for i := 0; i < len(boxes); i += cols {
-		end := i + cols
-		if end > len(boxes) {
-			end = len(boxes)
-		}
-		cells := make([]string, 0, (end-i)*2-1)
-		for j := i; j < end; j++ {
-			if j > i {
-				cells = append(cells, gap)
-			}
-			cells = append(cells, boxes[j])
-		}
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+// captureStdout runs fn with stdout redirected to a pipe and returns everything
+// it wrote. Used to render each section into a self-contained block so the
+// blocks can be arranged into columns. Nests safely inside RenderText's own
+// capture (it saves and restores whatever stdout it found).
+func captureStdout(fn func()) string {
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		fn()
+		return ""
 	}
-	return strings.Join(rows, "\n")
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	_ = r.Close()
+	return buf.String()
+}
+
+// emitSectionBlocks arranges whole section blocks into the active number of
+// columns using shortest-column-first packing (a masonry/dashboard layout), so
+// even configs with one item per section fill a wide terminal. A single-column
+// layout just stacks them.
+func emitSectionBlocks(blocks []string) {
+	if len(blocks) == 0 {
+		return
+	}
+	if activeColumns <= 1 {
+		fmt.Println(strings.Join(blocks, "\n\n"))
+		return
+	}
+	columns := make([]string, activeColumns)
+	heights := make([]int, activeColumns)
+	for _, b := range blocks {
+		shortest := 0
+		for i := 1; i < activeColumns; i++ {
+			if heights[i] < heights[shortest] {
+				shortest = i
+			}
+		}
+		if columns[shortest] != "" {
+			columns[shortest] += "\n\n"
+		}
+		columns[shortest] += b
+		heights[shortest] += lipgloss.Height(b) + 1
+	}
+	gap := strings.Repeat(" ", colGap)
+	cells := make([]string, 0, activeColumns*2-1)
+	for i, c := range columns {
+		if i > 0 {
+			cells = append(cells, gap)
+		}
+		cells = append(cells, c)
+	}
+	fmt.Println(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
 }
 
 func RenderText(data *InspectionData, opts RenderOptions) string {
@@ -261,45 +293,38 @@ func getSectionVisibility(section string) SectionVisibility {
 }
 
 // printSections prints all visible sections
+// printSections renders every visible section into its own block, then arranges
+// the blocks into columns so the inspector fills a wide terminal.
 func printSections(data *InspectionData, opts RenderOptions) {
 	vis := getSectionVisibility(opts.Section)
-	printConfigSections(data, vis, opts)
-	printSummarySections(data, vis, opts)
-	if opts.Stats && data.CacheStats != nil {
-		printCacheStatistics(data.CacheStats)
+	candidates := []struct {
+		show bool
+		fn   func()
+	}{
+		{vis.Prompts && len(data.PromptConfigs) > 0, func() { printPromptsSection(data, opts) }},
+		{vis.Providers && len(data.Providers) > 0, func() { printProvidersSection(data, opts) }},
+		{vis.Scenarios && len(data.Scenarios) > 0, func() { printScenariosSection(data, opts) }},
+		{vis.Tools && len(data.Tools) > 0, func() { printToolsSection(data, opts) }},
+		{
+			vis.Selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0),
+			func() { printPersonasSection(data, opts) },
+		},
+		{vis.Judges && len(data.Judges) > 0, func() { printJudgesSection(data) }},
+		{vis.Defaults && data.Defaults != nil, func() { printDefaultsSection(data, opts) }},
+		{vis.Validation, func() { printValidationSection(data) }},
+		{opts.Stats && data.CacheStats != nil, func() { printCacheStatistics(data.CacheStats) }},
 	}
-}
 
-// printConfigSections prints the main configuration sections
-func printConfigSections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
-	if vis.Prompts && len(data.PromptConfigs) > 0 {
-		printPromptsSection(data, opts)
+	var blocks []string
+	for _, c := range candidates {
+		if !c.show {
+			continue
+		}
+		if block := strings.TrimRight(captureStdout(c.fn), "\n"); strings.TrimSpace(block) != "" {
+			blocks = append(blocks, block)
+		}
 	}
-	if vis.Providers && len(data.Providers) > 0 {
-		printProvidersSection(data, opts)
-	}
-	if vis.Scenarios && len(data.Scenarios) > 0 {
-		printScenariosSection(data, opts)
-	}
-	if vis.Tools && len(data.Tools) > 0 {
-		printToolsSection(data, opts)
-	}
-	if vis.Selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0) {
-		printPersonasSection(data, opts)
-	}
-	if vis.Judges && len(data.Judges) > 0 {
-		printJudgesSection(data)
-	}
-}
-
-// printSummarySections prints the summary sections (defaults, validation)
-func printSummarySections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
-	if vis.Defaults && data.Defaults != nil {
-		printDefaultsSection(data, opts)
-	}
-	if vis.Validation {
-		printValidationSection(data)
-	}
+	emitSectionBlocks(blocks)
 }
 
 // truncateInspectString truncates a string to the given length with ellipsis
