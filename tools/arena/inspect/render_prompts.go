@@ -9,11 +9,11 @@ func printPromptsSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 📋 Prompt Configs (%d) ", len(data.PromptConfigs))))
 	fmt.Println()
 
+	sets := make([][]string, len(data.PromptConfigs))
 	for i := range data.PromptConfigs {
-		p := &data.PromptConfigs[i]
-		lines := buildPromptLines(p, opts)
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		sets[i] = buildPromptLines(&data.PromptConfigs[i], opts)
 	}
+	printBoxes(sets)
 	fmt.Println()
 }
 

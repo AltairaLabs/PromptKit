@@ -10,10 +10,11 @@ func printToolsSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🔧 Tools (%d) ", len(data.Tools))))
 	fmt.Println()
 
-	for _, t := range data.Tools {
-		lines := buildToolLines(&t, opts)
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+	sets := make([][]string, len(data.Tools))
+	for i := range data.Tools {
+		sets[i] = buildToolLines(&data.Tools[i], opts)
 	}
+	printBoxes(sets)
 	fmt.Println()
 }
 

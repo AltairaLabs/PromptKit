@@ -18,7 +18,14 @@ const (
 	// top of its content width.
 	boxChrome = 4
 	// minBoxWidth keeps boxes readable on very narrow terminals.
-	minBoxWidth         = 40
+	minBoxWidth = 40
+	// minColWidth is the narrowest a grid column (box content + chrome) may be;
+	// it sets how soon extra columns are added as the terminal widens.
+	minColWidth = 46
+	// colGap is the blank space between grid columns.
+	colGap = 2
+	// maxColumns caps the grid so boxes never get too thin to read.
+	maxColumns          = 3
 	maxDescLength       = 55
 	maxDescLengthPrompt = 60
 	maxGoalsDisplayed   = 3
@@ -51,12 +58,11 @@ const (
 
 // Style definitions for terminal output
 var (
-	// Box styles
+	// Box style — width is applied per render (full width or a grid column).
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(theme.ColorPrimary)).
-			Padding(0, 1).
-			Width(boxWidth)
+			Padding(0, 1)
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -102,7 +108,15 @@ var (
 // opts controls which sections and detail levels are included.
 // It captures stdout so that the lipgloss Print calls are collected into
 // the returned string.
-// effectiveBoxWidth returns the content width for boxes: the terminal width
+// Grid layout state for the current render. The renderer is single-threaded (it
+// captures global stdout), so per-call package state is safe.
+var (
+	fullBoxWidth  = boxWidth
+	colBoxWidth   = boxWidth
+	activeColumns = 1
+)
+
+// effectiveBoxWidth returns the full content width for boxes: the terminal width
 // minus the box border/padding when a width is supplied (TUI), else the default
 // fixed print width (CLI).
 func effectiveBoxWidth(termWidth int) int {
@@ -115,11 +129,80 @@ func effectiveBoxWidth(termWidth int) int {
 	return minBoxWidth
 }
 
+// computeColumns returns how many grid columns fit in termWidth, capped at
+// maxColumns. Zero/negative width (CLI) renders a single column.
+func computeColumns(termWidth int) int {
+	if termWidth <= 0 {
+		return 1
+	}
+	cols := (termWidth + colGap) / (minColWidth + colGap)
+	if cols < 1 {
+		cols = 1
+	}
+	if cols > maxColumns {
+		cols = maxColumns
+	}
+	return cols
+}
+
+// columnWidth returns the content width of a single box in a cols-wide grid.
+func columnWidth(termWidth, cols int) int {
+	if termWidth <= 0 || cols <= 1 {
+		return effectiveBoxWidth(termWidth)
+	}
+	avail := termWidth - colGap*(cols-1)
+	if w := avail/cols - boxChrome; w > minBoxWidth {
+		return w
+	}
+	return minBoxWidth
+}
+
+// printBoxes renders each line set as a box and flows them into the active grid.
+// A single box (or single-column layout) spans the full width; multiple boxes
+// pack into columns so wide terminals aren't wasted.
+func printBoxes(lineSets [][]string) {
+	if len(lineSets) == 0 {
+		return
+	}
+	if len(lineSets) == 1 || activeColumns <= 1 {
+		for _, ls := range lineSets {
+			fmt.Println(boxStyle.Width(fullBoxWidth).Render(strings.Join(ls, "\n")))
+		}
+		return
+	}
+	boxes := make([]string, len(lineSets))
+	for i, ls := range lineSets {
+		boxes[i] = boxStyle.Width(colBoxWidth).Render(strings.Join(ls, "\n"))
+	}
+	fmt.Println(arrangeGrid(boxes, activeColumns))
+}
+
+// arrangeGrid lays boxes out left-to-right, cols per row, with colGap spacing.
+func arrangeGrid(boxes []string, cols int) string {
+	gap := strings.Repeat(" ", colGap)
+	var rows []string
+	for i := 0; i < len(boxes); i += cols {
+		end := i + cols
+		if end > len(boxes) {
+			end = len(boxes)
+		}
+		cells := make([]string, 0, (end-i)*2-1)
+		for j := i; j < end; j++ {
+			if j > i {
+				cells = append(cells, gap)
+			}
+			cells = append(cells, boxes[j])
+		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+	}
+	return strings.Join(rows, "\n")
+}
+
 func RenderText(data *InspectionData, opts RenderOptions) string {
-	// Size the shared box style to the requested width. The renderer is
-	// single-threaded (it captures global stdout), so mutating the package style
-	// per call is safe and keeps every section consistent.
-	boxStyle = boxStyle.Width(effectiveBoxWidth(opts.Width))
+	// Size the grid for this render.
+	fullBoxWidth = effectiveBoxWidth(opts.Width)
+	activeColumns = computeColumns(opts.Width)
+	colBoxWidth = columnWidth(opts.Width, activeColumns)
 
 	// Capture everything written to stdout during rendering.
 	origStdout := os.Stdout
@@ -154,7 +237,7 @@ func printBanner(configFile string) {
 	banner := headerStyle.Render("✨ PromptArena Configuration Inspector ✨")
 	fmt.Println(banner)
 	fmt.Println()
-	fmt.Println(boxStyle.Render(
+	fmt.Println(boxStyle.Width(fullBoxWidth).Render(
 		labelStyle.Render("Configuration: ") + highlightStyle.Render(configFile),
 	))
 	fmt.Println()

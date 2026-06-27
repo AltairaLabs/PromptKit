@@ -2,7 +2,6 @@ package inspect
 
 import (
 	"fmt"
-	"strings"
 )
 
 func printPersonasSection(data *InspectionData, opts RenderOptions) {
@@ -11,16 +10,17 @@ func printPersonasSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(header))
 	fmt.Println()
 
-	// Show personas
+	// Show personas as a grid.
 	if len(data.Personas) > 0 {
 		fmt.Println(labelStyle.Render("Personas:"))
-		for _, p := range data.Personas {
-			lines := buildPersonaLines(&p, opts)
-			fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		sets := make([][]string, len(data.Personas))
+		for i := range data.Personas {
+			sets[i] = buildPersonaLines(&data.Personas[i], opts)
 		}
+		printBoxes(sets)
 	}
 
-	// Show self-play roles
+	// Show self-play roles in a single box.
 	if len(data.SelfPlayRoles) > 0 {
 		fmt.Println(labelStyle.Render("Roles:"))
 		var lines []string
@@ -34,7 +34,7 @@ func printPersonasSection(data *InspectionData, opts RenderOptions) {
 			}
 			lines = append(lines, line)
 		}
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		printBoxes([][]string{lines})
 	}
 	fmt.Println()
 }

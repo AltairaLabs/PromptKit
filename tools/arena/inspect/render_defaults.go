@@ -32,7 +32,7 @@ func printDefaultsSection(data *InspectionData, _ RenderOptions) {
 	}
 
 	if len(lines) > 0 {
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		printBoxes([][]string{lines})
 	}
 	fmt.Println()
 }
