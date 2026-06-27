@@ -100,13 +100,14 @@ func (p *MainPage) Render() string {
 		paneIDLogs:   p.logsPanel.View(p.focusedPanel == paneIDLogs),
 		paneIDResult: p.resultPanel.View(p.result, p.focusedPanel == paneIDResult),
 	}
-	// Clip each pane to the width the layout engine allocated it. The panels'
-	// internal sizing doesn't always honor that width, and RenderTree just joins
-	// them — so without this clip an over-wide pane pushes the row past the
-	// terminal, wraps, and janks the whole view.
+	// Clip each pane to the width AND height the layout engine allocated it. The
+	// panels' internal sizing doesn't always honor that rect, and RenderTree just
+	// joins them — so without this an over-wide pane wraps and janks the view, and
+	// an over-tall pane (on a short terminal) spills past the body and gets
+	// clipped by the footer.
 	for id := range content {
 		if r, ok := p.layout.Rect(id); ok {
-			content[id] = lipgloss.NewStyle().MaxWidth(r.W).Render(content[id])
+			content[id] = lipgloss.NewStyle().MaxWidth(r.W).MaxHeight(r.H).Render(content[id])
 		}
 	}
 	return layout.RenderTree(p.layout.Root(), content)
