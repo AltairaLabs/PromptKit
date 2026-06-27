@@ -3,6 +3,8 @@ package inspect
 import (
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestComputeColumns(t *testing.T) {
@@ -62,5 +64,22 @@ func TestRenderText_MultiColumn(t *testing.T) {
 	}
 	if !gridded {
 		t.Fatal("expected two boxes side by side in the scenarios grid")
+	}
+}
+
+func TestPopulateValidation(t *testing.T) {
+	cfg, err := config.LoadConfig("../../../examples/voice-console-asm/config.arena.yaml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	data := CollectInspectionData(cfg, "config.arena.yaml")
+	// Before validation runs, ValidationPassed is the zero value (false) — the
+	// bug that made the inspector report "Configuration has errors".
+	if data.ValidationPassed {
+		t.Fatal("expected ValidationPassed to be false before PopulateValidation")
+	}
+	PopulateValidation(data, cfg, "../../../examples/voice-console-asm/config.arena.yaml")
+	if !data.ValidationPassed {
+		t.Fatalf("valid config should pass validation; errors=%v", data.ValidationErrors)
 	}
 }

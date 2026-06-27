@@ -43,6 +43,9 @@ func NewInspectPageWithOptions(ctx *AppContext, opts inspect.RenderOptions) *Ins
 	p := &InspectPage{opts: opts}
 	if ctx != nil && ctx.Config != nil {
 		data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
+		// Run the validator so the view reports real status; without this
+		// ValidationPassed defaults to false and every config reads as "errors".
+		inspect.PopulateValidation(data, ctx.Config, ctx.ConfigPath)
 		if opts.Stats {
 			data.CacheStats = inspect.CollectCacheStats(ctx.Config, opts.Verbose)
 		}

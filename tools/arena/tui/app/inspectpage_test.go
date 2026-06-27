@@ -168,6 +168,7 @@ func TestInspectPage_WithOptionsThreaded(t *testing.T) {
 
 	// Build expected content the same way the page constructor does.
 	data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
+	inspect.PopulateValidation(data, ctx.Config, ctx.ConfigPath)
 	want := inspect.RenderText(data, opts)
 
 	if page.content != want {

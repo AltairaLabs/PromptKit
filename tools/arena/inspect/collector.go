@@ -475,3 +475,28 @@ func CollectConnectivityChecks(data *InspectionData) []ValidationCheckData {
 
 	return checks
 }
+
+// PopulateValidation runs the config validator and fills the validation fields
+// on data. Callers that build InspectionData without going through the
+// config-inspect CLI (e.g. the TUI hub's Inspect page) must call this; otherwise
+// ValidationPassed stays at its zero value (false) and the view wrongly reports
+// "Configuration has errors" for a perfectly valid config.
+func PopulateValidation(data *InspectionData, cfg *config.Config, configFile string) {
+	validator := config.NewConfigValidatorWithPath(cfg, configFile)
+	err := validator.Validate()
+	data.ValidationPassed = err == nil
+	if err != nil {
+		data.ValidationError = err.Error()
+		data.ValidationErrors = validator.GetErrors()
+	}
+	data.ValidationWarnings = len(validator.GetWarnings())
+	data.ValidationWarningDetails = validator.GetWarnings()
+	for _, check := range validator.GetChecks() {
+		data.ValidationChecks = append(data.ValidationChecks, ValidationCheckData{
+			Name:    check.Name,
+			Passed:  check.Passed,
+			Warning: check.Warning,
+			Issues:  check.Issues,
+		})
+	}
+}
