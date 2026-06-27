@@ -381,8 +381,6 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	elapsed := time.Since(m.startTime).Truncate(time.Second)
-
 	keyBindings := []views.KeyBinding{
 		{Keys: "↑/↓", Description: "navigate/scroll"},
 		{Keys: "tab", Description: "cycle focus"},
@@ -400,7 +398,6 @@ func (m *Model) View() string {
 			ConfigFile:     m.configFile,
 			CompletedCount: m.completedCount,
 			TotalRuns:      m.totalRuns,
-			Elapsed:        elapsed,
 			KeyBindings:    keyBindings,
 		},
 		func(contentHeight int) string {
@@ -410,6 +407,13 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderMainPage(contentHeight int) string {
+	// No scenarios to run — show an empty-state notice instead of a blank table.
+	if m.totalRuns == 0 && len(m.activeRuns) == 0 {
+		return views.RenderCenteredNotice(m.width, contentHeight,
+			"No scenarios defined in this config.",
+			"Add scenarios to the config, or press esc to go back.")
+	}
+
 	// Convert model data to panel format
 	runs := m.convertToRunInfos()
 	logs := m.convertToLogEntries()

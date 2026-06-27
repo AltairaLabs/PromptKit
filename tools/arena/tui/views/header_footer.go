@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,7 +34,6 @@ func NewHeaderFooterView(width int) *HeaderFooterView {
 func (v *HeaderFooterView) RenderHeader(
 	configFile string,
 	completedCount, totalRuns int,
-	elapsed time.Duration,
 ) string {
 	// Banner style
 	bannerStyle := lipgloss.NewStyle().
@@ -53,9 +51,6 @@ func (v *HeaderFooterView) RenderHeader(
 		Foreground(lipgloss.Color(theme.ColorSuccess)).
 		Bold(true)
 
-	timeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.ColorLightBlue))
-
 	tagStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.ColorWarning)).
 		Bold(true)
@@ -68,9 +63,8 @@ func (v *HeaderFooterView) RenderHeader(
 	banner := bannerStyle.Render("✨ PromptArena ✨")
 	progressBar := buildProgressBar(completedCount, totalRuns, headerProgressBarWidth)
 	progress := progressStyle.Render(fmt.Sprintf("[%s %d/%d]", progressBar, completedCount, totalRuns))
-	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", theme.FormatDuration(elapsed)))
 
-	parts := []string{filepath.Base(configFile), progress, timeStr}
+	parts := []string{filepath.Base(configFile), progress}
 	if mockTag != "" {
 		parts = append([]string{mockTag}, parts...)
 	}

@@ -33,6 +33,46 @@ func TestRenderWithChrome_FillsExactArea(t *testing.T) {
 	}
 }
 
+// TestRenderCenteredNotice verifies the notice fills the given area and contains
+// both the title and hint.
+func TestRenderCenteredNotice(t *testing.T) {
+	const w, h = 50, 12
+	out := RenderCenteredNotice(w, h, "No scenarios defined.", "Add some, or press esc.")
+	lines := strings.Split(out, "\n")
+	if len(lines) != h {
+		t.Fatalf("output has %d lines, want exactly %d", len(lines), h)
+	}
+	for i, ln := range lines {
+		if n := len([]rune(ln)); n > w {
+			t.Fatalf("line %d width %d exceeds %d", i, n, w)
+		}
+	}
+	if !strings.Contains(stripANSIForTest(out), "No scenarios defined.") {
+		t.Fatal("notice should contain the title")
+	}
+	if !strings.Contains(stripANSIForTest(out), "Add some, or press esc.") {
+		t.Fatal("notice should contain the hint")
+	}
+}
+
+// stripANSIForTest removes ANSI escape sequences so assertions match the visible
+// text regardless of styling.
+func stripANSIForTest(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		switch {
+		case r == '\x1b':
+			inEsc = true
+		case inEsc && (r == 'm'):
+			inEsc = false
+		case !inEsc:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // TestRenderWithChrome_EmptyUntilSized verifies nothing renders before a size
 // is known (avoids the first-frame placeholder snap).
 func TestRenderWithChrome_EmptyUntilSized(t *testing.T) {

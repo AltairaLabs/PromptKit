@@ -3,7 +3,6 @@ package views
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -16,7 +15,7 @@ func TestNewHeaderFooterView(t *testing.T) {
 
 func TestHeaderFooterView_RenderHeader(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("test-config.yaml", 5, 10, 30*time.Second)
+	output := view.RenderHeader("test-config.yaml", 5, 10)
 
 	// Verify banner
 	assert.Contains(t, output, "✨ PromptArena ✨")
@@ -26,14 +25,11 @@ func TestHeaderFooterView_RenderHeader(t *testing.T) {
 
 	// Verify progress
 	assert.Contains(t, output, "5/10")
-
-	// Verify elapsed time
-	assert.Contains(t, output, "30s")
 }
 
 func TestHeaderFooterView_RenderHeader_MockMode(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("mock-config.yaml", 2, 5, 10*time.Second)
+	output := view.RenderHeader("mock-config.yaml", 2, 5)
 
 	// Should show MOCK MODE tag
 	assert.Contains(t, output, "MOCK MODE")
@@ -42,7 +38,7 @@ func TestHeaderFooterView_RenderHeader_MockMode(t *testing.T) {
 
 func TestHeaderFooterView_RenderHeader_NoMockMode(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("production-config.yaml", 2, 5, 10*time.Second)
+	output := view.RenderHeader("production-config.yaml", 2, 5)
 
 	// Should NOT show MOCK MODE tag
 	assert.NotContains(t, output, "MOCK MODE")
@@ -51,18 +47,16 @@ func TestHeaderFooterView_RenderHeader_NoMockMode(t *testing.T) {
 
 func TestHeaderFooterView_RenderHeader_ZeroProgress(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("config.yaml", 0, 10, 0*time.Second)
+	output := view.RenderHeader("config.yaml", 0, 10)
 
 	assert.Contains(t, output, "0/10")
-	assert.Contains(t, output, "⏱")
 }
 
 func TestHeaderFooterView_RenderHeader_CompleteProgress(t *testing.T) {
 	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("config.yaml", 10, 10, 45*time.Second)
+	output := view.RenderHeader("config.yaml", 10, 10)
 
 	assert.Contains(t, output, "10/10")
-	assert.Contains(t, output, "45s")
 }
 
 func TestHeaderFooterView_RenderFooter_MainPage(t *testing.T) {
@@ -168,23 +162,13 @@ func TestBuildProgressBar(t *testing.T) {
 	}
 }
 
-func TestHeaderFooterView_RenderHeader_LongDuration(t *testing.T) {
-	view := NewHeaderFooterView(100)
-	output := view.RenderHeader("config.yaml", 50, 100, 2*time.Hour+30*time.Minute+15*time.Second)
-
-	// Should format long duration properly
-	assert.Contains(t, output, "50/100")
-	// Duration should be present (exact format depends on theme.FormatDuration)
-	assert.Contains(t, output, "⏱")
-}
-
 func TestHeaderFooterView_RenderHeader_DifferentWidths(t *testing.T) {
 	widths := []int{80, 100, 120, 150}
 
 	for _, width := range widths {
 		t.Run(fmt.Sprintf("Width%d", width), func(t *testing.T) {
 			view := NewHeaderFooterView(width)
-			output := view.RenderHeader("config.yaml", 3, 7, 15*time.Second)
+			output := view.RenderHeader("config.yaml", 3, 7)
 
 			// Should always contain essential info
 			assert.Contains(t, output, "PromptArena")

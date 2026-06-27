@@ -1,9 +1,9 @@
 package views
 
 import (
-	"time"
-
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 )
 
 // ChromeConfig contains configuration for rendering page chrome.
@@ -15,14 +15,13 @@ type ChromeConfig struct {
 	// "Conversation · checkout / claude"). Used when ShowProgress is false.
 	Title string
 
-	// ShowProgress switches the header's second line to the run progress bar +
-	// elapsed timer (ConfigFile / CompletedCount / TotalRuns / Elapsed). Only
-	// run-type pages set this; everyone else shows Title instead.
+	// ShowProgress switches the header's second line to the run progress bar
+	// (ConfigFile / CompletedCount / TotalRuns). Only run-type pages set this;
+	// everyone else shows Title instead.
 	ShowProgress   bool
 	ConfigFile     string
 	CompletedCount int
 	TotalRuns      int
-	Elapsed        time.Duration
 
 	KeyBindings []KeyBinding
 }
@@ -53,7 +52,7 @@ func RenderWithChrome(config ChromeConfig, renderBody func(contentHeight int) st
 	headerView := NewHeaderFooterView(width)
 	var header string
 	if config.ShowProgress {
-		header = headerView.RenderHeader(config.ConfigFile, config.CompletedCount, config.TotalRuns, config.Elapsed)
+		header = headerView.RenderHeader(config.ConfigFile, config.CompletedCount, config.TotalRuns)
 	} else {
 		header = headerView.RenderTitleHeader(config.Title)
 	}
@@ -75,4 +74,17 @@ func RenderWithChrome(config ChromeConfig, renderBody func(contentHeight int) st
 		Render(renderBody(bodyHeight))
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+}
+
+// RenderCenteredNotice renders a title + hint centered within width×height. Used
+// for empty-state messages (e.g. a run config with no scenarios).
+func RenderCenteredNotice(width, height int, title, hint string) string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorWarning)).
+		Bold(true)
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorGray)).
+		Italic(true)
+	body := lipgloss.JoinVertical(lipgloss.Center, titleStyle.Render(title), "", hintStyle.Render(hint))
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
 }
