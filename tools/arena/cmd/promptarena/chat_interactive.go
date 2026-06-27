@@ -44,13 +44,23 @@ func runChat(cmd *cobra.Command, _ []string) error {
 		Version:    GetVersion(),
 	}
 
-	if useVoice {
-		appCtx.Voice = &app.VoiceOptions{
-			STTProviderID: voiceSTT,
-			OutputVoice:   voiceOutputVoice,
-			EchoGuard:     echoGuard,
-			BargeIn:       bargeIn,
+	// Auto-enable a live interactive session when the config describes a realtime
+	// (duplex ASM/VAD) pipeline; --voice forces one on for any config.
+	voiceOpts := app.DetectInteractiveSession(eng.GetConfig())
+	if voiceOpts == nil && useVoice {
+		voiceOpts = &app.VoiceOptions{}
+	}
+	if voiceOpts != nil {
+		// CLI flags override / augment whatever the config implied.
+		if voiceSTT != "" {
+			voiceOpts.STTProviderID = voiceSTT
 		}
+		if voiceOutputVoice != "" {
+			voiceOpts.OutputVoice = voiceOutputVoice
+		}
+		voiceOpts.EchoGuard = echoGuard
+		voiceOpts.BargeIn = bargeIn
+		appCtx.Voice = voiceOpts
 	}
 
 	return app.Run(appCtx, app.NewChatPage(appCtx))

@@ -5,6 +5,8 @@
 package app
 
 import (
+	"sort"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -31,13 +33,43 @@ type Closeable interface {
 	Close()
 }
 
-// VoiceOptions carries the voice-mode parameters parsed from CLI flags.
-// A nil *VoiceOptions on AppContext means text-chat mode.
+// VoiceOptions carries the interactive-session parameters. A nil *VoiceOptions
+// on AppContext means plain text chat; non-nil means a live mic/speaker session.
 type VoiceOptions struct {
-	STTProviderID string // --voice-stt ("" = ASM/native realtime mode)
-	OutputVoice   string // --voice-output-voice
-	EchoGuard     bool   // --echo-guard
-	BargeIn       bool   // --barge-in (interrupt the agent mid-reply; opt-in)
+	STTProviderID     string // --voice-stt ("" = ASM/native realtime mode)
+	OutputVoice       string // --voice-output-voice
+	EchoGuard         bool   // --echo-guard
+	BargeIn           bool   // --barge-in (interrupt the agent mid-reply; opt-in)
+	TurnDetectionMode string // "asm" | "vad"; "" defaults to ASM
+}
+
+// DetectInteractiveSession inspects a loaded config and, if it describes a
+// realtime/duplex pipeline (any scenario with a Duplex block), returns
+// VoiceOptions configured to honor its turn-detection mode. It returns nil for
+// plain text-chat configs, so `chat` can light up a live mic/speaker session
+// automatically whenever the config calls for one — no --voice flag needed.
+func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
+	if cfg == nil {
+		return nil
+	}
+	// Iterate deterministically so a multi-scenario config picks the same one.
+	ids := make([]string, 0, len(cfg.LoadedScenarios))
+	for id := range cfg.LoadedScenarios {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		s := cfg.LoadedScenarios[id]
+		if s == nil || s.Duplex == nil {
+			continue
+		}
+		opts := &VoiceOptions{}
+		if td := s.Duplex.TurnDetection; td != nil {
+			opts.TurnDetectionMode = td.Mode
+		}
+		return opts
+	}
+	return nil
 }
 
 // AppContext carries the shared runtime dependencies injected into every Page

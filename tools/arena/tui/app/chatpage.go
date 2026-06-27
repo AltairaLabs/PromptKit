@@ -364,9 +364,9 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		// freeze the audio meter and show an ended status.
 		p.panel.SetAudioLevels(0, 0, false)
 		if v.err != nil {
-			p.statusLine = "🛑 voice session ended: " + chatSanitizeErrorLine(v.err)
+			p.statusLine = "🛑 interactive session ended: " + chatSanitizeErrorLine(v.err)
 		} else {
-			p.statusLine = "🛑 voice session ended (idle timeout or mic closed) — press q to exit"
+			p.statusLine = "🛑 interactive session ended (idle timeout or mic closed) — press q to exit"
 		}
 		return p, nil
 	}
@@ -703,10 +703,14 @@ func (p *ChatPage) chatView() string {
 
 // chatTitle is the page-context line shown in the chrome header.
 func (p *ChatPage) chatTitle() string {
-	if p.taskType != "" && p.provider != "" {
-		return fmt.Sprintf("Chat · %s / %s", p.taskType, p.provider)
+	label := "Chat"
+	if p.voice != nil {
+		label = "Interactive session"
 	}
-	return "Chat"
+	if p.taskType != "" && p.provider != "" {
+		return fmt.Sprintf("%s · %s / %s", label, p.taskType, p.provider)
+	}
+	return label
 }
 
 func (p *ChatPage) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {

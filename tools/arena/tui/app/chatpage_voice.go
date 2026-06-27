@@ -86,7 +86,12 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 	resolvedProvider := p.session.Provider()
 	cfg := p.engine.GetConfig()
 
-	// 4. Build a minimal duplex scenario for ASM mode (provider-native turn detection).
+	// 4. Build a minimal duplex scenario, honoring the turn-detection mode the
+	// config implied (ASM — the provider-native default — or VAD).
+	turnMode := config.TurnDetectionModeASM
+	if p.voice.TurnDetectionMode != "" {
+		turnMode = p.voice.TurnDetectionMode
+	}
 	conversationID := fmt.Sprintf("interactive-voice-%d", time.Now().UnixNano())
 	scenario := &config.Scenario{
 		ID:       "interactive-voice",
@@ -94,7 +99,7 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 		Duplex: &config.DuplexConfig{
 			Timeout: "30m",
 			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeASM,
+				Mode: turnMode,
 			},
 		},
 	}

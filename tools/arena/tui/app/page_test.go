@@ -43,3 +43,29 @@ func TestPageContract(t *testing.T) {
 		}
 	})
 }
+
+func TestDetectInteractiveSession(t *testing.T) {
+	if got := DetectInteractiveSession(nil); got != nil {
+		t.Fatalf("nil config should yield no session, got %+v", got)
+	}
+
+	textOnly := &config.Config{LoadedScenarios: map[string]*config.Scenario{
+		"plain": {ID: "plain"},
+	}}
+	if got := DetectInteractiveSession(textOnly); got != nil {
+		t.Fatalf("text-only config should yield no session, got %+v", got)
+	}
+
+	realtime := &config.Config{LoadedScenarios: map[string]*config.Scenario{
+		"voice": {ID: "voice", Duplex: &config.DuplexConfig{
+			TurnDetection: &config.TurnDetectionConfig{Mode: config.TurnDetectionModeVAD},
+		}},
+	}}
+	got := DetectInteractiveSession(realtime)
+	if got == nil {
+		t.Fatal("realtime config should enable an interactive session")
+	}
+	if got.TurnDetectionMode != config.TurnDetectionModeVAD {
+		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, config.TurnDetectionModeVAD)
+	}
+}
