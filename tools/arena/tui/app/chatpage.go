@@ -64,6 +64,10 @@ const (
 	chatKeyLabelTab  = "tab"
 	chatKeyLabelLogs = "logs"
 	chatKeyCtrlL     = "ctrl+l"
+	// chatKeyLogsVoice toggles the log overlay in voice mode, where there is no
+	// text input to collide with — a plain key the terminal won't intercept
+	// (unlike ctrl+l, which iTerm2 and others grab).
+	chatKeyLogsVoice = "l"
 )
 
 // Layout and sizing constants for the chat view.
@@ -309,7 +313,8 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		p.logs.Append(lm)
 		return p, nil
 	}
-	if km, ok := msg.(tea.KeyMsg); ok && km.Type == tea.KeyCtrlL {
+	if km, ok := msg.(tea.KeyMsg); ok &&
+		(km.Type == tea.KeyCtrlL || (p.voice != nil && km.String() == chatKeyLogsVoice)) {
 		p.logs.Toggle()
 		return p, nil
 	}
@@ -632,7 +637,7 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 		return []views.KeyBinding{
 			{Keys: "🎤 listening", Description: ""},
 			{Keys: chatKeyLabelTab, Description: "focus convo"},
-			{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
+			{Keys: chatKeyLogsVoice, Description: chatKeyLabelLogs},
 			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 		}
 	}

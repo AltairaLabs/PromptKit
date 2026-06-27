@@ -916,3 +916,28 @@ func TestChatPage_AutoScrollsToLast(t *testing.T) {
 
 // Compile-time assert: textinput.Blink is a tea.Cmd (verifies import compiles).
 var _ tea.Cmd = textinput.Blink
+
+func TestChatPage_LogOverlayKeys(t *testing.T) {
+	// Voice mode: a plain "l" toggles the log overlay (no text input to collide
+	// with, and the terminal won't grab it like ctrl+l).
+	pv := NewChatPage(&AppContext{Voice: &VoiceOptions{}})
+	pv.SetSize(80, 24)
+	pv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if !pv.logs.Visible() {
+		t.Fatal("voice mode: 'l' should toggle the log overlay")
+	}
+
+	// Text mode: "l" is typed into the input, not a toggle.
+	pt := NewChatPage(&AppContext{})
+	pt.SetSize(80, 24)
+	pt.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if pt.logs.Visible() {
+		t.Fatal("text mode: 'l' must not toggle the log overlay (it is typed)")
+	}
+
+	// ctrl+l toggles in both modes.
+	pt.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	if !pt.logs.Visible() {
+		t.Fatal("text mode: ctrl+l should toggle the log overlay")
+	}
+}
