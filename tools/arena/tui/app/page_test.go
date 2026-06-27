@@ -69,3 +69,25 @@ func TestDetectInteractiveSession(t *testing.T) {
 		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, config.TurnDetectionModeVAD)
 	}
 }
+
+func TestDetectInteractiveSession_RealtimeProvider(t *testing.T) {
+	// A scenario-less config whose realtime intent lives on the provider.
+	cfg := &config.Config{LoadedProviders: map[string]*config.Provider{
+		"openai-realtime": {Type: "openai", AdditionalConfig: map[string]interface{}{"realtime": true}},
+	}}
+	got := DetectInteractiveSession(cfg)
+	if got == nil {
+		t.Fatal("realtime provider should enable an interactive session")
+	}
+	if got.TurnDetectionMode != config.TurnDetectionModeASM {
+		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, config.TurnDetectionModeASM)
+	}
+
+	// A plain provider must not trigger one.
+	plain := &config.Config{LoadedProviders: map[string]*config.Provider{
+		"openai": {Type: "openai"},
+	}}
+	if DetectInteractiveSession(plain) != nil {
+		t.Fatal("non-realtime provider should stay text chat")
+	}
+}

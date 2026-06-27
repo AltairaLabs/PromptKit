@@ -431,10 +431,13 @@ var _ voice.AudioIO = (*fakeAudioIO)(nil)
 func newVoiceChatPage(t *testing.T) *ChatPage {
 	t.Helper()
 	fixturePath := filepath.Join("testdata", "chat-config", "config.arena.yaml")
-	ctx := &AppContext{Version: "vTEST", Voice: &VoiceOptions{}}
+	ctx := &AppContext{Version: "vTEST"}
 	if err := ctx.LoadConfig(fixturePath); err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
+	// LoadConfig derives Voice from the config (plain fixture => nil); force a
+	// voice session for this wiring test.
+	ctx.Voice = &VoiceOptions{}
 	p := NewChatPage(ctx)
 	p.send = func(tea.Msg) {}
 	_ = p.Activate(func(tea.Msg) {})

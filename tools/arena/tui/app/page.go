@@ -44,21 +44,18 @@ type VoiceOptions struct {
 }
 
 // DetectInteractiveSession inspects a loaded config and, if it describes a
-// realtime/duplex pipeline (any scenario with a Duplex block), returns
-// VoiceOptions configured to honor its turn-detection mode. It returns nil for
-// plain text-chat configs, so `chat` can light up a live mic/speaker session
-// automatically whenever the config calls for one — no --voice flag needed.
+// realtime pipeline, returns VoiceOptions configured to honor its turn-detection
+// mode. Two signals count: a scenario with an explicit Duplex block (honors its
+// ASM/VAD mode), or a native-realtime provider (additional_config.realtime:true,
+// e.g. OpenAI Realtime — ASM). It returns nil for plain text-chat configs, so
+// `chat` lights up a live mic/speaker session automatically whenever the config
+// calls for one — no --voice flag needed.
 func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
 	if cfg == nil {
 		return nil
 	}
-	// Iterate deterministically so a multi-scenario config picks the same one.
-	ids := make([]string, 0, len(cfg.LoadedScenarios))
-	for id := range cfg.LoadedScenarios {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
+	// 1. A scenario with a duplex block → honor its declared turn-detection mode.
+	for _, id := range sortedKeys(cfg.LoadedScenarios) {
 		s := cfg.LoadedScenarios[id]
 		if s == nil || s.Duplex == nil {
 			continue
@@ -69,7 +66,41 @@ func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
 		}
 		return opts
 	}
+	// 2. A native-realtime provider (server-side turn detection) → ASM. This
+	// covers scenario-less voice-console configs whose realtime intent lives on
+	// the provider rather than a scenario.
+	for _, id := range sortedKeys(cfg.LoadedProviders) {
+		if isRealtimeProvider(cfg.LoadedProviders[id]) {
+			return &VoiceOptions{TurnDetectionMode: config.TurnDetectionModeASM}
+		}
+	}
 	return nil
+}
+
+// isRealtimeProvider reports whether a provider declares native realtime audio
+// (additional_config.realtime: true).
+func isRealtimeProvider(p *config.Provider) bool {
+	if p == nil {
+		return false
+	}
+	switch v := p.AdditionalConfig["realtime"].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true"
+	default:
+		return false
+	}
+}
+
+// sortedKeys returns the keys of m in deterministic order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // AppContext carries the shared runtime dependencies injected into every Page
