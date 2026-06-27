@@ -1,12 +1,12 @@
                                                    ✨ PromptArena ✨                                                    
-                                          .  •  [░░░░░░░░░░░░ 0/0]  •  ⏱  0ms                                           
+                                                .  •  [░░░░░░░░░░░░ 0/0]                                                
                                                                                                                         
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                      │
 │  📊 Active Runs                                                                                                      │
-│   Status      Provider              Scenario                        Region        Duration      Cost        Notes    │
+│   Status    Provider           Scenario                         Region      Duration    Cost      Notes              │
 │  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────  │
-│   ✓ Done      mock                  demo-scenario                   us            2s            $0.0000              │
+│   ✓ Done    mock               demo-scenario                    us          2s          $0.0000                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -37,4 +37,4 @@
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                                                         
- q quit • tab cycle focus • enter open conversation • ctrl+←↑↓→ resize • z collapse • ↑/↓ navigate/scroll               
+ ↑/↓ navigate/scroll • tab cycle focus • enter open conversation • z collapse • esc back • q quit                       

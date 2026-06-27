@@ -567,7 +567,9 @@ func TestView_NotInitialized(t *testing.T) {
 	m.height = 0
 
 	view := m.View()
-	assert.Equal(t, "Loading...", view)
+	// Unsized renders nothing — no "Loading…" placeholder snap before the first
+	// WindowSizeMsg.
+	assert.Equal(t, "", view)
 }
 
 func TestUpdate_RunStartedMsg(t *testing.T) {
@@ -1116,4 +1118,3 @@ func TestDelegateKeyToActivePane_ResultPane(t *testing.T) {
 	// Result pane handler should be called
 	_ = cmd
 }
-

@@ -13,7 +13,19 @@ import (
 )
 
 const (
-	boxWidth            = 78
+	boxWidth = 78
+	// boxChrome is the horizontal space a box's border (2) + padding (2) adds on
+	// top of its content width.
+	boxChrome = 4
+	// minBoxWidth keeps boxes readable on very narrow terminals.
+	minBoxWidth = 40
+	// minColWidth is the narrowest a grid column (box content + chrome) may be;
+	// it sets how soon extra columns are added as the terminal widens.
+	minColWidth = 46
+	// colGap is the blank space between grid columns.
+	colGap = 2
+	// maxColumns caps the grid so boxes never get too thin to read.
+	maxColumns          = 3
 	maxDescLength       = 55
 	maxDescLengthPrompt = 60
 	maxGoalsDisplayed   = 3
@@ -46,17 +58,11 @@ const (
 
 // Style definitions for terminal output
 var (
-	// Box styles
+	// Box style — width is applied per render (full width or a grid column).
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(theme.ColorPrimary)).
-			Padding(0, 1).
-			Width(boxWidth)
-
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(theme.ColorPrimary)).
-			MarginBottom(1)
+			Padding(0, 1)
 
 	sectionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -97,7 +103,134 @@ var (
 // opts controls which sections and detail levels are included.
 // It captures stdout so that the lipgloss Print calls are collected into
 // the returned string.
+// Grid layout state for the current render. The renderer is single-threaded (it
+// captures global stdout), so per-call package state is safe.
+var (
+	fullBoxWidth  = boxWidth
+	colBoxWidth   = boxWidth
+	activeColumns = 1
+)
+
+// effectiveBoxWidth returns the full content width for boxes: the terminal width
+// minus the box border/padding when a width is supplied (TUI), else the default
+// fixed print width (CLI).
+func effectiveBoxWidth(termWidth int) int {
+	if termWidth <= 0 {
+		return boxWidth
+	}
+	if w := termWidth - boxChrome; w > minBoxWidth {
+		return w
+	}
+	return minBoxWidth
+}
+
+// computeColumns returns how many grid columns fit in termWidth, capped at
+// maxColumns. Zero/negative width (CLI) renders a single column.
+func computeColumns(termWidth int) int {
+	if termWidth <= 0 {
+		return 1
+	}
+	cols := (termWidth + colGap) / (minColWidth + colGap)
+	if cols < 1 {
+		cols = 1
+	}
+	if cols > maxColumns {
+		cols = maxColumns
+	}
+	return cols
+}
+
+// columnWidth returns the content width of a single box in a cols-wide grid.
+func columnWidth(termWidth, cols int) int {
+	if termWidth <= 0 || cols <= 1 {
+		return effectiveBoxWidth(termWidth)
+	}
+	avail := termWidth - colGap*(cols-1)
+	if w := avail/cols - boxChrome; w > minBoxWidth {
+		return w
+	}
+	return minBoxWidth
+}
+
+// printBoxes renders each line set as a box, stacked vertically. Boxes take the
+// full width in single-column layout and a column width when the sections are
+// laid out as a grid (so each section fits within its column).
+func printBoxes(lineSets [][]string) {
+	width := fullBoxWidth
+	if activeColumns > 1 {
+		width = colBoxWidth
+	}
+	for _, ls := range lineSets {
+		fmt.Println(boxStyle.Width(width).Render(strings.Join(ls, "\n")))
+	}
+}
+
+// captureStdout runs fn with stdout redirected to a pipe and returns everything
+// it wrote. Used to render each section into a self-contained block so the
+// blocks can be arranged into columns. Nests safely inside RenderText's own
+// capture (it saves and restores whatever stdout it found).
+func captureStdout(fn func()) string {
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		fn()
+		return ""
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	_ = r.Close()
+	return buf.String()
+}
+
+// emitSectionBlocks arranges whole section blocks into the active number of
+// columns using shortest-column-first packing (a masonry/dashboard layout), so
+// even configs with one item per section fill a wide terminal. A single-column
+// layout just stacks them.
+func emitSectionBlocks(blocks []string) {
+	if len(blocks) == 0 {
+		return
+	}
+	if activeColumns <= 1 {
+		fmt.Println(strings.Join(blocks, "\n\n"))
+		return
+	}
+	columns := make([]string, activeColumns)
+	heights := make([]int, activeColumns)
+	for _, b := range blocks {
+		shortest := 0
+		for i := 1; i < activeColumns; i++ {
+			if heights[i] < heights[shortest] {
+				shortest = i
+			}
+		}
+		if columns[shortest] != "" {
+			columns[shortest] += "\n\n"
+		}
+		columns[shortest] += b
+		heights[shortest] += lipgloss.Height(b) + 1
+	}
+	gap := strings.Repeat(" ", colGap)
+	cells := make([]string, 0, activeColumns*2-1)
+	for i, c := range columns {
+		if i > 0 {
+			cells = append(cells, gap)
+		}
+		cells = append(cells, c)
+	}
+	fmt.Println(lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+}
+
 func RenderText(data *InspectionData, opts RenderOptions) string {
+	// Size the grid for this render.
+	fullBoxWidth = effectiveBoxWidth(opts.Width)
+	activeColumns = computeColumns(opts.Width)
+	colBoxWidth = columnWidth(opts.Width, activeColumns)
+
 	// Capture everything written to stdout during rendering.
 	origStdout := os.Stdout
 	r, w, err := os.Pipe()
@@ -122,16 +255,15 @@ func RenderText(data *InspectionData, opts RenderOptions) string {
 }
 
 func outputText(data *InspectionData, opts RenderOptions) {
-	printBanner(data.ConfigFile)
+	printConfigHeader(data.ConfigFile)
 	printSections(data, opts)
 }
 
-// printBanner prints the inspector header banner
-func printBanner(configFile string) {
-	banner := headerStyle.Render("✨ PromptArena Configuration Inspector ✨")
-	fmt.Println(banner)
-	fmt.Println()
-	fmt.Println(boxStyle.Render(
+// printConfigHeader prints the inspected config's path. The "PromptArena" banner
+// and "Inspect" title are supplied by the surrounding chrome, so no title is
+// repeated here.
+func printConfigHeader(configFile string) {
+	fmt.Println(boxStyle.Width(fullBoxWidth).Render(
 		labelStyle.Render("Configuration: ") + highlightStyle.Render(configFile),
 	))
 	fmt.Println()
@@ -155,45 +287,38 @@ func getSectionVisibility(section string) SectionVisibility {
 }
 
 // printSections prints all visible sections
+// printSections renders every visible section into its own block, then arranges
+// the blocks into columns so the inspector fills a wide terminal.
 func printSections(data *InspectionData, opts RenderOptions) {
 	vis := getSectionVisibility(opts.Section)
-	printConfigSections(data, vis, opts)
-	printSummarySections(data, vis, opts)
-	if opts.Stats && data.CacheStats != nil {
-		printCacheStatistics(data.CacheStats)
+	candidates := []struct {
+		show bool
+		fn   func()
+	}{
+		{vis.Prompts && len(data.PromptConfigs) > 0, func() { printPromptsSection(data, opts) }},
+		{vis.Providers && len(data.Providers) > 0, func() { printProvidersSection(data, opts) }},
+		{vis.Scenarios && len(data.Scenarios) > 0, func() { printScenariosSection(data, opts) }},
+		{vis.Tools && len(data.Tools) > 0, func() { printToolsSection(data, opts) }},
+		{
+			vis.Selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0),
+			func() { printPersonasSection(data, opts) },
+		},
+		{vis.Judges && len(data.Judges) > 0, func() { printJudgesSection(data) }},
+		{vis.Defaults && data.Defaults != nil, func() { printDefaultsSection(data, opts) }},
+		{vis.Validation, func() { printValidationSection(data) }},
+		{opts.Stats && data.CacheStats != nil, func() { printCacheStatistics(data.CacheStats) }},
 	}
-}
 
-// printConfigSections prints the main configuration sections
-func printConfigSections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
-	if vis.Prompts && len(data.PromptConfigs) > 0 {
-		printPromptsSection(data, opts)
+	var blocks []string
+	for _, c := range candidates {
+		if !c.show {
+			continue
+		}
+		if block := strings.TrimRight(captureStdout(c.fn), "\n"); strings.TrimSpace(block) != "" {
+			blocks = append(blocks, block)
+		}
 	}
-	if vis.Providers && len(data.Providers) > 0 {
-		printProvidersSection(data, opts)
-	}
-	if vis.Scenarios && len(data.Scenarios) > 0 {
-		printScenariosSection(data, opts)
-	}
-	if vis.Tools && len(data.Tools) > 0 {
-		printToolsSection(data, opts)
-	}
-	if vis.Selfplay && (len(data.Personas) > 0 || len(data.SelfPlayRoles) > 0) {
-		printPersonasSection(data, opts)
-	}
-	if vis.Judges && len(data.Judges) > 0 {
-		printJudgesSection(data)
-	}
-}
-
-// printSummarySections prints the summary sections (defaults, validation)
-func printSummarySections(data *InspectionData, vis SectionVisibility, opts RenderOptions) {
-	if vis.Defaults && data.Defaults != nil {
-		printDefaultsSection(data, opts)
-	}
-	if vis.Validation {
-		printValidationSection(data)
-	}
+	emitSectionBlocks(blocks)
 }
 
 // truncateInspectString truncates a string to the given length with ellipsis

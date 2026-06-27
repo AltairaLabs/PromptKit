@@ -565,27 +565,17 @@ func TestChatPage_Update_chatStreamDoneMsg(t *testing.T) {
 	}
 }
 
-// TestChatPage_InputView_FocusColors verifies input border changes with focus.
+// TestChatPage_InputView_FocusColors verifies the text composer renders a
+// different border depending on input focus.
 func TestChatPage_InputView_FocusColors(t *testing.T) {
-	p := NewChatPage(&AppContext{Version: "vTEST"})
-	p.SetSize(80, 24)
+	c := NewTextComposer()
+	c.SetWidth(80)
 
-	p.panelFocused = false
-	colorFocused := p.chatInputBorderColor()
-	p.panelFocused = true
-	colorUnfocused := p.chatInputBorderColor()
-
-	if colorFocused == colorUnfocused {
-		t.Fatal("expected different border colors for focused vs unfocused input")
+	if c.View("hello", true) == "" || c.View("hello", false) == "" {
+		t.Fatal("expected non-empty composer output")
 	}
-
-	// inputView should render without panic in both states.
-	p.panelFocused = false
-	v1 := p.inputView()
-	p.panelFocused = true
-	v2 := p.inputView()
-	if v1 == "" || v2 == "" {
-		t.Fatal("expected non-empty inputView")
+	if c.borderColor(true) == c.borderColor(false) {
+		t.Fatal("expected different border color for focused vs unfocused input")
 	}
 }
 
@@ -926,3 +916,28 @@ func TestChatPage_AutoScrollsToLast(t *testing.T) {
 
 // Compile-time assert: textinput.Blink is a tea.Cmd (verifies import compiles).
 var _ tea.Cmd = textinput.Blink
+
+func TestChatPage_LogOverlayKeys(t *testing.T) {
+	// Voice mode: a plain "l" toggles the log overlay (no text input to collide
+	// with, and the terminal won't grab it like ctrl+l).
+	pv := NewChatPage(&AppContext{Voice: &VoiceOptions{}})
+	pv.SetSize(80, 24)
+	pv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if !pv.logs.Visible() {
+		t.Fatal("voice mode: 'l' should toggle the log overlay")
+	}
+
+	// Text mode: "l" is typed into the input, not a toggle.
+	pt := NewChatPage(&AppContext{})
+	pt.SetSize(80, 24)
+	pt.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if pt.logs.Visible() {
+		t.Fatal("text mode: 'l' must not toggle the log overlay (it is typed)")
+	}
+
+	// ctrl+l toggles in both modes.
+	pt.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	if !pt.logs.Visible() {
+		t.Fatal("text mode: ctrl+l should toggle the log overlay")
+	}
+}

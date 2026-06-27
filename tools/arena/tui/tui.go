@@ -94,8 +94,8 @@ type Model struct {
 	selectedRunID string
 
 	// audioMonitor lets the model switch host playback between concurrent
-	// runs. Nil when audio monitoring is disabled or unavailable.
-	// Retained pending hub audio re-wire — see AltairaLabs/PromptKit#1460.
+	// runs. Nil when audio monitoring is disabled or unavailable. Wired by
+	// RunPage.Activate for realtime/duplex runs.
 	audioMonitor audioMonitor
 }
 
@@ -376,28 +376,28 @@ func (m *Model) View() string {
 		return ""
 	}
 	if m.width == 0 || m.height == 0 {
-		return "Loading..."
+		// Render nothing until sized — a placeholder here caused a visible
+		// "Loading…"→full-frame snap (the header appearing to arrive last).
+		return ""
 	}
 
-	elapsed := time.Since(m.startTime).Truncate(time.Second)
-
 	keyBindings := []views.KeyBinding{
-		{Keys: "q", Description: "quit"},
+		{Keys: "↑/↓", Description: "navigate/scroll"},
 		{Keys: "tab", Description: "cycle focus"},
 		{Keys: "enter", Description: "open conversation"},
-		{Keys: "ctrl+←↑↓→", Description: "resize"},
 		{Keys: "z", Description: "collapse"},
-		{Keys: "↑/↓", Description: "navigate/scroll"},
+		{Keys: "esc", Description: "back"},
+		{Keys: "q", Description: "quit"},
 	}
 
 	return views.RenderWithChrome(
 		views.ChromeConfig{
 			Width:          m.width,
 			Height:         m.height,
+			ShowProgress:   true,
 			ConfigFile:     m.configFile,
 			CompletedCount: m.completedCount,
 			TotalRuns:      m.totalRuns,
-			Elapsed:        elapsed,
 			KeyBindings:    keyBindings,
 		},
 		func(contentHeight int) string {
@@ -407,6 +407,13 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderMainPage(contentHeight int) string {
+	// No scenarios to run — show an empty-state notice instead of a blank table.
+	if m.totalRuns == 0 && len(m.activeRuns) == 0 {
+		return views.RenderCenteredNotice(m.width, contentHeight,
+			"No scenarios defined in this config.",
+			"Add scenarios to the config, or press esc to go back.")
+	}
+
 	// Convert model data to panel format
 	runs := m.convertToRunInfos()
 	logs := m.convertToLogEntries()
@@ -512,13 +519,10 @@ func (m *Model) handleMainPageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "z":
 		m.mainPage.ToggleCollapseFocused()
 		return m, nil
-	case "ctrl+up", "ctrl+right":
-		m.mainPage.GrowFocused(1)
-		return m, nil
-	case "ctrl+down", "ctrl+left":
-		m.mainPage.GrowFocused(-1)
-		return m, nil
 	}
+	// Note: manual pane resize (formerly ctrl+arrows) was removed — those
+	// chords are swallowed by common terminals (iTerm2/tmux). Panes auto-layout;
+	// `z` collapses/expands the focused pane.
 
 	cmd := m.delegateKeyToActivePane(msg)
 	return m, cmd
@@ -807,24 +811,21 @@ func (m *Model) buildSummaryFromStateStore(outputDir, htmlReport string) *Summar
 
 // NewModel creates a new TUI model with the specified configuration file and total run count.
 func NewModel(configFile string, totalRuns int) *Model {
-	width, height, supported, reason := CheckTerminalSize()
-
-	// Ensure we always have minimum dimensions
-	if width < MinTerminalWidth {
-		width = MinTerminalWidth
-	}
-	if height < MinTerminalHeight {
-		height = MinTerminalHeight
-	}
+	_, _, supported, reason := CheckTerminalSize()
 
 	return &Model{
-		configFile:     configFile,
-		totalRuns:      totalRuns,
-		startTime:      time.Now(),
-		activeRuns:     make([]RunInfo, 0),
-		logs:           make([]LogEntry, 0, maxLogBufferSize),
-		width:          width,
-		height:         height,
+		configFile: configFile,
+		totalRuns:  totalRuns,
+		startTime:  time.Now(),
+		activeRuns: make([]RunInfo, 0),
+		logs:       make([]LogEntry, 0, maxLogBufferSize),
+		// Leave the size at 0 until the first WindowSizeMsg. Pre-seeding from the
+		// current terminal made the model paint once at that size and then
+		// repaint at the real size — the visible "draw, resize, draw again" jank.
+		// View() renders nothing while unsized, so the first paint is the
+		// correctly-sized one.
+		width:          0,
+		height:         0,
 		isTUIMode:      supported,
 		fallbackReason: reason,
 		ctx:            context.Background(),
@@ -841,8 +842,8 @@ func (m *Model) SetStateStore(store runResultStorer) {
 }
 
 // SetAudioMonitor attaches an audio monitor so the TUI can re-route host
-// playback when the user navigates between concurrent runs. Nil-safe.
-// Retained pending hub audio re-wire — see AltairaLabs/PromptKit#1460.
+// playback when the user navigates between concurrent runs. Nil-safe. Wired by
+// RunPage.Activate for realtime/duplex runs.
 func (m *Model) SetAudioMonitor(monitor audioMonitor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -52,5 +52,8 @@ func (c *AppContext) LoadConfig(path string) error {
 	c.Config = cfg
 	c.ConfigPath = path
 	c.ResultsDir = ResultsDirFromConfig(path)
+	// Auto-detect a realtime/voice config so navigating to Chat from the hub
+	// starts an interactive session (the `chat` subcommand sets this itself).
+	c.Voice = DetectInteractiveSession(cfg)
 	return nil
 }

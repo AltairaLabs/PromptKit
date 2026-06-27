@@ -80,7 +80,7 @@ func (c *ConversationPanel) buildEmptyConversationView() string {
 		BorderForeground(tableBorderColor).
 		Render(emptyTableContent)
 
-	width := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
+	width := c.width - c.listWidth() - conversationPanelGap - conversationDetailWidthPad
 	if width < conversationDetailMinWidth {
 		width = conversationDetailMinWidth
 	}
@@ -244,7 +244,7 @@ func (c *ConversationPanel) addScrollIndicators(content string) string {
 }
 
 func (c *ConversationPanel) calculateViewportWidth() int {
-	viewportWidth := c.width - conversationListWidth - conversationPanelGap - conversationDetailWidthPad
+	viewportWidth := c.width - c.listWidth() - conversationPanelGap - conversationDetailWidthPad
 	if viewportWidth < conversationDetailMinWidth {
 		viewportWidth = conversationDetailMinWidth
 	}
@@ -257,7 +257,7 @@ func (c *ConversationPanel) renderMarkdown(content string) string {
 	}
 
 	// Calculate available width
-	contentWidth := c.width - conversationListWidth - conversationPanelGap -
+	contentWidth := c.width - c.listWidth() - conversationPanelGap -
 		conversationDetailWidthPad - markdownExtraWidthPadding
 	if contentWidth < conversationDetailMinWidth {
 		contentWidth = conversationDetailMinWidth

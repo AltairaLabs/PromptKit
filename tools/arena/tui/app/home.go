@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
 // menuItem describes a single entry in the Home page menu.
@@ -81,11 +82,6 @@ func (h *Home) Update(msg tea.Msg) (Page, tea.Cmd) {
 // View implements Page. It renders a small heading, a config indicator line,
 // and the menu with disabled items rendered faint/greyed.
 func (h *Home) View() string {
-	heading := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(theme.ColorPrimary)).
-		Render("PromptArena")
-
 	var configLine string
 	if h.ctx.HasConfig() {
 		name := configName(h.ctx.ConfigPath)
@@ -124,18 +120,36 @@ func (h *Home) View() string {
 	}
 
 	content := strings.Join([]string{
-		heading,
-		"",
 		configLine,
 		"",
 		strings.Join(menuLines, "\n"),
 	}, "\n")
 
-	return lipgloss.Place(h.w, h.h, lipgloss.Left, lipgloss.Top, content)
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       h.w,
+			Height:      h.h,
+			Title:       titleHome,
+			KeyBindings: homeBindings(),
+		},
+		func(contentHeight int) string {
+			return lipgloss.Place(h.w, contentHeight, lipgloss.Left, lipgloss.Top, content)
+		},
+	)
+}
+
+// homeBindings are the footer key hints for the Home menu.
+func homeBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: chatKeyLabelScrl, Description: "move"},
+		{Keys: keyEnter, Description: chatKeyLabelSel},
+		{Keys: "c", Description: "config"},
+		{Keys: "q", Description: "quit"},
+	}
 }
 
 // Title implements Page.
-func (h *Home) Title() string { return "Home" }
+func (h *Home) Title() string { return titleHome }
 
 // SetSize implements Page.
 func (h *Home) SetSize(width, height int) {

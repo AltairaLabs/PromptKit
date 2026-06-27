@@ -32,7 +32,7 @@ func printCacheStatistics(stats *CacheStatsData) {
 	}
 
 	if len(lines) > 0 {
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		printBoxes([][]string{lines})
 	}
 	fmt.Println()
 }

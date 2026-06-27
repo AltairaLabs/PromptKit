@@ -34,6 +34,39 @@ npm install --save-dev @altairalabs/promptarena
 }
 ```
 
+> **Zero dependencies.** The package ships a single, statically-linked,
+> pure-Go binary for your platform. `run`, `view`, `chat` (text), reports — all
+> work straight from `npm install` with **no native libraries to install**.
+
+## Voice mode (optional)
+
+Hands-free voice (`promptarena chat --voice`) is the **only** feature with an
+extra requirement: it needs **PortAudio** installed on your machine for
+microphone capture. The binary loads PortAudio **at runtime, on demand** — so:
+
+- You do **not** need PortAudio to install or to use any non-voice feature.
+- If you run `chat --voice` without PortAudio, **only voice** is unavailable —
+  you get a clear message with install instructions, and everything else keeps
+  working.
+
+Install PortAudio only if you want voice:
+
+| OS | Install |
+|----|---------|
+| macOS | `brew install portaudio` |
+| Debian/Ubuntu | `sudo apt install libportaudio2` |
+| Windows | place `portaudio.dll` on your `PATH` |
+
+```bash
+# Text chat — no PortAudio needed
+promptarena chat
+
+# Voice chat — needs PortAudio installed (see table above)
+promptarena chat --voice
+```
+
+See the [Voice Console guide](https://promptkit.altairalabs.ai/arena/how-to/voice-console/) for setup details.
+
 ## What is PromptKit Arena?
 
 PromptKit Arena is a comprehensive testing framework for LLM-based applications. It allows you to:

@@ -9,11 +9,11 @@ func printScenariosSection(data *InspectionData, opts RenderOptions) {
 	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf(" 🎬 Scenarios (%d) ", len(data.Scenarios))))
 	fmt.Println()
 
+	sets := make([][]string, len(data.Scenarios))
 	for i := range data.Scenarios {
-		s := &data.Scenarios[i]
-		lines := buildScenarioLines(s, opts)
-		fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		sets[i] = buildScenarioLines(&data.Scenarios[i], opts)
 	}
+	printBoxes(sets)
 	fmt.Println()
 }
 

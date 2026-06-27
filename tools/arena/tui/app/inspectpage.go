@@ -7,12 +7,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
+)
+
+// Shared footer key-hint labels.
+const (
+	keyHintScroll = "scroll"
+	keyHintBack   = "back"
 )
 
 // InspectPage is a scrollable hub page that displays the configuration
 // inspector output (the same content as `promptarena config-inspect`).
 type InspectPage struct {
-	vp      viewport.Model
+	vp   viewport.Model
+	data *inspect.InspectionData
+	opts inspect.RenderOptions
+	// content is the rendered inspector text (or a placeholder when no config is
+	// loaded). It is (re)rendered at the live terminal width on SetSize.
 	content string
 	ready   bool
 	w, h    int
@@ -29,17 +40,32 @@ func NewInspectPage(ctx *AppContext) *InspectPage {
 // allowing callers to thread --verbose/--section/--stats/--short flags through
 // from the CLI. If ctx is nil or has no config loaded, a placeholder is shown.
 func NewInspectPageWithOptions(ctx *AppContext, opts inspect.RenderOptions) *InspectPage {
-	p := &InspectPage{}
+	p := &InspectPage{opts: opts}
 	if ctx != nil && ctx.Config != nil {
 		data := inspect.CollectInspectionData(ctx.Config, ctx.ConfigPath)
+		// Run the validator so the view reports real status; without this
+		// ValidationPassed defaults to false and every config reads as "errors".
+		inspect.PopulateValidation(data, ctx.Config, ctx.ConfigPath)
 		if opts.Stats {
 			data.CacheStats = inspect.CollectCacheStats(ctx.Config, opts.Verbose)
 		}
-		p.content = inspect.RenderText(data, opts)
+		p.data = data
+		p.renderContent() // populate at default width; SetSize re-renders to fit
 	} else {
 		p.content = "No configuration loaded."
 	}
 	return p
+}
+
+// renderContent (re)renders the inspector text at the current terminal width so
+// the boxes fill the available space. No-op when no config is loaded (the
+// placeholder set in the constructor stands).
+func (p *InspectPage) renderContent() {
+	if p.data == nil {
+		return
+	}
+	p.opts.Width = p.w
+	p.content = inspect.RenderText(p.data, p.opts)
 }
 
 // Init implements Page.
@@ -69,20 +95,42 @@ func (p *InspectPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 	return p, nil
 }
 
-// View implements Page.
+// View implements Page. Renders the scrollable content above a consistent
+// footer key-hint bar (shared with the other hub pages).
 func (p *InspectPage) View() string {
-	if !p.ready {
-		return strings.TrimSpace(p.content)
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       p.w,
+			Height:      p.h,
+			Title:       titleInspect,
+			KeyBindings: inspectBindings(),
+		},
+		func(contentHeight int) string {
+			if !p.ready {
+				return strings.TrimSpace(p.content)
+			}
+			p.vp.Height = contentHeight
+			return p.vp.View()
+		},
+	)
+}
+
+// inspectBindings are the footer key hints for the Inspect page.
+func inspectBindings() []views.KeyBinding {
+	return []views.KeyBinding{
+		{Keys: chatKeyLabelScrl, Description: keyHintScroll},
+		{Keys: "g/G", Description: "top/bottom"},
+		{Keys: chatKeyLabelEsc, Description: keyHintBack},
 	}
-	return p.vp.View()
 }
 
 // Title implements Page.
-func (p *InspectPage) Title() string { return "Inspect" }
+func (p *InspectPage) Title() string { return titleInspect }
 
 // SetSize implements Page. Initializes (or re-initializes) the viewport.
 func (p *InspectPage) SetSize(w, h int) {
 	p.w, p.h = w, h
+	p.renderContent()
 	p.vp = viewport.New(w, h)
 	p.vp.SetContent(p.content)
 	p.ready = true

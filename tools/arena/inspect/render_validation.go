@@ -10,7 +10,7 @@ func printValidationSection(data *InspectionData) {
 	fmt.Println()
 
 	lines := buildValidationLines(data)
-	fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+	printBoxes([][]string{lines})
 	fmt.Println()
 }
 

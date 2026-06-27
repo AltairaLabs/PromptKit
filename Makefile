@@ -69,22 +69,10 @@ build-arena: ## Build promptarena CLI (includes frontend if node_modules present
 		-o ../../bin/promptarena ./cmd/promptarena
 	@echo "promptarena built successfully -> bin/promptarena"
 
-build-arena-voice: ## Build promptarena with voice (cgo + PortAudio; requires portaudio installed)
-	@echo "Building promptarena (voice)..."
-	@LATEST_TAG=$$(git tag -l "tools/arena/v*" --sort=-v:refname | head -1 | sed 's|^tools/arena/||'); \
-	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
-	BRANCH=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown"); \
-	if git describe --tags --match "tools/arena/v*" --dirty 2>/dev/null | grep -q "tools/arena"; then \
-		VERSION=$$(git describe --tags --match "tools/arena/v*" --dirty 2>/dev/null | sed 's|^tools/arena/||'); \
-	else \
-		DIRTY=$$(git diff --quiet 2>/dev/null || echo "-dirty"); \
-		VERSION="$$LATEST_TAG-$$BRANCH+$$COMMIT$$DIRTY"; \
-	fi; \
-	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-	cd tools/arena && CGO_ENABLED=1 go build -tags voice \
-		-ldflags "-X main.version=$$VERSION-voice -X main.gitCommit=$$COMMIT -X main.buildDate=$$DATE" \
-		-o ../../bin/promptarena-voice ./cmd/promptarena
-	@echo "promptarena-voice built successfully -> bin/promptarena-voice"
+# Voice ships in the single promptarena binary: it loads PortAudio at runtime
+# (no cgo, pure-Go build). PortAudio only needs to be installed to USE voice.
+# Retained as an alias so existing docs / muscle memory keep working.
+build-arena-voice: build-arena ## Deprecated alias for build-arena (voice is built in; runtime-loads PortAudio)
 
 build-packc: ## Build packc CLI
 	@echo "Building packc..."

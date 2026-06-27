@@ -5,6 +5,8 @@
 package app
 
 import (
+	"sort"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -31,13 +33,74 @@ type Closeable interface {
 	Close()
 }
 
-// VoiceOptions carries the voice-mode parameters parsed from CLI flags.
-// A nil *VoiceOptions on AppContext means text-chat mode.
+// VoiceOptions carries the interactive-session parameters. A nil *VoiceOptions
+// on AppContext means plain text chat; non-nil means a live mic/speaker session.
 type VoiceOptions struct {
-	STTProviderID string // --voice-stt ("" = ASM/native realtime mode)
-	OutputVoice   string // --voice-output-voice
-	EchoGuard     bool   // --echo-guard
-	BargeIn       bool   // --barge-in (interrupt the agent mid-reply; opt-in)
+	STTProviderID     string // --voice-stt ("" = ASM/native realtime mode)
+	OutputVoice       string // --voice-output-voice
+	EchoGuard         bool   // --echo-guard
+	BargeIn           bool   // --barge-in (interrupt the agent mid-reply; opt-in)
+	TurnDetectionMode string // "asm" | "vad"; "" defaults to ASM
+}
+
+// DetectInteractiveSession inspects a loaded config and, if it describes a
+// realtime pipeline, returns VoiceOptions configured to honor its turn-detection
+// mode. Two signals count: a scenario with an explicit Duplex block (honors its
+// ASM/VAD mode), or a native-realtime provider (additional_config.realtime:true,
+// e.g. OpenAI Realtime — ASM). It returns nil for plain text-chat configs, so
+// `chat` lights up a live mic/speaker session automatically whenever the config
+// calls for one — no --voice flag needed.
+func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
+	if cfg == nil {
+		return nil
+	}
+	// 1. A scenario with a duplex block → honor its declared turn-detection mode.
+	for _, id := range sortedKeys(cfg.LoadedScenarios) {
+		s := cfg.LoadedScenarios[id]
+		if s == nil || s.Duplex == nil {
+			continue
+		}
+		opts := &VoiceOptions{}
+		if td := s.Duplex.TurnDetection; td != nil {
+			opts.TurnDetectionMode = td.Mode
+		}
+		return opts
+	}
+	// 2. A native-realtime provider (server-side turn detection) → ASM. This
+	// covers scenario-less voice-console configs whose realtime intent lives on
+	// the provider rather than a scenario.
+	for _, id := range sortedKeys(cfg.LoadedProviders) {
+		if isRealtimeProvider(cfg.LoadedProviders[id]) {
+			return &VoiceOptions{TurnDetectionMode: config.TurnDetectionModeASM}
+		}
+	}
+	return nil
+}
+
+// isRealtimeProvider reports whether a provider declares native realtime audio
+// (additional_config.realtime: true).
+func isRealtimeProvider(p *config.Provider) bool {
+	if p == nil {
+		return false
+	}
+	switch v := p.AdditionalConfig["realtime"].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true"
+	default:
+		return false
+	}
+}
+
+// sortedKeys returns the keys of m in deterministic order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // AppContext carries the shared runtime dependencies injected into every Page
@@ -53,6 +116,12 @@ type AppContext struct {
 	Engine     *engine.Engine
 	Version    string
 	Voice      *VoiceOptions // nil => text chat
+
+	// Verbose raises the hub's log interceptor to debug level and (with
+	// LogDir set) tees logs to <LogDir>/promptarena.log. LogDir is the
+	// directory for that file — usually the run's output dir.
+	Verbose bool
+	LogDir  string
 }
 
 // HasConfig reports whether a config has been loaded into this context.

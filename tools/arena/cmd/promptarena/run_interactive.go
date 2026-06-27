@@ -310,6 +310,8 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 		Engine:     eng,
 		StateStore: eng.GetStateStore(),
 		Version:    GetVersion(),
+		Verbose:    params.Verbose,
+		LogDir:     params.OutDir,
 	}
 
 	runPage := app.NewRunPage(appCtx, eng, plan, params.Concurrency, params.ConfigFile, params.TotalRuns)

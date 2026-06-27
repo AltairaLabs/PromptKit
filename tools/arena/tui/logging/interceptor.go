@@ -42,7 +42,7 @@ const (
 // non-blocking (drops on full); the worker drains and calls Send.
 type Interceptor struct {
 	originalHandler slog.Handler
-	program         *tea.Program
+	send            func(tea.Msg)
 	logFile         *os.File
 	suppressStderr  bool
 	logBuffer       []slog.Record
@@ -64,15 +64,17 @@ type Interceptor struct {
 	drops atomic.Uint64
 }
 
-// NewInterceptor creates a log interceptor that sends logs to the TUI.
+// NewInterceptor creates a log interceptor that sends logs to the TUI via the
+// supplied send func. A *tea.Program's Send method satisfies func(tea.Msg), so
+// callers driving a running program pass program.Send.
 // If logFilePath is not empty, logs will also be written to that file.
 // If suppressStderr is true, logs won't be sent to the original handler (useful for TUI mode).
 func NewInterceptor(
-	originalHandler slog.Handler, program *tea.Program, logFilePath string, suppressStderr bool,
+	originalHandler slog.Handler, send func(tea.Msg), logFilePath string, suppressStderr bool,
 ) (*Interceptor, error) {
 	interceptor := &Interceptor{
 		originalHandler: originalHandler,
-		program:         program,
+		send:            send,
 		suppressStderr:  suppressStderr,
 		tuiSendCh:       make(chan Msg, tuiSendChanBuffer),
 		tuiSendDone:     make(chan struct{}),
@@ -98,10 +100,10 @@ func NewInterceptor(
 func (l *Interceptor) runTUIWorker() {
 	defer close(l.tuiSendDone)
 	for msg := range l.tuiSendCh {
-		if l.program == nil {
+		if l.send == nil {
 			continue
 		}
-		// program.Send can panic if the program is in a bad state
+		// send can panic if the program is in a bad state
 		// (e.g. shutting down concurrently). Recover and discard.
 		func() {
 			defer func() {
@@ -109,7 +111,7 @@ func (l *Interceptor) runTUIWorker() {
 					fmt.Fprintf(os.Stderr, "panic sending log to TUI: %v\n", r)
 				}
 			}()
-			l.program.Send(msg)
+			l.send(msg)
 		}()
 	}
 }
@@ -163,7 +165,7 @@ func (l *Interceptor) Handle(ctx context.Context, record slog.Record) error {
 
 	// Send to TUI via the worker goroutine. NEVER block the engine on
 	// the TUI — drop the log line if the buffer is full.
-	if l.program != nil {
+	if l.send != nil {
 		l.closeMu.RLock()
 		if !l.closed {
 			msg := Msg{
@@ -196,7 +198,7 @@ func (l *Interceptor) Handle(ctx context.Context, record slog.Record) error {
 
 // WithAttrs returns a new handler with additional attributes.
 //
-// Subloggers share the parent's program/file/worker so attributed logs
+// Subloggers share the parent's send/file/worker so attributed logs
 // route through the same backpressure path.
 func (l *Interceptor) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &subInterceptor{parent: l, handler: l.originalHandler.WithAttrs(attrs)}
@@ -235,7 +237,7 @@ func (s *subInterceptor) Handle(ctx context.Context, record slog.Record) error {
 	} else if err := s.handler.Handle(ctx, record); err != nil {
 		return err
 	}
-	if s.parent.program != nil {
+	if s.parent.send != nil {
 		s.parent.closeMu.RLock()
 		if !s.parent.closed {
 			msg := Msg{

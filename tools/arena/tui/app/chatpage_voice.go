@@ -42,27 +42,28 @@ const echoGuardThreshold = 0.02
 // On success the cancel func is stored in p.voiceCancel; callers invoke it via
 // ChatPage.Close() to stop the driver and release the mic.
 //
-// Returns nil when voice.ErrVoiceNotCompiled is detected (sets p.engineErr with
-// build instructions instead of propagating the error as a crash).
+// On any AudioIO error (e.g. no audio device) it sets p.engineErr and returns
+// nil instead of crashing.
 func (p *ChatPage) startVoice(send func(tea.Msg)) tea.Cmd {
 	if send == nil {
 		send = func(tea.Msg) {}
 	}
 
-	// 1. Check AudioIO availability before doing anything expensive.
-	audioIO, err := voice.NewAudioIO()
+	// 1. Open the audio device. newAudioIO is a package var so tests can
+	// substitute a fake without touching real hardware.
+	audioIO, err := newAudioIO()
 	if err != nil {
-		if errors.Is(err, voice.ErrVoiceNotCompiled) {
-			p.engineErr = fmt.Errorf(
-				"voice requires a build with -tags voice; run: make build-arena-voice")
-			return nil
-		}
 		p.engineErr = fmt.Errorf("open audio device: %w", err)
 		return nil
 	}
 
 	return p.runVoice(audioIO, send)
 }
+
+// newAudioIO constructs the live AudioIO. It is a package var (not a direct
+// call to voice.NewAudioIO) so tests can override it to avoid opening a real
+// microphone.
+var newAudioIO = voice.NewAudioIO
 
 // runVoice wires a live AudioIO to the duplex pipeline and launches the driver
 // goroutine. It is separated from startVoice so tests can inject a fake AudioIO
@@ -85,7 +86,12 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 	resolvedProvider := p.session.Provider()
 	cfg := p.engine.GetConfig()
 
-	// 4. Build a minimal duplex scenario for ASM mode (provider-native turn detection).
+	// 4. Build a minimal duplex scenario, honoring the turn-detection mode the
+	// config implied (ASM — the provider-native default — or VAD).
+	turnMode := config.TurnDetectionModeASM
+	if p.voice.TurnDetectionMode != "" {
+		turnMode = p.voice.TurnDetectionMode
+	}
 	conversationID := fmt.Sprintf("interactive-voice-%d", time.Now().UnixNano())
 	scenario := &config.Scenario{
 		ID:       "interactive-voice",
@@ -93,7 +99,7 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 		Duplex: &config.DuplexConfig{
 			Timeout: "30m",
 			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeASM,
+				Mode: turnMode,
 			},
 		},
 	}

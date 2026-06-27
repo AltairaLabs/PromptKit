@@ -2,7 +2,6 @@ package inspect
 
 import (
 	"fmt"
-	"strings"
 )
 
 func printJudgesSection(data *InspectionData) {
@@ -18,6 +17,6 @@ func printJudgesSection(data *InspectionData) {
 		}
 		lines = append(lines, line)
 	}
-	fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+	printBoxes([][]string{lines})
 	fmt.Println()
 }

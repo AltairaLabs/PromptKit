@@ -14,8 +14,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
-	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
 )
 
@@ -62,6 +62,12 @@ const (
 	chatKeyLabelArrs = "←/→"
 	chatKeyLabelQuit = "quit"
 	chatKeyLabelTab  = "tab"
+	chatKeyLabelLogs = "logs"
+	chatKeyCtrlL     = "ctrl+l"
+	// chatKeyLogsVoice toggles the log overlay in voice mode, where there is no
+	// text input to collide with — a plain key the terminal won't intercept
+	// (unlike ctrl+l, which iTerm2 and others grab).
+	chatKeyLogsVoice = "l"
 )
 
 // Layout and sizing constants for the chat view.
@@ -126,6 +132,9 @@ type ChatPage struct {
 	send        func(tea.Msg)               // stored in Activate for use by voice goroutine
 	voiceStore  *statestore.ArenaStateStore // state store owned by the voice driver
 	voiceConvID string                      // conversation ID used by the voice driver
+
+	logs     *LogsOverlay // toggleable in-chat runtime log view (ctrl+l)
+	composer *Composer    // input affordance: text box or mic indicator
 }
 
 // NewChatPage constructs a ChatPage bound to the given AppContext.
@@ -133,12 +142,18 @@ type ChatPage struct {
 func NewChatPage(ctx *AppContext) *ChatPage {
 	ti := textinput.New()
 	ti.Prompt = "> "
+	composer := NewTextComposer()
+	if ctx.Voice != nil {
+		composer = NewSpeechComposer()
+	}
 	return &ChatPage{
-		ctx:   ctx,
-		panel: panels.NewConversationPanel(),
-		input: ti,
-		vars:  map[string]string{},
-		voice: ctx.Voice,
+		ctx:      ctx,
+		panel:    panels.NewConversationPanel(),
+		input:    ti,
+		vars:     map[string]string{},
+		voice:    ctx.Voice,
+		logs:     NewLogsOverlay(),
+		composer: composer,
 	}
 }
 
@@ -276,6 +291,8 @@ func (p *ChatPage) initPanel() {
 func (p *ChatPage) SetSize(w, h int) {
 	p.width, p.height = w, h
 	p.input.Width = chatMaxInt(w-chatInputPadding, 0)
+	p.logs.SetSize(w, h)
+	p.composer.SetWidth(w)
 	if p.state == chatStateChat {
 		panelH := p.height - chatInputHeight - chatFooterHeight - 1
 		if panelH < 1 {
@@ -289,6 +306,24 @@ func (p *ChatPage) SetSize(w, h int) {
 // NOTE: Esc/Ctrl+C are handled globally by App — do not handle them here.
 // NOTE: WindowSizeMsg is routed by App via SetSize — do not handle it here.
 func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	// Buffer runtime logs and toggle the in-chat log overlay with ctrl+l
+	// (ctrl+l avoids colliding with text typed into the input). While visible,
+	// the overlay consumes scroll keys.
+	if lm, ok := msg.(logging.Msg); ok {
+		p.logs.Append(lm)
+		return p, nil
+	}
+	if km, ok := msg.(tea.KeyMsg); ok &&
+		(km.Type == tea.KeyCtrlL || (p.voice != nil && km.String() == chatKeyLogsVoice)) {
+		p.logs.Toggle()
+		return p, nil
+	}
+	if p.logs.Visible() {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			return p, p.logs.Update(km)
+		}
+	}
+
 	switch v := msg.(type) {
 	case tea.KeyMsg:
 		cmd := p.handleKey(v)
@@ -334,9 +369,9 @@ func (p *ChatPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 		// freeze the audio meter and show an ended status.
 		p.panel.SetAudioLevels(0, 0, false)
 		if v.err != nil {
-			p.statusLine = "🛑 voice session ended: " + chatSanitizeErrorLine(v.err)
+			p.statusLine = "🛑 interactive session ended: " + chatSanitizeErrorLine(v.err)
 		} else {
-			p.statusLine = "🛑 voice session ended (idle timeout or mic closed) — press q to exit"
+			p.statusLine = "🛑 interactive session ended (idle timeout or mic closed) — press q to exit"
 		}
 		return p, nil
 	}
@@ -410,19 +445,7 @@ func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 	// Tab toggles focus between the panel and the input (or just the panel in
 	// voice mode — there is no text input to return to).
 	if msg.Type == tea.KeyTab {
-		p.panelFocused = !p.panelFocused
-		if p.voice == nil {
-			if p.panelFocused {
-				p.input.Blur()
-			} else {
-				p.input.Focus()
-			}
-		}
-		p.panel.SetActive(p.panelFocused)
-		if p.voice == nil {
-			return textinput.Blink
-		}
-		return nil
+		return p.handleChatTab()
 	}
 
 	// When the conversation panel has focus, forward all keys to the panel.
@@ -461,6 +484,22 @@ func (p *ChatPage) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	p.input, cmd = p.input.Update(msg)
 	return cmd
+}
+
+// handleChatTab toggles focus between the conversation panel and the text
+// input. In voice mode there is no text input, so only the panel focus flips.
+func (p *ChatPage) handleChatTab() tea.Cmd {
+	p.panelFocused = !p.panelFocused
+	p.panel.SetActive(p.panelFocused)
+	if p.voice != nil {
+		return nil
+	}
+	if p.panelFocused {
+		p.input.Blur()
+	} else {
+		p.input.Focus()
+	}
+	return textinput.Blink
 }
 
 // sendCmd drains the stream channel; rendering happens via state store after the turn ends.
@@ -598,6 +637,7 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 		return []views.KeyBinding{
 			{Keys: "🎤 listening", Description: ""},
 			{Keys: chatKeyLabelTab, Description: "focus convo"},
+			{Keys: chatKeyLogsVoice, Description: chatKeyLabelLogs},
 			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 		}
 	}
@@ -606,6 +646,7 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 			{Keys: chatKeyLabelScrl, Description: "turns"},
 			{Keys: chatKeyLabelArrs, Description: "turns/detail"},
 			{Keys: chatKeyLabelTab, Description: "back to input"},
+			{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
 			{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 		}
 	}
@@ -613,53 +654,68 @@ func (p *ChatPage) chatBindings() []views.KeyBinding {
 		{Keys: chatKeyNameEnter, Description: "send"},
 		{Keys: chatKeyLabelScrl, Description: "scroll"},
 		{Keys: chatKeyLabelTab, Description: "focus conversation"},
+		{Keys: chatKeyCtrlL, Description: chatKeyLabelLogs},
 		{Keys: chatKeyLabelEsc + "/ctrl+c", Description: chatKeyLabelQuit},
 	}
 }
 
 func (p *ChatPage) chatView() string {
-	footer := views.NewHeaderFooterView(p.width).RenderFooter(p.chatBindings())
-	var parts []string
-	parts = append(parts, p.panel.View())
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:       p.width,
+			Height:      p.height,
+			Title:       p.chatTitle(),
+			KeyBindings: p.chatBindings(),
+		},
+		func(contentHeight int) string {
+			// When the logs overlay is toggled on it replaces the conversation
+			// body so runtime logs are inspectable without leaving the chat.
+			if p.logs.Visible() {
+				p.logs.SetSize(p.width, contentHeight)
+				return p.logs.View()
+			}
+
+			// Size the conversation panel to fill the body minus the composer
+			// (and optional status line).
+			composerH := chatInputHeight
+			if p.voice != nil {
+				composerH = 1
+			}
+			statusH := 0
+			if p.statusLine != "" {
+				statusH = 1
+			}
+			panelH := contentHeight - composerH - statusH
+			if panelH < 1 {
+				panelH = 1
+			}
+			p.panel.SetDimensions(p.width, panelH)
+
+			var parts []string
+			parts = append(parts, p.panel.View())
+			// The Composer renders the mic indicator (voice) or the bordered
+			// text box (typed). In voice mode the panel renders the live audio
+			// meter via SetAudioLevels. Input focus = panel not focused.
+			p.composer.SetSpeech(p.voice != nil)
+			parts = append(parts, p.composer.View(p.input.View(), !p.panelFocused))
+			if p.statusLine != "" {
+				parts = append(parts, p.statusLine)
+			}
+			return strings.Join(parts, "\n")
+		},
+	)
+}
+
+// chatTitle is the page-context line shown in the chrome header.
+func (p *ChatPage) chatTitle() string {
+	label := "Chat"
 	if p.voice != nil {
-		// Voice mode: show a mic status line in place of the text input box.
-		// The panel already renders the audio level meter via SetAudioLevels.
-		parts = append(parts, p.voiceStatusLine())
-	} else {
-		parts = append(parts, p.inputView())
+		label = "Interactive session"
 	}
-	if p.statusLine != "" {
-		parts = append(parts, p.statusLine)
+	if p.taskType != "" && p.provider != "" {
+		return fmt.Sprintf("%s · %s / %s", label, p.taskType, p.provider)
 	}
-	parts = append(parts, footer)
-	return strings.Join(parts, "\n")
-}
-
-// voiceStatusLine renders a one-line mic status for voice mode. The panel's
-// built-in audio meter (driven by SetAudioLevels) shows the actual levels; this
-// line provides a simple human-readable status beneath the panel.
-func (p *ChatPage) voiceStatusLine() string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7dd3fc")). // sky-300 — matches theme
-		Render("🎤 mic active — speak to send a message")
-}
-
-// chatInputBorderColor returns the input box's border color: highlighted when
-// the input holds focus, dimmed when the conversation panel does.
-func (p *ChatPage) chatInputBorderColor() lipgloss.Color {
-	if p.panelFocused {
-		return theme.BorderColorUnfocused()
-	}
-	return theme.BorderColorFocused()
-}
-
-// inputView renders the text input inside a bordered box whose border reflects focus.
-func (p *ChatPage) inputView() string {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.chatInputBorderColor()).
-		Width(chatMaxInt(p.width-chatInputBorderChars, 0)).
-		Render(p.input.View())
+	return label
 }
 
 func (p *ChatPage) renderPickerWithFooter(title string, items []string, bindings []views.KeyBinding) string {

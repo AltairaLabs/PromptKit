@@ -3,7 +3,6 @@ package inspect
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 func printProvidersSection(data *InspectionData, opts RenderOptions) {
@@ -15,10 +14,12 @@ func printProvidersSection(data *InspectionData, opts RenderOptions) {
 
 	for _, group := range groups {
 		fmt.Println(labelStyle.Render("Group: ") + tagStyle.Render(group))
-		for _, p := range byGroup[group] {
-			lines := buildProviderLines(&p, opts)
-			fmt.Println(boxStyle.Render(strings.Join(lines, "\n")))
+		members := byGroup[group]
+		sets := make([][]string, len(members))
+		for i := range members {
+			sets[i] = buildProviderLines(&members[i], opts)
 		}
+		printBoxes(sets)
 	}
 	fmt.Println()
 }

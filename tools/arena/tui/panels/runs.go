@@ -105,6 +105,44 @@ func (p *RunsPanel) Init(height int) {
 	p.ready = true
 }
 
+// responsiveRunsColumns scales the fixed column proportions to fit avail so the
+// table never renders wider than the width the layout engine allocated (the old
+// fixed-width columns ignored it and overflowed). Columns shrink on narrow
+// terminals and grow to fill wide ones; a floor keeps each readable.
+func responsiveRunsColumns(avail int) []table.Column {
+	titles := []string{"Status", "Provider", "Scenario", "Region", "Duration", "Cost", "Notes"}
+	weights := []int{
+		statusColWidth, providerColWidth, scenarioColWidth, regionColWidth,
+		durationColWidth, costColWidth, notesColWidth,
+	}
+
+	const colFloor = 4
+	// bubbles renders one padding column between cells; reserve that budget.
+	target := avail - len(weights)
+	if target < colFloor*len(weights) {
+		target = colFloor * len(weights)
+	}
+	sum := 0
+	for _, w := range weights {
+		sum += w
+	}
+
+	cols := make([]table.Column, len(weights))
+	used := 0
+	for i, w := range weights {
+		cw := w * target / sum
+		if cw < colFloor {
+			cw = colFloor
+		}
+		cols[i] = table.Column{Title: titles[i], Width: cw}
+		used += cw
+	}
+	if rem := target - used; rem > 0 {
+		cols[2].Width += rem // hand rounding slack to the flexible Scenario column
+	}
+	return cols
+}
+
 // Update updates the table with run data and dimensions
 func (p *RunsPanel) Update(runs []RunInfo, width, height int) {
 	if !p.ready {
@@ -160,6 +198,11 @@ func (p *RunsPanel) Update(runs []RunInfo, width, height int) {
 	}
 	p.table.SetHeight(tableHeight)
 	p.table.SetWidth(width - runsTableWidthPadding)
+	// The bubbles table does not shrink its columns to SetWidth, so the fixed
+	// column widths (summing well past a narrow terminal) render wider than the
+	// pane and wrap — the source of the run view's horizontal jank. Resize the
+	// columns to fit the available width.
+	p.table.SetColumns(responsiveRunsColumns(width - runsTableWidthPadding))
 
 	// Update viewport dimensions
 	// Account for border (2) and padding (4) in width calculation

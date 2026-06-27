@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/layout"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 )
@@ -97,6 +99,16 @@ func (p *MainPage) Render() string {
 		paneIDRuns:   p.runsPanel.View(p.focusedPanel == paneIDRuns),
 		paneIDLogs:   p.logsPanel.View(p.focusedPanel == paneIDLogs),
 		paneIDResult: p.resultPanel.View(p.result, p.focusedPanel == paneIDResult),
+	}
+	// Clip each pane to the width AND height the layout engine allocated it. The
+	// panels' internal sizing doesn't always honor that rect, and RenderTree just
+	// joins them — so without this an over-wide pane wraps and janks the view, and
+	// an over-tall pane (on a short terminal) spills past the body and gets
+	// clipped by the footer.
+	for id := range content {
+		if r, ok := p.layout.Rect(id); ok {
+			content[id] = lipgloss.NewStyle().MaxWidth(r.W).MaxHeight(r.H).Render(content[id])
+		}
 	}
 	return layout.RenderTree(p.layout.Root(), content)
 }

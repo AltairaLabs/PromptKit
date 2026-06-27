@@ -11,6 +11,8 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/tools/arena/reader/filesystem"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
+	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/pages"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/theme"
@@ -25,10 +27,18 @@ const (
 	keyTab   = "tab"
 	keyEnter = "enter"
 
-	// Page title constants (used in Title() and ChromeConfig.ConfigFile).
-	titleView         = "View"
+	// Shared footer key-hint labels.
+	keyHintNavigate  = "navigate"
+	keyHintParentDir = "parent dir"
+	keyHintArrowH    = "←/h"
+
+	// Page title constants (used in Title() and the chrome header).
+	titleView         = "View results"
 	titleResults      = "Results"
 	titleConversation = "Conversation"
+	titleHome         = "Home"
+	titleInspect      = "Inspect"
+	titleChooseConfig = "Choose config"
 )
 
 // ---------------------------------------------------------------------------
@@ -124,25 +134,37 @@ func (p *ViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
 
 // View implements Page.
 func (p *ViewPage) View() string {
-	p.browser.SetDimensions(p.w, p.h)
-
-	if p.err != nil {
-		errorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorError)).
-			Bold(true)
-		helpStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.ColorGray)).
-			Italic(true)
-
-		return lipgloss.JoinVertical(lipgloss.Left,
-			errorStyle.Render("error: "+p.err.Error()),
-			helpStyle.Render("select a different file, or press Esc to go back"),
-			"",
-			p.browser.Render(),
-		)
-	}
-
-	return p.browser.Render()
+	return views.RenderWithChrome(
+		views.ChromeConfig{
+			Width:  p.w,
+			Height: p.h,
+			Title:  titleView,
+			KeyBindings: []views.KeyBinding{
+				{Keys: chatKeyLabelScrl, Description: keyHintNavigate},
+				{Keys: keyEnter, Description: "open"},
+				{Keys: keyHintArrowH, Description: keyHintParentDir},
+				{Keys: chatKeyLabelEsc, Description: keyHintBack},
+			},
+		},
+		func(contentHeight int) string {
+			p.browser.SetDimensions(p.w, contentHeight)
+			if p.err != nil {
+				errorStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorError)).
+					Bold(true)
+				helpStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(theme.ColorGray)).
+					Italic(true)
+				return lipgloss.JoinVertical(lipgloss.Left,
+					errorStyle.Render("error: "+p.err.Error()),
+					helpStyle.Render("select a different file, or press Esc to go back"),
+					"",
+					p.browser.Render(),
+				)
+			}
+			return p.browser.Render()
+		},
+	)
 }
 
 // Title implements Page.
@@ -250,17 +272,14 @@ func (p *ResultsPage) handleRunSelection() (Page, tea.Cmd) {
 func (p *ResultsPage) View() string {
 	return views.RenderWithChrome(
 		views.ChromeConfig{
-			Width:          p.w,
-			Height:         p.h,
-			ConfigFile:     titleResults,
-			CompletedCount: 0,
-			TotalRuns:      0,
-			Elapsed:        0,
+			Width:  p.w,
+			Height: p.h,
+			Title:  titleResults,
 			KeyBindings: []views.KeyBinding{
+				{Keys: chatKeyLabelScrl, Description: keyHintNavigate},
 				{Keys: "tab", Description: "cycle focus"},
-				{Keys: "enter", Description: "open conversation"},
-				{Keys: "↑/↓", Description: "navigate"},
-				{Keys: "esc", Description: "back"},
+				{Keys: keyEnter, Description: "open conversation"},
+				{Keys: chatKeyLabelEsc, Description: keyHintBack},
 			},
 		},
 		func(contentHeight int) string {
@@ -283,40 +302,108 @@ func (p *ResultsPage) SetSize(w, h int) {
 // ---------------------------------------------------------------------------
 
 // ConversationViewPage wraps pages.ConversationPage for use inside the hub
-// shell navigation stack.
+// shell navigation stack. When live, it streams runtime events into the panel
+// (new turns, audio meter) until the run completes; otherwise it shows a static
+// snapshot loaded from the state store.
 type ConversationViewPage struct {
 	convPage *pages.ConversationPage
 	w, h     int
+
+	live  bool
+	runID string
+	feed  *liveFeed
+
+	logs *LogsOverlay
 }
 
 // NewConversationViewPage creates a ConversationViewPage pre-loaded with the
-// given run data.
+// given (completed-run) snapshot. It does not stream live events.
 func NewConversationViewPage(runID, scenarioID, providerID string, result *statestore.RunResult) *ConversationViewPage {
 	cp := pages.NewConversationPage()
 	cp.SetData(runID, scenarioID, providerID, result)
-	return &ConversationViewPage{convPage: cp}
+	return &ConversationViewPage{convPage: cp, logs: NewLogsOverlay()}
+}
+
+// NewLiveConversationViewPage creates a ConversationViewPage that streams the
+// conversation live while focused. seed may be a partial snapshot (turns so
+// far) or nil; later runtime events are tailed via liveFeed and deduped against
+// the seed. The page reverts to static once the run completes or fails.
+func NewLiveConversationViewPage(
+	runID, scenarioID, providerID string, seed *statestore.RunResult,
+) *ConversationViewPage {
+	cp := pages.NewConversationPage()
+	// The panel only appends when it holds a non-nil result, so seed an empty
+	// one when there is no snapshot yet.
+	if seed == nil {
+		seed = &statestore.RunResult{}
+	}
+	cp.SetData(runID, scenarioID, providerID, seed)
+	return &ConversationViewPage{
+		convPage: cp,
+		live:     true,
+		runID:    runID,
+		feed:     newLiveFeed(runID, len(seed.Messages)),
+		logs:     NewLogsOverlay(),
+	}
 }
 
 // Init implements Page.
 func (p *ConversationViewPage) Init() tea.Cmd { return nil }
 
-// Update implements Page. Forwards messages to the underlying conversation
-// panel.
+// Update implements Page. While live, runtime events are applied to the panel
+// via the feed; run completion flips the page back to static. Other messages
+// (scroll/focus keys) forward to the underlying conversation panel.
 func (p *ConversationViewPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	// Buffer runtime logs and toggle the logs overlay with 'L'. While the
+	// overlay is visible it consumes scroll keys.
+	if lm, ok := msg.(logging.Msg); ok {
+		p.logs.Append(lm)
+		return p, nil
+	}
+	if km, ok := msg.(tea.KeyMsg); ok && km.String() == "L" {
+		p.logs.Toggle()
+		return p, nil
+	}
+	if p.logs.Visible() {
+		return p, p.logs.Update(msg)
+	}
+
+	if p.live {
+		switch m := msg.(type) {
+		case tui.RunCompletedMsg:
+			if m.RunID == p.runID {
+				p.live = false
+			}
+		case tui.RunFailedMsg:
+			if m.RunID == p.runID {
+				p.live = false
+			}
+		}
+		if p.feed.Apply(p.convPage.Panel(), msg) {
+			return p, nil
+		}
+	}
 	cmd := p.convPage.Update(msg)
 	return p, cmd
 }
 
-// View implements Page.
+// View implements Page. When the logs overlay is visible it replaces the
+// conversation body; otherwise the conversation renders as usual.
 func (p *ConversationViewPage) View() string {
+	bindings := p.convPage.GetKeyBindings()
+	bindings = append(bindings, views.KeyBinding{Keys: "L", Description: resultsPageFocusLogs})
 	return views.RenderWithChrome(
 		views.ChromeConfig{
 			Width:       p.w,
 			Height:      p.h,
-			ConfigFile:  titleConversation,
-			KeyBindings: p.convPage.GetKeyBindings(),
+			Title:       titleConversation,
+			KeyBindings: bindings,
 		},
 		func(contentHeight int) string {
+			if p.logs.Visible() {
+				p.logs.SetSize(p.w, contentHeight)
+				return p.logs.View()
+			}
 			p.convPage.SetDimensions(p.w, contentHeight)
 			return p.convPage.Render()
 		},
@@ -329,6 +416,7 @@ func (p *ConversationViewPage) Title() string { return titleConversation }
 // SetSize implements Page.
 func (p *ConversationViewPage) SetSize(w, h int) {
 	p.w, p.h = w, h
+	p.logs.SetSize(w, h)
 }
 
 // ---------------------------------------------------------------------------

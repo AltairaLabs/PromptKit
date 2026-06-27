@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,7 +34,6 @@ func NewHeaderFooterView(width int) *HeaderFooterView {
 func (v *HeaderFooterView) RenderHeader(
 	configFile string,
 	completedCount, totalRuns int,
-	elapsed time.Duration,
 ) string {
 	// Banner style
 	bannerStyle := lipgloss.NewStyle().
@@ -53,9 +51,6 @@ func (v *HeaderFooterView) RenderHeader(
 		Foreground(lipgloss.Color(theme.ColorSuccess)).
 		Bold(true)
 
-	timeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.ColorLightBlue))
-
 	tagStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.ColorWarning)).
 		Bold(true)
@@ -68,9 +63,8 @@ func (v *HeaderFooterView) RenderHeader(
 	banner := bannerStyle.Render("✨ PromptArena ✨")
 	progressBar := buildProgressBar(completedCount, totalRuns, headerProgressBarWidth)
 	progress := progressStyle.Render(fmt.Sprintf("[%s %d/%d]", progressBar, completedCount, totalRuns))
-	timeStr := timeStyle.Render(fmt.Sprintf("⏱  %s", theme.FormatDuration(elapsed)))
 
-	parts := []string{filepath.Base(configFile), progress, timeStr}
+	parts := []string{filepath.Base(configFile), progress}
 	if mockTag != "" {
 		parts = append([]string{mockTag}, parts...)
 	}
@@ -78,6 +72,27 @@ func (v *HeaderFooterView) RenderHeader(
 	infoLine := infoStyle.Render(strings.Join(parts, "  •  "))
 
 	return lipgloss.JoinVertical(lipgloss.Left, banner, infoLine)
+}
+
+// RenderTitleHeader renders the banner plus a centered page-title line. Used by
+// non-run pages (Home, View, Chat, Inspect, …) where the run progress bar /
+// timer would be meaningless.
+func (v *HeaderFooterView) RenderTitleHeader(title string) string {
+	bannerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(theme.ColorPrimary)).
+		Align(lipgloss.Center).
+		Width(v.width)
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.ColorLightGray)).
+		Align(lipgloss.Center).
+		Width(v.width)
+
+	banner := bannerStyle.Render("✨ PromptArena ✨")
+	if title == "" {
+		return banner
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, banner, titleStyle.Render(title))
 }
 
 // RenderFooter renders the bottom help text with dynamic key bindings

@@ -15,13 +15,12 @@ Evals, guardrails, and conversation history work exactly as for typed text.
 ## Run
 
 ```bash
-# Build the voice binary (needs PortAudio — see the voice docs)
-make build-arena-voice
+# Voice is built into promptarena; install PortAudio to use it (see voice docs)
 
 export OPENAI_API_KEY=sk-...   # used by the agent, STT (whisper) and TTS
 
 # Run from this directory
-../../bin/promptarena-voice chat --voice \
+../../bin/promptarena chat --voice \
   --voice-stt openai-stt \
   --voice-output-voice agent-voice \
   --config config.arena.yaml
@@ -31,7 +30,6 @@ Speak naturally; pause to let VAD end your turn. Press `q` or `Ctrl-C` to exit.
 
 ## Requirements
 
-- A `-tags voice` binary (`make build-arena-voice` or a `promptarena-voice-*` release binary).
 - PortAudio installed at runtime (`brew install portaudio` on macOS).
 - `OPENAI_API_KEY` — the agent (`gpt-4o`), STT (`whisper-1`), and TTS all use it.
   To use a Claude agent instead, swap `providers/openai-gpt4o.provider.yaml` for a

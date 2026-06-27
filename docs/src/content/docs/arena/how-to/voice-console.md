@@ -5,62 +5,40 @@ Run a live, hands-free voice conversation with an Arena agent from the terminal.
 
 ## Prerequisites
 
-- A voice-enabled `promptarena-voice` binary (see [Getting the Binary](#getting-the-binary)).
-- PortAudio installed on the host machine (see [Install PortAudio](#install-portaudio)).
+- The standard `promptarena` binary (voice is built in — no special build needed).
+- **PortAudio** installed on the host machine (see [Install PortAudio](#install-portaudio)).
 - A pair of **headphones** — the mic stays open the whole session; speaker audio feeds
   straight back into the mic without them, causing echo loops.
 - An Arena config with at least one provider and one agent declared.
 
 ## Getting the Binary
 
-The standard `promptarena` binary is pure Go and does not include audio support.
-Voice requires a separate binary compiled with `-tags voice` and `CGO_ENABLED=1`.
+Voice ships **inside the standard `promptarena` binary** — there is no separate
+voice build. The binary stays pure Go (no cgo); it loads PortAudio dynamically
+**at runtime**, and only when you actually start a voice session. So you install
+`promptarena` the usual way (`npm install -g @altairalabs/promptarena`, a release
+download, or `make build-arena`) and then [install PortAudio](#install-portaudio)
+to enable voice.
 
-### Option 1: Download a pre-built voice binary
-
-Each release publishes `promptarena-voice-<OS>-<arch>` archives alongside the
-standard binaries on the [PromptKit Releases](https://github.com/AltairaLabs/PromptKit/releases)
-page. Download the archive for your platform and put the binary on your `PATH`:
-
-```bash
-# macOS (Apple Silicon) — adjust version and arch as needed
-curl -LO https://github.com/AltairaLabs/PromptKit/releases/latest/download/promptarena-voice_Darwin_arm64.tar.gz
-tar -xf promptarena-voice_Darwin_arm64.tar.gz
-sudo mv promptarena-voice /usr/local/bin/
-```
-
-### Option 2: Build from source
-
-```bash
-# macOS
-brew install portaudio
-make build-arena-voice
-
-# Linux (Debian/Ubuntu)
-sudo apt-get install -y portaudio19-dev
-make build-arena-voice
-
-# Output: bin/promptarena-voice
-```
-
-The `make build-arena-voice` target sets `CGO_ENABLED=1 -tags voice` automatically.
+If you run `chat --voice` without PortAudio present, only voice is unavailable —
+the command prints a clear install hint and every other feature keeps working.
 
 ## Install PortAudio
 
-PortAudio must be present on the machine **at runtime** (not just at build time) because
-the voice binary links against it dynamically.
+PortAudio must be present on the machine **at runtime** — the binary loads it on
+demand when a voice session starts.
 
 | Platform | Command |
 |----------|---------|
 | macOS | `brew install portaudio` |
-| Debian / Ubuntu | `sudo apt-get install -y portaudio19-dev` |
-| Fedora / RHEL | `sudo dnf install -y portaudio-devel` |
-| Windows | `vcpkg install portaudio:x64-windows` |
+| Debian / Ubuntu | `sudo apt install libportaudio2` |
+| Fedora / RHEL | `sudo dnf install portaudio` |
+| Windows | place `portaudio.dll` on your `PATH` |
 
 ## Start a Voice Session
 
 ```bash
-promptarena-voice chat --voice --config config.arena.yaml
+promptarena chat --voice --config config.arena.yaml
 ```
 
 The console opens in full-screen TUI mode. Speak naturally — the agent responds
@@ -91,7 +69,7 @@ to audio for playback.
 Supply the STT provider id and an optional TTS voice id:
 
 ```bash
-promptarena-voice chat --voice \
+promptarena chat --voice \
   --voice-stt openai-whisper \
   --voice-output-voice alloy \
   --config config.arena.yaml
@@ -110,7 +88,7 @@ When headphones are not available (e.g., laptop speakers), enable `--echo-guard`
 to gate the microphone while the agent is speaking:
 
 ```bash
-promptarena-voice chat --voice --echo-guard --config config.arena.yaml
+promptarena chat --voice --echo-guard --config config.arena.yaml
 ```
 
 Echo guard is **off by default** because it adds a small latency and is unnecessary
@@ -124,7 +102,7 @@ and cleanest transcription.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--voice` | `false` | Enable hands-free voice mode (requires a `-tags voice` binary) |
+| `--voice` | `false` | Enable hands-free voice mode (requires PortAudio installed) |
 | `--voice-stt <id>` | — | STT provider id for VAD mode (text provider path) |
 | `--voice-output-voice <id>` | — | TTS voice id the agent speaks in (VAD mode) |
 | `--echo-guard` | `false` | Gate mic while agent speaks (best-effort; use headphones instead) |

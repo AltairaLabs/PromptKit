@@ -80,7 +80,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.closeAll()
 			return a, tea.Quit
 		case tea.KeyRunes:
-			if len(m.Runes) == 1 && m.Runes[0] == 'q' {
+			// 'q' quits only at the root, matching esc. In a sub-page it falls
+			// through to the page (esc is the way back); this keeps navigation
+			// keys consistent across the hub.
+			if len(m.Runes) == 1 && m.Runes[0] == 'q' && a.atRoot() {
 				a.closeAll()
 				return a, tea.Quit
 			}
@@ -167,6 +170,12 @@ func (a *App) pop() tea.Cmd {
 	}
 	popped := a.top()
 	a.stack = a.stack[:len(a.stack)-1]
+	// Release any resources the popped page held — e.g. ChatPage's voice driver
+	// keeps the mic open and the pipeline running until Close cancels it.
+	// Without this, navigating away from chat left the session capturing audio.
+	if c, ok := popped.(Closeable); ok {
+		c.Close()
+	}
 	// Remove the popped page from tracking maps so it does not leak for the
 	// lifetime of the App (M3).
 	delete(a.activated, popped)
