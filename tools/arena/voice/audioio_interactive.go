@@ -239,6 +239,17 @@ func (p *portaudioIO) Play(frame []byte) {
 	}
 }
 
+// Flush is completed in #1485 follow-up (stream restart); this minimal drain keeps the interface satisfied.
+func (p *portaudioIO) Flush() {
+	for {
+		select {
+		case <-p.playCh:
+		default:
+			return
+		}
+	}
+}
+
 func (p *portaudioIO) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

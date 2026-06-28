@@ -15,6 +15,7 @@ type fakeIO struct {
 func (f *fakeIO) Start(context.Context) error  { f.started = true; return nil }
 func (f *fakeIO) CaptureChunks() <-chan []byte { return f.capture }
 func (f *fakeIO) Play(b []byte)                { f.played = append(f.played, b) }
+func (f *fakeIO) Flush()                       {}
 func (f *fakeIO) Close() error                 { return nil }
 
 func TestDriver_PipesMicToRunnerAndPlaysOutput(t *testing.T) {
