@@ -7,7 +7,6 @@ package audio
 import (
 	"context"
 	"sync"
-	"time"
 )
 
 const (
@@ -132,7 +131,7 @@ func (s *portaudioSource) Frames() <-chan MediaFrame {
 func (s *portaudioSource) pump() {
 	defer close(s.frames)
 	in := s.io.CaptureChunks()
-	var pts time.Duration
+	clk := newSampleClock(s.io.captureRate)
 	for {
 		select {
 		case <-s.io.done:
@@ -144,11 +143,11 @@ func (s *portaudioSource) pump() {
 			frame := MediaFrame{
 				Kind:   KindAudio,
 				Data:   data,
-				PTS:    pts,
+				PTS:    clk.pts(),
 				Format: Format{SampleRate: s.io.captureRate, Channels: 1},
 			}
-			// Advance PTS by this frame's duration (PCM16 ⇒ bytesPerSample/sample).
-			pts += time.Duration(len(data)/bytesPerSample) * time.Second / time.Duration(s.io.captureRate)
+			// Advance the clock by the samples in this frame (PCM16 = 2 bytes/sample).
+			clk.advance(int64(len(data) / bytesPerSample))
 			select {
 			case s.frames <- frame:
 			case <-s.io.done:
