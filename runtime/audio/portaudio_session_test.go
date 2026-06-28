@@ -62,7 +62,7 @@ func TestPortaudioIO_FlushClearsAccumulator(t *testing.T) {
 // (proving the CGO-free FFI works); otherwise it must return errPortAudioMissing
 // with actionable guidance — never crash.
 func TestNewAudioIO_LoadsOrReportsMissing(t *testing.T) {
-	io, err := newAudioIO(buildSessionConfig(nil))
+	io, err := newAudioIO(buildSessionConfig(nil), false /* two-stream */)
 	if err != nil {
 		if !errors.Is(err, errPortAudioMissing) {
 			t.Fatalf("expected errPortAudioMissing when load fails, got: %v", err)

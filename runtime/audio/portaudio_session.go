@@ -71,9 +71,9 @@ func buildSessionConfig(opts []SessionOption) sessionConfig {
 }
 
 // portaudioSession adapts the PortAudio-backed portaudioIO to the
-// Session/Source/Sink interfaces. It still drives TWO PortAudio streams (mic at
-// capture rate, speaker at playback rate) — collapsing to a single duplex stream
-// is Phase 3.
+// Session/Source/Sink interfaces. It drives a single 48 kHz duplex stream
+// (resampling at the STT/TTS seams); the two-stream core is retained on
+// portaudioIO for Task 3.4's try-duplex-else-fallback.
 type portaudioSession struct {
 	io     *portaudioIO
 	source *portaudioSource
@@ -81,13 +81,15 @@ type portaudioSession struct {
 }
 
 // NewPortAudioSession loads libportaudio and returns a Session exposing one
-// audio Source (microphone) and one audio Sink (speaker). The default rates
-// are 16 kHz capture / 24 kHz playback; pass WithCaptureRate or
-// WithPlaybackRate to override. It returns errPortAudioMissing (wrapped) when
-// the library is not installed.
+// audio Source (microphone) and one audio Sink (speaker), backed by a single
+// 48 kHz duplex stream. The Source still emits frames at the capture rate
+// (default 16 kHz) and the Sink still accepts frames at the playback rate
+// (default 24 kHz) — resampling happens internally at the duplex seams, so the
+// Source/Sink contract is unchanged. Pass WithCaptureRate or WithPlaybackRate to
+// override. It returns errPortAudioMissing (wrapped) when the library is absent.
 func NewPortAudioSession(opts ...SessionOption) (Session, error) {
 	cfg := buildSessionConfig(opts)
-	io, err := newAudioIO(cfg)
+	io, err := newAudioIO(cfg, true /* duplex */)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +99,7 @@ func NewPortAudioSession(opts ...SessionOption) (Session, error) {
 	return s, nil
 }
 
-// Start begins media flow on both streams; it delegates to the underlying I/O.
+// Start begins media flow on the duplex stream; it delegates to the underlying I/O.
 func (s *portaudioSession) Start(ctx context.Context) error { return s.io.Start(ctx) }
 
 // Sources returns the single microphone Source.
@@ -168,11 +170,11 @@ type portaudioSink struct {
 	io *portaudioIO
 }
 
-// Write enqueues the frame's PCM16 bytes for speaker playback.
-// The playback sample rate is fixed at session construction (WithPlaybackRate,
-// default 24 kHz); f.Format.SampleRate is informational and is NOT resampled.
-// Callers must write frames at the session's configured playback rate.
-// (Phase 3 adds resample-at-sink.)
+// Write enqueues the frame's PCM16 bytes for speaker playback. Callers must
+// write frames at the session's configured playback rate (WithPlaybackRate,
+// default 24 kHz); f.Format.SampleRate is informational. In duplex mode the
+// bytes are resampled from the configured playback rate up to the 48 kHz device
+// rate at this seam before entering the jitter buffer.
 func (s *portaudioSink) Write(f MediaFrame) { s.io.Play(f.Data) }
 
 // Flush drops all queued and in-flight playback (Phase-1 flush machinery).

@@ -124,6 +124,45 @@ type portaudioIO struct {
 	started   bool
 	closed    bool
 	done      chan struct{}
+
+	// --- duplex mode (single 48 kHz read/write stream + jitter buffer) ---
+	// When duplex is true the two-stream inStream/outStream/playCh/flushCh path
+	// is unused; one synchronized loop reads mic and writes speaker on a single
+	// stream, resampling only at the STT (48→capture) and TTS (playback→48) seams.
+	// The two-stream path is retained for Task 3.4's try-duplex-else-fallback.
+	duplex       bool
+	jitter       *JitterBuffer
+	duplexStream uintptr
+	// readFn/writeFn are injectable seams: nil on the real path (the loop calls
+	// Pa_ReadStream/Pa_WriteStream on duplexStream); set by tests to fakes so the
+	// loop body is unit-testable without an audio device.
+	readFn  func(buf []int16) int32
+	writeFn func(buf []int16) int32
+}
+
+// duplexRead reads one mic block. Tests inject readFn; the real path performs a
+// blocking Pa_ReadStream on the duplex stream. KeepAlive pins the Go buffer
+// across the C call.
+func (p *portaudioIO) duplexRead(buf []int16) int32 {
+	if p.readFn != nil {
+		return p.readFn(buf)
+	}
+	//nolint:gosec // G103: handing a Go-owned PCM buffer to PortAudio's blocking read; KeepAlive pins it.
+	rc := p.lib.readStream(p.duplexStream, uintptr(unsafe.Pointer(&buf[0])), uint64(len(buf)))
+	runtime.KeepAlive(buf)
+	return rc
+}
+
+// duplexWrite writes one playback block. Tests inject writeFn; the real path
+// performs a blocking Pa_WriteStream on the duplex stream.
+func (p *portaudioIO) duplexWrite(buf []int16) int32 {
+	if p.writeFn != nil {
+		return p.writeFn(buf)
+	}
+	//nolint:gosec // G103: handing a Go-owned PCM buffer to PortAudio's blocking write; KeepAlive pins it.
+	rc := p.lib.writeStream(p.duplexStream, uintptr(unsafe.Pointer(&buf[0])), uint64(len(buf)))
+	runtime.KeepAlive(buf)
+	return rc
 }
 
 // newAudioIO loads libportaudio at runtime and constructs the PortAudio-backed
@@ -135,13 +174,16 @@ type portaudioIO struct {
 // Buffer sizes are derived from the configured rates to preserve the target
 // windows: capture = rate/captureWindowDivisor (100 ms), playback =
 // rate*playbackWindowMs/msPerSecond (40 ms).
-func newAudioIO(cfg sessionConfig) (*portaudioIO, error) {
+func newAudioIO(cfg sessionConfig, duplex bool) (*portaudioIO, error) {
 	lib, err := loadPortAudio()
 	if err != nil {
 		return nil, err
 	}
 	if err := lib.paError("init", lib.initialize()); err != nil {
 		return nil, err
+	}
+	if duplex {
+		return newDuplexCore(lib, cfg), nil
 	}
 	captureFrames := cfg.captureRate / captureWindowDivisor
 	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond
@@ -158,8 +200,29 @@ func newAudioIO(cfg sessionConfig) (*portaudioIO, error) {
 	}, nil
 }
 
+// jitterHeadroomDivisor sizes the duplex jitter buffer at DuplexRate/divisor
+// samples, i.e. 200 ms of playback headroom (48000/5 = 9600 samples).
+const jitterHeadroomDivisor = 5
+
+// newDuplexCore builds a DUPLEX portaudioIO: a single 48 kHz read/write stream
+// fronted by a jitter buffer. The capture/playback rates from cfg are retained
+// as the resample seams (mic 48→captureRate, speaker playbackRate→48); only the
+// device stream runs at DuplexRate.
+func newDuplexCore(lib *portAudioLib, cfg sessionConfig) *portaudioIO {
+	return &portaudioIO{
+		lib:          lib,
+		captureRate:  cfg.captureRate,
+		playbackRate: cfg.playbackRate,
+		duplex:       true,
+		jitter:       NewJitterBuffer(DuplexRate / jitterHeadroomDivisor),
+		captureCh:    make(chan []byte, captureChanBuffer),
+		done:         make(chan struct{}),
+	}
+}
+
 // Start opens the mic and speaker streams and launches the capture/playback
-// goroutines. It is idempotent and safe to call once per session.
+// goroutines. It is idempotent and safe to call once per session. In duplex mode
+// it opens a single 48 kHz read/write stream and runs one synchronized loop.
 func (p *portaudioIO) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -168,6 +231,10 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 	}
 	if p.started {
 		return nil
+	}
+
+	if p.duplex {
+		return p.startDuplexLocked(ctx)
 	}
 
 	var in, out uintptr
@@ -195,6 +262,24 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 	p.wg.Add(numLoops)
 	go p.captureLoop(ctx)
 	go p.playLoop(ctx)
+	return nil
+}
+
+// startDuplexLocked opens a single 48 kHz read/write stream and launches the
+// synchronized duplex loop. The caller (Start) holds p.mu.
+func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
+	var s uintptr
+	if err := p.lib.paError("open duplex",
+		p.lib.openDefaultStream(&s, 1, 1, paInt16, float64(DuplexRate), uint64(duplexBlockFrames), 0, 0)); err != nil {
+		return err
+	}
+	if err := p.lib.paError("start duplex", p.lib.startStream(s)); err != nil {
+		_ = p.lib.closeStream(s)
+		return err
+	}
+	p.duplexStream, p.started = s, true
+	p.wg.Add(1)
+	go p.duplexLoop(ctx)
 	return nil
 }
 
@@ -279,14 +364,6 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 // CaptureChunks returns the channel of captured mic PCM16 frames.
 func (p *portaudioIO) CaptureChunks() <-chan []byte { return p.captureCh }
 
-// Play enqueues a PCM16 frame for speaker playback, dropping it on backpressure.
-func (p *portaudioIO) Play(frame []byte) {
-	select {
-	case p.playCh <- frame:
-	default:
-	}
-}
-
 // requestFlush drains queued play frames and signals playLoop to abort its
 // in-flight accumulation and restart the output stream. Non-blocking.
 func (p *portaudioIO) requestFlush() {
@@ -304,9 +381,6 @@ signal:
 	}
 }
 
-// Flush cuts playback immediately, dropping queued and in-flight speaker audio.
-func (p *portaudioIO) Flush() { p.requestFlush() }
-
 // Close stops the capture/playback goroutines, closes both streams, and
 // terminates PortAudio. It is idempotent.
 func (p *portaudioIO) Close() error {
@@ -316,11 +390,12 @@ func (p *portaudioIO) Close() error {
 		return nil
 	}
 	p.closed = true
-	// Snapshot stream handles before releasing the lock. inStream/outStream are
-	// written only during Start() (which also holds mu), so the snapshots are
-	// stable for the lifetime of this call.
+	// Snapshot stream handles before releasing the lock. inStream/outStream/
+	// duplexStream are written only during Start() (which also holds mu), so the
+	// snapshots are stable for the lifetime of this call.
 	inStream := p.inStream
 	outStream := p.outStream
+	duplexStream := p.duplexStream
 	p.mu.Unlock()
 
 	// Signal goroutines to exit, then wait. mu must NOT be held across wg.Wait():
@@ -330,6 +405,10 @@ func (p *portaudioIO) Close() error {
 	p.wg.Wait()
 
 	// Goroutines have exited; streams are no longer in use.
+	if duplexStream != 0 {
+		_ = p.lib.stopStream(duplexStream)
+		_ = p.lib.closeStream(duplexStream)
+	}
 	if inStream != 0 {
 		_ = p.lib.stopStream(inStream)
 		_ = p.lib.closeStream(inStream)
