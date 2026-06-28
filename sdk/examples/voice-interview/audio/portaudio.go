@@ -1,6 +1,7 @@
-//go:build portaudio
-
-// Package audio provides audio capture and playback using PortAudio.
+// Package audio provides microphone capture and speaker playback for the
+// voice-interview example. It is a thin adapter over the shared pure-Go
+// runtime/audio Session (purego/dlopen PortAudio — no CGO), preserving the
+// capture/playback API the interview controller depends on.
 package audio
 
 import (
@@ -10,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
+	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 const (
@@ -30,12 +31,11 @@ const (
 
 // AudioCapture handles microphone input
 type AudioCapture struct {
-	mu          sync.Mutex
-	stream      *portaudio.Stream
-	audioOut    chan []byte
-	energyOut   chan float64
-	running     bool
-	initialized bool
+	sys       *AudioSystem
+	mu        sync.Mutex
+	audioOut  chan []byte
+	energyOut chan float64
+	running   bool
 
 	// Drop detection metrics
 	chunksSent    uint64
@@ -45,36 +45,53 @@ type AudioCapture struct {
 
 // AudioPlayback handles speaker output
 type AudioPlayback struct {
-	mu          sync.Mutex
-	stream      *portaudio.Stream
-	audioIn     chan []byte
-	running     bool
-	initialized bool
+	sys     *AudioSystem
+	mu      sync.Mutex
+	audioIn chan []byte
+	running bool
 }
 
-// AudioSystem manages both capture and playback
+// AudioSystem manages both capture and playback over one shared audio session.
 type AudioSystem struct {
+	session  rtaudio.Session
 	capture  *AudioCapture
 	playback *AudioPlayback
-	paInit   bool
+
+	startOnce sync.Once
+	startErr  error
 }
 
-// NewAudioSystem creates a new audio system
+// NewAudioSystem creates a new audio system backed by the shared runtime/audio
+// Session (16kHz capture, 24kHz playback).
 func NewAudioSystem() (*AudioSystem, error) {
-	if err := portaudio.Initialize(); err != nil {
-		return nil, fmt.Errorf("failed to initialize PortAudio: %w", err)
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(InputSampleRate),
+		rtaudio.WithPlaybackRate(OutputSampleRate),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize audio session: %w", err)
 	}
 
-	return &AudioSystem{
-		capture: &AudioCapture{
-			audioOut:  make(chan []byte, 100),
-			energyOut: make(chan float64, 100),
-		},
-		playback: &AudioPlayback{
-			audioIn: make(chan []byte, 500),
-		},
-		paInit: true,
-	}, nil
+	as := &AudioSystem{session: session}
+	as.capture = &AudioCapture{
+		sys:       as,
+		audioOut:  make(chan []byte, 100),
+		energyOut: make(chan float64, 100),
+	}
+	as.playback = &AudioPlayback{
+		sys:     as,
+		audioIn: make(chan []byte, 500),
+	}
+	return as, nil
+}
+
+// startSession starts the underlying session exactly once. Both Capture.Start
+// and Playback.Start call it; the shared session drives both streams.
+func (as *AudioSystem) startSession(ctx context.Context) error {
+	as.startOnce.Do(func() {
+		as.startErr = as.session.Start(ctx)
+	})
+	return as.startErr
 }
 
 // Close shuts down the audio system
@@ -85,8 +102,8 @@ func (as *AudioSystem) Close() error {
 	if as.playback != nil {
 		as.playback.Stop()
 	}
-	if as.paInit {
-		portaudio.Terminate()
+	if as.session != nil {
+		return as.session.Close()
 	}
 	return nil
 }
@@ -109,35 +126,23 @@ func (ac *AudioCapture) Start(ctx context.Context) error {
 		fmt.Println("[AUDIO] Capture already running")
 		return nil
 	}
+	ac.running = true
 	ac.mu.Unlock()
 
 	fmt.Printf("[AUDIO] Starting capture: %dHz, %d channels, %d frames/buffer\n",
 		InputSampleRate, Channels, InputFramesPerBuffer)
 
-	// Open input stream
-	in := make([]int16, InputFramesPerBuffer)
-	stream, err := portaudio.OpenDefaultStream(Channels, 0, InputSampleRate, InputFramesPerBuffer, in)
-	if err != nil {
-		fmt.Printf("[AUDIO ERROR] Failed to open input stream: %v\n", err)
-		return fmt.Errorf("failed to open input stream: %w", err)
+	if err := ac.sys.startSession(ctx); err != nil {
+		ac.mu.Lock()
+		ac.running = false
+		ac.mu.Unlock()
+		fmt.Printf("[AUDIO ERROR] Failed to start audio session: %v\n", err)
+		return fmt.Errorf("failed to start audio session: %w", err)
 	}
-
-	if err := stream.Start(); err != nil {
-		stream.Close()
-		fmt.Printf("[AUDIO ERROR] Failed to start input stream: %v\n", err)
-		return fmt.Errorf("failed to start input stream: %w", err)
-	}
-
-	ac.mu.Lock()
-	ac.stream = stream
-	ac.running = true
-	ac.initialized = true
-	ac.mu.Unlock()
 
 	fmt.Println("[AUDIO] Microphone stream opened successfully")
 
-	// Start capture goroutine
-	go ac.captureLoop(ctx, in)
+	go ac.captureLoop(ctx)
 
 	return nil
 }
@@ -146,12 +151,6 @@ func (ac *AudioCapture) Start(ctx context.Context) error {
 func (ac *AudioCapture) Stop() {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
-
-	if ac.stream != nil {
-		ac.stream.Stop()
-		ac.stream.Close()
-		ac.stream = nil
-	}
 	ac.running = false
 }
 
@@ -165,66 +164,55 @@ func (ac *AudioCapture) EnergyLevels() <-chan float64 {
 	return ac.energyOut
 }
 
-func (ac *AudioCapture) captureLoop(ctx context.Context, in []int16) {
+func (ac *AudioCapture) captureLoop(ctx context.Context) {
 	fmt.Println("[AUDIO] Capture loop started - listening for microphone input")
 
+	frames := ac.sys.session.Sources()[0].Frames()
 	for {
 		select {
 		case <-ctx.Done():
 			ac.logFinalStats()
 			ac.Stop()
 			return
-		default:
-		}
-
-		ac.mu.Lock()
-		if !ac.running || ac.stream == nil {
-			ac.mu.Unlock()
-			ac.logFinalStats()
-			return
-		}
-		stream := ac.stream
-		ac.mu.Unlock()
-
-		// Read audio frame
-		if err := stream.Read(); err != nil {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-
-		// Convert int16 to bytes (PCM16 little-endian)
-		audioBytes := int16ToBytes(in)
-
-		// Calculate energy level (0.0 - 1.0)
-		energy := calculateEnergy(in)
-
-		// Send audio data with drop detection
-		select {
-		case ac.audioOut <- audioBytes:
-			ac.chunksSent++
-			// Log first chunk and periodic progress
-			if ac.chunksSent == 1 {
-				fmt.Printf("[AUDIO] First audio chunk captured: %d bytes, energy=%.3f\n", len(audioBytes), energy)
-			} else if ac.chunksSent%500 == 0 {
-				fmt.Printf("[AUDIO] Captured %d chunks (dropped %d, %.1f%% loss)\n",
-					ac.chunksSent, ac.chunksDropped,
-					float64(ac.chunksDropped)/float64(ac.chunksSent+ac.chunksDropped)*100)
+		case frame, ok := <-frames:
+			if !ok {
+				ac.logFinalStats()
+				ac.Stop()
+				return
 			}
-		default:
-			ac.chunksDropped++
-			// Log drops (throttled to avoid spam)
-			if time.Since(ac.lastDropLog) > time.Second {
-				fmt.Printf("[AUDIO WARNING] Dropping audio chunks! Sent=%d, Dropped=%d (channel full)\n",
-					ac.chunksSent, ac.chunksDropped)
-				ac.lastDropLog = time.Now()
-			}
-		}
 
-		// Send energy level
-		select {
-		case ac.energyOut <- energy:
-		default:
-			// Energy drops are less critical, don't log
+			// frame.Data is already PCM16 little-endian bytes.
+			audioBytes := frame.Data
+
+			// Calculate energy level (0.0 - 1.0)
+			energy := calculateEnergy(BytesToInt16(audioBytes))
+
+			// Send audio data with drop detection
+			select {
+			case ac.audioOut <- audioBytes:
+				ac.chunksSent++
+				if ac.chunksSent == 1 {
+					fmt.Printf("[AUDIO] First audio chunk captured: %d bytes, energy=%.3f\n", len(audioBytes), energy)
+				} else if ac.chunksSent%500 == 0 {
+					fmt.Printf("[AUDIO] Captured %d chunks (dropped %d, %.1f%% loss)\n",
+						ac.chunksSent, ac.chunksDropped,
+						float64(ac.chunksDropped)/float64(ac.chunksSent+ac.chunksDropped)*100)
+				}
+			default:
+				ac.chunksDropped++
+				if time.Since(ac.lastDropLog) > time.Second {
+					fmt.Printf("[AUDIO WARNING] Dropping audio chunks! Sent=%d, Dropped=%d (channel full)\n",
+						ac.chunksSent, ac.chunksDropped)
+					ac.lastDropLog = time.Now()
+				}
+			}
+
+			// Send energy level
+			select {
+			case ac.energyOut <- energy:
+			default:
+				// Energy drops are less critical, don't log
+			}
 		}
 	}
 }
@@ -246,28 +234,17 @@ func (ap *AudioPlayback) Start(ctx context.Context) error {
 		ap.mu.Unlock()
 		return nil
 	}
-	ap.mu.Unlock()
-
-	// Open output stream
-	out := make([]int16, OutputFramesPerBuffer)
-	stream, err := portaudio.OpenDefaultStream(0, Channels, float64(OutputSampleRate), OutputFramesPerBuffer, out)
-	if err != nil {
-		return fmt.Errorf("failed to open output stream: %w", err)
-	}
-
-	if err := stream.Start(); err != nil {
-		stream.Close()
-		return fmt.Errorf("failed to start output stream: %w", err)
-	}
-
-	ap.mu.Lock()
-	ap.stream = stream
 	ap.running = true
-	ap.initialized = true
 	ap.mu.Unlock()
 
-	// Start playback goroutine
-	go ap.playbackLoop(ctx, out)
+	if err := ap.sys.startSession(ctx); err != nil {
+		ap.mu.Lock()
+		ap.running = false
+		ap.mu.Unlock()
+		return fmt.Errorf("failed to start audio session: %w", err)
+	}
+
+	go ap.playbackLoop(ctx)
 
 	return nil
 }
@@ -276,12 +253,6 @@ func (ap *AudioPlayback) Start(ctx context.Context) error {
 func (ap *AudioPlayback) Stop() {
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
-
-	if ap.stream != nil {
-		ap.stream.Stop()
-		ap.stream.Close()
-		ap.stream = nil
-	}
 	ap.running = false
 }
 
@@ -300,9 +271,8 @@ func (ap *AudioPlayback) AudioInput() chan<- []byte {
 	return ap.audioIn
 }
 
-func (ap *AudioPlayback) playbackLoop(ctx context.Context, out []int16) {
-	buffer := make([]byte, 0, OutputFramesPerBuffer*4)
-
+func (ap *AudioPlayback) playbackLoop(ctx context.Context) {
+	sink := ap.sys.session.Sinks()[0]
 	for {
 		select {
 		case <-ctx.Done():
@@ -313,26 +283,13 @@ func (ap *AudioPlayback) playbackLoop(ctx context.Context, out []int16) {
 				return
 			}
 
-			buffer = append(buffer, audioData...)
-
-			// Play when we have enough samples
-			for len(buffer) >= len(out)*2 {
-				// Convert bytes to int16
-				for i := 0; i < len(out); i++ {
-					if i*2+1 < len(buffer) {
-						out[i] = int16(binary.LittleEndian.Uint16(buffer[i*2:]))
-					}
-				}
-
-				ap.mu.Lock()
-				if ap.stream != nil {
-					ap.stream.Write()
-				}
-				ap.mu.Unlock()
-
-				// Remove played samples
-				buffer = buffer[len(out)*2:]
-			}
+			// The sink buffers and paces playback internally; hand it the raw
+			// PCM16 little-endian bytes.
+			sink.Write(rtaudio.MediaFrame{
+				Kind:   rtaudio.KindAudio,
+				Data:   audioData,
+				Format: rtaudio.Format{SampleRate: OutputSampleRate, Channels: Channels},
+			})
 		}
 	}
 }
@@ -344,6 +301,9 @@ func HasVoiceActivity(samples []int16) bool {
 
 // calculateEnergy returns normalized energy level (0.0 - 1.0)
 func calculateEnergy(samples []int16) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
 	var sum int64
 	for _, s := range samples {
 		if s < 0 {
@@ -359,15 +319,6 @@ func calculateEnergy(samples []int16) float64 {
 		normalized = 1.0
 	}
 	return normalized
-}
-
-// int16ToBytes converts int16 audio samples to bytes (little-endian PCM16)
-func int16ToBytes(samples []int16) []byte {
-	bytes := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		binary.LittleEndian.PutUint16(bytes[i*2:], uint16(s))
-	}
-	return bytes
 }
 
 // BytesToInt16 converts bytes to int16 audio samples (little-endian PCM16)
