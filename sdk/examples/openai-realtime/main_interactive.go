@@ -663,6 +663,9 @@ func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
 
 // hasAudioEnergy checks if audio frame has significant energy
 func hasAudioEnergy(samples []int16) bool {
+	if len(samples) == 0 {
+		return false
+	}
 	const threshold = 500
 	var sum int64
 	for _, s := range samples {
