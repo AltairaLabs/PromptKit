@@ -41,7 +41,7 @@ func TestPortaudioIO_FlushClearsAccumulator(t *testing.T) {
 	// Use the default playback rate to derive the expected buffer size (40 ms @ 24 kHz = 960 samples).
 	p := &portaudioIO{
 		playbackRate: PlaybackSampleRate,
-		outBuf:       make([]int16, PlaybackSampleRate*40/1000),
+		outBuf:       make([]int16, PlaybackSampleRate*playbackWindowMs/msPerSecond),
 		playCh:       make(chan []byte, captureChanBuffer),
 		flushCh:      make(chan struct{}, 1),
 		done:         make(chan struct{}),
@@ -127,9 +127,12 @@ func TestSessionConfig_Defaults(t *testing.T) {
 		t.Errorf("playbackRate = %d, want %d (PlaybackSampleRate)", cfg.playbackRate, PlaybackSampleRate)
 	}
 
-	// Validate buffer-size formula reproduces the original constants.
-	captureFrames := cfg.captureRate / 10          // 100 ms window
-	playbackFrames := cfg.playbackRate * 40 / 1000 // 40 ms window
+	// Validate the production buffer-size formula (named constants, not raw
+	// literals) reproduces the original 1600/960 frame counts. The 1600/960
+	// literals are intentionally hard-coded here as the regression guard against
+	// any behavior change at the defaults.
+	captureFrames := cfg.captureRate / captureWindowDivisor             // 100 ms window
+	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond // 40 ms window
 	if captureFrames != 1600 {
 		t.Errorf("captureFrames = %d, want 1600 (100 ms @ 16 kHz)", captureFrames)
 	}
@@ -146,7 +149,7 @@ func TestSessionConfig_WithCaptureRate(t *testing.T) {
 	if cfg.captureRate != 24000 {
 		t.Errorf("captureRate = %d, want 24000", cfg.captureRate)
 	}
-	captureFrames := cfg.captureRate / 10 // 100 ms window
+	captureFrames := cfg.captureRate / captureWindowDivisor // 100 ms window
 	if captureFrames != 2400 {
 		t.Errorf("captureFrames = %d, want 2400 (100 ms @ 24 kHz)", captureFrames)
 	}
@@ -164,7 +167,7 @@ func TestSessionConfig_WithPlaybackRate(t *testing.T) {
 	if cfg.playbackRate != 48000 {
 		t.Errorf("playbackRate = %d, want 48000", cfg.playbackRate)
 	}
-	playbackFrames := cfg.playbackRate * 40 / 1000 // 40 ms window
+	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond // 40 ms window
 	if playbackFrames != 1920 {
 		t.Errorf("playbackFrames = %d, want 1920 (40 ms @ 48 kHz)", playbackFrames)
 	}
@@ -177,6 +180,12 @@ func TestSessionConfig_WithPlaybackRate(t *testing.T) {
 // TestPortaudioSource_FrameFormatReflectsConfiguredRate verifies that the
 // portaudioSource emits MediaFrames whose Format.SampleRate matches the
 // configured capture rate, not the package default. No PortAudio device needed.
+//
+// Delivery is made deterministic: the pump is started first, then the frame is
+// enqueued and RECEIVED (with the assertion running every time) BEFORE io.done
+// is closed. Closing done before receiving would race the pump's select (both
+// done and captureCh ready ⇒ Go picks randomly), so the assertion could be
+// skipped on ~50% of runs.
 func TestPortaudioSource_FrameFormatReflectsConfiguredRate(t *testing.T) {
 	const wantRate = 24000
 
@@ -188,21 +197,19 @@ func TestPortaudioSource_FrameFormatReflectsConfiguredRate(t *testing.T) {
 	}
 	src := &portaudioSource{io: io}
 
-	// Enqueue a fake PCM frame (32 bytes = 16 samples of PCM16) and close done
-	// so pump exits after draining it.
-	fakeFrame := make([]byte, 32)
-	io.captureCh <- fakeFrame
-	close(io.done)
-
+	// Start the pump first; io.done is still open so the only ready case is the
+	// frame we enqueue, making delivery deterministic.
 	frames := src.Frames()
 
-	// Drain up to the one frame we queued (pump may not deliver it if done fires
-	// first — accept either outcome, but if a frame arrives it must have the right rate).
+	// Enqueue a fake PCM frame (32 bytes = 16 samples of PCM16).
+	fakeFrame := make([]byte, 32)
+	io.captureCh <- fakeFrame
+
+	// Receive and assert — this MUST run every time.
 	select {
 	case f, ok := <-frames:
 		if !ok {
-			// pump exited before delivering the frame — done raced; still valid.
-			return
+			t.Fatal("frames channel closed before delivering the enqueued frame")
 		}
 		if f.Format.SampleRate != wantRate {
 			t.Errorf("frame SampleRate = %d, want %d", f.Format.SampleRate, wantRate)
@@ -210,9 +217,12 @@ func TestPortaudioSource_FrameFormatReflectsConfiguredRate(t *testing.T) {
 		if f.Kind != KindAudio {
 			t.Errorf("frame Kind = %v, want KindAudio", f.Kind)
 		}
-	case <-time.After(500 * time.Millisecond):
-		// pump exited before delivering — acceptable, done was already closed.
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the enqueued frame")
 	}
+
+	// Only now signal the pump to exit.
+	close(io.done)
 }
 
 // TestPortaudioSource_Kind verifies the Source kind accessor.
