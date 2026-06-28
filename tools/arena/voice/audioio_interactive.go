@@ -109,6 +109,7 @@ type portaudioIO struct {
 	outBuf    []int16
 	captureCh chan []byte
 	playCh    chan []byte
+	flushCh   chan struct{}
 	started   bool
 	closed    bool
 	done      chan struct{}
@@ -132,6 +133,7 @@ func NewAudioIO() (AudioIO, error) {
 		outBuf:    make([]int16, playbackFramesPerBuffer),
 		captureCh: make(chan []byte, captureChanBuffer),
 		playCh:    make(chan []byte, captureChanBuffer),
+		flushCh:   make(chan struct{}, 1),
 		done:      make(chan struct{}),
 	}, nil
 }
@@ -212,6 +214,16 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 			return
 		case <-p.done:
 			return
+		case <-p.flushCh:
+			// Flush: discard the accumulation buffer so no stale audio plays, then
+			// stop+start the output stream to abort PortAudio's internal device buffer.
+			buffer = buffer[:0]
+			p.mu.Lock()
+			if p.outStream != 0 {
+				_ = p.lib.stopStream(p.outStream)
+				_ = p.lib.startStream(p.outStream)
+			}
+			p.mu.Unlock()
 		case frame, ok := <-p.playCh:
 			if !ok {
 				return
@@ -239,33 +251,54 @@ func (p *portaudioIO) Play(frame []byte) {
 	}
 }
 
-// Flush is completed in #1485 follow-up (stream restart); this minimal drain keeps the interface satisfied.
-func (p *portaudioIO) Flush() {
+// requestFlush drains queued play frames and signals playLoop to abort its
+// in-flight accumulation and restart the output stream. Non-blocking.
+func (p *portaudioIO) requestFlush() {
 	for {
 		select {
 		case <-p.playCh:
 		default:
-			return
+			goto signal
 		}
+	}
+signal:
+	select {
+	case p.flushCh <- struct{}{}:
+	default:
 	}
 }
 
+// Flush implements AudioIO. It cuts playback immediately.
+func (p *portaudioIO) Flush() { p.requestFlush() }
+
 func (p *portaudioIO) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return nil
 	}
 	p.closed = true
+	// Snapshot stream handles before releasing the lock. inStream/outStream are
+	// written only during Start() (which also holds mu), so the snapshots are
+	// stable for the lifetime of this call.
+	inStream := p.inStream
+	outStream := p.outStream
+	p.mu.Unlock()
+
+	// Signal goroutines to exit, then wait. mu must NOT be held across wg.Wait():
+	// playLoop's flush case acquires mu (to guard stopStream/startStream), so
+	// holding mu here while waiting for playLoop to exit is a deadlock.
 	close(p.done)
 	p.wg.Wait()
-	if p.inStream != 0 {
-		_ = p.lib.stopStream(p.inStream)
-		_ = p.lib.closeStream(p.inStream)
+
+	// Goroutines have exited; streams are no longer in use.
+	if inStream != 0 {
+		_ = p.lib.stopStream(inStream)
+		_ = p.lib.closeStream(inStream)
 	}
-	if p.outStream != 0 {
-		_ = p.lib.stopStream(p.outStream)
-		_ = p.lib.closeStream(p.outStream)
+	if outStream != 0 {
+		_ = p.lib.stopStream(outStream)
+		_ = p.lib.closeStream(outStream)
 	}
 	return p.lib.paError("terminate", p.lib.terminate())
 }

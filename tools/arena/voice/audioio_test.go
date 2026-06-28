@@ -82,6 +82,21 @@ func TestFakeAudioIO_FlushDropsQueuedPlayback(t *testing.T) {
 	}
 }
 
+func TestPortaudioIO_FlushClearsAccumulator(t *testing.T) {
+	p := &portaudioIO{
+		outBuf:  make([]int16, playbackFramesPerBuffer),
+		playCh:  make(chan []byte, captureChanBuffer),
+		flushCh: make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+	p.playCh <- make([]byte, 64)
+	p.playCh <- make([]byte, 64)
+	p.requestFlush()
+	if got := len(p.playCh); got != 0 {
+		t.Fatalf("expected playCh drained, got %d queued", got)
+	}
+}
+
 // TestNewAudioIO_LoadsOrReportsMissing exercises the real purego binding. On a
 // machine with PortAudio installed it must load + initialize successfully
 // (proving the CGO-free FFI works); otherwise it must return errPortAudioMissing
