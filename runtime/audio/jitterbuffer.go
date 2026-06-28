@@ -13,20 +13,20 @@ import "sync"
 // Underrun policy: Pull always returns exactly n samples; when fewer than n
 // are buffered the tail is zero-filled (silence).
 type JitterBuffer struct {
-	mu    sync.Mutex
-	buf   []int16
-	head  int   // index of next sample to read
-	count int   // number of valid samples in buf
-	cap   int   // maximum samples
-	drops int64 // cumulative dropped-sample count
+	mu       sync.Mutex
+	buf      []int16
+	head     int   // index of next sample to read
+	count    int   // number of valid samples in buf
+	capacity int   // maximum samples
+	drops    int64 // cumulative dropped-sample count
 }
 
 // NewJitterBuffer returns a JitterBuffer with the given maximum capacity in
 // samples.  A capacity of zero is valid but all pushes will drop immediately.
 func NewJitterBuffer(capacitySamples int) *JitterBuffer {
 	return &JitterBuffer{
-		buf: make([]int16, capacitySamples),
-		cap: capacitySamples,
+		buf:      make([]int16, capacitySamples),
+		capacity: capacitySamples,
 	}
 }
 
@@ -39,31 +39,31 @@ func (j *JitterBuffer) Push(samples []int16) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	if j.cap == 0 {
+	if j.capacity == 0 {
 		j.drops += int64(len(samples))
 		return
 	}
 
 	// If the incoming slice is larger than the total capacity, keep only the
-	// last cap samples (trim from the front of the incoming slice).
-	if len(samples) > j.cap {
-		dropped := len(samples) - j.cap
+	// last capacity samples (trim from the front of the incoming slice).
+	if len(samples) > j.capacity {
+		dropped := len(samples) - j.capacity
 		j.drops += int64(dropped)
 		samples = samples[dropped:]
 	}
 
 	// How many samples need to be evicted to fit the new ones?
-	free := j.cap - j.count
+	free := j.capacity - j.count
 	if need := len(samples) - free; need > 0 {
 		// Advance the read head to drop the oldest `need` samples.
-		j.head = (j.head + need) % j.cap
+		j.head = (j.head + need) % j.capacity
 		j.count -= need
 		j.drops += int64(need)
 	}
 
 	// Append samples into the ring buffer.
 	for _, s := range samples {
-		tail := (j.head + j.count) % j.cap
+		tail := (j.head + j.count) % j.capacity
 		j.buf[tail] = s
 		j.count++
 	}
@@ -80,13 +80,19 @@ func (j *JitterBuffer) Pull(n int) []int16 {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	// Zero-capacity buffers never hold samples; return n zeros without touching
+	// the ring (the modulo below would divide by zero otherwise).
+	if j.capacity == 0 {
+		return out
+	}
+
 	avail := j.count
 	if avail > n {
 		avail = n
 	}
 	for i := 0; i < avail; i++ {
 		out[i] = j.buf[j.head]
-		j.head = (j.head + 1) % j.cap
+		j.head = (j.head + 1) % j.capacity
 		j.count--
 	}
 	// Tail [avail:n] is already zero from make().

@@ -152,6 +152,43 @@ func TestJitterBuffer_DropsAccumulate(t *testing.T) {
 	}
 }
 
+func TestJitterBuffer_PullZero(t *testing.T) {
+	jb := NewJitterBuffer(100)
+	jb.Push([]int16{1, 2, 3})
+	got := jb.Pull(0)
+	if len(got) != 0 {
+		t.Fatalf("Pull(0): want len 0, got %d", len(got))
+	}
+	if jb.Len() != 3 {
+		t.Fatalf("Pull(0) must not consume samples: want Len=3, got %d", jb.Len())
+	}
+}
+
+func TestJitterBuffer_ZeroCapacity(t *testing.T) {
+	jb := NewJitterBuffer(0)
+	// Push is a no-op (everything dropped); must not panic.
+	jb.Push([]int16{1, 2, 3})
+	if jb.Len() != 0 {
+		t.Fatalf("zero-cap Len after Push: want 0, got %d", jb.Len())
+	}
+	if jb.Drops() != 3 {
+		t.Fatalf("zero-cap Drops after Push(3): want 3, got %d", jb.Drops())
+	}
+	// Pull returns n zeros without dividing by zero.
+	got := jb.Pull(4)
+	if len(got) != 4 {
+		t.Fatalf("zero-cap Pull(4): want len 4, got %d", len(got))
+	}
+	for i, v := range got {
+		if v != 0 {
+			t.Fatalf("zero-cap Pull(4): sample[%d] = %d, want 0", i, v)
+		}
+	}
+	if jb.Len() != 0 {
+		t.Fatalf("zero-cap Len after Pull: want 0, got %d", jb.Len())
+	}
+}
+
 func TestJitterBuffer_Concurrency(t *testing.T) {
 	jb := NewJitterBuffer(1000)
 	var wg sync.WaitGroup
