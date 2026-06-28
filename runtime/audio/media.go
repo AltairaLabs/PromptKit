@@ -54,6 +54,10 @@ type Source interface {
 // devices (speaker), file writers, and the in-memory MemSink test double.
 type Sink interface {
 	// Write enqueues a MediaFrame for playback/storage.
+	// Note: hardware sinks fix the playback sample rate at session construction
+	// (WithPlaybackRate, default 24 kHz); MediaFrame.Format is informational and
+	// is NOT resampled. Callers must write frames at the session's playback rate.
+	// (Phase 3 adds resample-at-sink.)
 	Write(MediaFrame)
 	// Flush drops all queued output immediately (e.g. on barge-in).
 	Flush()

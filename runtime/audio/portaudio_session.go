@@ -170,6 +170,10 @@ type portaudioSink struct {
 }
 
 // Write enqueues the frame's PCM16 bytes for speaker playback.
+// The playback sample rate is fixed at session construction (WithPlaybackRate,
+// default 24 kHz); f.Format.SampleRate is informational and is NOT resampled.
+// Callers must write frames at the session's configured playback rate.
+// (Phase 3 adds resample-at-sink.)
 func (s *portaudioSink) Write(f MediaFrame) { s.io.Play(f.Data) }
 
 // Flush drops all queued and in-flight playback (Phase-1 flush machinery).

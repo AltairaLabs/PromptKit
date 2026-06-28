@@ -26,11 +26,13 @@ func (m *MemSink) Kind() MediaKind { return m.kind }
 // Close is a no-op for MemSink; it satisfies the Sink interface.
 func (m *MemSink) Close() error { return nil }
 
-// Written returns a snapshot of the frames written since the last Flush.
+// Written returns a copy of the frames written since the last Flush.
+// The returned slice is independent of the internal buffer, making it safe
+// to read concurrently with ongoing Write or Flush calls.
 func (m *MemSink) Written() []MediaFrame {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.written
+	return append([]MediaFrame(nil), m.written...)
 }
 
 // MemSource is an in-memory Source for tests and headless use.
