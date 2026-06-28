@@ -196,6 +196,14 @@ type portaudioSink struct {
 // default 24 kHz); f.Format.SampleRate is informational. In duplex mode the
 // bytes are resampled from the configured playback rate up to the 48 kHz device
 // rate at this seam before entering the jitter buffer.
+//
+// CADENCE CONTRACT: callers must also write at roughly REAL-TIME cadence. The
+// duplex playback jitter buffer holds only ~200 ms (timing jitter), NOT whole
+// utterances; an unpaced bulk write longer than that is silently dropped
+// oldest-first (the session logs one warning on first overflow). The Arena
+// interactive pipeline satisfies this with its audio-pacing-output stage; a
+// direct writer (e.g. a future OpenVoice streaming TTS straight to this Sink)
+// must pace or chunk its writes to real time.
 func (s *portaudioSink) Write(f MediaFrame) { s.io.Play(f.Data) }
 
 // Flush drops all queued and in-flight playback (Phase-1 flush machinery).

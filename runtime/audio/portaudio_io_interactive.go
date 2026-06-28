@@ -139,6 +139,9 @@ type portaudioIO struct {
 	duplex       atomic.Bool
 	jitter       *JitterBuffer
 	duplexStream uintptr
+	// jitterOverflowOnce guards a single per-session warning the first time the
+	// playback jitter buffer drops samples (a writer exceeding real-time cadence).
+	jitterOverflowOnce sync.Once
 	// readFn/writeFn are injectable seams: nil on the real path (the loop calls
 	// Pa_ReadStream/Pa_WriteStream on duplexStream); set by tests to fakes so the
 	// loop body is unit-testable without an audio device.
@@ -210,6 +213,15 @@ const jitterHeadroomDivisor = 5
 // fronted by a jitter buffer. The capture/playback rates from cfg are retained
 // as the resample seams (mic 48→captureRate, speaker playbackRate→48); only the
 // device stream runs at DuplexRate.
+//
+// PLAYBACK CADENCE CONTRACT: the jitter buffer is sized for timing jitter
+// (~200 ms of headroom, jitterHeadroomDivisor), NOT for buffering whole
+// utterances. Callers must write to the Sink at roughly real-time cadence;
+// unpaced bulk writes that exceed the buffer are dropped oldest-first (only
+// JitterBuffer.Drops() climbs — the session emits one warning on first overflow).
+// The Arena interactive pipeline satisfies this via its audio-pacing-output
+// stage; direct Sink writers (e.g. a future OpenVoice writing TTS straight to
+// Sinks()[0]) must pace or chunk their writes to real time.
 func newDuplexCore(lib *portAudioLib, cfg sessionConfig) *portaudioIO {
 	p := &portaudioIO{
 		lib:          lib,

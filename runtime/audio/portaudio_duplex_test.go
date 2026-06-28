@@ -2,10 +2,55 @@ package audio
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 )
+
+// warnCountHandler is a minimal slog.Handler that counts WARN-level records, so
+// a test can assert how many warnings a code path emits without scraping stderr.
+type warnCountHandler struct{ warns int }
+
+func (h *warnCountHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *warnCountHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level == slog.LevelWarn {
+		h.warns++
+	}
+	return nil
+}
+func (h *warnCountHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *warnCountHandler) WithGroup(string) slog.Handler      { return h }
+
+// TestDuplexPlay_WarnsOnceOnJitterOverflow verifies that when an unpaced bulk
+// write overflows the playback jitter buffer, duplexPlay emits exactly ONE
+// warning per session (sync.Once-guarded) even across repeated overflows. Calls
+// are synchronous (no goroutines), so the temporary default logger swap is
+// race-safe and the warning count is deterministic.
+func TestDuplexPlay_WarnsOnceOnJitterOverflow(t *testing.T) {
+	h := &warnCountHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	io := &portaudioIO{
+		playbackRate: SampleRate24kHz,
+		jitter:       NewJitterBuffer(10), // tiny => any real frame overflows it
+		done:         make(chan struct{}),
+	}
+	io.duplex.Store(true)
+
+	frame := make([]byte, 240*bytesPerSample) // 240 @24k -> 480 @48k >> cap 10
+	io.Play(frame)
+	io.Play(frame) // second overflow must NOT warn again
+
+	if io.jitter.Drops() == 0 {
+		t.Fatal("expected jitter drops > 0 after overflow")
+	}
+	if h.warns != 1 {
+		t.Fatalf("expected exactly 1 overflow warning, got %d", h.warns)
+	}
+}
 
 // TestDuplexLoop_ReadResampleEmit_PullWrite drives the single duplex loop with
 // injected fake read/write funcs (no PortAudio device). It proves the seam

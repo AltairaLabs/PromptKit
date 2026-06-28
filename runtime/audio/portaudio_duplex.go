@@ -10,6 +10,7 @@ package audio
 import (
 	"context"
 	"encoding/binary"
+	"log/slog"
 )
 
 // duplexBlockFrames is the per-tick mic/speaker block size: 480 samples = 10 ms
@@ -44,6 +45,11 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 		}
 
 		// Mic seam: 48 kHz int16 → bytes → resample to captureRate → captureCh.
+		// AEC NOTE (#1506): when Speex AEC lands, the cancellation tap
+		// `near = Cancel(micBuf, lastWrittenBlock)` must run on the RAW 48 kHz mic
+		// block BELOW, BEFORE this 48→captureRate resample/emit. The mic emit then
+		// moves under the AEC step and this loop must retain the last written
+		// playback block (the speaker-seam `out` below) as the far-end reference.
 		if resampled, err := ResamplePCM16(int16ToBytes(micBuf), DuplexRate, p.captureRate); err == nil {
 			select {
 			case p.captureCh <- resampled:
@@ -62,12 +68,23 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 // duplexPlay resamples a playback-rate frame up to DuplexRate and pushes the
 // result into the jitter buffer. The device loop drains the buffer one 10 ms
 // block per tick. Frames are silently dropped only if resampling fails.
+//
+// The jitter buffer is sized for ~200 ms of timing jitter, NOT for whole
+// utterances (see newDuplexCore's cadence contract). If a Push overflows it,
+// the oldest audio is dropped; the first such overflow in a session logs a
+// single warning so the silent loss is visible to a writer that isn't pacing.
 func (p *portaudioIO) duplexPlay(frame []byte) {
 	resampled, err := ResamplePCM16(frame, p.playbackRate, DuplexRate)
 	if err != nil {
 		return
 	}
 	p.jitter.Push(bytesToInt16(resampled))
+	if p.jitter.Drops() > 0 {
+		p.jitterOverflowOnce.Do(func() {
+			slog.Warn("playback jitter buffer overflowing — audio being dropped; " +
+				"the writer is exceeding real-time cadence (missing a pacing/chunking step?)")
+		})
+	}
 }
 
 // Play enqueues a PCM16 frame for speaker playback. In duplex mode it resamples
