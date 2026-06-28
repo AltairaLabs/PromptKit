@@ -649,9 +649,14 @@ func (s *TTSStageWithInterruption) Process(
 	for elem := range work {
 		if elem.Interrupt {
 			// In-flight synthesis was already canceled out of band by the
-			// reader. Roll a fresh context for the next turn and forward the
-			// Interrupt downstream so playback can flush too.
+			// reader. Roll a fresh context for the next turn, reset the shared
+			// handler so its interrupted flag does not carry over and block the
+			// next turn's synthesis, then forward the Interrupt downstream so
+			// playback can flush too.
 			canceller.refresh()
+			if s.interruption != nil {
+				s.interruption.Reset()
+			}
 			if err := s.forwardElement(ctx, elem, output); err != nil {
 				return err
 			}
@@ -709,23 +714,18 @@ func (s *TTSStageWithInterruption) forwardElement(
 }
 
 // setBotSpeaking safely sets bot speaking state if handler exists.
+// The bot-speaking flag is still needed: AudioTurnStage's ProcessVADState only
+// fires a barge-in while the bot is speaking, so this gate must stay in sync.
 func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
 	if s.interruption != nil {
 		s.interruption.SetBotSpeaking(speaking)
 	}
 }
 
-// checkAndResetInterruption checks if interrupted and resets if so.
-func (s *TTSStageWithInterruption) checkAndResetInterruption() bool {
-	if s.interruption != nil && s.interruption.WasInterrupted() {
-		s.interruption.Reset()
-		s.setBotSpeaking(false)
-		return true
-	}
-	return false
-}
-
 // synthesizeAndEmit performs TTS synthesis and emits the audio element.
+// Interruption is handled exclusively by the in-channel Interrupt element and
+// the per-turn synthCtx (canceled by turnCanceller on barge-in), so there is
+// no need to poll the shared handler here.
 func (s *TTSStageWithInterruption) synthesizeAndEmit(
 	ctx context.Context,
 	text string,
@@ -734,19 +734,9 @@ func (s *TTSStageWithInterruption) synthesizeAndEmit(
 ) error {
 	s.setBotSpeaking(true)
 
-	if s.checkAndResetInterruption() {
-		logger.Debug("TTSStageWithInterruption: interrupted before synthesis")
-		return nil
-	}
-
 	audioData, err := s.performSynthesis(ctx, text, elem, output)
 	if err != nil || audioData == nil {
 		return err
-	}
-
-	if s.checkAndResetInterruption() {
-		logger.Debug("TTSStageWithInterruption: interrupted after synthesis, discarding")
-		return nil
 	}
 
 	return s.emitAudioElement(ctx, text, audioData, &elem.Meta, output)

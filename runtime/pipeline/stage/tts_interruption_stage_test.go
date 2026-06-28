@@ -421,27 +421,37 @@ func TestTTSStageWithInterruption_WithInterruption(t *testing.T) {
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Simulate interruption by processing a Speaking VAD state
-	_, _ = handler.ProcessVADState(ctx, audio.VADStateSpeaking)
+	// Simulate a prior turn's barge-in leaving the handler's interrupted flag set.
+	_, _ = handler.ProcessVADState(context.Background(), audio.VADStateSpeaking)
+	require.True(t, handler.WasInterrupted(), "precondition: handler must be interrupted")
 
 	input := make(chan stage.StreamElement, 1)
 	output := make(chan stage.StreamElement, 10)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
 
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
-
-	input <- makeTextElement("This should be interrupted")
+	input <- makeTextElement("This proceeds despite the stale interrupted flag")
 	close(input)
 
-	// Wait for processing — audio should be skipped
-	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, <-done)
+
+	// With no Interrupt element in the channel, synthesis proceeds even if the
+	// handler's interrupted flag was set before this turn — only an in-channel
+	// Interrupt element (plus synthCtx cancellation) drops audio.
+	var audioCount int
+	for e := range output {
+		if e.Audio != nil {
+			audioCount++
+		}
+	}
+	assert.Equal(t, 1, audioCount, "synthesis proceeds when no Interrupt element cancels the turn")
 }
 
 func TestTTSStageWithInterruption_PostSynthesisInterruption(t *testing.T) {
+	// If the synthesis context was NOT cancelled (no Interrupt in the channel),
+	// synthesis that completed is emitted even when the shared handler's interrupted
+	// flag is set.  Discarding completed audio is no longer done by polling — only
+	// an in-channel Interrupt + synthCtx cancellation drops in-flight audio.
 	config := stage.DefaultTTSStageWithInterruptionConfig()
 	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
 	handler.SetBotSpeaking(true)
@@ -449,7 +459,8 @@ func TestTTSStageWithInterruption_PostSynthesisInterruption(t *testing.T) {
 
 	mock := &mockTTSService{
 		synthesizeFunc: func(ctx context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
-			// Trigger interruption INSIDE synthesizeFunc
+			// Trigger interruption INSIDE synthesizeFunc — but synthesis still
+			// completes because no Interrupt element cancels synthCtx.
 			_, _ = handler.ProcessVADState(ctx, audio.VADStateSpeaking)
 			return io.NopCloser(strings.NewReader("audio data")), nil
 		},
@@ -457,28 +468,100 @@ func TestTTSStageWithInterruption_PostSynthesisInterruption(t *testing.T) {
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
 	input := make(chan stage.StreamElement, 1)
 	output := make(chan stage.StreamElement, 10)
-
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
 
 	input <- makeTextElement("Test post-synthesis interruption")
 	close(input)
 
-	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, <-done)
 
-	// Audio should be discarded; no audio elements expected
-	select {
-	case elem := <-output:
-		if elem.Audio != nil {
-			t.Errorf("Expected audio to be discarded after interruption, got audio element")
+	var audioCount int
+	for e := range output {
+		if e.Audio != nil {
+			audioCount++
 		}
-	default:
-		// Nothing in output is expected
 	}
+	assert.Equal(t, 1, audioCount, "audio must be emitted when synthesis completes without synthCtx cancellation")
+}
+
+// TestTTSStageWithInterruption_StaleFlagNoLongerDropsNextSynthesis covers
+// #1485 item 2: after a barge-in sets interrupted=true on the shared handler,
+// the NEXT turn's synthesis must not be silently dropped.
+func TestTTSStageWithInterruption_StaleFlagNoLongerDropsNextSynthesis(t *testing.T) {
+	// Pre-condition: simulate a prior turn's barge-in leaving interrupted=true.
+	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	handler.SetBotSpeaking(true)
+	interrupted, err := handler.ProcessVADState(context.Background(), audio.VADStateSpeaking)
+	require.NoError(t, err)
+	require.True(t, interrupted, "precondition: handler must be interrupted")
+	require.True(t, handler.WasInterrupted(), "precondition: flag must be set")
+
+	mock := &mockTTSService{
+		synthesizeFunc: func(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("turn-2-audio")), nil
+		},
+	}
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+	config.InterruptionHandler = handler
+
+	s := stage.NewTTSStageWithInterruption(mock, config)
+
+	input := make(chan stage.StreamElement)
+	output := make(chan stage.StreamElement, 16)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	// An Interrupt element arrives (as AudioTurnStage emits on barge-in), then turn-2 text.
+	input <- stage.NewInterruptElement()
+	input <- makeTextElement("second-turn reply")
+	close(input)
+
+	require.NoError(t, <-done)
+
+	var audioCount, interruptCount int
+	for e := range output {
+		if e.Audio != nil {
+			audioCount++
+		}
+		if e.Interrupt {
+			interruptCount++
+		}
+	}
+	assert.Equal(t, 1, interruptCount, "Interrupt must be forwarded downstream")
+	assert.Equal(t, 1, audioCount, "turn-2 synthesis must not be dropped by a stale interrupted flag")
+}
+
+// TestTTSStageWithInterruption_InterruptElementClearsHandler covers #1485 item 2
+// (second half): processing an Interrupt element must reset the shared handler so
+// AudioTurnStage can fire a second barge-in in the next turn.
+func TestTTSStageWithInterruption_InterruptElementClearsHandler(t *testing.T) {
+	// Pre-set the handler into the "interrupted" state as a prior barge-in would.
+	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	handler.SetBotSpeaking(true)
+	_, err := handler.ProcessVADState(context.Background(), audio.VADStateSpeaking)
+	require.NoError(t, err)
+	require.True(t, handler.WasInterrupted(), "precondition: handler must be interrupted")
+
+	config := stage.DefaultTTSStageWithInterruptionConfig()
+	config.InterruptionHandler = handler
+
+	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, config)
+
+	input := make(chan stage.StreamElement, 1)
+	output := make(chan stage.StreamElement, 4)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	input <- stage.NewInterruptElement()
+	close(input)
+
+	require.NoError(t, <-done)
+	for range output {
+	} // drain
+
+	assert.False(t, handler.WasInterrupted(),
+		"Interrupt element must call handler.Reset() to clear the interrupted flag for the next turn")
 }
