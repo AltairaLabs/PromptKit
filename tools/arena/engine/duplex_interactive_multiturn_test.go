@@ -157,7 +157,7 @@ func TestRunInteractiveVoice_VAD_ContinuousMultiTurn(t *testing.T) {
 	defer cancel()
 
 	runErr := make(chan error, 1)
-	go func() { runErr <- exec.RunInteractiveVoice(ctx, req, mic, play) }()
+	go func() { runErr <- exec.RunInteractiveVoice(ctx, req, mic, play, func() {}) }()
 
 	feedTurn := func() {
 		mic <- speechFrame()

@@ -4,8 +4,10 @@ import "context"
 
 // LiveRunner consumes mic frames and emits playback frames, returning when mic
 // closes or ctx ends. engine.(*DuplexConversationExecutor).RunInteractiveVoice
-// is adapted to this signature by the chat command.
-type LiveRunner func(ctx context.Context, mic <-chan []byte, play func([]byte)) error
+// is adapted to this signature by the chat command. flush is called to drop
+// in-flight speaker audio on barge-in (Interrupt element); the driver passes
+// AudioIO.Flush so the hardware buffer is cleared immediately.
+type LiveRunner func(ctx context.Context, mic <-chan []byte, play func([]byte), flush func()) error
 
 // Driver wires hardware AudioIO to a LiveRunner and (optionally) reports RMS
 // levels for the TUI meter. It owns no LLM or pipeline knowledge.
@@ -63,7 +65,7 @@ func (d *Driver) Run(ctx context.Context) error {
 	if d.onLevel != nil || d.guard != nil {
 		mic = d.tapLevels(ctx, mic)
 	}
-	return d.run(ctx, mic, play)
+	return d.run(ctx, mic, play, d.io.Flush)
 }
 
 // tapLevels forwards mic frames while reporting their RMS as the user level.

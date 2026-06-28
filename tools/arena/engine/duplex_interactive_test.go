@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -18,6 +19,23 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
+
+// TestDrainAudioOutput_InterruptFlushes verifies that drainAudioOutput delivers
+// audio frames to play and calls onInterrupt when an Interrupt element arrives.
+func TestDrainAudioOutput_InterruptFlushes(t *testing.T) {
+	out := make(chan stage.StreamElement, 2)
+	out <- stage.StreamElement{Audio: &stage.AudioData{Samples: []byte{1, 2}}}
+	out <- stage.StreamElement{Interrupt: true}
+	close(out)
+
+	var played [][]byte
+	var flushes int
+	drainAudioOutput(out, func(b []byte) { played = append(played, b) }, func() { flushes++ })
+
+	if len(played) != 1 || flushes != 1 {
+		t.Fatalf("played=%d flushes=%d, want 1/1", len(played), flushes)
+	}
+}
 
 // interactiveVoiceTestRepo is a minimal ResponseRepository for TestRunInteractiveVoice_ASM
 // that returns an audio fixture on every GetTurn call. It implements just enough of the
@@ -148,7 +166,7 @@ func TestRunInteractiveVoice_ASM_EchoesAudioToPlayback(t *testing.T) {
 	mic <- make([]byte, 320) // one 10ms-ish PCM16 frame @16kHz
 	close(mic)
 
-	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play, func() {}); err != nil {
 		t.Fatalf("RunInteractiveVoice: %v", err)
 	}
 	if len(played) == 0 {
@@ -179,7 +197,7 @@ func TestRunInteractiveVoice_VAD_RequiresSTTProvider(t *testing.T) {
 	close(mic)
 
 	ctx := context.Background()
-	err := exec.RunInteractiveVoice(ctx, req, mic, func(_ []byte) {})
+	err := exec.RunInteractiveVoice(ctx, req, mic, func(_ []byte) {}, func() {})
 	if err == nil {
 		t.Fatal("expected error for non-streaming provider, got nil")
 	}
@@ -337,7 +355,7 @@ func TestRunInteractiveVoice_VAD_MaterializesTurn(t *testing.T) {
 	}
 	close(mic)
 
-	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play, func() {}); err != nil {
 		t.Fatalf("RunInteractiveVoice: %v", err)
 	}
 
@@ -474,7 +492,7 @@ func TestRunInteractiveVoice_VAD_AssistantOnlySynthesized(t *testing.T) {
 	}
 	close(mic)
 
-	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play, func() {}); err != nil {
 		t.Fatalf("RunInteractiveVoice: %v", err)
 	}
 
@@ -608,7 +626,7 @@ func TestRunInteractiveVoice_ASM_MaterializesUserTranscript(t *testing.T) {
 	mic <- make([]byte, 320) // one mic frame
 	close(mic)
 
-	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play, func() {}); err != nil {
 		t.Fatalf("RunInteractiveVoice: %v", err)
 	}
 
@@ -761,7 +779,7 @@ func TestRunInteractiveVoice_RoutesToVADWhenVoiceSTTSet(t *testing.T) {
 	}
 	close(mic)
 
-	if err := exec.RunInteractiveVoice(ctx, req, mic, play); err != nil {
+	if err := exec.RunInteractiveVoice(ctx, req, mic, play, func() {}); err != nil {
 		t.Fatalf("RunInteractiveVoice: %v", err)
 	}
 

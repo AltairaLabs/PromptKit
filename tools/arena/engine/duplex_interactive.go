@@ -50,6 +50,7 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 	req *ConversationRequest,
 	mic <-chan []byte,
 	play func([]byte),
+	flush func(),
 ) error {
 	// VoiceSTT is an unambiguous "use the composed STT→LLM→TTS path" signal from
 	// the caller (--voice-stt flag). Check it before the StreamInputSupport
@@ -57,14 +58,14 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 	// model — realtime and plain-text alike — so the type assertion alone cannot
 	// distinguish a gpt-4o-realtime session from a plain gpt-4o text agent.
 	if req.VoiceSTT != nil {
-		return de.runInteractiveVADVoice(ctx, req, mic, play)
+		return de.runInteractiveVADVoice(ctx, req, mic, play, flush)
 	}
 
 	streamProvider, ok := req.Provider.(providers.StreamInputSupport)
 	if !ok {
 		// Provider is text-only; runInteractiveVADVoice will return an error
 		// explaining that --voice-stt is required.
-		return de.runInteractiveVADVoice(ctx, req, mic, play)
+		return de.runInteractiveVADVoice(ctx, req, mic, play, flush)
 	}
 
 	pipeline, err := de.buildDuplexPipeline(req, streamProvider)
@@ -85,7 +86,7 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		drainAudioOutput(outputChan, play)
+		drainAudioOutput(outputChan, play, flush)
 	}()
 
 	// Feed mic frames into the pipeline until mic closes or ctx ends, then
@@ -106,9 +107,15 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 }
 
 // drainAudioOutput ranges over outputChan and delivers every audio frame to play.
-// It exits when outputChan is closed (by the pipeline on completion or ctx cancel).
-func drainAudioOutput(outputChan <-chan stage.StreamElement, play func([]byte)) {
+// When an Interrupt element arrives, onInterrupt is called (if non-nil) to flush
+// in-flight speaker playback, then the element is skipped. It exits when
+// outputChan is closed (by the pipeline on completion or ctx cancel).
+func drainAudioOutput(outputChan <-chan stage.StreamElement, play func([]byte), onInterrupt func()) {
 	for elem := range outputChan {
+		if elem.Interrupt && onInterrupt != nil {
+			onInterrupt()
+			continue
+		}
 		if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
 			play(elem.Audio.Samples)
 		}
@@ -169,6 +176,7 @@ func (de *DuplexConversationExecutor) runInteractiveVADVoice(
 	req *ConversationRequest,
 	mic <-chan []byte,
 	play func([]byte),
+	flush func(),
 ) error {
 	if req.VoiceSTT == nil {
 		return fmt.Errorf("voice over a text agent requires an STT provider (--voice-stt)")
@@ -201,7 +209,7 @@ func (de *DuplexConversationExecutor) runInteractiveVADVoice(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		drainAudioOutput(outputChan, play)
+		drainAudioOutput(outputChan, play, flush)
 	}()
 
 	defer func() {
