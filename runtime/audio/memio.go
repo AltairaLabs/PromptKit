@@ -39,6 +39,7 @@ func (m *MemSink) Written() []MediaFrame {
 type MemSource struct {
 	kind   MediaKind
 	frames chan MediaFrame
+	once   sync.Once
 }
 
 // NewMemSource creates a MemSource with a buffered channel of size buf.
@@ -56,4 +57,5 @@ func (m *MemSource) Frames() <-chan MediaFrame { return m.frames }
 func (m *MemSource) Kind() MediaKind { return m.kind }
 
 // Close closes the underlying channel, signaling end-of-stream to consumers.
-func (m *MemSource) Close() error { close(m.frames); return nil }
+// It is idempotent; calling Close more than once is safe.
+func (m *MemSource) Close() error { m.once.Do(func() { close(m.frames) }); return nil }

@@ -41,7 +41,7 @@ func TestMemSource_RoundTrip(t *testing.T) {
 	}
 	f := MediaFrame{Kind: KindAudio, Data: []byte{0x01, 0x02}, PTS: 20 * time.Millisecond}
 	src.Push(f)
-	src.Close() //nolint:errcheck // test
+	_ = src.Close()
 
 	var frames []MediaFrame
 	for fr := range src.Frames() {
@@ -52,6 +52,17 @@ func TestMemSource_RoundTrip(t *testing.T) {
 	}
 	if frames[0].PTS != 20*time.Millisecond {
 		t.Errorf("PTS mismatch: got %v", frames[0].PTS)
+	}
+}
+
+func TestMemSource_DoubleCloseNoPanic(t *testing.T) {
+	src := NewMemSource(KindAudio, 1)
+	if err := src.Close(); err != nil {
+		t.Fatalf("first Close() error: %v", err)
+	}
+	// Second Close must not panic on an already-closed channel.
+	if err := src.Close(); err != nil {
+		t.Fatalf("second Close() error: %v", err)
 	}
 }
 
