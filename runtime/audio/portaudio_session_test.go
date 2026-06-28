@@ -50,7 +50,7 @@ func TestStart_DuplexOpenFailsFallsBackToTwoStream(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = io.Close() }) // join the two-stream goroutines
 
-	if io.duplex {
+	if io.duplex.Load() {
 		t.Fatal("expected duplex=false after fallback to two-stream mode")
 	}
 

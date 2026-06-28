@@ -74,7 +74,7 @@ func (p *portaudioIO) duplexPlay(frame []byte) {
 // (playbackRate → 48 kHz) and pushes to the jitter buffer; in two-stream mode it
 // drops the frame onto playCh, dropping on backpressure.
 func (p *portaudioIO) Play(frame []byte) {
-	if p.duplex {
+	if p.duplex.Load() {
 		p.duplexPlay(frame)
 		return
 	}
@@ -88,7 +88,7 @@ func (p *portaudioIO) Play(frame []byte) {
 // the loop writes silence on the next tick (no stream stop/start needed). In
 // two-stream mode it drains playCh and restarts the output stream.
 func (p *portaudioIO) Flush() {
-	if p.duplex {
+	if p.duplex.Load() {
 		p.jitter.Clear()
 		return
 	}

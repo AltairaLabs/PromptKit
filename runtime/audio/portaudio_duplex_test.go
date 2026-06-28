@@ -41,7 +41,6 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 	}
 
 	io := &portaudioIO{
-		duplex:      true,
 		captureRate: SampleRate16kHz,
 		captureCh:   make(chan []byte, captureChanBuffer),
 		jitter:      NewJitterBuffer(DuplexRate / 5),
@@ -49,6 +48,7 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 		readFn:      readFn,
 		writeFn:     writeFn,
 	}
+	io.duplex.Store(true)
 
 	// Push ONE 480-sample playback block @48 kHz BEFORE the loop runs.
 	const playValue = 4321
@@ -129,7 +129,6 @@ func TestDuplexLoop_ContextCancelStops(t *testing.T) {
 	cancel() // already canceled before the loop starts
 
 	io := &portaudioIO{
-		duplex:      true,
 		captureRate: SampleRate16kHz,
 		captureCh:   make(chan []byte, captureChanBuffer),
 		jitter:      NewJitterBuffer(DuplexRate / 5),
@@ -137,6 +136,7 @@ func TestDuplexLoop_ContextCancelStops(t *testing.T) {
 		readFn:      func(_ []int16) int32 { return 0 },
 		writeFn:     func(_ []int16) int32 { return 0 },
 	}
+	io.duplex.Store(true)
 	io.wg.Add(1)
 	done := make(chan struct{})
 	go func() {
@@ -155,7 +155,6 @@ func TestDuplexLoop_ContextCancelStops(t *testing.T) {
 // (unbuffered captureCh with no reader forces the default case).
 func TestDuplexLoop_WriteErrorStopsAndDropsOnBackpressure(t *testing.T) {
 	io := &portaudioIO{
-		duplex:      true,
 		captureRate: SampleRate16kHz,
 		captureCh:   make(chan []byte), // unbuffered, no reader => drop on send
 		jitter:      NewJitterBuffer(DuplexRate / 5),
@@ -163,6 +162,7 @@ func TestDuplexLoop_WriteErrorStopsAndDropsOnBackpressure(t *testing.T) {
 		readFn:      func(_ []int16) int32 { return 0 },
 		writeFn:     func(_ []int16) int32 { return 1 }, // non-zero rc ends the loop
 	}
+	io.duplex.Store(true)
 	io.wg.Add(1)
 	done := make(chan struct{})
 	go func() {
@@ -180,11 +180,11 @@ func TestDuplexLoop_WriteErrorStopsAndDropsOnBackpressure(t *testing.T) {
 // error (invalid playback rate) without pushing to the jitter buffer.
 func TestDuplexPlay_ResampleErrorDropsFrame(t *testing.T) {
 	io := &portaudioIO{
-		duplex:       true,
 		playbackRate: 0, // invalid => ResamplePCM16 returns an error
 		jitter:       NewJitterBuffer(DuplexRate / 5),
 		done:         make(chan struct{}),
 	}
+	io.duplex.Store(true)
 	io.Play(make([]byte, 64))
 	if got := io.jitter.Len(); got != 0 {
 		t.Fatalf("jitter Len = %d, want 0 (frame dropped on resample error)", got)
@@ -196,11 +196,11 @@ func TestDuplexPlay_ResampleErrorDropsFrame(t *testing.T) {
 // buffer (Len grows by the 48 kHz sample count).
 func TestDuplexPlay_ResamplesAndPushes(t *testing.T) {
 	io := &portaudioIO{
-		duplex:       true,
 		playbackRate: SampleRate24kHz,
 		jitter:       NewJitterBuffer(DuplexRate / 5),
 		done:         make(chan struct{}),
 	}
+	io.duplex.Store(true)
 	// 240 samples @24 kHz (480 bytes) -> 480 samples @48 kHz.
 	frame := make([]byte, 240*bytesPerSample)
 	io.Play(frame)
@@ -213,10 +213,10 @@ func TestDuplexPlay_ResamplesAndPushes(t *testing.T) {
 // (instant silence — no stream stop/start in duplex mode).
 func TestDuplexFlush_ClearsJitter(t *testing.T) {
 	io := &portaudioIO{
-		duplex: true,
 		jitter: NewJitterBuffer(DuplexRate / 5),
 		done:   make(chan struct{}),
 	}
+	io.duplex.Store(true)
 	io.jitter.Push(make([]int16, duplexBlockFrames))
 	if io.jitter.Len() == 0 {
 		t.Fatal("precondition: jitter should be non-empty before Flush")

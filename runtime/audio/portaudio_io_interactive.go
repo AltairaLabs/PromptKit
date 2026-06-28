@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -131,7 +132,11 @@ type portaudioIO struct {
 	// is unused; one synchronized loop reads mic and writes speaker on a single
 	// stream, resampling only at the STT (48→capture) and TTS (playback→48) seams.
 	// The two-stream path is retained for Task 3.4's try-duplex-else-fallback.
-	duplex       bool
+	//
+	// duplex is read lock-free by Play/Flush (portaudio_duplex.go) and flipped
+	// true→false by the half-duplex fallback in startDuplexLocked (under p.mu), so
+	// it is atomic to keep that mode transition race-free.
+	duplex       atomic.Bool
 	jitter       *JitterBuffer
 	duplexStream uintptr
 	// readFn/writeFn are injectable seams: nil on the real path (the loop calls
@@ -206,15 +211,16 @@ const jitterHeadroomDivisor = 5
 // as the resample seams (mic 48→captureRate, speaker playbackRate→48); only the
 // device stream runs at DuplexRate.
 func newDuplexCore(lib *portAudioLib, cfg sessionConfig) *portaudioIO {
-	return &portaudioIO{
+	p := &portaudioIO{
 		lib:          lib,
 		captureRate:  cfg.captureRate,
 		playbackRate: cfg.playbackRate,
-		duplex:       true,
 		jitter:       NewJitterBuffer(DuplexRate / jitterHeadroomDivisor),
 		captureCh:    make(chan []byte, captureChanBuffer),
 		done:         make(chan struct{}),
 	}
+	p.duplex.Store(true)
+	return p
 }
 
 // Start opens the mic and speaker streams and launches the capture/playback
@@ -230,7 +236,7 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 		return nil
 	}
 
-	if p.duplex {
+	if p.duplex.Load() {
 		return p.startDuplexLocked(ctx)
 	}
 	return p.startTwoStreamLocked(ctx)
@@ -287,7 +293,7 @@ func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
 			"playback for full-quality duplex.",
 			"error", err)
 		p.ensureTwoStreamBuffers()
-		p.duplex = false
+		p.duplex.Store(false)
 		return p.startTwoStreamLocked(ctx)
 	}
 	if err := p.lib.paError("start duplex", p.lib.startStream(s)); err != nil {
