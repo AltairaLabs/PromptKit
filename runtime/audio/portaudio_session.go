@@ -70,6 +70,27 @@ func buildSessionConfig(opts []SessionOption) sessionConfig {
 	return cfg
 }
 
+// ensureTwoStreamBuffers allocates the two-stream (half-duplex) buffers and
+// channels if they are nil, sizing them from the configured rates exactly as the
+// two-stream branch of newAudioIO does: inBuf = captureRate/captureWindowDivisor
+// (100 ms), outBuf = playbackRate*playbackWindowMs/msPerSecond (40 ms). It is
+// used both by newAudioIO's two-stream construction and by the duplex→half-duplex
+// fallback in startDuplexLocked, so the buffer sizing lives in exactly one place.
+func (p *portaudioIO) ensureTwoStreamBuffers() {
+	if p.inBuf == nil {
+		p.inBuf = make([]int16, p.captureRate/captureWindowDivisor)
+	}
+	if p.outBuf == nil {
+		p.outBuf = make([]int16, p.playbackRate*playbackWindowMs/msPerSecond)
+	}
+	if p.playCh == nil {
+		p.playCh = make(chan []byte, captureChanBuffer)
+	}
+	if p.flushCh == nil {
+		p.flushCh = make(chan struct{}, 1)
+	}
+}
+
 // portaudioSession adapts the PortAudio-backed portaudioIO to the
 // Session/Source/Sink interfaces. It drives a single 48 kHz duplex stream
 // (resampling at the STT/TTS seams); the two-stream core is retained on

@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -185,19 +186,15 @@ func newAudioIO(cfg sessionConfig, duplex bool) (*portaudioIO, error) {
 	if duplex {
 		return newDuplexCore(lib, cfg), nil
 	}
-	captureFrames := cfg.captureRate / captureWindowDivisor
-	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond
-	return &portaudioIO{
+	p := &portaudioIO{
 		lib:          lib,
 		captureRate:  cfg.captureRate,
 		playbackRate: cfg.playbackRate,
-		inBuf:        make([]int16, captureFrames),
-		outBuf:       make([]int16, playbackFrames),
 		captureCh:    make(chan []byte, captureChanBuffer),
-		playCh:       make(chan []byte, captureChanBuffer),
-		flushCh:      make(chan struct{}, 1),
 		done:         make(chan struct{}),
-	}, nil
+	}
+	p.ensureTwoStreamBuffers()
+	return p, nil
 }
 
 // jitterHeadroomDivisor sizes the duplex jitter buffer at DuplexRate/divisor
@@ -236,7 +233,14 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 	if p.duplex {
 		return p.startDuplexLocked(ctx)
 	}
+	return p.startTwoStreamLocked(ctx)
+}
 
+// startTwoStreamLocked opens the separate mic and speaker streams and launches
+// the capture/playback goroutines (the Phase 2 half-duplex path). The caller
+// (Start, or startDuplexLocked's fallback) holds p.mu and has ensured the
+// two-stream buffers are allocated.
+func (p *portaudioIO) startTwoStreamLocked(ctx context.Context) error {
 	var in, out uintptr
 	if err := p.lib.paError("open mic",
 		p.lib.openDefaultStream(&in, 1, 0, paInt16, float64(p.captureRate), uint64(len(p.inBuf)), 0, 0)); err != nil {
@@ -267,11 +271,24 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 
 // startDuplexLocked opens a single 48 kHz read/write stream and launches the
 // synchronized duplex loop. The caller (Start) holds p.mu.
+//
+// A single duplex stream requires the mic and speaker to share one device/clock
+// (the precondition for AEC and open-speaker barge-in). When that open fails —
+// typically because capture and playback are different devices with no shared
+// clock — it degrades to the two-stream half-duplex path rather than failing the
+// session: voice still works, but barge-in/AEC quality is reduced.
 func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
 	var s uintptr
 	if err := p.lib.paError("open duplex",
 		p.lib.openDefaultStream(&s, 1, 1, paInt16, float64(DuplexRate), uint64(duplexBlockFrames), 0, 0)); err != nil {
-		return err
+		slog.Warn("duplex audio stream unavailable (mic and speaker may be different devices "+
+			"with no shared clock); falling back to half-duplex two-stream mode — "+
+			"open-speaker barge-in and AEC are reduced. Use the SAME device for capture and "+
+			"playback for full-quality duplex.",
+			"error", err)
+		p.ensureTwoStreamBuffers()
+		p.duplex = false
+		return p.startTwoStreamLocked(ctx)
 	}
 	if err := p.lib.paError("start duplex", p.lib.startStream(s)); err != nil {
 		_ = p.lib.closeStream(s)

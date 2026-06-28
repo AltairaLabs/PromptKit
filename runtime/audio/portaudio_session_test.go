@@ -1,11 +1,89 @@
 package audio
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// TestStart_DuplexOpenFailsFallsBackToTwoStream verifies that when the single
+// duplex (1-in, 1-out) stream cannot be opened — e.g. mic and speaker are
+// different devices with no shared clock — Start logs a warning and degrades to
+// the two-stream half-duplex path instead of returning the duplex error. A fake
+// portAudioLib drives the decision hardware-free: openDefaultStream fails only
+// for the (1,1) duplex open and succeeds for the separate mic/speaker streams.
+func TestStart_DuplexOpenFailsFallsBackToTwoStream(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		openCalls [][2]int32 // {numInput, numOutput} per Pa_OpenDefaultStream
+	)
+	fake := &portAudioLib{
+		initialize:   func() int32 { return 0 },
+		terminate:    func() int32 { return 0 },
+		getErrorText: func(int32) string { return "device unavailable" },
+		openDefaultStream: func(stream *uintptr, numInput, numOutput int32, _ uint64, _ float64, _ uint64, _, _ uintptr) int32 {
+			mu.Lock()
+			openCalls = append(openCalls, [2]int32{numInput, numOutput})
+			mu.Unlock()
+			if numInput == 1 && numOutput == 1 {
+				return 1 // duplex open fails → forces fallback
+			}
+			*stream = 0xA0 // non-zero handle for the two separate streams
+			return 0
+		},
+		startStream: func(uintptr) int32 { return 0 },
+		stopStream:  func(uintptr) int32 { return 0 },
+		closeStream: func(uintptr) int32 { return 0 },
+		// Non-zero rc ends captureLoop on its first iteration so the launched
+		// two-stream loops do not spin on the fake read (deterministic, no sleep).
+		readStream:  func(uintptr, uintptr, uint64) int32 { return 1 },
+		writeStream: func(uintptr, uintptr, uint64) int32 { return 0 },
+	}
+
+	io := newDuplexCore(fake, buildSessionConfig(nil))
+
+	if err := io.Start(context.Background()); err != nil {
+		t.Fatalf("Start after duplex fallback returned error, want nil: %v", err)
+	}
+	t.Cleanup(func() { _ = io.Close() }) // join the two-stream goroutines
+
+	if io.duplex {
+		t.Fatal("expected duplex=false after fallback to two-stream mode")
+	}
+
+	mu.Lock()
+	calls := append([][2]int32(nil), openCalls...)
+	mu.Unlock()
+
+	if len(calls) < 3 {
+		t.Fatalf("expected >=3 open calls (duplex + mic + speaker), got %d: %v", len(calls), calls)
+	}
+	if calls[0] != [2]int32{1, 1} {
+		t.Fatalf("first open should be the duplex stream (1,1), got %v", calls[0])
+	}
+	// The two-stream fallback opens a mic (1,0) and a speaker (0,1).
+	sawMic, sawSpeaker := false, false
+	for _, c := range calls[1:] {
+		switch c {
+		case [2]int32{1, 0}:
+			sawMic = true
+		case [2]int32{0, 1}:
+			sawSpeaker = true
+		}
+	}
+	if !sawMic || !sawSpeaker {
+		t.Fatalf("fallback should open mic (1,0) and speaker (0,1); calls=%v", calls)
+	}
+
+	// The fallback must allocate the two-stream buffers/channels that newDuplexCore
+	// leaves nil.
+	if io.inBuf == nil || io.outBuf == nil || io.playCh == nil || io.flushCh == nil {
+		t.Fatal("fallback did not allocate two-stream buffers/channels")
+	}
+}
 
 // TestPortAudioCandidatesFor verifies each OS gets sensible, ordered library
 // names (the discovery list dlopen walks).
