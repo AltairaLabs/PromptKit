@@ -162,10 +162,10 @@ func TestSessionConfig_WithCaptureRate(t *testing.T) {
 // TestSessionConfig_WithPlaybackRate verifies that WithPlaybackRate(48000) sets
 // the playback rate to 48 kHz and derives the correct 40 ms buffer (1920 frames).
 func TestSessionConfig_WithPlaybackRate(t *testing.T) {
-	cfg := buildSessionConfig([]SessionOption{WithPlaybackRate(48000)})
+	cfg := buildSessionConfig([]SessionOption{WithPlaybackRate(DuplexRate)})
 
-	if cfg.playbackRate != 48000 {
-		t.Errorf("playbackRate = %d, want 48000", cfg.playbackRate)
+	if cfg.playbackRate != DuplexRate {
+		t.Errorf("playbackRate = %d, want %d", cfg.playbackRate, DuplexRate)
 	}
 	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond // 40 ms window
 	if playbackFrames != 1920 {
