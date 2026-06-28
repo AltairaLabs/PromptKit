@@ -1,4 +1,4 @@
-package voice
+package audio
 
 import (
 	"context"
@@ -7,15 +7,30 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 )
 
 const (
+	// CaptureSampleRate is the mic capture rate (16 kHz mono PCM16), matching
+	// the VAD/STT pipeline default. Aliased to SampleRate16kHz to avoid a
+	// duplicate value declaration.
+	CaptureSampleRate = SampleRate16kHz
+	// PlaybackSampleRate is the speaker playback rate (24 kHz mono PCM16),
+	// matching TTS / realtime-provider output. Aliased to SampleRate24kHz.
+	PlaybackSampleRate = SampleRate24kHz
+
 	captureFramesPerBuffer  = 1600 // 100 ms @ 16 kHz
 	playbackFramesPerBuffer = 960  // 40 ms @ 24 kHz
 	captureChanBuffer       = 32
+
+	// bytesPerSample is the width of one PCM16 sample (signed 16-bit == 2 bytes).
+	bytesPerSample = 2
+	// playbackAccumHeadroom over-allocates the playback accumulation buffer so
+	// appends rarely re-grow it (4 output blocks of headroom).
+	playbackAccumHeadroom = 4
 
 	// paInt16 is PortAudio's PaSampleFormat for signed 16-bit PCM.
 	paInt16 = 0x00000008
@@ -116,11 +131,12 @@ type portaudioIO struct {
 	done      chan struct{}
 }
 
-// NewAudioIO loads libportaudio at runtime and constructs a PortAudio-backed
-// AudioIO. It returns errPortAudioMissing (wrapped) when the library is not
+// newAudioIO loads libportaudio at runtime and constructs the PortAudio-backed
+// I/O core. It returns errPortAudioMissing (wrapped) when the library is not
 // installed, so callers can surface a clear "install PortAudio" message instead
-// of crashing.
-func NewAudioIO() (AudioIO, error) {
+// of crashing. Callers use NewPortAudioSession, which wraps this in the
+// Session/Source/Sink interfaces.
+func newAudioIO() (*portaudioIO, error) {
 	lib, err := loadPortAudio()
 	if err != nil {
 		return nil, err
@@ -139,6 +155,8 @@ func NewAudioIO() (AudioIO, error) {
 	}, nil
 }
 
+// Start opens the mic and speaker streams and launches the capture/playback
+// goroutines. It is idempotent and safe to call once per session.
 func (p *portaudioIO) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -170,7 +188,8 @@ func (p *portaudioIO) Start(ctx context.Context) error {
 		return err
 	}
 	p.inStream, p.outStream, p.started = in, out, true
-	p.wg.Add(2)
+	const numLoops = 2 // captureLoop + playLoop
+	p.wg.Add(numLoops)
 	go p.captureLoop(ctx)
 	go p.playLoop(ctx)
 	return nil
@@ -194,9 +213,10 @@ func (p *portaudioIO) captureLoop(ctx context.Context) {
 		if rc != 0 {
 			return
 		}
-		frame := make([]byte, len(p.inBuf)*2)
+		frame := make([]byte, len(p.inBuf)*bytesPerSample)
 		for i, s := range p.inBuf {
-			binary.LittleEndian.PutUint16(frame[i*2:], uint16(s))
+			//nolint:gosec // G115: deliberate PCM16 bit reinterpretation (int16 → wire bytes).
+			binary.LittleEndian.PutUint16(frame[i*bytesPerSample:], uint16(s))
 		}
 		select {
 		case p.captureCh <- frame:
@@ -205,13 +225,14 @@ func (p *portaudioIO) captureLoop(ctx context.Context) {
 	}
 }
 
+//nolint:gocognit // hardware playback loop: ctx/done/flush/write branches kept inline for clarity.
 func (p *portaudioIO) playLoop(ctx context.Context) {
 	defer p.wg.Done()
 	// buffer accumulates incoming PCM bytes across frames so we only write
 	// complete outBuf-sized blocks to PortAudio (prevents truncation and
 	// stale-sample padding that cause choppy output).
-	buffer := make([]byte, 0, len(p.outBuf)*4)
-	blockBytes := len(p.outBuf) * 2 // one int16 == 2 bytes per sample
+	buffer := make([]byte, 0, len(p.outBuf)*playbackAccumHeadroom)
+	blockBytes := len(p.outBuf) * bytesPerSample
 	for {
 		select {
 		case <-ctx.Done():
@@ -240,7 +261,8 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 			buffer = append(buffer, frame...)
 			for len(buffer) >= blockBytes {
 				for i := 0; i < len(p.outBuf); i++ {
-					p.outBuf[i] = int16(binary.LittleEndian.Uint16(buffer[i*2:]))
+					//nolint:gosec // G115: deliberate PCM16 bit reinterpretation (wire bytes → int16).
+					p.outBuf[i] = int16(binary.LittleEndian.Uint16(buffer[i*bytesPerSample:]))
 				}
 				//nolint:gosec // G103: handing a Go-owned PCM buffer to PortAudio's blocking write; KeepAlive pins it.
 				p.lib.writeStream(p.outStream, uintptr(unsafe.Pointer(&p.outBuf[0])), uint64(len(p.outBuf)))
@@ -251,8 +273,10 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 	}
 }
 
+// CaptureChunks returns the channel of captured mic PCM16 frames.
 func (p *portaudioIO) CaptureChunks() <-chan []byte { return p.captureCh }
 
+// Play enqueues a PCM16 frame for speaker playback, dropping it on backpressure.
 func (p *portaudioIO) Play(frame []byte) {
 	select {
 	case p.playCh <- frame:
@@ -277,9 +301,11 @@ signal:
 	}
 }
 
-// Flush implements AudioIO. It cuts playback immediately.
+// Flush cuts playback immediately, dropping queued and in-flight speaker audio.
 func (p *portaudioIO) Flush() { p.requestFlush() }
 
+// Close stops the capture/playback goroutines, closes both streams, and
+// terminates PortAudio. It is idempotent.
 func (p *portaudioIO) Close() error {
 	p.mu.Lock()
 	if p.closed {
@@ -311,3 +337,110 @@ func (p *portaudioIO) Close() error {
 	}
 	return p.lib.paError("terminate", p.lib.terminate())
 }
+
+// portaudioSession adapts the PortAudio-backed portaudioIO to the
+// Session/Source/Sink interfaces. It still drives TWO PortAudio streams (mic at
+// 16 kHz, speaker at 24 kHz) — collapsing to a single duplex stream is Phase 3.
+type portaudioSession struct {
+	io     *portaudioIO
+	source *portaudioSource
+	sink   *portaudioSink
+}
+
+// NewPortAudioSession loads libportaudio and returns a Session exposing one
+// audio Source (microphone, 16 kHz mono PCM16) and one audio Sink (speaker,
+// 24 kHz mono PCM16). It returns errPortAudioMissing (wrapped) when the library
+// is not installed.
+func NewPortAudioSession() (Session, error) {
+	io, err := newAudioIO()
+	if err != nil {
+		return nil, err
+	}
+	s := &portaudioSession{io: io}
+	s.source = &portaudioSource{io: io}
+	s.sink = &portaudioSink{io: io}
+	return s, nil
+}
+
+// Start begins media flow on both streams; it delegates to the underlying I/O.
+func (s *portaudioSession) Start(ctx context.Context) error { return s.io.Start(ctx) }
+
+// Sources returns the single microphone Source.
+func (s *portaudioSession) Sources() []Source { return []Source{s.source} }
+
+// Sinks returns the single speaker Sink.
+func (s *portaudioSession) Sinks() []Sink { return []Sink{s.sink} }
+
+// Close stops both streams and terminates PortAudio. It is idempotent.
+func (s *portaudioSession) Close() error { return s.io.Close() }
+
+// portaudioSource adapts the mic captureCh ([]byte PCM16) to a stream of
+// MediaFrames. The conversion goroutine starts lazily on the first Frames call.
+type portaudioSource struct {
+	io     *portaudioIO
+	once   sync.Once
+	frames chan MediaFrame
+}
+
+// Frames returns a channel of captured audio MediaFrames. The channel is closed
+// when the underlying session closes (io.done). PTS is a best-effort monotonic
+// sample counter; the load-bearing duplex clock arrives in Phase 3.
+func (s *portaudioSource) Frames() <-chan MediaFrame {
+	s.once.Do(func() {
+		s.frames = make(chan MediaFrame, captureChanBuffer)
+		go s.pump()
+	})
+	return s.frames
+}
+
+func (s *portaudioSource) pump() {
+	defer close(s.frames)
+	in := s.io.CaptureChunks()
+	var pts time.Duration
+	for {
+		select {
+		case <-s.io.done:
+			return
+		case data, ok := <-in:
+			if !ok {
+				return
+			}
+			frame := MediaFrame{
+				Kind:   KindAudio,
+				Data:   data,
+				PTS:    pts,
+				Format: Format{SampleRate: CaptureSampleRate, Channels: 1},
+			}
+			// Advance PTS by this frame's duration (PCM16 ⇒ bytesPerSample/sample).
+			pts += time.Duration(len(data)/bytesPerSample) * time.Second / time.Duration(CaptureSampleRate)
+			select {
+			case s.frames <- frame:
+			case <-s.io.done:
+				return
+			}
+		}
+	}
+}
+
+// Kind reports that this Source produces audio.
+func (s *portaudioSource) Kind() MediaKind { return KindAudio }
+
+// Close stops the source by closing the underlying session (idempotent).
+func (s *portaudioSource) Close() error { return s.io.Close() }
+
+// portaudioSink adapts the speaker playback path to the Sink interface.
+type portaudioSink struct {
+	io *portaudioIO
+}
+
+// Write enqueues the frame's PCM16 bytes for speaker playback.
+func (s *portaudioSink) Write(f MediaFrame) { s.io.Play(f.Data) }
+
+// Flush drops all queued and in-flight playback (Phase-1 flush machinery).
+func (s *portaudioSink) Flush() { s.io.Flush() }
+
+// Kind reports that this Sink consumes audio.
+func (s *portaudioSink) Kind() MediaKind { return KindAudio }
+
+// Close stops the sink by closing the underlying session (idempotent).
+func (s *portaudioSink) Close() error { return s.io.Close() }
