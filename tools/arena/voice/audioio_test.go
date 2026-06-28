@@ -95,6 +95,9 @@ func TestPortaudioIO_FlushClearsAccumulator(t *testing.T) {
 	if got := len(p.playCh); got != 0 {
 		t.Fatalf("expected playCh drained, got %d queued", got)
 	}
+	if got := len(p.flushCh); got != 1 {
+		t.Fatalf("expected flush signal queued, got %d", got)
+	}
 }
 
 // TestNewAudioIO_LoadsOrReportsMissing exercises the real purego binding. On a

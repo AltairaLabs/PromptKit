@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -141,6 +142,9 @@ func NewAudioIO() (AudioIO, error) {
 func (p *portaudioIO) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return errors.New("audio io closed")
+	}
 	if p.started {
 		return nil
 	}
@@ -217,13 +221,18 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 		case <-p.flushCh:
 			// Flush: discard the accumulation buffer so no stale audio plays, then
 			// stop+start the output stream to abort PortAudio's internal device buffer.
+			// Snapshot the stream handle + lib under a brief lock and release it BEFORE
+			// the blocking stop/start FFI calls — holding p.mu across them would stall a
+			// concurrent Close() (same pattern Close() uses).
 			buffer = buffer[:0]
 			p.mu.Lock()
-			if p.outStream != 0 {
-				_ = p.lib.stopStream(p.outStream)
-				_ = p.lib.startStream(p.outStream)
-			}
+			outStream := p.outStream
+			lib := p.lib
 			p.mu.Unlock()
+			if outStream != 0 {
+				_ = lib.stopStream(outStream)
+				_ = lib.startStream(outStream)
+			}
 		case frame, ok := <-p.playCh:
 			if !ok {
 				return
