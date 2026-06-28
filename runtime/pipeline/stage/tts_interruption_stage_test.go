@@ -406,7 +406,7 @@ func TestTTSStageWithInterruption_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestTTSStageWithInterruption_WithInterruption(t *testing.T) {
+func TestTTSStageWithInterruption_StaleFlagWithoutInterruptElementStillSynthesizes(t *testing.T) {
 	mock := &mockTTSService{
 		synthesizeFunc: func(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("audio")), nil
@@ -447,7 +447,7 @@ func TestTTSStageWithInterruption_WithInterruption(t *testing.T) {
 	assert.Equal(t, 1, audioCount, "synthesis proceeds when no Interrupt element cancels the turn")
 }
 
-func TestTTSStageWithInterruption_PostSynthesisInterruption(t *testing.T) {
+func TestTTSStageWithInterruption_CompletedSynthesisEmittedWhenSynthCtxNotCancelled(t *testing.T) {
 	// If the synthesis context was NOT cancelled (no Interrupt in the channel),
 	// synthesis that completed is emitted even when the shared handler's interrupted
 	// flag is set.  Discarding completed audio is no longer done by polling — only
