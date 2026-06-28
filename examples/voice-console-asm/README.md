@@ -45,6 +45,17 @@ interrupt it. AEC is in progress — Speex
 ([#1507](https://github.com/AltairaLabs/PromptKit/issues/1507)) — so until it
 lands, **use headphones for reliable barge-in**.
 
+### Same-device requirement (duplex / AEC)
+
+Low-latency duplex audio and (later) AEC need the microphone and speaker to be
+the **same device** sharing one clock — e.g. a single headset or the built-in
+mic+speakers. When capture and playback are different devices with no shared
+clock, the single duplex stream can't open, so the console automatically
+degrades to **half-duplex** (separate mic and speaker streams). Voice still
+works, but with reduced quality: no open-speaker barge-in and no AEC. A warning
+is logged when this fallback happens. For the best experience, select the same
+device for both input and output.
+
 ## How it works
 
 `openai-realtime` is the only LLM provider, so the console selects it and
