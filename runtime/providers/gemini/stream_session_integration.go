@@ -53,16 +53,17 @@ const (
 // StreamSession implements StreamInputSession for Gemini Live API
 // with automatic reconnection on unexpected connection drops.
 type StreamSession struct {
-	// BargeInSignal provides the StreamInputSession.BargeIn() channel; the
-	// session calls SignalBargeIn() when Gemini reports serverContent.interrupted.
-	// Embedded so barge-in is implemented identically across providers.
-	providers.BargeInSignal
+	// StreamPump provides Response(), BargeIn(), and the barge-in audio drop,
+	// shared identically across providers. Embedded so those methods promote. The
+	// session calls Barge() on serverContent.interrupted and ClearDrop() at turn
+	// completion; it feeds chunks via the session-owned emitCh.
+	*providers.StreamPump
 
 	ws *WebSocketManager
 	// NOSONAR: ctx is required for session lifecycle (background goroutines, reconnection)
 	ctx             context.Context
 	cancel          context.CancelFunc
-	responseCh      chan providers.StreamChunk
+	emitCh          chan providers.StreamChunk
 	errCh           chan error
 	mu              sync.Mutex
 	closed          bool
@@ -161,6 +162,7 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config *StreamS
 	}
 
 	ws.StartHeartbeat(sessionCtx, heartbeatIntervalSec*time.Second)
+	session.Start() // shared pump: emitCh -> Response()
 	go session.receiveLoop()
 
 	return session, nil
@@ -197,12 +199,15 @@ func createSession(
 		maxReconnectTries = defaultReconnectTries
 	}
 
+	// The session owns emitCh (handlers write to it; receiveLoop closes it); the
+	// shared pump drains it into Response() and provides barge-in.
+	emitCh := make(chan providers.StreamChunk, responseChannelSize)
 	return &StreamSession{
-		BargeInSignal:     providers.NewBargeInSignal(),
+		StreamPump:        providers.NewStreamPump(ctx, emitCh, responseChannelSize),
 		ws:                ws,
 		ctx:               ctx,
 		cancel:            cancel,
-		responseCh:        make(chan providers.StreamChunk, responseChannelSize),
+		emitCh:            emitCh,
 		errCh:             make(chan error, 1),
 		inputCostPer1K:    config.InputCostPer1K,
 		outputCostPer1K:   config.OutputCostPer1K,
@@ -607,10 +612,7 @@ func (s *StreamSession) EndInput() {
 	s.mu.Unlock()
 }
 
-// Response returns the channel for receiving responses
-func (s *StreamSession) Response() <-chan providers.StreamChunk {
-	return s.responseCh
-}
+// Response() and BargeIn() are provided by the embedded providers.StreamPump.
 
 // Done returns a channel that's closed when the session ends
 func (s *StreamSession) Done() <-chan struct{} {

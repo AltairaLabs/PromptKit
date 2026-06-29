@@ -55,38 +55,23 @@ type RealtimeSession struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// emitCh is where receiveLoop's handlers write response chunks; the pump
-	// goroutine drains it (through an internal unbounded queue) into responseCh.
-	// This decouples socket reading from the downstream consumer: a consumer
-	// paced to real-time audio playback back-pressures responseCh, but NOT the
-	// receive loop — so later control events (input_audio_buffer.speech_started,
-	// i.e. server-side barge-in) are still processed promptly. See pump.
+	// emitCh is where receiveLoop's handlers write response chunks; the shared
+	// StreamPump drains it (through an unbounded queue) into Response(). The
+	// session owns and closes emitCh; the pump owns Response(). This decouples
+	// socket reading from the downstream consumer so control events (barge-in)
+	// are processed promptly. See providers.StreamPump.
 	emitCh chan providers.StreamChunk
-	// responseCh is the public Response() channel, written and closed solely by
-	// the pump goroutine.
-	responseCh chan providers.StreamChunk
-	// pumpDone is closed by the pump when it has finished draining and has closed
-	// responseCh; receiveLoop waits on it before firing Done() so a terminal
-	// chunk (e.g. connection-lost) is delivered before the context is canceled.
-	pumpDone chan struct{}
 
-	// BargeInSignal provides the StreamInputSession.BargeIn() channel; the
-	// session calls SignalBargeIn() on server-side speech_started during a
-	// response. Embedded so barge-in is implemented identically across providers.
-	providers.BargeInSignal
+	// StreamPump provides Response(), BargeIn(), and the barge-in audio drop,
+	// shared identically across providers. Embedded so those methods promote.
+	*providers.StreamPump
 
-	// dropCh signals the pump to discard queued audio chunks. Used on barge-in
-	// to stop playback of the interrupted response's already-buffered audio.
-	dropCh chan struct{}
-
-	// responseActive and dropping are touched only from the receiveLoop
-	// goroutine (handleMessage), so they need no lock. responseActive tracks
-	// whether a model response is in progress (response.created..response.done),
-	// which distinguishes real barge-in (user spoke over the agent) from a
-	// normal turn start. dropping skips the interrupted response's trailing
-	// audio until the next response begins.
+	// responseActive is touched only from the receiveLoop goroutine
+	// (handleMessage), so it needs no lock. It tracks whether a model response is
+	// in progress (response.created..response.done), which distinguishes real
+	// barge-in (user spoke over the agent) from a normal turn start. The audio-
+	// drop state lives on the StreamPump (Dropping/Barge/ClearDrop).
 	responseActive bool
-	dropping       bool
 
 	errCh   chan error
 	mu      sync.Mutex
@@ -148,17 +133,17 @@ func newRealtimeSession(
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
+	// The session owns emitCh (handlers write to it; receiveLoop closes it); the
+	// shared pump drains it into Response() and provides barge-in.
+	emitCh := make(chan providers.StreamChunk, responseChannelSize)
 	session := &RealtimeSession{
-		ws:            ws,
-		ctx:           sessionCtx,
-		cancel:        cancel,
-		emitCh:        make(chan providers.StreamChunk, responseChannelSize),
-		responseCh:    make(chan providers.StreamChunk, responseChannelSize),
-		pumpDone:      make(chan struct{}),
-		BargeInSignal: providers.NewBargeInSignal(),
-		dropCh:        make(chan struct{}, 1),
-		errCh:         make(chan error, 1),
-		config:        *config,
+		ws:         ws,
+		ctx:        sessionCtx,
+		cancel:     cancel,
+		emitCh:     emitCh,
+		StreamPump: providers.NewStreamPump(sessionCtx, emitCh, responseChannelSize),
+		errCh:      make(chan error, 1),
+		config:     *config,
 	}
 
 	// Wait for session.created event
@@ -178,89 +163,11 @@ func newRealtimeSession(
 	// Start heartbeat
 	ws.StartHeartbeat(sessionCtx, heartbeatInterval)
 
-	// Start the pump (emitCh -> responseCh) and the receive loop.
-	go session.pump()
+	// Start the shared pump (emitCh -> Response()) and the receive loop.
+	session.Start()
 	go session.receiveLoop()
 
 	return session, nil
-}
-
-// emit queues a response chunk for delivery on responseCh. It is non-blocking
-// with respect to the downstream consumer: the chunk is handed to the pump,
-// which buffers it in an unbounded internal queue. This keeps the receive loop
-// from blocking on a slow (real-time-paced) consumer, so control events such as
-// barge-in are processed without waiting for the audio backlog to drain. The
-// ctx.Done guard prevents a blocked send from outliving the session.
-func (s *RealtimeSession) emit(chunk *providers.StreamChunk) {
-	select {
-	case s.emitCh <- *chunk:
-	case <-s.ctx.Done():
-	}
-}
-
-// dropPendingAudio signals the pump to discard queued audio chunks, best-effort
-// and non-blocking. Combined with the dropping flag (which skips still-arriving
-// audio), it stops playback of the interrupted response.
-func (s *RealtimeSession) dropPendingAudio() {
-	select {
-	case s.dropCh <- struct{}{}:
-	default:
-	}
-}
-
-// dropAudioChunks removes audio chunks from q in place, keeping text/transcript/
-// control chunks (so the interrupted turn's partial transcript still flows). It
-// reuses q's backing array and zeroes the freed tail for GC.
-func dropAudioChunks(q []providers.StreamChunk) []providers.StreamChunk {
-	kept := q[:0]
-	for i := range q {
-		if q[i].MediaData != nil && len(q[i].MediaData.Data) > 0 {
-			continue
-		}
-		kept = append(kept, q[i])
-	}
-	for i := len(kept); i < len(q); i++ {
-		q[i] = providers.StreamChunk{}
-	}
-	return kept
-}
-
-// pump drains emitCh into responseCh through an unbounded internal queue, so a
-// slow consumer back-pressures only responseCh (and this queue) — never the
-// receive loop. receiveLoop closes emitCh on exit; the pump then flushes the
-// remaining queue and closes responseCh.
-func (s *RealtimeSession) pump() {
-	defer close(s.pumpDone)
-	defer close(s.responseCh)
-
-	var queue []providers.StreamChunk
-	in := s.emitCh // set to nil once closed, disabling its select case
-	for in != nil || len(queue) > 0 {
-		// out is nil (its send case disabled) while the queue is empty, so the
-		// loop waits on `in`; once there's a head chunk, out carries it.
-		var out chan<- providers.StreamChunk
-		var head providers.StreamChunk
-		if len(queue) > 0 {
-			out, head = s.responseCh, queue[0]
-		}
-		select {
-		case chunk, ok := <-in:
-			if !ok {
-				in = nil // producer (receiveLoop) done; drain remaining queue
-			} else {
-				queue = append(queue, chunk)
-			}
-		case out <- head:
-			queue[0] = providers.StreamChunk{} // release for GC
-			queue = queue[1:]
-		case <-s.dropCh:
-			// Barge-in: discard queued audio so the interrupted response stops
-			// playing. head (if any) was a copy and is simply not sent.
-			queue = dropAudioChunks(queue)
-		case <-s.ctx.Done():
-			return
-		}
-	}
 }
 
 // waitForSessionCreated waits for the initial session.created event from the server.
@@ -586,13 +493,9 @@ func (s *RealtimeSession) CancelResponse() error {
 	return s.ws.Send(event)
 }
 
-// Response returns the channel for receiving responses.
-func (s *RealtimeSession) Response() <-chan providers.StreamChunk {
-	return s.responseCh
-}
-
-// BargeIn() is provided by the embedded providers.BargeInSignal; the session
-// calls SignalBargeIn() on server-side speech_started during a response.
+// Response() and BargeIn() are provided by the embedded providers.StreamPump;
+// the session feeds it via emitCh and calls Barge() on server-side
+// speech_started during a response.
 
 // Config returns the session configuration. Callers can use this to
 // create a new session with the same settings after a connection loss:
@@ -679,7 +582,7 @@ func (s *RealtimeSession) receiveLoop() {
 		// delivered to a reading consumer first. cancel() is idempotent — Close()
 		// may have already called it.
 		close(s.emitCh)
-		<-s.pumpDone
+		s.Wait()
 		s.cancel()
 	}()
 
@@ -707,10 +610,11 @@ func (s *RealtimeSession) receiveLoop() {
 				// pump like any other chunk; the deferred drain guarantees
 				// it reaches a reading consumer before responseCh closes.
 				reason := "error"
-				s.emit(&providers.StreamChunk{
-					Error:        connErr,
-					FinishReason: &reason,
-				})
+				// ctx-guarded so a blocked send can't outlive the session.
+				select {
+				case s.emitCh <- providers.StreamChunk{Error: connErr, FinishReason: &reason}:
+				case <-s.ctx.Done():
+				}
 
 				// Propagate to errCh for callers using Error().
 				select {
@@ -734,7 +638,7 @@ func (s *RealtimeSession) receiveLoop() {
 			// processed promptly. If handleMessage ever blocks here again the
 			// decoupling has regressed; log it with the buffer depths so a real
 			// run shows where it stalled.
-			emitDepth, respDepth, msgDepth := len(s.emitCh), len(s.responseCh), len(msgCh)
+			emitDepth, msgDepth := len(s.emitCh), len(msgCh)
 			start := time.Now()
 			s.handleMessage(data)
 			if blocked := time.Since(start); blocked >= receiveLoopBlockWarn {
@@ -742,8 +646,6 @@ func (s *RealtimeSession) receiveLoop() {
 					"blocked_ms", blocked.Milliseconds(),
 					"emitCh_depth", emitDepth,
 					"emitCh_cap", cap(s.emitCh),
-					"responseCh_depth", respDepth,
-					"responseCh_cap", cap(s.responseCh),
 					"msgCh_depth", msgDepth,
 					"msgCh_cap", cap(msgCh))
 			}
@@ -786,7 +688,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		// start (speech_started during silence). Clears any stale drop state.
 		logger.Debug("OpenAI Realtime: response started", "response_id", e.Response.ID)
 		s.responseActive = true
-		s.dropping = false
+		s.ClearDrop()
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
@@ -799,9 +701,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		// response's audio (drop what's queued + skip what's still arriving).
 		if s.responseActive {
 			logger.Debug("OpenAI Realtime: barge-in (speech started during response)", "item_id", e.ItemID)
-			s.dropping = true
-			s.dropPendingAudio()
-			s.SignalBargeIn()
+			s.Barge()
 		} else {
 			logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
 		}
@@ -870,7 +770,7 @@ func (s *RealtimeSession) outputSampleRate() int {
 func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 	// After barge-in, skip the interrupted response's still-arriving audio so it
 	// isn't queued for playback. Cleared when the next response begins.
-	if s.dropping {
+	if s.Dropping() {
 		return
 	}
 
@@ -896,7 +796,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 }
 
 func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
-	if s.dropping {
+	if s.Dropping() {
 		return
 	}
 	s.emitCh <- providers.StreamChunk{
@@ -999,7 +899,7 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	// further speech_started as barge-in and stop dropping audio.
 	logger.Debug("OpenAI Realtime: response done", "response_id", e.Response.ID, "status", e.Response.Status)
 	s.responseActive = false
-	s.dropping = false
+	s.ClearDrop()
 
 	chunk := providers.StreamChunk{
 		FinishReason: &e.Response.Status,

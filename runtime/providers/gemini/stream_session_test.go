@@ -1003,9 +1003,17 @@ func TestProcessServerMessage_Interruption(t *testing.T) {
 	}
 	defer session.Close()
 
+	// Barge-in must fire the out-of-band signal (shared StreamPump) so a paced
+	// consumer can flush immediately, in addition to the in-band Interrupted chunk.
+	select {
+	case <-session.BargeIn():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for barge-in signal")
+	}
+
 	// Wait for interruption message
 	select {
-	case chunk := <-session.responseCh:
+	case chunk := <-session.Response():
 		if !chunk.Interrupted {
 			t.Error("Expected interrupted flag to be true")
 		}
@@ -1049,7 +1057,7 @@ func TestProcessServerMessage_InputTranscription(t *testing.T) {
 
 	// Wait for transcription
 	select {
-	case chunk := <-session.responseCh:
+	case chunk := <-session.Response():
 		if chunk.Metadata == nil {
 			t.Fatal("Expected metadata")
 		}
@@ -1109,7 +1117,7 @@ func TestProcessServerMessage_OutputTranscription(t *testing.T) {
 
 	// Wait for transcription
 	select {
-	case chunk := <-session.responseCh:
+	case chunk := <-session.Response():
 		if chunk.Delta != "Model response" {
 			t.Errorf("Expected delta='Model response', got %v", chunk.Delta)
 		}
@@ -1157,7 +1165,7 @@ func TestProcessServerMessage_TurnCompleteWithoutModelTurn(t *testing.T) {
 
 	// Wait for completion
 	select {
-	case chunk := <-session.responseCh:
+	case chunk := <-session.Response():
 		if chunk.FinishReason == nil {
 			t.Fatal("Expected finish reason")
 		}
