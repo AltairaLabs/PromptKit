@@ -20,6 +20,7 @@ spec:
 
   providers:
     - file: providers/openai-realtime.provider.yaml
+    - file: providers/gemini-realtime.provider.yaml
 
   defaults:
     temperature: 0.7

@@ -37,8 +37,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
-
+	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -46,9 +45,8 @@ import (
 
 const (
 	// OpenAI Realtime uses 24kHz for both input and output
-	sampleRate   = 24000
-	channels     = 1
-	framesPerBuf = 2400 // 100ms at 24kHz
+	sampleRate = 24000
+	channels   = 1
 )
 
 func main() {
@@ -95,12 +93,6 @@ func main() {
 
 // runInteractiveMode runs the main voice chat mode
 func runInteractiveMode(ctx context.Context, apiKey string) error {
-	// Initialize PortAudio
-	if err := portaudio.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize PortAudio: %w", err)
-	}
-	defer portaudio.Terminate()
-
 	// Open duplex conversation with OpenAI Realtime
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
@@ -134,9 +126,23 @@ func runInteractiveMode(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Open the shared pure-Go audio session (24 kHz mic + 24 kHz speaker).
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(sampleRate),
+		rtaudio.WithPlaybackRate(sampleRate),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+	if err := session.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start audio session: %w", err)
+	}
+
 	// Create audio handler
 	handler := &AudioHandler{
 		conv:       conv,
+		session:    session,
 		audioQueue: make(chan []byte, 100),
 	}
 
@@ -186,11 +192,6 @@ func runInteractiveMode(ctx context.Context, apiKey string) error {
 
 // runToolsDemo demonstrates function calling during realtime streaming
 func runToolsDemo(ctx context.Context, apiKey string) error {
-	if err := portaudio.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize PortAudio: %w", err)
-	}
-	defer portaudio.Terminate()
-
 	// Open with tools configuration
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
@@ -246,8 +247,21 @@ func runToolsDemo(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(sampleRate),
+		rtaudio.WithPlaybackRate(sampleRate),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+	if err := session.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start audio session: %w", err)
+	}
+
 	handler := &AudioHandler{
 		conv:       conv,
+		session:    session,
 		audioQueue: make(chan []byte, 100),
 	}
 
@@ -293,11 +307,6 @@ func runToolsDemo(ctx context.Context, apiKey string) error {
 
 // runTranslatorMode demonstrates real-time translation
 func runTranslatorMode(ctx context.Context, apiKey string) error {
-	if err := portaudio.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize PortAudio: %w", err)
-	}
-	defer portaudio.Terminate()
-
 	conv, err := sdk.OpenDuplex(
 		"./openai-realtime.pack.json",
 		"translator",
@@ -334,8 +343,21 @@ func runTranslatorMode(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(sampleRate),
+		rtaudio.WithPlaybackRate(sampleRate),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+	if err := session.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start audio session: %w", err)
+	}
+
 	handler := &AudioHandler{
 		conv:       conv,
+		session:    session,
 		audioQueue: make(chan []byte, 100),
 	}
 
@@ -382,6 +404,7 @@ func runTranslatorMode(ctx context.Context, apiKey string) error {
 // AudioHandler manages audio capture, streaming, and playback
 type AudioHandler struct {
 	conv       *sdk.Conversation
+	session    rtaudio.Session
 	audioQueue chan []byte
 	mu         sync.Mutex
 	speaking   bool
@@ -389,38 +412,23 @@ type AudioHandler struct {
 
 // captureAndStreamAudio captures microphone input and streams to OpenAI
 func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
-	in := make([]int16, framesPerBuf)
-	stream, err := portaudio.OpenDefaultStream(channels, 0, sampleRate, framesPerBuf, in)
-	if err != nil {
-		return fmt.Errorf("failed to open input stream: %w", err)
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		return fmt.Errorf("failed to start input stream: %w", err)
-	}
-	defer stream.Stop()
-
 	fmt.Println("Audio capture started...")
 
+	frames := ah.session.Sources()[0].Frames()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-			if err := stream.Read(); err != nil {
-				log.Printf("Audio read error: %v", err)
-				continue
+		case frame, ok := <-frames:
+			if !ok {
+				return nil
 			}
 
-			// Convert int16 to bytes (PCM16 little-endian)
-			audioBytes := int16ToBytes(in)
-
-			// Create audio chunk
+			// frame.Data is already PCM16 little-endian bytes.
 			chunk := &providers.StreamChunk{
 				MediaData: &providers.StreamMediaData{
 					MIMEType: "audio/pcm",
-					Data:     audioBytes,
+					Data:     frame.Data,
 				},
 			}
 
@@ -431,7 +439,7 @@ func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
 			}
 
 			// Visual feedback for audio level
-			if hasAudioEnergy(in) {
+			if hasAudioEnergy(bytesToInt16(frame.Data)) {
 				fmt.Print("\033[32m|\033[0m") // Green bar for speech
 			}
 		}
@@ -634,20 +642,7 @@ func (ah *AudioHandler) executeToolCall(name, arguments string) string {
 
 // playAudioOutput plays audio responses through speakers
 func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
-	out := make([]int16, framesPerBuf)
-	stream, err := portaudio.OpenDefaultStream(0, channels, float64(sampleRate), framesPerBuf, out)
-	if err != nil {
-		return fmt.Errorf("failed to open output stream: %w", err)
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		return fmt.Errorf("failed to start output stream: %w", err)
-	}
-	defer stream.Stop()
-
-	buffer := []byte{}
-
+	sink := ah.session.Sinks()[0]
 	for {
 		select {
 		case <-ctx.Done():
@@ -657,28 +652,20 @@ func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
 				return nil
 			}
 
-			buffer = append(buffer, audioData...)
-
-			// Play when we have enough samples
-			for len(buffer) >= len(out)*2 {
-				for i := 0; i < len(out); i++ {
-					if i*2+1 < len(buffer) {
-						out[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
-					}
-				}
-
-				if err := stream.Write(); err != nil {
-					log.Printf("Audio write error: %v", err)
-				}
-
-				buffer = buffer[len(out)*2:]
-			}
+			sink.Write(rtaudio.MediaFrame{
+				Kind:   rtaudio.KindAudio,
+				Data:   audioData,
+				Format: rtaudio.Format{SampleRate: sampleRate, Channels: channels},
+			})
 		}
 	}
 }
 
 // hasAudioEnergy checks if audio frame has significant energy
 func hasAudioEnergy(samples []int16) bool {
+	if len(samples) == 0 {
+		return false
+	}
 	const threshold = 500
 	var sum int64
 	for _, s := range samples {
@@ -692,12 +679,11 @@ func hasAudioEnergy(samples []int16) bool {
 	return avg > threshold
 }
 
-// int16ToBytes converts int16 audio samples to bytes (little-endian PCM16)
-func int16ToBytes(samples []int16) []byte {
-	bytes := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		bytes[i*2] = byte(s & 0xFF)
-		bytes[i*2+1] = byte((s >> 8) & 0xFF)
+// bytesToInt16 converts little-endian PCM16 bytes to int16 audio samples.
+func bytesToInt16(data []byte) []int16 {
+	samples := make([]int16, len(data)/2)
+	for i := range samples {
+		samples[i] = int16(data[i*2]) | int16(data[i*2+1])<<8
 	}
-	return bytes
+	return samples
 }

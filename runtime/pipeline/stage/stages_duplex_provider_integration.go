@@ -123,6 +123,20 @@ type DuplexProviderStage struct {
 
 	// Event emitter for recording audio events (optional, for session recording)
 	emitter *events.Emitter
+
+	// onSession, when set, is called once with the streaming session right after
+	// it is created (lazily, on the first element). Consumers use it to reach the
+	// live session (e.g. its BargeIn() channel), which only exists once created.
+	// Set via SetSessionObserver.
+	onSession func(providers.StreamInputSession)
+}
+
+// SetSessionObserver registers a callback invoked once with the streaming
+// session immediately after it is created. It is optional; nil means no
+// observer. Used by the interactive console to wire barge-in (the session's
+// out-of-band BargeIn() channel) to playback flushing.
+func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession)) {
+	s.onSession = fn
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage. The session
@@ -286,6 +300,9 @@ func (s *DuplexProviderStage) Process(
 		logger.Debug("DuplexProviderStage: session created")
 		defer s.session.Close()
 		s.systemPromptSent = true // System instruction sent at session creation
+		if s.onSession != nil {
+			s.onSession(s.session)
+		}
 
 		// Signal drain goroutine that session is ready - it can stop buffering
 		close(sessionCreated)
@@ -1004,6 +1021,41 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		// the next streaming turn starts with a clean buffer.
 		s.inputTranscription.Reset()
 		return nil
+	}
+
+	// Provider-agnostic user-turn materialization at assistant-response start.
+	//
+	// Some providers (Gemini Live) never mark a "final" input transcription, and
+	// under barge-in the assistant turn never reaches a clean EndOfStream — so
+	// neither the transcription_final fast-path above nor the EndOfStream fallback
+	// below fires, and the user's turn is silently lost (the buffer just keeps
+	// growing across turns). The reliable cross-provider boundary is the assistant
+	// beginning to respond: the moment any assistant content (audio, model text,
+	// or output transcription) arrives, the preceding user utterance is complete.
+	// Emit it as a user Message — ordered before this assistant content — exactly
+	// once per utterance. Skips the scenario path (a turn_id is pre-queued there)
+	// and no-ops once the buffer is reset, so it can't double-emit with the
+	// fast-path or EndOfStream paths.
+	hasAudio := chunk.MediaData != nil && len(chunk.MediaData.Data) > 0
+	isAssistantContent := isOutputTranscription || chunk.Content != "" || hasAudio
+	if isAssistantContent && !s.transcriptionCaptured && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID() {
+		transcript := s.inputTranscription.String()
+		userMsg := &types.Message{
+			Role:    roleUser,
+			Content: transcript,
+			Parts:   []types.ContentPart{{Type: types.ContentTypeText, Text: &transcript}},
+		}
+		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
+			"transcriptLen", len(transcript))
+		select {
+		case output <- StreamElement{Message: userMsg}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		// Reset + mark captured so late transcription chunks for this utterance are
+		// ignored (sendAudioElement clears the flag when the next user turn starts).
+		s.inputTranscription.Reset()
+		s.transcriptionCaptured = true
 	}
 
 	if isOutputTranscription && chunk.Delta != "" {

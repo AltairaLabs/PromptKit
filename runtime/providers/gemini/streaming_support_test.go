@@ -418,10 +418,9 @@ func TestGeminiProvider_CreateStreamSession_SuccessWithMockFactory(t *testing.T)
 	) (*StreamSession, error) {
 		sessionCtx, cancel := context.WithCancel(ctx)
 		return &StreamSession{
-			ctx:        sessionCtx,
-			cancel:     cancel,
-			responseCh: make(chan providers.StreamChunk, 1),
-			errCh:      make(chan error, 1),
+			ctx:    sessionCtx,
+			cancel: cancel,
+			errCh:  make(chan error, 1),
 		}, nil
 	}
 
@@ -463,10 +462,9 @@ func TestGeminiProvider_CreateStreamSession_SuccessWithTools(t *testing.T) {
 		}
 		sessionCtx, cancel := context.WithCancel(ctx)
 		return &StreamSession{
-			ctx:        sessionCtx,
-			cancel:     cancel,
-			responseCh: make(chan providers.StreamChunk, 1),
-			errCh:      make(chan error, 1),
+			ctx:    sessionCtx,
+			cancel: cancel,
+			errCh:  make(chan error, 1),
 		}, nil
 	}
 

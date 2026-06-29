@@ -41,8 +41,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
-
+	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -52,8 +51,6 @@ const (
 	sampleRate       = 16000 // 16kHz for speech input
 	outputSampleRate = 24000 // 24kHz for audio output
 	channels         = 1     // Mono
-	framesPerBuf     = 1600  // 100ms at 16kHz for input
-	outputFramesBuf  = 960   // 40ms at 24kHz for output
 )
 
 func main() {
@@ -162,18 +159,26 @@ func interactiveAudioExample(ctx context.Context, conv *sdk.Conversation) error 
 	fmt.Println("🎤 Interactive Voice Mode")
 	fmt.Println("=========================")
 
-	// Initialize PortAudio
-	if err := portaudio.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize PortAudio: %w", err)
-	}
-	defer portaudio.Terminate()
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Open the shared pure-Go audio session (16 kHz mic + 24 kHz speaker defaults).
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(sampleRate),
+		rtaudio.WithPlaybackRate(outputSampleRate),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+	if err := session.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start audio session: %w", err)
+	}
 
 	// Create audio handler
 	audioHandler := &AudioHandler{
 		conv:        conv,
+		session:     session,
 		audioBuffer: make([]byte, 0),
 		audioQueue:  make(chan []byte, 100),
 	}
@@ -230,6 +235,7 @@ func interactiveAudioExample(ctx context.Context, conv *sdk.Conversation) error 
 // AudioHandler manages audio capture and streaming
 type AudioHandler struct {
 	conv        *sdk.Conversation
+	session     rtaudio.Session
 	mu          sync.Mutex
 	audioQueue  chan []byte // Queue for audio playback
 	audioBuffer []byte
@@ -238,42 +244,25 @@ type AudioHandler struct {
 
 // captureAndStreamAudio captures microphone input and streams it to the conversation
 func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
-	// Open input stream
-	in := make([]int16, framesPerBuf)
-	stream, err := portaudio.OpenDefaultStream(channels, 0, sampleRate, framesPerBuf, in)
-	if err != nil {
-		return fmt.Errorf("failed to open input stream: %w", err)
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		return fmt.Errorf("failed to start input stream: %w", err)
-	}
-	defer stream.Stop()
-
 	fmt.Println("Starting continuous audio streaming...")
 
 	// Stream audio continuously in chunks
+	frames := ah.session.Sources()[0].Frames()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-			// Read audio frame
-			if err := stream.Read(); err != nil {
-				log.Printf("Audio read error: %v", err)
-				continue
+		case frame, ok := <-frames:
+			if !ok {
+				return nil
 			}
 
-			// Convert int16 to bytes (PCM16)
-			audioBytes := int16ToBytes(in)
-
-			// Stream audio continuously to the model
-			// Gemini ASM can handle continuous bidirectional audio
+			// frame.Data is already PCM16 little-endian bytes.
+			// Gemini ASM can handle continuous bidirectional audio.
 			chunk := &providers.StreamChunk{
 				MediaData: &providers.StreamMediaData{
 					MIMEType: "audio/pcm",
-					Data:     audioBytes,
+					Data:     frame.Data,
 				},
 			}
 
@@ -283,7 +272,7 @@ func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
 			}
 
 			// Visual feedback
-			if hasAudioEnergy(in) {
+			if hasAudioEnergy(bytesToInt16(frame.Data)) {
 				fmt.Print("█")
 			} else {
 				fmt.Print("░")
@@ -371,21 +360,7 @@ func (ah *AudioHandler) processResponses(ctx context.Context) {
 
 // playAudioOutput plays audio responses through speakers
 func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
-	// Open output stream
-	out := make([]int16, outputFramesBuf)
-	stream, err := portaudio.OpenDefaultStream(0, channels, float64(outputSampleRate), outputFramesBuf, out)
-	if err != nil {
-		return fmt.Errorf("failed to open output stream: %w", err)
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		return fmt.Errorf("failed to start output stream: %w", err)
-	}
-	defer stream.Stop()
-
-	buffer := []byte{}
-
+	sink := ah.session.Sinks()[0]
 	for {
 		select {
 		case <-ctx.Done():
@@ -395,25 +370,11 @@ func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
 				return nil
 			}
 
-			buffer = append(buffer, audioData...)
-
-			// Play when we have enough samples
-			for len(buffer) >= len(out)*2 {
-				// Convert bytes to int16
-				for i := 0; i < len(out); i++ {
-					if i*2+1 < len(buffer) {
-						out[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
-					}
-				}
-
-				// Write to output
-				if err := stream.Write(); err != nil {
-					log.Printf("Audio write error: %v", err)
-				}
-
-				// Remove played samples
-				buffer = buffer[len(out)*2:]
-			}
+			sink.Write(rtaudio.MediaFrame{
+				Kind:   rtaudio.KindAudio,
+				Data:   audioData,
+				Format: rtaudio.Format{SampleRate: outputSampleRate, Channels: channels},
+			})
 		}
 	}
 }
@@ -427,6 +388,9 @@ func (ah *AudioHandler) setSpeaking(speaking bool) {
 
 // hasAudioEnergy checks if audio frame has significant energy
 func hasAudioEnergy(samples []int16) bool {
+	if len(samples) == 0 {
+		return false
+	}
 	const threshold = 500
 	var sum int64
 	for _, s := range samples {
@@ -440,14 +404,13 @@ func hasAudioEnergy(samples []int16) bool {
 	return avg > threshold
 }
 
-// int16ToBytes converts int16 audio samples to bytes (little-endian PCM16)
-func int16ToBytes(samples []int16) []byte {
-	bytes := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		bytes[i*2] = byte(s & 0xFF)
-		bytes[i*2+1] = byte((s >> 8) & 0xFF)
+// bytesToInt16 converts little-endian PCM16 bytes to int16 audio samples.
+func bytesToInt16(data []byte) []int16 {
+	samples := make([]int16, len(data)/2)
+	for i := range samples {
+		samples[i] = int16(data[i*2]) | int16(data[i*2+1])<<8
 	}
-	return bytes
+	return samples
 }
 
 // textStreamingExample demonstrates basic text streaming

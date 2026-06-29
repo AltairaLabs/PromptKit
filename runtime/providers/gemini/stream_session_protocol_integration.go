@@ -59,7 +59,12 @@ func truncateInlineData(v interface{}) {
 
 // receiveLoop continuously receives messages from the WebSocket
 func (s *StreamSession) receiveLoop() {
-	defer close(s.responseCh)
+	// Signal the pump that no more chunks are coming and let it drain its queue
+	// and close Response() before this goroutine returns.
+	defer func() {
+		close(s.emitCh)
+		s.Wait()
+	}()
 
 	for {
 		select {
@@ -245,10 +250,11 @@ func (s *StreamSession) sendCostInfoIfPresent(costInfo *types.CostInfo) error {
 	return s.sendChunk(&providers.StreamChunk{CostInfo: costInfo})
 }
 
-// sendChunk sends a chunk to the response channel.
+// sendChunk hands a chunk to the shared pump (via the session-owned emitCh),
+// which drains it to Response() without back-pressuring this receive loop.
 func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 	select {
-	case s.responseCh <- *chunk:
+	case s.emitCh <- *chunk:
 		return nil
 	case <-s.ctx.Done():
 		return s.ctx.Err()
@@ -258,7 +264,19 @@ func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 // processServerContent handles server content including transcriptions and model turns.
 func (s *StreamSession) processServerContent(content *ServerContent, costInfo *types.CostInfo) error {
 	if content.Interrupted {
+		// Barge-in handled by the shared StreamPump (consistent with every
+		// provider): fire the out-of-band signal so a paced consumer flushes
+		// immediately, drop the interrupted response's queued audio, and skip
+		// still-arriving audio until the turn completes — plus the in-band
+		// Interrupted chunk for the pipeline.
+		s.Barge()
 		return s.sendChunk(&providers.StreamChunk{Interrupted: true})
+	}
+
+	// A completed turn (clean, or the canceled one after barge-in) ends the
+	// audio-drop window: any subsequent audio belongs to the next response.
+	if content.TurnComplete {
+		s.ClearDrop()
 	}
 
 	if err := s.handleInputTranscription(content); err != nil {
@@ -325,7 +343,12 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 			response.Delta = part.Text
 		}
 
-		// Handle audio/media data
+		// Handle audio/media data. While the pump is dropping (post-barge-in,
+		// until the turn completes), skip audio so the interrupted response stops
+		// playing — but keep any text so a partial transcript still flows.
+		if part.InlineData != nil && s.Dropping() && strings.HasPrefix(part.InlineData.MimeType, "audio/") {
+			continue
+		}
 		if part.InlineData != nil {
 			// Decode base64 at source — downstream receives raw bytes
 			rawBytes, decodeErr := base64.StdEncoding.DecodeString(part.InlineData.Data)
@@ -352,9 +375,9 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 		response.CostInfo = costInfo
 	}
 
-	// Send response to channel
+	// Send response to the shared pump via the session-owned emitCh.
 	select {
-	case s.responseCh <- response:
+	case s.emitCh <- response:
 		s.sequenceNum++
 		return nil
 	case <-s.ctx.Done():

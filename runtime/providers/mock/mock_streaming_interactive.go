@@ -72,6 +72,10 @@ type mockAudioFixture struct {
 //
 //nolint:revive // MockStreamSession naming is intentional for clarity in test usage
 type MockStreamSession struct {
+	// BargeInSignal satisfies StreamInputSession.BargeIn(); tests can drive it
+	// via the promoted SignalBargeIn() to simulate server-side barge-in.
+	providers.BargeInSignal
+
 	chunks      []*types.MediaChunk
 	texts       []string
 	responses   chan providers.StreamChunk
@@ -119,13 +123,14 @@ type MockStreamSession struct {
 // NewMockStreamSession creates a new mock stream session.
 func NewMockStreamSession() *MockStreamSession {
 	return &MockStreamSession{
-		chunks:       make([]*types.MediaChunk, 0),
-		texts:        make([]string, 0),
-		responses:    make(chan providers.StreamChunk, defaultResponseBufferSize),
-		doneCh:       make(chan struct{}),
-		autoRespond:  false,
-		responseText: "Mock response",
-		audioCache:   make(map[string]*mockAudioFixture),
+		BargeInSignal: providers.NewBargeInSignal(),
+		chunks:        make([]*types.MediaChunk, 0),
+		texts:         make([]string, 0),
+		responses:     make(chan providers.StreamChunk, defaultResponseBufferSize),
+		doneCh:        make(chan struct{}),
+		autoRespond:   false,
+		responseText:  "Mock response",
+		audioCache:    make(map[string]*mockAudioFixture),
 	}
 }
 

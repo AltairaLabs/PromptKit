@@ -1,6 +1,6 @@
 //go:build !windows
 
-package voice
+package audio
 
 import "github.com/ebitengine/purego"
 

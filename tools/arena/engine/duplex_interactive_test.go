@@ -37,6 +37,69 @@ func TestDrainAudioOutput_InterruptFlushes(t *testing.T) {
 	}
 }
 
+// fakeBargeInSession is a minimal StreamInputSession for testing watchBargeIn
+// deterministically. A nil bargeIn channel models a provider with no barge-in
+// detection (BargeIn() returns nil).
+type fakeBargeInSession struct {
+	providers.StreamInputSession // nil embedded — only the methods below are called
+	bargeIn                      chan struct{}
+	done                         chan struct{}
+}
+
+func (f *fakeBargeInSession) BargeIn() <-chan struct{} { return f.bargeIn }
+func (f *fakeBargeInSession) Done() <-chan struct{}    { return f.done }
+
+// TestWatchBargeIn_FlushesOnSignal verifies the ASM barge-in watcher flushes
+// playback each time the session signals barge-in, and returns when the session
+// ends.
+func TestWatchBargeIn_FlushesOnSignal(t *testing.T) {
+	sess := &fakeBargeInSession{bargeIn: make(chan struct{}, 1), done: make(chan struct{})}
+	flushed := make(chan struct{}, 4)
+
+	watcherDone := make(chan struct{})
+	go func() {
+		watchBargeIn(context.Background(), sess, func() { flushed <- struct{}{} })
+		close(watcherDone)
+	}()
+
+	// Two barge-ins → two flushes.
+	for i := 0; i < 2; i++ {
+		sess.bargeIn <- struct{}{}
+		select {
+		case <-flushed:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("flush %d not called after barge-in", i+1)
+		}
+	}
+
+	// Session ends → watcher returns.
+	close(sess.done)
+	select {
+	case <-watcherDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchBargeIn did not return after session Done")
+	}
+}
+
+// TestWatchBargeIn_NilChannelIsNoop verifies a session whose BargeIn() returns
+// nil (no barge-in detection) makes watchBargeIn return immediately without
+// flushing.
+func TestWatchBargeIn_NilChannelIsNoop(t *testing.T) {
+	sess := &fakeBargeInSession{bargeIn: nil, done: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		watchBargeIn(context.Background(), sess, func() {
+			t.Error("flush should not be called when BargeIn() returns nil")
+		})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchBargeIn did not return for a nil-BargeIn session")
+	}
+}
+
 // interactiveVoiceTestRepo is a minimal ResponseRepository for TestRunInteractiveVoice_ASM
 // that returns an audio fixture on every GetTurn call. It implements just enough of the
 // mock.ResponseRepository interface to exercise the audio playback path.

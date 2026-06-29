@@ -41,6 +41,10 @@ func putInt16Slice(sp *[]int16) {
 const (
 	SampleRate24kHz = 24000 // Common TTS output rate
 	SampleRate16kHz = 16000 // Common STT/ASR input rate
+
+	// DuplexRate is the native device rate for the single duplex stream.
+	// Resample only at the STT (48→16 kHz) and TTS (24→48 kHz) seams.
+	DuplexRate = 48000
 )
 
 // ResamplePCM16 resamples PCM16 audio data from one sample rate to another.

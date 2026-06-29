@@ -27,7 +27,15 @@ type RealtimeWebSocket struct {
 
 // NewRealtimeWebSocket creates a new WebSocket manager for OpenAI Realtime API.
 func NewRealtimeWebSocket(model, apiKey string) *RealtimeWebSocket {
-	wsURL := fmt.Sprintf("%s?model=%s", RealtimeAPIEndpoint, model)
+	return newRealtimeWebSocketAt(model, apiKey, RealtimeAPIEndpoint)
+}
+
+// newRealtimeWebSocketAt is NewRealtimeWebSocket with an explicit base endpoint.
+// Production callers use the default RealtimeAPIEndpoint via NewRealtimeWebSocket;
+// tests point it at a local fake WebSocket server to exercise the session's
+// receive/back-pressure behavior without the real API.
+func newRealtimeWebSocketAt(model, apiKey, endpoint string) *RealtimeWebSocket {
+	wsURL := fmt.Sprintf("%s?model=%s", endpoint, model)
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+apiKey)

@@ -241,6 +241,86 @@ func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
 	})
 }
 
+// TestDuplexProviderStage_MaterializesUserTurnAtAssistantResponse verifies the
+// provider-agnostic fix: a buffered user transcript becomes a user Message when
+// the assistant starts responding, even without a transcription_final marker
+// (Gemini) and without a clean EndOfStream (barge-in). Drives handleResponseChunk
+// directly with an input_transcription chunk followed by an assistant audio chunk.
+func TestDuplexProviderStage_MaterializesUserTurnAtAssistantResponse(t *testing.T) {
+	s := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
+	output := make(chan StreamElement, 8)
+	ctx := context.Background()
+
+	// User speech transcribed (no transcription_final → fast-path does NOT fire).
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{
+		Metadata: map[string]interface{}{"type": "input_transcription", "transcription": "tell me about bob dylan"},
+	}, output))
+	// No user Message yet — the input_transcription chunk forwards only an empty
+	// passthrough element, not a user turn.
+	for drained := false; !drained; {
+		select {
+		case e := <-output:
+			require.Nil(t, e.Message, "user turn materialized before the assistant responded")
+		default:
+			drained = true
+		}
+	}
+
+	// Assistant begins responding (audio) — user turn must materialize, ordered
+	// before the audio element.
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{Data: []byte{1, 2, 3, 4}, SampleRate: 24000, Channels: 1},
+	}, output))
+
+	var userMsg *types.Message
+	var audioBeforeUser bool
+	for done := false; !done; {
+		select {
+		case e := <-output:
+			if e.Message != nil && e.Message.Role == "user" {
+				userMsg = e.Message
+			} else if e.Audio != nil && userMsg == nil {
+				audioBeforeUser = true
+			}
+		default:
+			done = true
+		}
+	}
+	require.NotNil(t, userMsg, "user turn should materialize when the assistant responds")
+	assert.Equal(t, "tell me about bob dylan", userMsg.Content)
+	assert.False(t, audioBeforeUser, "user Message must be emitted before the assistant audio")
+}
+
+// TestDuplexProviderStage_UserTurnMaterializesOncePerUtterance verifies the
+// buffer resets after materializing, so subsequent assistant content in the same
+// response does not re-emit the user turn.
+func TestDuplexProviderStage_UserTurnMaterializesOncePerUtterance(t *testing.T) {
+	s := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
+	output := make(chan StreamElement, 8)
+	ctx := context.Background()
+
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{
+		Metadata: map[string]interface{}{"type": "input_transcription", "transcription": "hi"},
+	}, output))
+	audio := &providers.StreamChunk{MediaData: &providers.StreamMediaData{Data: []byte{1, 2}, SampleRate: 24000, Channels: 1}}
+	require.NoError(t, s.handleResponseChunk(ctx, audio, output))
+	require.NoError(t, s.handleResponseChunk(ctx, audio, output))
+
+	userMsgs := 0
+	for {
+		select {
+		case e := <-output:
+			if e.Message != nil && e.Message.Role == "user" {
+				userMsgs++
+			}
+			continue
+		default:
+		}
+		break
+	}
+	assert.Equal(t, 1, userMsgs, "user turn should materialize exactly once per utterance")
+}
+
 func TestDuplexProviderStage_MessageForwarding(t *testing.T) {
 	t.Run("Forwards user messages to output for state store", func(t *testing.T) {
 		provider := providersmock.NewStreamingProvider("test", "test-model", false).
