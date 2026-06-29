@@ -152,8 +152,8 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 		send(voiceLevelMsg{user: userLevel, agent: agentLevel})
 	}
 
-	runner := voice.LiveRunner(func(runCtx context.Context, mic <-chan []byte, play func([]byte)) error {
-		return duplexExec.RunInteractiveVoice(runCtx, req, mic, play)
+	runner := voice.LiveRunner(func(runCtx context.Context, mic <-chan []byte, play func([]byte), flush func()) error {
+		return duplexExec.RunInteractiveVoice(runCtx, req, mic, play, flush)
 	})
 
 	var drv *voice.Driver

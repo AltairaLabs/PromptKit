@@ -32,6 +32,19 @@ Speak naturally; the agent replies in voice. Press `q` or `Ctrl-C` to exit.
   back into the mic without them. For laptop speakers add `--echo-guard`
   (best-effort).
 
+## Barge-in
+
+`--barge-in` now stops in-flight speaker playback the moment you interrupt: the
+audio sink is flushed so the agent goes quiet immediately instead of finishing
+its buffered sentence ([#1485](https://github.com/AltairaLabs/PromptKit/issues/1485)).
+
+Genuine open-speaker barge-in (talking over the agent without headphones) still
+needs acoustic echo cancellation so the open mic doesn't hear the agent and
+interrupt it. AEC is in progress — Speex
+([#1506](https://github.com/AltairaLabs/PromptKit/issues/1506)) and WebRTC AEC3
+([#1507](https://github.com/AltairaLabs/PromptKit/issues/1507)) — so until it
+lands, **use headphones for reliable barge-in**.
+
 ## How it works
 
 `openai-realtime` is the only LLM provider, so the console selects it and

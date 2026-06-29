@@ -26,6 +26,9 @@ type AudioIO interface {
 	CaptureChunks() <-chan []byte
 	// Play enqueues a PCM16 frame (PlaybackSampleRate, mono) for the speaker.
 	Play(frame []byte)
+	// Flush drops all queued and buffered playback immediately. After Flush
+	// the speaker is silent until the next Play. Safe to call concurrently.
+	Flush()
 	// Close stops devices and releases resources.
 	Close() error
 }

@@ -15,12 +15,13 @@ type fakeIO struct {
 func (f *fakeIO) Start(context.Context) error  { f.started = true; return nil }
 func (f *fakeIO) CaptureChunks() <-chan []byte { return f.capture }
 func (f *fakeIO) Play(b []byte)                { f.played = append(f.played, b) }
+func (f *fakeIO) Flush()                       {}
 func (f *fakeIO) Close() error                 { return nil }
 
 func TestDriver_PipesMicToRunnerAndPlaysOutput(t *testing.T) {
 	io := &fakeIO{capture: make(chan []byte, 2)}
 	// runner echoes each mic frame to play, then returns when mic closes.
-	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte)) error {
+	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte), _ func()) error {
 		for f := range mic {
 			play(f)
 		}
@@ -51,7 +52,7 @@ func TestDriver_ReportsLevelsViaTapAndPlay(t *testing.T) {
 		userLevels = append(userLevels, user)
 		agentLevels = append(agentLevels, agent)
 	}
-	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte)) error {
+	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte), _ func()) error {
 		for f := range mic {
 			play(f)
 		}
@@ -100,7 +101,7 @@ func TestRMS_NonSilenceIsPositive(t *testing.T) {
 func TestDriverWithGuard_DropsQuietMicWhileAgentSpeaks(t *testing.T) {
 	io := &fakeIO{capture: make(chan []byte, 2)}
 	var received [][]byte
-	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte)) error {
+	runner := func(ctx context.Context, mic <-chan []byte, play func([]byte), _ func()) error {
 		for f := range mic {
 			received = append(received, f)
 		}

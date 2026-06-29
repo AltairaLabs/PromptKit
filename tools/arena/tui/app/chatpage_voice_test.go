@@ -50,6 +50,8 @@ func (f *fakeAudioIO) Play(frame []byte) {
 	f.playBuf = append(f.playBuf, frame)
 }
 
+func (f *fakeAudioIO) Flush() {}
+
 func (f *fakeAudioIO) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
