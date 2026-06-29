@@ -720,23 +720,20 @@ func TestParseAndValidateClaudeResponse_ThinkingAndText(t *testing.T) {
 		t.Errorf("expected responseText %q, got %q", "Here is my answer.", responseText)
 	}
 
-	// Parts should contain both thinking and text
-	if len(result.Parts) != 2 {
-		t.Fatalf("expected 2 parts, got %d", len(result.Parts))
+	// Parts should contain only the text block; reasoning lives on Reasoning.
+	if len(result.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(result.Parts))
+	}
+	if result.Parts[0].Type != "text" {
+		t.Errorf("expected part type 'text', got %q", result.Parts[0].Type)
+	}
+	if result.Parts[0].Text == nil || *result.Parts[0].Text != "Here is my answer." {
+		t.Errorf("expected part text 'Here is my answer.', got %v", result.Parts[0].Text)
 	}
 
-	if result.Parts[0].Type != "thinking" {
-		t.Errorf("expected first part type 'thinking', got %q", result.Parts[0].Type)
-	}
-	if result.Parts[0].Text == nil || *result.Parts[0].Text != "Let me think about this..." {
-		t.Errorf("expected first part text 'Let me think about this...', got %v", result.Parts[0].Text)
-	}
-
-	if result.Parts[1].Type != "text" {
-		t.Errorf("expected second part type 'text', got %q", result.Parts[1].Type)
-	}
-	if result.Parts[1].Text == nil || *result.Parts[1].Text != "Here is my answer." {
-		t.Errorf("expected second part text 'Here is my answer.', got %v", result.Parts[1].Text)
+	// Thinking is captured on Message.Reasoning, not as a content part.
+	if result.Reasoning == nil || result.Reasoning.Text != "Let me think about this..." {
+		t.Errorf("expected reasoning text 'Let me think about this...', got %v", result.Reasoning)
 	}
 }
 
