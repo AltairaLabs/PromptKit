@@ -1126,6 +1126,7 @@ func (s *ProviderStage) executeRound(
 		Role:         roleAssistant,
 		Content:      resp.Content,
 		Parts:        resp.Parts,
+		Reasoning:    resp.Reasoning,
 		ToolCalls:    toolCalls,
 		Timestamp:    timeNow(),
 		LatencyMs:    duration.Milliseconds(),

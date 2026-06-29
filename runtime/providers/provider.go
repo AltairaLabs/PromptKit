@@ -116,6 +116,10 @@ type PredictionResponse struct {
 	Raw        []byte                  `json:"raw,omitempty"`
 	RawRequest any                     `json:"raw_request,omitempty"` // Raw API request (for debugging)
 	ToolCalls  []types.MessageToolCall `json:"tool_calls,omitempty"`  // Tools called in this response
+	// Reasoning holds the model's reasoning/"thinking" for this response, carried
+	// onto Message.Reasoning (off Parts) so it is excluded from content/exports/
+	// future context by construction. Nil when the model reported none.
+	Reasoning *types.ReasoningTrace `json:"reasoning,omitempty"`
 	// FinishReason is the canonical (normalized) reason the model stopped,
 	// or "" if the provider did not report one. See runtime/types FinishReason* constants.
 	FinishReason string `json:"finish_reason,omitempty"`
