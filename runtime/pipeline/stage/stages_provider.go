@@ -1271,7 +1271,7 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, costInfo, chunkValidations, err := s.processStreamChunks(ctx, streamChan, output)
+	content, toolCalls, costInfo, reasoning, chunkValidations, err := s.processStreamChunks(ctx, streamChan, output)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -1333,6 +1333,7 @@ func (s *ProviderStage) executeStreamingRound(
 		Role:        "assistant",
 		Content:     content,
 		ToolCalls:   toolCalls,
+		Reasoning:   reasoning,
 		Timestamp:   timeNow(),
 		LatencyMs:   duration.Milliseconds(),
 		CostInfo:    costInfo,
@@ -1429,10 +1430,12 @@ func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
-) (string, []types.MessageToolCall, *types.CostInfo, []types.ValidationResult, error) {
+) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
 	var costInfo *types.CostInfo
+	var reasoning strings.Builder
+	var opaqueReasoning []types.OpaqueReasoning
 	var pendingValidations []types.ValidationResult
 
 	for chunk := range streamChan {
@@ -1446,12 +1449,14 @@ func (s *ProviderStage) processStreamChunks(
 			content = ""
 			toolCalls = nil
 			costInfo = nil
+			reasoning.Reset()
+			opaqueReasoning = nil
 			continue
 		}
 
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return "", nil, nil, nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
@@ -1462,9 +1467,13 @@ func (s *ProviderStage) processStreamChunks(
 		if chunk.CostInfo != nil {
 			costInfo = chunk.CostInfo
 		}
+		// Accumulate reasoning (deltas) separately from content; it surfaces on
+		// Message.Reasoning, never as content or future context.
+		reasoning.WriteString(chunk.Reasoning)
+		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
 
 		if err := s.emitChunkElement(ctx, &chunk, output); err != nil {
-			return "", nil, nil, nil, err
+			return "", nil, nil, nil, nil, err
 		}
 
 		// Run chunk interceptor hooks
@@ -1489,7 +1498,7 @@ func (s *ProviderStage) processStreamChunks(
 					content = chunk.Content
 					break
 				}
-				return "", nil, nil, nil, &providers.ValidationAbortError{
+				return "", nil, nil, nil, nil, &providers.ValidationAbortError{
 					Reason: d.Reason,
 					Chunk:  chunk,
 				}
@@ -1497,7 +1506,11 @@ func (s *ProviderStage) processStreamChunks(
 		}
 	}
 
-	return content, toolCalls, costInfo, pendingValidations, nil
+	var trace *types.ReasoningTrace
+	if reasoning.Len() > 0 || len(opaqueReasoning) > 0 {
+		trace = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaqueReasoning}
+	}
+	return content, toolCalls, costInfo, trace, pendingValidations, nil
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.
@@ -1507,6 +1520,16 @@ func (s *ProviderStage) emitChunkElement(
 	chunk *providers.StreamChunk,
 	output chan<- StreamElement,
 ) error {
+	// Emit a live, non-content reasoning element if present, so the UI can stream
+	// thinking as it arrives (it also accumulates onto Message.Reasoning).
+	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
+		select {
+		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	// Emit text element if present
 	if chunk.Delta != "" {
 		elem := NewTextElement(chunk.Delta)

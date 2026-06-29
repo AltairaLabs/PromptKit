@@ -3218,3 +3218,32 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
 	})
 }
+
+// TestProcessStreamChunks_AccumulatesReasoning verifies the regular streaming
+// provider stage accumulates StreamChunk.Reasoning deltas into a ReasoningTrace
+// (returned, not in content) and emits a live non-content ReasoningDelta element.
+func TestProcessStreamChunks_AccumulatesReasoning(t *testing.T) {
+	s := &ProviderStage{}
+	in := make(chan providers.StreamChunk, 4)
+	out := make(chan StreamElement, 16)
+	fr := "stop"
+	in <- providers.StreamChunk{Reasoning: "think "}
+	in <- providers.StreamChunk{Reasoning: "more"}
+	in <- providers.StreamChunk{Content: "answer", Delta: "answer", FinishReason: &fr}
+	close(in)
+
+	content, _, _, trace, _, err := s.processStreamChunks(context.Background(), in, out)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", content, "content must exclude reasoning")
+	require.NotNil(t, trace, "expected a reasoning trace")
+	assert.Equal(t, "think more", trace.Text)
+
+	close(out)
+	var sawReasoning bool
+	for e := range out {
+		if e.Reasoning != nil {
+			sawReasoning = true
+		}
+	}
+	assert.True(t, sawReasoning, "expected a live ReasoningDelta element")
+}
