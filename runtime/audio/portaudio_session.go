@@ -36,8 +36,9 @@ const (
 // sessionConfig holds the configurable parameters for a PortAudio session.
 // It is populated from SessionOption values and used by newAudioIO.
 type sessionConfig struct {
-	captureRate  int // mic sample rate in Hz
-	playbackRate int // speaker sample rate in Hz
+	captureRate  int  // mic sample rate in Hz
+	playbackRate int  // speaker sample rate in Hz
+	duplex       bool // use the single 48 kHz duplex stream (opt-in; for same-device open-speaker AEC)
 }
 
 // SessionOption is a functional option for NewPortAudioSession.
@@ -55,6 +56,16 @@ func WithCaptureRate(hz int) SessionOption {
 // giving a 40 ms window (e.g. 48000*40/1000 = 1920 frames at 48 kHz).
 func WithPlaybackRate(hz int) SessionOption {
 	return func(c *sessionConfig) { c.playbackRate = hz }
+}
+
+// WithDuplex selects the single 48 kHz duplex stream instead of the default two
+// independent mic/speaker streams. The duplex stream gives AEC a shared clock,
+// but it only behaves on a single same-device audio path (built-in mic+speakers)
+// — on Bluetooth/AirPods or any split mic/speaker setup the clocks differ and
+// playback drifts. It is therefore OFF by default and intended only for the
+// open-speaker AEC path; everything else uses the robust two-stream path.
+func WithDuplex() SessionOption {
+	return func(c *sessionConfig) { c.duplex = true }
 }
 
 // buildSessionConfig applies opts over the default 16 kHz capture / 24 kHz
@@ -102,15 +113,17 @@ type portaudioSession struct {
 }
 
 // NewPortAudioSession loads libportaudio and returns a Session exposing one
-// audio Source (microphone) and one audio Sink (speaker), backed by a single
-// 48 kHz duplex stream. The Source still emits frames at the capture rate
-// (default 16 kHz) and the Sink still accepts frames at the playback rate
-// (default 24 kHz) — resampling happens internally at the duplex seams, so the
-// Source/Sink contract is unchanged. Pass WithCaptureRate or WithPlaybackRate to
-// override. It returns errPortAudioMissing (wrapped) when the library is absent.
+// audio Source (microphone) and one audio Sink (speaker). By default it drives
+// two independent mic/speaker streams (each paced by its own device clock) —
+// robust on any device including AirPods/Bluetooth and split mic/speaker setups.
+// Pass WithDuplex to use the single 48 kHz duplex stream instead (same-device
+// open-speaker AEC only). The Source emits frames at the capture rate (default
+// 16 kHz) and the Sink accepts frames at the playback rate (default 24 kHz);
+// pass WithCaptureRate / WithPlaybackRate to override. It returns
+// errPortAudioMissing (wrapped) when the library is absent.
 func NewPortAudioSession(opts ...SessionOption) (Session, error) {
 	cfg := buildSessionConfig(opts)
-	io, err := newAudioIO(cfg, true /* duplex */)
+	io, err := newAudioIO(cfg, cfg.duplex)
 	if err != nil {
 		return nil, err
 	}
