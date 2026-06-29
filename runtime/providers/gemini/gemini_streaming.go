@@ -95,6 +95,20 @@ func (p *Provider) processGeminiStreamChunk(
 	// Process all parts in the candidate (a no-op when Parts is empty — an
 	// empty-parts chunk may still carry a terminal finishReason, handled below).
 	for i, part := range candidate.Content.Parts {
+		// Reasoning ("thought") parts stream on Reasoning, not content.
+		if part.Thought {
+			if part.Text != "" || part.ThoughtSignature != "" {
+				rc := providers.StreamChunk{Reasoning: part.Text}
+				if part.ThoughtSignature != "" {
+					rc.OpaqueReasoning = []types.OpaqueReasoning{{
+						Provider: providerNameGemini, Kind: kindThoughtSignature, Data: part.ThoughtSignature,
+					}}
+				}
+				outChan <- rc
+			}
+			continue
+		}
+
 		// Handle text content
 		if part.Text != "" {
 			sb.WriteString(part.Text)
