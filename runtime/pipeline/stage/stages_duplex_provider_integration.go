@@ -78,9 +78,11 @@ type DuplexProviderStage struct {
 
 	// Response accumulation for the current turn
 	// Reset when turn completes (FinishReason received)
-	accumulatedText      strings.Builder
-	accumulatedMedia     []byte
-	accumulatedToolCalls []types.MessageToolCall
+	accumulatedText            strings.Builder
+	accumulatedReasoning       strings.Builder         // reasoning/thinking text (kept off spoken content)
+	accumulatedOpaqueReasoning []types.OpaqueReasoning // provider round-trip reasoning tokens
+	accumulatedMedia           []byte
+	accumulatedToolCalls       []types.MessageToolCall
 
 	// Input transcription for the current turn (what user said)
 	// Captured from provider's inputTranscription events (if supported)
@@ -744,23 +746,8 @@ func (s *DuplexProviderStage) forwardResponseElements(
 					},
 				}
 
-				if accumulatedText != "" {
-					msg.Parts = append(msg.Parts, types.ContentPart{
-						Type: types.ContentTypeText,
-						Text: &accumulatedText,
-					})
-				}
-
-				if len(s.accumulatedMedia) > 0 {
-					mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
-					msg.Parts = append(msg.Parts, types.ContentPart{
-						Type: types.ContentTypeAudio,
-						Media: &types.MediaContent{
-							Data:     &mediaData,
-							MIMEType: mimeTypeAudioPCM,
-						},
-					})
-				}
+				msg.Parts = s.buildAssistantParts(accumulatedText)
+				msg.Reasoning = s.takeReasoning()
 
 				elem := StreamElement{
 					Message:     msg,
@@ -785,6 +772,8 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 				// Clear accumulators
 				s.accumulatedText.Reset()
+				s.accumulatedReasoning.Reset()
+				s.accumulatedOpaqueReasoning = nil
 				s.accumulatedMedia = nil
 			}
 			return ctx.Err()
@@ -849,23 +838,8 @@ func (s *DuplexProviderStage) forwardResponseElements(
 						},
 					}
 
-					if accumulatedText != "" {
-						msg.Parts = append(msg.Parts, types.ContentPart{
-							Type: types.ContentTypeText,
-							Text: &accumulatedText,
-						})
-					}
-
-					if len(s.accumulatedMedia) > 0 {
-						mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
-						msg.Parts = append(msg.Parts, types.ContentPart{
-							Type: types.ContentTypeAudio,
-							Media: &types.MediaContent{
-								Data:     &mediaData,
-								MIMEType: mimeTypeAudioPCM,
-							},
-						})
-					}
+					msg.Parts = s.buildAssistantParts(accumulatedText)
+					msg.Reasoning = s.takeReasoning()
 
 					elem := StreamElement{
 						Message:     msg,
@@ -884,6 +858,8 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 					// Clear accumulators
 					s.accumulatedText.Reset()
+					s.accumulatedReasoning.Reset()
+					s.accumulatedOpaqueReasoning = nil
 					s.accumulatedMedia = nil
 				}
 
@@ -1066,6 +1042,19 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		s.accumulatedText.WriteString(chunk.Content)
 	}
 
+	// Accumulate reasoning/thinking separately from spoken text (it lands on
+	// Message.Reasoning at turn complete, never as content), and emit a live
+	// non-content ReasoningDelta so the UI can stream thinking as it arrives.
+	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
+		s.accumulatedReasoning.WriteString(chunk.Reasoning)
+		s.accumulatedOpaqueReasoning = append(s.accumulatedOpaqueReasoning, chunk.OpaqueReasoning...)
+		select {
+		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	// Accumulate media content for this turn
 	// MediaData.Data is already raw bytes — providers decode base64 at source
 	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
@@ -1089,6 +1078,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// we need to accumulate the real response content that comes next
 	if chunk.FinishReason != nil && *chunk.FinishReason != "" && elem.EndOfStream {
 		s.accumulatedText.Reset()
+		s.accumulatedReasoning.Reset()
+		s.accumulatedOpaqueReasoning = nil
 		s.accumulatedMedia = nil
 		s.accumulatedToolCalls = nil
 		// Mark transcription as captured - don't reset yet!
@@ -1162,6 +1153,36 @@ func (s *DuplexProviderStage) handleResponseChunk(
 // - Interruptions: Captured as partial responses with finish_reason="interrupted"
 // - Turn completion: Creates Message with accumulated content
 // - Streaming content: Passes through text/audio for real-time display/playback
+// buildAssistantParts assembles the assistant message content parts for the
+// current turn: spoken text, then accumulated audio. Reasoning is NOT a content
+// part — it lives on Message.Reasoning (see takeReasoning), off Parts, so it's
+// excluded from content/exports/future context by construction.
+func (s *DuplexProviderStage) buildAssistantParts(accumulatedText string) []types.ContentPart {
+	parts := []types.ContentPart{}
+	if accumulatedText != "" {
+		text := accumulatedText
+		parts = append(parts, types.ContentPart{Type: types.ContentTypeText, Text: &text})
+	}
+	if len(s.accumulatedMedia) > 0 {
+		mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
+		parts = append(parts, types.ContentPart{
+			Type:  types.ContentTypeAudio,
+			Media: &types.MediaContent{Data: &mediaData, MIMEType: mimeTypeAudioPCM},
+		})
+	}
+	return parts
+}
+
+// takeReasoning returns the accumulated reasoning trace for the turn, or nil if
+// none. Attached to the assistant Message.Reasoning at each build site.
+func (s *DuplexProviderStage) takeReasoning() *types.ReasoningTrace {
+	text := s.accumulatedReasoning.String()
+	if text == "" && len(s.accumulatedOpaqueReasoning) == 0 {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: text, Opaque: s.accumulatedOpaqueReasoning}
+}
+
 func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) StreamElement {
 	elem := StreamElement{}
 
@@ -1193,29 +1214,16 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 				msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
 			}
 
-			if accumulatedText != "" {
-				msg.Parts = append(msg.Parts, types.ContentPart{
-					Type: types.ContentTypeText,
-					Text: &accumulatedText,
-				})
-			}
-
-			if len(s.accumulatedMedia) > 0 {
-				mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
-				msg.Parts = append(msg.Parts, types.ContentPart{
-					Type: types.ContentTypeAudio,
-					Media: &types.MediaContent{
-						Data:     &mediaData,
-						MIMEType: mimeTypeAudioPCM,
-					},
-				})
-			}
+			msg.Parts = s.buildAssistantParts(accumulatedText)
+			msg.Reasoning = s.takeReasoning()
 
 			elem.Message = msg
 		}
 
 		// Clear accumulated content - provider will start new response
 		s.accumulatedText.Reset()
+		s.accumulatedReasoning.Reset()
+		s.accumulatedOpaqueReasoning = nil
 		s.accumulatedMedia = nil
 
 		// Mark that we saw an interruption - the next turnComplete without content should be skipped
@@ -1322,23 +1330,8 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 					"count", len(chunk.ToolCalls))
 			}
 
-			if accumulatedText != "" {
-				msg.Parts = append(msg.Parts, types.ContentPart{
-					Type: types.ContentTypeText,
-					Text: &accumulatedText,
-				})
-			}
-
-			if len(s.accumulatedMedia) > 0 {
-				mediaData := base64.StdEncoding.EncodeToString(s.accumulatedMedia)
-				msg.Parts = append(msg.Parts, types.ContentPart{
-					Type: types.ContentTypeAudio,
-					Media: &types.MediaContent{
-						Data:     &mediaData,
-						MIMEType: mimeTypeAudioPCM,
-					},
-				})
-			}
+			msg.Parts = s.buildAssistantParts(accumulatedText)
+			msg.Reasoning = s.takeReasoning()
 
 			elem.Message = msg
 			logger.Debug("DuplexProviderStage: created message for turn",

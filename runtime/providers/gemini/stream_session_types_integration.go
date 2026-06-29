@@ -56,6 +56,9 @@ type ModelTurn struct {
 type Part struct {
 	Text       string      `json:"text,omitempty"`
 	InlineData *InlineData `json:"inlineData,omitempty"` // camelCase!
+	// Thought marks this text part as the model's reasoning (Gemini native-audio
+	// thinking models). Reasoning is surfaced separately, not as spoken text.
+	Thought bool `json:"thought,omitempty"`
 }
 
 // InlineData represents inline media data

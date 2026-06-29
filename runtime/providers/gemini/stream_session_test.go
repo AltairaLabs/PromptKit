@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/gorilla/websocket"
 )
@@ -970,6 +971,27 @@ func TestTruncateInlineData(t *testing.T) {
 		if !strings.Contains(elemData, "bytes") {
 			t.Error("Expected array element data to be truncated")
 		}
+	}
+}
+
+// TestProcessModelTurn_ThoughtRoutedToReasoning verifies a thought:true text part
+// is surfaced as StreamChunk.Reasoning (not spoken Content), while a normal text
+// part stays in Content — so reasoning doesn't leak into the transcript.
+func TestProcessModelTurn_ThoughtRoutedToReasoning(t *testing.T) {
+	s := &StreamSession{ctx: context.Background(), emitCh: make(chan providers.StreamChunk, 4)}
+	turn := &ModelTurn{Parts: []Part{
+		{Text: "Let me reason about this.", Thought: true},
+		{Text: "Spoken answer.", Thought: false},
+	}}
+	if err := s.processModelTurn(turn, false, nil); err != nil {
+		t.Fatalf("processModelTurn: %v", err)
+	}
+	chunk := <-s.emitCh
+	if chunk.Reasoning != "Let me reason about this." {
+		t.Errorf("Reasoning = %q, want the thought text", chunk.Reasoning)
+	}
+	if chunk.Content != "Spoken answer." {
+		t.Errorf("Content = %q, want spoken text only (no thought)", chunk.Content)
 	}
 }
 

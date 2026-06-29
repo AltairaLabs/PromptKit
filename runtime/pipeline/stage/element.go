@@ -63,6 +63,14 @@ func externalizeData(
 	return ref, nil
 }
 
+// ReasoningDelta is a non-content stream element payload carrying incremental
+// model reasoning for live display. It is never persisted as content and never
+// sent to the model on future turns.
+type ReasoningDelta struct {
+	Text   string
+	Opaque []types.OpaqueReasoning
+}
+
 // StreamElement is the unit of data flowing through the pipeline.
 // It can carry different types of content and supports backpressure.
 // Each element should contain at most one content type.
@@ -82,6 +90,11 @@ type StreamElement struct {
 	Timestamp time.Time // When element was created
 	Source    string    // Stage that produced this element
 	Priority  Priority  // Scheduling priority (for QoS)
+
+	// Reasoning is non-content: incremental model reasoning for live display.
+	// It is never persisted as content and never sent to the model on future
+	// turns. Distinct from the content fields above so consumers exclude it.
+	Reasoning *ReasoningDelta
 
 	// Meta is the typed schema for per-element coordination data
 	// (e.g. FromHistory, TurnID, MediaExtract). Per-Turn invariants

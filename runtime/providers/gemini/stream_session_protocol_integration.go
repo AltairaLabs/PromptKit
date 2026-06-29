@@ -339,8 +339,15 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 	// Extract text and audio from parts
 	for _, part := range turn.Parts {
 		if part.Text != "" {
-			response.Content += part.Text
-			response.Delta = part.Text
+			if part.Thought {
+				// Reasoning, not spoken output — surface separately so it doesn't
+				// leak into the transcript (the spoken text arrives via
+				// outputTranscription).
+				response.Reasoning += part.Text
+			} else {
+				response.Content += part.Text
+				response.Delta = part.Text
+			}
 		}
 
 		// Handle audio/media data. While the pump is dropping (post-barge-in,

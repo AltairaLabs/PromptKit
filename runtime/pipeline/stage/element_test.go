@@ -483,3 +483,14 @@ func TestImageData_EnsureLoaded_Error(t *testing.T) {
 // NewImageElement, NewErrorElement, NewEndOfStreamElement, StreamElement.IsEmpty,
 // StreamElement.HasContent, StreamElement.IsControl, and AudioFormat.String
 // are defined in stages_utilities_test.go
+
+func TestStreamElement_ReasoningIsNonContent(t *testing.T) {
+	d := "thinking..."
+	e := StreamElement{Reasoning: &ReasoningDelta{Text: d}}
+	if e.Message != nil || e.Text != nil || e.Part != nil || e.Audio != nil {
+		t.Fatal("a reasoning element must carry no content fields")
+	}
+	if e.Reasoning == nil || e.Reasoning.Text != "thinking..." {
+		t.Fatal("reasoning delta not set")
+	}
+}
