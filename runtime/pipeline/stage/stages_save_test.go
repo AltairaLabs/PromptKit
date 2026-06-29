@@ -1114,3 +1114,58 @@ func TestIncrementalSaveStage_FullSavePreservesSummariesViaSummaryAccessor(t *te
 	require.Len(t, store.state.Summaries, 1)
 	assert.Equal(t, "summary written between Load and Save", store.state.Summaries[0].Content)
 }
+
+// TestIncrementalSaveStage_StripsReasoningByDefault proves the persistence seam:
+// model reasoning is removed before it reaches the conversation store unless
+// PersistReasoning is set.
+func TestIncrementalSaveStage_StripsReasoningByDefault(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "conv-r"},
+	}
+	s := NewIncrementalSaveStage(config)
+
+	user := types.Message{Role: "user", Content: "q"}
+	asst := types.Message{Role: "assistant", Content: "answer", Reasoning: &types.ReasoningTrace{Text: "secret reasoning"}}
+	runTestStage(t, s, []StreamElement{NewMessageElement(&user), NewMessageElement(&asst)})
+
+	state, err := store.Load(ctx, "conv-r")
+	require.NoError(t, err)
+	var got *types.Message
+	for i := range state.Messages {
+		if state.Messages[i].Role == "assistant" {
+			got = &state.Messages[i]
+		}
+	}
+	require.NotNil(t, got, "expected the assistant message persisted")
+	assert.Nil(t, got.Reasoning, "reasoning must be stripped from the store by default")
+	assert.Equal(t, "answer", got.Content)
+}
+
+// TestIncrementalSaveStage_KeepsReasoningWhenEnabled proves the opt-in retains it.
+func TestIncrementalSaveStage_KeepsReasoningWhenEnabled(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "conv-rk"},
+		PersistReasoning: true,
+	}
+	s := NewIncrementalSaveStage(config)
+
+	user := types.Message{Role: "user", Content: "q"}
+	asst := types.Message{Role: "assistant", Content: "answer", Reasoning: &types.ReasoningTrace{Text: "kept reasoning"}}
+	runTestStage(t, s, []StreamElement{NewMessageElement(&user), NewMessageElement(&asst)})
+
+	state, err := store.Load(ctx, "conv-rk")
+	require.NoError(t, err)
+	var got *types.Message
+	for i := range state.Messages {
+		if state.Messages[i].Role == "assistant" {
+			got = &state.Messages[i]
+		}
+	}
+	require.NotNil(t, got)
+	require.NotNil(t, got.Reasoning, "reasoning must be retained when PersistReasoning is true")
+	assert.Equal(t, "kept reasoning", got.Reasoning.Text)
+}

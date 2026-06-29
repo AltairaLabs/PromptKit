@@ -93,11 +93,37 @@ func NewTextPart(text string) ContentPart {
 
 // NewThinkingPart creates a ContentPart with thinking/reasoning content.
 // Thinking parts are stored alongside text parts but excluded from GetContent().
+//
+// Deprecated: reasoning now lives on Message.Reasoning (a ReasoningTrace), off
+// Parts, so it is structurally excluded from content/exports/future context.
+// New code should populate Message.Reasoning, not a thinking ContentPart.
 func NewThinkingPart(text string) ContentPart {
 	return ContentPart{
 		Type: ContentTypeThinking,
 		Text: &text,
 	}
+}
+
+// ReasoningTrace holds a model's reasoning/"thinking" for one assistant turn.
+// It is a sibling of content (NOT a ContentPart), so GetContent()/Parts-based
+// consumers — external conversation stores, exports, the events bus — exclude it
+// by default. Text is human-readable (display/record only); Opaque holds provider
+// round-trip tokens that may be fed back where a provider requires, never shown.
+type ReasoningTrace struct {
+	Text     string            `json:"text,omitempty"`
+	Opaque   []OpaqueReasoning `json:"opaque,omitempty"`
+	Redacted bool              `json:"redacted,omitempty"`
+}
+
+// OpaqueReasoning is a provider-native reasoning token (signature / encrypted
+// block) preserved for intra-turn round-trip. Never displayed, never content.
+// Kind values: thinking_signature, redacted_thinking, thought_signature,
+// encrypted_reasoning (provider-specific).
+type OpaqueReasoning struct {
+	Provider string `json:"provider"`      // claude | openai | gemini
+	Kind     string `json:"kind"`          // see Kind values above
+	Data     string `json:"data"`          // opaque payload
+	Ref      string `json:"ref,omitempty"` // optional association (e.g. tool-call id)
 }
 
 // NewImagePart creates a ContentPart with image content from a file path

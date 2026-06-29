@@ -183,10 +183,42 @@ type geminiPart struct {
 	Text         string              `json:"text,omitempty"`
 	InlineData   *geminiInlineData   `json:"inlineData,omitempty"`
 	FunctionCall *geminiPartFuncCall `json:"functionCall,omitempty"`
+	// Thought marks this text part as the model's reasoning (thinking models).
+	// Such text is routed to Message.Reasoning, never spoken/visible content.
+	Thought bool `json:"thought,omitempty"`
 	// ThoughtSignature is Gemini 3's opaque signature that accompanies a
 	// functionCall part. It must be replayed verbatim on subsequent turns
 	// or Gemini 3 rejects the request. See gemini_tools.go for round-trip.
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
+}
+
+// Reasoning normalization constants (shared by the generate + streaming paths).
+const (
+	providerNameGemini   = "gemini"
+	kindThoughtSignature = "thought_signature"
+)
+
+// reasoningFromParts builds a ReasoningTrace from a candidate's thought parts:
+// thought text plus any signature as an opaque round-trip token. Returns nil
+// when there is no reasoning. Non-thought parts (incl. signed functionCall
+// parts) are ignored here — their signatures round-trip via gemini_tools.go.
+func reasoningFromParts(parts []geminiPart) *types.ReasoningTrace {
+	var rt types.ReasoningTrace
+	for _, p := range parts {
+		if !p.Thought {
+			continue
+		}
+		rt.Text += p.Text
+		if p.ThoughtSignature != "" {
+			rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
+				Provider: providerNameGemini, Kind: kindThoughtSignature, Data: p.ThoughtSignature,
+			})
+		}
+	}
+	if rt.Text == "" && len(rt.Opaque) == 0 {
+		return nil
+	}
+	return &rt
 }
 
 // geminiPartFuncCall represents a function call in a streaming response part
@@ -647,6 +679,10 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	var textContent strings.Builder
 
 	for _, part := range candidate.Content.Parts {
+		// Reasoning ("thought") parts go to Message.Reasoning, not content.
+		if part.Thought {
+			continue
+		}
 		if part.Text != "" {
 			// Check if text contains markdown images and split accordingly
 			textParts := processTextPartForImages(part.Text)
@@ -677,6 +713,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	predictResp.Content = textContent.String()
 	predictResp.Parts = contentParts
+	predictResp.Reasoning = reasoningFromParts(candidate.Content.Parts)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody

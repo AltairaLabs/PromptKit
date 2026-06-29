@@ -3218,3 +3218,89 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
 	})
 }
+
+// TestProcessStreamChunks_AccumulatesReasoning verifies the regular streaming
+// provider stage accumulates StreamChunk.Reasoning deltas into a ReasoningTrace
+// (returned, not in content) and emits a live non-content ReasoningDelta element.
+func TestProcessStreamChunks_AccumulatesReasoning(t *testing.T) {
+	s := &ProviderStage{}
+	in := make(chan providers.StreamChunk, 4)
+	out := make(chan StreamElement, 16)
+	fr := "stop"
+	in <- providers.StreamChunk{Reasoning: "think "}
+	in <- providers.StreamChunk{Reasoning: "more"}
+	in <- providers.StreamChunk{Content: "answer", Delta: "answer", FinishReason: &fr}
+	close(in)
+
+	content, _, _, trace, _, err := s.processStreamChunks(context.Background(), in, out)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", content, "content must exclude reasoning")
+	require.NotNil(t, trace, "expected a reasoning trace")
+	assert.Equal(t, "think more", trace.Text)
+
+	close(out)
+	var sawReasoning bool
+	for e := range out {
+		if e.Reasoning != nil {
+			sawReasoning = true
+		}
+	}
+	assert.True(t, sawReasoning, "expected a live ReasoningDelta element")
+}
+
+// reasoningEndToEndProvider returns a response carrying reasoning, and records the
+// messages it was asked to predict on (to verify reasoning never re-enters context).
+type reasoningEndToEndProvider struct {
+	delayedStreamProvider
+	gotMessages []types.Message
+}
+
+func (p *reasoningEndToEndProvider) SupportsStreaming() bool { return false }
+
+func (p *reasoningEndToEndProvider) Predict(
+	_ context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.gotMessages = req.Messages
+	return providers.PredictionResponse{
+		Content: "the answer",
+		Reasoning: &types.ReasoningTrace{
+			Text:   "internal reasoning",
+			Opaque: []types.OpaqueReasoning{{Provider: "test", Kind: "thinking_signature", Data: "sig"}},
+		},
+	}, nil
+}
+
+// TestProviderStage_ReasoningEndToEnd proves the wired seam: a provider's reasoning
+// flows through the real pipeline onto Message.Reasoning, is excluded from the
+// message's content projection, and is NOT echoed back into the provider request.
+func TestProviderStage_ReasoningEndToEnd(t *testing.T) {
+	provider := &reasoningEndToEndProvider{}
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "helper"
+	providerStage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, nil, turnState)
+
+	pl, err := NewPipelineBuilderWithConfig(DefaultPipelineConfig()).Chain(providerStage).Build()
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user", Content: "hi"}
+	result, err := pl.ExecuteSync(context.Background(), NewMessageElement(&userMsg))
+	require.NoError(t, err)
+
+	var assistant *types.Message
+	for i := range result.Messages {
+		if result.Messages[i].Role == "assistant" {
+			assistant = &result.Messages[i]
+		}
+	}
+	require.NotNil(t, assistant, "expected an assistant message")
+	require.NotNil(t, assistant.Reasoning, "reasoning must flow end-to-end onto Message.Reasoning")
+	assert.Equal(t, "internal reasoning", assistant.Reasoning.Text)
+	require.Len(t, assistant.Reasoning.Opaque, 1)
+	assert.Equal(t, "the answer", assistant.GetContent(), "reasoning must be excluded from content")
+
+	// The provider's request must not contain the reasoning text in any message.
+	for _, m := range provider.gotMessages {
+		assert.NotContains(t, m.GetContent(), "internal reasoning", "reasoning must not re-enter context")
+		assert.Nil(t, m.Reasoning, "history messages into the provider carry no reasoning")
+	}
+}

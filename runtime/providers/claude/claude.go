@@ -495,6 +495,11 @@ type claudeResponse struct {
 type claudeContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// Signature accompanies a thinking block; Data carries a redacted_thinking
+	// payload. Both are opaque reasoning tokens captured for round-trip, never
+	// displayed. See extractReasoning.
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 type claudeUsage struct {
@@ -753,21 +758,19 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 		return claudeResp, "", predictResp, fmt.Errorf("no content in response")
 	}
 
-	// Extract text and thinking content from response blocks
+	// Extract text content from response blocks; reasoning goes on Reasoning.
 	var responseText string
 	var parts []types.ContentPart
 	for _, content := range claudeResp.Content {
-		switch content.Type {
-		case "text":
+		if content.Type == "text" {
 			responseText = content.Text
 			parts = append(parts, types.NewTextPart(content.Text))
-		case types.ContentTypeThinking:
-			parts = append(parts, types.NewThinkingPart(content.Text))
 		}
 	}
 	if len(parts) > 0 {
 		predictResp.Parts = parts
 	}
+	predictResp.Reasoning = extractReasoning(claudeResp.Content)
 
 	if responseText == "" {
 		predictResp.Latency = time.Since(start)

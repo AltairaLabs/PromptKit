@@ -39,6 +39,11 @@ type IncrementalSaveConfig struct {
 	// by the provider stage's write-through. The save stage skips message append
 	// but still handles indexing and summarization.
 	MessageLog statestore.MessageLog
+
+	// PersistReasoning, when false (the default), strips Message.Reasoning before
+	// persisting so model reasoning never lands in the conversation store. Set true
+	// to retain reasoning in the persisted record.
+	PersistReasoning bool
 }
 
 // IncrementalSaveStage saves only new messages from the current turn using
@@ -99,11 +104,18 @@ func (s *IncrementalSaveStage) Process(
 
 	convID := s.config.StateStoreConfig.ConversationID
 
+	// Strip model reasoning before persistence unless explicitly retained, so it
+	// never lands in the conversation store (default off).
+	toPersist := collected.messages
+	if !s.config.PersistReasoning {
+		toPersist = types.StripReasoning(toPersist)
+	}
+
 	// When MessageLog is NOT active, persist messages via the store.
 	// When MessageLog IS active, messages are already persisted per-round
 	// by the provider stage write-through — skip message append.
 	if s.config.MessageLog == nil {
-		if err := s.persistMessages(ctx, convID, collected.messages); err != nil {
+		if err := s.persistMessages(ctx, convID, toPersist); err != nil {
 			return err
 		}
 	}

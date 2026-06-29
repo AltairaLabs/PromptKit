@@ -447,18 +447,47 @@ func extractTextContentFromResponse(content []claudeContent) string {
 }
 
 // extractContentParts converts Claude content blocks to typed ContentParts.
-// Returns text and thinking parts; tool_use blocks are handled separately.
+// Returns text parts only; reasoning is extracted separately via extractReasoning
+// (onto Message.Reasoning, off Parts), and tool_use blocks are handled separately.
 func extractContentParts(content []claudeContent) []types.ContentPart {
 	var parts []types.ContentPart
 	for _, c := range content {
-		switch c.Type {
-		case "text":
+		if c.Type == "text" {
 			parts = append(parts, types.NewTextPart(c.Text))
-		case types.ContentTypeThinking:
-			parts = append(parts, types.NewThinkingPart(c.Text))
 		}
 	}
 	return parts
+}
+
+// extractReasoning gathers Claude reasoning blocks into a ReasoningTrace: thinking
+// text (with its signature as an opaque round-trip token) and redacted_thinking
+// (opaque, marked Redacted). Returns nil when the response carries no reasoning.
+func extractReasoning(content []claudeContent) *types.ReasoningTrace {
+	const (
+		providerClaude   = "claude"
+		redactedThinking = "redacted_thinking"
+	)
+	var rt types.ReasoningTrace
+	for _, c := range content {
+		switch c.Type {
+		case types.ContentTypeThinking:
+			rt.Text += c.Text
+			if c.Signature != "" {
+				rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
+					Provider: providerClaude, Kind: "thinking_signature", Data: c.Signature,
+				})
+			}
+		case redactedThinking:
+			rt.Redacted = true
+			rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
+				Provider: providerClaude, Kind: redactedThinking, Data: c.Data,
+			})
+		}
+	}
+	if rt.Text == "" && len(rt.Opaque) == 0 {
+		return nil
+	}
+	return &rt
 }
 
 // parseToolCallsFromRawResponse extracts tool calls from raw JSON response
@@ -532,6 +561,7 @@ func (p *ToolProvider) parseToolResponse(
 
 	predictResp.Content = textContent
 	predictResp.Parts = extractContentParts(resp.Content)
+	predictResp.Reasoning = extractReasoning(resp.Content)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBytes

@@ -60,6 +60,11 @@ type StreamChunk struct {
 	// must not be appended to the content stream.
 	Reasoning string `json:"reasoning,omitempty"`
 
+	// OpaqueReasoning carries provider round-trip reasoning tokens (signatures /
+	// encrypted blocks) for this chunk. Never displayed, never content; preserved
+	// so a provider can feed it back where required (intra-turn).
+	OpaqueReasoning []types.OpaqueReasoning `json:"opaque_reasoning,omitempty"`
+
 	// MediaData contains raw streaming media bytes (audio, video, images).
 	// Data is always raw bytes, never base64. Providers decode at source.
 	MediaData *StreamMediaData `json:"-"`

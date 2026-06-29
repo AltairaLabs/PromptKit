@@ -1009,21 +1009,18 @@ func TestExtractContentParts(t *testing.T) {
 			{Type: "thinking", Text: "reasoning here"},
 			{Type: "text", Text: "final answer"},
 		}
+		// Reasoning is no longer a content part — only the text part remains.
 		parts := extractContentParts(content)
-		if len(parts) != 2 {
-			t.Fatalf("expected 2 parts, got %d", len(parts))
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 part, got %d", len(parts))
 		}
-		if parts[0].Type != "thinking" {
-			t.Errorf("expected first part type 'thinking', got %q", parts[0].Type)
+		if parts[0].Type != "text" || parts[0].Text == nil || *parts[0].Text != "final answer" {
+			t.Errorf("expected text part 'final answer', got %+v", parts[0])
 		}
-		if parts[0].Text == nil || *parts[0].Text != "reasoning here" {
-			t.Errorf("expected first part text 'reasoning here', got %v", parts[0].Text)
-		}
-		if parts[1].Type != "text" {
-			t.Errorf("expected second part type 'text', got %q", parts[1].Type)
-		}
-		if parts[1].Text == nil || *parts[1].Text != "final answer" {
-			t.Errorf("expected second part text 'final answer', got %v", parts[1].Text)
+		// Thinking is captured on the reasoning trace instead.
+		rt := extractReasoning(content)
+		if rt == nil || rt.Text != "reasoning here" {
+			t.Errorf("expected reasoning 'reasoning here', got %v", rt)
 		}
 	})
 
@@ -1070,12 +1067,14 @@ func TestExtractContentParts(t *testing.T) {
 		content := []claudeContent{
 			{Type: "thinking", Text: "deep thoughts"},
 		}
+		// Thinking is no longer a content part; it surfaces on the reasoning trace.
 		parts := extractContentParts(content)
-		if len(parts) != 1 {
-			t.Fatalf("expected 1 part, got %d", len(parts))
+		if len(parts) != 0 {
+			t.Fatalf("expected 0 content parts (reasoning is not content), got %d", len(parts))
 		}
-		if parts[0].Type != "thinking" || parts[0].Text == nil || *parts[0].Text != "deep thoughts" {
-			t.Errorf("unexpected part: %+v", parts[0])
+		rt := extractReasoning(content)
+		if rt == nil || rt.Text != "deep thoughts" {
+			t.Errorf("expected reasoning 'deep thoughts', got %v", rt)
 		}
 	})
 }

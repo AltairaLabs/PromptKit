@@ -241,6 +241,79 @@ func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
 	})
 }
 
+// TestDuplexProviderStage_ReasoningOnMessageAndStreamedLive verifies reasoning
+// (StreamChunk.Reasoning) is streamed live as a non-content ReasoningDelta and
+// attached to the assistant message on Message.Reasoning (off Parts), excluded
+// from spoken content — not leaked into the transcript and not a content part.
+func TestDuplexProviderStage_ReasoningOnMessageAndStreamedLive(t *testing.T) {
+	s := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
+	output := make(chan StreamElement, 8)
+	ctx := context.Background()
+
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Reasoning: "Let me think about Dylan."}, output))
+	// A live, non-content reasoning element is emitted immediately.
+	live := <-output
+	require.NotNil(t, live.Reasoning, "expected a live ReasoningDelta element")
+	require.Nil(t, live.Message, "reasoning element must not be a message")
+	assert.Equal(t, "Let me think about Dylan.", live.Reasoning.Text)
+
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{
+		Delta:    "Bob Dylan is a legend.",
+		Metadata: map[string]interface{}{"type": "output_transcription"},
+	}, output))
+	fr := "complete"
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{FinishReason: &fr}, output))
+
+	msg := drainAssistantMessage(output)
+	require.NotNil(t, msg, "expected an assistant message at turn complete")
+	assert.Equal(t, "Bob Dylan is a legend.", msg.GetContent(), "spoken content must exclude reasoning")
+	require.NotNil(t, msg.Reasoning, "reasoning should be on Message.Reasoning")
+	assert.Equal(t, "Let me think about Dylan.", msg.Reasoning.Text)
+	for _, p := range msg.Parts {
+		assert.NotEqual(t, types.ContentTypeThinking, p.Type, "reasoning must not be a content part")
+	}
+}
+
+// TestDuplexProviderStage_ReasoningDoesNotBleedAcrossTurns verifies the reasoning
+// accumulator resets per turn, so turn 2 carries no reasoning from turn 1.
+func TestDuplexProviderStage_ReasoningDoesNotBleedAcrossTurns(t *testing.T) {
+	s := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
+	output := make(chan StreamElement, 16)
+	ctx := context.Background()
+	fr := "complete"
+
+	// Turn 1: reasoning + spoken + complete.
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Reasoning: "turn one thoughts"}, output))
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Delta: "One.", Metadata: map[string]interface{}{"type": "output_transcription"}}, output))
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{FinishReason: &fr}, output))
+	_ = drainAssistantMessage(output)
+
+	// Turn 2: spoken only, no reasoning.
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Delta: "Two.", Metadata: map[string]interface{}{"type": "output_transcription"}}, output))
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{FinishReason: &fr}, output))
+	msg2 := drainAssistantMessage(output)
+
+	require.NotNil(t, msg2, "expected turn-2 assistant message")
+	assert.Nil(t, msg2.Reasoning, "turn 2 must not carry turn 1's reasoning")
+}
+
+// drainAssistantMessage returns the last assistant Message drained from output.
+func drainAssistantMessage(output chan StreamElement) *types.Message {
+	var msg *types.Message
+	for {
+		select {
+		case e := <-output:
+			if e.Message != nil && e.Message.Role == "assistant" {
+				msg = e.Message
+			}
+			continue
+		default:
+		}
+		break
+	}
+	return msg
+}
+
 // TestDuplexProviderStage_MaterializesUserTurnAtAssistantResponse verifies the
 // provider-agnostic fix: a buffered user transcript becomes a user Message when
 // the assistant starts responding, even without a transcription_final marker
