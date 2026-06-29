@@ -932,6 +932,9 @@ func (m *mockStreamSession) Done() <-chan struct{} {
 	return ch
 }
 
+// BargeIn satisfies providers.StreamInputSession; this mock never signals barge-in.
+func (m *mockStreamSession) BargeIn() <-chan struct{} { return nil }
+
 func (m *mockStreamSession) Error() error {
 	return nil
 }

@@ -828,6 +828,9 @@ func (m *audioMockStreamSession) Done() <-chan struct{} {
 	return done
 }
 
+// BargeIn satisfies providers.StreamInputSession; this mock never signals barge-in.
+func (m *audioMockStreamSession) BargeIn() <-chan struct{} { return nil }
+
 // mockStreamProvider implements providers.StreamInputSupport for testing
 type mockStreamProvider struct {
 	base.Implementation
