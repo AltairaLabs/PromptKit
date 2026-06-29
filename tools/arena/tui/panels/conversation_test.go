@@ -572,6 +572,32 @@ func TestConversationPanel_AppendContentMarkdown_Empty(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+func TestConversationPanel_AppendReasoningMarkdown(t *testing.T) {
+	panel := NewConversationPanel()
+	var md strings.Builder
+
+	msg := &types.Message{
+		Role:      "assistant",
+		Content:   "the answer",
+		Reasoning: &types.ReasoningTrace{Text: "the model's chain of thought"},
+	}
+
+	panel.appendReasoningMarkdown(&md, msg)
+
+	result := md.String()
+	assert.Contains(t, result, "Reasoning")
+	assert.Contains(t, result, "the model's chain of thought")
+}
+
+func TestConversationPanel_AppendReasoningMarkdown_None(t *testing.T) {
+	panel := NewConversationPanel()
+	var md strings.Builder
+
+	panel.appendReasoningMarkdown(&md, &types.Message{Role: "assistant", Content: "x"})
+
+	assert.Empty(t, md.String())
+}
+
 func TestConversationPanel_AppendValidationsMarkdown(t *testing.T) {
 	panel := NewConversationPanel()
 	var md strings.Builder

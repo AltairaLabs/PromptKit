@@ -343,6 +343,18 @@ func (c *ConversationPanel) appendContentMarkdown(md *strings.Builder, msg *type
 	md.WriteString("\n\n")
 }
 
+// appendReasoningMarkdown renders the message's model reasoning ("thinking") in
+// its own section, distinct from the spoken/visible content. Opaque round-trip
+// tokens are never shown. No-op when the message carries no reasoning text.
+func (c *ConversationPanel) appendReasoningMarkdown(md *strings.Builder, msg *types.Message) {
+	if msg.Reasoning == nil || msg.Reasoning.Text == "" {
+		return
+	}
+	md.WriteString("## 💭 Reasoning\n\n")
+	md.WriteString(msg.Reasoning.Text)
+	md.WriteString("\n\n")
+}
+
 func (c *ConversationPanel) appendValidationsMarkdown(md *strings.Builder, msg *types.Message) {
 	if len(msg.Validations) == 0 {
 		return
