@@ -86,11 +86,18 @@ type ConversationRequest struct {
 	// Set from --voice-output-voice by the chat command; consumed by runInteractiveVADVoice.
 	VoiceOutputVoice string
 
-	// VoiceBargeIn enables barge-in (interrupting the agent mid-reply) on the
-	// composed-VAD voice path. Opt-in (--barge-in) because it needs headphones /
-	// AEC and audio-sink flush support; off by default the console does clean
-	// turn-taking.
+	// VoiceBargeIn enables barge-in (interrupting the agent mid-reply). On the
+	// composed-VAD path it shares an InterruptionHandler across AudioTurn + TTS;
+	// on the ASM/realtime path it watches the session's out-of-band
+	// BargeInNotifier and flushes playback. Opt-in (--barge-in); off by default
+	// the console does clean turn-taking.
 	VoiceBargeIn bool
+
+	// OnDuplexSession, when set, is forwarded to the DuplexProviderStage as its
+	// session observer (SetSessionObserver) — invoked once with the streaming
+	// session right after it is created. The interactive ASM path uses it to wire
+	// barge-in (session.BargeIn → playback flush). Nil for non-interactive runs.
+	OnDuplexSession func(providers.StreamInputSession)
 
 	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
 	// If nil, no recording stages are added.

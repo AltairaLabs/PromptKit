@@ -68,6 +68,18 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 		return de.runInteractiveVADVoice(ctx, req, mic, play, flush)
 	}
 
+	// ASM barge-in (opt-in via --barge-in): when the realtime session is created,
+	// watch its out-of-band BargeIn() signal and flush in-flight playback so the
+	// agent stops the instant the user speaks over it. The session itself stops
+	// emitting the interrupted response's audio; this flush clears what's already
+	// buffered at the speaker. The flush bypasses the pipeline because an in-band
+	// element can't overtake the buffered audio through the paced output stage.
+	if req.VoiceBargeIn && flush != nil {
+		req.OnDuplexSession = func(sess providers.StreamInputSession) {
+			go watchBargeIn(ctx, sess, flush)
+		}
+	}
+
 	pipeline, err := de.buildDuplexPipeline(req, streamProvider)
 	if err != nil {
 		return fmt.Errorf("build duplex pipeline: %w", err)
@@ -104,6 +116,38 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 	}()
 
 	return de.feedMicToPipeline(ctx, mic, inputChan)
+}
+
+// watchBargeIn flushes playback whenever the streaming session signals barge-in
+// (the user speaking over the agent), until the session ends or ctx is canceled.
+//
+// The flush is delivered OUT-OF-BAND — directly, not through the pipeline —
+// because an in-band Interrupt element can't overtake the buffered response
+// audio queued in the paced output stage. The session has already stopped
+// emitting the interrupted response's audio; this clears what's already buffered
+// at the speaker so the agent goes quiet immediately.
+//
+// A session whose provider doesn't detect barge-in (no BargeInNotifier) makes
+// this a no-op.
+func watchBargeIn(ctx context.Context, sess providers.StreamInputSession, flush func()) {
+	notifier, ok := sess.(providers.BargeInNotifier)
+	if !ok {
+		logger.Debug("watchBargeIn: session has no BargeInNotifier; barge-in disabled")
+		return
+	}
+	for {
+		select {
+		case <-notifier.BargeIn():
+			logger.Debug("watchBargeIn: barge-in detected, flushing playback")
+			if flush != nil {
+				flush()
+			}
+		case <-sess.Done():
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // drainAudioOutput ranges over outputChan and delivers every audio frame to play.

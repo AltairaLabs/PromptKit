@@ -335,9 +335,15 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 	}
 
-	stages = append(stages, stage.NewDuplexProviderStageWithTurnState(
+	duplexStage := stage.NewDuplexProviderStageWithTurnState(
 		streamProvider, baseConfig, emitter, turnState,
-	))
+	)
+	// Wire the session observer (interactive ASM barge-in: session.BargeIn →
+	// playback flush). Nil for non-interactive runs.
+	if req.OnDuplexSession != nil {
+		duplexStage.SetSessionObserver(req.OnDuplexSession)
+	}
+	stages = append(stages, duplexStage)
 
 	// 2a-pre. Output audio pacing. Realtime providers (OpenAI, Gemini)
 	// stream assistant audio faster than playback rate — gpt-4o-realtime

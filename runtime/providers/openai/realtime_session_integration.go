@@ -78,6 +78,19 @@ type RealtimeSession struct {
 	// blocks the receive loop. Exposed via BargeIn(); see BargeInNotifier.
 	bargeInCh chan struct{}
 
+	// dropCh signals the pump to discard queued audio chunks. Used on barge-in
+	// to stop playback of the interrupted response's already-buffered audio.
+	dropCh chan struct{}
+
+	// responseActive and dropping are touched only from the receiveLoop
+	// goroutine (handleMessage), so they need no lock. responseActive tracks
+	// whether a model response is in progress (response.created..response.done),
+	// which distinguishes real barge-in (user spoke over the agent) from a
+	// normal turn start. dropping skips the interrupted response's trailing
+	// audio until the next response begins.
+	responseActive bool
+	dropping       bool
+
 	errCh   chan error
 	mu      sync.Mutex
 	closed  bool
@@ -146,6 +159,7 @@ func newRealtimeSession(
 		responseCh: make(chan providers.StreamChunk, responseChannelSize),
 		pumpDone:   make(chan struct{}),
 		bargeInCh:  make(chan struct{}, 1),
+		dropCh:     make(chan struct{}, 1),
 		errCh:      make(chan error, 1),
 		config:     *config,
 	}
@@ -197,6 +211,33 @@ func (s *RealtimeSession) fireBargeIn() {
 	}
 }
 
+// dropPendingAudio signals the pump to discard queued audio chunks, best-effort
+// and non-blocking. Combined with the dropping flag (which skips still-arriving
+// audio), it stops playback of the interrupted response.
+func (s *RealtimeSession) dropPendingAudio() {
+	select {
+	case s.dropCh <- struct{}{}:
+	default:
+	}
+}
+
+// dropAudioChunks removes audio chunks from q in place, keeping text/transcript/
+// control chunks (so the interrupted turn's partial transcript still flows). It
+// reuses q's backing array and zeroes the freed tail for GC.
+func dropAudioChunks(q []providers.StreamChunk) []providers.StreamChunk {
+	kept := q[:0]
+	for i := range q {
+		if q[i].MediaData != nil && len(q[i].MediaData.Data) > 0 {
+			continue
+		}
+		kept = append(kept, q[i])
+	}
+	for i := len(kept); i < len(q); i++ {
+		q[i] = providers.StreamChunk{}
+	}
+	return kept
+}
+
 // pump drains emitCh into responseCh through an unbounded internal queue, so a
 // slow consumer back-pressures only responseCh (and this queue) — never the
 // receive loop. receiveLoop closes emitCh on exit; the pump then flushes the
@@ -225,6 +266,10 @@ func (s *RealtimeSession) pump() {
 		case out <- head:
 			queue[0] = providers.StreamChunk{} // release for GC
 			queue = queue[1:]
+		case <-s.dropCh:
+			// Barge-in: discard queued audio so the interrupted response stops
+			// playing. head (if any) was a copy and is simply not sent.
+			queue = dropAudioChunks(queue)
 		case <-s.ctx.Done():
 			return
 		}
@@ -755,15 +800,30 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.handleFunctionCallDone(e)
 	case *ResponseOutputItemDoneEvent:
 		s.handleOutputItemDone(e)
+	case *ResponseCreatedEvent:
+		// A model response is now in progress. Used to tell real barge-in
+		// (speech_started while the agent is responding) from a normal turn
+		// start (speech_started during silence). Clears any stale drop state.
+		s.responseActive = true
+		s.dropping = false
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
-		// Server-side VAD detected the user speaking — i.e. barge-in. Fire the
-		// out-of-band notification immediately so a consumer paced to real-time
-		// playback (which back-pressures responseCh) learns about it now,
-		// instead of only after the buffered audio backlog drains.
-		logger.Debug("OpenAI Realtime: speech started (barge-in)", "item_id", e.ItemID)
-		s.fireBargeIn()
+		// server_vad emits speech_started on EVERY user utterance, not only
+		// barge-in. Treat it as barge-in only when a response is in progress —
+		// otherwise it's the normal start of the user's turn and there's nothing
+		// to interrupt. On real barge-in: fire the out-of-band notification (so a
+		// consumer paced to real-time playback reacts immediately rather than
+		// after the audio backlog drains) and stop emitting the interrupted
+		// response's audio (drop what's queued + skip what's still arriving).
+		if s.responseActive {
+			logger.Debug("OpenAI Realtime: barge-in (speech started during response)", "item_id", e.ItemID)
+			s.dropping = true
+			s.dropPendingAudio()
+			s.fireBargeIn()
+		} else {
+			logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
+		}
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 	case *ConversationItemInputAudioTranscriptionCompletedEvent:
@@ -827,6 +887,12 @@ func (s *RealtimeSession) outputSampleRate() int {
 }
 
 func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
+	// After barge-in, skip the interrupted response's still-arriving audio so it
+	// isn't queued for playback. Cleared when the next response begins.
+	if s.dropping {
+		return
+	}
+
 	rawBytes, err := base64.StdEncoding.DecodeString(e.Delta)
 	if err != nil {
 		logger.Warn("failed to decode base64 audio from OpenAI Realtime", "error", err)
@@ -849,6 +915,9 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 }
 
 func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
+	if s.dropping {
+		return
+	}
 	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			"item_id":       e.ItemID,
@@ -945,6 +1014,11 @@ func (s *RealtimeSession) markToolCallEmitted(itemID string) bool {
 }
 
 func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
+	// The response is over (completed or canceled by barge-in); stop treating
+	// further speech_started as barge-in and stop dropping audio.
+	s.responseActive = false
+	s.dropping = false
+
 	chunk := providers.StreamChunk{
 		FinishReason: &e.Response.Status,
 		Metadata: map[string]interface{}{

@@ -123,6 +123,20 @@ type DuplexProviderStage struct {
 
 	// Event emitter for recording audio events (optional, for session recording)
 	emitter *events.Emitter
+
+	// onSession, when set, is called once with the streaming session right after
+	// it is created (lazily, on the first element). Consumers use it to observe
+	// optional session capabilities — e.g. providers.BargeInNotifier — that are
+	// only reachable once the live session exists. Set via SetSessionObserver.
+	onSession func(providers.StreamInputSession)
+}
+
+// SetSessionObserver registers a callback invoked once with the streaming
+// session immediately after it is created. It is optional; nil means no
+// observer. Used by the interactive console to wire barge-in (the session's
+// out-of-band BargeInNotifier) to playback flushing.
+func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession)) {
+	s.onSession = fn
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage. The session
@@ -286,6 +300,9 @@ func (s *DuplexProviderStage) Process(
 		logger.Debug("DuplexProviderStage: session created")
 		defer s.session.Close()
 		s.systemPromptSent = true // System instruction sent at session creation
+		if s.onSession != nil {
+			s.onSession(s.session)
+		}
 
 		// Signal drain goroutine that session is ready - it can stop buffering
 		close(sessionCreated)

@@ -79,6 +79,15 @@ func newBargeInServer(t *testing.T, numDeltas int, speechSentCh chan<- time.Time
 			return
 		}
 
+		// 2a. A response is now in progress — required for the session to treat a
+		// later speech_started as barge-in rather than a normal turn start.
+		if err := conn.WriteJSON(map[string]any{
+			"type":     "response.created",
+			"response": map[string]any{"id": "resp_1", "status": "in_progress"},
+		}); err != nil {
+			return
+		}
+
 		// 3. Burst a buffered audio response: N deltas back-to-back, unpaced.
 		for i := 0; i < numDeltas; i++ {
 			if err := conn.WriteJSON(map[string]any{
@@ -180,6 +189,111 @@ func runBargeIn(t *testing.T, consumerDelay time.Duration) time.Duration {
 // means this is independent of the (slow, paced) Response() consumer; the
 // pre-fix in-band path took ~317ms under the same backlog.
 const maxBargeInLatency = 100 * time.Millisecond
+
+// TestRealtimeBargeIn_DropsTrailingAudioAfterBargeIn verifies that after
+// barge-in the session stops emitting the interrupted response's audio (the
+// still-arriving "trailing" deltas are skipped), and that a NEW response started
+// afterward flows normally — i.e. the drop state clears.
+func TestRealtimeBargeIn_DropsTrailingAudioAfterBargeIn(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString(make([]byte, bargeInDeltaBytes))
+	delta := func(conn *websocket.Conn, respID string, idx int) error {
+		return conn.WriteJSON(map[string]any{
+			"type": "response.audio.delta", "item_id": "i", "response_id": respID,
+			"content_index": idx, "delta": audioB64,
+		})
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		write := func(v any) bool { return conn.WriteJSON(v) == nil }
+
+		if !write(map[string]any{"type": "session.created", "session": map[string]any{"id": "s", "model": "gpt-realtime"}}) {
+			return
+		}
+		if _, _, err := conn.ReadMessage(); err != nil { // session.update
+			return
+		}
+		// R1: starts, streams, then is interrupted mid-stream.
+		write(map[string]any{"type": "response.created", "response": map[string]any{"id": "R1", "status": "in_progress"}})
+		for i := 0; i < 5; i++ {
+			_ = delta(conn, "R1", i)
+		}
+		write(map[string]any{"type": "input_audio_buffer.speech_started", "item_id": "u"})
+		// Trailing R1 audio after barge-in — MUST be dropped. Processed in-order
+		// after speech_started in the session's single receive loop, so dropping
+		// is already set when these arrive.
+		for i := 5; i < 10; i++ {
+			_ = delta(conn, "R1", i)
+		}
+		write(map[string]any{"type": "response.done", "response": map[string]any{"id": "R1", "status": "cancelled"}})
+		// R2: the user's new turn response — MUST flow (drop state cleared).
+		write(map[string]any{"type": "response.created", "response": map[string]any{"id": "R2", "status": "in_progress"}})
+		for i := 100; i < 103; i++ {
+			_ = delta(conn, "R2", i)
+		}
+		write(map[string]any{"type": "response.done", "response": map[string]any{"id": "R2", "status": "completed"}})
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(srv)})
+	if err != nil {
+		t.Fatalf("newRealtimeSession: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	var gotIdx []int
+	finishes := 0
+	for finishes < 2 {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				t.Fatalf("Response() closed after %d finishes", finishes)
+			}
+			if chunk.MediaData != nil {
+				idx, _ := chunk.Metadata["content_index"].(int)
+				gotIdx = append(gotIdx, idx)
+			}
+			if chunk.FinishReason != nil {
+				finishes++
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out; audio indices so far: %v", gotIdx)
+		}
+	}
+
+	for _, idx := range gotIdx {
+		if idx >= 5 && idx < 10 {
+			t.Errorf("trailing interrupted-response audio (content_index=%d) was delivered; should be dropped", idx)
+		}
+	}
+	r2 := 0
+	for _, idx := range gotIdx {
+		if idx >= 100 {
+			r2++
+		}
+	}
+	if r2 != 3 {
+		t.Errorf("expected 3 post-barge-in (R2) audio chunks delivered, got %d (all indices: %v)", r2, gotIdx)
+	}
+	select {
+	case <-session.BargeIn():
+	default:
+		t.Error("BargeIn() did not fire for speech_started during an active response")
+	}
+}
 
 func TestRealtimeBargeIn_SignalsOutOfBandUnderBackpressure(t *testing.T) {
 	delaySlow := runBargeIn(t, bargeInConsumerDelay)
