@@ -1175,6 +1175,14 @@ func cloneMessage(msg *types.Message) types.Message {
 			cp.Validations[i] = cloneValidationResult(&msg.Validations[i])
 		}
 	}
+	if msg.Reasoning != nil {
+		r := *msg.Reasoning
+		if len(msg.Reasoning.Opaque) > 0 {
+			r.Opaque = make([]types.OpaqueReasoning, len(msg.Reasoning.Opaque))
+			copy(r.Opaque, msg.Reasoning.Opaque)
+		}
+		cp.Reasoning = &r
+	}
 	return cp
 }
 
