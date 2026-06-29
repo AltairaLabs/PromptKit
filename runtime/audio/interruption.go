@@ -44,13 +44,65 @@ type InterruptionHandler struct {
 	interrupted     bool
 	onInterrupt     InterruptionCallback
 	deferredPending bool
+	// interruptCh is closed when an interruption fires and re-armed by Reset.
+	// It lets a stage that is blocked/sleeping (e.g. the audio pacing stage
+	// draining a buffered realtime response) abort immediately via select,
+	// which the callback/poll API (onInterrupt / WasInterrupted) cannot do.
+	interruptCh chan struct{}
 }
 
 // NewInterruptionHandler creates an InterruptionHandler with the given strategy and VAD.
 func NewInterruptionHandler(strategy InterruptionStrategy, vad VADAnalyzer) *InterruptionHandler {
 	return &InterruptionHandler{
-		strategy: strategy,
-		vad:      vad,
+		strategy:    strategy,
+		vad:         vad,
+		interruptCh: make(chan struct{}),
+	}
+}
+
+// interruptChLocked returns the current interrupt channel, lazily creating it so
+// a struct-literal-constructed handler still works. Caller must hold h.mu.
+func (h *InterruptionHandler) interruptChLocked() chan struct{} {
+	if h.interruptCh == nil {
+		h.interruptCh = make(chan struct{})
+	}
+	return h.interruptCh
+}
+
+// fireLocked closes the current interrupt channel exactly once (idempotent).
+// Caller must hold h.mu.
+func (h *InterruptionHandler) fireLocked() {
+	ch := h.interruptChLocked()
+	select {
+	case <-ch: // already fired this turn
+	default:
+		close(ch)
+	}
+}
+
+// Interrupted returns a channel closed when an interruption fires for the
+// current turn. Reset re-arms it, so callers should re-fetch after a Reset.
+func (h *InterruptionHandler) Interrupted() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.interruptChLocked()
+}
+
+// Interrupt externally signals an interruption. Use this on the realtime/ASM
+// path where barge-in is detected by the provider's server-side VAD rather than
+// our local VAD — there is no ProcessVADState call to drive handleInterruption,
+// so the provider stage signals the interruption directly. Idempotent within a
+// turn; cleared by Reset.
+func (h *InterruptionHandler) Interrupt() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.interrupted {
+		return
+	}
+	h.interrupted = true
+	h.fireLocked()
+	if h.onInterrupt != nil {
+		go h.onInterrupt()
 	}
 }
 
@@ -153,6 +205,7 @@ func (h *InterruptionHandler) handleInterruption() bool {
 
 	case InterruptionImmediate:
 		h.interrupted = true
+		h.fireLocked()
 		if h.onInterrupt != nil {
 			go h.onInterrupt()
 		}
@@ -182,6 +235,9 @@ func (h *InterruptionHandler) Reset() {
 	h.botSpeaking = false
 	h.interrupted = false
 	h.deferredPending = false
+	// Re-arm the interrupt channel for the next turn. Waiters from the previous
+	// turn already observed the closed channel; new waiters get a fresh one.
+	h.interruptCh = make(chan struct{})
 }
 
 // NotifySentenceBoundary notifies the handler of a sentence boundary.

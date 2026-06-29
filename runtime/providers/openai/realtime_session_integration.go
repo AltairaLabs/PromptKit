@@ -34,21 +34,54 @@ const (
 	heartbeatInterval   = 30 * time.Second
 	setupTimeout        = 10 * time.Second
 	tokensPerThousand   = 1000.0
+
+	// receiveLoopBlockWarn is the threshold above which receiveLoop logs that an
+	// inbound event blocked while being forwarded to responseCh. receiveLoop is
+	// single-threaded and every handler does a blocking send on responseCh, so a
+	// slow downstream consumer (e.g. real-time audio pacing) back-pressures here
+	// and stalls processing of LATER events — including the
+	// input_audio_buffer.speech_started that signals server-side barge-in. A
+	// non-trivial block here is direct evidence of that coupling.
+	receiveLoopBlockWarn = 100 * time.Millisecond
 )
 
-// Ensure RealtimeSession implements StreamInputSession
-var _ providers.StreamInputSession = (*RealtimeSession)(nil)
+// Ensure RealtimeSession implements StreamInputSession and the optional
+// out-of-band barge-in notifier.
+var (
+	_ providers.StreamInputSession = (*RealtimeSession)(nil)
+	_ providers.BargeInNotifier    = (*RealtimeSession)(nil)
+)
 
 // RealtimeSession implements StreamInputSession for OpenAI Realtime API.
 type RealtimeSession struct {
-	ws         *RealtimeWebSocket
-	ctx        context.Context
-	cancel     context.CancelFunc
+	ws     *RealtimeWebSocket
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// emitCh is where receiveLoop's handlers write response chunks; the pump
+	// goroutine drains it (through an internal unbounded queue) into responseCh.
+	// This decouples socket reading from the downstream consumer: a consumer
+	// paced to real-time audio playback back-pressures responseCh, but NOT the
+	// receive loop — so later control events (input_audio_buffer.speech_started,
+	// i.e. server-side barge-in) are still processed promptly. See pump.
+	emitCh chan providers.StreamChunk
+	// responseCh is the public Response() channel, written and closed solely by
+	// the pump goroutine.
 	responseCh chan providers.StreamChunk
-	errCh      chan error
-	mu         sync.Mutex
-	closed     bool
-	eventID    atomic.Int64
+	// pumpDone is closed by the pump when it has finished draining and has closed
+	// responseCh; receiveLoop waits on it before firing Done() so a terminal
+	// chunk (e.g. connection-lost) is delivered before the context is canceled.
+	pumpDone chan struct{}
+
+	// bargeInCh delivers out-of-band barge-in notifications (one per detected
+	// server-side speech_started). Buffered and best-effort so firing never
+	// blocks the receive loop. Exposed via BargeIn(); see BargeInNotifier.
+	bargeInCh chan struct{}
+
+	errCh   chan error
+	mu      sync.Mutex
+	closed  bool
+	eventID atomic.Int64
 
 	// Configuration stored for the session
 	config RealtimeSessionConfig
@@ -66,8 +99,27 @@ type RealtimeSession struct {
 	emittedToolCalls sync.Map
 }
 
+// realtimeSessionOpts carries internal/test-only construction overrides for a
+// RealtimeSession. Production callers use NewRealtimeSession (zero opts); tests
+// inject a fake WebSocket endpoint to exercise the receive/back-pressure
+// behavior without the real API.
+type realtimeSessionOpts struct {
+	// endpoint overrides RealtimeAPIEndpoint when non-empty.
+	endpoint string
+}
+
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
 func NewRealtimeSession(ctx context.Context, apiKey string, config *RealtimeSessionConfig) (*RealtimeSession, error) {
+	return newRealtimeSession(ctx, apiKey, config, realtimeSessionOpts{})
+}
+
+// newRealtimeSession is NewRealtimeSession with internal construction overrides.
+func newRealtimeSession(
+	ctx context.Context,
+	apiKey string,
+	config *RealtimeSessionConfig,
+	opts realtimeSessionOpts,
+) (*RealtimeSession, error) {
 	if config == nil {
 		defaultConfig := DefaultRealtimeSessionConfig()
 		config = &defaultConfig
@@ -76,7 +128,11 @@ func NewRealtimeSession(ctx context.Context, apiKey string, config *RealtimeSess
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	// Create WebSocket connection
-	ws := NewRealtimeWebSocket(config.Model, apiKey)
+	endpoint := opts.endpoint
+	if endpoint == "" {
+		endpoint = RealtimeAPIEndpoint
+	}
+	ws := newRealtimeWebSocketAt(config.Model, apiKey, endpoint)
 	if err := ws.ConnectWithRetry(sessionCtx); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to connect: %w", err)
@@ -86,7 +142,10 @@ func NewRealtimeSession(ctx context.Context, apiKey string, config *RealtimeSess
 		ws:         ws,
 		ctx:        sessionCtx,
 		cancel:     cancel,
+		emitCh:     make(chan providers.StreamChunk, responseChannelSize),
 		responseCh: make(chan providers.StreamChunk, responseChannelSize),
+		pumpDone:   make(chan struct{}),
+		bargeInCh:  make(chan struct{}, 1),
 		errCh:      make(chan error, 1),
 		config:     *config,
 	}
@@ -108,10 +167,68 @@ func NewRealtimeSession(ctx context.Context, apiKey string, config *RealtimeSess
 	// Start heartbeat
 	ws.StartHeartbeat(sessionCtx, heartbeatInterval)
 
-	// Start receive loop
+	// Start the pump (emitCh -> responseCh) and the receive loop.
+	go session.pump()
 	go session.receiveLoop()
 
 	return session, nil
+}
+
+// emit queues a response chunk for delivery on responseCh. It is non-blocking
+// with respect to the downstream consumer: the chunk is handed to the pump,
+// which buffers it in an unbounded internal queue. This keeps the receive loop
+// from blocking on a slow (real-time-paced) consumer, so control events such as
+// barge-in are processed without waiting for the audio backlog to drain. The
+// ctx.Done guard prevents a blocked send from outliving the session.
+func (s *RealtimeSession) emit(chunk *providers.StreamChunk) {
+	select {
+	case s.emitCh <- *chunk:
+	case <-s.ctx.Done():
+	}
+}
+
+// fireBargeIn delivers an out-of-band barge-in notification, best-effort: if a
+// previous notification hasn't been consumed yet it coalesces (the consumer
+// only needs to know "the user interrupted", not how many times). Never blocks.
+func (s *RealtimeSession) fireBargeIn() {
+	select {
+	case s.bargeInCh <- struct{}{}:
+	default:
+	}
+}
+
+// pump drains emitCh into responseCh through an unbounded internal queue, so a
+// slow consumer back-pressures only responseCh (and this queue) — never the
+// receive loop. receiveLoop closes emitCh on exit; the pump then flushes the
+// remaining queue and closes responseCh.
+func (s *RealtimeSession) pump() {
+	defer close(s.pumpDone)
+	defer close(s.responseCh)
+
+	var queue []providers.StreamChunk
+	in := s.emitCh // set to nil once closed, disabling its select case
+	for in != nil || len(queue) > 0 {
+		// out is nil (its send case disabled) while the queue is empty, so the
+		// loop waits on `in`; once there's a head chunk, out carries it.
+		var out chan<- providers.StreamChunk
+		var head providers.StreamChunk
+		if len(queue) > 0 {
+			out, head = s.responseCh, queue[0]
+		}
+		select {
+		case chunk, ok := <-in:
+			if !ok {
+				in = nil // producer (receiveLoop) done; drain remaining queue
+			} else {
+				queue = append(queue, chunk)
+			}
+		case out <- head:
+			queue[0] = providers.StreamChunk{} // release for GC
+			queue = queue[1:]
+		case <-s.ctx.Done():
+			return
+		}
+	}
 }
 
 // waitForSessionCreated waits for the initial session.created event from the server.
@@ -442,6 +559,16 @@ func (s *RealtimeSession) Response() <-chan providers.StreamChunk {
 	return s.responseCh
 }
 
+// BargeIn implements providers.BargeInNotifier. It returns a channel that
+// receives a value each time the server's VAD reports the user interrupting the
+// agent (input_audio_buffer.speech_started). The signal is delivered
+// out-of-band — independent of the Response() FIFO — so a consumer whose
+// real-time playback back-pressures Response() can react to barge-in
+// immediately instead of after the buffered audio drains.
+func (s *RealtimeSession) BargeIn() <-chan struct{} {
+	return s.bargeInCh
+}
+
 // Config returns the session configuration. Callers can use this to
 // create a new session with the same settings after a connection loss:
 //
@@ -520,8 +647,15 @@ func (s *RealtimeSession) EndInput() {
 func (s *RealtimeSession) receiveLoop() {
 	logger.Debug("OpenAI Realtime: receiveLoop started")
 	defer func() {
-		logger.Debug("OpenAI Realtime: receiveLoop exiting, closing responseCh")
-		close(s.responseCh)
+		logger.Debug("OpenAI Realtime: receiveLoop exiting, draining pump")
+		// Signal the pump that no more chunks are coming; it flushes the
+		// remaining queue and closes responseCh. Wait for that to finish before
+		// canceling the context so a terminal chunk (e.g. connection-lost) is
+		// delivered to a reading consumer first. cancel() is idempotent — Close()
+		// may have already called it.
+		close(s.emitCh)
+		<-s.pumpDone
+		s.cancel()
 	}()
 
 	msgCh := make(chan []byte, responseChannelSize)
@@ -541,18 +675,17 @@ func (s *RealtimeSession) receiveLoop() {
 				connErr := fmt.Errorf("%w: %w", ErrConnectionLost, err)
 				logger.Error("OpenAI Realtime: connection lost", "error", err)
 
-				// Emit a terminal error chunk so callers reading
+				// Queue a terminal error chunk so callers reading
 				// Response() learn the session died with a
 				// distinguishable error type. errors.Is(chunk.Error,
-				// ErrConnectionLost) returns true.
+				// ErrConnectionLost) returns true. It flows through the
+				// pump like any other chunk; the deferred drain guarantees
+				// it reaches a reading consumer before responseCh closes.
 				reason := "error"
-				select {
-				case s.responseCh <- providers.StreamChunk{
+				s.emit(&providers.StreamChunk{
 					Error:        connErr,
 					FinishReason: &reason,
-				}:
-				default:
-				}
+				})
 
 				// Propagate to errCh for callers using Error().
 				select {
@@ -560,18 +693,35 @@ func (s *RealtimeSession) receiveLoop() {
 				default:
 				}
 
-				// Cancel the session context so Done() fires.
-				// Callers watching Done() + Error() now have a
-				// complete signal: Done fired, Error returns
-				// ErrConnectionLost, Response channel has the
-				// terminal chunk.
-				s.cancel()
+				// Don't cancel here: the deferred drain closes responseCh
+				// and then cancels the context, so Done() fires only after
+				// the terminal chunk has been delivered. Callers watching
+				// Done() + Error() still get the complete signal.
 			} else {
 				logger.Debug("OpenAI Realtime: WebSocket receive loop ended", "error", err)
 			}
 			return
 		case data := <-msgCh:
+			// Instrumentation + regression guard for the barge-in path. Handlers
+			// hand chunks to the pump (emitCh) rather than sending to responseCh
+			// directly, so a slow downstream consumer must NOT block this loop —
+			// that's what keeps control events (input_audio_buffer.speech_started)
+			// processed promptly. If handleMessage ever blocks here again the
+			// decoupling has regressed; log it with the buffer depths so a real
+			// run shows where it stalled.
+			emitDepth, respDepth, msgDepth := len(s.emitCh), len(s.responseCh), len(msgCh)
+			start := time.Now()
 			s.handleMessage(data)
+			if blocked := time.Since(start); blocked >= receiveLoopBlockWarn {
+				logger.Debug("OpenAI Realtime: receiveLoop stalled forwarding event (back-pressure regression?)",
+					"blocked_ms", blocked.Milliseconds(),
+					"emitCh_depth", emitDepth,
+					"emitCh_cap", cap(s.emitCh),
+					"responseCh_depth", respDepth,
+					"responseCh_cap", cap(s.responseCh),
+					"msgCh_depth", msgDepth,
+					"msgCh_cap", cap(msgCh))
+			}
 		}
 	}
 }
@@ -608,7 +758,12 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
-		logger.Debug("OpenAI Realtime: speech started", "item_id", e.ItemID)
+		// Server-side VAD detected the user speaking — i.e. barge-in. Fire the
+		// out-of-band notification immediately so a consumer paced to real-time
+		// playback (which back-pressures responseCh) learns about it now,
+		// instead of only after the buffered audio backlog drains.
+		logger.Debug("OpenAI Realtime: speech started (barge-in)", "item_id", e.ItemID)
+		s.fireBargeIn()
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 	case *ConversationItemInputAudioTranscriptionCompletedEvent:
@@ -630,7 +785,7 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 		"code", e.Error.Code,
 		"message", e.Error.Message)
 
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Error: fmt.Errorf("server error: %s", e.Error.Message),
 	}
 }
@@ -641,7 +796,7 @@ func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 }
 
 func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Delta: e.Delta,
 		Metadata: map[string]interface{}{
 			"item_id":       e.ItemID,
@@ -652,7 +807,7 @@ func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 }
 
 func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Content: e.Text,
 		Metadata: map[string]interface{}{
 			"item_id":       e.ItemID,
@@ -678,7 +833,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 		return
 	}
 
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
 			Data:       rawBytes,
 			MIMEType:   "audio/pcm",
@@ -694,7 +849,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 }
 
 func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			"item_id":       e.ItemID,
 			"response_id":   e.ResponseID,
@@ -705,7 +860,7 @@ func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
 }
 
 func (s *RealtimeSession) handleTranscriptDelta(e *ResponseAudioTranscriptDeltaEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Delta: e.Delta, // DuplexProviderStage accumulates this for output transcription
 		Metadata: map[string]interface{}{
 			"type":          "output_transcription",
@@ -717,7 +872,7 @@ func (s *RealtimeSession) handleTranscriptDelta(e *ResponseAudioTranscriptDeltaE
 }
 
 func (s *RealtimeSession) handleTranscriptDone(e *ResponseAudioTranscriptDoneEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			"transcript":      e.Transcript,
 			"item_id":         e.ItemID,
@@ -738,7 +893,7 @@ func (s *RealtimeSession) handleFunctionCallDone(e *ResponseFunctionCallArgument
 		Args: json.RawMessage(e.Arguments),
 	}
 
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		ToolCalls: []types.MessageToolCall{toolCall},
 		Metadata: map[string]interface{}{
 			"item_id":     e.ItemID,
@@ -769,7 +924,7 @@ func (s *RealtimeSession) handleOutputItemDone(e *ResponseOutputItemDoneEvent) {
 		Args: json.RawMessage(e.Item.Arguments),
 	}
 
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		ToolCalls: []types.MessageToolCall{toolCall},
 		Metadata: map[string]interface{}{
 			"item_id":     e.Item.ID,
@@ -802,11 +957,11 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 		chunk.CostInfo = s.calculateCost(e.Response.Usage)
 	}
 
-	s.responseCh <- chunk
+	s.emitCh <- chunk
 }
 
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
-	s.responseCh <- providers.StreamChunk{
+	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			"type":          "input_transcription",
 			"transcription": e.Transcript, // DuplexProviderStage expects this key

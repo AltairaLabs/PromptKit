@@ -11,7 +11,9 @@ import (
 // the normalized transcription_final=true marker, so DuplexProviderStage can
 // materialize the user turn immediately instead of waiting for EndOfStream.
 func TestHandleInputTranscription_MarksFinal(t *testing.T) {
-	s := &RealtimeSession{responseCh: make(chan providers.StreamChunk, 1)}
+	// Handlers write to emitCh (the pump forwards it to responseCh unchanged);
+	// reading emitCh tests the handler's output in isolation, no pump needed.
+	s := &RealtimeSession{emitCh: make(chan providers.StreamChunk, 1)}
 
 	s.handleInputTranscription(&ConversationItemInputAudioTranscriptionCompletedEvent{
 		ItemID:       "item_001",
@@ -19,7 +21,7 @@ func TestHandleInputTranscription_MarksFinal(t *testing.T) {
 		Transcript:   "Hello, how are you?",
 	})
 
-	chunk := <-s.responseCh
+	chunk := <-s.emitCh
 	if chunk.Metadata == nil {
 		t.Fatal("expected metadata on input transcription chunk")
 	}

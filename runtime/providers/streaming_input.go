@@ -81,6 +81,35 @@ type StreamInputSession interface {
 	Done() <-chan struct{}
 }
 
+// BargeInNotifier is an optional capability a StreamInputSession may implement.
+// A session that detects server-side barge-in — the user starting to speak while
+// the agent is still responding — exposes a channel that fires OUT-OF-BAND,
+// independent of the Response() FIFO.
+//
+// Why a separate channel: Response() carries the (possibly large) buffered audio
+// of the in-flight response, and a consumer paced to real-time playback drains
+// it slowly. An interruption signal sent in-band would queue behind that backlog
+// and not be seen until playback caught up — defeating barge-in. The out-of-band
+// channel lets such a consumer learn about the interruption immediately and flush
+// the pending audio.
+//
+// Consumers detect support with a type assertion:
+//
+//	if bn, ok := session.(providers.BargeInNotifier); ok {
+//	    select {
+//	    case <-bn.BargeIn(): // user interrupted — flush playback, cancel turn
+//	    case <-session.Done():
+//	    }
+//	}
+type BargeInNotifier interface {
+	// BargeIn returns a channel that receives one value per detected barge-in.
+	// It is buffered and best-effort: rapid repeats may coalesce (the consumer
+	// only needs to know the user interrupted, not how many times). The producer
+	// does not close it while the session is live, so consumers should also
+	// select on Done().
+	BargeIn() <-chan struct{}
+}
+
 // StreamingInputConfig configures a new streaming input session.
 type StreamingInputConfig struct {
 	// Config specifies the media streaming configuration (codec, sample rate, etc.)
