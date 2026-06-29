@@ -20,7 +20,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20260621010513-945fab64fd3e
 	github.com/ebitengine/oto/v3 v3.4.0
-	github.com/ebitengine/purego v0.9.0
+	github.com/ebitengine/purego v0.10.1
 	github.com/google/uuid v1.6.0
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
