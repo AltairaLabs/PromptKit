@@ -22,6 +22,7 @@ func runChat(cmd *cobra.Command, _ []string) error {
 	voiceOutputVoice, _ := cmd.Flags().GetString("voice-output-voice")
 	echoGuard, _ := cmd.Flags().GetBool("echo-guard")
 	bargeIn, _ := cmd.Flags().GetBool("barge-in")
+	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	eng, err := engine.NewEngineFromConfigFile(configPath)
 	if err != nil {
@@ -42,6 +43,12 @@ func runChat(cmd *cobra.Command, _ []string) error {
 		Engine:     eng,
 		StateStore: eng.GetStateStore(),
 		Version:    GetVersion(),
+		// With -v, raise the TUI log interceptor to debug and tee to
+		// <cwd>/promptarena.log so the realtime event timeline (otherwise hidden
+		// behind the TUI) is inspectable. Without LogDir, debug logs would only
+		// reach the in-TUI log panel.
+		Verbose: verbose,
+		LogDir:  ".",
 	}
 
 	// Auto-enable a live interactive session when the config describes a realtime

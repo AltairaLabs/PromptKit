@@ -165,3 +165,7 @@ func (s *realtimeSessionBookkeeping) SendToolResponses(ctx context.Context, resp
 	}
 	return errors.New("realtime session does not support tool responses")
 }
+
+// BargeIn() is promoted from the embedded StreamInputSession (which now includes
+// it as a required method), so the wrapper forwards it automatically — no
+// explicit override needed.

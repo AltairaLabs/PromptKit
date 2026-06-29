@@ -213,6 +213,37 @@ func (m *MockStreamSession) Done() <-chan struct{} {
 	return m.doneCh
 }
 
+// BargeIn satisfies StreamInputSession; this fake never signals barge-in.
+func (m *MockStreamSession) BargeIn() <-chan struct{} { return nil }
+
+func TestBargeInSignal(t *testing.T) {
+	// Zero value is a safe no-op: nil channel, SignalBargeIn does nothing.
+	var zero BargeInSignal
+	if zero.BargeIn() != nil {
+		t.Error("zero-value BargeIn() should be nil")
+	}
+	zero.SignalBargeIn() // must not panic
+
+	// Initialized signal fires once and coalesces repeats without blocking.
+	s := NewBargeInSignal()
+	if s.BargeIn() == nil {
+		t.Fatal("NewBargeInSignal().BargeIn() should be non-nil")
+	}
+	s.SignalBargeIn()
+	s.SignalBargeIn() // coalesce — must not block
+	select {
+	case <-s.BargeIn():
+	default:
+		t.Error("expected a buffered barge-in signal")
+	}
+	// Drained — no second signal queued.
+	select {
+	case <-s.BargeIn():
+		t.Error("expected only one coalesced signal")
+	default:
+	}
+}
+
 func TestMockStreamSession(t *testing.T) {
 	t.Run("implements StreamInputSession", func(t *testing.T) {
 		var _ StreamInputSession = (*MockStreamSession)(nil)

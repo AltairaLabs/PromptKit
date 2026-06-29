@@ -53,6 +53,11 @@ const (
 // StreamSession implements StreamInputSession for Gemini Live API
 // with automatic reconnection on unexpected connection drops.
 type StreamSession struct {
+	// BargeInSignal provides the StreamInputSession.BargeIn() channel; the
+	// session calls SignalBargeIn() when Gemini reports serverContent.interrupted.
+	// Embedded so barge-in is implemented identically across providers.
+	providers.BargeInSignal
+
 	ws *WebSocketManager
 	// NOSONAR: ctx is required for session lifecycle (background goroutines, reconnection)
 	ctx             context.Context
@@ -193,6 +198,7 @@ func createSession(
 	}
 
 	return &StreamSession{
+		BargeInSignal:     providers.NewBargeInSignal(),
 		ws:                ws,
 		ctx:               ctx,
 		cancel:            cancel,

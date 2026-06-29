@@ -27,6 +27,13 @@ import (
 // premature cancellation of multi-turn conversations.
 const defaultPipelineIdleTimeout = 30 * time.Second
 
+// bargeInChannelBufferSize is the inter-stage channel buffer used for barge-in
+// sessions. Small so only a few hundred ms of response audio can sit between the
+// provider stage and the real-time output pacing stage; the session's unbounded
+// pump queue (dropped on barge-in) absorbs the provider's faster-than-real-time
+// audio, so this doesn't starve normal playback.
+const bargeInChannelBufferSize = 2
+
 // executeDuplexConversation handles the main duplex conversation logic.
 // The pipeline is the single source of truth: PromptAssemblyStage loads the prompt,
 // then DuplexProviderStage creates the session using system_prompt from metadata.
@@ -232,6 +239,17 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	pipelineConfig := stage.DefaultPipelineConfig().
 		WithExecutionTimeout(0).
 		WithIdleTimeout(idleTimeout)
+	// With barge-in, shrink the inter-stage channel buffers. The default (32)
+	// lets several seconds of response audio queue between the provider stage and
+	// the real-time output pacing stage — downstream of the session's drop and
+	// the sink flush, so barge-in can't clear it and the agent keeps talking for
+	// seconds after the user interrupts. The session's unbounded pump queue
+	// already absorbs the provider's faster-than-real-time audio, so a small
+	// downstream buffer costs nothing for normal playback and bounds how much
+	// audio survives a barge-in to a few hundred ms.
+	if req.VoiceBargeIn {
+		pipelineConfig = pipelineConfig.WithChannelBufferSize(bargeInChannelBufferSize)
+	}
 	builder := stage.NewPipelineBuilderWithConfig(pipelineConfig)
 	var stages []stage.Stage
 

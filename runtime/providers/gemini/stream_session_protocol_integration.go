@@ -258,6 +258,10 @@ func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 // processServerContent handles server content including transcriptions and model turns.
 func (s *StreamSession) processServerContent(content *ServerContent, costInfo *types.CostInfo) error {
 	if content.Interrupted {
+		// Out-of-band barge-in signal (consistent with every provider via the
+		// embedded BargeInSignal) so a consumer paced to real-time playback can
+		// flush immediately, plus the in-band Interrupted chunk for the pipeline.
+		s.SignalBargeIn()
 		return s.sendChunk(&providers.StreamChunk{Interrupted: true})
 	}
 

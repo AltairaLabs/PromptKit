@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/gorilla/websocket"
 )
 
@@ -189,6 +190,53 @@ func runBargeIn(t *testing.T, consumerDelay time.Duration) time.Duration {
 // means this is independent of the (slow, paced) Response() consumer; the
 // pre-fix in-band path took ~317ms under the same backlog.
 const maxBargeInLatency = 100 * time.Millisecond
+
+// fakeNotifierSession is a minimal StreamInputSession whose BargeIn() returns a
+// caller-supplied channel, for testing the bookkeeping wrapper's forwarding.
+type fakeNotifierSession struct {
+	providers.StreamInputSession
+	ch chan struct{}
+}
+
+func (f *fakeNotifierSession) BargeIn() <-chan struct{} { return f.ch }
+
+// TestRealtimeSessionBookkeeping_ForwardsBargeIn verifies the bookkeeping
+// wrapper surfaces the underlying session's BargeIn() — now guaranteed because
+// BargeIn() is part of StreamInputSession (which the wrapper embeds), so it's
+// promoted automatically.
+func TestRealtimeSessionBookkeeping_ForwardsBargeIn(t *testing.T) {
+	ch := make(chan struct{}, 1)
+	var wrapped providers.StreamInputSession = &realtimeSessionBookkeeping{
+		StreamInputSession: &fakeNotifierSession{ch: ch},
+		release:            func() {},
+	}
+
+	ch <- struct{}{}
+	select {
+	case <-wrapped.BargeIn():
+	case <-time.After(time.Second):
+		t.Fatal("BargeIn() was not forwarded from the underlying session")
+	}
+}
+
+// plainSession implements StreamInputSession with no barge-in detection
+// (BargeIn returns nil).
+type plainSession struct{ providers.StreamInputSession }
+
+func (plainSession) BargeIn() <-chan struct{} { return nil }
+
+// TestRealtimeSessionBookkeeping_BargeInNilWithoutSupport verifies the wrapper
+// surfaces a nil (never-firing) channel when the underlying session has no
+// barge-in support, so watchBargeIn safely no-ops.
+func TestRealtimeSessionBookkeeping_BargeInNilWithoutSupport(t *testing.T) {
+	var wrapped providers.StreamInputSession = &realtimeSessionBookkeeping{
+		StreamInputSession: plainSession{},
+		release:            func() {},
+	}
+	if got := wrapped.BargeIn(); got != nil {
+		t.Errorf("expected nil channel for a session without barge-in support, got %v", got)
+	}
+}
 
 // TestRealtimeBargeIn_DropsTrailingAudioAfterBargeIn verifies that after
 // barge-in the session stops emitting the interrupted response's audio (the

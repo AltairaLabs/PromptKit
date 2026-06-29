@@ -88,9 +88,9 @@ type ConversationRequest struct {
 
 	// VoiceBargeIn enables barge-in (interrupting the agent mid-reply). On the
 	// composed-VAD path it shares an InterruptionHandler across AudioTurn + TTS;
-	// on the ASM/realtime path it watches the session's out-of-band
-	// BargeInNotifier and flushes playback. Opt-in (--barge-in); off by default
-	// the console does clean turn-taking.
+	// on the ASM/realtime path it watches the session's out-of-band BargeIn()
+	// channel and flushes playback. Opt-in (--barge-in); off by default the
+	// console does clean turn-taking.
 	VoiceBargeIn bool
 
 	// OnDuplexSession, when set, is forwarded to the DuplexProviderStage as its

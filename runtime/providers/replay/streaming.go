@@ -197,6 +197,11 @@ func (p *StreamingProvider) GetStreamingCapabilities() providers.StreamingCapabi
 
 // StreamSession implements StreamInputSession for replaying recorded sessions.
 type StreamSession struct {
+	// BargeInSignal satisfies StreamInputSession.BargeIn(). Replay sessions don't
+	// detect live barge-in, so the zero value (nil channel, never fires) is the
+	// correct "no barge-in" behavior.
+	providers.BargeInSignal
+
 	provider     *StreamingProvider
 	config       Config
 	messages     []arenaMessage

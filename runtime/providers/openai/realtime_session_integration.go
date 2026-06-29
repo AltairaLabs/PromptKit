@@ -45,12 +45,9 @@ const (
 	receiveLoopBlockWarn = 100 * time.Millisecond
 )
 
-// Ensure RealtimeSession implements StreamInputSession and the optional
-// out-of-band barge-in notifier.
-var (
-	_ providers.StreamInputSession = (*RealtimeSession)(nil)
-	_ providers.BargeInNotifier    = (*RealtimeSession)(nil)
-)
+// Ensure RealtimeSession implements StreamInputSession (which now includes the
+// out-of-band BargeIn() barge-in signal).
+var _ providers.StreamInputSession = (*RealtimeSession)(nil)
 
 // RealtimeSession implements StreamInputSession for OpenAI Realtime API.
 type RealtimeSession struct {
@@ -73,10 +70,10 @@ type RealtimeSession struct {
 	// chunk (e.g. connection-lost) is delivered before the context is canceled.
 	pumpDone chan struct{}
 
-	// bargeInCh delivers out-of-band barge-in notifications (one per detected
-	// server-side speech_started). Buffered and best-effort so firing never
-	// blocks the receive loop. Exposed via BargeIn(); see BargeInNotifier.
-	bargeInCh chan struct{}
+	// BargeInSignal provides the StreamInputSession.BargeIn() channel; the
+	// session calls SignalBargeIn() on server-side speech_started during a
+	// response. Embedded so barge-in is implemented identically across providers.
+	providers.BargeInSignal
 
 	// dropCh signals the pump to discard queued audio chunks. Used on barge-in
 	// to stop playback of the interrupted response's already-buffered audio.
@@ -152,16 +149,16 @@ func newRealtimeSession(
 	}
 
 	session := &RealtimeSession{
-		ws:         ws,
-		ctx:        sessionCtx,
-		cancel:     cancel,
-		emitCh:     make(chan providers.StreamChunk, responseChannelSize),
-		responseCh: make(chan providers.StreamChunk, responseChannelSize),
-		pumpDone:   make(chan struct{}),
-		bargeInCh:  make(chan struct{}, 1),
-		dropCh:     make(chan struct{}, 1),
-		errCh:      make(chan error, 1),
-		config:     *config,
+		ws:            ws,
+		ctx:           sessionCtx,
+		cancel:        cancel,
+		emitCh:        make(chan providers.StreamChunk, responseChannelSize),
+		responseCh:    make(chan providers.StreamChunk, responseChannelSize),
+		pumpDone:      make(chan struct{}),
+		BargeInSignal: providers.NewBargeInSignal(),
+		dropCh:        make(chan struct{}, 1),
+		errCh:         make(chan error, 1),
+		config:        *config,
 	}
 
 	// Wait for session.created event
@@ -198,16 +195,6 @@ func (s *RealtimeSession) emit(chunk *providers.StreamChunk) {
 	select {
 	case s.emitCh <- *chunk:
 	case <-s.ctx.Done():
-	}
-}
-
-// fireBargeIn delivers an out-of-band barge-in notification, best-effort: if a
-// previous notification hasn't been consumed yet it coalesces (the consumer
-// only needs to know "the user interrupted", not how many times). Never blocks.
-func (s *RealtimeSession) fireBargeIn() {
-	select {
-	case s.bargeInCh <- struct{}{}:
-	default:
 	}
 }
 
@@ -604,15 +591,8 @@ func (s *RealtimeSession) Response() <-chan providers.StreamChunk {
 	return s.responseCh
 }
 
-// BargeIn implements providers.BargeInNotifier. It returns a channel that
-// receives a value each time the server's VAD reports the user interrupting the
-// agent (input_audio_buffer.speech_started). The signal is delivered
-// out-of-band — independent of the Response() FIFO — so a consumer whose
-// real-time playback back-pressures Response() can react to barge-in
-// immediately instead of after the buffered audio drains.
-func (s *RealtimeSession) BargeIn() <-chan struct{} {
-	return s.bargeInCh
-}
+// BargeIn() is provided by the embedded providers.BargeInSignal; the session
+// calls SignalBargeIn() on server-side speech_started during a response.
 
 // Config returns the session configuration. Callers can use this to
 // create a new session with the same settings after a connection loss:
@@ -804,6 +784,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		// A model response is now in progress. Used to tell real barge-in
 		// (speech_started while the agent is responding) from a normal turn
 		// start (speech_started during silence). Clears any stale drop state.
+		logger.Debug("OpenAI Realtime: response started", "response_id", e.Response.ID)
 		s.responseActive = true
 		s.dropping = false
 	case *ResponseDoneEvent:
@@ -820,7 +801,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 			logger.Debug("OpenAI Realtime: barge-in (speech started during response)", "item_id", e.ItemID)
 			s.dropping = true
 			s.dropPendingAudio()
-			s.fireBargeIn()
+			s.SignalBargeIn()
 		} else {
 			logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
 		}
@@ -1016,6 +997,7 @@ func (s *RealtimeSession) markToolCallEmitted(itemID string) bool {
 func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	// The response is over (completed or canceled by barge-in); stop treating
 	// further speech_started as barge-in and stop dropping audio.
+	logger.Debug("OpenAI Realtime: response done", "response_id", e.Response.ID, "status", e.Response.Status)
 	s.responseActive = false
 	s.dropping = false
 

@@ -127,17 +127,17 @@ func (de *DuplexConversationExecutor) RunInteractiveVoice(
 // emitting the interrupted response's audio; this clears what's already buffered
 // at the speaker so the agent goes quiet immediately.
 //
-// A session whose provider doesn't detect barge-in (no BargeInNotifier) makes
-// this a no-op.
+// A session whose provider can't detect barge-in returns a nil BargeIn()
+// channel, which never fires — making this a no-op for those providers.
 func watchBargeIn(ctx context.Context, sess providers.StreamInputSession, flush func()) {
-	notifier, ok := sess.(providers.BargeInNotifier)
-	if !ok {
-		logger.Debug("watchBargeIn: session has no BargeInNotifier; barge-in disabled")
+	bargeIn := sess.BargeIn()
+	if bargeIn == nil {
+		logger.Debug("watchBargeIn: provider does not signal barge-in; disabled")
 		return
 	}
 	for {
 		select {
-		case <-notifier.BargeIn():
+		case <-bargeIn:
 			logger.Debug("watchBargeIn: barge-in detected, flushing playback")
 			if flush != nil {
 				flush()

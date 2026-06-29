@@ -79,35 +79,54 @@ type StreamInputSession interface {
 	// Done returns a channel that's closed when the session ends.
 	// This is useful for select statements to detect session completion.
 	Done() <-chan struct{}
+
+	// BargeIn returns a channel that fires OUT-OF-BAND when the provider detects
+	// the user interrupting the agent mid-response (server-side barge-in),
+	// independent of the Response() FIFO.
+	//
+	// Why a separate channel: Response() carries the (possibly large) buffered
+	// audio of the in-flight response, and a consumer paced to real-time playback
+	// drains it slowly. An interruption sent in-band would queue behind that
+	// backlog and not be seen until playback caught up — defeating barge-in. This
+	// channel lets the consumer learn immediately and flush pending audio.
+	//
+	// It is buffered and best-effort: rapid repeats may coalesce (the consumer
+	// only needs to know the user interrupted, not how many times), and the
+	// producer never closes it while the session is live, so consumers should
+	// also select on Done(). Providers that cannot detect barge-in return a nil
+	// channel (never fires); embed BargeInSignal to satisfy this for free.
+	BargeIn() <-chan struct{}
 }
 
-// BargeInNotifier is an optional capability a StreamInputSession may implement.
-// A session that detects server-side barge-in — the user starting to speak while
-// the agent is still responding — exposes a channel that fires OUT-OF-BAND,
-// independent of the Response() FIFO.
-//
-// Why a separate channel: Response() carries the (possibly large) buffered audio
-// of the in-flight response, and a consumer paced to real-time playback drains
-// it slowly. An interruption signal sent in-band would queue behind that backlog
-// and not be seen until playback caught up — defeating barge-in. The out-of-band
-// channel lets such a consumer learn about the interruption immediately and flush
-// the pending audio.
-//
-// Consumers detect support with a type assertion:
-//
-//	if bn, ok := session.(providers.BargeInNotifier); ok {
-//	    select {
-//	    case <-bn.BargeIn(): // user interrupted — flush playback, cancel turn
-//	    case <-session.Done():
-//	    }
-//	}
-type BargeInNotifier interface {
-	// BargeIn returns a channel that receives one value per detected barge-in.
-	// It is buffered and best-effort: rapid repeats may coalesce (the consumer
-	// only needs to know the user interrupted, not how many times). The producer
-	// does not close it while the session is live, so consumers should also
-	// select on Done().
-	BargeIn() <-chan struct{}
+// BargeInSignal is the shared implementation of StreamInputSession.BargeIn().
+// Streaming sessions embed it so every provider exposes barge-in identically —
+// the only per-provider code is the one line that calls SignalBargeIn() when
+// that provider's wire protocol reports an interruption. The zero value is a
+// safe no-op (BargeIn returns nil, SignalBargeIn does nothing); use
+// NewBargeInSignal to enable firing.
+type BargeInSignal struct {
+	ch chan struct{}
+}
+
+// NewBargeInSignal returns a BargeInSignal whose channel is ready to fire.
+func NewBargeInSignal() BargeInSignal {
+	return BargeInSignal{ch: make(chan struct{}, 1)}
+}
+
+// BargeIn returns the out-of-band barge-in channel (nil for the zero value).
+func (b BargeInSignal) BargeIn() <-chan struct{} { return b.ch }
+
+// SignalBargeIn delivers one barge-in notification, best-effort and
+// non-blocking: it coalesces if a prior signal is unconsumed, and no-ops on a
+// zero-value (uninitialized) signal. Safe to call from the receive goroutine.
+func (b BargeInSignal) SignalBargeIn() {
+	if b.ch == nil {
+		return
+	}
+	select {
+	case b.ch <- struct{}{}:
+	default:
+	}
 }
 
 // StreamingInputConfig configures a new streaming input session.

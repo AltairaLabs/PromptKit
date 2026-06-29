@@ -37,8 +37,9 @@ func TestDrainAudioOutput_InterruptFlushes(t *testing.T) {
 	}
 }
 
-// fakeBargeInSession is a minimal StreamInputSession that also implements
-// providers.BargeInNotifier, for testing watchBargeIn deterministically.
+// fakeBargeInSession is a minimal StreamInputSession for testing watchBargeIn
+// deterministically. A nil bargeIn channel models a provider with no barge-in
+// detection (BargeIn() returns nil).
 type fakeBargeInSession struct {
 	providers.StreamInputSession // nil embedded — only the methods below are called
 	bargeIn                      chan struct{}
@@ -80,21 +81,22 @@ func TestWatchBargeIn_FlushesOnSignal(t *testing.T) {
 	}
 }
 
-// TestWatchBargeIn_NoNotifierIsNoop verifies a session without BargeInNotifier
-// makes watchBargeIn return immediately without flushing.
-func TestWatchBargeIn_NoNotifierIsNoop(t *testing.T) {
+// TestWatchBargeIn_NilChannelIsNoop verifies a session whose BargeIn() returns
+// nil (no barge-in detection) makes watchBargeIn return immediately without
+// flushing.
+func TestWatchBargeIn_NilChannelIsNoop(t *testing.T) {
+	sess := &fakeBargeInSession{bargeIn: nil, done: make(chan struct{})}
 	done := make(chan struct{})
 	go func() {
-		// A bare mock session does not implement BargeInNotifier.
-		watchBargeIn(context.Background(), mock.NewMockStreamSession(), func() {
-			t.Error("flush should not be called when session has no BargeInNotifier")
+		watchBargeIn(context.Background(), sess, func() {
+			t.Error("flush should not be called when BargeIn() returns nil")
 		})
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("watchBargeIn did not return for a non-BargeInNotifier session")
+		t.Fatal("watchBargeIn did not return for a nil-BargeIn session")
 	}
 }
 

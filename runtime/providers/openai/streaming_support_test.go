@@ -440,6 +440,9 @@ func (f *fakeStreamInputSession) Close() error {
 func (f *fakeStreamInputSession) Error() error          { return nil }
 func (f *fakeStreamInputSession) Done() <-chan struct{} { return f.done }
 
+// BargeIn satisfies StreamInputSession; this fake never signals barge-in.
+func (f *fakeStreamInputSession) BargeIn() <-chan struct{} { return nil }
+
 // signalDoneExternal simulates the session's done channel closing from
 // its internal lifecycle (e.g. ctx cancellation in the receive loop)
 // without the caller having called Close. Safe to call alongside
