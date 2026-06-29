@@ -38,6 +38,10 @@ type Message struct {
 	FinishReason string                 `json:"finish_reason,omitempty"`
 	Meta         map[string]interface{} `json:"meta,omitempty"` // Custom metadata
 
+	// Reasoning holds the turn's model reasoning, off Parts so it is not content
+	// and is excluded from future-turn context by default. See ReasoningTrace.
+	Reasoning *ReasoningTrace `json:"reasoning,omitempty"`
+
 	// Validation results (for assistant messages)
 	Validations []ValidationResult `json:"validations,omitempty"`
 }
@@ -249,6 +253,18 @@ func (m *Message) GetContent() string {
 	}
 
 	return m.Content
+}
+
+// StripReasoning returns copies of msgs with Reasoning cleared, for persistence
+// or export paths that must not retain model reasoning (the default behavior;
+// see Message.Reasoning). The input slice and its messages are not mutated.
+func StripReasoning(msgs []Message) []Message {
+	out := make([]Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		out[i].Reasoning = nil
+	}
+	return out
 }
 
 // IsMultimodal returns true if the message contains multimodal content (Parts)
