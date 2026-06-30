@@ -67,6 +67,12 @@ const (
 	// EventStreamInterrupted marks a stream interruption.
 	EventStreamInterrupted EventType = "stream.interrupted"
 
+	// EventReasoningDelta carries an incremental chunk of model reasoning
+	// ("thinking") for live display. It is explicitly NOT conversational content
+	// — subscribers (incl. external conversation stores) must not treat it as a
+	// user/assistant message.
+	EventReasoningDelta EventType = "reasoning.delta"
+
 	// EventMessageCreated marks message creation.
 	EventMessageCreated EventType = "message.created"
 	// EventMessageUpdated marks message update (e.g., cost/latency after completion).
@@ -370,6 +376,13 @@ type (
 type StreamInterruptedData struct {
 	baseEventData
 	Reason string
+}
+
+// ReasoningDeltaData carries an incremental chunk of model reasoning for live
+// display. Not conversational content — never persisted as a message.
+type ReasoningDeltaData struct {
+	baseEventData
+	Text string
 }
 
 // CustomEventData allows middleware to emit arbitrary structured events.

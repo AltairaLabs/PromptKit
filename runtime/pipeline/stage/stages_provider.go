@@ -1521,8 +1521,12 @@ func (s *ProviderStage) emitChunkElement(
 	output chan<- StreamElement,
 ) error {
 	// Emit a live, non-content reasoning element if present, so the UI can stream
-	// thinking as it arrives (it also accumulates onto Message.Reasoning).
+	// thinking as it arrives (it also accumulates onto Message.Reasoning). Mirror
+	// onto the events bus as a distinct non-content signal for live consumers.
 	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
+		if s.emitter != nil && chunk.Reasoning != "" {
+			s.emitter.ReasoningDelta(chunk.Reasoning)
+		}
 		select {
 		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:
 		case <-ctx.Done():

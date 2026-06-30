@@ -399,6 +399,12 @@ func (e *Emitter) StreamInterrupted(reason string) {
 	})
 }
 
+// ReasoningDelta emits the reasoning.delta event — an incremental chunk of model
+// reasoning ("thinking") for live display. Not conversational content.
+func (e *Emitter) ReasoningDelta(text string) {
+	e.emit(EventReasoningDelta, &ReasoningDeltaData{Text: text})
+}
+
 // EmitCustom allows middleware to emit arbitrary event types with structured payloads.
 func (e *Emitter) EmitCustom(
 	eventType EventType,
