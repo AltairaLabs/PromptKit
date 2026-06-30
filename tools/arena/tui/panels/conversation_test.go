@@ -1162,3 +1162,22 @@ func TestConversationPanel_SetActive(t *testing.T) {
 	tb, _ = c.getBorderColors()
 	assert.Equal(t, theme.BorderColorFocused(), tb)
 }
+
+func TestConversationPanel_LiveReasoning(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(120, 40)
+	// A live run has the turn's user message in res, so the populated view (which
+	// carries the transient reasoning pane) renders.
+	panel.SetData("run", "scenario", "provider", &statestore.RunResult{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+
+	panel.AppendLiveReasoning("thinking ")
+	panel.AppendLiveReasoning("hard")
+	assert.Equal(t, "thinking hard", panel.LiveReasoning())
+	assert.Contains(t, panel.View(), "thinking hard", "live reasoning shown in the view")
+
+	panel.ClearLiveReasoning()
+	assert.Empty(t, panel.LiveReasoning())
+	assert.NotContains(t, panel.View(), "thinking hard", "cleared reasoning no longer shown")
+}

@@ -50,10 +50,16 @@ func (f *liveFeed) Apply(panel *panels.ConversationPanel, msg tea.Msg) bool {
 			})
 		}
 		return true
+	case tui.ReasoningDeltaMsg:
+		// Non-content live thinking — accumulate transiently for this turn.
+		panel.AppendLiveReasoning(m.Text)
+		return true
 	case tui.MessageCreatedMsg:
 		if m.ConversationID != f.convID {
 			return false
 		}
+		// The turn's message arrived — clear the transient thinking display.
+		panel.ClearLiveReasoning()
 		f.appendCreated(panel, &m)
 		return true
 	case tui.MessageUpdatedMsg:

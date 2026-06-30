@@ -910,3 +910,22 @@ func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 		adapter.HandleEvent(evt)
 	})
 }
+
+// TestEventAdapter_ReasoningDelta verifies the events-bus reasoning signal maps
+// to a non-content ReasoningDeltaMsg for live display.
+func TestEventAdapter_ReasoningDelta(t *testing.T) {
+	t.Parallel()
+	adapter := NewEventAdapter(nil)
+	msg := adapter.mapEvent(&events.Event{
+		Type:      events.EventReasoningDelta,
+		Timestamp: time.Now(),
+		Data:      &events.ReasoningDeltaData{Text: "thinking out loud"},
+	})
+	rd, ok := msg.(ReasoningDeltaMsg)
+	if !ok {
+		t.Fatalf("expected ReasoningDeltaMsg, got %T", msg)
+	}
+	if rd.Text != "thinking out loud" {
+		t.Fatalf("Text = %q, want %q", rd.Text, "thinking out loud")
+	}
+}

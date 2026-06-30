@@ -92,6 +92,28 @@ type ConversationPanel struct {
 	audioUserLevel  float32
 	audioAgentLevel float32
 	audioActive     bool
+
+	// liveReasoning accumulates streamed model reasoning ("thinking") for the
+	// in-progress turn, shown transiently and cleared when the turn's message
+	// arrives. Not conversational content.
+	liveReasoning string
+}
+
+// AppendLiveReasoning adds a streamed reasoning chunk to the in-progress turn's
+// transient thinking display.
+func (c *ConversationPanel) AppendLiveReasoning(text string) {
+	c.liveReasoning += text
+}
+
+// ClearLiveReasoning clears the transient thinking display (e.g. when the turn's
+// message arrives).
+func (c *ConversationPanel) ClearLiveReasoning() {
+	c.liveReasoning = ""
+}
+
+// LiveReasoning returns the current transient reasoning text (for rendering/tests).
+func (c *ConversationPanel) LiveReasoning() string {
+	return c.liveReasoning
 }
 
 // NewConversationPanel creates an empty conversation panel with defaults.

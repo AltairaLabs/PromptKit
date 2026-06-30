@@ -50,15 +50,21 @@ func (c *ConversationPanel) View() string {
 // drops out cleanly when there is no active audio (no manual append/join math).
 func (c *ConversationPanel) composeView(title, content string) string {
 	meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive)
+	reasoning := ""
+	if c.liveReasoning != "" {
+		reasoning = "💭 " + c.liveReasoning
+	}
 	tree := layout.VSplit(
 		layout.Pane("title"),
 		layout.Optional(meter != "", layout.Pane("audio")),
+		layout.Optional(reasoning != "", layout.Pane("reasoning")),
 		layout.Pane("content"),
 	)
 	body := layout.RenderTree(tree, map[string]string{
-		"title":   title,
-		"audio":   meter,
-		"content": content,
+		"title":     title,
+		"audio":     meter,
+		"reasoning": reasoning,
+		"content":   content,
 	})
 	return lipgloss.NewStyle().
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
