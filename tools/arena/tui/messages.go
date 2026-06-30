@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // RunStartedMsg is sent when a run begins execution.
@@ -61,8 +62,9 @@ type MessageCreatedMsg struct {
 	Role           string
 	Content        string
 	Index          int
-	ToolCalls      []MessageToolCall  // Tool calls requested by assistant
-	ToolResult     *MessageToolResult // Tool result for tool messages
+	ToolCalls      []MessageToolCall     // Tool calls requested by assistant
+	ToolResult     *MessageToolResult    // Tool result for tool messages
+	Reasoning      *types.ReasoningTrace // Model reasoning ("thinking") for this turn
 	Time           time.Time
 }
 

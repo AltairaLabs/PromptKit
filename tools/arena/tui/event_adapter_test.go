@@ -616,6 +616,27 @@ func TestEventAdapter_HandleMessageCreated(t *testing.T) {
 		assert.Equal(t, 0, createdMsg.Index)
 	})
 
+	t.Run("with reasoning", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-1",
+			Timestamp:      time.Now(),
+			Data: events.MessageCreatedData{
+				Role:      "assistant",
+				Content:   "ANSWER: 16",
+				Index:     0,
+				Reasoning: &types.ReasoningTrace{Text: "chain of thought"},
+			},
+		}
+
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg)
+		createdMsg, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		require.NotNil(t, createdMsg.Reasoning, "reasoning must survive the event->msg seam")
+		assert.Equal(t, "chain of thought", createdMsg.Reasoning.Text)
+	})
+
 	t.Run("with tool calls", func(t *testing.T) {
 		evt := &events.Event{
 			Type:           events.EventMessageCreated,

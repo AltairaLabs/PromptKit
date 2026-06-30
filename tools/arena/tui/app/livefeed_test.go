@@ -47,6 +47,28 @@ func TestLiveFeed_AppendsNewDedupsOld(t *testing.T) {
 	require.Equal(t, 3, panel.MessageCount())
 }
 
+// TestLiveFeed_CompletedTurnShowsReasoning proves the live interactive path:
+// a MessageCreatedMsg carrying Reasoning is appended to the panel and the
+// completed turn's detail view renders the reasoning (not just the transient
+// streaming pane). Guards the event->tui-message->panel reasoning seam.
+func TestLiveFeed_CompletedTurnShowsReasoning(t *testing.T) {
+	panel := seededPanel(t, "conv-1", 1)
+	f := newLiveFeed("conv-1", 1)
+
+	// Single non-wrapping token: the detail pane line-wraps and ANSI-styles
+	// prose, so a multi-word phrase won't survive as a contiguous substring.
+	require.True(t, f.Apply(panel, tui.MessageCreatedMsg{
+		ConversationID: "conv-1", Index: 1, Role: "assistant", Content: "ANSWER: 16",
+		Reasoning: &types.ReasoningTrace{Text: "THOUGHTMARKER"},
+	}))
+	require.Equal(t, 2, panel.MessageCount())
+
+	panel.SelectLast()
+	view := panel.View()
+	require.Contains(t, view, "Reasoning", "detail view shows the reasoning section")
+	require.Contains(t, view, "THOUGHTMARKER", "reasoning text rendered in the completed turn")
+}
+
 // TestLiveFeed_AudioSystemPromptAndMetadata covers the audio, conversation
 // started (system prompt), and message updated paths.
 func TestLiveFeed_AudioSystemPromptAndMetadata(t *testing.T) {

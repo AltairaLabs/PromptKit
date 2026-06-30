@@ -111,6 +111,7 @@ func (f *liveFeed) appendCreated(panel *panels.ConversationPanel, m *tui.Message
 		Timestamp:  m.Time,
 		ToolCalls:  toolCalls,
 		ToolResult: toolResult,
+		Reasoning:  m.Reasoning,
 	})
 	f.appended = m.Index - f.seeded + 1
 }

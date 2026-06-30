@@ -442,6 +442,13 @@ type MessageCreatedData struct {
 	Parts      []types.ContentPart // Multimodal content parts (text, images, audio, video)
 	ToolCalls  []MessageToolCall   // Tool calls requested by assistant (if any)
 	ToolResult *MessageToolResult  // Tool result for tool messages (if any)
+	// Reasoning is the model's reasoning ("thinking") for this message, carried
+	// in-memory so live consumers (the in-process TUI) can show it in turn
+	// history. It is NOT conversational content, and `json:"-"` keeps it out of
+	// every serialized sink (session recordings, exports, SSE) — reasoning
+	// persistence stays opt-in via the save stage's PersistReasoning, default
+	// off. Live consumers read the Go struct directly, so they still receive it.
+	Reasoning *types.ReasoningTrace `json:"-"`
 }
 
 // MessageUpdatedData contains data for message update events.

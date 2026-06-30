@@ -197,6 +197,7 @@ func (a *EventAdapter) handleMessageCreated(event *events.Event) tea.Msg {
 		Index:          data.Index,
 		ToolCalls:      data.ToolCalls,
 		ToolResult:     data.ToolResult,
+		Reasoning:      data.Reasoning,
 		Time:           event.Timestamp,
 	}
 }

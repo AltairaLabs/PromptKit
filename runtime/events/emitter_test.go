@@ -2,8 +2,10 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,29 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// TestMessageCreatedData_ReasoningNotSerialized guards the invariant that the
+// MessageCreated event carries reasoning in-memory for live consumers but never
+// serializes it — recordings, session exports, and SSE all marshal event data to
+// JSON, and reasoning persistence must stay opt-in (save stage PersistReasoning,
+// default off). If `json:"-"` is dropped, reasoning would leak into every sink.
+func TestMessageCreatedData_ReasoningNotSerialized(t *testing.T) {
+	data := &MessageCreatedData{
+		Role:      "assistant",
+		Content:   "ANSWER: 16",
+		Reasoning: &types.ReasoningTrace{Text: "SECRET_CHAIN_OF_THOUGHT"},
+	}
+	out, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), "SECRET_CHAIN_OF_THOUGHT") {
+		t.Fatalf("reasoning leaked into serialized event: %s", out)
+	}
+	if strings.Contains(strings.ToLower(string(out)), "reasoning") {
+		t.Fatalf("reasoning field leaked into serialized event: %s", out)
+	}
+}
 
 func TestEmitterPublishesSharedContext(t *testing.T) {
 	t.Parallel()
@@ -160,7 +185,7 @@ func TestEmitterHandlesNilEmitter(t *testing.T) {
 	var emitter *Emitter
 	// Should not panic when emitter is nil
 	emitter.PipelineStarted(1)
-	emitter.MessageCreated("user", "hello", 0, nil, nil, nil)
+	emitter.MessageCreated("user", "hello", 0, nil, nil, nil, nil)
 	emitter.MessageUpdated(0, 100, 10, 20, 0.001)
 	emitter.ConversationStarted("system prompt")
 }
@@ -183,7 +208,7 @@ func TestEmitter_MessageCreated(t *testing.T) {
 	toolCalls := []MessageToolCall{
 		{Name: "test_tool", Args: `{"key":"value"}`},
 	}
-	emitter.MessageCreated("assistant", "Hello!", 1, nil, toolCalls, nil)
+	emitter.MessageCreated("assistant", "Hello!", 1, nil, toolCalls, nil, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event")
@@ -225,7 +250,7 @@ func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
 		Name:  "weather_tool",
 		Parts: []types.ContentPart{types.NewTextPart(`{"temp": 72}`)},
 	}
-	emitter.MessageCreated("tool", "", 2, nil, nil, toolResult)
+	emitter.MessageCreated("tool", "", 2, nil, nil, toolResult, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event with tool result")
@@ -265,7 +290,7 @@ func TestEmitter_MessageCreated_WithParts(t *testing.T) {
 		{Type: "text", Text: &textVal},
 		{Type: "image", Media: &types.MediaContent{MIMEType: "image/png", URL: &imgURL}},
 	}
-	emitter.MessageCreated("user", "Hello with image", 0, parts, nil, nil)
+	emitter.MessageCreated("user", "Hello with image", 0, parts, nil, nil, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event with parts")
@@ -321,7 +346,7 @@ func TestEmitter_MessageCreated_StripsBinaryData(t *testing.T) {
 			},
 		},
 	}
-	emitter.MessageCreated("user", "Check this out", 0, parts, nil, nil)
+	emitter.MessageCreated("user", "Check this out", 0, parts, nil, nil, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event")
