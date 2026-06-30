@@ -747,7 +747,10 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 			stages = append(stages, saveStage)
 		} else {
 			stages = append(stages, stage.NewIncrementalSaveStageWithTurnState(
-				&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig},
+				// Arena reports surface model reasoning, so persist it (the runtime
+				// default strips reasoning before the store). RunResult.Messages is
+				// loaded back from the store, so without this the report shows none.
+				&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig, PersistReasoning: true},
 				turnState,
 			))
 		}
