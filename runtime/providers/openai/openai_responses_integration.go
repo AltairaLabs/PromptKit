@@ -26,11 +26,12 @@ const (
 	responsesAPIPath = "/responses"
 
 	// Event types for Responses API streaming
-	eventTypeTextDelta     = "response.output_text.delta"
-	eventTypeFuncArgsDelta = "response.function_call_arguments.delta"
-	eventTypeOutputAdded   = "response.output_item.added"
-	eventTypeCompleted     = "response.completed"
-	eventTypeError         = "error"
+	eventTypeTextDelta      = "response.output_text.delta"
+	eventTypeReasoningDelta = "response.reasoning_summary_text.delta"
+	eventTypeFuncArgsDelta  = "response.function_call_arguments.delta"
+	eventTypeOutputAdded    = "response.output_item.added"
+	eventTypeCompleted      = "response.completed"
+	eventTypeError          = "error"
 
 	// Audio event types for Responses API streaming
 	eventTypeAudioDelta      = "response.audio.delta"
@@ -121,13 +122,21 @@ type responsesResponse struct {
 
 // responsesOutput represents an output item in the response
 type responsesOutput struct {
-	Type    string             `json:"type"` // "message", "function_call", etc.
+	Type    string             `json:"type"` // "message", "function_call", "reasoning", etc.
 	ID      string             `json:"id,omitempty"`
 	Role    string             `json:"role,omitempty"`
 	Content []responsesContent `json:"content,omitempty"`
 	Name    string             `json:"name,omitempty"`      // For function calls
 	CallID  string             `json:"call_id,omitempty"`   // For function calls
 	Args    string             `json:"arguments,omitempty"` // For function calls
+	// Summary holds reasoning summary parts on a type:"reasoning" output item.
+	Summary []responsesSummaryPart `json:"summary,omitempty"`
+}
+
+// responsesSummaryPart is one reasoning summary block ({type:"summary_text"}).
+type responsesSummaryPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // responsesContent represents content within an output
@@ -213,8 +222,18 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	// gpt-5-pro) default to effort=high on OpenAI's side, which on simple
 	// prompts can burn tens of seconds on internal reasoning. Callers set
 	// this via additional_config.reasoning_effort to control it.
-	if p.reasoningEffort != "" {
-		responsesReq["reasoning"] = map[string]any{"effort": p.reasoningEffort}
+	if p.reasoningEffort != "" || p.reasoningSummary != "" {
+		reasoning := map[string]any{}
+		if p.reasoningEffort != "" {
+			reasoning["effort"] = p.reasoningEffort
+		}
+		// reasoning_summary is opt-in: OpenAI captures these summaries onto
+		// Message.Reasoning (the raw chain-of-thought is never exposed), but
+		// requesting them requires a verified OpenAI org.
+		if p.reasoningSummary != "" {
+			reasoning["summary"] = p.reasoningSummary
+		}
+		responsesReq["reasoning"] = reasoning
 	}
 
 	return responsesReq
@@ -493,8 +512,8 @@ func (p *Provider) predictWithResponses(
 
 	latency := time.Since(start)
 
-	// Extract content and tool calls from output
-	content, toolCalls := p.extractResponsesOutput(responsesResp.Output)
+	// Extract content, tool calls, and reasoning summary from output
+	content, toolCalls, reasoning := p.extractResponsesOutput(responsesResp.Output)
 
 	// Calculate cost
 	var costInfo *types.CostInfo
@@ -510,15 +529,21 @@ func (p *Provider) predictWithResponses(
 	predictResp.Content = content
 	predictResp.CostInfo = costInfo
 	predictResp.Latency = latency
+	predictResp.Reasoning = reasoning
 	predictResp.Raw = respBody
 
 	return predictResp, toolCalls, nil
 }
 
-// extractResponsesOutput extracts text content and tool calls from Responses API output
-func (p *Provider) extractResponsesOutput(outputs []responsesOutput) (string, []types.MessageToolCall) {
+// extractResponsesOutput extracts text content, tool calls, and the reasoning
+// summary from Responses API output. Reasoning is returned separately (never
+// folded into content) for Message.Reasoning.
+func (p *Provider) extractResponsesOutput(
+	outputs []responsesOutput,
+) (string, []types.MessageToolCall, *types.ReasoningTrace) {
 	var content strings.Builder
 	var toolCalls []types.MessageToolCall
+	var reasoning strings.Builder
 
 	for _, output := range outputs {
 		switch output.Type {
@@ -534,10 +559,18 @@ func (p *Provider) extractResponsesOutput(outputs []responsesOutput) (string, []
 				Name: output.Name,
 				Args: json.RawMessage(output.Args),
 			})
+		case "reasoning":
+			for _, s := range output.Summary {
+				reasoning.WriteString(s.Text)
+			}
 		}
 	}
 
-	return content.String(), toolCalls
+	var rt *types.ReasoningTrace
+	if reasoning.Len() > 0 {
+		rt = &types.ReasoningTrace{Text: reasoning.String()}
+	}
+	return content.String(), toolCalls, rt
 }
 
 // predictStreamWithResponses performs a streaming prediction using the Responses API
@@ -631,6 +664,10 @@ func (p *Provider) handleStreamEvent(
 		newTokens = p.handleTextDelta(data, sb, totalTokens, toolCalls, outChan)
 		return newTokens, toolCalls, nil
 
+	case eventTypeReasoningDelta:
+		p.handleReasoningDelta(data, outChan)
+		return totalTokens, toolCalls, usage
+
 	case eventTypeFuncArgsDelta:
 		return totalTokens, p.handleFuncArgsDelta(data, toolCalls, idMap), usage
 
@@ -661,6 +698,17 @@ func (p *Provider) handleStreamEvent(
 	}
 
 	return totalTokens, toolCalls, usage
+}
+
+// handleReasoningDelta streams a reasoning-summary delta on StreamChunk.Reasoning
+// (non-content), so the UI can show thinking live without it leaking into the answer.
+func (p *Provider) handleReasoningDelta(data string, outChan chan<- providers.StreamChunk) {
+	var ev struct {
+		Delta string `json:"delta"`
+	}
+	if err := json.Unmarshal([]byte(data), &ev); err == nil && ev.Delta != "" {
+		outChan <- providers.StreamChunk{Reasoning: ev.Delta}
+	}
 }
 
 // handleTextDelta processes text delta events

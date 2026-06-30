@@ -36,7 +36,10 @@ func TestOpenAI_Reasoning_Live(t *testing.T) {
 	provider := NewProviderWithConfig(
 		"openai-reasoning", model, "https://api.openai.com/v1",
 		providers.ProviderDefaults{MaxTokens: 3072}, false,
-		map[string]any{"reasoning_effort": "medium"},
+		// Responses API + reasoning_summary: OpenAI exposes reasoning only as
+		// summaries via the Responses API. reasoning_summary is opt-in because it
+		// requires a verified OpenAI org.
+		map[string]any{"api_mode": "responses", "reasoning_effort": "medium", "reasoning_summary": "auto"},
 	)
 	defer provider.Close()
 
@@ -51,6 +54,11 @@ func TestOpenAI_Reasoning_Live(t *testing.T) {
 
 	ch, err := provider.PredictStream(context.Background(), req)
 	if err != nil {
+		// Reasoning summaries require a verified OpenAI org; treat that account
+		// gate as a skip, not a code failure.
+		if strings.Contains(err.Error(), "must be verified") || strings.Contains(err.Error(), "Verify Organization") {
+			t.Skipf("OpenAI org not verified for reasoning summaries (account gate): %v", err)
+		}
 		t.Fatalf("PredictStream: %v", err)
 	}
 
