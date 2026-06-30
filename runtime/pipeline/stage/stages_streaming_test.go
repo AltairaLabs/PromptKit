@@ -297,6 +297,71 @@ func TestDuplexProviderStage_ReasoningDoesNotBleedAcrossTurns(t *testing.T) {
 	assert.Nil(t, msg2.Reasoning, "turn 2 must not carry turn 1's reasoning")
 }
 
+// TestDuplexProviderStage_ReasoningThroughProcess drives the full Process loop
+// (session → forwardResponseElements → handleResponseChunk) with reasoning chunks
+// injected via the mock provider, proving the wired seam end-to-end rather than
+// calling handleResponseChunk directly.
+func TestDuplexProviderStage_ReasoningThroughProcess(t *testing.T) {
+	fr := "complete"
+	provider := providersmock.NewStreamingProvider("t", "m", false).
+		WithResponseChunks(
+			providers.StreamChunk{Reasoning: "let me think"},
+			providers.StreamChunk{
+				Delta:    "the answer",
+				Metadata: map[string]interface{}{"type": "output_transcription"},
+			},
+			providers.StreamChunk{FinishReason: &fr},
+		)
+	stage := NewDuplexProviderStage(provider, baseConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan StreamElement, 10)
+	output := make(chan StreamElement, 32)
+
+	input <- elementWithSystemPrompt("You are helpful")
+	input <- StreamElement{
+		Audio:       &AudioData{Samples: []byte("audio"), SampleRate: 16000, Format: AudioFormatPCM16},
+		EndOfStream: true,
+	}
+	close(input)
+
+	go func() { _ = stage.Process(ctx, input, output) }()
+
+	var liveReasoning *ReasoningDelta
+	var asstMsg *types.Message
+	timeout := time.After(1 * time.Second)
+collect:
+	for {
+		select {
+		case e, ok := <-output:
+			if !ok {
+				break collect
+			}
+			if e.Reasoning != nil {
+				liveReasoning = e.Reasoning
+			}
+			if e.Message != nil && e.Message.Role == "assistant" {
+				asstMsg = e.Message
+			}
+			if liveReasoning != nil && asstMsg != nil {
+				break collect
+			}
+		case <-timeout:
+			break collect
+		}
+	}
+	cancel()
+
+	require.NotNil(t, liveReasoning, "reasoning streamed live through Process")
+	assert.Equal(t, "let me think", liveReasoning.Text)
+	require.NotNil(t, asstMsg, "assistant message emitted at turn complete")
+	require.NotNil(t, asstMsg.Reasoning, "reasoning attached to Message.Reasoning via Process")
+	assert.Equal(t, "let me think", asstMsg.Reasoning.Text)
+	assert.Equal(t, "the answer", asstMsg.GetContent(), "spoken content excludes reasoning")
+}
+
 // drainAssistantMessage returns the last assistant Message drained from output.
 func drainAssistantMessage(output chan StreamElement) *types.Message {
 	var msg *types.Message
