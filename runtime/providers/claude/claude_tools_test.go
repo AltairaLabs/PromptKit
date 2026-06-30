@@ -1006,7 +1006,7 @@ func TestToolProvider_MakeRequest_BedrockBodyMutation(t *testing.T) {
 func TestExtractContentParts(t *testing.T) {
 	t.Run("text and thinking blocks", func(t *testing.T) {
 		content := []claudeContent{
-			{Type: "thinking", Text: "reasoning here"},
+			{Type: "thinking", Thinking: "reasoning here"},
 			{Type: "text", Text: "final answer"},
 		}
 		// Reasoning is no longer a content part — only the text part remains.
@@ -1065,7 +1065,7 @@ func TestExtractContentParts(t *testing.T) {
 
 	t.Run("thinking only", func(t *testing.T) {
 		content := []claudeContent{
-			{Type: "thinking", Text: "deep thoughts"},
+			{Type: "thinking", Thinking: "deep thoughts"},
 		}
 		// Thinking is no longer a content part; it surfaces on the reasoning trace.
 		parts := extractContentParts(content)
