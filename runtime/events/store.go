@@ -200,6 +200,7 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.StateLoadedData":         func() EventData { return &StateEventData{} },
 	"*events.StateSavedData":          func() EventData { return &StateEventData{} },
 	"*events.StreamInterruptedData":   func() EventData { return &StreamInterruptedData{} },
+	"*events.ReasoningDeltaData":      func() EventData { return &ReasoningDeltaData{} },
 
 	// Workflow events
 	"*events.WorkflowTransitionedData":      func() EventData { return &WorkflowTransitionedData{} },

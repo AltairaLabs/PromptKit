@@ -77,6 +77,12 @@ type MessageUpdatedMsg struct {
 	Time           time.Time
 }
 
+// ReasoningDeltaMsg is sent when the model emits an incremental chunk of
+// reasoning ("thinking") for live display. It is NOT conversational content.
+type ReasoningDeltaMsg struct {
+	Text string
+}
+
 // ConversationStartedMsg is sent when a new conversation starts with its system prompt.
 type ConversationStartedMsg struct {
 	ConversationID string

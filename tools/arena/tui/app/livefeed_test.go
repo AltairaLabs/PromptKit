@@ -80,3 +80,20 @@ func TestLiveFeed_AudioSystemPromptAndMetadata(t *testing.T) {
 	// Unknown message types are not consumed.
 	require.False(t, f.Apply(panel, struct{}{}))
 }
+
+// TestLiveFeed_ReasoningStreamsThenClears covers the live reasoning path:
+// ReasoningDeltaMsg accumulates transient thinking; the turn's message clears it.
+func TestLiveFeed_ReasoningStreamsThenClears(t *testing.T) {
+	panel := seededPanel(t, "conv-1", 1)
+	f := newLiveFeed("conv-1", 1)
+
+	require.True(t, f.Apply(panel, tui.ReasoningDeltaMsg{Text: "thinking "}))
+	require.True(t, f.Apply(panel, tui.ReasoningDeltaMsg{Text: "hard"}))
+	require.Equal(t, "thinking hard", panel.LiveReasoning())
+
+	// The turn's message arriving clears the transient reasoning.
+	require.True(t, f.Apply(panel, tui.MessageCreatedMsg{
+		ConversationID: "conv-1", Index: 1, Role: "assistant", Content: "answer",
+	}))
+	require.Empty(t, panel.LiveReasoning(), "reasoning cleared when the turn message arrives")
+}

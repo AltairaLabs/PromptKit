@@ -106,6 +106,11 @@ func (a *EventAdapter) mapEvent(event *events.Event) tea.Msg { //nolint:gocyclo 
 		return a.handleStateSaved(event)
 	case events.EventStreamInterrupted:
 		return a.logf("ERROR", event, "Stream interrupted: %s", readString(event.Data, "reason"))
+	case events.EventReasoningDelta:
+		if d, ok := event.Data.(*events.ReasoningDeltaData); ok && d != nil {
+			return ReasoningDeltaMsg{Text: d.Text}
+		}
+		return nil
 	case events.EventMessageCreated:
 		return a.handleMessageCreated(event)
 	case events.EventMessageUpdated:

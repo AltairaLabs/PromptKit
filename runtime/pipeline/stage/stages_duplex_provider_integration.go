@@ -1048,6 +1048,9 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
 		s.accumulatedReasoning.WriteString(chunk.Reasoning)
 		s.accumulatedOpaqueReasoning = append(s.accumulatedOpaqueReasoning, chunk.OpaqueReasoning...)
+		if s.emitter != nil && chunk.Reasoning != "" {
+			s.emitter.ReasoningDelta(chunk.Reasoning)
+		}
 		select {
 		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:
 		case <-ctx.Done():

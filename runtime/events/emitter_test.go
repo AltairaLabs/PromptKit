@@ -1477,3 +1477,31 @@ func TestEmitter_TemplateMethods(t *testing.T) {
 		t.Fatal("timed out waiting for prompt.template.failed")
 	}
 }
+
+func TestEmitter_ReasoningDelta(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-r", "session-r", "conv-r")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventReasoningDelta, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ReasoningDelta("thinking...")
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for reasoning.delta event")
+	}
+	data, ok := got.Data.(*ReasoningDeltaData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Text != "thinking..." {
+		t.Fatalf("Text = %q, want %q", data.Text, "thinking...")
+	}
+}
