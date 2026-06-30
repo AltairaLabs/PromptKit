@@ -1083,10 +1083,22 @@ func getMessageFromStruct(result interface{}) string {
 	return ""
 }
 
-// renderMessageContent renders a message with multimodal media support.
+// renderMessageContent renders a message with multimodal media support, plus a
+// collapsible reasoning section when the message carries model reasoning.
 // This is a bridge function for template use.
 func renderMessageContent(msg types.Message) template.HTML {
-	return template.HTML(renderMessageWithMedia(msg))
+	out := renderMessageWithMedia(msg)
+	if msg.Reasoning != nil && msg.Reasoning.Text != "" {
+		out += renderReasoningHTML(msg.Reasoning.Text)
+	}
+	return template.HTML(out) //nolint:gosec // reasoning text is HTML-escaped below
+}
+
+// renderReasoningHTML renders model reasoning as a collapsed <details> section.
+// The text is HTML-escaped; opaque round-trip tokens are never rendered.
+func renderReasoningHTML(text string) string {
+	return `<details class="reasoning"><summary>💭 Reasoning</summary><pre>` +
+		template.HTMLEscapeString(text) + `</pre></details>`
 }
 
 // formatBytesHTML formats a byte count as a human-readable string.

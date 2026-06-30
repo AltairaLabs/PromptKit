@@ -460,6 +460,7 @@ func (c *ConversationPanel) buildDetailLines(res *statestore.RunResult, msg *typ
 	c.appendToolCallsMarkdown(&md, msg)
 	c.appendToolResultMarkdown(&md, msg)
 	c.appendContentMarkdown(&md, msg)
+	c.appendReasoningMarkdown(&md, msg)
 	c.appendValidationsMarkdown(&md, msg)
 
 	// Render the markdown content

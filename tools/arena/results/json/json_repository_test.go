@@ -505,3 +505,36 @@ func TestJSONResultRepository_IntegrationTest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, resultFiles, len(originalResults))
 }
+
+// TestJSONResultRepository_SerializesReasoning locks the JSON report including
+// Message.Reasoning so reasoning is reviewable in the durable artifact.
+func TestJSONResultRepository_SerializesReasoning(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := jsonrepo.NewJSONResultRepository(tmpDir)
+
+	result := &engine.RunResult{
+		RunID:      "run-reason",
+		ScenarioID: "scenario-r",
+		ProviderID: "test",
+		Messages: []types.Message{
+			{Role: "user", Content: "q"},
+			{Role: "assistant", Content: "answer", Reasoning: &types.ReasoningTrace{Text: "chain of thought"}},
+		},
+	}
+	require.NoError(t, repo.SaveResult(result))
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, "run-reason.json"))
+	require.NoError(t, err)
+
+	var saved engine.RunResult
+	require.NoError(t, json.Unmarshal(data, &saved))
+	var asst *types.Message
+	for i := range saved.Messages {
+		if saved.Messages[i].Role == "assistant" {
+			asst = &saved.Messages[i]
+		}
+	}
+	require.NotNil(t, asst)
+	require.NotNil(t, asst.Reasoning, "JSON report must serialize Message.Reasoning")
+	assert.Equal(t, "chain of thought", asst.Reasoning.Text)
+}
