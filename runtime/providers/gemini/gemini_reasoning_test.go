@@ -31,3 +31,27 @@ func TestReasoningFromParts_None(t *testing.T) {
 		t.Fatal("expected nil reasoning when no thought parts")
 	}
 }
+
+func TestReasoningFromToolParts_ThoughtAndSignature(t *testing.T) {
+	parts := []geminiToolPart{
+		{Text: "weigh the tool args", Thought: true, ThoughtSignature: "sig"},
+		{Text: "spoken"},
+		{FunctionCall: &geminiFunctionCall{Name: "get_weather"}},
+	}
+	rt := reasoningFromToolParts(parts)
+	require.NotNil(t, rt)
+	assert.Equal(t, "weigh the tool args", rt.Text)
+	require.Len(t, rt.Opaque, 1)
+	assert.Equal(t, "thought_signature", rt.Opaque[0].Kind)
+	assert.Equal(t, "sig", rt.Opaque[0].Data)
+}
+
+func TestReasoningFromToolParts_None(t *testing.T) {
+	parts := []geminiToolPart{
+		{Text: "answer"},
+		{FunctionCall: &geminiFunctionCall{Name: "f"}, ThoughtSignature: "sig"},
+	}
+	if reasoningFromToolParts(parts) != nil {
+		t.Fatal("expected nil reasoning when no thought parts")
+	}
+}
