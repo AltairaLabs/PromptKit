@@ -10,5 +10,9 @@ spec:
   task_type: "reasoning"
 
   system_template: |
-    You are a careful problem solver. Work through the problem step by step,
-    then state the final answer clearly on its own line as: ANSWER: <value>
+    You are a careful problem solver. Reply with ONLY the final answer in the
+    form "ANSWER: <value>" — a single line, nothing else. Do NOT show any working
+    or explanation in your reply.
+
+    (Thinking models still reason internally; that reasoning is captured separately
+    as the message's reasoning, distinct from this terse answer.)

@@ -17,15 +17,30 @@ open out/report.html
 
 ## What to look for
 
-Reasoning is captured as a **sibling of content** (`Message.Reasoning`), so it is
-never mixed into the assistant's answer, exports, or future-turn context.
+The prompt asks for a **terse** answer on purpose, so the distinction is obvious:
 
-- **HTML report** (`out/report.html`): each assistant turn has a collapsible
-  `💭 Reasoning` section, separate from the answer.
-- **JSON report** (`out/*.json`): the assistant message carries a `reasoning`
-  field alongside `content`.
-- **TUI** (`../../bin/promptarena run` without `--ci`): the conversation detail
-  view shows a `💭 Reasoning` section; interactive/voice sessions stream it live.
+- `content` is a single line, e.g. `ANSWER: 16`.
+- `reasoning` holds the model's multi-step thinking — captured **separately**.
+
+Reasoning is a **sibling of content** (`Message.Reasoning`), never mixed into the
+answer, exports, or future-turn context.
+
+**The definitive check** — see the two side by side (a populated `reasoning`
+proves capture; a short `content` proves it didn't leak into the answer):
+
+```bash
+jq '.Messages[] | select(.role=="assistant") | {content, reasoning}' out/*.json
+```
+
+Also visible in:
+- **HTML report** (`out/report.html`): a collapsible `💭 Reasoning` section,
+  rendered *only* when reasoning is present — so its appearance is the proof.
+- **TUI** (`../../bin/promptarena run` without `--ci`): a `💭 Reasoning` section
+  in the turn detail; interactive/voice sessions stream it live.
+
+If you instead see the step-by-step working *inside* `content`, the model ignored
+the terse instruction — that's the answer text, not the captured reasoning. The
+`reasoning` field is the ground truth.
 
 ## How reasoning is enabled
 
