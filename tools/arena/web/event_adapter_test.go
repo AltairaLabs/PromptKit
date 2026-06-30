@@ -265,7 +265,7 @@ func TestAdapter_EmitterContract(t *testing.T) {
 	emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
 
 	// MessageCreated mirrors what the duplex executor calls during a real run.
-	emitter.MessageCreated("user", "round-trip test", 0, nil, nil, nil)
+	emitter.MessageCreated("user", "round-trip test", 0, nil, nil, nil, nil)
 
 	select {
 	case msg := <-ch:

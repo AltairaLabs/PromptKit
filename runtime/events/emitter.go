@@ -430,6 +430,7 @@ func (e *Emitter) MessageCreated(
 	parts []types.ContentPart,
 	toolCalls []MessageToolCall,
 	toolResult *MessageToolResult,
+	reasoning *types.ReasoningTrace,
 ) {
 	e.emit(EventMessageCreated, &MessageCreatedData{
 		Role:       role,
@@ -438,6 +439,7 @@ func (e *Emitter) MessageCreated(
 		Parts:      types.MetadataOnlyParts(parts),
 		ToolCalls:  toolCalls,
 		ToolResult: toolResult,
+		Reasoning:  reasoning,
 	})
 }
 

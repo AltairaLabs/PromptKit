@@ -442,6 +442,9 @@ type MessageCreatedData struct {
 	Parts      []types.ContentPart // Multimodal content parts (text, images, audio, video)
 	ToolCalls  []MessageToolCall   // Tool calls requested by assistant (if any)
 	ToolResult *MessageToolResult  // Tool result for tool messages (if any)
+	// Reasoning is the model's reasoning ("thinking") for this message, so live
+	// consumers (TUI, web) can show it in turn history. Not conversational content.
+	Reasoning *types.ReasoningTrace
 }
 
 // MessageUpdatedData contains data for message update events.

@@ -420,7 +420,7 @@ func (b *liveBroadcaster) emitSystem(content string) {
 		return
 	}
 	b.systemEmitted = true
-	b.stage.emitter.MessageCreated(roleSystem, content, 0, nil, nil, nil)
+	b.stage.emitter.MessageCreated(roleSystem, content, 0, nil, nil, nil, nil)
 }
 
 // resolveSystemPrompt returns the rendered system prompt for this turn,
@@ -457,6 +457,7 @@ func (s *ArenaStateStoreSaveStage) broadcastMessage(elem *stage.StreamElement, i
 		elem.Message.Parts,
 		convertToolCalls(elem.Message.ToolCalls),
 		convertToolResult(elem.Message.ToolResult),
+		elem.Message.Reasoning,
 	)
 }
 
