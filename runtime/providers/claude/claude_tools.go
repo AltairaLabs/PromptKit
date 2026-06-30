@@ -459,14 +459,18 @@ func extractContentParts(content []claudeContent) []types.ContentPart {
 	return parts
 }
 
+// Reasoning-block constants shared by the non-streaming (extractReasoning) and
+// streaming (signature_delta) capture paths.
+const (
+	providerClaude        = "claude"
+	thinkingSignatureKind = "thinking_signature"
+	redactedThinking      = "redacted_thinking"
+)
+
 // extractReasoning gathers Claude reasoning blocks into a ReasoningTrace: thinking
 // text (with its signature as an opaque round-trip token) and redacted_thinking
 // (opaque, marked Redacted). Returns nil when the response carries no reasoning.
 func extractReasoning(content []claudeContent) *types.ReasoningTrace {
-	const (
-		providerClaude   = "claude"
-		redactedThinking = "redacted_thinking"
-	)
 	var rt types.ReasoningTrace
 	for _, c := range content {
 		switch c.Type {
@@ -474,7 +478,7 @@ func extractReasoning(content []claudeContent) *types.ReasoningTrace {
 			rt.Text += c.Text
 			if c.Signature != "" {
 				rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
-					Provider: providerClaude, Kind: "thinking_signature", Data: c.Signature,
+					Provider: providerClaude, Kind: thinkingSignatureKind, Data: c.Signature,
 				})
 			}
 		case redactedThinking:
@@ -800,6 +804,33 @@ func (p *ToolProvider) buildDirectStreamingRequestFn(
 	}
 }
 
+// applyThinkingConfig enables Claude extended thinking from additional_config:
+//   - thinking_budget (int): reasoning-token budget (>= 1024). Sets the request's
+//     thinking block; omit to leave thinking off.
+//
+//nolint:gocritic // hugeParam: providers.ProviderSpec is passed by value across the factory
+func applyThinkingConfig(p *Provider, spec providers.ProviderSpec) {
+	if spec.AdditionalConfig == nil {
+		return
+	}
+	v, ok := spec.AdditionalConfig["thinking_budget"]
+	if !ok {
+		return
+	}
+	var budget int
+	switch n := v.(type) {
+	case int:
+		budget = n
+	case int64:
+		budget = int(n)
+	case float64:
+		budget = int(n)
+	default:
+		return
+	}
+	p.thinkingBudget = &budget
+}
+
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
 	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
@@ -811,6 +842,7 @@ func init() {
 			)
 			tp.setUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
+			applyThinkingConfig(tp.Provider, spec)
 			return tp, nil
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -819,6 +851,7 @@ func init() {
 			)
 			tp.setUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
+			applyThinkingConfig(tp.Provider, spec)
 			return tp, nil
 		},
 	))

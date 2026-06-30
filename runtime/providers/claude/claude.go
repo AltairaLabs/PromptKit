@@ -123,6 +123,9 @@ type Provider struct {
 	// When non-nil it is authoritative for multimodal support; nil falls back
 	// to Claude's built-in defaults (images + documents, no audio/video).
 	capabilities map[string]bool
+	// thinkingBudget, when non-nil, enables Claude extended thinking with this
+	// token budget. Set from additional_config.thinking_budget. nil = off.
+	thinkingBudget *int
 }
 
 // setCapabilities records the declared capability set on the provider.
@@ -401,9 +404,31 @@ type claudeRequest struct {
 	Temperature  float32              `json:"temperature,omitempty"`
 	TopP         float32              `json:"top_p,omitempty"`
 	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
+	Thinking     *claudeThinking      `json:"thinking,omitempty"`
 	Stream       bool                 `json:"stream,omitempty"`
 	Tools        any                  `json:"tools,omitempty"`
 	ToolChoice   any                  `json:"tool_choice,omitempty"`
+}
+
+// claudeThinking enables Claude extended thinking. BudgetTokens caps reasoning
+// tokens (>= 1024) and must be below max_tokens (the answer needs headroom). With
+// thinking enabled the API rejects a custom temperature, so callers omit it.
+type claudeThinking struct {
+	Type         string `json:"type"` // "enabled"
+	BudgetTokens int    `json:"budget_tokens"`
+}
+
+// thinkingAnswerHeadroom is added above budget_tokens when the configured
+// max_tokens leaves no room for an answer after reasoning.
+const thinkingAnswerHeadroom = 1024
+
+// claudeThinkingFor returns the thinking block to attach, or nil when extended
+// thinking is not configured for this provider.
+func (p *Provider) claudeThinkingFor() *claudeThinking {
+	if p.thinkingBudget == nil {
+		return nil
+	}
+	return &claudeThinking{Type: "enabled", BudgetTokens: *p.thinkingBudget}
 }
 
 // buildBaseRequest assembles the fields every Claude request shares: model,
@@ -431,8 +456,16 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		Messages:  messages,
 		System:    p.createSystemBlocks(req.System),
 	}
-	// Claude 4.7+ models reject temperature; only send it when supported.
-	if p.paramSupported("temperature") {
+	if thinking := p.claudeThinkingFor(); thinking != nil {
+		// Extended thinking: reasoning tokens count toward max_tokens, so ensure
+		// headroom for an answer; and the API rejects a custom temperature, so we
+		// leave it omitted (omitempty).
+		cr.Thinking = thinking
+		if cr.MaxTokens <= thinking.BudgetTokens {
+			cr.MaxTokens = thinking.BudgetTokens + thinkingAnswerHeadroom
+		}
+	} else if p.paramSupported("temperature") {
+		// Claude 4.7+ models reject temperature; only send it when supported.
 		cr.Temperature = temperature
 	}
 	return cr
