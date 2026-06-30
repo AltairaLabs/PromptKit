@@ -528,6 +528,9 @@ type claudeResponse struct {
 type claudeContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// Thinking carries the reasoning text of a "thinking" block — Claude puts it in
+	// a "thinking" field, NOT "text". Captured onto Message.Reasoning.
+	Thinking string `json:"thinking,omitempty"`
 	// Signature accompanies a thinking block; Data carries a redacted_thinking
 	// payload. Both are opaque reasoning tokens captured for round-trip, never
 	// displayed. See extractReasoning.

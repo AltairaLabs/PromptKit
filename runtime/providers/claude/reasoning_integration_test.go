@@ -69,3 +69,97 @@ func TestClaude_Reasoning_Live(t *testing.T) {
 	}
 	t.Logf("captured reasoning (%d chars); spoken content=%q", reasoning.Len(), content.String())
 }
+
+// newClaudeThinkingProvider builds an extended-thinking-enabled Claude tool provider.
+func newClaudeThinkingProvider(t *testing.T) *ToolProvider {
+	t.Helper()
+	if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("CLAUDE_API_KEY") == "" {
+		t.Skip("ANTHROPIC_API_KEY not set")
+	}
+	model := os.Getenv("CLAUDE_THINKING_MODEL")
+	if model == "" {
+		model = "claude-sonnet-4-5"
+	}
+	tp := NewToolProvider("claude-reasoning", model, "https://api.anthropic.com/v1",
+		providers.ProviderDefaults{MaxTokens: 4096}, false)
+	applyThinkingConfig(tp.Provider, providers.ProviderSpec{
+		AdditionalConfig: map[string]any{"thinking_budget": 2048},
+	})
+	return tp
+}
+
+const claudeReasoningPrompt = "A bat and a ball cost $1.10 in total. The bat costs $1.00 more " +
+	"than the ball. How much does the ball cost?"
+
+// TestClaude_Reasoning_Live_NonStreaming covers the non-streaming Predict path.
+func TestClaude_Reasoning_Live_NonStreaming(t *testing.T) {
+	tp := newClaudeThinkingProvider(t)
+	defer tp.Close()
+
+	resp, err := tp.Predict(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: claudeReasoningPrompt}},
+	})
+	if err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	if resp.Reasoning == nil || resp.Reasoning.Text == "" {
+		t.Fatalf("expected reasoning on the non-streaming response; got none (content=%q)", resp.Content)
+	}
+	if strings.Contains(resp.Content, resp.Reasoning.Text) {
+		t.Fatalf("reasoning leaked into content: %q", resp.Content)
+	}
+	t.Logf("non-streaming reasoning %d chars", len(resp.Reasoning.Text))
+}
+
+func claudeWeatherTool(t *testing.T, tp *ToolProvider) providers.ProviderTools {
+	t.Helper()
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name:        "get_weather",
+		Description: "Get the current weather for a city",
+		InputSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+	}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	return tools
+}
+
+const claudeToolPrompt = "Work out the capital of France, then call get_weather for that city."
+
+// TestClaude_Reasoning_Live_Tools covers the non-streaming tools path.
+func TestClaude_Reasoning_Live_Tools(t *testing.T) {
+	tp := newClaudeThinkingProvider(t)
+	defer tp.Close()
+
+	resp, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: claudeToolPrompt}},
+	}, claudeWeatherTool(t, tp), "auto")
+	if err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+	if resp.Reasoning == nil || resp.Reasoning.Text == "" {
+		t.Fatalf("expected reasoning on the tools response; got none (content=%q)", resp.Content)
+	}
+	t.Logf("tools reasoning %d chars", len(resp.Reasoning.Text))
+}
+
+// TestClaude_Reasoning_Live_StreamingTools covers the streaming tools path.
+func TestClaude_Reasoning_Live_StreamingTools(t *testing.T) {
+	tp := newClaudeThinkingProvider(t)
+	defer tp.Close()
+
+	ch, err := tp.PredictStreamWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: claudeToolPrompt}},
+	}, claudeWeatherTool(t, tp), "auto")
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools: %v", err)
+	}
+	var reasoning strings.Builder
+	for chunk := range ch {
+		reasoning.WriteString(chunk.Reasoning)
+	}
+	if reasoning.Len() == 0 {
+		t.Fatal("expected reasoning on the streaming-tools path; got none")
+	}
+	t.Logf("streaming-tools reasoning %d chars", reasoning.Len())
+}

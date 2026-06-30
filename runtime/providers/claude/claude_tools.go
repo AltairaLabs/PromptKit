@@ -475,7 +475,7 @@ func extractReasoning(content []claudeContent) *types.ReasoningTrace {
 	for _, c := range content {
 		switch c.Type {
 		case types.ContentTypeThinking:
-			rt.Text += c.Text
+			rt.Text += c.Thinking
 			if c.Signature != "" {
 				rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
 					Provider: providerClaude, Kind: thinkingSignatureKind, Data: c.Signature,
