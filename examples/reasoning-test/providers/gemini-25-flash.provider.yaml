@@ -1,0 +1,23 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+
+metadata:
+  name: gemini-25-flash
+
+spec:
+  id: gemini-25-flash
+  type: gemini
+  model: gemini-2.5-flash
+  capabilities:
+    - text
+    - streaming
+  defaults:
+    temperature: 0.0
+    max_tokens: 2048
+    top_p: 1.0
+  # Gemini 2.5 "thinking" models: return thought summaries so PromptKit can
+  # surface them as Message.Reasoning (shown in the report + TUI). thinking_budget
+  # caps reasoning tokens (they count toward max_tokens); omit for the model default.
+  additional_config:
+    include_thoughts: true
+    thinking_budget: 1024

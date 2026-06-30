@@ -1,0 +1,28 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: reasoning-test
+
+spec:
+  prompt_configs:
+    - id: reasoning
+      file: prompts/reasoning.yaml
+
+  providers:
+    - file: providers/gemini-25-flash.provider.yaml
+
+  scenarios:
+    - file: scenarios/reasoning.scenario.yaml
+
+  defaults:
+    temperature: 0.0
+    max_tokens: 2048   # generous: reasoning tokens count toward the output cap
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
+    fail_on:
+      - provider_error
