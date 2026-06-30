@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // TestExtractResponsesOutput_Reasoning verifies a Responses "reasoning" output
@@ -70,5 +71,19 @@ func TestGetReasoningSummary(t *testing.T) {
 	}
 	if got := getReasoningSummary(nil); got != "" {
 		t.Fatalf("nil = %q, want empty", got)
+	}
+}
+
+func TestBuildResponsesRequest_IncludesSummary(t *testing.T) {
+	p := NewProviderWithConfig("t", "o4-mini", "", providers.ProviderDefaults{MaxTokens: 100}, false,
+		map[string]any{"api_mode": "responses", "reasoning_effort": "medium", "reasoning_summary": "auto"})
+	req := p.buildResponsesRequest(
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}, nil, "")
+	r, ok := req["reasoning"].(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning block missing: %v", req["reasoning"])
+	}
+	if r["effort"] != "medium" || r["summary"] != "auto" {
+		t.Fatalf("reasoning = %v, want effort=medium summary=auto", r)
 	}
 }
