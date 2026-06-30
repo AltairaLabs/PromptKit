@@ -326,7 +326,7 @@ func (m *MockStreamSession) EndInput() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.autoRespond && !m.closeCalled {
+	if (m.autoRespond || len(m.responseChunks) > 0) && !m.closeCalled {
 		logger.Debug("MockStreamSession.EndInput: emitting auto-response",
 			"chunks_received", len(m.chunks))
 		m.emitAutoResponse()
@@ -658,6 +658,11 @@ type StreamingProvider struct {
 	interruptOnTurn int  // Turn number to interrupt (1-indexed)
 	closeAfterTurns int  // Close session after N turns
 	closeNoResponse bool // If true, close without sending final response
+
+	// Custom response chunks emitted by each session on input (applied to new
+	// sessions). Lets tests drive the duplex stage with specific StreamChunks —
+	// e.g. reasoning chunks — instead of plain auto-respond text.
+	responseChunks []providers.StreamChunk
 }
 
 // NewStreamingProvider creates a mock provider with duplex streaming support.
@@ -730,6 +735,14 @@ func (p *StreamingProvider) WithMockResponses(
 	return p
 }
 
+// WithResponseChunks configures the provider so each created session emits the
+// given StreamChunks on input (instead of auto-respond text). Useful for driving
+// the duplex stage with specific chunks such as reasoning deltas.
+func (p *StreamingProvider) WithResponseChunks(chunks ...providers.StreamChunk) *StreamingProvider {
+	p.responseChunks = chunks
+	return p
+}
+
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
 func (p *StreamingProvider) CreateStreamSession(
 	ctx context.Context,
@@ -771,6 +784,9 @@ func (p *StreamingProvider) CreateStreamSession(
 	}
 	if p.closeAfterTurns > 0 {
 		session.WithCloseAfterTurns(p.closeAfterTurns, p.closeNoResponse)
+	}
+	if len(p.responseChunks) > 0 {
+		session.WithResponseChunks(p.responseChunks)
 	}
 
 	p.mu.Lock()
