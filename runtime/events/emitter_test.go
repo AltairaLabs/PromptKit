@@ -2,8 +2,10 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,29 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// TestMessageCreatedData_ReasoningNotSerialized guards the invariant that the
+// MessageCreated event carries reasoning in-memory for live consumers but never
+// serializes it — recordings, session exports, and SSE all marshal event data to
+// JSON, and reasoning persistence must stay opt-in (save stage PersistReasoning,
+// default off). If `json:"-"` is dropped, reasoning would leak into every sink.
+func TestMessageCreatedData_ReasoningNotSerialized(t *testing.T) {
+	data := &MessageCreatedData{
+		Role:      "assistant",
+		Content:   "ANSWER: 16",
+		Reasoning: &types.ReasoningTrace{Text: "SECRET_CHAIN_OF_THOUGHT"},
+	}
+	out, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), "SECRET_CHAIN_OF_THOUGHT") {
+		t.Fatalf("reasoning leaked into serialized event: %s", out)
+	}
+	if strings.Contains(strings.ToLower(string(out)), "reasoning") {
+		t.Fatalf("reasoning field leaked into serialized event: %s", out)
+	}
+}
 
 func TestEmitterPublishesSharedContext(t *testing.T) {
 	t.Parallel()
