@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -163,4 +164,78 @@ func TestGemini_Reasoning_Live_StreamingTools(t *testing.T) {
 		t.Fatalf("expected reasoning on the streaming-tools path; got none (content=%q)", content.String())
 	}
 	t.Logf("streaming-tools reasoning %d chars", reasoning.Len())
+}
+
+// TestGemini_Reasoning_Live_Realtime covers the Gemini Live (duplex) path: a
+// native-audio thinking model emits thought parts that the stream session routes
+// to StreamChunk.Reasoning, separate from the spoken transcript. Live sessions are
+// best-effort, so it retries.
+func TestGemini_Reasoning_Live_Realtime(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	model := os.Getenv("GEMINI_REALTIME_MODEL")
+	if model == "" {
+		model = "gemini-2.5-flash-native-audio-preview-12-2025"
+	}
+
+	provider := NewProvider(model, model, "https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{Temperature: 0.7}, false)
+
+	const attempts = 2
+	for attempt := 1; attempt <= attempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+
+		session, err := provider.CreateStreamSession(ctx, &providers.StreamingInputConfig{
+			Config: types.StreamingMediaConfig{
+				Type: types.ContentTypeAudio, ChunkSize: 3200, SampleRate: 16000,
+				Channels: 1, BitDepth: 16, Encoding: "pcm_linear16",
+			},
+			Metadata: map[string]interface{}{"response_modalities": []string{"AUDIO"}},
+		})
+		if err != nil {
+			cancel()
+			t.Fatalf("CreateStreamSession: %v", err)
+		}
+
+		if err := session.SendText(ctx, "Reason step by step: a bat and ball cost $1.10, "+
+			"the bat is $1 more than the ball. How much is the ball?"); err != nil {
+			session.Close()
+			cancel()
+			t.Fatalf("SendText: %v", err)
+		}
+
+		var reasoning, content strings.Builder
+		timeout := time.After(30 * time.Second)
+	collect:
+		for {
+			select {
+			case chunk, ok := <-session.Response():
+				if !ok {
+					break collect
+				}
+				reasoning.WriteString(chunk.Reasoning)
+				content.WriteString(chunk.Delta)
+				if chunk.FinishReason != nil {
+					break collect
+				}
+			case <-timeout:
+				break collect
+			case <-ctx.Done():
+				break collect
+			}
+		}
+		session.Close()
+		cancel()
+
+		if reasoning.Len() > 0 {
+			if strings.Contains(content.String(), reasoning.String()) {
+				t.Fatalf("realtime reasoning leaked into transcript: %q", content.String())
+			}
+			t.Logf("realtime reasoning %d chars; transcript=%q", reasoning.Len(), content.String())
+			return
+		}
+		t.Logf("attempt %d/%d: no realtime reasoning emitted, retrying", attempt, attempts)
+	}
+	t.Fatalf("no realtime reasoning captured across %d attempts", attempts)
 }
