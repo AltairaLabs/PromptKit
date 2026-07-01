@@ -701,7 +701,7 @@ func TestParseAndValidateClaudeResponse_ThinkingAndText(t *testing.T) {
 		"type": "message",
 		"role": "assistant",
 		"content": [
-			{"type": "thinking", "text": "Let me think about this..."},
+			{"type": "thinking", "thinking": "Let me think about this..."},
 			{"type": "text", "text": "Here is my answer."}
 		],
 		"model": "claude-3-5-sonnet-20241022",

@@ -377,11 +377,25 @@ func (p *Provider) streamResponse(
 					Type        string `json:"type"`
 					Text        string `json:"text"`
 					PartialJSON string `json:"partial_json"`
+					Thinking    string `json:"thinking"`
+					Signature   string `json:"signature"`
 				} `json:"delta,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &deltaEvent); err == nil {
 				if deltaEvent.Delta != nil {
 					switch deltaEvent.Delta.Type {
+					case "thinking_delta":
+						// Extended-thinking text streams on Reasoning, never content.
+						if deltaEvent.Delta.Thinking != "" {
+							outChan <- providers.StreamChunk{Reasoning: deltaEvent.Delta.Thinking}
+						}
+					case "signature_delta":
+						// Opaque round-trip token for the thinking block; never displayed.
+						if deltaEvent.Delta.Signature != "" {
+							outChan <- providers.StreamChunk{OpaqueReasoning: []types.OpaqueReasoning{{
+								Provider: providerClaude, Kind: thinkingSignatureKind, Data: deltaEvent.Delta.Signature,
+							}}}
+						}
 					case textDeltaType:
 						// Handle text delta - create a compatible struct for processClaudeContentDeltaInternal
 						textDelta := &struct {

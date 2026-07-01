@@ -10,7 +10,8 @@ import (
 
 func TestExtractReasoning_TextAndSignature(t *testing.T) {
 	content := []claudeContent{
-		{Type: types.ContentTypeThinking, Text: "let me reason", Signature: "sig"},
+		// Claude carries thinking text in the "thinking" field, not "text".
+		{Type: types.ContentTypeThinking, Thinking: "let me reason", Signature: "sig"},
 		{Type: "text", Text: "the answer"},
 	}
 
