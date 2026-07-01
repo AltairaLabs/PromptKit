@@ -76,6 +76,66 @@ fi
 
 print_info "Found $(echo "$STAGED_GO_FILES" | wc -l | tr -d ' ') Go file(s) to check"
 
+# --- Module resolution -------------------------------------------------------
+# Resolve each staged Go file to its nearest enclosing module (the closest
+# parent directory containing a go.mod), relative to REPO_ROOT. This correctly
+# attributes files in nested modules — e.g. sdk/examples/voice-chat, which has
+# its own go.mod and is NOT part of go.work — to that module rather than to the
+# parent module they happen to sit under. Mapping by path prefix (sdk/* → sdk)
+# made golangci-lint fail with "main module does not contain package".
+find_module_dir() {
+    local dir
+    dir=$(dirname "$1")
+    while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+        if [ -f "$REPO_ROOT/$dir/go.mod" ]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    [ -f "$REPO_ROOT/go.mod" ] && printf '.\n'
+}
+
+# Print "off" when a module is NOT a member of the Go workspace, so it is
+# linted/built/tested in isolation against its own go.mod (+ replace) directives
+# via GOWORK=off. Workspace members print nothing (workspace mode is correct).
+gowork_off_for() {
+    if [ -f "$REPO_ROOT/go.work" ] && grep -qE "^[[:space:]]*\./$1[[:space:]]*$" "$REPO_ROOT/go.work"; then
+        printf ''
+    else
+        printf 'off'
+    fi
+}
+
+# run_in_module <module-dir> <command...> — run a command inside the module dir,
+# isolating non-workspace modules with GOWORK=off. Callers add their own 2>&1.
+run_in_module() {
+    local module="$1"; shift
+    if [ "$(gowork_off_for "$module")" = "off" ]; then
+        ( cd "$REPO_ROOT/$module" && GOWORK=off "$@" )
+    else
+        ( cd "$REPO_ROOT/$module" && "$@" )
+    fi
+}
+
+# A module whose packages are all excluded by build constraints in the default
+# build (e.g. everything behind a //go:build portaudio tag) or that has no test
+# files has nothing to analyze/build/test — that is not a failure. Match the Go
+# toolchain / golangci-lint messages that signal "nothing to do here".
+is_empty_module_output() {
+    echo "$1" | grep -qE "no go files to analyze|matched no packages|build constraints exclude all Go files|no test files"
+}
+
+# Unique list of modules touched by this commit.
+CHANGED_MODULES=()
+for file in $STAGED_GO_FILES; do
+    mod=$(find_module_dir "$file")
+    [ -z "$mod" ] && continue
+    if [[ ! " ${CHANGED_MODULES[*]} " =~ " ${mod} " ]]; then
+        CHANGED_MODULES+=("$mod")
+    fi
+done
+
 #
 # 1. Lint changed files only
 #
@@ -88,60 +148,28 @@ if ! command -v golangci-lint &> /dev/null; then
     echo "  Or visit: https://golangci-lint.run/usage/install/"
     CHECKS_FAILED=1
 else
-    # Run lint on each module with changes
-    MODULES_TO_LINT=()
-    
-    # Determine which modules have changes
-    for file in $STAGED_GO_FILES; do
-        if [[ "$file" == runtime/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " runtime " ]]; then
-                MODULES_TO_LINT+=("runtime")
-            fi
-        elif [[ "$file" == sdk/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " sdk " ]]; then
-                MODULES_TO_LINT+=("sdk")
-            fi
-        elif [[ "$file" == pkg/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " pkg " ]]; then
-                MODULES_TO_LINT+=("pkg")
-            fi
-        elif [[ "$file" == tools/arena/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " tools/arena " ]]; then
-                MODULES_TO_LINT+=("tools/arena")
-            fi
-        elif [[ "$file" == tools/packc/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " tools/packc " ]]; then
-                MODULES_TO_LINT+=("tools/packc")
-            fi
-        elif [[ "$file" == tools/inspect-state/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " tools/inspect-state " ]]; then
-                MODULES_TO_LINT+=("tools/inspect-state")
-            fi
-        elif [[ "$file" == tools/schema-gen/* ]]; then
-            if [[ ! " ${MODULES_TO_LINT[@]} " =~ " tools/schema-gen " ]]; then
-                MODULES_TO_LINT+=("tools/schema-gen")
-            fi
-        fi
-    done
-    
-    if [ ${#MODULES_TO_LINT[@]} -eq 0 ]; then
+    if [ ${#CHANGED_MODULES[@]} -eq 0 ]; then
         print_info "No module changes detected"
     else
         LINT_FAILED=0
-        for module in "${MODULES_TO_LINT[@]}"; do
+        for module in "${CHANGED_MODULES[@]}"; do
             print_info "Linting $module..."
-            
-            # Use --new-from-rev=HEAD to only check changes
-            # Use --new to only report issues in new/changed code
-            if cd "$REPO_ROOT/$module" && golangci-lint run --new-from-rev=HEAD --timeout=3m ./... 2>&1; then
+
+            # --new-from-rev=HEAD reports issues only in new/changed code.
+            set +e
+            lint_out=$(run_in_module "$module" golangci-lint run --new-from-rev=HEAD --timeout=3m ./... 2>&1)
+            lint_rc=$?
+            set -e
+            [ -n "$lint_out" ] && echo "$lint_out"
+
+            if [ $lint_rc -eq 0 ] || is_empty_module_output "$lint_out"; then
                 print_success "$module passed linting"
             else
                 print_error "$module has linting issues"
                 LINT_FAILED=1
             fi
-            cd "$REPO_ROOT"
         done
-        
+
         if [ $LINT_FAILED -eq 1 ]; then
             echo ""
             print_error "Linting failed. Fix the issues above or use [skip-pre-commit] to bypass."
@@ -156,22 +184,27 @@ fi
 #
 print_header "Building Changed Modules"
 
-if [ ${#MODULES_TO_LINT[@]} -eq 0 ]; then
+if [ ${#CHANGED_MODULES[@]} -eq 0 ]; then
     print_info "No module changes detected"
 else
     BUILD_FAILED=0
-    for module in "${MODULES_TO_LINT[@]}"; do
+    for module in "${CHANGED_MODULES[@]}"; do
         print_info "Building $module..."
-        
-        if cd "$REPO_ROOT/$module" && go build ./... 2>&1; then
+
+        set +e
+        build_out=$(run_in_module "$module" go build ./... 2>&1)
+        build_rc=$?
+        set -e
+        [ -n "$build_out" ] && echo "$build_out"
+
+        if [ $build_rc -eq 0 ] || is_empty_module_output "$build_out"; then
             print_success "$module built successfully"
         else
             print_error "$module failed to build"
             BUILD_FAILED=1
         fi
-        cd "$REPO_ROOT"
     done
-    
+
     if [ $BUILD_FAILED -eq 1 ]; then
         echo ""
         print_error "Build failed. Fix the compilation errors above."
@@ -186,85 +219,35 @@ echo ""
 #
 print_header "Testing Changed Packages"
 
-# Determine which packages to test based on changed files
-PACKAGES_TO_TEST=()
-TEST_MODULES=()
-
-for file in $STAGED_GO_FILES; do
-    # Get the package path for the file
-    if [[ "$file" == runtime/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " runtime " ]]; then
-            TEST_MODULES+=("runtime")
-        fi
-    elif [[ "$file" == sdk/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " sdk " ]]; then
-            TEST_MODULES+=("sdk")
-        fi
-    elif [[ "$file" == pkg/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " pkg " ]]; then
-            TEST_MODULES+=("pkg")
-        fi
-    elif [[ "$file" == tools/arena/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " tools/arena " ]]; then
-            TEST_MODULES+=("tools/arena")
-        fi
-    elif [[ "$file" == tools/packc/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " tools/packc " ]]; then
-            TEST_MODULES+=("tools/packc")
-        fi
-    elif [[ "$file" == tools/inspect-state/* ]]; then
-        pkg_dir=$(dirname "$file")
-        if [[ ! " ${PACKAGES_TO_TEST[@]} " =~ " ./$pkg_dir " ]]; then
-            PACKAGES_TO_TEST+=("./$pkg_dir")
-        fi
-        if [[ ! " ${TEST_MODULES[@]} " =~ " tools/inspect-state " ]]; then
-            TEST_MODULES+=("tools/inspect-state")
-        fi
-    fi
-done
-
-if [ ${#TEST_MODULES[@]} -eq 0 ]; then
+# Test the same set of modules touched by this commit (CHANGED_MODULES),
+# resolved to each file's nearest go.mod so nested modules are handled.
+if [ ${#CHANGED_MODULES[@]} -eq 0 ]; then
     print_info "No test modules to run"
 else
     print_info "Running tests for changed packages..."
-    
+
     # Create temp directory for coverage files
     TEMP_COVERAGE_DIR=$(mktemp -d)
     trap "rm -rf $TEMP_COVERAGE_DIR" EXIT
-    
+
     TEST_FAILED=0
-    for module in "${TEST_MODULES[@]}"; do
+    for module in "${CHANGED_MODULES[@]}"; do
         print_info "Testing $module..."
-        
+
         COVERAGE_FILE="$TEMP_COVERAGE_DIR/${module//\//_}-coverage.out"
-        
-        if cd "$REPO_ROOT/$module" && go test -coverprofile="$COVERAGE_FILE" -covermode=set ./... 2>&1 | grep -v "no test files"; then
+
+        set +e
+        test_out=$(run_in_module "$module" go test -coverprofile="$COVERAGE_FILE" -covermode=set ./... 2>&1)
+        test_rc=$?
+        set -e
+        echo "$test_out" | grep -v "no test files" || true
+
+        if [ $test_rc -eq 0 ] || is_empty_module_output "$test_out"; then
             print_success "$module tests passed"
         else
             print_error "$module tests failed"
             TEST_FAILED=1
         fi
-        cd "$REPO_ROOT"
     done
     
     if [ $TEST_FAILED -eq 1 ]; then
@@ -374,10 +357,13 @@ else
                 fi
             fi
             
-            # Show overall summary
-            echo ""
-            TOTAL_COVERAGE=$(go tool cover -func="$MERGED_COVERAGE" | tail -1 | grep -oE '[0-9]+\.[0-9]+%')
-            print_info "Overall coverage: $TOTAL_COVERAGE"
+            # Show overall summary (only when there is real coverage data beyond
+            # the "mode:" header — test-less/tag-only modules produce none).
+            if grep -qvE "^mode:" "$MERGED_COVERAGE" 2>/dev/null; then
+                echo ""
+                TOTAL_COVERAGE=$(go tool cover -func="$MERGED_COVERAGE" 2>/dev/null | tail -1 | grep -oE '[0-9]+\.[0-9]+%' || true)
+                [ -n "$TOTAL_COVERAGE" ] && print_info "Overall coverage: $TOTAL_COVERAGE"
+            fi
         fi
     fi
 fi
