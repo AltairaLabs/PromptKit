@@ -20,6 +20,12 @@ import (
 // View renders the conversation panel.
 func (c *ConversationPanel) View() string {
 	if c.res == nil {
+		// A ReasoningDelta can arrive before the first RunResult is set; still
+		// surface the streaming 💭 rather than swallowing it behind the
+		// placeholder. composeView doesn't depend on c.res.
+		if c.liveReasoning != "" {
+			return c.composeView(c.buildTitle(), "No conversation available.")
+		}
 		return "No conversation available."
 	}
 
