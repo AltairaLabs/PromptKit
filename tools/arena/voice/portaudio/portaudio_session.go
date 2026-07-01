@@ -1,4 +1,4 @@
-package audio
+package portaudio
 
 // portaudio_session.go contains the testable session/option/source/sink layer
 // that wraps the hardware-bound portaudioIO (portaudio_io_interactive.go).
@@ -7,17 +7,19 @@ package audio
 import (
 	"context"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 const (
 	// CaptureSampleRate is the default mic capture rate (16 kHz mono PCM16),
-	// matching the VAD/STT pipeline default. Aliased to SampleRate16kHz to avoid
+	// matching the VAD/STT pipeline default. Aliased to audio.SampleRate16kHz to avoid
 	// a duplicate value declaration. Pass WithCaptureRate to override.
-	CaptureSampleRate = SampleRate16kHz
+	CaptureSampleRate = audio.SampleRate16kHz
 	// PlaybackSampleRate is the default speaker playback rate (24 kHz mono
-	// PCM16), matching TTS / realtime-provider output. Aliased to SampleRate24kHz.
+	// PCM16), matching TTS / realtime-provider output. Aliased to audio.SampleRate24kHz.
 	// Pass WithPlaybackRate to override.
-	PlaybackSampleRate = SampleRate24kHz
+	PlaybackSampleRate = audio.SampleRate24kHz
 
 	// captureChanBuffer is the channel buffer depth for captured PCM frames.
 	captureChanBuffer = 32
@@ -41,7 +43,7 @@ type sessionConfig struct {
 	duplex       bool // use the single 48 kHz duplex stream (opt-in; for same-device open-speaker AEC)
 }
 
-// SessionOption is a functional option for NewPortAudioSession.
+// SessionOption is a functional option for NewSession.
 type SessionOption func(*sessionConfig)
 
 // WithCaptureRate sets the microphone capture sample rate (default 16000 Hz).
@@ -103,7 +105,7 @@ func (p *portaudioIO) ensureTwoStreamBuffers() {
 }
 
 // portaudioSession adapts the PortAudio-backed portaudioIO to the
-// Session/Source/Sink interfaces. It drives a single 48 kHz duplex stream
+// audio.Session/audio.Source/audio.Sink interfaces. It drives a single 48 kHz duplex stream
 // (resampling at the STT/TTS seams); the two-stream core is retained on
 // portaudioIO for Task 3.4's try-duplex-else-fallback.
 type portaudioSession struct {
@@ -112,16 +114,16 @@ type portaudioSession struct {
 	sink   *portaudioSink
 }
 
-// NewPortAudioSession loads libportaudio and returns a Session exposing one
-// audio Source (microphone) and one audio Sink (speaker). By default it drives
+// NewSession loads libportaudio and returns an audio.Session exposing one
+// audio.Source (microphone) and one audio.Sink (speaker). By default it drives
 // two independent mic/speaker streams (each paced by its own device clock) —
 // robust on any device including AirPods/Bluetooth and split mic/speaker setups.
 // Pass WithDuplex to use the single 48 kHz duplex stream instead (same-device
-// open-speaker AEC only). The Source emits frames at the capture rate (default
-// 16 kHz) and the Sink accepts frames at the playback rate (default 24 kHz);
+// open-speaker AEC only). The audio.Source emits frames at the capture rate (default
+// 16 kHz) and the audio.Sink accepts frames at the playback rate (default 24 kHz);
 // pass WithCaptureRate / WithPlaybackRate to override. It returns
 // errPortAudioMissing (wrapped) when the library is absent.
-func NewPortAudioSession(opts ...SessionOption) (Session, error) {
+func NewSession(opts ...SessionOption) (audio.Session, error) {
 	cfg := buildSessionConfig(opts)
 	io, err := newAudioIO(cfg, cfg.duplex)
 	if err != nil {
@@ -136,11 +138,11 @@ func NewPortAudioSession(opts ...SessionOption) (Session, error) {
 // Start begins media flow on the duplex stream; it delegates to the underlying I/O.
 func (s *portaudioSession) Start(ctx context.Context) error { return s.io.Start(ctx) }
 
-// Sources returns the single microphone Source.
-func (s *portaudioSession) Sources() []Source { return []Source{s.source} }
+// Sources returns the single microphone audio.Source.
+func (s *portaudioSession) Sources() []audio.Source { return []audio.Source{s.source} }
 
-// Sinks returns the single speaker Sink.
-func (s *portaudioSession) Sinks() []Sink { return []Sink{s.sink} }
+// Sinks returns the single speaker audio.Sink.
+func (s *portaudioSession) Sinks() []audio.Sink { return []audio.Sink{s.sink} }
 
 // Close stops both streams and terminates PortAudio. It is idempotent.
 func (s *portaudioSession) Close() error { return s.io.Close() }
@@ -150,15 +152,15 @@ func (s *portaudioSession) Close() error { return s.io.Close() }
 type portaudioSource struct {
 	io     *portaudioIO
 	once   sync.Once
-	frames chan MediaFrame
+	frames chan audio.MediaFrame
 }
 
 // Frames returns a channel of captured audio MediaFrames. The channel is closed
 // when the underlying session closes (io.done). PTS is a best-effort monotonic
 // sample counter; the load-bearing duplex clock arrives in Phase 3.
-func (s *portaudioSource) Frames() <-chan MediaFrame {
+func (s *portaudioSource) Frames() <-chan audio.MediaFrame {
 	s.once.Do(func() {
-		s.frames = make(chan MediaFrame, captureChanBuffer)
+		s.frames = make(chan audio.MediaFrame, captureChanBuffer)
 		go s.pump()
 	})
 	return s.frames
@@ -176,11 +178,11 @@ func (s *portaudioSource) pump() {
 			if !ok {
 				return
 			}
-			frame := MediaFrame{
-				Kind:   KindAudio,
+			frame := audio.MediaFrame{
+				Kind:   audio.KindAudio,
 				Data:   data,
 				PTS:    clk.pts(),
-				Format: Format{SampleRate: s.io.captureRate, Channels: 1},
+				Format: audio.Format{SampleRate: s.io.captureRate, Channels: 1},
 			}
 			// Advance the clock by the samples in this frame (PCM16 = 2 bytes/sample).
 			clk.advance(int64(len(data) / bytesPerSample))
@@ -193,13 +195,13 @@ func (s *portaudioSource) pump() {
 	}
 }
 
-// Kind reports that this Source produces audio.
-func (s *portaudioSource) Kind() MediaKind { return KindAudio }
+// Kind reports that this audio.Source produces audio.
+func (s *portaudioSource) Kind() audio.MediaKind { return audio.KindAudio }
 
 // Close stops the source by closing the underlying session (idempotent).
 func (s *portaudioSource) Close() error { return s.io.Close() }
 
-// portaudioSink adapts the speaker playback path to the Sink interface.
+// portaudioSink adapts the speaker playback path to the audio.Sink interface.
 type portaudioSink struct {
 	io *portaudioIO
 }
@@ -215,15 +217,15 @@ type portaudioSink struct {
 // utterances; an unpaced bulk write longer than that is silently dropped
 // oldest-first (the session logs one warning on first overflow). The Arena
 // interactive pipeline satisfies this with its audio-pacing-output stage; a
-// direct writer (e.g. a future OpenVoice streaming TTS straight to this Sink)
+// direct writer (e.g. a future OpenVoice streaming TTS straight to this audio.Sink)
 // must pace or chunk its writes to real time.
-func (s *portaudioSink) Write(f MediaFrame) { s.io.Play(f.Data) }
+func (s *portaudioSink) Write(f audio.MediaFrame) { s.io.Play(f.Data) }
 
 // Flush drops all queued and in-flight playback (Phase-1 flush machinery).
 func (s *portaudioSink) Flush() { s.io.Flush() }
 
-// Kind reports that this Sink consumes audio.
-func (s *portaudioSink) Kind() MediaKind { return KindAudio }
+// Kind reports that this audio.Sink consumes audio.
+func (s *portaudioSink) Kind() audio.MediaKind { return audio.KindAudio }
 
 // Close stops the sink by closing the underlying session (idempotent).
 func (s *portaudioSink) Close() error { return s.io.Close() }

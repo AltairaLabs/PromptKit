@@ -45,6 +45,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/examples/audiohelper"
 )
 
 const (
@@ -163,9 +164,9 @@ func interactiveAudioExample(ctx context.Context, conv *sdk.Conversation) error 
 	defer cancel()
 
 	// Open the shared pure-Go audio session (16 kHz mic + 24 kHz speaker defaults).
-	session, err := rtaudio.NewPortAudioSession(
-		rtaudio.WithCaptureRate(sampleRate),
-		rtaudio.WithPlaybackRate(outputSampleRate),
+	session, err := audiohelper.NewSession(
+		audiohelper.WithCaptureRate(sampleRate),
+		audiohelper.WithPlaybackRate(outputSampleRate),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to open audio session: %w", err)

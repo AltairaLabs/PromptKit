@@ -1,9 +1,10 @@
 package voice
 
-import "github.com/AltairaLabs/PromptKit/runtime/audio"
+import "github.com/AltairaLabs/PromptKit/tools/arena/voice/portaudio"
 
-// NewAudioIO constructs an AudioIO backed by the shared runtime/audio PortAudio
-// Session. The hardware core now lives in runtime/audio; this thin adapter keeps
+// NewAudioIO constructs an AudioIO backed by the PortAudio Session. The hardware
+// core lives in the sibling voice/portaudio package (kept out of runtime so
+// server/controller binaries stay statically linkable); this thin adapter keeps
 // the Driver and pipeline seam consuming the unchanged voice.AudioIO interface.
 // It returns the actionable missing-PortAudio error unchanged so the console can
 // surface install steps instead of crashing.
@@ -12,7 +13,7 @@ import "github.com/AltairaLabs/PromptKit/runtime/audio"
 // cannot be unit-tested without PortAudio; the testable adapter logic lives in
 // session_audioio.go.
 func NewAudioIO() (AudioIO, error) {
-	sess, err := audio.NewPortAudioSession()
+	sess, err := portaudio.NewSession()
 	if err != nil {
 		return nil, err
 	}

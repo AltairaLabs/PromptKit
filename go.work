@@ -2,9 +2,9 @@ go 1.26.0
 
 use (
 	./benchmarks
+	./benchmarks/frameworks/genkit
 	./benchmarks/frameworks/promptkit/round1
 	./benchmarks/frameworks/promptkit/round2
-	./benchmarks/frameworks/genkit
 	./examples/a2a-auth-test
 	./examples/a2a-demo
 	./examples/programmatic-arena
@@ -13,9 +13,14 @@ use (
 	./pkg
 	./runtime
 	./sdk
+	./sdk/examples/audiohelper
+	./sdk/examples/duplex-streaming
 	./sdk/examples/eval-hooks
+	./sdk/examples/openai-realtime
 	./sdk/examples/sdk-evals
 	./sdk/examples/sdk-http-auth
+	./sdk/examples/voice-chat
+	./sdk/examples/voice-interview
 	./server/a2a
 	./tools/arena
 	./tools/inspect-state

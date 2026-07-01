@@ -1,4 +1,4 @@
-package audio
+package portaudio
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 // TestStart_DuplexOpenFailsFallsBackToTwoStream verifies that when the single
@@ -157,12 +159,12 @@ func TestNewAudioIO_LoadsOrReportsMissing(t *testing.T) {
 	}
 }
 
-// TestNewPortAudioSession_MissingLibIsActionable asserts the Session constructor
+// TestNewPortAudioSession_MissingLibIsActionable asserts the audio.Session constructor
 // surfaces the actionable errPortAudioMissing when PortAudio is absent (as in
-// CI), and otherwise exposes exactly one audio Source and one audio Sink without
+// CI), and otherwise exposes exactly one audio.Source and one audio.Sink without
 // opening a device.
 func TestNewPortAudioSession_MissingLibIsActionable(t *testing.T) {
-	sess, err := NewPortAudioSession()
+	sess, err := NewSession()
 	if err != nil {
 		if !errors.Is(err, errPortAudioMissing) {
 			t.Fatalf("unexpected error: %v", err)
@@ -183,11 +185,11 @@ func TestNewPortAudioSession_MissingLibIsActionable(t *testing.T) {
 	if got := len(sess.Sinks()); got != 1 {
 		t.Fatalf("expected exactly 1 sink, got %d", got)
 	}
-	if k := sess.Sources()[0].Kind(); k != KindAudio {
-		t.Fatalf("source kind = %v, want KindAudio", k)
+	if k := sess.Sources()[0].Kind(); k != audio.KindAudio {
+		t.Fatalf("source kind = %v, want audio.KindAudio", k)
 	}
-	if k := sess.Sinks()[0].Kind(); k != KindAudio {
-		t.Fatalf("sink kind = %v, want KindAudio", k)
+	if k := sess.Sinks()[0].Kind(); k != audio.KindAudio {
+		t.Fatalf("sink kind = %v, want audio.KindAudio", k)
 	}
 }
 
@@ -240,10 +242,10 @@ func TestSessionConfig_WithCaptureRate(t *testing.T) {
 // TestSessionConfig_WithPlaybackRate verifies that WithPlaybackRate(48000) sets
 // the playback rate to 48 kHz and derives the correct 40 ms buffer (1920 frames).
 func TestSessionConfig_WithPlaybackRate(t *testing.T) {
-	cfg := buildSessionConfig([]SessionOption{WithPlaybackRate(DuplexRate)})
+	cfg := buildSessionConfig([]SessionOption{WithPlaybackRate(audio.DuplexRate)})
 
-	if cfg.playbackRate != DuplexRate {
-		t.Errorf("playbackRate = %d, want %d", cfg.playbackRate, DuplexRate)
+	if cfg.playbackRate != audio.DuplexRate {
+		t.Errorf("playbackRate = %d, want %d", cfg.playbackRate, audio.DuplexRate)
 	}
 	playbackFrames := cfg.playbackRate * playbackWindowMs / msPerSecond // 40 ms window
 	if playbackFrames != 1920 {
@@ -292,8 +294,8 @@ func TestPortaudioSource_FrameFormatReflectsConfiguredRate(t *testing.T) {
 		if f.Format.SampleRate != wantRate {
 			t.Errorf("frame SampleRate = %d, want %d", f.Format.SampleRate, wantRate)
 		}
-		if f.Kind != KindAudio {
-			t.Errorf("frame Kind = %v, want KindAudio", f.Kind)
+		if f.Kind != audio.KindAudio {
+			t.Errorf("frame Kind = %v, want audio.KindAudio", f.Kind)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for the enqueued frame")
@@ -303,11 +305,11 @@ func TestPortaudioSource_FrameFormatReflectsConfiguredRate(t *testing.T) {
 	close(io.done)
 }
 
-// TestPortaudioSource_Kind verifies the Source kind accessor.
+// TestPortaudioSource_Kind verifies the audio.Source kind accessor.
 func TestPortaudioSource_Kind(t *testing.T) {
 	src := &portaudioSource{io: &portaudioIO{done: make(chan struct{})}}
-	if k := src.Kind(); k != KindAudio {
-		t.Errorf("Kind = %v, want KindAudio", k)
+	if k := src.Kind(); k != audio.KindAudio {
+		t.Errorf("Kind = %v, want audio.KindAudio", k)
 	}
 }
 
@@ -336,7 +338,7 @@ func TestPortaudioSink_WriteEnqueuesFrame(t *testing.T) {
 	sink := &portaudioSink{io: io}
 
 	data := []byte{0x01, 0x02, 0x03, 0x04}
-	sink.Write(MediaFrame{Data: data})
+	sink.Write(audio.MediaFrame{Data: data})
 
 	select {
 	case got := <-io.playCh:
@@ -369,11 +371,11 @@ func TestPortaudioSink_FlushSignalsPlayLoop(t *testing.T) {
 	}
 }
 
-// TestPortaudioSink_Kind verifies the Sink kind accessor.
+// TestPortaudioSink_Kind verifies the audio.Sink kind accessor.
 func TestPortaudioSink_Kind(t *testing.T) {
 	sink := &portaudioSink{io: &portaudioIO{done: make(chan struct{})}}
-	if k := sink.Kind(); k != KindAudio {
-		t.Errorf("Kind = %v, want KindAudio", k)
+	if k := sink.Kind(); k != audio.KindAudio {
+		t.Errorf("Kind = %v, want audio.KindAudio", k)
 	}
 }
 
