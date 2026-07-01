@@ -1181,3 +1181,20 @@ func TestConversationPanel_LiveReasoning(t *testing.T) {
 	assert.Empty(t, panel.LiveReasoning())
 	assert.NotContains(t, panel.View(), "thinking hard", "cleared reasoning no longer shown")
 }
+
+// TestConversationPanel_LiveReasoning_NilRes covers the edge where a
+// ReasoningDelta arrives before any RunResult is set: the streaming 💭 must
+// still render rather than being swallowed by the "no conversation" placeholder.
+func TestConversationPanel_LiveReasoning_NilRes(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(120, 40)
+
+	// No SetData call — c.res is nil.
+	assert.Equal(t, "No conversation available.", panel.View())
+
+	panel.AppendLiveReasoning("thinking early")
+	assert.Contains(t, panel.View(), "thinking early", "streaming reasoning shown before any RunResult")
+
+	panel.ClearLiveReasoning()
+	assert.Equal(t, "No conversation available.", panel.View(), "falls back to placeholder once cleared")
+}
