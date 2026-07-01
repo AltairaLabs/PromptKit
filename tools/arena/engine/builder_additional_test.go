@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
@@ -13,8 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestParseProviderDuration covers the duration string parser used by the
@@ -68,7 +70,7 @@ func TestCreateProviderImpl_MockProvider(t *testing.T) {
 }
 
 func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -102,7 +104,7 @@ func TestDiscoverAndRegisterMCPTools_EmptyRegistry(t *testing.T) {
 }
 
 func TestBuildMCPRegistry_WithServer(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "demo-server",
@@ -118,7 +120,7 @@ func TestBuildMCPRegistry_WithServer(t *testing.T) {
 }
 
 func TestBuildMCPRegistry_PropagatesSSEFields(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "sandbox",
@@ -143,7 +145,7 @@ func TestBuildMCPRegistry_PropagatesSSEFields(t *testing.T) {
 // with a Source field are NOT registered statically — they are opened
 // dynamically by mcpSourceScope at scope boundaries (run/scenario/session).
 func TestBuildMCPRegistry_SkipsSourceBackedEntries(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{Name: "stdio-x", Command: "./foo"},
 			{Name: "source-y", Source: "docker", Scope: "session"},
@@ -159,7 +161,7 @@ func TestBuildMCPRegistry_SkipsSourceBackedEntries(t *testing.T) {
 }
 
 func TestBuildSelfPlayComponents_Success(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -171,8 +173,8 @@ func TestBuildSelfPlayComponents_Success(t *testing.T) {
 				},
 			},
 		},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
 					Provider: "mock-assistant",
@@ -193,10 +195,10 @@ func TestBuildSelfPlayComponents_Success(t *testing.T) {
 }
 
 func TestBuildSelfPlayComponents_UnknownProvider(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
 					Provider: "nonexistent-provider",
@@ -217,15 +219,15 @@ func TestBuildSelfPlayComponents_UnknownProvider(t *testing.T) {
 
 func TestBuildSelfPlayComponents_ProviderNotInRegistry(t *testing.T) {
 	// Provider exists in config but not registered in the provider registry
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"missing-provider": {
 				ID:   "missing-provider",
 				Type: "mock",
 			},
 		},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
 					Provider: "missing-provider",
@@ -245,7 +247,7 @@ func TestBuildSelfPlayComponents_ProviderNotInRegistry(t *testing.T) {
 }
 
 func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -258,8 +260,8 @@ func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
 				Model: "mock-model-2",
 			},
 		},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{
 					ID:       "assistant-role",
 					Provider: "mock-assistant",
@@ -270,7 +272,7 @@ func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
 				},
 			},
 		},
-		LoadedPersonas: map[string]*config.UserPersonaPack{
+		LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{
 			"test-persona": {
 				ID:          "test-persona",
 				Description: "A test persona",
@@ -290,7 +292,7 @@ func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
 }
 
 func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -298,8 +300,8 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 				Model: "mock-model",
 			},
 		},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
 					Provider: "mock-assistant",
@@ -325,7 +327,7 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 }
 
 func TestBuildEvalOrchestrator_UnknownEvalType(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
 			Evals: []evals.EvalDef{
@@ -343,7 +345,7 @@ func TestBuildEvalOrchestrator_UnknownEvalType(t *testing.T) {
 }
 
 func TestBuildEvalOrchestrator_AllKnownTypes(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
 			Evals: []evals.EvalDef{
@@ -358,7 +360,7 @@ func TestBuildEvalOrchestrator_AllKnownTypes(t *testing.T) {
 }
 
 func TestBuildEvalOrchestrator_EmptyEvalsReturnsNil(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
 		},
@@ -370,7 +372,7 @@ func TestBuildEvalOrchestrator_EmptyEvalsReturnsNil(t *testing.T) {
 }
 
 func TestNewEngineFromConfig_UnknownEvalTypeError(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -399,7 +401,7 @@ func TestNewEngineFromConfig_UnknownEvalTypeError(t *testing.T) {
 }
 
 func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-assistant": {
 				ID:    "mock-assistant",
@@ -427,7 +429,7 @@ func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
 }
 
 func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{},
 	}
 
@@ -447,7 +449,7 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 }
 
 func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-ok": {
 				ID:    "mock-ok",
@@ -503,7 +505,7 @@ func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testin
 // Selfplay-role providers are auxiliary, not test targets; the
 // run-matrix filter must not strand them.
 func TestBuildEngineComponents_FilterIncludesSelfPlayRoleProviders(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"gemini": {
 				ID:    "gemini",
@@ -524,8 +526,8 @@ func TestBuildEngineComponents_FilterIncludesSelfPlayRoleProviders(t *testing.T)
 				},
 			},
 		},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{ID: "selfplay-user", Provider: "selfplay-mock"},
 			},
 		},
@@ -555,7 +557,7 @@ func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
 		0o600,
 	))
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedSkillSources: []prompt.SkillSourceConfig{
 			{Path: filepath.Join(dir, "skills")},
 		},
@@ -592,7 +594,7 @@ func TestDiscoverAndRegisterSkillTools_PreloadedInstructions(t *testing.T) {
 		0o600,
 	))
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedSkillSources: []prompt.SkillSourceConfig{
 			{Path: filepath.Join(dir, "skills", "memory-protocol"), Preload: true},
 		},
@@ -610,7 +612,7 @@ func TestDiscoverAndRegisterSkillTools_PreloadedInstructions(t *testing.T) {
 }
 
 func TestDiscoverAndRegisterSkillTools_EmptyConfig(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 	registry := tools.NewRegistry()
 	exec, preloadedInstructions, err := discoverAndRegisterSkillTools(cfg, registry)
 	require.NoError(t, err)

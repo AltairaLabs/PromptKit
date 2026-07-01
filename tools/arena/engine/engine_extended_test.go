@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
@@ -23,8 +24,8 @@ func TestEngine_BuildSystemPrompt_DifferentTaskTypes(t *testing.T) {
 }
 
 func TestEngine_GetPromptRegistry(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -153,8 +154,8 @@ func TestCacheStats_Structure(t *testing.T) {
 }
 
 func TestExecuteRuns_Concurrency(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose:     false,
 			Concurrency: 2,
 		},
@@ -184,8 +185,8 @@ func TestExecuteRuns_Concurrency(t *testing.T) {
 }
 
 func TestExecuteRuns_ContextCancellation(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -214,8 +215,8 @@ func TestExecuteRuns_ContextCancellation(t *testing.T) {
 }
 
 func TestGenerateRunPlan_WithFilters(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -224,7 +225,7 @@ func TestGenerateRunPlan_WithFilters(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load some test data into the engine
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"scenario1": {ID: "scenario1", TaskType: "support"},
 		"scenario2": {ID: "scenario2", TaskType: "consulting"},
 	}
@@ -253,12 +254,12 @@ func TestGenerateRunPlan_WithFilters(t *testing.T) {
 }
 
 func TestEngine_ScenarioLabels(t *testing.T) {
-	cfg := &config.Config{Defaults: config.Defaults{Verbose: false}}
+	cfg := &arenaconfig.Config{Defaults: arenaconfig.Defaults{Verbose: false}}
 	tmpDir := t.TempDir()
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	src := map[string]string{"difficulty": "easy", "category": "bugfix"}
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"labeled":   {ID: "labeled", Labels: src},
 		"unlabeled": {ID: "unlabeled"},
 	}
@@ -284,8 +285,8 @@ func TestEngine_ScenarioLabels(t *testing.T) {
 }
 
 func TestGenerateRunPlan_RegionFilter(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -294,7 +295,7 @@ func TestGenerateRunPlan_RegionFilter(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load test data
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"scenario1": {ID: "scenario1", TaskType: "support"},
 	}
 
@@ -321,8 +322,8 @@ func TestGenerateRunPlan_RegionFilter(t *testing.T) {
 }
 
 func TestGenerateRunPlan_ProviderFilter(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -331,7 +332,7 @@ func TestGenerateRunPlan_ProviderFilter(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load test data
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"scenario1": {ID: "scenario1", TaskType: "support"},
 	}
 
@@ -359,8 +360,8 @@ func TestGenerateRunPlan_ProviderFilter(t *testing.T) {
 }
 
 func TestEngine_MultipleScenarios(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -369,7 +370,7 @@ func TestEngine_MultipleScenarios(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load multiple scenarios
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"s1": {ID: "s1", TaskType: "support"},
 		"s2": {ID: "s2", TaskType: "consulting"},
 		"s3": {ID: "s3", TaskType: "pivot"},
@@ -381,8 +382,8 @@ func TestEngine_MultipleScenarios(t *testing.T) {
 }
 
 func TestEngine_MultipleProviders(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -426,8 +427,8 @@ func TestEngine_VerboseMode(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Test with verbose enabled
-	cfgVerbose := &config.Config{
-		Defaults: config.Defaults{
+	cfgVerbose := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: true,
 		},
 	}
@@ -438,8 +439,8 @@ func TestEngine_VerboseMode(t *testing.T) {
 	}
 
 	// Test with verbose disabled
-	cfgQuiet := &config.Config{
-		Defaults: config.Defaults{
+	cfgQuiet := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -451,8 +452,8 @@ func TestEngine_VerboseMode(t *testing.T) {
 }
 
 func TestEngine_DefaultConcurrency(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose:     false,
 			Concurrency: 0, // Default
 		},
@@ -464,8 +465,8 @@ func TestEngine_DefaultConcurrency(t *testing.T) {
 		t.Error("Engine creation failed with default concurrency")
 	}
 
-	cfg2 := &config.Config{
-		Defaults: config.Defaults{
+	cfg2 := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose:     false,
 			Concurrency: 10,
 		},
@@ -483,8 +484,8 @@ func TestEngine_DefaultConcurrency(t *testing.T) {
 
 func TestEngine_Close(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}

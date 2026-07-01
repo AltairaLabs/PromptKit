@@ -14,6 +14,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -21,10 +24,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // echoE2EExecutor is a tools.Executor that echoes its JSON args back unchanged.
@@ -106,19 +108,19 @@ func TestExecuteRun_CompositionState(t *testing.T) {
 	transExec := newWorkflowTransitionExecutor(wfSpec, reg)
 
 	e := &Engine{
-		config: &config.Config{
+		config: &arenaconfig.Config{
 			LoadedPack: pack,
 		},
-		scenarios: map[string]*config.Scenario{
+		scenarios: map[string]*arenaconfig.Scenario{
 			"comp-scenario": {
 				ID:       "comp-scenario",
 				TaskType: "compose-task",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: `{"msg":"run it"}`},
 				},
 			},
 		},
-		evals:                make(map[string]*config.Eval),
+		evals:                make(map[string]*arenaconfig.Eval),
 		providers:            make(map[string]*config.Provider),
 		providerRegistry:     provReg,
 		stateStore:           arenaStore,

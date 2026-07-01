@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // Test helper: creates a basic mock provider
@@ -18,11 +19,11 @@ func createMockProvider(id string) providers.Provider {
 }
 
 // Test helper: creates a basic persona pack
-func createTestPersona(id, prompt string) *config.UserPersonaPack {
-	return &config.UserPersonaPack{
+func createTestPersona(id, prompt string) *arenaconfig.UserPersonaPack {
+	return &arenaconfig.UserPersonaPack{
 		ID:           id,
 		SystemPrompt: prompt,
-		Style: config.PersonaStyle{
+		Style: arenaconfig.PersonaStyle{
 			Verbosity:      "normal",
 			ChallengeLevel: "medium",
 		},
@@ -32,10 +33,10 @@ func createTestPersona(id, prompt string) *config.UserPersonaPack {
 func TestNewRegistry(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 	providerMap := map[string]string{"user": "provider1"}
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -71,7 +72,7 @@ func TestNewRegistry(t *testing.T) {
 }
 
 func TestSelfPlayRegistry_IsValidRole(t *testing.T) {
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 		{ID: "assistant"},
 	}
@@ -79,7 +80,7 @@ func TestSelfPlayRegistry_IsValidRole(t *testing.T) {
 	registry := NewRegistry(
 		providers.NewRegistry(),
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
+		map[string]*arenaconfig.UserPersonaPack{},
 		roles,
 	)
 
@@ -105,7 +106,7 @@ func TestSelfPlayRegistry_IsValidRole(t *testing.T) {
 }
 
 func TestSelfPlayRegistry_GetAvailableRoles(t *testing.T) {
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 		{ID: "assistant"},
 		{ID: "reviewer"},
@@ -114,7 +115,7 @@ func TestSelfPlayRegistry_GetAvailableRoles(t *testing.T) {
 	registry := NewRegistry(
 		providers.NewRegistry(),
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
+		map[string]*arenaconfig.UserPersonaPack{},
 		roles,
 	)
 
@@ -138,8 +139,8 @@ func TestSelfPlayRegistry_GetAvailableRoles_Empty(t *testing.T) {
 	registry := NewRegistry(
 		providers.NewRegistry(),
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 	)
 
 	availableRoles := registry.GetAvailableRoles()
@@ -159,8 +160,8 @@ func TestSelfPlayRegistry_GetAvailableProviders(t *testing.T) {
 	registry := NewRegistry(
 		providerRegistry,
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 	)
 
 	availableProviders := registry.GetAvailableProviders()
@@ -175,11 +176,11 @@ func TestSelfPlayRegistry_GetContentGenerator_Success(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -230,11 +231,11 @@ func TestSelfPlayRegistry_GetContentGenerator_CacheHit(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -281,7 +282,7 @@ func TestSelfPlayRegistry_GetContentGenerator_EmptyPersonaID(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -292,7 +293,7 @@ func TestSelfPlayRegistry_GetContentGenerator_EmptyPersonaID(t *testing.T) {
 	registry := NewRegistry(
 		providerRegistry,
 		providerMap,
-		map[string]*config.UserPersonaPack{},
+		map[string]*arenaconfig.UserPersonaPack{},
 		roles,
 	)
 
@@ -311,7 +312,7 @@ func TestSelfPlayRegistry_GetContentGenerator_PersonaNotFound(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -322,7 +323,7 @@ func TestSelfPlayRegistry_GetContentGenerator_PersonaNotFound(t *testing.T) {
 	registry := NewRegistry(
 		providerRegistry,
 		providerMap,
-		map[string]*config.UserPersonaPack{},
+		map[string]*arenaconfig.UserPersonaPack{},
 		roles,
 	)
 
@@ -342,11 +343,11 @@ func TestSelfPlayRegistry_GetContentGenerator_RoleNotFound(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -370,11 +371,11 @@ func TestSelfPlayRegistry_GetContentGenerator_RoleNotFound(t *testing.T) {
 func TestSelfPlayRegistry_GetContentGenerator_NoProviderMapping(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -398,11 +399,11 @@ func TestSelfPlayRegistry_GetContentGenerator_ProviderNotInRegistry(t *testing.T
 	providerRegistry := providers.NewRegistry()
 	// Provider not registered
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -428,12 +429,12 @@ func TestSelfPlayRegistry_PrewarmCache_Success(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 		"persona2": createTestPersona("persona2", "Persona 2"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 		{ID: "assistant"},
 	}
@@ -485,11 +486,11 @@ func TestSelfPlayRegistry_PrewarmCache_AlreadyCached(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -527,11 +528,11 @@ func TestSelfPlayRegistry_PrewarmCache_Error(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -561,8 +562,8 @@ func TestSelfPlayRegistry_GetCacheStats_EmptyCache(t *testing.T) {
 	registry := NewRegistry(
 		providers.NewRegistry(),
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 	)
 
 	stats := registry.GetCacheStats()
@@ -589,12 +590,12 @@ func TestSelfPlayRegistry_GetCacheStats_WithData(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 		"persona2": createTestPersona("persona2", "Persona 2"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -639,11 +640,11 @@ func TestSelfPlayRegistry_ClearCache(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -698,12 +699,12 @@ func TestSelfPlayRegistry_ConcurrentAccess(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 		"persona2": createTestPersona("persona2", "Persona 2"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 	}
 
@@ -780,11 +781,11 @@ func TestSelfPlayRegistry_MultipleRolesSamePersona(t *testing.T) {
 	providerRegistry.Register(provider1)
 	providerRegistry.Register(provider2)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Versatile persona"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 		{ID: "assistant"},
 	}
@@ -865,12 +866,12 @@ func TestSelfPlayRegistry_GetCacheStats_CachedPairs(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "Persona 1"),
 		"persona2": createTestPersona("persona2", "Persona 2"),
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "user"},
 		{ID: "assistant"},
 	}
@@ -935,10 +936,10 @@ func TestSelfPlayRegistry_GetAudioContentGenerator_Success(t *testing.T) {
 	provider := createMockProvider("provider1")
 	providerRegistry.Register(provider)
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"persona1": createTestPersona("persona1", "You are helpful"),
 	}
-	roles := []config.SelfPlayRoleGroup{{ID: "user"}}
+	roles := []arenaconfig.SelfPlayRoleGroup{{ID: "user"}}
 	providerMap := map[string]string{"user": "provider1"}
 
 	ttsRegistry := NewTTSRegistry()
@@ -947,10 +948,10 @@ func TestSelfPlayRegistry_GetAudioContentGenerator_Success(t *testing.T) {
 	registry := NewRegistryWithTTS(providerRegistry, providerMap, personas, roles, ttsRegistry)
 
 	ttsProvider := &config.Provider{
-		ID:         "mock-tts",
-		Type:       TTSProviderMock,
-		Role: config.RoleTTS,
-		Voice:      "test-voice",
+		ID:    "mock-tts",
+		Type:  TTSProviderMock,
+		Role:  config.RoleTTS,
+		Voice: "test-voice",
 	}
 
 	audioGen, err := registry.GetAudioContentGenerator("user", "persona1", ttsProvider)
@@ -978,5 +979,28 @@ func TestSelfPlayRegistry_GetAudioContentGenerator_WrongCapability(t *testing.T)
 	_, err := registry.GetAudioContentGenerator("user", "persona1", llmProvider)
 	if err == nil {
 		t.Fatal("expected error: provider capability is llm, not tts")
+	}
+}
+
+func TestRegistry_PersonaAccessorsAndClose(t *testing.T) {
+	providerRegistry := providers.NewRegistry()
+	personas := map[string]*arenaconfig.UserPersonaPack{
+		"persona1": createTestPersona("persona1", "You are helpful"),
+	}
+	registry := NewRegistry(providerRegistry, map[string]string{"user": "provider1"}, personas,
+		[]arenaconfig.SelfPlayRoleGroup{{ID: "user"}})
+
+	if got := registry.GetPersona("persona1"); got == nil {
+		t.Error("GetPersona(persona1) = nil, want persona")
+	}
+	if got := registry.GetPersona(""); got != nil {
+		t.Error("GetPersona(empty) should be nil")
+	}
+	if got := registry.GetPersona("unknown"); got != nil {
+		t.Error("GetPersona(unknown) should be nil")
+	}
+	_ = registry.GetSTTRegistry()
+	if err := registry.Close(); err != nil {
+		t.Errorf("Close() = %v, want nil", err)
 	}
 }

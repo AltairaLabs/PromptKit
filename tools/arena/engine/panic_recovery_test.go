@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // panicExecutor simulates a conversation executor that panics mid-run (e.g. a
@@ -43,13 +44,13 @@ func (h *recordingSessionHook) OnSessionEnd(context.Context, hooks.SessionEvent)
 // recovered, the run is recorded, and OnSessionEnd still fires so the
 // capture/state hook always runs.
 func TestExecuteRun_PanicRecoveredAndSessionEndFires(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		StateStore: &config.StateStoreConfig{Type: "memory"},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"s": {
 				ID:       "s",
 				TaskType: "assistance",
-				Turns:    []config.TurnDefinition{{Role: "user", Content: "hi"}},
+				Turns:    []arenaconfig.TurnDefinition{{Role: "user", Content: "hi"}},
 			},
 		},
 		LoadedProviders: map[string]*config.Provider{

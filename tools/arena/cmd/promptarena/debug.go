@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 var debugCmd = &cobra.Command{
@@ -35,7 +36,7 @@ func runDebug(cmd *cobra.Command) error {
 
 	printDebugHeader(configFile)
 
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -71,7 +72,7 @@ func printDebugHeader(configFile string) {
 }
 
 // printConfigOverview prints the configuration overview section
-func printConfigOverview(cfg *config.Config) {
+func printConfigOverview(cfg *arenaconfig.Config) {
 	fmt.Printf("📋 Configuration Overview\n")
 	fmt.Printf("--------------------------\n")
 	fmt.Printf("Prompt Configs: %d\n", len(cfg.PromptConfigs))
@@ -85,7 +86,7 @@ func printConfigOverview(cfg *config.Config) {
 }
 
 // printScenarios prints all loaded scenarios
-func printScenarios(scenarios map[string]*config.Scenario) {
+func printScenarios(scenarios map[string]*arenaconfig.Scenario) {
 	if len(scenarios) == 0 {
 		return
 	}
@@ -98,7 +99,7 @@ func printScenarios(scenarios map[string]*config.Scenario) {
 }
 
 // printScenarioDetails prints details for a single scenario
-func printScenarioDetails(id string, scenario config.Scenario) {
+func printScenarioDetails(id string, scenario arenaconfig.Scenario) {
 	fmt.Printf("ID: %s\n", id)
 	fmt.Printf("Task Type: %s\n", scenario.TaskType)
 	if scenario.Mode != "" {

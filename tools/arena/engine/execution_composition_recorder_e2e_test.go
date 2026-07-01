@@ -24,6 +24,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -32,11 +35,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register composition_* and assertion handlers
 )
@@ -167,10 +169,10 @@ func TestExecuteRun_CompositionRecorder(t *testing.T) {
 	// --- 6. Scenario with ConversationAssertions that exercise all four
 	//        composition_* handlers. These run after the conversation completes
 	//        via evaluateConversationAssertions → resolveEvalOrchestrator.
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "recorder-scenario",
 		TaskType: "compose-rec-task",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: `{"flag":"a"}`},
 		},
 		ConversationAssertions: []assertions.AssertionConfig{
@@ -225,13 +227,13 @@ func TestExecuteRun_CompositionRecorder(t *testing.T) {
 	transExec := newWorkflowTransitionExecutor(wfSpec, reg)
 
 	e := &Engine{
-		config: &config.Config{
+		config: &arenaconfig.Config{
 			LoadedPack: pack,
 		},
-		scenarios: map[string]*config.Scenario{
+		scenarios: map[string]*arenaconfig.Scenario{
 			"recorder-scenario": scenario,
 		},
-		evals:                make(map[string]*config.Eval),
+		evals:                make(map[string]*arenaconfig.Eval),
 		providers:            make(map[string]*config.Provider),
 		providerRegistry:     provReg,
 		stateStore:           arenaStore,

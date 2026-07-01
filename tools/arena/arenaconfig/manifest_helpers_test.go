@@ -1,16 +1,18 @@
-package config
+package arenaconfig
 
 import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestScenarioConfig_K8sManifestInterface(t *testing.T) {
 	cfg := &ScenarioConfig{
 		APIVersion: "promptkit.altairalabs.io/v1alpha1",
 		Kind:       "Scenario",
-		Metadata: ObjectMeta{
+		Metadata: config.ObjectMeta{
 			Name: "test-scenario",
 		},
 		Spec: Scenario{
@@ -37,13 +39,13 @@ func TestScenarioConfig_K8sManifestInterface(t *testing.T) {
 }
 
 func TestProviderConfig_K8sManifestInterface(t *testing.T) {
-	cfg := &ProviderConfig{
+	cfg := &config.ProviderConfig{
 		APIVersion: "promptkit.altairalabs.io/v1alpha1",
 		Kind:       "Provider",
-		Metadata: ObjectMeta{
+		Metadata: config.ObjectMeta{
 			Name: "test-provider",
 		},
-		Spec: Provider{
+		Spec: config.Provider{
 			ID: "original-id",
 		},
 	}
@@ -97,13 +99,13 @@ func TestScenarioConfigK8s_K8sManifestInterface(t *testing.T) {
 }
 
 func TestProviderConfigK8s_K8sManifestInterface(t *testing.T) {
-	cfg := &ProviderConfigK8s{
+	cfg := &config.ProviderConfigK8s{
 		APIVersion: "promptkit.altairalabs.io/v1alpha1",
 		Kind:       "Provider",
 		Metadata: metav1.ObjectMeta{
 			Name: "test-provider-k8s",
 		},
-		Spec: Provider{
+		Spec: config.Provider{
 			ID: "original-id",
 		},
 	}
@@ -143,7 +145,7 @@ func TestManifestHelpers_InterfaceCompliance(t *testing.T) {
 			GetKind() string
 			GetName() string
 			SetID(string)
-		} = &ProviderConfig{}
+		} = &config.ProviderConfig{}
 	})
 
 	t.Run("ScenarioConfigK8s methods exist", func(t *testing.T) {
@@ -161,7 +163,7 @@ func TestManifestHelpers_InterfaceCompliance(t *testing.T) {
 			GetKind() string
 			GetName() string
 			SetID(string)
-		} = &ProviderConfigK8s{}
+		} = &config.ProviderConfigK8s{}
 	})
 
 	t.Run("EvalConfig methods exist", func(t *testing.T) {
@@ -187,7 +189,7 @@ func TestEvalConfig_K8sManifestInterface(t *testing.T) {
 	cfg := &EvalConfig{
 		APIVersion: "promptkit.altairalabs.io/v1alpha1",
 		Kind:       "Eval",
-		Metadata: ObjectMeta{
+		Metadata: config.ObjectMeta{
 			Name: "test-eval",
 		},
 		Spec: Eval{

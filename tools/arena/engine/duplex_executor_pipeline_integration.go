@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -17,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -49,7 +49,7 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 	de.emitSessionStarted(emitter, req)
 
 	// Get retry configuration from scenario
-	var resilience *config.DuplexResilienceConfig
+	var resilience *arenaconfig.DuplexResilienceConfig
 	if req.Scenario != nil && req.Scenario.Duplex != nil {
 		resilience = req.Scenario.Duplex.GetResilience()
 	}
@@ -556,7 +556,7 @@ func (de *DuplexConversationExecutor) applySelfPlayVADConfig(
 // only `content`) return false even when the arena's self_play block
 // is populated — those turns don't drive the LLM-as-user path and
 // must not trigger VAD-disabled overrides intended for selfplay.
-func scenarioUsesSelfPlay(scenario *config.Scenario) bool {
+func scenarioUsesSelfPlay(scenario *arenaconfig.Scenario) bool {
 	if scenario == nil {
 		return false
 	}

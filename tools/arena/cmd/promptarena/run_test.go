@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -337,8 +337,8 @@ func TestMockProviderFlagsRegistered(t *testing.T) {
 
 func TestExtractRunParameters_MockProviderFlags(t *testing.T) {
 	// Create a test command with mock provider flags set
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -408,7 +408,7 @@ func TestSetDefaultFilePaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a minimal config for the test
-			cfg := &config.Config{}
+			cfg := &arenaconfig.Config{}
 			setDefaultFilePaths(cfg, tt.params)
 			assert.Equal(t, tt.expectedOutDir, tt.params.OutDir)
 			assert.Equal(t, tt.expectedJUnitFile, tt.params.JUnitFile)
@@ -636,7 +636,7 @@ func TestSetDefaultFilePaths_JUnitDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{}
+			cfg := &arenaconfig.Config{}
 			setDefaultFilePaths(cfg, tt.params)
 
 			if tt.shouldSetJUnit {
@@ -713,7 +713,7 @@ func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
 	tests := []struct {
 		name             string
 		params           *RunParameters
-		cfg              *config.Config
+		cfg              *arenaconfig.Config
 		expectedMarkdown string
 	}{
 		{
@@ -723,10 +723,10 @@ func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
 				OutputFormats: []string{"markdown"},
 				MarkdownFile:  "",
 			},
-			cfg: &config.Config{
-				Defaults: config.Defaults{
-					Output: config.OutputConfig{
-						Markdown: &config.MarkdownOutputConfig{
+			cfg: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
+					Output: arenaconfig.OutputConfig{
+						Markdown: &arenaconfig.MarkdownOutputConfig{
 							File: "capability-matrix.md",
 						},
 					},
@@ -741,7 +741,7 @@ func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
 				OutputFormats: []string{"markdown"},
 				MarkdownFile:  "",
 			},
-			cfg:              &config.Config{},
+			cfg:              &arenaconfig.Config{},
 			expectedMarkdown: "output/results.md",
 		},
 		{
@@ -751,10 +751,10 @@ func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
 				OutputFormats: []string{"markdown"},
 				MarkdownFile:  "custom-report.md",
 			},
-			cfg: &config.Config{
-				Defaults: config.Defaults{
-					Output: config.OutputConfig{
-						Markdown: &config.MarkdownOutputConfig{
+			cfg: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
+					Output: arenaconfig.OutputConfig{
+						Markdown: &arenaconfig.MarkdownOutputConfig{
 							File: "capability-matrix.md",
 						},
 					},
@@ -769,10 +769,10 @@ func TestSetDefaultFilePaths_MarkdownConfig(t *testing.T) {
 				OutputFormats: []string{"json"},
 				MarkdownFile:  "",
 			},
-			cfg: &config.Config{
-				Defaults: config.Defaults{
-					Output: config.OutputConfig{
-						Markdown: &config.MarkdownOutputConfig{
+			cfg: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
+					Output: arenaconfig.OutputConfig{
+						Markdown: &arenaconfig.MarkdownOutputConfig{
 							File: "capability-matrix.md",
 						},
 					},
@@ -794,7 +794,7 @@ func TestSetDefaultFilePaths_HTMLConfig(t *testing.T) {
 	tests := []struct {
 		name         string
 		params       *RunParameters
-		cfg          *config.Config
+		cfg          *arenaconfig.Config
 		expectedHTML string
 	}{
 		{
@@ -804,10 +804,10 @@ func TestSetDefaultFilePaths_HTMLConfig(t *testing.T) {
 				OutputFormats: []string{"html"},
 				HTMLFile:      "",
 			},
-			cfg: &config.Config{
-				Defaults: config.Defaults{
-					Output: config.OutputConfig{
-						HTML: &config.HTMLOutputConfig{
+			cfg: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
+					Output: arenaconfig.OutputConfig{
+						HTML: &arenaconfig.HTMLOutputConfig{
 							File: "report.html",
 						},
 					},
@@ -823,7 +823,7 @@ func TestSetDefaultFilePaths_HTMLConfig(t *testing.T) {
 				HTMLFile:       "",
 				HTMLReportPath: "deprecated-report.html",
 			},
-			cfg:          &config.Config{},
+			cfg:          &arenaconfig.Config{},
 			expectedHTML: "output/deprecated-report.html",
 		},
 	}

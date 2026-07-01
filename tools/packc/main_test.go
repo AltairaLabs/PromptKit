@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestGetFragmentNames(t *testing.T) {
@@ -427,13 +428,13 @@ func TestPrintPromptsFunction(t *testing.T) {
 
 func TestMustLoadConfig_Error(t *testing.T) {
 	// Test that the underlying function returns error for nonexistent file
-	_, err := config.LoadConfig("nonexistent-file.yaml")
+	_, err := arenaconfig.LoadConfig("nonexistent-file.yaml")
 	assert.Error(t, err)
 }
 
 func TestBuildMemoryRepo(t *testing.T) {
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"test": {
 				FilePath: "test.yaml",
 				Config: &prompt.Config{
@@ -460,8 +461,8 @@ func TestBuildMemoryRepo(t *testing.T) {
 
 func TestBuildMemoryRepo_InvalidConfig(t *testing.T) {
 	// nil config should be skipped without error
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"test": {
 				FilePath: "test.yaml",
 				Config:   nil, // nil config should be skipped
@@ -480,8 +481,8 @@ func TestValidateLoadedMedia(t *testing.T) {
 	err := os.WriteFile(testFile, []byte("test"), 0644)
 	require.NoError(t, err)
 
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"test": {
 				FilePath: "test.yaml",
 				Config: &prompt.Config{

@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -50,7 +50,7 @@ func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		eval        *config.Eval
+		eval        *arenaconfig.Eval
 		shouldFail  bool
 		errorSubstr string
 	}{
@@ -62,9 +62,9 @@ func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 		},
 		{
 			name: "missing recording path",
-			eval: &config.Eval{
+			eval: &arenaconfig.Eval{
 				ID: "test",
-				Recording: config.RecordingSource{
+				Recording: arenaconfig.RecordingSource{
 					Path: "",
 				},
 			},
@@ -73,9 +73,9 @@ func TestEvalConversationExecutor_ValidatesEvalConfig(t *testing.T) {
 		},
 		{
 			name: "valid eval config",
-			eval: &config.Eval{
+			eval: &arenaconfig.Eval{
 				ID: "test",
-				Recording: config.RecordingSource{
+				Recording: arenaconfig.RecordingSource{
 					Path: "test.json",
 					Type: "session",
 				},
@@ -148,9 +148,9 @@ func TestEvalConversationExecutor_RequiresAdapterRegistry(t *testing.T) {
 	)
 
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},
@@ -178,9 +178,9 @@ func TestEvalConversationExecutor_NoAdapterFound(t *testing.T) {
 	)
 
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "nonexistent.json",
 			},
 		},
@@ -516,13 +516,13 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		eval     *config.Eval
+		eval     *arenaconfig.Eval
 		messages []types.Message
 		metadata *adapters.RecordingMetadata
 	}{
 		{
 			name: "basic context",
-			eval: &config.Eval{
+			eval: &arenaconfig.Eval{
 				ID:   "test-eval",
 				Tags: []string{"eval-tag"},
 			},
@@ -540,7 +540,7 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &ConversationRequest{
 				Eval:   tt.eval,
-				Config: &config.Config{}, // Empty config is fine for this test
+				Config: &arenaconfig.Config{}, // Empty config is fine for this test
 			}
 			ctx := executor.buildConversationContext(req, tt.messages, tt.metadata)
 
@@ -634,9 +634,9 @@ func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 	)
 
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},

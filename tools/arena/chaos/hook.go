@@ -9,8 +9,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 type contextKey int
@@ -56,7 +56,7 @@ func (h *Hook) AfterExecution(_ context.Context, _ hooks.ToolRequest, _ hooks.To
 }
 
 // applyFailure creates the appropriate failure decision for the given mode.
-func applyFailure(ctx context.Context, toolName string, rule config.ChaosToolFailure) hooks.Decision {
+func applyFailure(ctx context.Context, toolName string, rule arenaconfig.ChaosToolFailure) hooks.Decision {
 	msg := rule.Message
 	meta := map[string]any{
 		"chaos_injected": true,
@@ -109,12 +109,12 @@ func shouldFire(probability float64) bool {
 }
 
 // WithConfig stores chaos config in the context.
-func WithConfig(ctx context.Context, cfg *config.ChaosConfig) context.Context {
+func WithConfig(ctx context.Context, cfg *arenaconfig.ChaosConfig) context.Context {
 	return context.WithValue(ctx, chaosConfigKey, cfg)
 }
 
 // ConfigFromContext retrieves chaos config from the context.
-func ConfigFromContext(ctx context.Context) *config.ChaosConfig {
-	v, _ := ctx.Value(chaosConfigKey).(*config.ChaosConfig)
+func ConfigFromContext(ctx context.Context) *arenaconfig.ChaosConfig {
+	v, _ := ctx.Value(chaosConfigKey).(*arenaconfig.ChaosConfig)
 	return v
 }

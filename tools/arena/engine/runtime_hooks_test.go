@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
-func sessionHookConfig() *config.Config {
-	return &config.Config{Runtime: &config.RuntimeConfigSpec{
+func sessionHookConfig() *arenaconfig.Config {
+	return &arenaconfig.Config{Runtime: &config.RuntimeConfigSpec{
 		Hooks: map[string]*config.ExecHook{
 			"capture": {Hook: "session", ExecBinding: config.ExecBinding{Command: "echo"}},
 		},
@@ -15,7 +16,7 @@ func sessionHookConfig() *config.Config {
 }
 
 func TestApplyRuntimeHooks_NilRuntimeIsNoop(t *testing.T) {
-	e := &Engine{config: &config.Config{}}
+	e := &Engine{config: &arenaconfig.Config{}}
 	if err := e.applyRuntimeHooks(); err != nil {
 		t.Fatalf("nil runtime should be a no-op, got %v", err)
 	}
@@ -36,7 +37,7 @@ func TestApplyRuntimeHooks_RegistersSessionHook(t *testing.T) {
 
 func TestApplyRuntimeHooks_RejectsProviderAndToolHooks(t *testing.T) {
 	for _, hookType := range []string{"provider", "tool"} {
-		e := &Engine{config: &config.Config{Runtime: &config.RuntimeConfigSpec{
+		e := &Engine{config: &arenaconfig.Config{Runtime: &config.RuntimeConfigSpec{
 			Hooks: map[string]*config.ExecHook{
 				"x": {Hook: hookType, ExecBinding: config.ExecBinding{Command: "echo"}},
 			},
@@ -48,7 +49,7 @@ func TestApplyRuntimeHooks_RejectsProviderAndToolHooks(t *testing.T) {
 }
 
 func TestApplyRuntimeHooks_UndeclaredSandboxErrors(t *testing.T) {
-	e := &Engine{config: &config.Config{Runtime: &config.RuntimeConfigSpec{
+	e := &Engine{config: &arenaconfig.Config{Runtime: &config.RuntimeConfigSpec{
 		Hooks: map[string]*config.ExecHook{
 			"x": {Hook: "session", ExecBinding: config.ExecBinding{Command: "echo", Sandbox: "ghost"}},
 		},

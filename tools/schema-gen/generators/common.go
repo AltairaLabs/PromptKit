@@ -4,7 +4,7 @@ import (
 	"github.com/invopop/jsonschema"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GenerateMetadataSchema generates the JSON Schema for Kubernetes ObjectMeta
@@ -21,12 +21,12 @@ func GenerateMetadataSchema() (interface{}, error) {
 }
 
 // GenerateAssertionsSchema generates the standalone schema for a single
-// PromptArena assertion (config.AssertionConfig). The `type` field is an open
+// PromptArena assertion (arenaconfig.AssertionConfig). The `type` field is an open
 // enum: PromptKit-known handler types are suggested, but any string is accepted
 // so a different runtime's types are not rejected.
 func GenerateAssertionsSchema() (interface{}, error) {
 	reflector := newReflector("yaml")
-	schema := reflector.Reflect(&config.AssertionConfig{})
+	schema := reflector.Reflect(&arenaconfig.AssertionConfig{})
 
 	schema.Version = draftSchemaVersion
 	schema.ID = jsonschema.ID(schemaBaseURL + "/common/assertions.json")

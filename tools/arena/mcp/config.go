@@ -20,14 +20,14 @@ package mcp
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // NewRegistryFromConfig creates a registry from a config object.
 // It registers all MCP servers defined in the configuration.
 // Returns an empty registry if no servers are configured.
-func NewRegistryFromConfig(cfg *config.Config) (*mcp.RegistryImpl, error) {
+func NewRegistryFromConfig(cfg *arenaconfig.Config) (*mcp.RegistryImpl, error) {
 	registry := mcp.NewRegistry()
 
 	for _, serverCfg := range cfg.MCPServers {

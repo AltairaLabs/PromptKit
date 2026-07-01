@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -41,7 +41,7 @@ const (
 type engineRunner interface {
 	GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, evalFilter []string) (*engine.RunPlan, error)
 	ExecuteRuns(ctx context.Context, plan *engine.RunPlan, concurrency int) ([]string, error)
-	GetConfig() *config.Config
+	GetConfig() *arenaconfig.Config
 	ListProviders() []engine.ProviderInfo
 	ListScenarios() []engine.ScenarioInfo
 	RegisterRunCompletedHook(hook engine.RunCompletedHook)

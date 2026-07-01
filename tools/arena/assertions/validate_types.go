@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // fuzzyMatchThresholdDivisor controls how close a suggestion must be.
@@ -19,7 +19,7 @@ const (
 // ValidateAssertionTypes checks all assertion types in loaded scenarios against
 // the eval handler registry. Returns a list of human-readable error strings for
 // unknown types, each with a "did you mean?" suggestion when a close match exists.
-func ValidateAssertionTypes(scenarios map[string]*config.Scenario, registry *evals.EvalTypeRegistry) []string {
+func ValidateAssertionTypes(scenarios map[string]*arenaconfig.Scenario, registry *evals.EvalTypeRegistry) []string {
 	if len(scenarios) == 0 {
 		return nil
 	}
@@ -36,7 +36,7 @@ func ValidateAssertionTypes(scenarios map[string]*config.Scenario, registry *eva
 }
 
 func collectScenarioErrors(
-	name string, scenario *config.Scenario,
+	name string, scenario *arenaconfig.Scenario,
 	registry *evals.EvalTypeRegistry, registeredTypes []string,
 	errs []string,
 ) []string {

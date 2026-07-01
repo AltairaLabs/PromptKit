@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -17,7 +17,7 @@ import (
 func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 	ctx context.Context,
 	req *ConversationRequest,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	turnIdx int,
 ) {
 	if len(turn.Assertions) == 0 {

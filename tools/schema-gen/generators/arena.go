@@ -5,6 +5,7 @@ import (
 	"github.com/invopop/jsonschema"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 // GenerateArenaSchema generates the JSON Schema for Arena configuration
 func GenerateArenaSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.ArenaConfig{},
+		Target:      &arenaconfig.ArenaConfig{},
 		Filename:    "arena.json",
 		Title:       "PromptArena Configuration",
 		Description: "Main configuration for PromptArena test suites",

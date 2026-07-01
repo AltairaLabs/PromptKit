@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // PersonaAssemblyStage assembles persona prompts using the same
@@ -21,7 +21,7 @@ import (
 //   - Writes the rendered system prompt and base variables into TurnState
 type PersonaAssemblyStage struct {
 	stage.BaseStage
-	persona        *config.UserPersonaPack
+	persona        *arenaconfig.UserPersonaPack
 	region         string
 	baseVariables  map[string]string
 	turnState      *stage.TurnState
@@ -31,7 +31,7 @@ type PersonaAssemblyStage struct {
 // NewPersonaAssemblyStageWithTurnState creates a persona assembly stage that
 // writes the rendered persona system prompt into the shared *TurnState.
 func NewPersonaAssemblyStageWithTurnState(
-	persona *config.UserPersonaPack,
+	persona *arenaconfig.UserPersonaPack,
 	region string,
 	baseVariables map[string]string,
 	turnState *stage.TurnState,

@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestGetConfigFileFromCmd(t *testing.T) {
@@ -64,11 +66,11 @@ func TestPrintDebugHeaderOutput(t *testing.T) {
 }
 
 func TestPrintConfigOverviewOutput(t *testing.T) {
-	cfg := &config.Config{
-		PromptConfigs: []config.PromptConfigRef{{ID: "test", File: "test.yaml"}},
-		Providers:     []config.ProviderRef{{File: "provider1.yaml"}},
-		Scenarios:     []config.ScenarioRef{{File: "scenario1.yaml"}},
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		PromptConfigs: []arenaconfig.PromptConfigRef{{ID: "test", File: "test.yaml"}},
+		Providers:     []arenaconfig.ProviderRef{{File: "provider1.yaml"}},
+		Scenarios:     []arenaconfig.ScenarioRef{{File: "scenario1.yaml"}},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   1024,
 			Seed:        42,
@@ -100,20 +102,20 @@ func TestPrintConfigOverviewOutput(t *testing.T) {
 func TestPrintScenariosOutput(t *testing.T) {
 	tests := []struct {
 		name      string
-		scenarios map[string]*config.Scenario
+		scenarios map[string]*arenaconfig.Scenario
 	}{
 		{
 			name:      "empty scenarios",
-			scenarios: map[string]*config.Scenario{},
+			scenarios: map[string]*arenaconfig.Scenario{},
 		},
 		{
 			name: "single scenario",
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"test1": {
 					ID:          "test1",
 					Description: "Test scenario 1",
 					TaskType:    "predict",
-					Turns: []config.TurnDefinition{
+					Turns: []arenaconfig.TurnDefinition{
 						{Role: "user", Content: "Hello"},
 					},
 				},
@@ -149,11 +151,11 @@ func TestPrintScenariosOutput(t *testing.T) {
 }
 
 func TestPrintScenarioDetailsOutput(t *testing.T) {
-	scenario := config.Scenario{
+	scenario := arenaconfig.Scenario{
 		ID:          "test-scenario",
 		Description: "A test scenario",
 		TaskType:    "predict",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 			{Role: "assistant", Content: "Hi there"},
 		},

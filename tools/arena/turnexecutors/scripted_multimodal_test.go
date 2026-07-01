@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestScriptedExecutor_BuildUserMessage_LegacyTextContent(t *testing.T) {
@@ -49,11 +49,11 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 	executor := NewScriptedExecutor(nil)
 	executor.httpLoader = newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: "What's in this image?"},
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL:      server.URL, // Use mock server URL
 				MIMEType: "image/jpeg",
 			},
@@ -105,11 +105,11 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalWithFile(t *testing.T) {
 
 	executor := NewScriptedExecutor(nil)
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: "Describe this image:"},
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: imageFile, // Use absolute path
 				MIMEType: "image/jpeg",
 			},
@@ -138,7 +138,7 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalWithFile(t *testing.T) {
 func TestScriptedExecutor_BuildUserMessage_InvalidParts(t *testing.T) {
 	executor := NewScriptedExecutor(nil)
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "invalid_type", Text: "test"},
 	}
 
@@ -155,10 +155,10 @@ func TestScriptedExecutor_BuildUserMessage_InvalidParts(t *testing.T) {
 func TestScriptedExecutor_BuildUserMessage_FileNotFound(t *testing.T) {
 	executor := NewScriptedExecutor(nil)
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "/nonexistent/file.jpg",
 			},
 		},

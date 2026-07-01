@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -180,7 +181,7 @@ func (ce *DefaultConversationExecutor) countAssistantMessages(ctx context.Contex
 func (ce *DefaultConversationExecutor) executeNonStreamingTurn(
 	ctx context.Context,
 	req *ConversationRequest,
-	scenarioTurn config.TurnDefinition,
+	scenarioTurn arenaconfig.TurnDefinition,
 ) error {
 	turnReq := ce.buildTurnRequest(*req, scenarioTurn)
 
@@ -199,7 +200,7 @@ func (ce *DefaultConversationExecutor) executeNonStreamingTurn(
 func (ce *DefaultConversationExecutor) executeNonStreamingSelfPlayTurn(
 	ctx context.Context,
 	turnReq turnexecutors.TurnRequest,
-	scenarioTurn config.TurnDefinition,
+	scenarioTurn arenaconfig.TurnDefinition,
 ) error {
 	minTurns, maxTurns, naturalTermination := selfPlayTurnBounds(&scenarioTurn)
 
@@ -257,7 +258,9 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 }
 
 // executeStreamingTurn executes a single turn with streaming support
-func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context, req ConversationRequest, turnIdx int, scenarioTurn config.TurnDefinition) error {
+func (ce *DefaultConversationExecutor) executeStreamingTurn(
+	ctx context.Context, req ConversationRequest, turnIdx int, scenarioTurn arenaconfig.TurnDefinition,
+) error {
 	ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)
 
 	turnReq := ce.buildTurnRequest(req, scenarioTurn)
@@ -267,7 +270,7 @@ func (ce *DefaultConversationExecutor) executeStreamingTurn(ctx context.Context,
 }
 
 // debugOnUserTurnAssertions logs debug message if assertions are specified on user turns
-func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn config.TurnDefinition, turnIdx int) {
+func (ce *DefaultConversationExecutor) debugOnUserTurnAssertions(scenarioTurn arenaconfig.TurnDefinition, turnIdx int) {
 	if scenarioTurn.Role == roleUser && len(scenarioTurn.Assertions) > 0 {
 		logger.Debug("Assertions on user turn will validate next assistant response",
 			"turn", turnIdx)
@@ -318,7 +321,9 @@ func (ce *DefaultConversationExecutor) notifyTurnCompleted(
 }
 
 // buildTurnRequest creates a TurnRequest from the conversation request and scenario turn
-func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest, scenarioTurn config.TurnDefinition) turnexecutors.TurnRequest {
+func (ce *DefaultConversationExecutor) buildTurnRequest( //nolint:gocognit // pre-existing complexity, unchanged by move
+	req ConversationRequest, scenarioTurn arenaconfig.TurnDefinition,
+) turnexecutors.TurnRequest {
 	baseDir := ""
 	metadata := make(map[string]interface{})
 	if req.Config != nil {
@@ -427,7 +432,9 @@ func (ce *DefaultConversationExecutor) resolveEvalOrchestrator(req *Conversation
 }
 
 // executeTurnByRole executes a turn based on its role (self-play or scripted)
-func (ce *DefaultConversationExecutor) executeTurnByRole(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+func (ce *DefaultConversationExecutor) executeTurnByRole(
+	ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn arenaconfig.TurnDefinition, shouldStream bool,
+) error {
 	if ce.isSelfPlayRole(scenarioTurn.Role) {
 		return ce.executeSelfPlayTurn(ctx, turnReq, scenarioTurn, shouldStream)
 	}
@@ -446,7 +453,7 @@ func (ce *DefaultConversationExecutor) executeStreamingSelfPlayTurns(
 	ctx context.Context,
 	req *ConversationRequest,
 	turnIdx int,
-	scenarioTurn config.TurnDefinition,
+	scenarioTurn arenaconfig.TurnDefinition,
 ) error {
 	minTurns, maxTurns, naturalTermination := selfPlayTurnBounds(&scenarioTurn)
 	shouldStream := req.Scenario.ShouldStreamTurn(turnIdx)
@@ -469,7 +476,7 @@ func (ce *DefaultConversationExecutor) executeStreamingSelfPlayTurns(
 }
 
 // selfPlayTurnBounds computes the min/max turn counts and whether natural termination is active.
-func selfPlayTurnBounds(turn *config.TurnDefinition) (minTurns, maxTurns int, naturalTermination bool) {
+func selfPlayTurnBounds(turn *arenaconfig.TurnDefinition) (minTurns, maxTurns int, naturalTermination bool) {
 	minTurns = turn.Turns
 	if minTurns == 0 {
 		minTurns = 1
@@ -485,7 +492,7 @@ func selfPlayTurnBounds(turn *config.TurnDefinition) (minTurns, maxTurns int, na
 // buildSelfPlayTurnRequest creates a TurnRequest configured for self-play execution.
 func (ce *DefaultConversationExecutor) buildSelfPlayTurnRequest(
 	req *ConversationRequest,
-	scenarioTurn *config.TurnDefinition,
+	scenarioTurn *arenaconfig.TurnDefinition,
 	naturalTermination bool,
 ) turnexecutors.TurnRequest {
 	turnReq := ce.buildTurnRequest(*req, *scenarioTurn)
@@ -518,7 +525,9 @@ func handleCompletionError(err error, turnIndex, minTurns, maxTurns int) (bool, 
 }
 
 // executeSelfPlayTurn executes a self-play turn
-func (ce *DefaultConversationExecutor) executeSelfPlayTurn(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+func (ce *DefaultConversationExecutor) executeSelfPlayTurn(
+	ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn arenaconfig.TurnDefinition, shouldStream bool,
+) error {
 	turnReq.SelfPlayRole = scenarioTurn.Role
 	turnReq.SelfPlayPersona = scenarioTurn.Persona
 
@@ -529,7 +538,9 @@ func (ce *DefaultConversationExecutor) executeSelfPlayTurn(ctx context.Context, 
 }
 
 // executeScriptedTurn executes a scripted user turn
-func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn config.TurnDefinition, shouldStream bool) error {
+func (ce *DefaultConversationExecutor) executeScriptedTurn(
+	ctx context.Context, turnReq turnexecutors.TurnRequest, scenarioTurn arenaconfig.TurnDefinition, shouldStream bool,
+) error {
 	turnReq.ScriptedContent = scenarioTurn.Content
 	// Preserve multimodal parts for scripted turns (streaming and non-streaming)
 	turnReq.ScriptedParts = scenarioTurn.Parts
@@ -544,7 +555,7 @@ func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, 
 //
 //nolint:gocritic // scenarioTurn value receiver matches range variable from caller
 func (ce *DefaultConversationExecutor) handleTurnExecutionError(
-	ctx context.Context, req *ConversationRequest, err error, turnIdx int, scenarioTurn config.TurnDefinition,
+	ctx context.Context, req *ConversationRequest, err error, turnIdx int, scenarioTurn arenaconfig.TurnDefinition,
 ) *ConversationResult {
 	result := ce.buildResultFromStateStore(ctx, req)
 
@@ -571,7 +582,9 @@ func (ce *DefaultConversationExecutor) handleTurnExecutionError(
 }
 
 // logTurnCompletion logs successful turn completion
-func (ce *DefaultConversationExecutor) logTurnCompletion(turnIdx int, scenarioTurn config.TurnDefinition, shouldStream bool) {
+func (ce *DefaultConversationExecutor) logTurnCompletion(
+	turnIdx int, scenarioTurn arenaconfig.TurnDefinition, shouldStream bool,
+) {
 	logger.Debug("Turn completed",
 		"turn", turnIdx,
 		"role", scenarioTurn.Role,
@@ -647,7 +660,7 @@ func (ce *DefaultConversationExecutor) executeStreamingTurnAndSendChunks(
 	ctx context.Context,
 	req ConversationRequest,
 	turnIdx int,
-	scenarioTurn config.TurnDefinition,
+	scenarioTurn arenaconfig.TurnDefinition,
 	result *ConversationResult,
 	outChan chan<- ConversationStreamChunk,
 ) bool {
@@ -666,7 +679,7 @@ func (ce *DefaultConversationExecutor) executeStreamingTurnAndSendChunks(
 func (ce *DefaultConversationExecutor) getStreamForRole(
 	ctx context.Context,
 	turnReq turnexecutors.TurnRequest,
-	scenarioTurn config.TurnDefinition,
+	scenarioTurn arenaconfig.TurnDefinition,
 ) (<-chan turnexecutors.MessageStreamChunk, error) {
 	if ce.isSelfPlayRole(scenarioTurn.Role) {
 		turnReq.SelfPlayRole = scenarioTurn.Role
@@ -739,7 +752,7 @@ func (ce *DefaultConversationExecutor) sendFinalStreamResult(
 }
 
 // attachJudgeMetadata injects judge targets/defaults into metadata map as plain structs to avoid cycles.
-func attachJudgeMetadata(metadata map[string]interface{}, cfg *config.Config) {
+func attachJudgeMetadata(metadata map[string]interface{}, cfg *arenaconfig.Config) {
 	if cfg == nil {
 		return
 	}
@@ -855,7 +868,7 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(
 // assertions configured under spec.globals.conversation_assertions.
 // These apply to every scenario in addition to its own assertions.
 // Returns nil when no globals are set.
-func globalConversationAssertions(cfg *config.Config) []asrt.AssertionConfig {
+func globalConversationAssertions(cfg *arenaconfig.Config) []asrt.AssertionConfig {
 	if cfg == nil || cfg.Globals == nil {
 		return nil
 	}
@@ -865,7 +878,7 @@ func globalConversationAssertions(cfg *config.Config) []asrt.AssertionConfig {
 // mergeAssertionConfigs merges arena-level globals with source-level
 // (scenario / eval) assertions into a single slice. Globals come first
 // so per-scenario assertions can build on them.
-func mergeAssertionConfigs(cfg *config.Config, sourceAssertions []asrt.AssertionConfig) []asrt.AssertionConfig {
+func mergeAssertionConfigs(cfg *arenaconfig.Config, sourceAssertions []asrt.AssertionConfig) []asrt.AssertionConfig {
 	globals := globalConversationAssertions(cfg)
 	if len(globals) == 0 && len(sourceAssertions) == 0 {
 		return nil
@@ -880,7 +893,7 @@ func mergeAssertionConfigs(cfg *config.Config, sourceAssertions []asrt.Assertion
 // source-level (scenario or eval) assertions into a single slice of
 // ConversationAssertion. Globals come first, followed by source.
 func collectConversationAssertions(
-	cfg *config.Config, sourceAssertions []asrt.AssertionConfig,
+	cfg *arenaconfig.Config, sourceAssertions []asrt.AssertionConfig,
 ) []asrt.ConversationAssertion {
 	globals := globalConversationAssertions(cfg)
 	if len(globals) == 0 && len(sourceAssertions) == 0 {
@@ -1068,7 +1081,7 @@ func (ce *DefaultConversationExecutor) aggregateToolStats(toolStats *types.ToolS
 }
 
 // extractSelfPlayInfo detects self-play and extracts persona ID
-func (ce *DefaultConversationExecutor) extractSelfPlayInfo(scenario *config.Scenario) (bool, string) {
+func (ce *DefaultConversationExecutor) extractSelfPlayInfo(scenario *arenaconfig.Scenario) (bool, string) {
 	isSelfPlay := ce.containsSelfPlay(scenario)
 	var personaID string
 
@@ -1080,7 +1093,7 @@ func (ce *DefaultConversationExecutor) extractSelfPlayInfo(scenario *config.Scen
 }
 
 // findFirstSelfPlayPersona finds the persona ID from the first self-play turn
-func (ce *DefaultConversationExecutor) findFirstSelfPlayPersona(scenario *config.Scenario) string {
+func (ce *DefaultConversationExecutor) findFirstSelfPlayPersona(scenario *arenaconfig.Scenario) string {
 	for _, turn := range scenario.Turns {
 		if ce.isSelfPlayRole(turn.Role) && turn.Persona != "" {
 			return turn.Persona
@@ -1098,7 +1111,7 @@ func (ce *DefaultConversationExecutor) isSelfPlayRole(role string) bool {
 }
 
 // containsSelfPlay checks if scenario uses self-play
-func (ce *DefaultConversationExecutor) containsSelfPlay(scenario *config.Scenario) bool {
+func (ce *DefaultConversationExecutor) containsSelfPlay(scenario *arenaconfig.Scenario) bool {
 	for _, turn := range scenario.Turns {
 		if ce.isSelfPlayRole(turn.Role) {
 			return true

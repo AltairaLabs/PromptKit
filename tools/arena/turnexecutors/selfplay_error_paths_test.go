@@ -5,12 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
-	"github.com/stretchr/testify/mock"
 )
 
 // Error path testing mocks - use testify/mock for error injection
@@ -156,7 +157,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_Error(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	_, _, err := executor.generateUserMessage(context.Background(), &req, nil)
@@ -190,7 +191,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_NoContent(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	_, _, err := executor.generateUserMessage(context.Background(), &req, nil)
@@ -253,7 +254,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_Error(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	outChan := make(chan MessageStreamChunk, 1)
@@ -298,7 +299,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_CompletionDetected(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 		Metadata:        map[string]interface{}{"natural_termination_enabled": true},
 	}
 
@@ -337,7 +338,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_NoCompletionMarker(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	msg, detected, err := executor.generateUserMessage(context.Background(), &req, nil)
@@ -372,7 +373,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_CompletionDetected(t *tes
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 		Metadata:        map[string]interface{}{"natural_termination_enabled": true},
 	}
 
@@ -405,7 +406,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_NoContent(t *testing.T) {
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	outChan := make(chan MessageStreamChunk, 1)
@@ -433,7 +434,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_GetGeneratorError(t *test
 	req := TurnRequest{
 		SelfPlayRole:    "test-role",
 		SelfPlayPersona: "test-persona",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 	}
 
 	outChan := make(chan MessageStreamChunk, 1)

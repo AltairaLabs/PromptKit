@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -13,17 +17,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
-	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc"}}
+	req := ConversationRequest{Scenario: &arenaconfig.Scenario{ID: "sc"}}
 	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
 
 	res := ce.evaluateConversationAssertions(context.Background(), &req, msgs)
@@ -35,9 +37,9 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 func TestConversationExecutor_HandleTurnExecutionError(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{},
+		Scenario: &arenaconfig.Scenario{},
 	}
-	result := ce.handleTurnExecutionError(context.Background(), &req, assertErr{}, 0, config.TurnDefinition{Role: "user"})
+	result := ce.handleTurnExecutionError(context.Background(), &req, assertErr{}, 0, arenaconfig.TurnDefinition{Role: "user"})
 
 	require.True(t, result.Failed)
 	require.Equal(t, "failed", result.Error)
@@ -46,10 +48,10 @@ func TestConversationExecutor_HandleTurnExecutionError(t *testing.T) {
 func TestConversationExecutor_HandleTurnExecutionError_TransientSkipped(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{},
+		Scenario: &arenaconfig.Scenario{},
 	}
 	transientErr := &providers.ProviderHTTPError{StatusCode: 503, URL: "https://api.example.com/v1/chat", Body: "service unavailable", Provider: "test"}
-	result := ce.handleTurnExecutionError(context.Background(), &req, transientErr, 0, config.TurnDefinition{Role: "user"})
+	result := ce.handleTurnExecutionError(context.Background(), &req, transientErr, 0, arenaconfig.TurnDefinition{Role: "user"})
 
 	require.True(t, result.Skipped, "transient error should mark result as skipped")
 	require.False(t, result.Failed, "transient error should not mark result as failed")
@@ -60,9 +62,9 @@ func TestConversationExecutor_HandleTurnExecutionError_TransientSkipped(t *testi
 func TestConversationExecutor_HandleTurnExecutionError_NonTransientFails(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{},
+		Scenario: &arenaconfig.Scenario{},
 	}
-	result := ce.handleTurnExecutionError(context.Background(), &req, errors.New("validation failed"), 0, config.TurnDefinition{Role: "user"})
+	result := ce.handleTurnExecutionError(context.Background(), &req, errors.New("validation failed"), 0, arenaconfig.TurnDefinition{Role: "user"})
 
 	require.True(t, result.Failed, "non-transient error should mark result as failed")
 	require.False(t, result.Skipped, "non-transient error should not mark result as skipped")
@@ -77,13 +79,13 @@ func TestConversationExecutor_HandleTurnExecutionError_IdleTimeoutFails(t *testi
 	// — NOT skipped — otherwise the error is cleared and a run that never
 	// executed is reported as a green PASS.
 	ce := &DefaultConversationExecutor{}
-	req := ConversationRequest{Scenario: &config.Scenario{}}
+	req := ConversationRequest{Scenario: &arenaconfig.Scenario{}}
 	idleErr := &providers.ProviderTransportError{
 		Cause:    fmt.Errorf("%w: use of closed network connection", providers.ErrStreamIdleTimeout),
 		Provider: "openai",
 	}
 
-	result := ce.handleTurnExecutionError(context.Background(), &req, idleErr, 0, config.TurnDefinition{Role: "user"})
+	result := ce.handleTurnExecutionError(context.Background(), &req, idleErr, 0, arenaconfig.TurnDefinition{Role: "user"})
 
 	require.True(t, result.Failed, "idle timeout must mark result as failed")
 	require.False(t, result.Skipped, "idle timeout must not be skipped (that is the false green)")
@@ -91,9 +93,9 @@ func TestConversationExecutor_HandleTurnExecutionError_IdleTimeoutFails(t *testi
 }
 
 func TestBuildConversationContext_IncludesExtras(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		ProviderGroups: map[string]string{"prov1": "judge"},
-		LoadedJudges: map[string]*config.JudgeTarget{
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{
 			"judge1": {
 				Name: "judge1",
 				Provider: &config.Provider{
@@ -103,10 +105,10 @@ func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 				},
 			},
 		},
-		JudgeDefaults: &config.JudgeDefaults{Prompt: "p", PromptRegistry: "./prompts"},
+		JudgeDefaults: &arenaconfig.JudgeDefaults{Prompt: "p", PromptRegistry: "./prompts"},
 	}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{ID: "sc", TaskType: "task"},
+		Scenario: &arenaconfig.Scenario{ID: "sc", TaskType: "task"},
 		Config:   cfg,
 	}
 	msgs := []types.Message{{Role: "assistant", Content: "hi"}}
@@ -127,7 +129,7 @@ func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	ce := &DefaultConversationExecutor{}
-	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc", ConversationAssertions: []arenaassertions.AssertionConfig{
+	req := ConversationRequest{Scenario: &arenaconfig.Scenario{ID: "sc", ConversationAssertions: []arenaassertions.AssertionConfig{
 		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
 	}}}
 
@@ -150,8 +152,8 @@ func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 
 func TestBuildConversationContext_IncludesPromptRegistry(t *testing.T) {
 	req := ConversationRequest{
-		Scenario: &config.Scenario{ID: "sc", TaskType: "task"},
-		Config:   &config.Config{},
+		Scenario: &arenaconfig.Scenario{ID: "sc", TaskType: "task"},
+		Config:   &arenaconfig.Config{},
 	}
 	reg := createTestPromptRegistry(t)
 	ctx := buildConversationContext(&req, []types.Message{}, reg)
@@ -166,12 +168,12 @@ func TestBuildConversationContext_IncludesPromptRegistry(t *testing.T) {
 func TestBuildTurnRequest_IncludesPromptRegistryMetadata(t *testing.T) {
 	reg := createTestPromptRegistry(t)
 	ce := &DefaultConversationExecutor{promptRegistry: reg}
-	cfg := &config.Config{Defaults: config.Defaults{Seed: 1}}
+	cfg := &arenaconfig.Config{Defaults: arenaconfig.Defaults{Seed: 1}}
 	req := ConversationRequest{
 		Config:   cfg,
-		Scenario: &config.Scenario{TaskType: "task"},
+		Scenario: &arenaconfig.Scenario{TaskType: "task"},
 	}
-	tr := ce.buildTurnRequest(req, config.TurnDefinition{Role: "user"})
+	tr := ce.buildTurnRequest(req, arenaconfig.TurnDefinition{Role: "user"})
 	if tr.Metadata == nil {
 		t.Fatalf("expected metadata to be set")
 	}
@@ -184,9 +186,9 @@ func TestBuildTurnRequest_Overrides(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
 	temp := 0.7
 	maxT := 123
-	cfg := &config.Config{Defaults: config.Defaults{Temperature: 0, MaxTokens: 0, Seed: 42}}
-	req := ConversationRequest{Config: cfg, Region: "us", Scenario: &config.Scenario{TaskType: "task"}, Temperature: &temp, MaxTokens: &maxT}
-	tr := ce.buildTurnRequest(req, config.TurnDefinition{Role: "user"})
+	cfg := &arenaconfig.Config{Defaults: arenaconfig.Defaults{Temperature: 0, MaxTokens: 0, Seed: 42}}
+	req := ConversationRequest{Config: cfg, Region: "us", Scenario: &arenaconfig.Scenario{TaskType: "task"}, Temperature: &temp, MaxTokens: &maxT}
+	tr := ce.buildTurnRequest(req, arenaconfig.TurnDefinition{Role: "user"})
 
 	if tr.Temperature != temp || tr.MaxTokens != maxT {
 		t.Fatalf("expected overrides to apply: %+v", tr)
@@ -196,7 +198,7 @@ func TestBuildTurnRequest_Overrides(t *testing.T) {
 // Ensure ExecuteTurnByRole returns error on unsupported role (simple negative path)
 func TestExecuteTurnByRole_Unsupported(t *testing.T) {
 	ce := &DefaultConversationExecutor{}
-	err := ce.executeTurnByRole(context.Background(), turnexecutors.TurnRequest{}, config.TurnDefinition{Role: "assistant"}, false)
+	err := ce.executeTurnByRole(context.Background(), turnexecutors.TurnRequest{}, arenaconfig.TurnDefinition{Role: "assistant"}, false)
 	if err == nil {
 		t.Fatalf("expected error for unsupported role")
 	}
@@ -341,7 +343,7 @@ func (m *MockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 func TestNewDefaultConversationExecutor(t *testing.T) {
 	scriptedExecutor := &MockTurnExecutor{}
 	selfPlayExecutor := &MockTurnExecutor{}
-	registry := selfplay.NewRegistry(nil, map[string]string{}, map[string]*config.UserPersonaPack{}, []config.SelfPlayRoleGroup{})
+	registry := selfplay.NewRegistry(nil, map[string]string{}, map[string]*arenaconfig.UserPersonaPack{}, []arenaconfig.SelfPlayRoleGroup{})
 	promptRegistry := createTestPromptRegistry(t)
 
 	executor := NewDefaultConversationExecutor(
@@ -423,10 +425,10 @@ func TestExecuteConversation_BasicScriptedScenario(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{
 				Role:    "user",
 				Content: "Hello, how are you?",
@@ -438,8 +440,8 @@ func TestExecuteConversation_BasicScriptedScenario(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "test"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -495,10 +497,10 @@ func TestExecuteConversation_MultipleScriptedTurns(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "First message"},
 			{Role: "user", Content: "Second message"},
 			{Role: "user", Content: "Third message"},
@@ -509,8 +511,8 @@ func TestExecuteConversation_MultipleScriptedTurns(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "test"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -592,10 +594,10 @@ func TestExecuteConversation_WithToolCalls(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "What's the weather?"},
 		},
 	}
@@ -604,8 +606,8 @@ func TestExecuteConversation_WithToolCalls(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "test"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -657,10 +659,10 @@ func TestExecuteConversation_ExecutorError(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 		},
 	}
@@ -669,8 +671,8 @@ func TestExecuteConversation_ExecutorError(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "test"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -740,10 +742,10 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "validation-test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Test message"},
 		},
 	}
@@ -755,8 +757,8 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 		Scenario:       scenario,
 		Provider:       &MockProvider{id: "test"},
 		ConversationID: conversationID,
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -813,8 +815,8 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 }
 
 func TestCollectConversationAssertions_PackAndScenario(t *testing.T) {
-	cfg := &config.Config{
-		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
+	cfg := &arenaconfig.Config{
+		Globals: &arenaconfig.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-forbidden"}}},
 		}},
 	}
@@ -833,8 +835,8 @@ func TestCollectConversationAssertions_PackAndScenario(t *testing.T) {
 }
 
 func TestCollectConversationAssertions_PackOnly(t *testing.T) {
-	cfg := &config.Config{
-		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
+	cfg := &arenaconfig.Config{
+		Globals: &arenaconfig.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
 		}},
 	}
@@ -857,15 +859,15 @@ func TestCollectConversationAssertions_NilConfig(t *testing.T) {
 }
 
 func TestCollectConversationAssertions_Empty(t *testing.T) {
-	result := collectConversationAssertions(&config.Config{}, nil)
+	result := collectConversationAssertions(&arenaconfig.Config{}, nil)
 	if len(result) != 0 {
 		t.Fatalf("expected 0 assertions, got %d", len(result))
 	}
 }
 
 func TestMergeAssertionConfigs_PackAndSource(t *testing.T) {
-	cfg := &config.Config{
-		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
+	cfg := &arenaconfig.Config{
+		Globals: &arenaconfig.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "cost_limit"},
 		}},
 	}
@@ -888,13 +890,13 @@ func TestMergeAssertionConfigs_PackAndSource(t *testing.T) {
 func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	ce := &DefaultConversationExecutor{}
-	cfg := &config.Config{
-		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
+	cfg := &arenaconfig.Config{
+		Globals: &arenaconfig.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
 		}},
 	}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{ID: "sc"},
+		Scenario: &arenaconfig.Scenario{ID: "sc"},
 		Config:   cfg,
 	}
 
@@ -915,13 +917,13 @@ func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *testing.T) {
 	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	ce := &DefaultConversationExecutor{}
-	cfg := &config.Config{
-		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
+	cfg := &arenaconfig.Config{
+		Globals: &arenaconfig.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-bad"}}},
 		}},
 	}
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "sc",
 			ConversationAssertions: []arenaassertions.AssertionConfig{
 				{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"scenario-bad"}}},
@@ -1013,10 +1015,10 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "multi-turn-validation-test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "First message"},
 			{Role: "user", Content: "Second message"},
 		},
@@ -1029,8 +1031,8 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 		Scenario:       scenario,
 		Provider:       &MockProvider{id: "test"},
 		ConversationID: conversationID,
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},

@@ -4,15 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestPipelineExecutor_AssertionsPass(t *testing.T) {
@@ -43,7 +44,7 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 		UserID: "test-user",
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 
@@ -143,7 +144,7 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 		UserID: "test-user",
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 
@@ -230,7 +231,7 @@ func TestPipelineExecutor_NoAssertions(t *testing.T) {
 		UserID: "test-user",
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 

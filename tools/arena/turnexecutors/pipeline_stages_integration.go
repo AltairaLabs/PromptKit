@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
@@ -22,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/chaos"
 	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
@@ -62,7 +62,7 @@ func buildBaseVariables(region string) map[string]string {
 }
 
 // buildContextPolicy constructs context policy from scenario config
-func buildContextPolicy(scenario *config.Scenario) *stage.ContextBuilderPolicy {
+func buildContextPolicy(scenario *arenaconfig.Scenario) *stage.ContextBuilderPolicy {
 	if scenario == nil || scenario.ContextPolicy == nil {
 		return nil
 	}
@@ -86,7 +86,7 @@ func buildContextPolicy(scenario *config.Scenario) *stage.ContextBuilderPolicy {
 }
 
 // buildRelevanceConfig constructs the runtime RelevanceConfig from YAML config.
-func buildRelevanceConfig(cfg *config.RelevanceConfig) *stage.RelevanceConfig {
+func buildRelevanceConfig(cfg *arenaconfig.RelevanceConfig) *stage.RelevanceConfig {
 	if cfg == nil {
 		return nil
 	}
@@ -203,7 +203,7 @@ const defaultArenaMaxCostUSD = 2.00
 //   - MaxRounds: scenario value if >0, else 50
 //   - MaxCostUSD: scenario value if >0, else defaultArenaMaxCostUSD ($2.00)
 //   - MaxIdenticalToolCalls: scenario value if >0, else 3
-func buildToolPolicy(scenario *config.Scenario) *pipeline.ToolPolicy {
+func buildToolPolicy(scenario *arenaconfig.Scenario) *pipeline.ToolPolicy {
 	const defaultRounds = 50
 	const defaultIdentical = 3
 

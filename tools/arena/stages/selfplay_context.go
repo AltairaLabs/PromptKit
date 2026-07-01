@@ -3,8 +3,8 @@ package stages
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // SelfPlayUserTurnContextStage adds scenario context for the NEXT user turn
@@ -15,7 +15,7 @@ import (
 // canned response by scenario id, turn number, and persona.
 type SelfPlayUserTurnContextStage struct {
 	stage.BaseStage
-	scenario      *config.Scenario
+	scenario      *arenaconfig.Scenario
 	turnIndexHint int // If > 0, use this instead of computing from history
 	turnState     *stage.TurnState
 	personaID     string
@@ -24,7 +24,7 @@ type SelfPlayUserTurnContextStage struct {
 // NewSelfPlayUserTurnContextStageWithTurnState creates a self-play context
 // stage that writes coordination metadata into the shared *TurnState.
 func NewSelfPlayUserTurnContextStageWithTurnState(
-	scenario *config.Scenario,
+	scenario *arenaconfig.Scenario,
 	personaID string,
 	turnState *stage.TurnState,
 ) *SelfPlayUserTurnContextStage {
@@ -41,7 +41,7 @@ func NewSelfPlayUserTurnContextStageWithTurnState(
 // 1-indexed selfplay turn number (first selfplay = 1). Used when the scenario
 // has mixed file-based and selfplay turns.
 func NewSelfPlayUserTurnContextStageWithHintAndTurnState(
-	scenario *config.Scenario,
+	scenario *arenaconfig.Scenario,
 	turnIndexHint int,
 	personaID string,
 	turnState *stage.TurnState,

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -14,8 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
@@ -23,10 +24,10 @@ func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
 
 	// Scenario without duplex config should fail
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
-			Turns:    []config.TurnDefinition{},
+			Turns:    []arenaconfig.TurnDefinition{},
 		},
 	}
 
@@ -45,13 +46,13 @@ func TestDuplexConversationExecutor_ValidatesDuplexConfig(t *testing.T) {
 
 	// Scenario with invalid duplex config should fail
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "invalid-duration",
 			},
-			Turns: []config.TurnDefinition{},
+			Turns: []arenaconfig.TurnDefinition{},
 		},
 	}
 
@@ -73,13 +74,13 @@ func TestDuplexConversationExecutor_RequiresStreamingProvider(t *testing.T) {
 
 	req := ConversationRequest{
 		Provider: mockProvider,
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "10m",
 			},
-			Turns: []config.TurnDefinition{},
+			Turns: []arenaconfig.TurnDefinition{},
 		},
 	}
 
@@ -98,30 +99,30 @@ func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		duplex   *config.DuplexConfig
+		duplex   *arenaconfig.DuplexConfig
 		expected bool
 	}{
 		{
 			name: "nil turn detection defaults to VAD",
-			duplex: &config.DuplexConfig{
+			duplex: &arenaconfig.DuplexConfig{
 				TurnDetection: nil,
 			},
 			expected: true,
 		},
 		{
 			name: "explicit VAD mode",
-			duplex: &config.DuplexConfig{
-				TurnDetection: &config.TurnDetectionConfig{
-					Mode: config.TurnDetectionModeVAD,
+			duplex: &arenaconfig.DuplexConfig{
+				TurnDetection: &arenaconfig.TurnDetectionConfig{
+					Mode: arenaconfig.TurnDetectionModeVAD,
 				},
 			},
 			expected: true,
 		},
 		{
 			name: "ASM mode disables client VAD",
-			duplex: &config.DuplexConfig{
-				TurnDetection: &config.TurnDetectionConfig{
-					Mode: config.TurnDetectionModeASM,
+			duplex: &arenaconfig.DuplexConfig{
+				TurnDetection: &arenaconfig.TurnDetectionConfig{
+					Mode: arenaconfig.TurnDetectionModeASM,
 				},
 			},
 			expected: false,
@@ -131,7 +132,7 @@ func TestDuplexConversationExecutor_ShouldUseClientVAD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &ConversationRequest{
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					Duplex: tt.duplex,
 				},
 			}
@@ -188,7 +189,7 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		duplex           *config.DuplexConfig
+		duplex           *arenaconfig.DuplexConfig
 		expectDefaults   bool
 		silenceMs        int
 		minSpeechMs      int
@@ -196,16 +197,16 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 	}{
 		{
 			name: "nil turn detection uses defaults",
-			duplex: &config.DuplexConfig{
+			duplex: &arenaconfig.DuplexConfig{
 				TurnDetection: nil,
 			},
 			expectDefaults: true,
 		},
 		{
 			name: "nil VAD config uses defaults",
-			duplex: &config.DuplexConfig{
-				TurnDetection: &config.TurnDetectionConfig{
-					Mode: config.TurnDetectionModeVAD,
+			duplex: &arenaconfig.DuplexConfig{
+				TurnDetection: &arenaconfig.TurnDetectionConfig{
+					Mode: arenaconfig.TurnDetectionModeVAD,
 					VAD:  nil,
 				},
 			},
@@ -213,10 +214,10 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 		},
 		{
 			name: "custom VAD settings",
-			duplex: &config.DuplexConfig{
-				TurnDetection: &config.TurnDetectionConfig{
-					Mode: config.TurnDetectionModeVAD,
-					VAD: &config.VADConfig{
+			duplex: &arenaconfig.DuplexConfig{
+				TurnDetection: &arenaconfig.TurnDetectionConfig{
+					Mode: arenaconfig.TurnDetectionModeVAD,
+					VAD: &arenaconfig.VADConfig{
 						SilenceThresholdMs: 500,
 						MinSpeechMs:        200,
 						MaxTurnDurationS:   30,
@@ -233,7 +234,7 @@ func TestDuplexConversationExecutor_BuildVADConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &ConversationRequest{
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					Duplex: tt.duplex,
 				},
 			}
@@ -259,20 +260,20 @@ func TestDuplexConversationExecutor_ContainsSelfPlay(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		scenario *config.Scenario
+		scenario *arenaconfig.Scenario
 		expected bool
 	}{
 		{
 			name: "no turns",
-			scenario: &config.Scenario{
-				Turns: []config.TurnDefinition{},
+			scenario: &arenaconfig.Scenario{
+				Turns: []arenaconfig.TurnDefinition{},
 			},
 			expected: false,
 		},
 		{
 			name: "only user/assistant roles",
-			scenario: &config.Scenario{
-				Turns: []config.TurnDefinition{
+			scenario: &arenaconfig.Scenario{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user"},
 					{Role: "assistant"},
 				},
@@ -307,7 +308,7 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfig(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test-task",
 		},
@@ -437,7 +438,7 @@ func TestDuplexConversationExecutor_BuildBaseSessionConfigEdgeCases(t *testing.T
 
 	// Test with empty task type
 	req = &ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "",
 		},
@@ -453,20 +454,20 @@ func TestDuplexConversationExecutor_FindFirstSelfPlayPersona(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		scenario *config.Scenario
+		scenario *arenaconfig.Scenario
 		expected string
 	}{
 		{
 			name: "no turns",
-			scenario: &config.Scenario{
-				Turns: []config.TurnDefinition{},
+			scenario: &arenaconfig.Scenario{
+				Turns: []arenaconfig.TurnDefinition{},
 			},
 			expected: "",
 		},
 		{
 			name: "no selfplay roles",
-			scenario: &config.Scenario{
-				Turns: []config.TurnDefinition{
+			scenario: &arenaconfig.Scenario{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Persona: "customer1"},
 					{Role: "assistant"},
 				},
@@ -475,8 +476,8 @@ func TestDuplexConversationExecutor_FindFirstSelfPlayPersona(t *testing.T) {
 		},
 		{
 			name: "selfplay role without persona",
-			scenario: &config.Scenario{
-				Turns: []config.TurnDefinition{
+			scenario: &arenaconfig.Scenario{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "customer", Persona: ""},
 				},
 			},

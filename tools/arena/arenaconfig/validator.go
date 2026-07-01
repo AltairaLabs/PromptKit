@@ -1,9 +1,11 @@
-package config
+package arenaconfig
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // ValidationCheck represents a single validation check result
@@ -140,7 +142,7 @@ func (v *ConfigValidator) validateProviders() {
 		// Validate file exists - resolve relative to config path
 		checkPath := provider.File
 		if v.configPath != "" {
-			checkPath = ResolveFilePath(v.configPath, provider.File)
+			checkPath = config.ResolveFilePath(v.configPath, provider.File)
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("provider file not found: %s", provider.File))
@@ -171,7 +173,7 @@ func (v *ConfigValidator) validateScenarios() {
 		// Validate file exists - resolve relative to config path
 		checkPath := scenario.File
 		if v.configPath != "" {
-			checkPath = ResolveFilePath(v.configPath, scenario.File)
+			checkPath = config.ResolveFilePath(v.configPath, scenario.File)
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("scenario file not found: %s", scenario.File))
@@ -196,7 +198,7 @@ func (v *ConfigValidator) validateEvals() {
 		// Validate file exists - resolve relative to config path
 		checkPath := eval.File
 		if v.configPath != "" {
-			checkPath = ResolveFilePath(v.configPath, eval.File)
+			checkPath = config.ResolveFilePath(v.configPath, eval.File)
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("eval file not found: %s", eval.File))
@@ -222,7 +224,7 @@ func (v *ConfigValidator) validatePersonas() {
 		// Validate file exists - resolve relative to config path
 		checkPath := personaRef.File
 		if v.configPath != "" {
-			checkPath = ResolveFilePath(v.configPath, personaRef.File)
+			checkPath = config.ResolveFilePath(v.configPath, personaRef.File)
 		}
 		if _, err := os.Stat(checkPath); os.IsNotExist(err) {
 			v.errors = append(v.errors, fmt.Errorf("persona file not found: %s", personaRef.File))
@@ -321,6 +323,8 @@ func (v *ConfigValidator) validateCrossReferences() {
 // Helper methods to build ID sets
 
 // getPromptConfigIDs is currently only used by tests (validator_test.go).
+//
+//nolint:unused // exercised by validator_test.go
 func (v *ConfigValidator) getPromptConfigIDs() map[string]bool {
 	ids := make(map[string]bool)
 	for _, pc := range v.config.PromptConfigs {

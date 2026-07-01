@@ -14,8 +14,8 @@ import (
 
 	"log"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -90,7 +90,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load config and create engine
-	cfg, err := config.LoadConfig(absPath)
+	cfg, err := arenaconfig.LoadConfig(absPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}

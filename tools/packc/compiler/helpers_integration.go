@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -16,16 +15,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // parseCompositionsFromConfig parses the compositions block from arena config.
 // Returns nil, nil when none are configured.
-func parseCompositionsFromConfig(cfg *config.Config) (map[string]*composition.Composition, error) {
+func parseCompositionsFromConfig(cfg *arenaconfig.Config) (map[string]*composition.Composition, error) {
 	return composition.ParseConfig(cfg.Compositions)
 }
 
 // buildMemoryRepo creates a memory-backed prompt repository from the loaded config.
-func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
+func buildMemoryRepo(cfg *arenaconfig.Config) (*memory.PromptRepository, error) {
 	memRepo := memory.NewPromptRepository()
 
 	for _, promptData := range cfg.LoadedPromptConfigs {
@@ -48,7 +48,7 @@ func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
 
 // collectMediaWarnings validates media references across all loaded prompts
 // and returns any warnings found.
-func collectMediaWarnings(cfg *config.Config, configDir string) []string {
+func collectMediaWarnings(cfg *arenaconfig.Config, configDir string) []string {
 	var warnings []string
 
 	for _, promptData := range cfg.LoadedPromptConfigs {
@@ -108,7 +108,7 @@ func validateExampleMediaReferences(example prompt.MultimodalExample, baseDir st
 }
 
 // parseToolsFromConfig parses raw tool YAML data from config into ParsedTool structs.
-func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
+func parseToolsFromConfig(cfg *arenaconfig.Config) []prompt.ParsedTool {
 	var result []prompt.ParsedTool
 
 	if len(cfg.LoadedTools) == 0 {
@@ -136,19 +136,19 @@ func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
 }
 
 // parsePackEvalsFromConfig returns pack-level eval definitions from arena config.
-func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
+func parsePackEvalsFromConfig(cfg *arenaconfig.Config) []evals.EvalDef {
 	return cfg.PackEvals
 }
 
 // parseWorkflowFromConfig parses workflow config from arena config.
 // Returns nil, nil when no workflow is configured.
-func parseWorkflowFromConfig(cfg *config.Config) (*prompt.WorkflowConfig, error) {
+func parseWorkflowFromConfig(cfg *arenaconfig.Config) (*prompt.WorkflowConfig, error) {
 	return workflow.ParseConfig(cfg.Workflow)
 }
 
 // parseAgentsFromConfig parses agents config from arena config.
 // Returns nil, nil when no agents are configured.
-func parseAgentsFromConfig(cfg *config.Config) (*prompt.AgentsConfig, error) {
+func parseAgentsFromConfig(cfg *arenaconfig.Config) (*prompt.AgentsConfig, error) {
 	if cfg.Agents == nil {
 		return nil, nil
 	}
@@ -165,7 +165,7 @@ func parseAgentsFromConfig(cfg *config.Config) (*prompt.AgentsConfig, error) {
 
 // parseSkillsFromConfig returns skill source configs from the loaded arena config.
 // Paths are converted back to relative (relative to config dir) for portability.
-func parseSkillsFromConfig(cfg *config.Config) []prompt.SkillSourceConfig {
+func parseSkillsFromConfig(cfg *arenaconfig.Config) []prompt.SkillSourceConfig {
 	if len(cfg.LoadedSkillSources) == 0 {
 		return nil
 	}

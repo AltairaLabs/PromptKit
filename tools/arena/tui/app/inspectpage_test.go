@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 )
 
@@ -82,7 +83,7 @@ func TestInspectPage_UpdateBeforeSetSize(t *testing.T) {
 // but nil Config falls back to placeholder.
 func TestInspectPage_WithNilInCtx(t *testing.T) {
 	ctx := &AppContext{
-		Config:     nil, // config.Config is a pointer — nil means no config
+		Config:     nil, // arenaconfig.Config is a pointer — nil means no config
 		ConfigPath: "",
 	}
 	p := NewInspectPage(ctx)
@@ -93,15 +94,15 @@ func TestInspectPage_WithNilInCtx(t *testing.T) {
 	}
 }
 
-// TestInspectPage_WithRealConfig verifies NewInspectPage with a real *config.Config
+// TestInspectPage_WithRealConfig verifies NewInspectPage with a real *arenaconfig.Config
 // exercises the collect+render path without panic.
 func TestInspectPage_WithRealConfig(t *testing.T) {
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders:     map[string]*config.Provider{},
-		LoadedScenarios:     map[string]*config.Scenario{},
-		LoadedPersonas:      map[string]*config.UserPersonaPack{},
-		LoadedJudges:        map[string]*config.JudgeTarget{},
+		LoadedScenarios:     map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:      map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges:        map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools:         []config.ToolData{},
 	}
 	ctx := &AppContext{
@@ -139,16 +140,16 @@ func TestInspectPage_ScrollKeys(t *testing.T) {
 
 // realConfigForInspect returns a minimal *AppContext suitable for render tests.
 func realConfigForInspect() (*AppContext, string) {
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"chat": {TaskType: "chat"},
 		},
 		LoadedProviders: map[string]*config.Provider{
 			"default": {Type: "anthropic"},
 		},
-		LoadedScenarios: map[string]*config.Scenario{},
-		LoadedPersonas:  map[string]*config.UserPersonaPack{},
-		LoadedJudges:    map[string]*config.JudgeTarget{},
+		LoadedScenarios: map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:  map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges:    map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools:     []config.ToolData{},
 	}
 	ctx := &AppContext{Config: cfg, ConfigPath: "/tmp/test.arena.yaml"}

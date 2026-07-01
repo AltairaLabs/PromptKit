@@ -5,14 +5,15 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 )
 
-// minimalCfg returns a *config.Config with enough populated fields to exercise
+// minimalCfg returns a *arenaconfig.Config with enough populated fields to exercise
 // most of the collector and renderer paths without loading files from disk.
-func minimalCfg() *config.Config {
-	return &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+func minimalCfg() *arenaconfig.Config {
+	return &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"chat": {Config: nil}, // Config nil — populatePromptDetails returns early
 		},
 		LoadedProviders: map[string]*config.Provider{
@@ -26,39 +27,39 @@ func minimalCfg() *config.Config {
 				},
 			},
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"s1": {
 				ID:          "s1",
 				TaskType:    "chat",
 				Description: "a test scenario",
 				Mode:        "chat",
-				Turns: []config.TurnDefinition{
-					{Assertions: []config.AssertionConfig{{}}},
+				Turns: []arenaconfig.TurnDefinition{
+					{Assertions: []arenaconfig.AssertionConfig{{}}},
 					{Persona: "alice"},
 				},
 				Providers: []string{"mock-prov"},
 				Streaming: true,
 			},
 		},
-		LoadedPersonas: map[string]*config.UserPersonaPack{
+		LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{
 			"alice": {
 				Description: "Friendly persona",
 				Goals:       []string{"goal1", "goal2", "goal3", "goal4"},
 			},
 		},
-		LoadedJudges: map[string]*config.JudgeTarget{},
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools:  []config.ToolData{},
-		Providers: []config.ProviderRef{
+		Providers: []arenaconfig.ProviderRef{
 			{File: "mock-prov.yaml", Group: "default"},
 		},
-		Scenarios: []config.ScenarioRef{
+		Scenarios: []arenaconfig.ScenarioRef{
 			{File: "s1.yaml"},
 		},
-		PromptConfigs: []config.PromptConfigRef{
+		PromptConfigs: []arenaconfig.PromptConfigRef{
 			{ID: "chat", File: "chat.yaml", Vars: map[string]string{"k": "v"}},
 		},
-		Judges: []config.JudgeRef{},
-		Defaults: config.Defaults{
+		Judges: []arenaconfig.JudgeRef{},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.5,
 			MaxTokens:   2048,
 			Concurrency: 4,
@@ -94,8 +95,8 @@ func TestCollectInspectionData_FullConfig(t *testing.T) {
 // TestCollectInspectionData_SelfPlay exercises the self-play collection path.
 func TestCollectInspectionData_SelfPlay(t *testing.T) {
 	cfg := minimalCfg()
-	cfg.SelfPlay = &config.SelfPlayConfig{
-		Roles: []config.SelfPlayRoleGroup{
+	cfg.SelfPlay = &arenaconfig.SelfPlayConfig{
+		Roles: []arenaconfig.SelfPlayRoleGroup{
 			{ID: "assistant", Provider: "mock-prov"},
 		},
 	}
@@ -123,8 +124,8 @@ func TestCollectCacheStats(t *testing.T) {
 // TestCollectCacheStats_WithSelfPlay exercises the self-play path.
 func TestCollectCacheStats_WithSelfPlay(t *testing.T) {
 	cfg := minimalCfg()
-	cfg.SelfPlay = &config.SelfPlayConfig{
-		Roles: []config.SelfPlayRoleGroup{
+	cfg.SelfPlay = &arenaconfig.SelfPlayConfig{
+		Roles: []arenaconfig.SelfPlayRoleGroup{
 			{ID: "assistant", Provider: "mock-prov"},
 		},
 	}
@@ -139,9 +140,9 @@ func TestCollectCacheStats_WithSelfPlay(t *testing.T) {
 
 // TestCollectCacheStats_Empty exercises empty config.
 func TestCollectCacheStats_Empty(t *testing.T) {
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
-		LoadedPersonas:      map[string]*config.UserPersonaPack{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
+		LoadedPersonas:      map[string]*arenaconfig.UserPersonaPack{},
 	}
 	stats := inspect.CollectCacheStats(cfg, false)
 	if stats == nil {
@@ -394,12 +395,12 @@ spec:
   http:
     url: https://example.com
 `)
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders:     map[string]*config.Provider{},
-		LoadedScenarios:     map[string]*config.Scenario{},
-		LoadedPersonas:      map[string]*config.UserPersonaPack{},
-		LoadedJudges:        map[string]*config.JudgeTarget{},
+		LoadedScenarios:     map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:      map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges:        map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools: []config.ToolData{
 			{FilePath: "my-tool.yaml", Data: toolYAML},
 		},
@@ -427,21 +428,21 @@ func TestCollectInspectionData_WithJudges(t *testing.T) {
 		Type:  "openai",
 		Model: "gpt-4o",
 	}
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders: map[string]*config.Provider{
 			"judge-prov": judgeProvider,
 		},
-		LoadedScenarios: map[string]*config.Scenario{},
-		LoadedPersonas:  map[string]*config.UserPersonaPack{},
-		LoadedJudges: map[string]*config.JudgeTarget{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:  map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{
 			"quality": {
 				Name:     "quality",
 				Provider: judgeProvider,
 			},
 		},
 		LoadedTools: []config.ToolData{},
-		Judges: []config.JudgeRef{
+		Judges: []arenaconfig.JudgeRef{
 			{Name: "quality", Provider: "judge-prov"},
 		},
 	}
@@ -465,20 +466,20 @@ func TestCollectInspectionData_JudgeProviderNotInMainList(t *testing.T) {
 			Temperature: 0.3,
 		},
 	}
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders: map[string]*config.Provider{
 			"separate-judge-prov": judgeProvider,
 		},
-		LoadedScenarios: map[string]*config.Scenario{},
-		LoadedPersonas:  map[string]*config.UserPersonaPack{},
-		LoadedJudges: map[string]*config.JudgeTarget{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:  map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{
 			"quality": {Name: "quality", Provider: judgeProvider},
 		},
 		LoadedTools: []config.ToolData{},
 		// No Providers file refs — so appendJudgeProviders must add it
-		Providers: []config.ProviderRef{},
-		Judges: []config.JudgeRef{
+		Providers: []arenaconfig.ProviderRef{},
+		Judges: []arenaconfig.JudgeRef{
 			{Name: "quality", Provider: "separate-judge-prov"},
 		},
 	}
@@ -503,19 +504,19 @@ func TestCollectInspectionData_SelfPlayProviderUsage(t *testing.T) {
 		Type:  "mock",
 		Model: "test",
 	}
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders:     map[string]*config.Provider{"shared-prov": prov},
-		LoadedScenarios:     map[string]*config.Scenario{},
-		LoadedPersonas: map[string]*config.UserPersonaPack{
+		LoadedScenarios:     map[string]*arenaconfig.Scenario{},
+		LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{
 			"bob": {Description: "Bob"},
 		},
-		LoadedJudges: map[string]*config.JudgeTarget{},
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools:  []config.ToolData{},
-		Providers:    []config.ProviderRef{{File: "shared-prov.yaml"}},
-		Judges:       []config.JudgeRef{{Name: "quality", Provider: "shared-prov"}},
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+		Providers:    []arenaconfig.ProviderRef{{File: "shared-prov.yaml"}},
+		Judges:       []arenaconfig.JudgeRef{{Name: "quality", Provider: "shared-prov"}},
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{ID: "user", Provider: "shared-prov"},
 			},
 		},
@@ -532,12 +533,12 @@ func TestCollectInspectionData_SelfPlayProviderUsage(t *testing.T) {
 
 // TestCollectInspectionData_ToolEmptyData exercises parseToolManifest with empty data.
 func TestCollectInspectionData_ToolEmptyData(t *testing.T) {
-	cfg := &config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+	cfg := &arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 		LoadedProviders:     map[string]*config.Provider{},
-		LoadedScenarios:     map[string]*config.Scenario{},
-		LoadedPersonas:      map[string]*config.UserPersonaPack{},
-		LoadedJudges:        map[string]*config.JudgeTarget{},
+		LoadedScenarios:     map[string]*arenaconfig.Scenario{},
+		LoadedPersonas:      map[string]*arenaconfig.UserPersonaPack{},
+		LoadedJudges:        map[string]*arenaconfig.JudgeTarget{},
 		LoadedTools: []config.ToolData{
 			{FilePath: "empty-tool.yaml", Data: []byte{}}, // empty
 		},

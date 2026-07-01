@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -89,22 +90,22 @@ func newDuplexTestExecutorMultiTurn(
 	sttProvider := &config.Provider{ID: "fake-stt-mt", Type: "fake-stt-mt", Role: config.RoleSTT}
 	ttsProvider := &config.Provider{ID: "mock-tts-mt", Type: selfplay.TTSProviderMock, Role: config.RoleTTS}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "interactive-voice-multiturn-test",
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeVAD,
-				VAD: &config.VADConfig{
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
+				Mode: arenaconfig.TurnDetectionModeVAD,
+				VAD: &arenaconfig.VADConfig{
 					SilenceThresholdMs: 20, // short so turns complete quickly + deterministically
 					MinSpeechMs:        5,
 				},
 			},
 		},
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders:    map[string]*config.Provider{},
 		LoadedTTSProviders: map[string]*config.Provider{"mock-tts-mt": ttsProvider},
 		Voices:             []config.VoiceBinding{{ID: "mock-tts-mt", Provider: "mock-tts-mt"}},

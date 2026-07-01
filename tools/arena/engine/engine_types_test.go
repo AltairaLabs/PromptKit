@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -126,8 +127,8 @@ func TestMessageToolCall_Structure(t *testing.T) {
 
 func TestEngine_EmptyScenarios(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -141,8 +142,8 @@ func TestEngine_EmptyScenarios(t *testing.T) {
 
 func TestEngine_EmptyProviders(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -156,8 +157,8 @@ func TestEngine_EmptyProviders(t *testing.T) {
 
 func TestEngine_EmptyPersonas(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -171,8 +172,8 @@ func TestEngine_EmptyPersonas(t *testing.T) {
 
 func TestGenerateRunPlan_MultipleFilters(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -180,7 +181,7 @@ func TestGenerateRunPlan_MultipleFilters(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load test data
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"s1": {ID: "s1", TaskType: "support"},
 		"s2": {ID: "s2", TaskType: "consulting"},
 	}
@@ -224,8 +225,8 @@ func TestGenerateRunPlan_MultipleFilters(t *testing.T) {
 
 func TestExecuteRuns_InvalidProvider(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -234,7 +235,7 @@ func TestExecuteRuns_InvalidProvider(t *testing.T) {
 	ctx := context.Background()
 
 	// Add scenario but no provider
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"test-scenario": {ID: "test-scenario", TaskType: "support"},
 	}
 

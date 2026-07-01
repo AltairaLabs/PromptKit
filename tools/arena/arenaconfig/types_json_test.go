@@ -1,4 +1,4 @@
-package config
+package arenaconfig
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
@@ -30,7 +31,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		Scenarios: []ScenarioRef{{File: "scenarios/basic.yaml"}},
 		Evals:     []EvalRef{{File: "evals/e1.yaml"}},
 		Tools:     []ToolRef{{File: "tools/t1.yaml"}},
-		MCPServers: []MCPServerConfig{
+		MCPServers: []config.MCPServerConfig{
 			{Name: "mcp1", Command: "npx", Args: []string{"-y", "server"}, Env: map[string]string{"KEY": "val"}},
 		},
 		A2AAgents: []A2AAgentConfig{
@@ -50,9 +51,9 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 				},
 			},
 		},
-		StateStore: &StateStoreConfig{
+		StateStore: &config.StateStoreConfig{
 			Type:  "redis",
-			Redis: &RedisConfig{Address: "localhost:6379", Password: "secret", Database: 1, TTL: "24h", Prefix: "pk"},
+			Redis: &config.RedisConfig{Address: "localhost:6379", Password: "secret", Database: 1, TTL: "24h", Prefix: "pk"},
 		},
 		Defaults: Defaults{
 			Temperature: 0.7,
@@ -69,7 +70,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		},
 		PackFile: "pack.json",
 		// Inline specs
-		ProviderSpecs: map[string]*Provider{
+		ProviderSpecs: map[string]*config.Provider{
 			"inline-p": {ID: "inline-p", Type: "openai", Model: "gpt-4o"},
 		},
 		ScenarioSpecs: map[string]*Scenario{
@@ -78,7 +79,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		EvalSpecs: map[string]*Eval{
 			"inline-e": {ID: "inline-e", Description: "Inline eval"},
 		},
-		ToolSpecs: map[string]*ToolSpec{
+		ToolSpecs: map[string]*config.ToolSpec{
 			"inline-t": {Name: "inline-t", Description: "Inline tool", Mode: "mock"},
 		},
 		JudgeSpecs: map[string]*JudgeSpec{
@@ -94,13 +95,13 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		// Loaded resources
 		ProviderGroups:       map[string]string{"openai": "default"},
 		ProviderCapabilities: map[string][]string{"openai": {"text", "streaming"}},
-		LoadedProviders: map[string]*Provider{
+		LoadedProviders: map[string]*config.Provider{
 			"openai": {ID: "openai", Type: "openai", Model: "gpt-4"},
 		},
 		LoadedJudges: map[string]*JudgeTarget{
-			"quality": {Name: "quality", Provider: &Provider{ID: "openai", Type: "openai", Model: "gpt-4"}},
+			"quality": {Name: "quality", Provider: &config.Provider{ID: "openai", Type: "openai", Model: "gpt-4"}},
 		},
-		LoadedTools: []ToolData{
+		LoadedTools: []config.ToolData{
 			{FilePath: "tools/t1.yaml", Data: []byte(`{"name":"tool1"}`)},
 		},
 	}

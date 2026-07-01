@@ -7,12 +7,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
@@ -120,7 +120,7 @@ type InteractiveSession struct {
 	engine         *Engine
 	scripted       turnexecutors.TurnExecutor
 	provider       providers.Provider
-	scenario       *config.Scenario
+	scenario       *arenaconfig.Scenario
 	taskType       string
 	promptVars     map[string]string
 	conversationID string
@@ -156,7 +156,7 @@ func (e *Engine) NewInteractiveSession(opts InteractiveSessionOptions) (*Interac
 		promptVars[k] = v
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:        "interactive",
 		TaskType:  opts.TaskType,
 		Streaming: true,

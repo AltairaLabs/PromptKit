@@ -3,7 +3,7 @@ package engine
 import (
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
 
@@ -20,7 +20,7 @@ import (
 //
 // The caller is responsible for calling router.Close() once the run
 // completes.
-func (e *Engine) buildAudioMonitor(scenario *config.Scenario) *arenaaudio.AudioRouter {
+func (e *Engine) buildAudioMonitor(scenario *arenaconfig.Scenario) *arenaaudio.AudioRouter {
 	if e.audioMonitorOpts == nil {
 		return nil
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -49,10 +49,10 @@ func TestNaturalTermination_CompletesAfterMinTurns(t *testing.T) {
 		createTestPromptRegistry(t), nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "natural-term",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start"},
 			{Role: "attacker", Persona: "attacker", Turns: 2, MaxTurns: 10},
 		},
@@ -62,7 +62,7 @@ func TestNaturalTermination_CompletesAfterMinTurns(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "test"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-natural-term",
 	}
@@ -127,10 +127,10 @@ func TestNaturalTermination_IgnoredBelowMinTurns(t *testing.T) {
 		createTestPromptRegistry(t), nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "min-enforcement",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start"},
 			{Role: "attacker", Persona: "attacker", Turns: 3, MaxTurns: 10},
 		},
@@ -140,7 +140,7 @@ func TestNaturalTermination_IgnoredBelowMinTurns(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "test"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-min-enforcement",
 	}
@@ -197,10 +197,10 @@ func TestNaturalTermination_ExactTurnsWithoutMaxTurns(t *testing.T) {
 		createTestPromptRegistry(t), nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "exact-turns",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start"},
 			{Role: "attacker", Persona: "attacker", Turns: 5}, // No MaxTurns
 		},
@@ -210,7 +210,7 @@ func TestNaturalTermination_ExactTurnsWithoutMaxTurns(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "test"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-exact-turns",
 	}
@@ -259,10 +259,10 @@ func TestNaturalTermination_MaxTurnsReachedWithoutCompletion(t *testing.T) {
 		createTestPromptRegistry(t), nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "max-turns-cap",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start"},
 			{Role: "attacker", Persona: "attacker", Turns: 2, MaxTurns: 5},
 		},
@@ -272,7 +272,7 @@ func TestNaturalTermination_MaxTurnsReachedWithoutCompletion(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "test"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-max-turns-cap",
 	}
@@ -326,10 +326,10 @@ func TestNaturalTermination_MetadataFlag(t *testing.T) {
 		createTestPromptRegistry(t), nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "metadata-flag",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start"},
 			{Role: "attacker", Persona: "attacker", Turns: 1, MaxTurns: 5},
 		},
@@ -339,7 +339,7 @@ func TestNaturalTermination_MetadataFlag(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "test"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-metadata-flag",
 	}

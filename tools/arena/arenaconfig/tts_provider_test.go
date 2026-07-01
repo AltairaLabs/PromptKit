@@ -1,9 +1,11 @@
-package config
+package arenaconfig
 
 import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestProvider_TTSFieldsRoundTrip(t *testing.T) {
@@ -13,11 +15,11 @@ role: tts
 voice: bf991597-6c13-47e4-8411-91ec2de5c466
 sample_rate: 24000
 `
-	var p Provider
+	var p config.Provider
 	if err := yaml.Unmarshal([]byte(src), &p); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
-	if p.GetRole() != RoleTTS {
+	if p.GetRole() != config.RoleTTS {
 		t.Fatalf("capability: got %q, want tts", p.GetRole())
 	}
 	if p.Voice != "bf991597-6c13-47e4-8411-91ec2de5c466" {
@@ -36,7 +38,7 @@ audio_files:
   - audio/a.pcm
   - audio/b.pcm
 `
-	var p Provider
+	var p config.Provider
 	if err := yaml.Unmarshal([]byte(src), &p); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -19,9 +20,9 @@ func TestEngine_ExecuteRun_InvalidStateStore(t *testing.T) {
 	ctx := context.Background()
 	// Create engine with non-ArenaStateStore
 	e := &Engine{
-		config:               &config.Config{},
-		scenarios:            make(map[string]*config.Scenario),
-		evals:                make(map[string]*config.Eval),
+		config:               &arenaconfig.Config{},
+		scenarios:            make(map[string]*arenaconfig.Scenario),
+		evals:                make(map[string]*arenaconfig.Eval),
 		providers:            make(map[string]*config.Provider),
 		providerRegistry:     providers.NewRegistry(),
 		conversationExecutor: nil,                      // Not needed for this error path
@@ -42,9 +43,9 @@ func TestEngine_ExecuteRun_InvalidStateStore(t *testing.T) {
 func TestEngine_ExecuteRun_ScenarioNotFound(t *testing.T) {
 	ctx := context.Background()
 	e := &Engine{
-		config:           &config.Config{},
-		scenarios:        make(map[string]*config.Scenario), // Empty - scenario not found
-		evals:            make(map[string]*config.Eval),
+		config:           &arenaconfig.Config{},
+		scenarios:        make(map[string]*arenaconfig.Scenario), // Empty - scenario not found
+		evals:            make(map[string]*arenaconfig.Eval),
 		providers:        make(map[string]*config.Provider),
 		providerRegistry: providers.NewRegistry(),
 		stateStore:       statestore.NewArenaStateStore(),
@@ -71,9 +72,9 @@ func TestEngine_ExecuteRun_WorkflowBadTaskTypeFailsLoudly(t *testing.T) {
 	ctx := context.Background()
 	spec := testWorkflowSpec() // entry "intake"; states intake/specialist/closed
 	e := &Engine{
-		config:            &config.Config{},
-		scenarios:         map[string]*config.Scenario{"sc": {ID: "sc", TaskType: "bogus"}},
-		evals:             make(map[string]*config.Eval),
+		config:            &arenaconfig.Config{},
+		scenarios:         map[string]*arenaconfig.Scenario{"sc": {ID: "sc", TaskType: "bogus"}},
+		evals:             make(map[string]*arenaconfig.Eval),
 		providers:         make(map[string]*config.Provider),
 		providerRegistry:  providers.NewRegistry(),
 		stateStore:        statestore.NewArenaStateStore(),
@@ -95,11 +96,11 @@ func TestEngine_ExecuteRun_WorkflowBadTaskTypeFailsLoudly(t *testing.T) {
 func TestEngine_ExecuteRun_ProviderNotFound(t *testing.T) {
 	ctx := context.Background()
 	e := &Engine{
-		config: &config.Config{},
-		scenarios: map[string]*config.Scenario{
+		config: &arenaconfig.Config{},
+		scenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {},
 		},
-		evals:            make(map[string]*config.Eval),
+		evals:            make(map[string]*arenaconfig.Eval),
 		providers:        make(map[string]*config.Provider),
 		providerRegistry: providers.NewRegistry(), // Empty - provider not found
 		stateStore:       statestore.NewArenaStateStore(),
@@ -125,9 +126,9 @@ func TestEngine_ExecuteRun_ProviderNotFound(t *testing.T) {
 func TestEngine_ExecuteRun_EvalNotFound(t *testing.T) {
 	ctx := context.Background()
 	e := &Engine{
-		config:    &config.Config{},
-		scenarios: make(map[string]*config.Scenario),
-		evals:     make(map[string]*config.Eval), // Empty - eval not found
+		config:    &arenaconfig.Config{},
+		scenarios: make(map[string]*arenaconfig.Scenario),
+		evals:     make(map[string]*arenaconfig.Eval), // Empty - eval not found
 		providers: make(map[string]*config.Provider),
 		// No conversation executor needed for this error path
 		providerRegistry: providers.NewRegistry(),
@@ -152,7 +153,7 @@ func TestEngine_ExecuteRun_EvalNotFound(t *testing.T) {
 
 func TestEngine_GenerateScenarioCombinations_ScenarioNotFound(t *testing.T) {
 	e := &Engine{
-		scenarios: make(map[string]*config.Scenario), // Empty
+		scenarios: make(map[string]*arenaconfig.Scenario), // Empty
 	}
 
 	_, err := e.generateScenarioCombinations("default", "missing-scenario", []string{})
@@ -162,8 +163,8 @@ func TestEngine_GenerateScenarioCombinations_ScenarioNotFound(t *testing.T) {
 
 func TestEngine_GenerateScenarioCombinations_Success(t *testing.T) {
 	e := &Engine{
-		config: &config.Config{},
-		scenarios: map[string]*config.Scenario{
+		config: &arenaconfig.Config{},
+		scenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				Providers: []string{"openai", "anthropic"},
 			},
@@ -188,8 +189,8 @@ func TestEngine_GenerateScenarioCombinations_Success(t *testing.T) {
 
 func TestEngine_GenerateCombinations_Error(t *testing.T) {
 	e := &Engine{
-		config: &config.Config{},
-		scenarios: map[string]*config.Scenario{
+		config: &arenaconfig.Config{},
+		scenarios: map[string]*arenaconfig.Scenario{
 			"scenario-1": {Providers: []string{"openai"}},
 		},
 		providers:        make(map[string]*config.Provider),
@@ -208,11 +209,11 @@ func TestEngine_GenerateCombinations_Error(t *testing.T) {
 
 func TestEngine_GenerateRunPlan_Scenarios(t *testing.T) {
 	e := &Engine{
-		config: &config.Config{},
-		scenarios: map[string]*config.Scenario{
+		config: &arenaconfig.Config{},
+		scenarios: map[string]*arenaconfig.Scenario{
 			"scenario-1": {Providers: []string{"openai"}},
 		},
-		evals:            make(map[string]*config.Eval),
+		evals:            make(map[string]*arenaconfig.Eval),
 		providers:        make(map[string]*config.Provider),
 		providerRegistry: providers.NewRegistry(),
 	}
@@ -233,9 +234,9 @@ func TestEngine_GenerateRunPlan_Scenarios(t *testing.T) {
 
 func TestEngine_GenerateRunPlan_Evals(t *testing.T) {
 	e := &Engine{
-		config:    &config.Config{},
-		scenarios: make(map[string]*config.Scenario),
-		evals: map[string]*config.Eval{
+		config:    &arenaconfig.Config{},
+		scenarios: make(map[string]*arenaconfig.Scenario),
+		evals: map[string]*arenaconfig.Eval{
 			"eval-1": {},
 			"eval-2": {},
 		},
@@ -292,8 +293,8 @@ func TestEvalConversationExecutor_LoadRecording_NilAdapter(t *testing.T) {
 	}
 
 	req := &ConversationRequest{
-		Eval: &config.Eval{
-			Recording: config.RecordingSource{
+		Eval: &arenaconfig.Eval{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 				Type: "arena",
 			},
@@ -309,9 +310,9 @@ func TestEvalConversationExecutor_ValidateEvalConfig(t *testing.T) {
 	executor := &EvalConversationExecutor{}
 
 	t.Run("valid config", func(t *testing.T) {
-		eval := &config.Eval{
+		eval := &arenaconfig.Eval{
 			ID: "test-eval",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		}
@@ -326,9 +327,9 @@ func TestEvalConversationExecutor_ValidateEvalConfig(t *testing.T) {
 	})
 
 	t.Run("empty recording path", func(t *testing.T) {
-		eval := &config.Eval{
+		eval := &arenaconfig.Eval{
 			ID:        "test-eval",
-			Recording: config.RecordingSource{},
+			Recording: arenaconfig.RecordingSource{},
 		}
 		err := executor.validateEvalConfig(eval)
 		require.Error(t, err)

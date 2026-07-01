@@ -5,11 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/results/markdown"
 )
 
 // TestMarkdownConfigurationFromYAML demonstrates the complete workflow
@@ -44,7 +45,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load configuration (simulates what CLI does)
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Create markdown configuration from loaded defaults

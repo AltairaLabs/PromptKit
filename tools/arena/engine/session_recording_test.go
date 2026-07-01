@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestEnableSessionRecording(t *testing.T) {
@@ -255,11 +255,11 @@ func TestConfigureSessionRecordingFromConfig_Enabled(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create config with recording enabled
-	cfg := &config.Config{
-		Defaults: config.Defaults{
-			Output: config.OutputConfig{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
+			Output: arenaconfig.OutputConfig{
 				Dir: tempDir,
-				Recording: &config.RecordingConfig{
+				Recording: &arenaconfig.RecordingConfig{
 					Enabled: true,
 					Dir:     "recordings",
 				},
@@ -297,11 +297,11 @@ func TestConfigureSessionRecordingFromConfig_Enabled(t *testing.T) {
 
 func TestConfigureSessionRecordingFromConfig_Disabled(t *testing.T) {
 	// Create config with recording explicitly disabled
-	cfg := &config.Config{
-		Defaults: config.Defaults{
-			Output: config.OutputConfig{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
+			Output: arenaconfig.OutputConfig{
 				Dir: "/tmp/test-out",
-				Recording: &config.RecordingConfig{
+				Recording: &arenaconfig.RecordingConfig{
 					Enabled: false,
 				},
 			},
@@ -325,9 +325,9 @@ func TestConfigureSessionRecordingFromConfig_Disabled(t *testing.T) {
 
 func TestConfigureSessionRecordingFromConfig_NilRecording(t *testing.T) {
 	// Create config without recording config
-	cfg := &config.Config{
-		Defaults: config.Defaults{
-			Output: config.OutputConfig{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
+			Output: arenaconfig.OutputConfig{
 				Dir: "/tmp/test-out",
 				// Recording is nil
 			},
@@ -351,11 +351,11 @@ func TestConfigureSessionRecordingFromConfig_NilRecording(t *testing.T) {
 
 func TestConfigureSessionRecordingFromConfig_DefaultDirs(t *testing.T) {
 	// Create config with recording enabled but no dirs specified
-	cfg := &config.Config{
-		Defaults: config.Defaults{
-			Output: config.OutputConfig{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
+			Output: arenaconfig.OutputConfig{
 				// Dir is empty - should default to "out"
-				Recording: &config.RecordingConfig{
+				Recording: &arenaconfig.RecordingConfig{
 					Enabled: true,
 					// Dir is empty - should default to "recordings"
 				},
@@ -386,9 +386,9 @@ func TestConfigureSessionRecordingFromConfig_DefaultDirs(t *testing.T) {
 
 func TestGetConfig(t *testing.T) {
 	// Create config
-	cfg := &config.Config{
-		Defaults: config.Defaults{
-			Output: config.OutputConfig{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
+			Output: arenaconfig.OutputConfig{
 				Dir: "test-output",
 			},
 		},

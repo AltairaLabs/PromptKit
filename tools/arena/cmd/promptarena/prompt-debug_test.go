@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -366,9 +366,9 @@ func TestApplyScenarioData(t *testing.T) {
 		User:   "",                // This should be set from scenario
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test-task",
-		ContextMetadata: &config.ContextMetadata{
+		ContextMetadata: &arenaconfig.ContextMetadata{
 			Domain:   "scenario-domain",
 			UserRole: "test-user",
 		},
@@ -389,14 +389,14 @@ func TestApplyContextMetadata(t *testing.T) {
 	tests := []struct {
 		name           string
 		opts           *promptDebugOptions
-		scenario       *config.Scenario
+		scenario       *arenaconfig.Scenario
 		expectedDomain string
 		expectedUser   string
 	}{
 		{
 			name: "nil context metadata",
 			opts: &promptDebugOptions{},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				ContextMetadata: nil,
 			},
 			expectedDomain: "",
@@ -408,8 +408,8 @@ func TestApplyContextMetadata(t *testing.T) {
 				Domain: "",
 				User:   "",
 			},
-			scenario: &config.Scenario{
-				ContextMetadata: &config.ContextMetadata{
+			scenario: &arenaconfig.Scenario{
+				ContextMetadata: &arenaconfig.ContextMetadata{
 					Domain:   "test-domain",
 					UserRole: "test-role",
 				},
@@ -423,8 +423,8 @@ func TestApplyContextMetadata(t *testing.T) {
 				Domain: "existing-domain",
 				User:   "existing-user",
 			},
-			scenario: &config.Scenario{
-				ContextMetadata: &config.ContextMetadata{
+			scenario: &arenaconfig.Scenario{
+				ContextMetadata: &arenaconfig.ContextMetadata{
 					Domain:   "scenario-domain",
 					UserRole: "scenario-role",
 				},
@@ -447,7 +447,7 @@ func TestApplyContextFromMap(t *testing.T) {
 	tests := []struct {
 		name            string
 		opts            *promptDebugOptions
-		scenario        *config.Scenario
+		scenario        *arenaconfig.Scenario
 		expectedContext string
 	}{
 		{
@@ -455,7 +455,7 @@ func TestApplyContextFromMap(t *testing.T) {
 			opts: &promptDebugOptions{
 				Context: "existing-context",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				Context: map[string]interface{}{
 					"user_context": "scenario-context",
 				},
@@ -467,7 +467,7 @@ func TestApplyContextFromMap(t *testing.T) {
 			opts: &promptDebugOptions{
 				Context: "",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				Context: nil,
 			},
 			expectedContext: "",
@@ -477,7 +477,7 @@ func TestApplyContextFromMap(t *testing.T) {
 			opts: &promptDebugOptions{
 				Context: "",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				Context: map[string]interface{}{
 					"other_key": "value",
 				},
@@ -489,7 +489,7 @@ func TestApplyContextFromMap(t *testing.T) {
 			opts: &promptDebugOptions{
 				Context: "",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				Context: map[string]interface{}{
 					"user_context": 123,
 				},
@@ -501,7 +501,7 @@ func TestApplyContextFromMap(t *testing.T) {
 			opts: &promptDebugOptions{
 				Context: "",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				Context: map[string]interface{}{
 					"user_context": "valid-context",
 				},
@@ -568,7 +568,7 @@ func TestDisplayScenarioInfo(t *testing.T) {
 	tests := []struct {
 		name     string
 		opts     *promptDebugOptions
-		scenario *config.Scenario
+		scenario *arenaconfig.Scenario
 		verbose  bool
 	}{
 		{
@@ -577,7 +577,7 @@ func TestDisplayScenarioInfo(t *testing.T) {
 				Verbose:      false,
 				ScenarioFile: "test.yaml",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				TaskType: "test-task",
 			},
 		},
@@ -590,9 +590,9 @@ func TestDisplayScenarioInfo(t *testing.T) {
 				User:         "test-user",
 				Context:      "test-context",
 			},
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				TaskType: "test-task",
-				ContextMetadata: &config.ContextMetadata{
+				ContextMetadata: &arenaconfig.ContextMetadata{
 					Domain:   "scenario-domain",
 					UserRole: "scenario-user",
 				},
@@ -621,7 +621,7 @@ func TestApplyScenarioOverrides_ErrorCases(t *testing.T) {
 	opts := &promptDebugOptions{
 		ScenarioFile: "/nonexistent/scenario.yaml",
 	}
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	// Test with non-existent scenario file
 	err := applyScenarioOverrides(opts, cfg)
@@ -634,7 +634,7 @@ func TestApplyScenarioOverrides_ErrorCases(t *testing.T) {
 }
 
 func TestShowAvailableConfigurations(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	t.Run("displays configurations without error", func(t *testing.T) {
 		assert.NotPanics(t, func() {
@@ -644,7 +644,7 @@ func TestShowAvailableConfigurations(t *testing.T) {
 }
 
 func TestGenerateAndDisplayPrompt(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	opts := &promptDebugOptions{
 		Region:     "us-east-1",
@@ -663,7 +663,7 @@ func TestGenerateAndDisplayPrompt(t *testing.T) {
 }
 
 func TestBuildSystemPrompt(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
@@ -679,7 +679,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 }
 
 func TestBuildPersonaPrompt(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
@@ -700,7 +700,7 @@ func TestBuildPersonaPrompt(t *testing.T) {
 }
 
 func TestBuildRegionTaskPrompt(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	opts := &promptDebugOptions{
 		Region:   "us-east-1",
@@ -735,7 +735,7 @@ func TestDisplayPromptResults(t *testing.T) {
 		"region":   "us-east-1",
 		"taskType": "predict",
 	}
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	t.Run("displays results without error", func(t *testing.T) {
 		assert.NotPanics(t, func() {
@@ -750,7 +750,7 @@ func TestDisplayMetadata(t *testing.T) {
 		TaskType: "predict",
 	}
 
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 	promptResult := "Test prompt"
 	variables := map[string]string{
 		"region": "us-east-1",
@@ -784,7 +784,7 @@ func TestDisplaySystemPrompt(t *testing.T) {
 }
 
 func TestDisplayDebugInfo(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	t.Run("displays debug info without error", func(t *testing.T) {
 		assert.NotPanics(t, func() {

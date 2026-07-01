@@ -316,3 +316,22 @@ func TestNewInteractiveSession_PromptConfigVarsByTaskType(t *testing.T) {
 		t.Fatalf("want promptVars[company]=FixtureCo, got %q (vars dropped by map-key mismatch?)", got)
 	}
 }
+
+func TestInteractiveSession_ProviderAndHasConfigEvals(t *testing.T) {
+	eng := newFixtureEngine(t)
+	if err := eng.EnableMockProviderMode(""); err != nil {
+		t.Fatalf("EnableMockProviderMode: %v", err)
+	}
+	// Exercise the config-evals accessor (value depends on fixture config).
+	_ = eng.HasConfigEvals()
+	sess, err := eng.NewInteractiveSession(InteractiveSessionOptions{
+		ProviderID: "mock",
+		TaskType:   "basic",
+	})
+	if err != nil {
+		t.Fatalf("NewInteractiveSession: %v", err)
+	}
+	if sess.Provider() == nil {
+		t.Error("Provider() = nil, want provider")
+	}
+}

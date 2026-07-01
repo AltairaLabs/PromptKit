@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -15,20 +16,20 @@ import (
 func TestArenaStateStore_CapturesTelemetry(t *testing.T) {
 	t.Skip("State store integration needs to be updated - conversation ID format or storage mechanism has changed")
 	// Create config
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		StateStore: &config.StateStoreConfig{
 			Type: "memory", // Will default to ArenaStateStore
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				ID:       "test-scenario",
 				TaskType: "assistance",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "Give me a response"},
 				},
 			},
@@ -134,20 +135,20 @@ func TestArenaStateStore_CapturesTelemetry(t *testing.T) {
 func TestArenaStateStore_MultipleRuns(t *testing.T) {
 	t.Skip("State store integration needs to be updated - conversation ID format or storage mechanism has changed")
 	// Create config
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		StateStore: &config.StateStoreConfig{
 			Type: "memory",
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				ID:       "test-scenario",
 				TaskType: "assistance",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "First question"},
 					{Role: "user", Content: "Second question"},
 				},

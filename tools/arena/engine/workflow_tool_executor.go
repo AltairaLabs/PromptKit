@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // SkillFilterer controls which skills are available based on workflow state.
@@ -38,7 +38,7 @@ func workflowScenarioIDFromCtx(ctx context.Context) string {
 // workflowRunState holds per-run workflow state for concurrent scenario execution.
 type workflowRunState struct {
 	transExec   *workflow.TransitionExecutor
-	scenario    *config.Scenario
+	scenario    *arenaconfig.Scenario
 	transitions []map[string]any
 	skillFilter string // current skill glob filter for this run
 	emitter     *events.Emitter
@@ -75,7 +75,7 @@ func (e *workflowTransitionExecutor) Name() string { return workflow.TransitionE
 // RegisterRun creates a fresh TransitionExecutor for a scenario run with no
 // observability emitter. Use RegisterRunWithEmitter when events should be
 // emitted on commits.
-func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *config.Scenario) {
+func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *arenaconfig.Scenario) {
 	e.RegisterRunWithEmitter(runID, scenario, nil)
 }
 
@@ -86,7 +86,7 @@ func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *config.
 // deferred transition commits via CommitPendingTransition. Pass nil for runs
 // that don't need observability events.
 func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
-	runID string, scenario *config.Scenario, emitter *events.Emitter,
+	runID string, scenario *arenaconfig.Scenario, emitter *events.Emitter,
 ) {
 	e.RegisterRunAtState(runID, scenario, emitter, e.wfSpec.Entry)
 }
@@ -96,7 +96,7 @@ func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
 // a single stage for unit testing. Passing the entry is equivalent to
 // RegisterRunWithEmitter.
 func (e *workflowTransitionExecutor) RegisterRunAtState(
-	runID string, scenario *config.Scenario, emitter *events.Emitter, startState string,
+	runID string, scenario *arenaconfig.Scenario, emitter *events.Emitter, startState string,
 ) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

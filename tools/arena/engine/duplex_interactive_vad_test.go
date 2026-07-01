@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestBuildInteractiveVADConfig_OverrideWins verifies the test-only vadOverride
@@ -13,9 +14,9 @@ func TestBuildInteractiveVADConfig_OverrideWins(t *testing.T) {
 	de := &DuplexConversationExecutor{}
 	override := &scriptedVAD{}
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{
-			Duplex: &config.DuplexConfig{
-				TurnDetection: &config.TurnDetectionConfig{Mode: config.TurnDetectionModeVAD},
+		Scenario: &arenaconfig.Scenario{
+			Duplex: &arenaconfig.DuplexConfig{
+				TurnDetection: &arenaconfig.TurnDetectionConfig{Mode: arenaconfig.TurnDetectionModeVAD},
 			},
 		},
 		vadOverride: override,
@@ -33,7 +34,7 @@ func TestBuildInteractiveVADConfig_OverrideWins(t *testing.T) {
 // binding id straight through made OpenAI reject every synthesis.
 func TestBuildInteractiveTTSConfig_ResolvesVendorVoice(t *testing.T) {
 	de := &DuplexConversationExecutor{}
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedTTSProviders: map[string]*config.Provider{
 			"openai-tts": {ID: "openai-tts", Role: config.RoleTTS, Voice: "alloy"},
 		},

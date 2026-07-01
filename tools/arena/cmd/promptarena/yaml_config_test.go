@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestYAMLConfigurationSupport(t *testing.T) {
@@ -59,8 +59,8 @@ func TestYAMLConfigurationSupport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a mock config
-			cfg := &config.Config{
-				Defaults: config.Defaults{
+			cfg := &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					OutputFormats: tt.configFormats,
 				},
 			}
@@ -127,8 +127,8 @@ func TestExtractRunParameters_OutputFormats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test config
-			cfg := &config.Config{
-				Defaults: config.Defaults{
+			cfg := &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					OutputFormats: tt.configFormats,
 					OutDir:        "test-out",
 					Concurrency:   1,
@@ -184,8 +184,8 @@ func TestEvalFiltering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test config
-			cfg := &config.Config{
-				Defaults: config.Defaults{
+			cfg := &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					OutDir:      "test-out",
 					Concurrency: 1,
 				},
@@ -258,8 +258,8 @@ func TestProcessDeprecatedHTMLFlag(t *testing.T) {
 }
 
 func TestProcessConfigHTMLSetting(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			HTMLReport: "/path/to/report.html",
 		},
 	}
@@ -321,8 +321,8 @@ func TestApplyConfigurationOverrides(t *testing.T) {
 			cmd := &cobra.Command{}
 			setupTestFlags(cmd)
 
-			cfg := &config.Config{
-				Defaults: config.Defaults{},
+			cfg := &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{},
 			}
 
 			params := &RunParameters{

@@ -1,9 +1,11 @@
-package config
+package arenaconfig
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestConfig_GetStateStoreType_DefaultsToMemory(t *testing.T) {
@@ -22,7 +24,7 @@ func TestConfig_GetStateStoreType_DefaultsToMemory(t *testing.T) {
 		{
 			name: "empty Type in StateStore config",
 			config: &Config{
-				StateStore: &StateStoreConfig{
+				StateStore: &config.StateStoreConfig{
 					Type: "",
 				},
 			},
@@ -31,7 +33,7 @@ func TestConfig_GetStateStoreType_DefaultsToMemory(t *testing.T) {
 		{
 			name: "explicit memory type",
 			config: &Config{
-				StateStore: &StateStoreConfig{
+				StateStore: &config.StateStoreConfig{
 					Type: "memory",
 				},
 			},
@@ -40,7 +42,7 @@ func TestConfig_GetStateStoreType_DefaultsToMemory(t *testing.T) {
 		{
 			name: "explicit redis type",
 			config: &Config{
-				StateStore: &StateStoreConfig{
+				StateStore: &config.StateStoreConfig{
 					Type: "redis",
 				},
 			},
@@ -68,7 +70,7 @@ func TestConfig_GetStateStoreConfig_DefaultsToMemory(t *testing.T) {
 
 	t.Run("empty Type gets set to memory", func(t *testing.T) {
 		config := &Config{
-			StateStore: &StateStoreConfig{
+			StateStore: &config.StateStoreConfig{
 				Type: "",
 			},
 		}
@@ -79,9 +81,9 @@ func TestConfig_GetStateStoreConfig_DefaultsToMemory(t *testing.T) {
 
 	t.Run("existing config is returned as-is", func(t *testing.T) {
 		config := &Config{
-			StateStore: &StateStoreConfig{
+			StateStore: &config.StateStoreConfig{
 				Type: "redis",
-				Redis: &RedisConfig{
+				Redis: &config.RedisConfig{
 					Address: "localhost:6379",
 				},
 			},

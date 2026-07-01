@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -14,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
@@ -118,7 +118,7 @@ func (de *DuplexConversationExecutor) shouldUseClientVAD(req *ConversationReques
 	if req.Scenario.Duplex.TurnDetection == nil {
 		return true // Default to VAD
 	}
-	return req.Scenario.Duplex.TurnDetection.Mode == config.TurnDetectionModeVAD
+	return req.Scenario.Duplex.TurnDetection.Mode == arenaconfig.TurnDetectionModeVAD
 }
 
 // buildVADConfig creates VAD configuration from scenario settings.
@@ -164,7 +164,7 @@ func (de *DuplexConversationExecutor) calculateTotalCost(messages []types.Messag
 }
 
 // containsSelfPlay checks if scenario uses self-play.
-func (de *DuplexConversationExecutor) containsSelfPlay(scenario *config.Scenario) bool {
+func (de *DuplexConversationExecutor) containsSelfPlay(scenario *arenaconfig.Scenario) bool {
 	for i := range scenario.Turns {
 		if de.isSelfPlayRole(scenario.Turns[i].Role) {
 			return true
@@ -182,7 +182,7 @@ func (de *DuplexConversationExecutor) isSelfPlayRole(role string) bool {
 }
 
 // findFirstSelfPlayPersona finds the persona ID from the first self-play turn.
-func (de *DuplexConversationExecutor) findFirstSelfPlayPersona(scenario *config.Scenario) string {
+func (de *DuplexConversationExecutor) findFirstSelfPlayPersona(scenario *arenaconfig.Scenario) string {
 	for i := range scenario.Turns {
 		if de.isSelfPlayRole(scenario.Turns[i].Role) && scenario.Turns[i].Persona != "" {
 			return scenario.Turns[i].Persona

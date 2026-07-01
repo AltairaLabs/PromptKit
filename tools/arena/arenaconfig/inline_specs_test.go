@@ -1,4 +1,4 @@
-package config
+package arenaconfig
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
@@ -375,10 +376,10 @@ func TestInlineSpecs_MixedMode(t *testing.T) {
 
 func TestMergeProviderSpecs_Unit(t *testing.T) {
 	cfg := &Config{
-		LoadedProviders:      map[string]*Provider{},
+		LoadedProviders:      map[string]*config.Provider{},
 		ProviderGroups:       map[string]string{},
 		ProviderCapabilities: map[string][]string{},
-		ProviderSpecs: map[string]*Provider{
+		ProviderSpecs: map[string]*config.Provider{
 			"p1": {Type: "openai", Model: "gpt-4", Capabilities: []string{"text"}},
 			"p2": {Type: "anthropic", Model: "claude-3"},
 		},
@@ -420,8 +421,8 @@ func TestMergeEvalSpecs_Unit(t *testing.T) {
 
 func TestMergeToolSpecs_Unit(t *testing.T) {
 	cfg := &Config{
-		LoadedTools: []ToolData{},
-		ToolSpecs: map[string]*ToolSpec{
+		LoadedTools: []config.ToolData{},
+		ToolSpecs: map[string]*config.ToolSpec{
 			"my-tool": {Description: "A tool", Mode: "mock"},
 		},
 	}
@@ -433,9 +434,9 @@ func TestMergeToolSpecs_Unit(t *testing.T) {
 }
 
 func TestMergeJudgeSpecs_Unit(t *testing.T) {
-	provider := &Provider{ID: "jp", Type: "openai", Model: "gpt-4"}
+	provider := &config.Provider{ID: "jp", Type: "openai", Model: "gpt-4"}
 	cfg := &Config{
-		LoadedProviders: map[string]*Provider{"jp": provider},
+		LoadedProviders: map[string]*config.Provider{"jp": provider},
 		LoadedJudges:    map[string]*JudgeTarget{},
 		JudgeSpecs: map[string]*JudgeSpec{
 			"j1": {Provider: "jp"},

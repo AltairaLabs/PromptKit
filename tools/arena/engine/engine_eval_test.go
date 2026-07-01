@@ -3,15 +3,17 @@ package engine
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestGenerateEvalPlan(t *testing.T) {
 	t.Run("generates combinations for all evals when no filter", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 				"eval2": {ID: "eval2"},
 			},
@@ -36,7 +38,7 @@ func TestGenerateEvalPlan(t *testing.T) {
 
 	t.Run("filters to specific evals", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 				"eval2": {ID: "eval2"},
 				"eval3": {ID: "eval3"},
@@ -59,7 +61,7 @@ func TestGenerateEvalPlan(t *testing.T) {
 
 	t.Run("empty plan when no evals", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{},
+			evals: map[string]*arenaconfig.Eval{},
 		}
 
 		plan, err := eng.generateEvalPlan(nil)
@@ -72,7 +74,7 @@ func TestGenerateEvalPlan(t *testing.T) {
 func TestResolveEvals(t *testing.T) {
 	t.Run("returns filter when provided", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 				"eval2": {ID: "eval2"},
 			},
@@ -84,7 +86,7 @@ func TestResolveEvals(t *testing.T) {
 
 	t.Run("returns all evals when no filter", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 				"eval2": {ID: "eval2"},
 			},
@@ -98,7 +100,7 @@ func TestResolveEvals(t *testing.T) {
 
 	t.Run("returns empty when no evals", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{},
+			evals: map[string]*arenaconfig.Eval{},
 		}
 
 		result := eng.resolveEvals(nil)
@@ -118,11 +120,11 @@ func TestExecuteEvalRun(t *testing.T) {
 func TestGenerateRunPlan_WithEvals(t *testing.T) {
 	t.Run("generates eval plan when evalFilter provided", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 				"eval2": {ID: "eval2"},
 			},
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario1": {ID: "scenario1"},
 			},
 		}
@@ -136,16 +138,16 @@ func TestGenerateRunPlan_WithEvals(t *testing.T) {
 
 	t.Run("generates scenario plan when no evalFilter", func(t *testing.T) {
 		eng := &Engine{
-			evals: map[string]*config.Eval{
+			evals: map[string]*arenaconfig.Eval{
 				"eval1": {ID: "eval1"},
 			},
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario1": {ID: "scenario1", Providers: []string{"p1"}},
 			},
 			providers: map[string]*config.Provider{
 				"p1": {ID: "p1"},
 			},
-			config: &config.Config{},
+			config: &arenaconfig.Config{},
 		}
 
 		// Since scenario path requires more setup, just verify it doesn't use eval path

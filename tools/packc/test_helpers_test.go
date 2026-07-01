@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // validateLoadedMedia prints media validation warnings for loaded prompt configs.
 // Kept as test helper after migration to compiler package.
-func validateLoadedMedia(cfg *config.Config, configDir string) {
+func validateLoadedMedia(cfg *arenaconfig.Config, configDir string) {
 	for _, promptData := range cfg.LoadedPromptConfigs {
 		promptConfig, ok := promptData.Config.(*prompt.Config)
 		if !ok {
@@ -31,13 +31,13 @@ func validateLoadedMedia(cfg *config.Config, configDir string) {
 
 // parsePackEvalsFromConfig returns pack-level eval definitions from arena config.
 // Kept as test helper after migration to compiler package.
-func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
+func parsePackEvalsFromConfig(cfg *arenaconfig.Config) []evals.EvalDef {
 	return cfg.PackEvals
 }
 
 // parseWorkflowFromConfig parses workflow config from arena config.
 // Kept as test helper after migration to compiler package.
-func parseWorkflowFromConfig(cfg *config.Config) *prompt.WorkflowConfig {
+func parseWorkflowFromConfig(cfg *arenaconfig.Config) *prompt.WorkflowConfig {
 	if cfg.Workflow == nil {
 		return nil
 	}
@@ -56,7 +56,7 @@ func parseWorkflowFromConfig(cfg *config.Config) *prompt.WorkflowConfig {
 
 // parseAgentsFromConfig parses agents config from arena config.
 // Kept as test helper after migration to compiler package.
-func parseAgentsFromConfig(cfg *config.Config) *prompt.AgentsConfig {
+func parseAgentsFromConfig(cfg *arenaconfig.Config) *prompt.AgentsConfig {
 	if cfg.Agents == nil {
 		return nil
 	}

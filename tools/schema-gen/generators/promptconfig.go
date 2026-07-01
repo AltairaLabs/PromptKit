@@ -3,13 +3,13 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GeneratePromptConfigSchema generates the JSON Schema for PromptConfig configuration
 func GeneratePromptConfigSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.PromptConfigSchema{},
+		Target:      &arenaconfig.PromptConfigSchema{},
 		Filename:    "promptconfig.json",
 		Title:       "PromptKit Prompt Configuration",
 		Description: "Prompt configuration for PromptKit",

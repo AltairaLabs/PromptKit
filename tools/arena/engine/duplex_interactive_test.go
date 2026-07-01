@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -179,24 +180,24 @@ func newDuplexTestExecutorASM(t *testing.T) (*DuplexConversationExecutor, *Conve
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 
 	store := statestore.NewArenaStateStore()
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: scenarioID,
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
 				// ASM: provider-native turn detection; no client-side VAD stage
 				// is added to the pipeline, keeping the test simple.
-				Mode: config.TurnDetectionModeASM,
+				Mode: arenaconfig.TurnDetectionModeASM,
 			},
 		},
 		// No turns — RunInteractiveVoice owns the session lifecycle.
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
 	req := &ConversationRequest{
 		Provider:       mockProvider,
 		Scenario:       scenario,
-		Config:         &config.Config{LoadedProviders: map[string]*config.Provider{}},
+		Config:         &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{}},
 		RunID:          "test-run-voice",
 		ConversationID: "test-conv-voice",
 		StateStoreConfig: &StateStoreConfig{
@@ -245,13 +246,13 @@ func TestRunInteractiveVoice_VAD_RequiresSTTProvider(t *testing.T) {
 
 	req := &ConversationRequest{
 		Provider: &mockNonStreamingProvider{},
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "5s",
 			},
 		},
-		Config:         &config.Config{LoadedProviders: map[string]*config.Provider{}},
+		Config:         &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{}},
 		RunID:          "test",
 		ConversationID: "test",
 	}
@@ -358,18 +359,18 @@ func newDuplexTestExecutorVAD(
 		Role: config.RoleTTS,
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "interactive-voice-vad-test",
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeVAD,
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
+				Mode: arenaconfig.TurnDetectionModeVAD,
 			},
 		},
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders:    map[string]*config.Provider{},
 		LoadedTTSProviders: map[string]*config.Provider{"mock-tts": ttsProvider},
 		Voices: []config.VoiceBinding{
@@ -496,18 +497,18 @@ func newDuplexTestExecutorVADWithRecordingTTS(
 		Role: config.RoleTTS,
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "interactive-voice-vad-rec-test",
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeVAD,
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
+				Mode: arenaconfig.TurnDetectionModeVAD,
 			},
 		},
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders:    map[string]*config.Provider{},
 		LoadedTTSProviders: map[string]*config.Provider{"mock-tts-rec": ttsProvider},
 		Voices: []config.VoiceBinding{
@@ -643,21 +644,21 @@ func newDuplexTestExecutorASMWithTranscript(
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 	store := statestore.NewArenaStateStore()
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: scenarioID,
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeASM,
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
+				Mode: arenaconfig.TurnDetectionModeASM,
 			},
 		},
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
 	req := &ConversationRequest{
 		Provider:       mockProvider,
 		Scenario:       scenario,
-		Config:         &config.Config{LoadedProviders: map[string]*config.Provider{}},
+		Config:         &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{}},
 		RunID:          "test-run-transcript",
 		ConversationID: "test-conv-transcript",
 		StateStoreConfig: &StateStoreConfig{
@@ -768,18 +769,18 @@ func newDuplexTestExecutorVADWithStreamingProvider(
 		Role: config.RoleTTS,
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "interactive-voice-routing-test",
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "10s",
-			TurnDetection: &config.TurnDetectionConfig{
-				Mode: config.TurnDetectionModeVAD,
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
+				Mode: arenaconfig.TurnDetectionModeVAD,
 			},
 		},
-		Turns: []config.TurnDefinition{},
+		Turns: []arenaconfig.TurnDefinition{},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders:    map[string]*config.Provider{},
 		LoadedTTSProviders: map[string]*config.Provider{"mock-tts-routing": ttsProvider},
 		Voices: []config.VoiceBinding{

@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestEngine_ResolveRegions(t *testing.T) {
@@ -52,7 +53,7 @@ func TestEngine_ResolveRegions(t *testing.T) {
 func TestEngine_ResolveScenarios(t *testing.T) {
 	tests := []struct {
 		name          string
-		scenarios     map[string]*config.Scenario
+		scenarios     map[string]*arenaconfig.Scenario
 		filter        []string
 		expectedIDs   []string
 		expectError   bool
@@ -60,7 +61,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 	}{
 		{
 			name: "empty filter returns all scenarios",
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario-1": {},
 				"scenario-2": {},
 				"scenario-3": {},
@@ -71,7 +72,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 		},
 		{
 			name: "nil filter returns all scenarios",
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"test-1": {},
 				"test-2": {},
 			},
@@ -81,7 +82,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 		},
 		{
 			name: "single scenario filter",
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario-1": {},
 				"scenario-2": {},
 			},
@@ -90,7 +91,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 		},
 		{
 			name: "multiple scenario filter",
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario-1": {},
 				"scenario-2": {},
 				"scenario-3": {},
@@ -100,7 +101,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 		},
 		{
 			name:        "empty scenarios with empty filter",
-			scenarios:   map[string]*config.Scenario{},
+			scenarios:   map[string]*arenaconfig.Scenario{},
 			filter:      []string{},
 			expectedIDs: nil, // Empty map iteration returns nil slice
 		},
@@ -137,7 +138,7 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 // TestResolveScenarios_DeterministicOrder verifies L29 fix: sorted output from map iteration
 func TestResolveScenarios_DeterministicOrder(t *testing.T) {
 	e := &Engine{
-		scenarios: map[string]*config.Scenario{
+		scenarios: map[string]*arenaconfig.Scenario{
 			"zebra":  {},
 			"alpha":  {},
 			"middle": {},
@@ -156,7 +157,7 @@ func TestResolveScenarios_DeterministicOrder(t *testing.T) {
 // TestResolveEvals_DeterministicOrder verifies L29 fix: sorted output from map iteration
 func TestResolveEvals_DeterministicOrder(t *testing.T) {
 	e := &Engine{
-		evals: map[string]*config.Eval{
+		evals: map[string]*arenaconfig.Eval{
 			"eval-c": {},
 			"eval-a": {},
 			"eval-b": {},
@@ -193,7 +194,7 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 		regions        []string
 		scenarioIDs    []string
 		providerFilter []string
-		scenarios      map[string]*config.Scenario
+		scenarios      map[string]*arenaconfig.Scenario
 		expectedCount  int
 	}{
 		{
@@ -201,7 +202,7 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 			regions:        []string{},
 			scenarioIDs:    []string{"scenario-1"},
 			providerFilter: []string{"openai"},
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"scenario-1": {},
 			},
 			expectedCount: 0,
@@ -211,7 +212,7 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 			regions:        []string{"us-west-1"},
 			scenarioIDs:    []string{},
 			providerFilter: []string{"openai"},
-			scenarios:      map[string]*config.Scenario{},
+			scenarios:      map[string]*arenaconfig.Scenario{},
 			expectedCount:  0,
 		},
 		{
@@ -219,7 +220,7 @@ func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 			regions:        []string{},
 			scenarioIDs:    []string{},
 			providerFilter: []string{"openai"},
-			scenarios:      map[string]*config.Scenario{},
+			scenarios:      map[string]*arenaconfig.Scenario{},
 			expectedCount:  0,
 		},
 	}
@@ -282,7 +283,7 @@ func TestEngine_GetInitialProviders(t *testing.T) {
 			"p2": p2,
 			"p3": p3,
 		},
-		config: &config.Config{
+		config: &arenaconfig.Config{
 			ProviderGroups: map[string]string{
 				"p1": "group-a",
 				"p2": "group-a",
@@ -301,7 +302,7 @@ func TestEngine_GetInitialProviders(t *testing.T) {
 	e.providerRegistry.Register(mockProv3)
 
 	t.Run("scenario with explicit providers", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			Providers: []string{"p1", "p2"},
 		}
 		result := e.getInitialProviders(scenario, nil)
@@ -309,7 +310,7 @@ func TestEngine_GetInitialProviders(t *testing.T) {
 	})
 
 	t.Run("scenario with provider group", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			ProviderGroup: "group-a",
 		}
 		result := e.getInitialProviders(scenario, nil)
@@ -319,7 +320,7 @@ func TestEngine_GetInitialProviders(t *testing.T) {
 	})
 
 	t.Run("scenario with filter", func(t *testing.T) {
-		scenario := &config.Scenario{}
+		scenario := &arenaconfig.Scenario{}
 		filter := []string{"p1"}
 		result := e.getInitialProviders(scenario, filter)
 		assert.Equal(t, []string{"p1"}, result)
@@ -339,7 +340,7 @@ func TestEngine_ResolveProvidersForScenario(t *testing.T) {
 	e.providerRegistry.Register(mockProv3)
 
 	t.Run("scenario providers with filter intersection", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			Providers: []string{"p1", "p2", "p3"},
 		}
 		filter := []string{"p2", "p3"}
@@ -348,7 +349,7 @@ func TestEngine_ResolveProvidersForScenario(t *testing.T) {
 	})
 
 	t.Run("scenario providers without filter", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			Providers: []string{"p1", "p2"},
 		}
 		result := e.resolveProvidersForScenario(scenario, nil)
@@ -441,7 +442,7 @@ func TestHasAllCapabilities(t *testing.T) {
 
 func TestEngine_FilterByCapabilities(t *testing.T) {
 	e := &Engine{
-		config: &config.Config{
+		config: &arenaconfig.Config{
 			ProviderCapabilities: map[string][]string{
 				"openai-gpt4o":     {"text", "streaming", "vision", "tools", "json"},
 				"openai-o1":        {"text", "streaming", "tools", "json"},
@@ -521,7 +522,7 @@ func TestEngine_GetInitialProvidersWithCapabilities(t *testing.T) {
 			"openai-o1":     p2,
 			"gemini-25-pro": p3,
 		},
-		config: &config.Config{
+		config: &arenaconfig.Config{
 			ProviderGroups: map[string]string{
 				"openai-gpt4o":  "default",
 				"openai-o1":     "default",
@@ -545,7 +546,7 @@ func TestEngine_GetInitialProvidersWithCapabilities(t *testing.T) {
 	e.providerRegistry.Register(mockProv3)
 
 	t.Run("scenario with required capabilities filters providers", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			RequiredCapabilities: []string{"vision"},
 		}
 		result := e.getInitialProviders(scenario, nil)
@@ -555,7 +556,7 @@ func TestEngine_GetInitialProvidersWithCapabilities(t *testing.T) {
 	})
 
 	t.Run("scenario with multiple required capabilities", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			RequiredCapabilities: []string{"vision", "video"},
 		}
 		result := e.getInitialProviders(scenario, nil)
@@ -563,7 +564,7 @@ func TestEngine_GetInitialProvidersWithCapabilities(t *testing.T) {
 	})
 
 	t.Run("scenario without required capabilities returns all in group", func(t *testing.T) {
-		scenario := &config.Scenario{}
+		scenario := &arenaconfig.Scenario{}
 		result := e.getInitialProviders(scenario, nil)
 		assert.Contains(t, result, "openai-gpt4o")
 		assert.Contains(t, result, "openai-o1")

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 )
 
 // collectInspectionData collects inspection data and optionally adds cache stats
 // based on the inspectStats flag.
-func collectInspectionData(cfg *config.Config, configFile string) *inspect.InspectionData {
+func collectInspectionData(cfg *arenaconfig.Config, configFile string) *inspect.InspectionData {
 	data := inspect.CollectInspectionData(cfg, configFile)
 	if inspectStats {
 		data.CacheStats = inspect.CollectCacheStats(cfg, inspectVerbose)

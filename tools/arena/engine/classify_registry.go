@@ -9,6 +9,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/classify/backends/all" // registers classify backend factories via init()
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // buildClassifyRegistry maps cfg.LoadedInferenceProviders (every
@@ -20,7 +21,7 @@ import (
 // resolvable API key is an error (the caller logs and continues with a
 // nil registry, so classify-backed handlers skip cleanly rather than
 // failing — this preserves demos that run without HF_TOKEN).
-func buildClassifyRegistry(cfg *config.Config) (*classify.Registry, error) {
+func buildClassifyRegistry(cfg *arenaconfig.Config) (*classify.Registry, error) {
 	if cfg == nil || len(cfg.LoadedInferenceProviders) == 0 {
 		return nil, nil
 	}

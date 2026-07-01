@@ -3,14 +3,15 @@ package stages
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestPersonaAssemblyStage_PopulatesTurnState(t *testing.T) {
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:           "test-persona",
 		Description:  "A persona used by the assembly stage tests",
 		SystemPrompt: "You are a curious customer.",
@@ -30,7 +31,7 @@ func TestPersonaAssemblyStage_PopulatesTurnState(t *testing.T) {
 }
 
 func TestPersonaAssemblyStage_PreservesExistingTurnStateVariables(t *testing.T) {
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:           "test-persona",
 		SystemPrompt: "You are helpful.",
 	}
@@ -48,7 +49,7 @@ func TestPersonaAssemblyStage_PreservesExistingTurnStateVariables(t *testing.T) 
 func TestPersonaAssemblyStage_BuildSystemPromptError(t *testing.T) {
 	// SystemTemplate references a variable that is not provided, and there are
 	// no fragments / fallback prompt — BuildSystemPrompt should error.
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:             "broken",
 		SystemTemplate: "Hello {{missing}}",
 		RequiredVars:   []string{"missing"},
@@ -65,4 +66,12 @@ func TestPersonaAssemblyStage_BuildSystemPromptError(t *testing.T) {
 	err := s.Process(t.Context(), input, output)
 	require.Error(t, err)
 	assert.Empty(t, turnState.SystemPrompt)
+}
+
+func TestPersonaAssemblyStage_WithProviderRubric(t *testing.T) {
+	persona := &arenaconfig.UserPersonaPack{ID: "p", SystemPrompt: "x"}
+	s := NewPersonaAssemblyStageWithTurnState(persona, "us", nil, stage.NewTurnState()).
+		WithProviderRubric("be terse")
+	require.NotNil(t, s)
+	assert.Equal(t, "be terse", s.providerRubric)
 }

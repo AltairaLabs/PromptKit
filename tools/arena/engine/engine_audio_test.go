@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
 
 func TestBuildAudioMonitor_NilWhenNotEnabled(t *testing.T) {
 	eng := &Engine{}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
+	scenario := &arenaconfig.Scenario{Duplex: &arenaconfig.DuplexConfig{}}
 	if router := eng.buildAudioMonitor(scenario); router != nil {
 		defer router.Close()
 		t.Fatalf("expected nil router when monitor not enabled, got %v", router)
@@ -25,7 +25,7 @@ func TestBuildAudioMonitor_NilWhenScenarioNotDuplex(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scenario := &config.Scenario{Duplex: nil}
+	scenario := &arenaconfig.Scenario{Duplex: nil}
 	if router := eng.buildAudioMonitor(scenario); router != nil {
 		defer router.Close()
 		t.Fatalf("expected nil router for non-duplex scenario, got %v", router)
@@ -54,7 +54,7 @@ func TestBuildAudioMonitor_NilWhenModeOff(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
+	scenario := &arenaconfig.Scenario{Duplex: &arenaconfig.DuplexConfig{}}
 	if router := eng.buildAudioMonitor(scenario); router != nil {
 		defer router.Close()
 		t.Fatalf("expected nil router for ModeOff, got %v", router)
@@ -69,7 +69,7 @@ func TestBuildAudioMonitor_ConstructsRouterForDuplexModeOn(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
+	scenario := &arenaconfig.Scenario{Duplex: &arenaconfig.DuplexConfig{}}
 	router := eng.buildAudioMonitor(scenario)
 	if router == nil {
 		t.Fatal("expected router for ModeOn duplex scenario")
@@ -88,7 +88,7 @@ func TestBuildAudioMonitor_NilWhenAutoModeNonTTY(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
+	scenario := &arenaconfig.Scenario{Duplex: &arenaconfig.DuplexConfig{}}
 	if router := eng.buildAudioMonitor(scenario); router != nil {
 		defer router.Close()
 		t.Fatalf("expected nil router in non-TTY ModeAuto, got %v", router)
@@ -216,7 +216,7 @@ func TestBuildAudioMonitor_RouterFanout(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
+	scenario := &arenaconfig.Scenario{Duplex: &arenaconfig.DuplexConfig{}}
 	router := eng.buildAudioMonitor(scenario)
 	if router == nil {
 		t.Fatal("expected router")

@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestBuildClassifyRegistry_NoInferenceReturnsNil(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 	reg, err := buildClassifyRegistry(cfg)
 	if err != nil {
 		t.Fatalf("buildClassifyRegistry: %v", err)
@@ -44,7 +45,7 @@ func hfProvider(id string) *config.Provider {
 }
 
 func TestBuildClassifyRegistry_HFEntryRegistersAllTasks(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": hfProvider("hf"),
 		},
@@ -79,7 +80,7 @@ func TestBuildClassifyRegistry_CanonicalEnvVarFallback(t *testing.T) {
 	// No literal credential — must fall through to HF_TOKEN via the
 	// credentials package's DefaultEnvVars for provider type "huggingface".
 	t.Setenv("HF_TOKEN", "from-env")
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": {ID: "hf", Type: "huggingface", Role: config.RoleInference},
 		},
@@ -94,7 +95,7 @@ func TestBuildClassifyRegistry_MissingAPIKeyErrors(t *testing.T) {
 	// points the user at where to fix it.
 	t.Setenv("HF_TOKEN", "")
 	t.Setenv("HUGGING_FACE_HUB_TOKEN", "")
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": {ID: "hf", Type: "huggingface", Role: config.RoleInference},
 		},
@@ -111,7 +112,7 @@ func TestBuildClassifyRegistry_MissingAPIKeyErrors(t *testing.T) {
 func TestBuildClassifyRegistry_UnsupportedTypeErrors(t *testing.T) {
 	// Provide a literal API key so the credential check passes and the
 	// unsupported-type error surfaces from classify.BuildRegistry.
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"x": {
 				ID:   "x",
@@ -133,11 +134,11 @@ func TestBuildClassifyRegistry_UnsupportedTypeErrors(t *testing.T) {
 }
 
 func TestBuildClassifyRegistry_DefaultsAppliedToRegistry(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": hfProvider("hf"),
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Inference: &config.InferenceDefaults{
 				AudioClassifier: "hf",
 				TextClassifier:  "hf",
@@ -160,11 +161,11 @@ func TestBuildClassifyRegistry_DefaultsAppliedToRegistry(t *testing.T) {
 }
 
 func TestBuildClassifyRegistry_DefaultsReferencingUnregisteredID(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": hfProvider("hf"),
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Inference: &config.InferenceDefaults{
 				AudioClassifier: "doesnotexist",
 			},
@@ -189,7 +190,7 @@ func TestBuildClassifyRegistry_DedicatedFlagFromAdditionalConfig(t *testing.T) {
 	// build successfully against the public Inference API. This test
 	// pins the AdditionalConfig path itself — that a "dedicated: true"
 	// bool flag in the YAML is read through.
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
 			"hf": {
 				ID:      "hf",

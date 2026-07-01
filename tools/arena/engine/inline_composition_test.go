@@ -3,15 +3,15 @@ package engine
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // minimalEngineForWorkflow builds an Engine directly (bypassing NewEngine's
 // side-effecting buildMediaStorage/buildStateStore) with just the fields that
 // initWorkflow reads. Used by inline-composition tests only.
-func minimalEngineForWorkflow(cfg *config.Config) *Engine {
+func minimalEngineForWorkflow(cfg *arenaconfig.Config) *Engine {
 	return &Engine{
 		config:       cfg,
 		toolRegistry: tools.NewRegistry(),
@@ -53,7 +53,7 @@ func TestInitWorkflow_InlineCompositionsLoaded(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		Workflow:     workflowRaw,
 		Compositions: compositionsRaw,
 	}
@@ -94,7 +94,7 @@ func TestInitWorkflow_NoCompositions(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		Workflow:     workflowRaw,
 		Compositions: nil,
 	}
@@ -138,7 +138,7 @@ func TestInitWorkflow_MergesIntoExistingLoadedPack(t *testing.T) {
 		ID: "pre-existing",
 	}
 
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		Workflow:     workflowRaw,
 		Compositions: compositionsRaw,
 		LoadedPack:   existingPack,

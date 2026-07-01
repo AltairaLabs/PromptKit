@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	runtimeStatestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Helper to create a test element with a message
@@ -230,7 +231,7 @@ func TestStripToolMessagesStage_EmptyInput(t *testing.T) {
 // =============================================================================
 
 func TestMockScenarioContextStage_AddsContext(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-scenario",
 	}
 
@@ -264,7 +265,7 @@ func TestMockScenarioContextStage_NilScenario(t *testing.T) {
 }
 
 func TestMockScenarioContextStage_EmptyScenarioID(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "", // Empty ID
 	}
 
@@ -283,7 +284,7 @@ func TestMockScenarioContextStage_EmptyScenarioID(t *testing.T) {
 }
 
 func TestMockScenarioContextStage_TurnNumberFromTurnState(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-scenario",
 	}
 
@@ -303,7 +304,7 @@ func TestMockScenarioContextStage_TurnNumberFromTurnState(t *testing.T) {
 }
 
 func TestMockScenarioContextStage_TurnNumberFromAssistantCount(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-scenario",
 	}
 
@@ -325,7 +326,7 @@ func TestMockScenarioContextStage_TurnNumberFromAssistantCount(t *testing.T) {
 }
 
 func TestMockScenarioContextStage_TurnNumberFromUserCount(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-scenario",
 	}
 
@@ -350,7 +351,7 @@ func TestMockScenarioContextStage_TurnNumberFromUserCount(t *testing.T) {
 // =============================================================================
 
 func TestSelfPlayUserTurnContextStage_AddsContext(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "selfplay-scenario",
 	}
 
@@ -390,7 +391,7 @@ func TestSelfPlayUserTurnContextStage_NilScenario(t *testing.T) {
 }
 
 func TestSelfPlayUserTurnContextStage_PersonaIDRoutedToProviderMetadata(t *testing.T) {
-	scenario := &config.Scenario{ID: "test-scenario"}
+	scenario := &arenaconfig.Scenario{ID: "test-scenario"}
 	turnState := stage.NewTurnState()
 	s := NewSelfPlayUserTurnContextStageWithTurnState(scenario, "curious-customer", turnState)
 
@@ -404,11 +405,11 @@ func TestSelfPlayUserTurnContextStage_PersonaIDRoutedToProviderMetadata(t *testi
 // =============================================================================
 
 func TestScenarioContextExtractionStage_WritesToTurnStateVariables(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:          "test-scenario",
 		Description: "Test scenario description",
 		TaskType:    "chat",
-		ContextMetadata: &config.ContextMetadata{
+		ContextMetadata: &arenaconfig.ContextMetadata{
 			Domain:   "technology",
 			UserRole: "developer",
 		},
@@ -432,7 +433,7 @@ func TestScenarioContextExtractionStage_WritesToTurnStateVariables(t *testing.T)
 
 func TestScenarioContextExtractionStage_EmptyScenarioWritesEmptyValues(t *testing.T) {
 	turnState := stage.NewTurnState()
-	s := NewScenarioContextExtractionStageWithTurnState(&config.Scenario{}, turnState)
+	s := NewScenarioContextExtractionStageWithTurnState(&arenaconfig.Scenario{}, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
@@ -446,8 +447,8 @@ func TestScenarioContextExtractionStage_EmptyScenarioWritesEmptyValues(t *testin
 }
 
 func TestScenarioContextExtractionStage_DoesNotOverwriteExisting(t *testing.T) {
-	scenario := &config.Scenario{
-		ContextMetadata: &config.ContextMetadata{
+	scenario := &arenaconfig.Scenario{
+		ContextMetadata: &arenaconfig.ContextMetadata{
 			Domain: "new_domain",
 		},
 	}
@@ -466,7 +467,7 @@ func TestScenarioContextExtractionStage_DoesNotOverwriteExisting(t *testing.T) {
 }
 
 func TestBuildContextSlot_WithDescription(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		Description: "A test scenario",
 		TaskType:    "chat",
 	}
@@ -477,7 +478,7 @@ func TestBuildContextSlot_WithDescription(t *testing.T) {
 }
 
 func TestBuildContextSlot_WithUserMessage(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "chat",
 	}
 	messages := []types.Message{
@@ -490,7 +491,7 @@ func TestBuildContextSlot_WithUserMessage(t *testing.T) {
 }
 
 func TestBuildContextSlot_TruncatesLongContent(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "chat",
 	}
 	longContent := ""
@@ -509,7 +510,7 @@ func TestBuildContextSlot_TruncatesLongContent(t *testing.T) {
 }
 
 func TestBuildContextSlot_FallbackToTaskType(t *testing.T) {
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "support",
 	}
 

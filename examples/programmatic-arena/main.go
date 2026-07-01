@@ -8,12 +8,13 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 func main() {
-	fmt.Println("=== Programmatic Arena Example ===\n")
+	fmt.Println("=== Programmatic Arena Example ===")
 
 	// Create a simple prompt config programmatically
 	promptConfig := &prompt.Config{
@@ -27,7 +28,7 @@ Be concise, accurate, and friendly in your responses.`,
 	}
 
 	// Create config programmatically - using mock provider for demonstration
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-gpt4": {
 				ID:    "mock-gpt4",
@@ -35,27 +36,27 @@ Be concise, accurate, and friendly in your responses.`,
 				Model: "gpt-4",
 			},
 		},
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			"assistant": {
 				Config:   promptConfig,
 				TaskType: "assistant",
 			},
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"greeting-test": {
 				ID:          "greeting-test",
 				TaskType:    "assistant",
 				Description: "Test basic greeting response",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "Hello! How are you today?"},
 					{Role: "user", Content: "What's the capital of France?"},
 				},
 			},
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   500,
-			Output: config.OutputConfig{
+			Output: arenaconfig.OutputConfig{
 				Dir: "out",
 			},
 		},
@@ -63,14 +64,14 @@ Be concise, accurate, and friendly in your responses.`,
 
 	// Build engine components from programmatic config
 	fmt.Println("Building Arena engine components...")
-	providerReg, promptReg, mcpReg, executor, adapterReg, _, _, _, err := engine.BuildEngineComponents(cfg, nil)
+	providerReg, promptReg, mcpReg, executor, adapterReg, _, toolReg, _, err := engine.BuildEngineComponents(cfg, nil)
 	if err != nil {
 		log.Fatalf("Failed to build engine components: %v", err)
 	}
 
 	// Create engine
 	fmt.Println("Creating Arena engine...")
-	eng, err := engine.NewEngine(cfg, providerReg, promptReg, mcpReg, executor, adapterReg)
+	eng, err := engine.NewEngine(cfg, providerReg, promptReg, mcpReg, executor, adapterReg, toolReg)
 	if err != nil {
 		log.Fatalf("Failed to create engine: %v", err)
 	}
@@ -78,7 +79,7 @@ Be concise, accurate, and friendly in your responses.`,
 
 	// Generate execution plan
 	fmt.Println("Generating execution plan...")
-	plan, err := eng.GenerateRunPlan(nil, nil, nil)
+	plan, err := eng.GenerateRunPlan(nil, nil, nil, nil)
 	if err != nil {
 		log.Fatalf("Failed to generate run plan: %v", err)
 	}

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // CompileResult contains the output of a successful compilation.
@@ -65,7 +65,7 @@ func Compile(configFile string, opts ...Option) (*CompileResult, error) {
 		return nil, err
 	}
 
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading arena config: %w", err)
 	}
@@ -124,7 +124,7 @@ func resolvePackID(options *compileOptions, configFile string) error {
 
 // compilePack performs the core compilation: builds registry, parses config sections,
 // and runs the pack compiler.
-func compilePack(cfg *config.Config, configFile string, options compileOptions) (*prompt.Pack, []string, error) {
+func compilePack(cfg *arenaconfig.Config, configFile string, options compileOptions) (*prompt.Pack, []string, error) {
 	memRepo, err := buildMemoryRepo(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -157,7 +157,7 @@ func compilePack(cfg *config.Config, configFile string, options compileOptions) 
 }
 
 // buildCompileOptions parses workflow and agents from config into compile options.
-func buildCompileOptions(cfg *config.Config) ([]prompt.CompileOption, error) {
+func buildCompileOptions(cfg *arenaconfig.Config) ([]prompt.CompileOption, error) {
 	var opts []prompt.CompileOption
 
 	workflowConfig, err := parseWorkflowFromConfig(cfg)

@@ -3,13 +3,13 @@ package engine
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestExpandPerturbations(t *testing.T) {
 	t.Run("no perturbations", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Hello"},
 			},
 		}
@@ -20,8 +20,8 @@ func TestExpandPerturbations(t *testing.T) {
 	})
 
 	t.Run("single key single value", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Go to {city}", Perturbations: map[string][]string{
 					"city": {"NYC"},
 				}},
@@ -37,8 +37,8 @@ func TestExpandPerturbations(t *testing.T) {
 	})
 
 	t.Run("single key multiple values", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Go to {city}", Perturbations: map[string][]string{
 					"city": {"NYC", "LA", "Tokyo"},
 				}},
@@ -51,8 +51,8 @@ func TestExpandPerturbations(t *testing.T) {
 	})
 
 	t.Run("cartesian product of two keys", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Fly from {city} {tone}", Perturbations: map[string][]string{
 					"city": {"NYC", "LA"},
 					"tone": {"formal", "casual"},
@@ -78,8 +78,8 @@ func TestExpandPerturbations(t *testing.T) {
 	})
 
 	t.Run("perturbations across turns merged", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Go to {city}", Perturbations: map[string][]string{
 					"city": {"NYC", "LA"},
 				}},
@@ -97,8 +97,8 @@ func TestExpandPerturbations(t *testing.T) {
 	})
 
 	t.Run("empty values ignored", func(t *testing.T) {
-		scenario := &config.Scenario{
-			Turns: []config.TurnDefinition{
+		scenario := &arenaconfig.Scenario{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "Go to {city}", Perturbations: map[string][]string{
 					"city":  {"NYC"},
 					"empty": {},
@@ -114,7 +114,7 @@ func TestExpandPerturbations(t *testing.T) {
 
 func TestApplyPerturbation(t *testing.T) {
 	t.Run("substitutes in content", func(t *testing.T) {
-		turns := []config.TurnDefinition{
+		turns := []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Book a flight from {city} to London"},
 		}
 		variant := PerturbationVariant{Substitutions: map[string]string{"city": "NYC"}}
@@ -125,8 +125,8 @@ func TestApplyPerturbation(t *testing.T) {
 	})
 
 	t.Run("substitutes in text parts", func(t *testing.T) {
-		turns := []config.TurnDefinition{
-			{Role: "user", Parts: []config.TurnContentPart{
+		turns := []arenaconfig.TurnDefinition{
+			{Role: "user", Parts: []arenaconfig.TurnContentPart{
 				{Type: "text", Text: "Hello {name}"},
 				{Type: "image"},
 			}},
@@ -139,7 +139,7 @@ func TestApplyPerturbation(t *testing.T) {
 	})
 
 	t.Run("empty substitutions returns original", func(t *testing.T) {
-		turns := []config.TurnDefinition{
+		turns := []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello {name}"},
 		}
 		variant := PerturbationVariant{Substitutions: map[string]string{}}
@@ -150,7 +150,7 @@ func TestApplyPerturbation(t *testing.T) {
 	})
 
 	t.Run("multiple substitutions", func(t *testing.T) {
-		turns := []config.TurnDefinition{
+		turns := []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Fly from {city} to {dest}"},
 		}
 		variant := PerturbationVariant{Substitutions: map[string]string{
@@ -164,7 +164,7 @@ func TestApplyPerturbation(t *testing.T) {
 	})
 
 	t.Run("does not modify original turns", func(t *testing.T) {
-		turns := []config.TurnDefinition{
+		turns := []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello {name}"},
 		}
 		variant := PerturbationVariant{Substitutions: map[string]string{"name": "Alice"}}
@@ -177,7 +177,7 @@ func TestApplyPerturbation(t *testing.T) {
 
 func TestCollectPerturbations(t *testing.T) {
 	t.Run("deduplicates values", func(t *testing.T) {
-		turns := []config.TurnDefinition{
+		turns := []arenaconfig.TurnDefinition{
 			{Perturbations: map[string][]string{"city": {"NYC", "LA"}}},
 			{Perturbations: map[string][]string{"city": {"NYC", "Tokyo"}}},
 		}

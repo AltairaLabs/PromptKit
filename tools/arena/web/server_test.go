@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -24,7 +24,7 @@ import (
 type mockEngine struct {
 	plan      *engine.RunPlan
 	planErr   error
-	cfg       *config.Config
+	cfg       *arenaconfig.Config
 	providers []engine.ProviderInfo
 	scenarios []engine.ScenarioInfo
 }
@@ -37,7 +37,7 @@ func (m *mockEngine) ExecuteRuns(_ context.Context, _ *engine.RunPlan, _ int) ([
 	return nil, nil
 }
 
-func (m *mockEngine) GetConfig() *config.Config {
+func (m *mockEngine) GetConfig() *arenaconfig.Config {
 	return m.cfg
 }
 
@@ -299,7 +299,7 @@ func (m *persistingMockEngine) ExecuteRuns(ctx context.Context, _ *engine.RunPla
 	return []string{m.runID}, nil
 }
 
-func (m *persistingMockEngine) GetConfig() *config.Config            { return nil }
+func (m *persistingMockEngine) GetConfig() *arenaconfig.Config       { return nil }
 func (m *persistingMockEngine) ListProviders() []engine.ProviderInfo { return nil }
 func (m *persistingMockEngine) ListScenarios() []engine.ScenarioInfo { return nil }
 func (m *persistingMockEngine) RegisterRunCompletedHook(h engine.RunCompletedHook) {
@@ -465,7 +465,7 @@ func TestPersistRunResults_NoOpBranches(t *testing.T) {
 
 func TestGetConfigWithEngine(t *testing.T) {
 	adapter := NewEventAdapter()
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 	mock := &mockEngine{cfg: cfg}
 	srv := newServerWithRunner(adapter, mock, nil, "")
 

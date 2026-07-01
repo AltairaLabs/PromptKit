@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -19,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -223,7 +223,7 @@ func (e *Engine) generateScenarioCombinations(region, scenarioID string, provide
 }
 
 // resolveProvidersForScenario determines which providers to use for a specific scenario
-func (e *Engine) resolveProvidersForScenario(scenario *config.Scenario, providerFilter []string) []string {
+func (e *Engine) resolveProvidersForScenario(scenario *arenaconfig.Scenario, providerFilter []string) []string {
 	// Determine initial provider list based on scenario
 	scenarioProviders := e.getInitialProviders(scenario, providerFilter)
 
@@ -236,7 +236,7 @@ func (e *Engine) resolveProvidersForScenario(scenario *config.Scenario, provider
 }
 
 // getInitialProviders gets the initial provider list based on scenario and filters
-func (e *Engine) getInitialProviders(scenario *config.Scenario, providerFilter []string) []string {
+func (e *Engine) getInitialProviders(scenario *arenaconfig.Scenario, providerFilter []string) []string {
 	if len(scenario.Providers) > 0 {
 		return scenario.Providers
 	}
@@ -883,7 +883,7 @@ func (e *Engine) executeEvalRun(
 	recordingPath := eval.Recording.Path
 	if combo.RecordingRef != "" && combo.RecordingRef != eval.Recording.Path {
 		evalCopy := *eval
-		evalCopy.Recording = config.RecordingSource{
+		evalCopy.Recording = arenaconfig.RecordingSource{
 			Path: combo.RecordingRef,
 			Type: eval.Recording.Type,
 		}
@@ -981,7 +981,7 @@ func (e *Engine) getA2AAgentsFromConfig() []statestore.A2AAgentInfo {
 }
 
 // convertA2AAgentsFromConfig converts config A2A agent definitions to statestore types.
-func convertA2AAgentsFromConfig(agents []config.A2AAgentConfig) []statestore.A2AAgentInfo {
+func convertA2AAgentsFromConfig(agents []arenaconfig.A2AAgentConfig) []statestore.A2AAgentInfo {
 	if len(agents) == 0 {
 		return nil
 	}
@@ -1016,7 +1016,7 @@ func convertA2AAgentsFromConfig(agents []config.A2AAgentConfig) []statestore.A2A
 //
 // The scenario parameter is optional — eval runs and other non-scenario
 // paths pass nil and fall through to the config / default ladder.
-func (e *Engine) resolveRunTimeout(scenario *config.Scenario) time.Duration {
+func (e *Engine) resolveRunTimeout(scenario *arenaconfig.Scenario) time.Duration {
 	if scenario != nil && scenario.Duplex != nil {
 		if d := scenario.Duplex.GetTimeoutDuration(0); d > 0 {
 			return d

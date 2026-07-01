@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/app"
 )
@@ -74,7 +74,7 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load configuration directly
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	if err != nil {
 		if validationErr := emitConfigInspectValidationDiagnostics(configFile); validationErr != nil {
 			return validationErr
@@ -86,7 +86,7 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	inspection := collectInspectionData(cfg, configFile)
 
 	// Validate configuration with config file path for proper relative path resolution
-	validator := config.NewConfigValidatorWithPath(cfg, configFile)
+	validator := arenaconfig.NewConfigValidatorWithPath(cfg, configFile)
 	validationErr := validator.Validate()
 	inspection.ValidationPassed = (validationErr == nil)
 	if validationErr != nil {

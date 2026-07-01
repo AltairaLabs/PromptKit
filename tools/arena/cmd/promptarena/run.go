@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
@@ -54,7 +55,7 @@ func createResultRepository(params *RunParameters, configFile string) (results.R
 			var markdownConfig *markdown.MarkdownConfig
 			if configFile != "" {
 				// Load config to get markdown defaults
-				cfg, err := config.LoadConfig(configFile)
+				cfg, err := arenaconfig.LoadConfig(configFile)
 				if err == nil && cfg != nil {
 					markdownConfig = markdown.CreateMarkdownConfigFromDefaults(&cfg.Defaults)
 				}
@@ -193,7 +194,7 @@ type RunParameters struct {
 
 // loadConfiguration loads the configuration file and sets up viper
 // extractRunParameters extracts all run parameters from command flags
-func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameters, error) {
+func extractRunParameters(cmd *cobra.Command, cfg *arenaconfig.Config) (*RunParameters, error) {
 	params := &RunParameters{}
 
 	// Extract basic flags
@@ -314,7 +315,7 @@ func extractOverrideFlags(cmd *cobra.Command, params *RunParameters) error {
 }
 
 // extractOutputFormatFlags extracts output format flags and applies config defaults
-func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+func extractOutputFormatFlags(cmd *cobra.Command, cfg *arenaconfig.Config, params *RunParameters) error {
 	var err error
 
 	// Check if --formats (plural) flag was used
@@ -352,7 +353,7 @@ func extractOutputFormatFlags(cmd *cobra.Command, cfg *config.Config, params *Ru
 
 // processHTMLSettings determines HTML report generation settings
 // Maintains backward compatibility while transitioning to new format system
-func processHTMLSettings(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+func processHTMLSettings(cmd *cobra.Command, cfg *arenaconfig.Config, params *RunParameters) error {
 	// Handle HTML flag and config settings
 	if err := processHTMLFlags(cmd, cfg, params); err != nil {
 		return err
@@ -365,7 +366,7 @@ func processHTMLSettings(cmd *cobra.Command, cfg *config.Config, params *RunPara
 }
 
 // processHTMLFlags handles the deprecated --html flag and config HTML settings
-func processHTMLFlags(cmd *cobra.Command, cfg *config.Config, params *RunParameters) error {
+func processHTMLFlags(cmd *cobra.Command, cfg *arenaconfig.Config, params *RunParameters) error {
 	if cmd.Flags().Changed("html") {
 		return processDeprecatedHTMLFlag(cmd, params)
 	}
@@ -390,7 +391,7 @@ func processDeprecatedHTMLFlag(cmd *cobra.Command, params *RunParameters) error 
 }
 
 // processConfigHTMLSetting processes HTML settings from configuration file
-func processConfigHTMLSetting(cfg *config.Config, params *RunParameters) {
+func processConfigHTMLSetting(cfg *arenaconfig.Config, params *RunParameters) {
 	params.GenerateHTML = true
 	params.HTMLReportPath = cfg.Defaults.HTMLReport
 	// Add html to output formats if not already present
@@ -400,7 +401,7 @@ func processConfigHTMLSetting(cfg *config.Config, params *RunParameters) {
 }
 
 // setDefaultFilePaths sets default file paths for output files if not specified
-func setDefaultFilePaths(cfg *config.Config, params *RunParameters) {
+func setDefaultFilePaths(cfg *arenaconfig.Config, params *RunParameters) {
 	// Set default JUnit file path
 	if params.JUnitFile == "" {
 		params.JUnitFile = filepath.Join(params.OutDir, "junit.xml")
@@ -432,7 +433,7 @@ func setDefaultFilePaths(cfg *config.Config, params *RunParameters) {
 }
 
 // applyConfigurationOverrides applies command line overrides to configuration
-func applyConfigurationOverrides(cmd *cobra.Command, cfg *config.Config, params *RunParameters) {
+func applyConfigurationOverrides(cmd *cobra.Command, cfg *arenaconfig.Config, params *RunParameters) {
 	// Apply verbose override to config
 	if params.Verbose {
 		cfg.Defaults.Verbose = true

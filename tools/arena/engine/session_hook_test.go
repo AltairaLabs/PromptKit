@@ -5,14 +5,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // captureSessionHook records every session lifecycle call for test assertions.
@@ -70,18 +71,18 @@ func makeMinimalConversationRequest(t *testing.T, turnCount int) (ConversationRe
 		},
 	}
 
-	turns := make([]config.TurnDefinition, turnCount)
+	turns := make([]arenaconfig.TurnDefinition, turnCount)
 	for i := range turns {
-		turns[i] = config.TurnDefinition{Role: "user", Content: "msg"}
+		turns[i] = arenaconfig.TurnDefinition{Role: "user", Content: "msg"}
 	}
 
 	req := ConversationRequest{
 		Provider:       &MockProvider{id: "mock"},
 		ConversationID: "test-conv",
 		RunID:          "test-run",
-		Scenario:       &config.Scenario{ID: "sc", Turns: turns},
-		Config: &config.Config{
-			Defaults: config.Defaults{Temperature: 0, MaxTokens: 0},
+		Scenario:       &arenaconfig.Scenario{ID: "sc", Turns: turns},
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{Temperature: 0, MaxTokens: 0},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store: store,

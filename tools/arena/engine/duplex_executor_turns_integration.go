@@ -21,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -95,7 +96,7 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 
 // getTurnLoopConfig extracts resilience configuration for turn processing.
 func (de *DuplexConversationExecutor) getTurnLoopConfig(req *ConversationRequest) *turnLoopConfig {
-	var resilience *config.DuplexResilienceConfig
+	var resilience *arenaconfig.DuplexResilienceConfig
 	if req.Scenario.Duplex != nil {
 		resilience = req.Scenario.Duplex.GetResilience()
 	}
@@ -125,7 +126,7 @@ func (de *DuplexConversationExecutor) processAllTurns(ctx context.Context, args 
 }
 
 // getTurnsToExecute returns the number of iterations to run for a turn.
-func (de *DuplexConversationExecutor) getTurnsToExecute(turn *config.TurnDefinition) int {
+func (de *DuplexConversationExecutor) getTurnsToExecute(turn *arenaconfig.TurnDefinition) int {
 	if de.isSelfPlayRole(turn.Role) && turn.Turns > 0 {
 		return turn.Turns
 	}
@@ -136,7 +137,7 @@ func (de *DuplexConversationExecutor) getTurnsToExecute(turn *config.TurnDefinit
 func (de *DuplexConversationExecutor) processTurnIterations(
 	ctx context.Context,
 	args *turnProcessingArgs,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	scenarioTurnIdx, turnsToExecute int,
 ) {
 	for iteration := 0; iteration < turnsToExecute; iteration++ {
@@ -168,7 +169,7 @@ func (de *DuplexConversationExecutor) processTurnIterations(
 func (de *DuplexConversationExecutor) handleTurnError(
 	err error,
 	args *turnProcessingArgs,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	scenarioTurnIdx, iteration, turnsToExecute int,
 ) {
 	totalTurns := len(args.req.Scenario.Turns)
@@ -205,7 +206,7 @@ func (de *DuplexConversationExecutor) handleTurnError(
 func (de *DuplexConversationExecutor) handleTurnSuccess(
 	ctx context.Context,
 	req *ConversationRequest,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	logicalTurnIdx int,
 	emitter *events.Emitter,
 ) {
@@ -298,7 +299,7 @@ func (de *DuplexConversationExecutor) drainOutputChannel(
 func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	turnIdx int,
 	selfplayTurnNum int,
 	baseDir string,
@@ -328,7 +329,7 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 }
 
 // turnHasAudioPart reports whether any of the turn's parts is audio.
-func turnHasAudioPart(turn *config.TurnDefinition) bool {
+func turnHasAudioPart(turn *arenaconfig.TurnDefinition) bool {
 	for i := range turn.Parts {
 		if turn.Parts[i].Type == turnPartTypeAudio {
 			return true
@@ -341,8 +342,8 @@ func turnHasAudioPart(turn *config.TurnDefinition) bool {
 // up the persona's voice id in the arena's voice catalog. Returns nil, nil if
 // the turn has no associated persona or the persona declares no voice.
 func resolveTTSProvider(
-	arenaConfig *config.Config,
-	persona *config.UserPersonaPack,
+	arenaConfig *arenaconfig.Config,
+	persona *arenaconfig.UserPersonaPack,
 ) (*config.Provider, error) {
 	if arenaConfig == nil || persona == nil || persona.Voice == "" {
 		return nil, nil
@@ -359,7 +360,7 @@ func resolveTTSProvider(
 func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	turnIdx int,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
@@ -388,13 +389,13 @@ func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 // streamAudioTurn streams audio from a file to the pipeline.
 func (de *DuplexConversationExecutor) streamAudioTurn(
 	ctx context.Context,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	baseDir string,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
 	// Find audio part
-	var audioPart *config.TurnContentPart
+	var audioPart *arenaconfig.TurnContentPart
 	for i := range turn.Parts {
 		if turn.Parts[i].Type == turnPartTypeAudio {
 			audioPart = &turn.Parts[i]
@@ -607,7 +608,7 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
-	turn *config.TurnDefinition,
+	turn *arenaconfig.TurnDefinition,
 	turnIdx int,
 	selfplayTurnNum int,
 	inputChan chan<- stage.StreamElement,

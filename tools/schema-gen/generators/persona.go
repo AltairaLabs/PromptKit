@@ -3,13 +3,13 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GeneratePersonaSchema generates the JSON Schema for Persona configuration
 func GeneratePersonaSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.PersonaConfigSchema{},
+		Target:      &arenaconfig.PersonaConfigSchema{},
 		Filename:    "persona.json",
 		Title:       "PromptKit Persona Configuration",
 		Description: "User persona configuration for self-play scenarios",

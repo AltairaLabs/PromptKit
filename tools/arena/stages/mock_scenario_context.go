@@ -3,10 +3,10 @@ package stages
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // MockScenarioContextStage adds scenario context to TurnState's
@@ -17,14 +17,14 @@ import (
 // when using MockProvider to ensure scenario context is available.
 type MockScenarioContextStage struct {
 	stage.BaseStage
-	scenario  *config.Scenario
+	scenario  *arenaconfig.Scenario
 	turnState *stage.TurnState
 }
 
 // NewMockScenarioContextStageWithTurnState creates a stage that writes
 // scenario context into the shared *TurnState's ProviderRequestMetadata.
 func NewMockScenarioContextStageWithTurnState(
-	scenario *config.Scenario, turnState *stage.TurnState,
+	scenario *arenaconfig.Scenario, turnState *stage.TurnState,
 ) *MockScenarioContextStage {
 	return &MockScenarioContextStage{
 		BaseStage: stage.NewBaseStage("mock_scenario_context", stage.StageTypeTransform),

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
@@ -62,16 +63,16 @@ func TestOpenTextSynthesisStream_HappyPath(t *testing.T) {
 	// A provider with Type=mock and Capability=tts — GetForProvider will
 	// return the default MockTTSService (no audio files → empty stream).
 	p := &config.Provider{
-		ID:         "mock-tts",
-		Type:       "mock",
-		Role: config.RoleTTS,
-		Voice:      "v1",
+		ID:    "mock-tts",
+		Type:  "mock",
+		Role:  config.RoleTTS,
+		Voice: "v1",
 	}
 	reg := selfplay.NewRegistryWithTTS(
 		nil,
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 		selfplay.NewTTSRegistry(),
 	)
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
@@ -86,16 +87,16 @@ func TestOpenTextSynthesisStream_HappyPath(t *testing.T) {
 func TestOpenTextSynthesisStream_WrongCapabilityErrors(t *testing.T) {
 	// A provider with non-TTS capability should be rejected by GetForProvider.
 	p := &config.Provider{
-		ID:         "llm-provider",
-		Type:       "openai",
-		Role: config.RoleLLM,
-		Voice:      "v1",
+		ID:    "llm-provider",
+		Type:  "openai",
+		Role:  config.RoleLLM,
+		Voice: "v1",
 	}
 	reg := selfplay.NewRegistryWithTTS(
 		nil,
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 		selfplay.NewTTSRegistry(),
 	)
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}

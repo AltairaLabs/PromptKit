@@ -1,13 +1,14 @@
-package config_test
+package arenaconfig_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestModularOutputConfiguration(t *testing.T) {
@@ -44,7 +45,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load configuration
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Test that the output config is loaded correctly
@@ -100,7 +101,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load configuration
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Test that backward compatibility works
@@ -125,15 +126,15 @@ spec:
 func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name         string
-		outputConfig *config.OutputConfig
-		expected     *config.MarkdownOutputConfig
+		outputConfig *arenaconfig.OutputConfig
+		expected     *arenaconfig.MarkdownOutputConfig
 	}{
 		{
 			name: "nil markdown config returns default",
-			outputConfig: &config.OutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
 				Markdown: nil,
 			},
-			expected: &config.MarkdownOutputConfig{
+			expected: &arenaconfig.MarkdownOutputConfig{
 				IncludeDetails:    true,
 				ShowOverview:      true,
 				ShowResultsMatrix: true,
@@ -143,10 +144,10 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 		},
 		{
 			name: "empty markdown config returns as-is",
-			outputConfig: &config.OutputConfig{
-				Markdown: &config.MarkdownOutputConfig{},
+			outputConfig: &arenaconfig.OutputConfig{
+				Markdown: &arenaconfig.MarkdownOutputConfig{},
 			},
-			expected: &config.MarkdownOutputConfig{
+			expected: &arenaconfig.MarkdownOutputConfig{
 				IncludeDetails:    false, // Default zero values
 				ShowOverview:      false,
 				ShowResultsMatrix: false,
@@ -156,13 +157,13 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 		},
 		{
 			name: "partial markdown config fills defaults",
-			outputConfig: &config.OutputConfig{
-				Markdown: &config.MarkdownOutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
+				Markdown: &arenaconfig.MarkdownOutputConfig{
 					File:           "custom.md",
 					IncludeDetails: false,
 				},
 			},
-			expected: &config.MarkdownOutputConfig{
+			expected: &arenaconfig.MarkdownOutputConfig{
 				File:              "custom.md",
 				IncludeDetails:    false, // As set, others are zero values
 				ShowOverview:      false,
@@ -189,26 +190,26 @@ func TestGetMarkdownOutputConfig_EdgeCases(t *testing.T) {
 func TestGetHTMLOutputConfig_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name         string
-		outputConfig *config.OutputConfig
-		expected     *config.HTMLOutputConfig
+		outputConfig *arenaconfig.OutputConfig
+		expected     *arenaconfig.HTMLOutputConfig
 	}{
 		{
 			name: "nil html config returns default",
-			outputConfig: &config.OutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
 				HTML: nil,
 			},
-			expected: &config.HTMLOutputConfig{
+			expected: &arenaconfig.HTMLOutputConfig{
 				File: "report.html", // Default value
 			},
 		},
 		{
 			name: "existing html config returned as-is",
-			outputConfig: &config.OutputConfig{
-				HTML: &config.HTMLOutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
+				HTML: &arenaconfig.HTMLOutputConfig{
 					File: "custom.html",
 				},
 			},
-			expected: &config.HTMLOutputConfig{
+			expected: &arenaconfig.HTMLOutputConfig{
 				File: "custom.html",
 			},
 		},
@@ -225,26 +226,26 @@ func TestGetHTMLOutputConfig_EdgeCases(t *testing.T) {
 func TestGetJUnitOutputConfig_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name         string
-		outputConfig *config.OutputConfig
-		expected     *config.JUnitOutputConfig
+		outputConfig *arenaconfig.OutputConfig
+		expected     *arenaconfig.JUnitOutputConfig
 	}{
 		{
 			name: "nil junit config returns default",
-			outputConfig: &config.OutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
 				JUnit: nil,
 			},
-			expected: &config.JUnitOutputConfig{
+			expected: &arenaconfig.JUnitOutputConfig{
 				File: "results.xml", // Default value
 			},
 		},
 		{
 			name: "existing junit config returned as-is",
-			outputConfig: &config.OutputConfig{
-				JUnit: &config.JUnitOutputConfig{
+			outputConfig: &arenaconfig.OutputConfig{
+				JUnit: &arenaconfig.JUnitOutputConfig{
 					File: "custom.xml",
 				},
 			},
-			expected: &config.JUnitOutputConfig{
+			expected: &arenaconfig.JUnitOutputConfig{
 				File: "custom.xml",
 			},
 		},

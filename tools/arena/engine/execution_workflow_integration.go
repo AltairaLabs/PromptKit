@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -16,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -148,7 +148,7 @@ func (e *Engine) initWorkflow() error {
 // Called from executeRun before ConversationExecutor.ExecuteConversation().
 // prepareWorkflowScenario returns a per-run EvalOrchestrator clone with the
 // workflow metadata provider set. The caller should set it on the ConversationRequest.
-func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string) (*EvalOrchestrator, error) {
+func (e *Engine) prepareWorkflowScenario(scenario *arenaconfig.Scenario, runID string) (*EvalOrchestrator, error) {
 	if e.workflowSpec == nil {
 		return nil, nil
 	}

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestComputeColumns(t *testing.T) {
@@ -68,7 +68,7 @@ func TestRenderText_MultiColumn(t *testing.T) {
 }
 
 func TestPopulateValidation(t *testing.T) {
-	cfg, err := config.LoadConfig("../../../examples/voice-console-asm/config.arena.yaml")
+	cfg, err := arenaconfig.LoadConfig("../../../examples/voice-console-asm/config.arena.yaml")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

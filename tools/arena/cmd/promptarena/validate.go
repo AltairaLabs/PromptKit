@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in eval handlers
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -137,12 +138,12 @@ func performSchemaValidationWithVerbose(data []byte, configType string, filePath
 
 func performBusinessLogicValidation(filePath string) error {
 	fmt.Println("\nRunning business logic validation...")
-	cfg, err := config.LoadConfig(filePath)
+	cfg, err := arenaconfig.LoadConfig(filePath)
 	if err != nil {
 		return fmt.Errorf("config loading failed: %w", err)
 	}
 
-	validator := config.NewConfigValidatorWithPath(cfg, filePath)
+	validator := arenaconfig.NewConfigValidatorWithPath(cfg, filePath)
 	if err := validator.Validate(); err != nil {
 		fmt.Printf("❌ Business logic validation failed:\n")
 		fmt.Printf("  %s\n", err.Error())

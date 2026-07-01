@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestPromptConfigMapping_IDIsArbitrary tests that prompt config ID is just a reference identifier,
@@ -47,18 +47,18 @@ spec:
 	}
 
 	// Create config with arbitrary ID that doesn't match task_type
-	cfg := &config.Config{
-		PromptConfigs: []config.PromptConfigRef{
+	cfg := &arenaconfig.Config{
+		PromptConfigs: []arenaconfig.PromptConfigRef{
 			{
 				ID:   "my-custom-id", // Arbitrary ID, doesn't need to match task_type
 				File: "customer-support.yaml",
 			},
 		},
-		Scenarios: []config.ScenarioRef{
+		Scenarios: []arenaconfig.ScenarioRef{
 			{File: "scenario.yaml"},
 		},
-		Providers: []config.ProviderRef{},
-		Defaults: config.Defaults{
+		Providers: []arenaconfig.ProviderRef{},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   1500,
 		},
@@ -122,18 +122,18 @@ spec:
 		t.Fatalf("Failed to write scenario file: %v", err)
 	}
 
-	cfg := &config.Config{
-		PromptConfigs: []config.PromptConfigRef{
+	cfg := &arenaconfig.Config{
+		PromptConfigs: []arenaconfig.PromptConfigRef{
 			{
 				ID:   "support-config",
 				File: "support-bot.yaml",
 			},
 		},
-		Scenarios: []config.ScenarioRef{
+		Scenarios: []arenaconfig.ScenarioRef{
 			{File: "scenario.yaml"},
 		},
-		Providers: []config.ProviderRef{},
-		Defaults: config.Defaults{
+		Providers: []arenaconfig.ProviderRef{},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   1500,
 		},
@@ -183,8 +183,8 @@ spec:
 		t.Fatalf("Failed to write prompt file 2: %v", err)
 	}
 
-	cfg := &config.Config{
-		PromptConfigs: []config.PromptConfigRef{
+	cfg := &arenaconfig.Config{
+		PromptConfigs: []arenaconfig.PromptConfigRef{
 			{
 				ID:   "support-v1",
 				File: "support-v1.yaml",
@@ -194,9 +194,9 @@ spec:
 				File: "support-v2.yaml",
 			},
 		},
-		Scenarios: []config.ScenarioRef{},
-		Providers: []config.ProviderRef{},
-		Defaults: config.Defaults{
+		Scenarios: []arenaconfig.ScenarioRef{},
+		Providers: []arenaconfig.ProviderRef{},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   1500,
 		},
@@ -252,8 +252,8 @@ spec:
 		t.Fatalf("Failed to write sales file: %v", err)
 	}
 
-	cfg := &config.Config{
-		PromptConfigs: []config.PromptConfigRef{
+	cfg := &arenaconfig.Config{
+		PromptConfigs: []arenaconfig.PromptConfigRef{
 			{
 				ID:   "config-1", // Arbitrary IDs
 				File: "support.yaml",
@@ -263,9 +263,9 @@ spec:
 				File: "sales.yaml",
 			},
 		},
-		Scenarios: []config.ScenarioRef{},
-		Providers: []config.ProviderRef{},
-		Defaults: config.Defaults{
+		Scenarios: []arenaconfig.ScenarioRef{},
+		Providers: []arenaconfig.ProviderRef{},
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   1500,
 		},

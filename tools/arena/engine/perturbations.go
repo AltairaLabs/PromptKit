@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // PerturbationVariant represents a single set of variable substitutions.
@@ -16,7 +16,7 @@ type PerturbationVariant struct {
 // ExpandPerturbations computes all perturbation variants for a scenario.
 // It collects all perturbation maps across turns and computes the Cartesian product.
 // Returns nil if no perturbations are defined.
-func ExpandPerturbations(scenario *config.Scenario) []PerturbationVariant {
+func ExpandPerturbations(scenario *arenaconfig.Scenario) []PerturbationVariant {
 	allPerturbations := collectPerturbations(scenario.Turns)
 	if len(allPerturbations) == 0 {
 		return nil
@@ -26,7 +26,7 @@ func ExpandPerturbations(scenario *config.Scenario) []PerturbationVariant {
 
 // collectPerturbations merges perturbation maps from all turns into a single map.
 // If the same key appears in multiple turns, the values are merged (union).
-func collectPerturbations(turns []config.TurnDefinition) map[string][]string {
+func collectPerturbations(turns []arenaconfig.TurnDefinition) map[string][]string {
 	merged := make(map[string][]string)
 	for i := range turns {
 		for key, values := range turns[i].Perturbations {
@@ -98,17 +98,17 @@ func sortedKeys(m map[string][]string) []string {
 // ApplyPerturbation substitutes perturbation variables in turn content.
 // Placeholders use {key} syntax (e.g., "Book a flight from {city}" with city=NYC
 // becomes "Book a flight from NYC").
-func ApplyPerturbation(turns []config.TurnDefinition, variant PerturbationVariant) []config.TurnDefinition {
+func ApplyPerturbation(turns []arenaconfig.TurnDefinition, variant PerturbationVariant) []arenaconfig.TurnDefinition {
 	if len(variant.Substitutions) == 0 {
 		return turns
 	}
 
-	result := make([]config.TurnDefinition, len(turns))
+	result := make([]arenaconfig.TurnDefinition, len(turns))
 	for i := range turns {
 		result[i] = turns[i]
 		result[i].Content = substituteVars(turns[i].Content, variant.Substitutions)
 		if len(turns[i].Parts) > 0 {
-			result[i].Parts = make([]config.TurnContentPart, len(turns[i].Parts))
+			result[i].Parts = make([]arenaconfig.TurnContentPart, len(turns[i].Parts))
 			for j := range turns[i].Parts {
 				result[i].Parts[j] = turns[i].Parts[j]
 				if turns[i].Parts[j].Type == "text" {

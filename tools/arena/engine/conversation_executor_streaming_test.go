@@ -4,16 +4,17 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestExecuteConversationStream_SingleTurn tests basic streaming functionality
@@ -35,10 +36,10 @@ func TestExecuteConversationStream_SingleTurn(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Test message"},
 		},
 	}
@@ -47,8 +48,8 @@ func TestExecuteConversationStream_SingleTurn(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockStreamingProvider{},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -108,10 +109,10 @@ func TestExecuteConversationStream_MultipleTurns(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "First message"},
 			{Role: "user", Content: "Second message"},
 		},
@@ -121,8 +122,8 @@ func TestExecuteConversationStream_MultipleTurns(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockStreamingProvider{},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -167,10 +168,10 @@ func TestExecuteConversationStream_Error(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Test message"},
 		},
 	}
@@ -179,8 +180,8 @@ func TestExecuteConversationStream_Error(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockStreamingProvider{},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -218,10 +219,10 @@ func TestExecuteConversationStream_ContextCancellation(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Test message"},
 		},
 	}
@@ -232,8 +233,8 @@ func TestExecuteConversationStream_ContextCancellation(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockStreamingProvider{},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose: false,
 			},
 		},
@@ -432,11 +433,11 @@ func TestExecuteConversation_StreamingPath(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:        "streaming-scenario",
 		TaskType:  "support",
 		Streaming: true,
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello?"},
 		},
 	}
@@ -445,8 +446,8 @@ func TestExecuteConversation_StreamingPath(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: &MockStreamingProvider{},
-		Config: &config.Config{
-			Defaults: config.Defaults{Verbose: false},
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{Verbose: false},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store:  createTestStateStore(),
@@ -501,16 +502,16 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 	providerReg.Register(mockProvider)
 
 	roleMap := map[string]string{"operator": "mock-selfplay"}
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"plant-operator": {
 			ID:           "plant-operator",
 			SystemPrompt: "You are an operator.",
-			Defaults: config.PersonaDefaults{
+			Defaults: arenaconfig.PersonaDefaults{
 				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 	}
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "operator", Provider: "mock-selfplay"},
 	}
 	selfPlayRegistry := selfplay.NewRegistry(providerReg, roleMap, personas, roles)
@@ -523,10 +524,10 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "selfplay-scenario",
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "operator", Persona: "plant-operator"},
 		},
 	}
@@ -535,9 +536,9 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: mockProvider,
-		Config: &config.Config{
-			Defaults: config.Defaults{Verbose: false},
-			SelfPlay: &config.SelfPlayConfig{},
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{Verbose: false},
+			SelfPlay: &arenaconfig.SelfPlayConfig{},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store:  createTestStateStore(),
@@ -571,16 +572,16 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 	providerReg.Register(mockProvider)
 
 	roleMap := map[string]string{"operator": "mock-selfplay"}
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"plant-operator": {
 			ID:           "plant-operator",
 			SystemPrompt: "You are an operator.",
-			Defaults: config.PersonaDefaults{
+			Defaults: arenaconfig.PersonaDefaults{
 				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 	}
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "operator", Provider: "mock-selfplay"},
 	}
 	selfPlayRegistry := selfplay.NewRegistry(providerReg, roleMap, personas, roles)
@@ -593,11 +594,11 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:        "selfplay-streaming-scenario",
 		TaskType:  "support",
 		Streaming: true,
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "operator", Persona: "plant-operator"},
 		},
 	}
@@ -606,9 +607,9 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 		Region:   "us",
 		Scenario: scenario,
 		Provider: mockProvider,
-		Config: &config.Config{
-			Defaults: config.Defaults{Verbose: false},
-			SelfPlay: &config.SelfPlayConfig{},
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{Verbose: false},
+			SelfPlay: &arenaconfig.SelfPlayConfig{},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store:  createTestStateStore(),

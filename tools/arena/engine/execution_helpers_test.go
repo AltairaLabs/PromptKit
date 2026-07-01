@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -284,7 +284,7 @@ func TestEngine_SaveEvalMetadata(t *testing.T) {
 
 func TestEngine_ResolveEvals(t *testing.T) {
 	e := &Engine{
-		evals: map[string]*config.Eval{
+		evals: map[string]*arenaconfig.Eval{
 			"eval-1": {},
 			"eval-2": {},
 			"eval-3": {},
@@ -312,7 +312,7 @@ func TestEngine_ResolveEvals(t *testing.T) {
 
 func TestEngine_GenerateEvalPlan(t *testing.T) {
 	e := &Engine{
-		evals: map[string]*config.Eval{
+		evals: map[string]*arenaconfig.Eval{
 			"eval-1": {},
 			"eval-2": {},
 		},
@@ -372,9 +372,9 @@ func TestEngine_GenerateEvalPlan_WithAdapterRegistry(t *testing.T) {
 	registry.Register(mockAdapter)
 
 	e := &Engine{
-		evals: map[string]*config.Eval{
+		evals: map[string]*arenaconfig.Eval{
 			"eval-1": {
-				Recording: config.RecordingSource{
+				Recording: arenaconfig.RecordingSource{
 					Path: "/recordings/*.json",
 					Type: "session",
 				},
@@ -419,17 +419,17 @@ func TestConvertA2AAgentsFromConfig(t *testing.T) {
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		result := convertA2AAgentsFromConfig([]config.A2AAgentConfig{})
+		result := convertA2AAgentsFromConfig([]arenaconfig.A2AAgentConfig{})
 		assert.Nil(t, result)
 	})
 
 	t.Run("agent with skills", func(t *testing.T) {
-		agents := []config.A2AAgentConfig{
+		agents := []arenaconfig.A2AAgentConfig{
 			{
-				Card: config.A2ACardConfig{
+				Card: arenaconfig.A2ACardConfig{
 					Name:        "weather-agent",
 					Description: "Provides weather",
-					Skills: []config.A2ASkillConfig{
+					Skills: []arenaconfig.A2ASkillConfig{
 						{
 							ID:          "get-weather",
 							Name:        "Get Weather",
@@ -454,9 +454,9 @@ func TestConvertA2AAgentsFromConfig(t *testing.T) {
 	})
 
 	t.Run("agent without skills", func(t *testing.T) {
-		agents := []config.A2AAgentConfig{
+		agents := []arenaconfig.A2AAgentConfig{
 			{
-				Card: config.A2ACardConfig{
+				Card: arenaconfig.A2ACardConfig{
 					Name:        "simple-agent",
 					Description: "No skills",
 				},
@@ -471,9 +471,9 @@ func TestConvertA2AAgentsFromConfig(t *testing.T) {
 	})
 
 	t.Run("multiple agents", func(t *testing.T) {
-		agents := []config.A2AAgentConfig{
-			{Card: config.A2ACardConfig{Name: "agent-1", Description: "First"}},
-			{Card: config.A2ACardConfig{Name: "agent-2", Description: "Second"}},
+		agents := []arenaconfig.A2AAgentConfig{
+			{Card: arenaconfig.A2ACardConfig{Name: "agent-1", Description: "First"}},
+			{Card: arenaconfig.A2ACardConfig{Name: "agent-2", Description: "Second"}},
 		}
 
 		result := convertA2AAgentsFromConfig(agents)
@@ -493,9 +493,9 @@ func TestEngine_GetA2AAgentsFromConfig(t *testing.T) {
 
 	t.Run("config with agents", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				A2AAgents: []config.A2AAgentConfig{
-					{Card: config.A2ACardConfig{Name: "test-agent"}},
+			config: &arenaconfig.Config{
+				A2AAgents: []arenaconfig.A2AAgentConfig{
+					{Card: arenaconfig.A2ACardConfig{Name: "test-agent"}},
 				},
 			},
 		}
@@ -505,7 +505,7 @@ func TestEngine_GetA2AAgentsFromConfig(t *testing.T) {
 	})
 
 	t.Run("config without agents", func(t *testing.T) {
-		e := &Engine{config: &config.Config{}}
+		e := &Engine{config: &arenaconfig.Config{}}
 		result := e.getA2AAgentsFromConfig()
 		assert.Nil(t, result)
 	})

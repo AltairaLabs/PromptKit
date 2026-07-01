@@ -3,13 +3,15 @@ package mcp
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestNewRegistryFromConfig_EmptyConfig(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{},
 	}
 
@@ -22,7 +24,7 @@ func TestNewRegistryFromConfig_EmptyConfig(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_NilConfig(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &arenaconfig.Config{}
 
 	registry, err := NewRegistryFromConfig(cfg)
 	require.NoError(t, err)
@@ -30,7 +32,7 @@ func TestNewRegistryFromConfig_NilConfig(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_SingleServer(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "test-server",
@@ -51,7 +53,7 @@ func TestNewRegistryFromConfig_SingleServer(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_MultipleServers(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "memory-server",
@@ -72,7 +74,7 @@ func TestNewRegistryFromConfig_MultipleServers(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_WithEnvVars(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "env-server",
@@ -92,7 +94,7 @@ func TestNewRegistryFromConfig_WithEnvVars(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_DuplicateServerNames(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "duplicate",
@@ -121,7 +123,7 @@ func TestNewRegistryFromConfig_DuplicateServerNames(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_EmptyServerName(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "",
@@ -138,7 +140,7 @@ func TestNewRegistryFromConfig_EmptyServerName(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_EmptyCommand(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "test",
@@ -154,7 +156,7 @@ func TestNewRegistryFromConfig_EmptyCommand(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_ComplexConfiguration(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "complex-server",
@@ -182,7 +184,7 @@ func TestNewRegistryFromConfig_ComplexConfiguration(t *testing.T) {
 }
 
 func TestNewRegistryFromConfig_NilEnvMap(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		MCPServers: []config.MCPServerConfig{
 			{
 				Name:    "no-env",
