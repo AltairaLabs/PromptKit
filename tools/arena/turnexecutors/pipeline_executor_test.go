@@ -4,7 +4,30 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
+
+// TestLoadGuardrailHooks_EmptyTaskType covers composition/workflow entry states,
+// which have no prompt_task: guardrail loading must return no hooks quietly,
+// without reaching LoadTemplate (which would fail "prompt not found" on the empty
+// task and log a misleading warning). A nil-repository registry is safe here
+// precisely because the early return means the repository is never touched.
+func TestLoadGuardrailHooks_EmptyTaskType(t *testing.T) {
+	req := &TurnRequest{
+		PromptRegistry: prompt.NewRegistryWithRepository(nil),
+		TaskType:       "",
+	}
+	if got := loadGuardrailHooks(req, nil); got != nil {
+		t.Fatalf("expected no guardrail hooks for empty task type, got %d", len(got))
+	}
+}
+
+// TestLoadGuardrailHooks_NoRegistry covers the other quiet no-op path.
+func TestLoadGuardrailHooks_NoRegistry(t *testing.T) {
+	if got := loadGuardrailHooks(&TurnRequest{TaskType: "chat"}, nil); got != nil {
+		t.Fatalf("expected no guardrail hooks without a registry, got %d", len(got))
+	}
+}
 
 // Note: mock provider detection covered in existing helpers test file
 

@@ -565,6 +565,12 @@ func loadGuardrailHooks(req *TurnRequest, vars map[string]string) []hooks.Provid
 	if req.PromptRegistry == nil {
 		return nil
 	}
+	// A composition/workflow entry state has no prompt_task, so there is no pack
+	// prompt to source guardrails from. Skip quietly — loading a template for an
+	// empty task would fail with "prompt not found" and log a misleading warning.
+	if req.TaskType == "" {
+		return nil
+	}
 	tmpl, err := req.PromptRegistry.LoadTemplate(req.TaskType, vars, "")
 	if err != nil {
 		logger.Warn("Skipping pack guardrails: template load failed",
