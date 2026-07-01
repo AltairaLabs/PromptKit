@@ -16,7 +16,7 @@
 // Run with:
 //
 //	export OPENAI_API_KEY=your-key
-//	go run .
+//	go run -tags portaudio .
 package main
 
 import (
@@ -28,15 +28,14 @@ import (
 	"sync"
 	"syscall"
 
+	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/sdk"
-
-	"github.com/gordonklaus/portaudio"
 )
 
 const (
-	sampleRate   = 16000 // 16kHz for VAD
+	captureRate  = 16000 // 16kHz mic capture for VAD
+	playbackRate = 24000 // 24kHz speaker playback (typical TTS output)
 	channels     = 1     // Mono
-	framesPerBuf = 160   // 10ms at 16kHz
 )
 
 func main() {
@@ -44,14 +43,21 @@ func main() {
 	fmt.Println("=================================")
 	fmt.Println()
 
-	// Initialize PortAudio
-	if err := portaudio.Initialize(); err != nil {
-		log.Fatalf("Failed to initialize PortAudio: %v", err)
-	}
-	defer portaudio.Terminate()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Open the shared pure-Go audio session (16 kHz mic + 24 kHz speaker).
+	session, err := rtaudio.NewPortAudioSession(
+		rtaudio.WithCaptureRate(captureRate),
+		rtaudio.WithPlaybackRate(playbackRate),
+	)
+	if err != nil {
+		log.Fatalf("Failed to open audio session: %v", err)
+	}
+	defer session.Close()
+	if err := session.Start(ctx); err != nil {
+		log.Fatalf("Failed to start audio session: %v", err)
+	}
 
 	// Open conversation using SDK (uses OpenAI by default)
 	conv, err := sdk.Open("./voice-assistant.pack.json", "chat")
@@ -63,6 +69,7 @@ func main() {
 	// Create voice chat handler
 	voiceChat := &VoiceChat{
 		conv:       conv,
+		session:    session,
 		audioQueue: make(chan []byte, 100),
 		turnQueue:  make(chan string, 10),
 	}
@@ -90,6 +97,7 @@ func main() {
 // VoiceChat manages the full voice conversation flow through the SDK.
 type VoiceChat struct {
 	conv          *sdk.Conversation
+	session       rtaudio.Session
 	audioQueue    chan []byte
 	turnQueue     chan string // Queue of completed transcribed turns
 	mu            sync.Mutex
@@ -120,35 +128,21 @@ func (vc *VoiceChat) Stop() {
 
 // processAudioInput captures microphone input and detects turns.
 func (vc *VoiceChat) processAudioInput(ctx context.Context) {
-	// Open input stream
-	in := make([]int16, framesPerBuf)
-	stream, err := portaudio.OpenDefaultStream(channels, 0, sampleRate, framesPerBuf, in)
-	if err != nil {
-		log.Printf("Failed to open input stream: %v", err)
-		return
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		log.Printf("Failed to start input stream: %v", err)
-		return
-	}
-	defer stream.Stop()
-
 	fmt.Println("🎙️  Listening... (Speak for 2 seconds, then pause)")
 
-	const silenceThreshold = 32 // ~2 seconds of silence at 10ms frames
-	const minAudioFrames = 10   // Minimum frames to consider valid speech
+	// The shared audio Session yields ~100 ms PCM16 frames (captureRate/10),
+	// so the frame-count thresholds are tuned for that window.
+	const silenceThreshold = 15 // ~1.5 seconds of silence at 100ms frames
+	const minSpeechBytes = 3200 // ~100ms of 16kHz PCM16 speech before a turn counts
 
+	frames := vc.session.Sources()[0].Frames()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			// Read audio frame
-			if err := stream.Read(); err != nil {
-				log.Printf("Audio read error: %v", err)
-				continue
+		case frame, ok := <-frames:
+			if !ok {
+				return
 			}
 
 			// Don't record while bot is speaking
@@ -162,11 +156,11 @@ func (vc *VoiceChat) processAudioInput(ctx context.Context) {
 				continue
 			}
 
-			// Convert int16 to bytes
-			audioBytes := int16ToBytes(in)
+			// frame.Data is already PCM16 little-endian bytes.
+			audioBytes := frame.Data
 
 			// Simple energy-based voice detection
-			hasEnergy := hasAudioEnergy(in)
+			hasEnergy := hasAudioEnergy(bytesToInt16(audioBytes))
 
 			if hasEnergy {
 				vc.audioBuffer = append(vc.audioBuffer, audioBytes...)
@@ -176,7 +170,7 @@ func (vc *VoiceChat) processAudioInput(ctx context.Context) {
 				vc.silenceFrames++
 				fmt.Print("░")
 
-				if vc.silenceFrames >= silenceThreshold && len(vc.audioBuffer) > minAudioFrames*len(audioBytes) {
+				if vc.silenceFrames >= silenceThreshold && len(vc.audioBuffer) > minSpeechBytes {
 					// Turn complete - send for processing
 					fmt.Println(" ✓")
 					turnText := fmt.Sprintf("[Audio turn: %d bytes]", len(vc.audioBuffer))
@@ -196,6 +190,9 @@ func (vc *VoiceChat) processAudioInput(ctx context.Context) {
 
 // hasAudioEnergy checks if audio frame has significant energy.
 func hasAudioEnergy(samples []int16) bool {
+	if len(samples) == 0 {
+		return false
+	}
 	const threshold = 500
 	var sum int64
 	for _, s := range samples {
@@ -282,23 +279,7 @@ func (vc *VoiceChat) processResponses(ctx context.Context) {
 
 // playAudioOutput plays queued audio through speakers.
 func (vc *VoiceChat) playAudioOutput(ctx context.Context) {
-	// Open output stream (24kHz for typical TTS output)
-	out := make([]int16, 1920) // 80ms buffer at 24kHz
-	stream, err := portaudio.OpenDefaultStream(0, channels, 24000, len(out), out)
-	if err != nil {
-		log.Printf("Failed to open output stream: %v", err)
-		return
-	}
-	defer stream.Close()
-
-	if err := stream.Start(); err != nil {
-		log.Printf("Failed to start output stream: %v", err)
-		return
-	}
-	defer stream.Stop()
-
-	buffer := []byte{}
-
+	sink := vc.session.Sinks()[0]
 	for {
 		select {
 		case <-ctx.Done():
@@ -308,35 +289,20 @@ func (vc *VoiceChat) playAudioOutput(ctx context.Context) {
 				return
 			}
 
-			buffer = append(buffer, chunk...)
-
-			// Play when we have enough samples
-			for len(buffer) >= len(out)*2 {
-				// Convert bytes to int16
-				for i := 0; i < len(out); i++ {
-					if i*2+1 < len(buffer) {
-						out[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
-					}
-				}
-
-				// Write to output
-				if err := stream.Write(); err != nil {
-					log.Printf("Audio write error: %v", err)
-				}
-
-				// Remove played samples
-				buffer = buffer[len(out)*2:]
-			}
+			sink.Write(rtaudio.MediaFrame{
+				Kind:   rtaudio.KindAudio,
+				Data:   chunk,
+				Format: rtaudio.Format{SampleRate: playbackRate, Channels: channels},
+			})
 		}
 	}
 }
 
-// int16ToBytes converts int16 audio samples to bytes (little-endian).
-func int16ToBytes(samples []int16) []byte {
-	bytes := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		bytes[i*2] = byte(s & 0xFF)
-		bytes[i*2+1] = byte((s >> 8) & 0xFF)
+// bytesToInt16 converts little-endian PCM16 bytes to int16 audio samples.
+func bytesToInt16(data []byte) []int16 {
+	samples := make([]int16, len(data)/2)
+	for i := range samples {
+		samples[i] = int16(data[i*2]) | int16(data[i*2+1])<<8
 	}
-	return bytes
+	return samples
 }

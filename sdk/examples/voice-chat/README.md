@@ -46,9 +46,9 @@ go mod tidy
    export GEMINI_API_KEY=your-key-here
    ```
 
-2. Run the example:
+2. Run the example (the microphone/speaker code is behind the `portaudio` build tag):
    ```bash
-   go run .
+   go run -tags portaudio .
    ```
 
 3. Speak into your microphone
