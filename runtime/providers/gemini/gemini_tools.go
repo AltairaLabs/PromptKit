@@ -77,6 +77,9 @@ type geminiToolPart struct {
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
 	Text             string                  `json:"text,omitempty"`
+	// Thought marks this text part as model reasoning (thinking models), captured
+	// onto Message.Reasoning rather than spoken content.
+	Thought bool `json:"thought,omitempty"`
 	// ThoughtSignature is an opaque, base64-encoded signature that Gemini 3
 	// emits alongside a functionCall part. When the conversation history is
 	// replayed to Gemini on a later turn, the signature must be included
@@ -519,8 +522,9 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	var toolCalls []types.MessageToolCall
 
 	for i, part := range candidate.Content.Parts {
-		// Check for text content
-		if part.Text != "" {
+		// Check for text content. Thought parts are reasoning, not spoken content —
+		// captured separately via reasoningFromParts below, never folded into content.
+		if part.Text != "" && !part.Thought {
 			textBuilder.WriteString(part.Text)
 		}
 
@@ -558,6 +562,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
 
 	predictResp.Content = textBuilder.String()
+	predictResp.Reasoning = reasoningFromToolParts(candidate.Content.Parts)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBytes
@@ -565,6 +570,28 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	predictResp.FinishReason = normalizeFinishReason(candidate.FinishReason)
 
 	return predictResp, toolCalls, nil
+}
+
+// reasoningFromToolParts builds a ReasoningTrace from a tool-response candidate's
+// thought parts (mirrors reasoningFromParts for the geminiToolPart shape). Returns
+// nil when there is no reasoning.
+func reasoningFromToolParts(parts []geminiToolPart) *types.ReasoningTrace {
+	var rt types.ReasoningTrace
+	for _, part := range parts {
+		if !part.Thought {
+			continue
+		}
+		rt.Text += part.Text
+		if part.ThoughtSignature != "" {
+			rt.Opaque = append(rt.Opaque, types.OpaqueReasoning{
+				Provider: providerNameGemini, Kind: kindThoughtSignature, Data: part.ThoughtSignature,
+			})
+		}
+	}
+	if rt.Text == "" && len(rt.Opaque) == 0 {
+		return nil
+	}
+	return &rt
 }
 
 func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, error) {
