@@ -356,7 +356,10 @@ jobs:
     
     - name: Build runtime components
       run: make build
-  
+
+    - name: Check foundational packages are purego-free (issue #1536)
+      run: ./scripts/check-no-audio-device-leak.sh
+
   perf-regression:
     name: Performance Regression Check
     runs-on: ubuntu-latest

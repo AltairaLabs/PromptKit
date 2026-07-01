@@ -1,4 +1,4 @@
-package audio
+package portaudio
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 // warnCountHandler is a minimal slog.Handler that counts WARN-level records, so
@@ -34,8 +36,8 @@ func TestDuplexPlay_WarnsOnceOnJitterOverflow(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	io := &portaudioIO{
-		playbackRate: SampleRate24kHz,
-		jitter:       NewJitterBuffer(10), // tiny => any real frame overflows it
+		playbackRate: audio.SampleRate24kHz,
+		jitter:       audio.NewJitterBuffer(10), // tiny => any real frame overflows it
 		done:         make(chan struct{}),
 	}
 	io.duplex.Store(true)
@@ -55,7 +57,7 @@ func TestDuplexPlay_WarnsOnceOnJitterOverflow(t *testing.T) {
 // TestDuplexLoop_ReadResampleEmit_PullWrite drives the single duplex loop with
 // injected fake read/write funcs (no PortAudio device). It proves the seam
 // behavior: each tick reads a 480-sample mic block @48 kHz, resamples it to the
-// capture rate, emits it as a MediaFrame on the Source, and writes a 480-sample
+// capture rate, emits it as a audio.MediaFrame on the audio.Source, and writes a 480-sample
 // playback block pulled from the jitter buffer. The first write is the one
 // pushed playback block; subsequent writes are silence (Pull underrun fill).
 func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
@@ -86,9 +88,9 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 	}
 
 	io := &portaudioIO{
-		captureRate: SampleRate16kHz,
+		captureRate: audio.SampleRate16kHz,
 		captureCh:   make(chan []byte, captureChanBuffer),
-		jitter:      NewJitterBuffer(DuplexRate / 5),
+		jitter:      audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:        make(chan struct{}),
 		readFn:      readFn,
 		writeFn:     writeFn,
@@ -103,7 +105,7 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 	}
 	io.jitter.Push(playBlock)
 
-	// Source pump turns captureCh bytes into PTS-stamped MediaFrames.
+	// audio.Source pump turns captureCh bytes into PTS-stamped MediaFrames.
 	src := &portaudioSource{io: io}
 	frames := src.Frames()
 
@@ -111,7 +113,7 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 	go io.duplexLoop(context.Background())
 
 	// Collect exactly `blocks` emitted frames.
-	got := make([]MediaFrame, 0, blocks)
+	got := make([]audio.MediaFrame, 0, blocks)
 	for i := 0; i < blocks; i++ {
 		select {
 		case f := <-frames:
@@ -130,8 +132,8 @@ func TestDuplexLoop_ReadResampleEmit_PullWrite(t *testing.T) {
 	}
 	var prev time.Duration = -1
 	for i, f := range got {
-		if f.Format.SampleRate != SampleRate16kHz {
-			t.Errorf("frame %d SampleRate = %d, want %d", i, f.Format.SampleRate, SampleRate16kHz)
+		if f.Format.SampleRate != audio.SampleRate16kHz {
+			t.Errorf("frame %d SampleRate = %d, want %d", i, f.Format.SampleRate, audio.SampleRate16kHz)
 		}
 		if f.Format.Channels != 1 {
 			t.Errorf("frame %d Channels = %d, want 1", i, f.Format.Channels)
@@ -174,9 +176,9 @@ func TestDuplexLoop_ContextCancelStops(t *testing.T) {
 	cancel() // already canceled before the loop starts
 
 	io := &portaudioIO{
-		captureRate: SampleRate16kHz,
+		captureRate: audio.SampleRate16kHz,
 		captureCh:   make(chan []byte, captureChanBuffer),
-		jitter:      NewJitterBuffer(DuplexRate / 5),
+		jitter:      audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:        make(chan struct{}),
 		readFn:      func(_ []int16) int32 { return 0 },
 		writeFn:     func(_ []int16) int32 { return 0 },
@@ -200,9 +202,9 @@ func TestDuplexLoop_ContextCancelStops(t *testing.T) {
 // (unbuffered captureCh with no reader forces the default case).
 func TestDuplexLoop_WriteErrorStopsAndDropsOnBackpressure(t *testing.T) {
 	io := &portaudioIO{
-		captureRate: SampleRate16kHz,
+		captureRate: audio.SampleRate16kHz,
 		captureCh:   make(chan []byte), // unbuffered, no reader => drop on send
-		jitter:      NewJitterBuffer(DuplexRate / 5),
+		jitter:      audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:        make(chan struct{}),
 		readFn:      func(_ []int16) int32 { return 0 },
 		writeFn:     func(_ []int16) int32 { return 1 }, // non-zero rc ends the loop
@@ -225,8 +227,8 @@ func TestDuplexLoop_WriteErrorStopsAndDropsOnBackpressure(t *testing.T) {
 // error (invalid playback rate) without pushing to the jitter buffer.
 func TestDuplexPlay_ResampleErrorDropsFrame(t *testing.T) {
 	io := &portaudioIO{
-		playbackRate: 0, // invalid => ResamplePCM16 returns an error
-		jitter:       NewJitterBuffer(DuplexRate / 5),
+		playbackRate: 0, // invalid => audio.ResamplePCM16 returns an error
+		jitter:       audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:         make(chan struct{}),
 	}
 	io.duplex.Store(true)
@@ -237,12 +239,12 @@ func TestDuplexPlay_ResampleErrorDropsFrame(t *testing.T) {
 }
 
 // TestDuplexPlay_ResamplesAndPushes verifies that duplex Play resamples a
-// playback-rate frame up to DuplexRate and pushes the result into the jitter
+// playback-rate frame up to audio.DuplexRate and pushes the result into the jitter
 // buffer (Len grows by the 48 kHz sample count).
 func TestDuplexPlay_ResamplesAndPushes(t *testing.T) {
 	io := &portaudioIO{
-		playbackRate: SampleRate24kHz,
-		jitter:       NewJitterBuffer(DuplexRate / 5),
+		playbackRate: audio.SampleRate24kHz,
+		jitter:       audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:         make(chan struct{}),
 	}
 	io.duplex.Store(true)
@@ -258,7 +260,7 @@ func TestDuplexPlay_ResamplesAndPushes(t *testing.T) {
 // (instant silence — no stream stop/start in duplex mode).
 func TestDuplexFlush_ClearsJitter(t *testing.T) {
 	io := &portaudioIO{
-		jitter: NewJitterBuffer(DuplexRate / 5),
+		jitter: audio.NewJitterBuffer(audio.DuplexRate / 5),
 		done:   make(chan struct{}),
 	}
 	io.duplex.Store(true)

@@ -1,4 +1,4 @@
-package audio
+package audiohelper
 
 import "runtime"
 

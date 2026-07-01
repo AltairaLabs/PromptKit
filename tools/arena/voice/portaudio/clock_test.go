@@ -1,12 +1,14 @@
-package audio
+package portaudio
 
 import (
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 func TestSampleClock_PTS(t *testing.T) {
-	c := newSampleClock(DuplexRate)
+	c := newSampleClock(audio.DuplexRate)
 	c.advance(480)
 	if got := c.pts(); got != 10*time.Millisecond {
 		t.Fatalf("pts=%v want 10ms", got)
@@ -14,7 +16,7 @@ func TestSampleClock_PTS(t *testing.T) {
 }
 
 func TestSampleClock_Accumulates(t *testing.T) {
-	c := newSampleClock(DuplexRate)
+	c := newSampleClock(audio.DuplexRate)
 	c.advance(480)
 	c.advance(480)
 	if got := c.pts(); got != 20*time.Millisecond {

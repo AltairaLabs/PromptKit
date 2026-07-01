@@ -1,4 +1,4 @@
-package audio
+package audiohelper
 
 // portaudio_duplex.go holds the hardware-free duplex logic: the single
 // synchronized read/write loop body and the duplex-mode Play/Flush paths. The
@@ -11,11 +11,13 @@ import (
 	"context"
 	"encoding/binary"
 	"log/slog"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 // duplexBlockFrames is the per-tick mic/speaker block size: 480 samples = 10 ms
 // at the 48 kHz duplex rate.
-const duplexBlockFrames = DuplexRate / 100
+const duplexBlockFrames = audio.DuplexRate / 100
 
 // duplexLoop is the single synchronized audio loop for duplex mode. Each tick:
 //  1. read one 480-sample mic block @48 kHz (duplexRead),
@@ -50,7 +52,7 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 		// block BELOW, BEFORE this 48→captureRate resample/emit. The mic emit then
 		// moves under the AEC step and this loop must retain the last written
 		// playback block (the speaker-seam `out` below) as the far-end reference.
-		if resampled, err := ResamplePCM16(int16ToBytes(micBuf), DuplexRate, p.captureRate); err == nil {
+		if resampled, err := audio.ResamplePCM16(int16ToBytes(micBuf), audio.DuplexRate, p.captureRate); err == nil {
 			select {
 			case p.captureCh <- resampled:
 			default: // drop on backpressure — observer cadence
@@ -65,7 +67,7 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 	}
 }
 
-// duplexPlay resamples a playback-rate frame up to DuplexRate and pushes the
+// duplexPlay resamples a playback-rate frame up to audio.DuplexRate and pushes the
 // result into the jitter buffer. The device loop drains the buffer one 10 ms
 // block per tick. Frames are silently dropped only if resampling fails.
 //
@@ -74,7 +76,7 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 // the oldest audio is dropped; the first such overflow in a session logs a
 // single warning so the silent loss is visible to a writer that isn't pacing.
 func (p *portaudioIO) duplexPlay(frame []byte) {
-	resampled, err := ResamplePCM16(frame, p.playbackRate, DuplexRate)
+	resampled, err := audio.ResamplePCM16(frame, p.playbackRate, audio.DuplexRate)
 	if err != nil {
 		return
 	}
@@ -116,7 +118,6 @@ func (p *portaudioIO) Flush() {
 func int16ToBytes(samples []int16) []byte {
 	out := make([]byte, len(samples)*bytesPerSample)
 	for i, s := range samples {
-		//nolint:gosec // G115: deliberate PCM16 bit reinterpretation (int16 → wire bytes).
 		binary.LittleEndian.PutUint16(out[i*bytesPerSample:], uint16(s))
 	}
 	return out
@@ -128,7 +129,6 @@ func bytesToInt16(data []byte) []int16 {
 	n := len(data) / bytesPerSample
 	out := make([]int16, n)
 	for i := 0; i < n; i++ {
-		//nolint:gosec // G115: deliberate PCM16 bit reinterpretation (wire bytes → int16).
 		out[i] = int16(binary.LittleEndian.Uint16(data[i*bytesPerSample:]))
 	}
 	return out

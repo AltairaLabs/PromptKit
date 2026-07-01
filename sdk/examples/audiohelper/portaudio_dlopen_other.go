@@ -1,6 +1,6 @@
 //go:build !windows
 
-package audio
+package audiohelper
 
 import "github.com/ebitengine/purego"
 

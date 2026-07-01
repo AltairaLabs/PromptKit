@@ -41,6 +41,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/examples/audiohelper"
 )
 
 const (
@@ -127,9 +128,9 @@ func runInteractiveMode(ctx context.Context, apiKey string) error {
 	defer cancel()
 
 	// Open the shared pure-Go audio session (24 kHz mic + 24 kHz speaker).
-	session, err := rtaudio.NewPortAudioSession(
-		rtaudio.WithCaptureRate(sampleRate),
-		rtaudio.WithPlaybackRate(sampleRate),
+	session, err := audiohelper.NewSession(
+		audiohelper.WithCaptureRate(sampleRate),
+		audiohelper.WithPlaybackRate(sampleRate),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to open audio session: %w", err)
@@ -247,9 +248,9 @@ func runToolsDemo(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	session, err := rtaudio.NewPortAudioSession(
-		rtaudio.WithCaptureRate(sampleRate),
-		rtaudio.WithPlaybackRate(sampleRate),
+	session, err := audiohelper.NewSession(
+		audiohelper.WithCaptureRate(sampleRate),
+		audiohelper.WithPlaybackRate(sampleRate),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to open audio session: %w", err)
@@ -343,9 +344,9 @@ func runTranslatorMode(ctx context.Context, apiKey string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	session, err := rtaudio.NewPortAudioSession(
-		rtaudio.WithCaptureRate(sampleRate),
-		rtaudio.WithPlaybackRate(sampleRate),
+	session, err := audiohelper.NewSession(
+		audiohelper.WithCaptureRate(sampleRate),
+		audiohelper.WithPlaybackRate(sampleRate),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to open audio session: %w", err)

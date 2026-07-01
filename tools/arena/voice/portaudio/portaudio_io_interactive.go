@@ -1,4 +1,4 @@
-package audio
+package portaudio
 
 // portaudio_io_interactive.go contains the hardware-bound PortAudio I/O core:
 // dynamic library loading, the portaudioIO struct and all its methods
@@ -20,6 +20,8 @@ import (
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 const (
@@ -137,7 +139,7 @@ type portaudioIO struct {
 	// true→false by the half-duplex fallback in startDuplexLocked (under p.mu), so
 	// it is atomic to keep that mode transition race-free.
 	duplex       atomic.Bool
-	jitter       *JitterBuffer
+	jitter       *audio.JitterBuffer
 	duplexStream uintptr
 	// jitterOverflowOnce guards a single per-session warning the first time the
 	// playback jitter buffer drops samples (a writer exceeding real-time cadence).
@@ -177,8 +179,8 @@ func (p *portaudioIO) duplexWrite(buf []int16) int32 {
 // newAudioIO loads libportaudio at runtime and constructs the PortAudio-backed
 // I/O core. It returns errPortAudioMissing (wrapped) when the library is not
 // installed, so callers can surface a clear "install PortAudio" message instead
-// of crashing. Callers use NewPortAudioSession, which wraps this in the
-// Session/Source/Sink interfaces.
+// of crashing. Callers use NewSession, which wraps this in the
+// audio.Session/audio.Source/audio.Sink interfaces.
 //
 // Buffer sizes are derived from the configured rates to preserve the target
 // windows: capture = rate/captureWindowDivisor (100 ms), playback =
@@ -205,29 +207,29 @@ func newAudioIO(cfg sessionConfig, duplex bool) (*portaudioIO, error) {
 	return p, nil
 }
 
-// jitterHeadroomDivisor sizes the duplex jitter buffer at DuplexRate/divisor
+// jitterHeadroomDivisor sizes the duplex jitter buffer at audio.DuplexRate/divisor
 // samples, i.e. 200 ms of playback headroom (48000/5 = 9600 samples).
 const jitterHeadroomDivisor = 5
 
 // newDuplexCore builds a DUPLEX portaudioIO: a single 48 kHz read/write stream
 // fronted by a jitter buffer. The capture/playback rates from cfg are retained
 // as the resample seams (mic 48→captureRate, speaker playbackRate→48); only the
-// device stream runs at DuplexRate.
+// device stream runs at audio.DuplexRate.
 //
 // PLAYBACK CADENCE CONTRACT: the jitter buffer is sized for timing jitter
 // (~200 ms of headroom, jitterHeadroomDivisor), NOT for buffering whole
-// utterances. Callers must write to the Sink at roughly real-time cadence;
+// utterances. Callers must write to the audio.Sink at roughly real-time cadence;
 // unpaced bulk writes that exceed the buffer are dropped oldest-first (only
-// JitterBuffer.Drops() climbs — the session emits one warning on first overflow).
+// audio.JitterBuffer.Drops() climbs — the session emits one warning on first overflow).
 // The Arena interactive pipeline satisfies this via its audio-pacing-output
-// stage; direct Sink writers (e.g. a future OpenVoice writing TTS straight to
+// stage; direct audio.Sink writers (e.g. a future OpenVoice writing TTS straight to
 // Sinks()[0]) must pace or chunk their writes to real time.
 func newDuplexCore(lib *portAudioLib, cfg sessionConfig) *portaudioIO {
 	p := &portaudioIO{
 		lib:          lib,
 		captureRate:  cfg.captureRate,
 		playbackRate: cfg.playbackRate,
-		jitter:       NewJitterBuffer(DuplexRate / jitterHeadroomDivisor),
+		jitter:       audio.NewJitterBuffer(audio.DuplexRate / jitterHeadroomDivisor),
 		captureCh:    make(chan []byte, captureChanBuffer),
 		done:         make(chan struct{}),
 	}
@@ -298,7 +300,7 @@ func (p *portaudioIO) startTwoStreamLocked(ctx context.Context) error {
 func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
 	var s uintptr
 	if err := p.lib.paError("open duplex",
-		p.lib.openDefaultStream(&s, 1, 1, paInt16, float64(DuplexRate), uint64(duplexBlockFrames), 0, 0)); err != nil {
+		p.lib.openDefaultStream(&s, 1, 1, paInt16, float64(audio.DuplexRate), uint64(duplexBlockFrames), 0, 0)); err != nil {
 		slog.Warn("duplex audio stream unavailable (mic and speaker may be different devices "+
 			"with no shared clock); falling back to half-duplex two-stream mode — "+
 			"open-speaker barge-in and AEC are reduced. Use the SAME device for capture and "+

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/sdk/examples/audiohelper"
 )
 
 const (
@@ -64,9 +65,9 @@ type AudioSystem struct {
 // NewAudioSystem creates a new audio system backed by the shared runtime/audio
 // Session (16kHz capture, 24kHz playback).
 func NewAudioSystem() (*AudioSystem, error) {
-	session, err := rtaudio.NewPortAudioSession(
-		rtaudio.WithCaptureRate(InputSampleRate),
-		rtaudio.WithPlaybackRate(OutputSampleRate),
+	session, err := audiohelper.NewSession(
+		audiohelper.WithCaptureRate(InputSampleRate),
+		audiohelper.WithPlaybackRate(OutputSampleRate),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize audio session: %w", err)
