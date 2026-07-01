@@ -109,6 +109,11 @@ type Provider struct {
 	// "high". Empty means do not emit the field and let OpenAI apply its
 	// model-specific default. Configured via additional_config.reasoning_effort.
 	reasoningEffort string
+	// reasoningSummary, when non-empty ("auto"|"concise"|"detailed"), requests
+	// reasoning summaries via the Responses API (captured onto Message.Reasoning).
+	// Opt-in: OpenAI requires a verified org to return summaries. Configured via
+	// additional_config.reasoning_summary.
+	reasoningSummary string
 }
 
 // NewProvider creates a new OpenAI provider
@@ -225,6 +230,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		unsupportedParams: unsupported,
 		capabilities:      providers.CapabilitySet(cfg.Capabilities),
 		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
+		reasoningSummary:  getReasoningSummary(cfg.AdditionalConfig),
 	}
 	// Neither Azure OpenAI nor Bedrock OpenAI exposes the Responses API.
 	// Force the legacy Chat Completions path so the request shape matches
@@ -270,6 +276,30 @@ func getReasoningEffort(additionalConfig map[string]any) string {
 	default:
 		logger.Warn("openai: ignoring unrecognized reasoning_effort",
 			"value", raw, "accepted", "minimal|low|medium|high")
+		return ""
+	}
+}
+
+// getReasoningSummary resolves reasoning.summary for the Responses API from
+// additional_config. Returns "" (omit) by default — requesting summaries requires
+// a verified OpenAI org, so this is strictly opt-in to avoid 400-ing unverified
+// orgs on every reasoning request.
+func getReasoningSummary(additionalConfig map[string]any) string {
+	if additionalConfig == nil {
+		return ""
+	}
+	raw, ok := additionalConfig["reasoning_summary"].(string)
+	if !ok {
+		return ""
+	}
+	//nolint:goconst // "auto" here is a reasoning_summary value, semantically
+	// unrelated to toolChoiceAuto; sharing that const would be misleading.
+	switch strings.ToLower(raw) {
+	case "auto", "concise", "detailed":
+		return strings.ToLower(raw)
+	default:
+		logger.Warn("openai: ignoring unrecognized reasoning_summary",
+			"value", raw, "accepted", "auto|concise|detailed")
 		return ""
 	}
 }
