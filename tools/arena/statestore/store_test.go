@@ -419,3 +419,33 @@ func TestUpdateLastAssistantMessageFallbackWithEmptyID(t *testing.T) {
 		t.Error("Expected fallback scan to update the message")
 	}
 }
+
+// TestDeepCloneMessage_PreservesReasoning guards the bug where the arena store's
+// field-by-field clone dropped Message.Reasoning, so reasoning never reached
+// reports (RunResult.Messages is loaded back from the store).
+func TestDeepCloneMessage_PreservesReasoning(t *testing.T) {
+	s := NewArenaStateStore()
+	msg := &types.Message{
+		Role:    "assistant",
+		Content: "ANSWER: 16",
+		Reasoning: &types.ReasoningTrace{
+			Text:   "step-by-step thinking",
+			Opaque: []types.OpaqueReasoning{{Provider: "gemini", Kind: "thought_signature", Data: "sig"}},
+		},
+	}
+	cloned := s.deepCloneMessage(msg)
+	if cloned.Reasoning == nil {
+		t.Fatal("clone dropped Message.Reasoning")
+	}
+	if cloned.Reasoning.Text != "step-by-step thinking" {
+		t.Fatalf("reasoning text = %q", cloned.Reasoning.Text)
+	}
+	if len(cloned.Reasoning.Opaque) != 1 || cloned.Reasoning.Opaque[0].Data != "sig" {
+		t.Fatalf("opaque reasoning not deep-copied: %+v", cloned.Reasoning.Opaque)
+	}
+	// Mutating the clone's Opaque must not touch the original (deep copy).
+	cloned.Reasoning.Opaque[0].Data = "changed"
+	if msg.Reasoning.Opaque[0].Data != "sig" {
+		t.Fatal("clone shares Opaque backing array with the original")
+	}
+}

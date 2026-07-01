@@ -428,6 +428,17 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 	s.cloneMessageMeta(&cloned, msg)
 	s.cloneMessageValidations(&cloned, msg)
 
+	// Reasoning is a sibling of content; clone it (with a deep copy of Opaque) so
+	// it survives save/load and reaches reports. Mirrors the runtime store fix.
+	if msg.Reasoning != nil {
+		r := *msg.Reasoning
+		if len(msg.Reasoning.Opaque) > 0 {
+			r.Opaque = make([]types.OpaqueReasoning, len(msg.Reasoning.Opaque))
+			copy(r.Opaque, msg.Reasoning.Opaque)
+		}
+		cloned.Reasoning = &r
+	}
+
 	return cloned
 }
 
