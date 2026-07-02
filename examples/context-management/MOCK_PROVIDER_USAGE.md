@@ -72,5 +72,5 @@ Same input always produces same output:
 ## See Also
 
 - [Mock Configuration](mock-responses.yaml) - Example configuration for this example
-- [Arena how-to guides](https://promptkit.altairalabs.ai/arena/how-to/) - General Arena usage
+- [Arena how-to guides](https://promptarena.altairalabs.ai/arena/how-to/) - General Arena usage
 - [Main Examples README](../README.md) - Overview of all examples

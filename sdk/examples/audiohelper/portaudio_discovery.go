@@ -4,7 +4,7 @@ import "runtime"
 
 // voiceDocsURL points users at the voice setup instructions when PortAudio is
 // missing. Included in errPortAudioMissing.
-const voiceDocsURL = "https://promptkit.altairalabs.ai/arena/how-to/voice-console/"
+const voiceDocsURL = "https://promptarena.altairalabs.ai/arena/how-to/voice-console/"
 
 // portAudioCandidates returns the libportaudio file names / paths to try, in
 // order, for the current OS.

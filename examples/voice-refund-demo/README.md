@@ -157,4 +157,4 @@ See `personas/aggressive-entitled.persona.yaml` for a worked example.
 
 - `examples/duplex-streaming/` — duplex audio fundamentals (greeting/replay/tools)
 - `examples/customer-support-integrated/` — text-mode adversarial self-play with tools
-- [Arena assertions reference](https://promptkit.altairalabs.ai/arena/reference/assertions/) — `tools_called` and `tools_not_called` parameters
+- [Arena assertions reference](https://promptarena.altairalabs.ai/arena/reference/assertions/) — `tools_called` and `tools_not_called` parameters

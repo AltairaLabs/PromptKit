@@ -164,5 +164,5 @@ middleware.DynamicValidatorMiddlewareWithSuppression(registry, true)
 
 ## Related Documentation
 
-- [Arena assertions reference](https://promptkit.altairalabs.ai/arena/reference/assertions/) - Full list of built-in assertions, including guardrail matchers
-- [Validation strategies](https://promptkit.altairalabs.ai/arena/explanation/validation-strategies/) - When to use guardrails vs other assertion styles
+- [Arena assertions reference](https://promptarena.altairalabs.ai/arena/reference/assertions/) - Full list of built-in assertions, including guardrail matchers
+- [Validation strategies](https://promptarena.altairalabs.ai/arena/explanation/validation-strategies/) - When to use guardrails vs other assertion styles

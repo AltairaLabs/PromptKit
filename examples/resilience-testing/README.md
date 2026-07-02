@@ -1,7 +1,7 @@
 # Resilience Testing Example
 
 Comprehensive example demonstrating 25+ assertion types. See the full
-[Arena assertions reference](https://promptkit.altairalabs.ai/arena/reference/assertions/)
+[Arena assertions reference](https://promptarena.altairalabs.ai/arena/reference/assertions/)
 for the complete list of supported assertion types.
 
 ## Scenarios

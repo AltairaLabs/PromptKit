@@ -40,5 +40,5 @@ promptarena run --mock-provider --scenario guardrail-should-trigger
 ## See Also
 
 - [Mock Configuration](mock-responses.yaml) - Mock responses for this example
-- [Arena how-to guides](https://promptkit.altairalabs.ai/arena/how-to/) - General Arena usage
+- [Arena how-to guides](https://promptarena.altairalabs.ai/arena/how-to/) - General Arena usage
 - [Main Examples README](../README.md) - Overview of all examples

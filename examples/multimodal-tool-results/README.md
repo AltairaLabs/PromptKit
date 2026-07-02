@@ -52,4 +52,4 @@ The scenarios use two multimodal-specific assertions:
 - **`tool_result_has_media`** — verifies the tool result contains non-text content
 - **`tool_result_media_type`** — verifies the media type matches (e.g., `image`, `audio`, `video`)
 
-See the [Assertions Reference](https://promptkit.altairalabs.ai/arena/reference/assertions/) for full details.
+See the [Assertions Reference](https://promptarena.altairalabs.ai/arena/reference/assertions/) for full details.
