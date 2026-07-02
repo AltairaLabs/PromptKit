@@ -21,13 +21,13 @@ package turnexecutors
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
@@ -67,7 +67,7 @@ type MessageStreamChunk struct {
 type TurnRequest struct {
 	// Provider and configuration
 	Provider    providers.Provider
-	Scenario    *config.Scenario
+	Scenario    *arenaconfig.Scenario
 	Temperature float64
 	MaxTokens   int
 	Seed        *int
@@ -87,17 +87,17 @@ type TurnRequest struct {
 	ConversationID   string            // Conversation identifier for state persistence
 
 	// Executor-specific fields (only one should be set depending on executor type)
-	ScriptedContent string                   // ScriptedExecutor: text-only user message (legacy)
-	ScriptedParts   []config.TurnContentPart // ScriptedExecutor: multimodal parts (precedence)
-	SelfPlayRole    string                   // SelfPlayExecutor: the self-play role
-	SelfPlayPersona string                   // SelfPlayExecutor: the persona to use
+	ScriptedContent string                        // ScriptedExecutor: text-only user message (legacy)
+	ScriptedParts   []arenaconfig.TurnContentPart // ScriptedExecutor: multimodal parts (precedence)
+	SelfPlayRole    string                        // SelfPlayExecutor: the self-play role
+	SelfPlayPersona string                        // SelfPlayExecutor: the persona to use
 
 	// ConsentOverrides controls consent simulation for client-side tools.
 	// Keys are tool names, values are "grant", "deny", or "timeout".
 	ConsentOverrides map[string]string
 
 	// ChaosConfig configures fault injection for resilience testing.
-	ChaosConfig *config.ChaosConfig
+	ChaosConfig *arenaconfig.ChaosConfig
 
 	// Assertions to validate after turn execution
 	Assertions     []assertions.AssertionConfig

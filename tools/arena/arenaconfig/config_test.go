@@ -1,4 +1,4 @@
-package config
+package arenaconfig
 
 import (
 	"os"
@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -254,7 +256,7 @@ spec:
 		t.Fatalf("Failed to write test provider: %v", err)
 	}
 
-	provider, err := LoadProvider(providerPath)
+	provider, err := config.LoadProvider(providerPath)
 	if err != nil {
 		t.Fatalf("LoadProvider failed: %v", err)
 	}
@@ -321,7 +323,7 @@ func TestResolveFilePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveFilePath(tt.configPath, tt.relPath)
+			got := config.ResolveFilePath(tt.configPath, tt.relPath)
 			if got != tt.want {
 				t.Errorf("ResolveFilePath() = %v, want %v", got, tt.want)
 			}
@@ -525,7 +527,7 @@ spec:
 
 // TestLoadConfig_PromptSchemaValidationFailure covers the schema-validation
 // error branch in loadPromptConfigs when the referenced prompt file exists
-// but fails ValidatePromptConfig (e.g. wrong kind).
+// but fails config.ValidatePromptConfig (e.g. wrong kind).
 func TestLoadConfig_PromptSchemaValidationFailure(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmpDir := t.TempDir()
@@ -1012,7 +1014,7 @@ func TestLoadProvider_Error(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Try to load a nonexistent provider file
-	_, err := LoadProvider(filepath.Join(tmpDir, "nonexistent.yaml"))
+	_, err := config.LoadProvider(filepath.Join(tmpDir, "nonexistent.yaml"))
 	if err == nil {
 		t.Error("Expected error when loading nonexistent provider file")
 	}
@@ -1029,7 +1031,7 @@ func TestLoadProvider_InvalidYAML(t *testing.T) {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	_, err := LoadProvider(providerPath)
+	_, err := config.LoadProvider(providerPath)
 	if err == nil {
 		t.Error("Expected error when loading invalid YAML")
 	}
@@ -1068,7 +1070,7 @@ spec:
 		t.Fatalf("Failed to write test provider: %v", err)
 	}
 
-	provider, err := LoadProvider(providerPath)
+	provider, err := config.LoadProvider(providerPath)
 	if err != nil {
 		t.Fatalf("LoadProvider failed: %v", err)
 	}
@@ -1112,7 +1114,7 @@ spec:
 		t.Fatalf("Failed to write test provider: %v", err)
 	}
 
-	provider, err := LoadProvider(providerPath)
+	provider, err := config.LoadProvider(providerPath)
 	if err != nil {
 		t.Fatalf("LoadProvider failed: %v", err)
 	}
@@ -1532,7 +1534,7 @@ spec:
 		t.Fatalf("Failed to write test provider: %v", err)
 	}
 
-	provider, err := LoadProvider(providerPath)
+	provider, err := config.LoadProvider(providerPath)
 	if err != nil {
 		t.Fatalf("LoadProvider failed: %v", err)
 	}

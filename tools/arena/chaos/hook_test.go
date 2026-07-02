@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestHook_Name(t *testing.T) {
@@ -25,8 +25,8 @@ func TestHook_BeforeExecution_NoChaosConfig(t *testing.T) {
 
 func TestHook_BeforeExecution_NoMatchingTool(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "other_tool", Mode: "error", Probability: 1.0},
 		},
 	}
@@ -39,8 +39,8 @@ func TestHook_BeforeExecution_NoMatchingTool(t *testing.T) {
 
 func TestHook_BeforeExecution_ErrorMode(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "error", Probability: 1.0},
 		},
 	}
@@ -59,8 +59,8 @@ func TestHook_BeforeExecution_ErrorMode(t *testing.T) {
 
 func TestHook_BeforeExecution_ErrorMode_CustomMessage(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "error", Probability: 1.0, Message: "custom error"},
 		},
 	}
@@ -76,8 +76,8 @@ func TestHook_BeforeExecution_ErrorMode_CustomMessage(t *testing.T) {
 
 func TestHook_BeforeExecution_TimeoutMode(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "lookup", Mode: "timeout", Probability: 1.0},
 		},
 	}
@@ -93,8 +93,8 @@ func TestHook_BeforeExecution_TimeoutMode(t *testing.T) {
 
 func TestHook_BeforeExecution_SlowMode(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "slow", Probability: 1.0},
 		},
 	}
@@ -110,8 +110,8 @@ func TestHook_BeforeExecution_SlowMode(t *testing.T) {
 
 func TestHook_BeforeExecution_UnknownMode(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "unknown_mode", Probability: 1.0},
 		},
 	}
@@ -124,8 +124,8 @@ func TestHook_BeforeExecution_UnknownMode(t *testing.T) {
 
 func TestHook_BeforeExecution_ZeroProbability(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "error", Probability: 0},
 		},
 	}
@@ -169,8 +169,8 @@ func TestShouldFire(t *testing.T) {
 }
 
 func TestContextRoundTrip(t *testing.T) {
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "test", Mode: "error"},
 		},
 	}
@@ -196,8 +196,8 @@ func TestConfigFromContext_Nil(t *testing.T) {
 
 func TestHook_MultipleRules_FirstMatch(t *testing.T) {
 	h := NewHook()
-	cfg := &config.ChaosConfig{
-		ToolFailures: []config.ChaosToolFailure{
+	cfg := &arenaconfig.ChaosConfig{
+		ToolFailures: []arenaconfig.ChaosToolFailure{
 			{Tool: "search", Mode: "error", Probability: 1.0, Message: "first"},
 			{Tool: "search", Mode: "timeout", Probability: 1.0, Message: "second"},
 		},

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -13,12 +12,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestBuildContextPolicy(t *testing.T) {
 	tests := []struct {
 		name     string
-		scenario *config.Scenario
+		scenario *arenaconfig.Scenario
 		want     *stage.ContextBuilderPolicy
 	}{
 		{
@@ -28,16 +28,16 @@ func TestBuildContextPolicy(t *testing.T) {
 		},
 		{
 			name: "scenario without context policy returns nil",
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				ID: "test",
 			},
 			want: nil,
 		},
 		{
 			name: "scenario with context policy returns configured policy",
-			scenario: &config.Scenario{
+			scenario: &arenaconfig.Scenario{
 				ID: "test",
-				ContextPolicy: &config.ContextPolicy{
+				ContextPolicy: &arenaconfig.ContextPolicy{
 					TokenBudget:      1000,
 					ReserveForOutput: 200,
 					Strategy:         "oldest",
@@ -196,7 +196,7 @@ func TestBuildToolPolicy(t *testing.T) {
 	})
 
 	t.Run("scenario without tool_policy returns non-nil policy with defaults", func(t *testing.T) {
-		got := buildToolPolicy(&config.Scenario{ID: "test"})
+		got := buildToolPolicy(&arenaconfig.Scenario{ID: "test"})
 		if got == nil {
 			t.Fatal("buildToolPolicy() returned nil, want non-nil policy with defaults")
 		}
@@ -212,9 +212,9 @@ func TestBuildToolPolicy(t *testing.T) {
 	})
 
 	t.Run("scenario with tool_policy honors explicit overrides", func(t *testing.T) {
-		got := buildToolPolicy(&config.Scenario{
+		got := buildToolPolicy(&arenaconfig.Scenario{
 			ID: "test",
-			ToolPolicy: &config.ToolPolicy{
+			ToolPolicy: &arenaconfig.ToolPolicy{
 				ToolChoice:            "auto",
 				MaxToolCallsPerTurn:   5,
 				Blocklist:             []string{"dangerous_tool"},
@@ -247,9 +247,9 @@ func TestBuildToolPolicy(t *testing.T) {
 	})
 
 	t.Run("MaxCostUSD is never zero even if scenario sets 0", func(t *testing.T) {
-		got := buildToolPolicy(&config.Scenario{
+		got := buildToolPolicy(&arenaconfig.Scenario{
 			ID: "test",
-			ToolPolicy: &config.ToolPolicy{
+			ToolPolicy: &arenaconfig.ToolPolicy{
 				MaxCostUSD: 0, // unset — must use default, not zero/unlimited
 			},
 		})
@@ -435,7 +435,7 @@ func TestBuildRelevanceConfig(t *testing.T) {
 	})
 
 	t.Run("unknown provider returns nil", func(t *testing.T) {
-		cfg := &config.RelevanceConfig{
+		cfg := &arenaconfig.RelevanceConfig{
 			Provider: "unknown-provider",
 		}
 		got := buildRelevanceConfig(cfg)
@@ -447,7 +447,7 @@ func TestBuildRelevanceConfig(t *testing.T) {
 	t.Run("config with default AlwaysKeepSystemRole", func(t *testing.T) {
 		// Skip if no API key available
 		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
-		cfg := &config.RelevanceConfig{
+		cfg := &arenaconfig.RelevanceConfig{
 			Provider:          "openai",
 			MinRecentMessages: 5,
 			QuerySource:       "last_n",
@@ -474,7 +474,7 @@ func TestBuildRelevanceConfig(t *testing.T) {
 	t.Run("config with explicit AlwaysKeepSystemRole false", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
 		keepSystem := false
-		cfg := &config.RelevanceConfig{
+		cfg := &arenaconfig.RelevanceConfig{
 			Provider:             "openai",
 			AlwaysKeepSystemRole: &keepSystem,
 		}
@@ -490,9 +490,9 @@ func TestBuildRelevanceConfig(t *testing.T) {
 
 func TestBuildContextPolicy_WithRelevance(t *testing.T) {
 	t.Run("relevance strategy without config", func(t *testing.T) {
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			ID: "test",
-			ContextPolicy: &config.ContextPolicy{
+			ContextPolicy: &arenaconfig.ContextPolicy{
 				TokenBudget: 1000,
 				Strategy:    "relevance",
 				// No Relevance config
@@ -512,12 +512,12 @@ func TestBuildContextPolicy_WithRelevance(t *testing.T) {
 
 	t.Run("relevance strategy with config", func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "test-key-for-unit-test")
-		scenario := &config.Scenario{
+		scenario := &arenaconfig.Scenario{
 			ID: "test",
-			ContextPolicy: &config.ContextPolicy{
+			ContextPolicy: &arenaconfig.ContextPolicy{
 				TokenBudget: 1000,
 				Strategy:    "relevance",
-				Relevance: &config.RelevanceConfig{
+				Relevance: &arenaconfig.RelevanceConfig{
 					Provider:            "openai",
 					MinRecentMessages:   4,
 					SimilarityThreshold: 0.5,

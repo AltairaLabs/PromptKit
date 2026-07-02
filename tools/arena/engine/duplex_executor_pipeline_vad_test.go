@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios is a
@@ -22,12 +22,12 @@ import (
 // driven turns, not whether selfplay is configured at the arena level.
 func TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios(t *testing.T) {
 	// Arena-level selfplay block is populated.
-	cfgWithSelfPlay := &config.Config{
-		SelfPlay: &config.SelfPlayConfig{
-			Roles: []config.SelfPlayRoleGroup{
+	cfgWithSelfPlay := &arenaconfig.Config{
+		SelfPlay: &arenaconfig.SelfPlayConfig{
+			Roles: []arenaconfig.SelfPlayRoleGroup{
 				{ID: "selfplay-user", Provider: "mock-duplex"},
 			},
-			Personas: []config.PersonaRef{
+			Personas: []arenaconfig.PersonaRef{
 				{File: "personas/curious.persona.yaml"},
 			},
 		},
@@ -37,9 +37,9 @@ func TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios(t *testing.T) {
 		de := &DuplexConversationExecutor{}
 		req := &ConversationRequest{
 			Config: cfgWithSelfPlay,
-			Scenario: &config.Scenario{
+			Scenario: &arenaconfig.Scenario{
 				ID: "scripted",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "Hello"},
 					{Role: "user", Content: "Tell me a fact"},
 				},
@@ -56,9 +56,9 @@ func TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios(t *testing.T) {
 		de := &DuplexConversationExecutor{}
 		req := &ConversationRequest{
 			Config: cfgWithSelfPlay,
-			Scenario: &config.Scenario{
+			Scenario: &arenaconfig.Scenario{
 				ID: "selfplay",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Persona: "curious-customer"},
 				},
 			},
@@ -74,10 +74,10 @@ func TestApplySelfPlayVADConfig_OnlyDisablesForSelfPlayScenarios(t *testing.T) {
 	t.Run("no selfplay configured at arena: never disables", func(t *testing.T) {
 		de := &DuplexConversationExecutor{}
 		req := &ConversationRequest{
-			Config: &config.Config{}, // no selfplay block
-			Scenario: &config.Scenario{
+			Config: &arenaconfig.Config{}, // no selfplay block
+			Scenario: &arenaconfig.Scenario{
 				ID: "any",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Persona: "curious"},
 				},
 			},
@@ -103,8 +103,8 @@ func TestBuildInteractiveVADConfig_NoDuplexScenario(t *testing.T) {
 
 	t.Run("nil Scenario.Duplex", func(t *testing.T) {
 		req := &ConversationRequest{
-			Scenario: &config.Scenario{ID: "no-duplex"},
-			Config:   &config.Config{},
+			Scenario: &arenaconfig.Scenario{ID: "no-duplex"},
+			Config:   &arenaconfig.Config{},
 		}
 		cfg := de.buildInteractiveVADConfig(req)
 		// AdaptiveVAD is set on the config — not nil.
@@ -113,7 +113,7 @@ func TestBuildInteractiveVADConfig_NoDuplexScenario(t *testing.T) {
 	})
 
 	t.Run("nil Scenario", func(t *testing.T) {
-		req := &ConversationRequest{Scenario: nil, Config: &config.Config{}}
+		req := &ConversationRequest{Scenario: nil, Config: &arenaconfig.Config{}}
 		cfg := de.buildInteractiveVADConfig(req)
 		assert.NotNil(t, cfg.VAD,
 			"expected AdaptiveVAD to be wired when Scenario is nil")
@@ -130,16 +130,16 @@ func TestBuildInteractiveVADConfig_NoDuplexScenario(t *testing.T) {
 func TestBuildInteractiveVADConfig_WithDuplexScenario(t *testing.T) {
 	de := &DuplexConversationExecutor{}
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "with-duplex",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "10s",
-				TurnDetection: &config.TurnDetectionConfig{
-					Mode: config.TurnDetectionModeVAD,
+				TurnDetection: &arenaconfig.TurnDetectionConfig{
+					Mode: arenaconfig.TurnDetectionModeVAD,
 				},
 			},
 		},
-		Config: &config.Config{},
+		Config: &arenaconfig.Config{},
 	}
 	cfg := de.buildInteractiveVADConfig(req)
 	// The interactive console always equips AdaptiveVAD, even with a Duplex

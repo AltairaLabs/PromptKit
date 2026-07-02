@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/stretchr/testify/mock"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestScriptedExecutor_HandleNonStreamingProvider_Error tests error handling
@@ -28,7 +29,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(pipelineExecutor)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 
@@ -90,7 +91,7 @@ func TestScriptedExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 	pipelineExecutor := NewPipelineExecutor(toolRegistry, nil)
 	executor := NewScriptedExecutor(pipelineExecutor)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 
@@ -184,7 +185,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Error(t *testing.T) {
 
 	executor := NewSelfPlayExecutor(pipelineExecutor, mockContentProvider)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 
@@ -257,7 +258,7 @@ func TestSelfPlayExecutor_HandleNonStreamingProvider_Success(t *testing.T) {
 
 	executor := NewSelfPlayExecutor(pipelineExecutor, mockContentProvider)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
 	}
 

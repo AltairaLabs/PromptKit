@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // echoExecutor is a trivial tools.Executor that echoes its args back as JSON.
@@ -55,7 +56,7 @@ func TestBuildStagePipeline_CompositionStageSelected(t *testing.T) {
 
 	req := &TurnRequest{
 		Provider:          &mockNonMockProvider{}, // non-nil but never called in composition path
-		Scenario:          &config.Scenario{TaskType: "unused"},
+		Scenario:          &arenaconfig.Scenario{TaskType: "unused"},
 		ActiveComposition: comp,
 		BaseDir:           t.TempDir(),
 	}
@@ -117,7 +118,7 @@ func TestBuildStagePipeline_CompositionStage_MockProviderBaseMetadata(t *testing
 
 	req := &TurnRequest{
 		Provider:          mockProv,
-		Scenario:          &config.Scenario{ID: "sc1", TaskType: "unused"},
+		Scenario:          &arenaconfig.Scenario{ID: "sc1", TaskType: "unused"},
 		ActiveComposition: comp,
 		BaseDir:           t.TempDir(),
 	}

@@ -9,10 +9,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // TestExamplesIntegration_VariablesDemo runs the variables-demo example end-to-end
@@ -55,7 +56,7 @@ func TestExamplesIntegration_VariablesDemo(t *testing.T) {
 	}
 
 	// Load configuration for defaults
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Apply default output file paths using config defaults

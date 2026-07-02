@@ -9,10 +9,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/PromptKit/tools/arena/inspect"
 )
 
 // outputText renders inspection data as styled terminal output. The second
@@ -108,7 +109,7 @@ scenarios:
 	require.NoError(t, err)
 
 	// Load and inspect
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := arenaconfig.LoadConfig(configPath)
 	require.NoError(t, err)
 
 	data := collectInspectionData(cfg, configPath)
@@ -289,23 +290,23 @@ func TestOutputText_WithSelfPlayRoles(t *testing.T) {
 }
 
 // Helper function to load config (wrapping the actual implementation)
-func loadConfigHelper(path string) (*config.Config, error) {
-	return config.LoadConfig(path)
+func loadConfigHelper(path string) (*arenaconfig.Config, error) {
+	return arenaconfig.LoadConfig(path)
 }
 
 func TestCollectCacheStats(t *testing.T) {
 	tests := []struct {
 		name                 string
-		cfg                  *config.Config
+		cfg                  *arenaconfig.Config
 		expectedPromptSize   int
 		expectedFragmentSize int
 		expectSelfPlayCache  bool
 	}{
 		{
 			name: "empty config",
-			cfg: &config.Config{
-				LoadedPromptConfigs: map[string]*config.PromptConfigData{},
-				LoadedPersonas:      map[string]*config.UserPersonaPack{},
+			cfg: &arenaconfig.Config{
+				LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
+				LoadedPersonas:      map[string]*arenaconfig.UserPersonaPack{},
 				SelfPlay:            nil,
 			},
 			expectedPromptSize:   0,
@@ -314,13 +315,13 @@ func TestCollectCacheStats(t *testing.T) {
 		},
 		{
 			name: "config with prompts",
-			cfg: &config.Config{
-				LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			cfg: &arenaconfig.Config{
+				LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 					"task1": {},
 					"task2": {},
 					"task3": {},
 				},
-				LoadedPersonas: map[string]*config.UserPersonaPack{},
+				LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{},
 				SelfPlay:       nil,
 			},
 			expectedPromptSize:   3,
@@ -329,16 +330,16 @@ func TestCollectCacheStats(t *testing.T) {
 		},
 		{
 			name: "config with self-play",
-			cfg: &config.Config{
-				LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			cfg: &arenaconfig.Config{
+				LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 					"task1": {},
 				},
-				LoadedPersonas: map[string]*config.UserPersonaPack{
+				LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{
 					"persona1": {},
 					"persona2": {},
 				},
-				SelfPlay: &config.SelfPlayConfig{
-					Roles: []config.SelfPlayRoleGroup{
+				SelfPlay: &arenaconfig.SelfPlayConfig{
+					Roles: []arenaconfig.SelfPlayRoleGroup{
 						{ID: "assistant"},
 						{ID: "user"},
 					},
@@ -350,14 +351,14 @@ func TestCollectCacheStats(t *testing.T) {
 		},
 		{
 			name: "config without self-play roles",
-			cfg: &config.Config{
-				LoadedPromptConfigs: map[string]*config.PromptConfigData{
+			cfg: &arenaconfig.Config{
+				LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 					"task1": {},
 				},
-				LoadedPersonas: map[string]*config.UserPersonaPack{
+				LoadedPersonas: map[string]*arenaconfig.UserPersonaPack{
 					"persona1": {},
 				},
-				SelfPlay: &config.SelfPlayConfig{
+				SelfPlay: &arenaconfig.SelfPlayConfig{
 					Roles: nil,
 				},
 			},

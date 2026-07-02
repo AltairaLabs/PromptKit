@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/packc/compiler"
 )
 
@@ -68,13 +68,13 @@ func init() {
 const deployConfigureDocsURL = "https://promptkit.altairalabs.ai/arena/how-to/deploy/configure/"
 
 // loadDeployConfig loads the arena config and returns the deploy section.
-func loadDeployConfig() (*config.DeployConfig, error) {
+func loadDeployConfig() (*arenaconfig.DeployConfig, error) {
 	_, deployCfg, err := loadFullConfig()
 	return deployCfg, err
 }
 
 // loadFullConfig loads the arena config and returns both the full config and deploy section.
-func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
+func loadFullConfig() (*arenaconfig.Config, *arenaconfig.DeployConfig, error) {
 	if _, err := os.Stat(deployConfig); os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf(
 			"config file not found: %s\nSet up a deploy config — see %s",
@@ -82,7 +82,7 @@ func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 		)
 	}
 
-	cfg, err := config.LoadConfig(deployConfig)
+	cfg, err := arenaconfig.LoadConfig(deployConfig)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -98,7 +98,7 @@ func loadFullConfig() (*config.Config, *config.DeployConfig, error) {
 }
 
 // serializeArenaConfig serializes the full arena config as JSON for adapter consumption.
-func serializeArenaConfig(cfg *config.Config) string {
+func serializeArenaConfig(cfg *arenaconfig.Config) string {
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		log.Printf("Warning: failed to serialize arena config: %v", err)
@@ -147,7 +147,7 @@ func resolvePackFile() ([]byte, error) {
 
 // mergedDeployConfigJSON merges the base deploy config with environment-specific
 // overrides and returns the result as a JSON string.
-func mergedDeployConfigJSON(deployCfg *config.DeployConfig, env string) (string, error) {
+func mergedDeployConfigJSON(deployCfg *arenaconfig.DeployConfig, env string) (string, error) {
 	merged := make(map[string]interface{})
 	for k, v := range deployCfg.Config {
 		merged[k] = v

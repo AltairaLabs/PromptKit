@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -86,10 +86,10 @@ func TestExecuteConversation_SelfPlayMultiTurn(t *testing.T) {
 	)
 
 	// Scenario with initial user turn, then 5 self-play turns
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "self-play-multi-turn",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{
 				Role:    "user",
 				Content: "Let's discuss security.",
@@ -106,8 +106,8 @@ func TestExecuteConversation_SelfPlayMultiTurn(t *testing.T) {
 		Region:   "default",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "openai-gpt4o-mini"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose:     false,
 				Temperature: 0.7,
 				MaxTokens:   1000,
@@ -211,10 +211,10 @@ func TestExecuteConversation_SelfPlayMultiTurnStreaming(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "self-play-streaming",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Start conversation."},
 			{Role: "attacker", Persona: "attacker", Turns: 3, Streaming: testutil.Ptr(true)},
 		},
@@ -224,7 +224,7 @@ func TestExecuteConversation_SelfPlayMultiTurnStreaming(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "openai-gpt4o-mini"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-self-play-streaming",
 	}
@@ -286,10 +286,10 @@ func TestExecuteConversation_ZeroTurnsSelfPlay(t *testing.T) {
 		nil,
 	)
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "zero-turns",
 		TaskType: "assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 			{Role: "attacker", Persona: "test", Turns: 0}, // turns: 0 should default to 1
 		},
@@ -299,7 +299,7 @@ func TestExecuteConversation_ZeroTurnsSelfPlay(t *testing.T) {
 		Region:           "default",
 		Scenario:         scenario,
 		Provider:         &MockProvider{id: "openai-gpt4o-mini"},
-		Config:           &config.Config{},
+		Config:           &arenaconfig.Config{},
 		StateStoreConfig: &StateStoreConfig{Store: createTestStateStore(), UserID: "test-user"},
 		ConversationID:   "test-zero-turns",
 	}
@@ -357,31 +357,31 @@ func createTestSelfPlayRegistry(t *testing.T) *selfplay.Registry {
 		"attacker": "mock-selfplay",
 	}
 
-	personas := map[string]*config.UserPersonaPack{
+	personas := map[string]*arenaconfig.UserPersonaPack{
 		"curious-learner": {
 			ID:           "curious-learner",
 			SystemPrompt: "You are a curious learner asking questions.",
-			Defaults: config.PersonaDefaults{
+			Defaults: arenaconfig.PersonaDefaults{
 				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 		"attacker": {
 			ID:           "attacker",
 			SystemPrompt: "You are testing security.",
-			Defaults: config.PersonaDefaults{
+			Defaults: arenaconfig.PersonaDefaults{
 				Temperature: testutil.Ptr[float32](0.8),
 			},
 		},
 		"test": {
 			ID:           "test",
 			SystemPrompt: "You are a test persona.",
-			Defaults: config.PersonaDefaults{
+			Defaults: arenaconfig.PersonaDefaults{
 				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 	}
 
-	roles := []config.SelfPlayRoleGroup{
+	roles := []arenaconfig.SelfPlayRoleGroup{
 		{ID: "attacker", Provider: "mock-selfplay"},
 	}
 

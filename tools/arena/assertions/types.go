@@ -3,18 +3,18 @@ package assertions
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
-// AssertionConfig is an alias for config.AssertionConfig. The canonical type
+// AssertionConfig is an alias for arenaconfig.AssertionConfig. The canonical type
 // lives in pkg/config to keep the dependency direction correct (shared library
 // must not import application tools). The alias preserves backward compatibility
 // so existing arena code continues to compile unchanged.
-type AssertionConfig = config.AssertionConfig
+type AssertionConfig = arenaconfig.AssertionConfig
 
-// AssertionWhen is an alias for config.AssertionWhen.
-type AssertionWhen = config.AssertionWhen
+// AssertionWhen is an alias for arenaconfig.AssertionWhen.
+type AssertionWhen = arenaconfig.AssertionWhen
 
 // AssertionResult holds the result of an assertion evaluation.
 type AssertionResult struct {

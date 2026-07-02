@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
 
@@ -93,7 +93,7 @@ func RegisterRunCompletions() {
 }
 
 // loadConfigForCompletion attempts to load the arena config for completion suggestions
-func loadConfigForCompletion(cmd *cobra.Command) *config.Config {
+func loadConfigForCompletion(cmd *cobra.Command) *arenaconfig.Config {
 	// Try to get config path from flag, or use default
 	configPath, _ := cmd.Flags().GetString("config")
 	if configPath == "" {
@@ -122,7 +122,7 @@ func loadConfigForCompletion(cmd *cobra.Command) *config.Config {
 	}
 
 	// Load the config silently for completion
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := arenaconfig.LoadConfig(configPath)
 	if err != nil {
 		return nil
 	}

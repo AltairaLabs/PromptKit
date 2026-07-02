@@ -6,20 +6,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestValidateTurnMediaContent_Valid tests validation with valid media content
 func TestValidateTurnMediaContent_Valid(t *testing.T) {
 	tests := []struct {
 		name        string
-		media       *config.TurnMediaContent
+		media       *arenaconfig.TurnMediaContent
 		contentType string
 	}{
 		{
 			name: "URL with MIME type",
-			media: &config.TurnMediaContent{
+			media: &arenaconfig.TurnMediaContent{
 				URL:      "https://example.com/image.jpg",
 				MIMEType: "image/jpeg",
 			},
@@ -27,7 +27,7 @@ func TestValidateTurnMediaContent_Valid(t *testing.T) {
 		},
 		{
 			name: "Data with MIME type",
-			media: &config.TurnMediaContent{
+			media: &arenaconfig.TurnMediaContent{
 				Data:     "base64data",
 				MIMEType: "image/png",
 			},
@@ -35,7 +35,7 @@ func TestValidateTurnMediaContent_Valid(t *testing.T) {
 		},
 		{
 			name: "URL without MIME type",
-			media: &config.TurnMediaContent{
+			media: &arenaconfig.TurnMediaContent{
 				URL: "https://example.com/audio.mp3",
 			},
 			contentType: "audio",
@@ -65,7 +65,7 @@ func TestValidateTurnMediaContent_NilMedia(t *testing.T) {
 
 // TestValidateTurnMediaContent_NoSource tests validation with no source
 func TestValidateTurnMediaContent_NoSource(t *testing.T) {
-	media := &config.TurnMediaContent{
+	media := &arenaconfig.TurnMediaContent{
 		MIMEType: "image/jpeg",
 	}
 
@@ -80,7 +80,7 @@ func TestValidateTurnMediaContent_NoSource(t *testing.T) {
 
 // TestValidateTurnMediaContent_DataWithoutMIMEType tests validation of inline data without MIME type
 func TestValidateTurnMediaContent_DataWithoutMIMEType(t *testing.T) {
-	media := &config.TurnMediaContent{
+	media := &arenaconfig.TurnMediaContent{
 		Data: "base64data",
 	}
 
@@ -95,7 +95,7 @@ func TestValidateTurnMediaContent_DataWithoutMIMEType(t *testing.T) {
 
 // TestValidateTurnMediaContent_InvalidMIMEType tests validation with invalid MIME type
 func TestValidateTurnMediaContent_InvalidMIMEType(t *testing.T) {
-	media := &config.TurnMediaContent{
+	media := &arenaconfig.TurnMediaContent{
 		Data:     "base64data",
 		MIMEType: "video/mp4", // Wrong type for image content
 	}

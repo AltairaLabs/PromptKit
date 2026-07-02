@@ -6,14 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
-	"github.com/stretchr/testify/require"
 )
 
 // TestConversationExecutor_DebugOnUserTurnAssertions verifies that a debug message is logged
@@ -45,9 +46,9 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	)
 
 	// Create scenario with assertions on user turn (should trigger warning)
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "test",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{
 				Role:    "user",
 				Content: "Test question",
@@ -67,8 +68,8 @@ func TestConversationExecutor_DebugOnUserTurnAssertions(t *testing.T) {
 	provider := &openai.Provider{}
 
 	// Create config
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,

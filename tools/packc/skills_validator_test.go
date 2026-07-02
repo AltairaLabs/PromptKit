@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
 func writeSkillMD(t *testing.T, dir, name, desc string) {
@@ -376,7 +377,7 @@ func TestValidateSkillErrors_PathTraversal(t *testing.T) {
 }
 
 func TestValidateSkillErrors_AbsolutePathInsideRelativeBaseDir(t *testing.T) {
-	// pkg/config.LoadConfig stores skill dirs as absolute paths in
+	// pkg/arenaconfig.LoadConfig stores skill dirs as absolute paths in
 	// LoadedSkillSources, but packc's compiler invokes ValidateSkillErrors
 	// with a relative baseDir like "examples/foo". Without resolving both
 	// sides through filepath.Abs, the prefix check false-positives.

@@ -6,23 +6,24 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // ArenaConfig represents a K8s-style arena configuration manifest
 type ArenaConfig struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   metav1.ObjectMeta `yaml:"metadata,omitempty"`
-	Spec       config.Config     `yaml:"spec"`
+	APIVersion string             `yaml:"apiVersion"`
+	Kind       string             `yaml:"kind"`
+	Metadata   metav1.ObjectMeta  `yaml:"metadata,omitempty"`
+	Spec       arenaconfig.Config `yaml:"spec"`
 }
 
 // newTestEngine creates an engine from a config object by writing it to a temp file
 // in the test's temp directory. This is a helper for migrating tests to the new
 // NewEngine(configPath) API.
-func newTestEngine(t *testing.T, tmpDir string, cfg *config.Config) *Engine {
+func newTestEngine(t *testing.T, tmpDir string, cfg *arenaconfig.Config) *Engine {
 	t.Helper()
 
 	// Write config to a K8s-style manifest file
@@ -57,7 +58,7 @@ func newTestEngine(t *testing.T, tmpDir string, cfg *config.Config) *Engine {
 
 // newTestEngineWithError creates an engine from a config object and returns both
 // the engine and any error, allowing tests to verify error handling.
-func newTestEngineWithError(t *testing.T, tmpDir string, cfg *config.Config) (*Engine, error) {
+func newTestEngineWithError(t *testing.T, tmpDir string, cfg *arenaconfig.Config) (*Engine, error) {
 	t.Helper()
 
 	// Write config to a K8s-style manifest file

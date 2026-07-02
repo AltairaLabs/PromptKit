@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -14,10 +17,8 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 // MockProvider implements providers.Provider for testing
@@ -108,7 +109,7 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 		PromptRegistry:  nil, // Tests use nil, will get default prompt
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Hello, I need help.",
 		StateStoreConfig: &StateStoreConfig{
 			Store:  statestore.NewArenaStateStore(),
@@ -179,7 +180,7 @@ func TestScriptedExecutor_ExecuteTurn_AIResponseError(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Hello!",
 	}
 
@@ -205,7 +206,7 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "", // Empty content
 		StateStoreConfig: &StateStoreConfig{
 			Store:  statestore.NewArenaStateStore(),
@@ -291,7 +292,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Follow-up question",
 		StateStoreConfig: &StateStoreConfig{
 			Store:  statestore.NewArenaStateStore(),
@@ -380,7 +381,7 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "What is the capital of France?",
 		StateStoreConfig: &StateStoreConfig{
 			Store:  statestore.NewArenaStateStore(),

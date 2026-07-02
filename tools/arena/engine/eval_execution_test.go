@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -41,11 +41,11 @@ func TestEngine_ExecuteEvalRun_Success(t *testing.T) {
 	)
 
 	e := &Engine{
-		config: &config.Config{},
-		evals: map[string]*config.Eval{
+		config: &arenaconfig.Config{},
+		evals: map[string]*arenaconfig.Eval{
 			"test-eval": {
 				ID: "test-eval",
-				Recording: config.RecordingSource{
+				Recording: arenaconfig.RecordingSource{
 					Path: "test.json",
 					Type: "mock",
 				},
@@ -76,9 +76,9 @@ func TestEngine_ExecuteEvalRun_Success(t *testing.T) {
 func TestEvalConversationExecutor_ApplyAllTurnAssertions(t *testing.T) {
 	executor := &EvalConversationExecutor{}
 
-	turns := []config.EvalTurnConfig{
+	turns := []arenaconfig.EvalTurnConfig{
 		{
-			AllTurns: &config.EvalAllTurnsConfig{
+			AllTurns: &arenaconfig.EvalAllTurnsConfig{
 				Assertions: []assertions.AssertionConfig{
 					{Type: "test_assertion"},
 				},
@@ -107,9 +107,9 @@ func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {
 	executor := &EvalConversationExecutor{}
 
 	t.Run("extracts assertions from all turns", func(t *testing.T) {
-		turns := []config.EvalTurnConfig{
+		turns := []arenaconfig.EvalTurnConfig{
 			{
-				AllTurns: &config.EvalAllTurnsConfig{
+				AllTurns: &arenaconfig.EvalAllTurnsConfig{
 					Assertions: []assertions.AssertionConfig{
 						{Type: "assertion1"},
 						{Type: "assertion2"},
@@ -117,7 +117,7 @@ func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {
 				},
 			},
 			{
-				AllTurns: &config.EvalAllTurnsConfig{
+				AllTurns: &arenaconfig.EvalAllTurnsConfig{
 					Assertions: []assertions.AssertionConfig{
 						{Type: "assertion3"},
 					},
@@ -133,7 +133,7 @@ func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {
 	})
 
 	t.Run("handles turns without all_turns", func(t *testing.T) {
-		turns := []config.EvalTurnConfig{
+		turns := []arenaconfig.EvalTurnConfig{
 			{
 				AllTurns: nil,
 			},
@@ -144,9 +144,9 @@ func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {
 	})
 
 	t.Run("handles empty assertions", func(t *testing.T) {
-		turns := []config.EvalTurnConfig{
+		turns := []arenaconfig.EvalTurnConfig{
 			{
-				AllTurns: &config.EvalAllTurnsConfig{
+				AllTurns: &arenaconfig.EvalAllTurnsConfig{
 					Assertions: []assertions.AssertionConfig{},
 				},
 			},
@@ -182,11 +182,11 @@ func TestEvalConversationExecutor_BuildConversationContext_WithMetadata(t *testi
 	executor := &EvalConversationExecutor{}
 
 	req := &ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID:   "test-eval",
 			Tags: []string{"eval-tag"},
 		},
-		Config: &config.Config{
+		Config: &arenaconfig.Config{
 			ProviderGroups: map[string]string{},
 		},
 	}

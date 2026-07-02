@@ -3,13 +3,13 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GenerateToolSchema generates the JSON Schema for Tool configuration
 func GenerateToolSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.ToolConfigSchema{},
+		Target:      &arenaconfig.ToolConfigSchema{},
 		Filename:    "tool.json",
 		Title:       "PromptKit Tool Configuration",
 		Description: "Tool/function configuration for PromptKit",

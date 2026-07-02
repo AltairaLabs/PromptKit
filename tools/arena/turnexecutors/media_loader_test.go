@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestConvertTurnPartsToMessageParts_EmptyParts(t *testing.T) {
@@ -20,7 +20,7 @@ func TestConvertTurnPartsToMessageParts_EmptyParts(t *testing.T) {
 		t.Errorf("Expected nil parts, got: %v", parts)
 	}
 
-	parts, err = ConvertTurnPartsToMessageParts(context.Background(), []config.TurnContentPart{}, "", nil, nil)
+	parts, err = ConvertTurnPartsToMessageParts(context.Background(), []arenaconfig.TurnContentPart{}, "", nil, nil)
 	if err != nil {
 		t.Errorf("Expected no error for empty parts, got: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestConvertTurnPartsToMessageParts_EmptyParts(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_TextOnly(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: "Hello, world!"},
 		{Type: "text", Text: "How are you?"},
 	}
@@ -54,7 +54,7 @@ func TestConvertTurnPartsToMessageParts_TextOnly(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_EmptyText(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: ""},
 	}
 
@@ -65,10 +65,10 @@ func TestConvertTurnPartsToMessageParts_EmptyText(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_ImageFromURL(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL:      "https://example.com/image.jpg",
 				MIMEType: "image/jpeg",
 			},
@@ -96,10 +96,10 @@ func TestConvertTurnPartsToMessageParts_ImageFromURL(t *testing.T) {
 func TestConvertTurnPartsToMessageParts_ImageFromData(t *testing.T) {
 	testData := "dGVzdCBpbWFnZSBkYXRh" // base64 encoded "test image data"
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				Data:     testData,
 				MIMEType: "image/png",
 				Detail:   "high",
@@ -144,10 +144,10 @@ func TestConvertTurnPartsToMessageParts_ImageFromFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "test.jpg",
 				MIMEType: "image/jpeg",
 			},
@@ -188,7 +188,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromFile(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_ImageMissingMedia(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "image", Media: nil},
 	}
 
@@ -199,10 +199,10 @@ func TestConvertTurnPartsToMessageParts_ImageMissingMedia(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_ImageNoSource(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type:  "image",
-			Media: &config.TurnMediaContent{MIMEType: "image/jpeg"},
+			Media: &arenaconfig.TurnMediaContent{MIMEType: "image/jpeg"},
 		},
 	}
 
@@ -215,10 +215,10 @@ func TestConvertTurnPartsToMessageParts_ImageNoSource(t *testing.T) {
 func TestConvertTurnPartsToMessageParts_AudioFromData(t *testing.T) {
 	testData := "YXVkaW8gZGF0YQ==" // base64 encoded "audio data"
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				Data:     testData,
 				MIMEType: "audio/mpeg",
 			},
@@ -253,10 +253,10 @@ func TestConvertTurnPartsToMessageParts_AudioFromFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "test.mp3",
 			},
 		},
@@ -281,10 +281,10 @@ func TestConvertTurnPartsToMessageParts_AudioFromFile(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_AudioMissingMIMEType(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				Data: "YXVkaW8=",
 			},
 		},
@@ -299,10 +299,10 @@ func TestConvertTurnPartsToMessageParts_AudioMissingMIMEType(t *testing.T) {
 func TestConvertTurnPartsToMessageParts_VideoFromData(t *testing.T) {
 	testData := "dmlkZW8gZGF0YQ==" // base64 encoded "video data"
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "video",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				Data:     testData,
 				MIMEType: "video/mp4",
 			},
@@ -337,10 +337,10 @@ func TestConvertTurnPartsToMessageParts_VideoFromFile(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "video",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "test.mp4",
 			},
 		},
@@ -365,10 +365,10 @@ func TestConvertTurnPartsToMessageParts_VideoFromFile(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_FileNotFound(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "nonexistent.jpg",
 			},
 		},
@@ -381,7 +381,7 @@ func TestConvertTurnPartsToMessageParts_FileNotFound(t *testing.T) {
 }
 
 func TestConvertTurnPartsToMessageParts_UnsupportedType(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "document", Text: "unsupported"},
 	}
 
@@ -408,18 +408,18 @@ func TestConvertTurnPartsToMessageParts_MixedContent(t *testing.T) {
 		t.Fatalf("Failed to create audio file: %v", err)
 	}
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: "Analyze this:"},
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "image.png",
 			},
 		},
 		{Type: "text", Text: "And listen to this:"},
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				FilePath: "audio.mp3",
 			},
 		},

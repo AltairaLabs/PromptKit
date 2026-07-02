@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
@@ -50,7 +51,7 @@ type VoiceOptions struct {
 // e.g. OpenAI Realtime — ASM). It returns nil for plain text-chat configs, so
 // `chat` lights up a live mic/speaker session automatically whenever the config
 // calls for one — no --voice flag needed.
-func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
+func DetectInteractiveSession(cfg *arenaconfig.Config) *VoiceOptions {
 	if cfg == nil {
 		return nil
 	}
@@ -71,7 +72,7 @@ func DetectInteractiveSession(cfg *config.Config) *VoiceOptions {
 	// the provider rather than a scenario.
 	for _, id := range sortedKeys(cfg.LoadedProviders) {
 		if isRealtimeProvider(cfg.LoadedProviders[id]) {
-			return &VoiceOptions{TurnDetectionMode: config.TurnDetectionModeASM}
+			return &VoiceOptions{TurnDetectionMode: arenaconfig.TurnDetectionModeASM}
 		}
 	}
 	return nil
@@ -109,7 +110,7 @@ func sortedKeys[V any](m map[string]V) []string {
 //
 //nolint:revive // AppContext is the intended public name; callers reference it as app.AppContext which is unambiguous.
 type AppContext struct {
-	Config     *config.Config
+	Config     *arenaconfig.Config
 	ConfigPath string
 	ResultsDir string
 	StateStore statestore.Store

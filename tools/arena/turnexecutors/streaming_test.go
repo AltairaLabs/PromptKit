@@ -5,15 +5,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Helper for test mocks
@@ -41,7 +42,7 @@ func TestScriptedExecutor_ExecuteTurnStream_Success(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Test message",
 	}
 
@@ -89,7 +90,7 @@ func TestScriptedExecutor_ExecuteTurnStream_ProviderError(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Test message",
 	}
 
@@ -128,7 +129,7 @@ func TestScriptedExecutor_ExecuteTurnStream_ContextCancellation(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		ScriptedContent: "Test message",
 	}
 
@@ -321,7 +322,7 @@ func TestSelfPlayExecutor_ExecuteTurnStream_Success(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "",
-		Scenario:        &config.Scenario{},
+		Scenario:        &arenaconfig.Scenario{},
 		SelfPlayRole:    "user",
 		SelfPlayPersona: "helpful",
 	}
@@ -458,7 +459,7 @@ func TestSelfPlayExecutor_ExecuteTurnStream_WithStateStore(t *testing.T) {
 		PromptRegistry:  nil,
 		TaskType:        "assistance",
 		Region:          "us",
-		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Scenario:        &arenaconfig.Scenario{ID: "test-scenario"},
 		SelfPlayRole:    "user",
 		SelfPlayPersona: "helpful",
 		Metadata:        map[string]interface{}{"extra": "meta"},
@@ -499,9 +500,9 @@ func TestSelfPlayExecutor_ExecuteTurnStream_WithToolPolicy(t *testing.T) {
 	req := TurnRequest{
 		Provider: mockProvider,
 		TaskType: "assistance",
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "test",
-			ToolPolicy: &config.ToolPolicy{
+			ToolPolicy: &arenaconfig.ToolPolicy{
 				ToolChoice:          "auto",
 				MaxToolCallsPerTurn: 5,
 			},
@@ -537,9 +538,9 @@ func TestScriptedExecutor_ExecuteTurnStream_WithToolPolicy(t *testing.T) {
 	req := TurnRequest{
 		Provider: mockProvider,
 		TaskType: "assistance",
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "test",
-			ToolPolicy: &config.ToolPolicy{
+			ToolPolicy: &arenaconfig.ToolPolicy{
 				ToolChoice:          "required",
 				MaxToolCallsPerTurn: 3,
 			},

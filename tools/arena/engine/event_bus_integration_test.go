@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
 )
 
@@ -17,8 +17,8 @@ func TestEventBus_PushesRunLifecycleToTUI(t *testing.T) {
 	t.Skip("Integration test with async event delivery - flaky due to goroutine timing")
 
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -28,11 +28,11 @@ func TestEventBus_PushesRunLifecycleToTUI(t *testing.T) {
 		_ = eng.Close()
 	})
 
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"event-demo": {
 			ID:       "event-demo",
 			TaskType: "test",
-			Turns: []config.TurnDefinition{
+			Turns: []arenaconfig.TurnDefinition{
 				{Role: "user", Content: "hi"},
 			},
 		},

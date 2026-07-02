@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestCompositeConversationExecutor_RouteToDefault(t *testing.T) {
@@ -16,7 +16,7 @@ func TestCompositeConversationExecutor_RouteToDefault(t *testing.T) {
 
 	// Scenario without duplex config should route to default
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
 			Duplex:   nil, // No duplex config
@@ -42,10 +42,10 @@ func TestCompositeConversationExecutor_RouteToDuplex(t *testing.T) {
 
 	// Scenario with duplex config should route to duplex
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "10m",
 			},
 		},
@@ -71,10 +71,10 @@ func TestCompositeConversationExecutor_NilDuplexExecutor(t *testing.T) {
 
 	// Scenario requesting duplex should fail gracefully
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "10m",
 			},
 		},
@@ -100,7 +100,7 @@ func TestCompositeConversationExecutor_NilDefaultExecutor(t *testing.T) {
 
 	// Standard scenario should fail gracefully
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test",
 			TaskType: "test",
 			Duplex:   nil,
@@ -136,7 +136,7 @@ func TestCompositeConversationExecutor_IsDuplexScenario(t *testing.T) {
 		{
 			name: "no duplex config",
 			req: &ConversationRequest{
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					ID:     "test",
 					Duplex: nil,
 				},
@@ -146,9 +146,9 @@ func TestCompositeConversationExecutor_IsDuplexScenario(t *testing.T) {
 		{
 			name: "with duplex config",
 			req: &ConversationRequest{
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					ID: "test",
-					Duplex: &config.DuplexConfig{
+					Duplex: &arenaconfig.DuplexConfig{
 						Timeout: "5m",
 					},
 				},
@@ -187,7 +187,7 @@ func TestCompositeConversationExecutor_StreamRouteToDefault(t *testing.T) {
 	composite := NewCompositeConversationExecutor(defaultExec, nil, nil)
 
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:     "test",
 			Duplex: nil,
 		},
@@ -210,9 +210,9 @@ func TestCompositeConversationExecutor_StreamRouteToDuplex(t *testing.T) {
 	composite := NewCompositeConversationExecutor(nil, duplexExec, nil)
 
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "5m",
 			},
 		},
@@ -234,9 +234,9 @@ func TestCompositeConversationExecutor_StreamNilDuplexExecutor(t *testing.T) {
 	composite := NewCompositeConversationExecutor(nil, nil, nil)
 
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "test",
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "5m",
 			},
 		},
@@ -260,7 +260,7 @@ func TestCompositeConversationExecutor_StreamNilDefaultExecutor(t *testing.T) {
 	composite := NewCompositeConversationExecutor(nil, nil, nil)
 
 	req := ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:     "test",
 			Duplex: nil,
 		},
@@ -297,9 +297,9 @@ func TestCompositeConversationExecutor_RouteToEval(t *testing.T) {
 
 	// Request with eval config should route to eval
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test-eval",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},
@@ -325,9 +325,9 @@ func TestCompositeConversationExecutor_NilEvalExecutor(t *testing.T) {
 
 	// Request with eval config should fail gracefully
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test-eval",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},
@@ -356,9 +356,9 @@ func TestCompositeConversationExecutor_EvalStreamRouting(t *testing.T) {
 
 	// Request with eval config should route to eval in streaming mode
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test-eval",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},
@@ -382,9 +382,9 @@ func TestCompositeConversationExecutor_StreamNilEvalExecutor(t *testing.T) {
 	composite := NewCompositeConversationExecutor(nil, nil, nil)
 
 	req := ConversationRequest{
-		Eval: &config.Eval{
+		Eval: &arenaconfig.Eval{
 			ID: "test-eval",
-			Recording: config.RecordingSource{
+			Recording: arenaconfig.RecordingSource{
 				Path: "test.json",
 			},
 		},

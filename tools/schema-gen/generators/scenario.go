@@ -3,13 +3,13 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GenerateScenarioSchema generates the JSON Schema for Scenario configuration
 func GenerateScenarioSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.ScenarioConfig{},
+		Target:      &arenaconfig.ScenarioConfig{},
 		Filename:    "scenario.json",
 		Title:       "PromptArena Scenario Configuration",
 		Description: "Scenario configuration for PromptArena test cases",

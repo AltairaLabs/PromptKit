@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestExtractOverrideFlags_CollectsRepeatedPairs(t *testing.T) {
@@ -23,7 +24,7 @@ func TestExtractOverrideFlags_CollectsRepeatedPairs(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_CopiesTargetSpecKeepingFromID(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-judge": {ID: "mock-judge", Type: "mock", Model: "judge-model"},
 			"claude":     {ID: "claude", Type: "anthropic", Model: "claude-haiku"},
@@ -41,7 +42,7 @@ func TestApplyProviderOverrides_CopiesTargetSpecKeepingFromID(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_UnknownTargetErrors(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-judge": {ID: "mock-judge", Type: "mock", Model: "judge-model"},
 		},
@@ -53,7 +54,7 @@ func TestApplyProviderOverrides_UnknownTargetErrors(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_UnknownSourceErrors(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"claude": {ID: "claude", Type: "anthropic", Model: "claude-haiku"},
 		},
@@ -65,7 +66,7 @@ func TestApplyProviderOverrides_UnknownSourceErrors(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_MalformedPairErrors(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"claude": {ID: "claude", Type: "anthropic", Model: "claude-haiku"},
 		},
@@ -78,7 +79,7 @@ func TestApplyProviderOverrides_MalformedPairErrors(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_MultiplePairs(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-judge": {ID: "mock-judge", Type: "mock", Model: "judge-model"},
 			"mock-user":  {ID: "mock-user", Type: "mock", Model: "user-model"},
@@ -96,7 +97,7 @@ func TestApplyProviderOverrides_MultiplePairs(t *testing.T) {
 
 func TestApplyProviderOverrides_NoPairsIsNoOp(t *testing.T) {
 	orig := &config.Provider{ID: "claude", Type: "anthropic", Model: "claude-haiku"}
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{"claude": orig},
 	}
 
@@ -111,13 +112,13 @@ func TestApplyProviderOverrides_NoPairsIsNoOp(t *testing.T) {
 // #1264) — transparently see the new spec without re-resolution.
 func TestApplyProviderOverrides_ReachesResolvedJudgeTarget(t *testing.T) {
 	judgeProvider := &config.Provider{ID: "mock-judge", Type: "mock", Model: "judge-model"}
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		LoadedProviders: map[string]*config.Provider{
 			"mock-judge": judgeProvider,
 			"claude":     {ID: "claude", Type: "anthropic", Model: "claude-haiku"},
 		},
 		// Mirrors post-LoadConfig state: the judge target shares the provider pointer.
-		LoadedJudges: map[string]*config.JudgeTarget{
+		LoadedJudges: map[string]*arenaconfig.JudgeTarget{
 			"quality": {Name: "quality", Provider: judgeProvider},
 		},
 	}

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // newTestHTTPMediaLoader creates an HTTPMediaLoader that allows private IPs (for localhost test servers).
@@ -333,10 +333,10 @@ func TestConvertTurnPartsToMessageParts_ImageFromURLWithLoader(t *testing.T) {
 	defer server.Close()
 
 	// Create turn parts with URL
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL:    server.URL,
 				Detail: "high",
 			},
@@ -388,10 +388,10 @@ func TestConvertTurnPartsToMessageParts_AudioFromURLWithLoader(t *testing.T) {
 	defer server.Close()
 
 	// Create turn parts with URL
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL: server.URL,
 			},
 		},
@@ -442,10 +442,10 @@ func TestConvertTurnPartsToMessageParts_VideoFromURLWithLoader(t *testing.T) {
 	defer server.Close()
 
 	// Create turn parts with URL
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "video",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL: server.URL,
 			},
 		},
@@ -578,10 +578,10 @@ func TestHTTPMediaLoader_AllowPrivateIPBypass(t *testing.T) {
 // TestConvertTurnPartsToMessageParts_URLWithoutLoader tests URL without HTTP loader (fallback to URL reference)
 func TestConvertTurnPartsToMessageParts_URLWithoutLoader(t *testing.T) {
 	// Create turn parts with URL
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL:    "https://example.com/image.jpg",
 				Detail: "auto",
 			},
@@ -618,10 +618,10 @@ func TestConvertTurnPartsToMessageParts_URLWithoutLoader(t *testing.T) {
 
 // TestConvertTurnPartsToMessageParts_AudioURLWithoutLoader tests audio URL without loader (should error)
 func TestConvertTurnPartsToMessageParts_AudioURLWithoutLoader(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL: "https://example.com/audio.mp3",
 			},
 		},
@@ -640,10 +640,10 @@ func TestConvertTurnPartsToMessageParts_AudioURLWithoutLoader(t *testing.T) {
 
 // TestConvertTurnPartsToMessageParts_VideoURLWithoutLoader tests video URL without loader (should error)
 func TestConvertTurnPartsToMessageParts_VideoURLWithoutLoader(t *testing.T) {
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "video",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				URL: "https://example.com/video.mp4",
 			},
 		},

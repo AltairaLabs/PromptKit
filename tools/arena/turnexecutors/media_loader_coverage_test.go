@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func newLocalServer(t *testing.T, handler http.Handler) *httptest.Server {
@@ -141,9 +142,9 @@ func TestConvertMediaPart_AudioFromStorage(t *testing.T) {
 
 	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "audio",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			StorageReference: ref,
 		},
 	}
@@ -177,9 +178,9 @@ func TestConvertMediaPart_VideoFromStorage(t *testing.T) {
 
 	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "video",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			StorageReference: ref,
 		},
 	}
@@ -214,9 +215,9 @@ func TestConvertImagePart_StorageReference(t *testing.T) {
 
 	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "image",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			StorageReference: ref,
 			Detail:           "high",
 		},
@@ -252,9 +253,9 @@ func TestConvertImagePart_URLWithHTTPLoader(t *testing.T) {
 	httpLoader.allowPrivateIP = true // Allow localhost for test
 	ctx := context.Background()
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "image",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			URL:    server.URL + "/image.jpg",
 			Detail: "low",
 		},
@@ -272,9 +273,9 @@ func TestConvertImagePart_URLWithHTTPLoader(t *testing.T) {
 
 func TestConvertImagePart_URLWithoutHTTPLoader(t *testing.T) {
 	// Test the path where httpLoader is nil - provider will fetch
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "image",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			URL:    "https://example.com/image.png",
 			Detail: "auto",
 		},
@@ -516,11 +517,11 @@ func TestConvertTurnPartsToMessageParts_WithStorageService(t *testing.T) {
 
 	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).Return(expectedMedia, nil)
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{Type: "text", Text: "Check this image:"},
 		{
 			Type: "image",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				StorageReference: ref,
 			},
 		},
@@ -543,10 +544,10 @@ func TestConvertTurnPartsToMessageParts_StorageError(t *testing.T) {
 	mockStorage.On("RetrieveMedia", ctx, storage.Reference(ref)).
 		Return((*types.MediaContent)(nil), errors.New("storage error"))
 
-	turnParts := []config.TurnContentPart{
+	turnParts := []arenaconfig.TurnContentPart{
 		{
 			Type: "audio",
-			Media: &config.TurnMediaContent{
+			Media: &arenaconfig.TurnMediaContent{
 				StorageReference: ref,
 			},
 		},
@@ -571,9 +572,9 @@ func TestConvertAudioPart_FromURL(t *testing.T) {
 	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "audio",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			URL: server.URL + "/audio.mp3",
 		},
 	}
@@ -597,9 +598,9 @@ func TestConvertVideoPart_FromURL(t *testing.T) {
 	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
-	turnPart := config.TurnContentPart{
+	turnPart := arenaconfig.TurnContentPart{
 		Type: "video",
-		Media: &config.TurnMediaContent{
+		Media: &arenaconfig.TurnMediaContent{
 			URL: server.URL + "/video.mp4",
 		},
 	}

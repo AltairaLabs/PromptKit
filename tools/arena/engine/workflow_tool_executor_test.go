@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func testWorkflowSpec() *workflow.Spec {
@@ -39,7 +40,7 @@ func TestWorkflowTransitionExecutor_Execute(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("test", scenario)
 
 	// Execute stores pending (deferred)
@@ -64,7 +65,7 @@ func TestWorkflowTransitionExecutor_InvalidEvent(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 
 	// Execute succeeds (stores pending), commit fails
@@ -82,7 +83,7 @@ func TestWorkflowTransitionExecutor_WorkflowMetadata(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 
 	// Initial state
@@ -111,7 +112,7 @@ func TestWorkflowTransitionExecutor_TerminalState(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 
 	args, _ := json.Marshal(map[string]string{"event": "Resolve"})
@@ -141,7 +142,7 @@ func TestWorkflowTransitionExecutor_TerminalKeepsToolForSiblingRuns(t *testing.T
 		"transition tool should be registered after init")
 
 	// Run a scenario all the way to the terminal "closed" state.
-	scenario := &config.Scenario{ID: "s1", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "s1", TaskType: "intake"}
 	exec.RegisterRun("s1", scenario)
 	args, _ := json.Marshal(map[string]string{"event": "Resolve"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "s1"), nil, args)
@@ -160,8 +161,8 @@ func TestWorkflowTransitionExecutor_ConcurrentRuns(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	s1 := &config.Scenario{ID: "s1", TaskType: "intake"}
-	s2 := &config.Scenario{ID: "s2", TaskType: "intake"}
+	s1 := &arenaconfig.Scenario{ID: "s1", TaskType: "intake"}
+	s2 := &arenaconfig.Scenario{ID: "s2", TaskType: "intake"}
 	exec.RegisterRun("s1", s1)
 	exec.RegisterRun("s2", s2)
 
@@ -202,7 +203,7 @@ func TestWorkflowTransitionExecutor_MaxVisitsRedirect(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test", TaskType: "start"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "start"}
 	exec.RegisterRun("test", scenario)
 
 	// First transition: start -> loop (visit 1)
@@ -274,7 +275,7 @@ func TestWorkflowTransitionExecutor_StateMachine(t *testing.T) {
 	// No run registered
 	assert.Nil(t, exec.StateMachine("nonexistent"))
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 	sm := exec.StateMachine("test")
 	assert.NotNil(t, sm)
@@ -286,7 +287,7 @@ func TestWorkflowTransitionExecutor_UnregisterRun(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 	assert.NotNil(t, exec.RunMetadata("test"))
 
@@ -299,7 +300,7 @@ func TestWorkflowRunMetadataProvider(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test"}
+	scenario := &arenaconfig.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 
 	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test"}
@@ -320,7 +321,7 @@ func TestWorkflowRunMetadataProvider_CommitsPendingAtMetadataRead(t *testing.T) 
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")
 
-	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRunWithEmitter("test", scenario, emitter)
 
 	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
@@ -387,7 +388,7 @@ func TestWorkflowRunMetadataProvider_CommitErrorIsLoggedNotPanicked(t *testing.T
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("test", scenario)
 
 	// Execute an invalid event — Execute succeeds (stores pending) but commit will fail.
@@ -410,7 +411,7 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 
 	t.Run("nil workflowSpec returns nil", func(t *testing.T) {
 		eng := &Engine{}
-		got, err := eng.prepareWorkflowScenario(&config.Scenario{ID: "r"}, "r")
+		got, err := eng.prepareWorkflowScenario(&arenaconfig.Scenario{ID: "r"}, "r")
 		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
@@ -422,7 +423,7 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 			workflowSpec:      spec,
 			workflowTransExec: transExec,
 		}
-		scenario := &config.Scenario{ID: "r"}
+		scenario := &arenaconfig.Scenario{ID: "r"}
 		got, err := eng.prepareWorkflowScenario(scenario, "r")
 		require.NoError(t, err)
 		assert.Nil(t, got, "no orch means assertions fall back to shared orch")
@@ -442,7 +443,7 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 			eventBus:          bus,
 		}
 
-		scenario := &config.Scenario{ID: "r", TaskType: ""}
+		scenario := &arenaconfig.Scenario{ID: "r", TaskType: ""}
 		runOrch, prepErr := eng.prepareWorkflowScenario(scenario, "r")
 		require.NoError(t, prepErr)
 		require.NotNil(t, runOrch)
@@ -476,7 +477,7 @@ func TestPrepareWorkflowScenario_PinsNonEntryStage(t *testing.T) {
 	transExec := newWorkflowTransitionExecutor(spec, registry)
 	eng := &Engine{workflowSpec: spec, workflowTransExec: transExec}
 
-	scenario := &config.Scenario{ID: "r", TaskType: "specialist"}
+	scenario := &arenaconfig.Scenario{ID: "r", TaskType: "specialist"}
 	_, err := eng.prepareWorkflowScenario(scenario, "r")
 	require.NoError(t, err)
 
@@ -492,7 +493,7 @@ func TestPrepareWorkflowScenario_UnknownTaskTypeErrors(t *testing.T) {
 	transExec := newWorkflowTransitionExecutor(spec, registry)
 	eng := &Engine{workflowSpec: spec, workflowTransExec: transExec}
 
-	scenario := &config.Scenario{ID: "r", TaskType: "bogus"}
+	scenario := &arenaconfig.Scenario{ID: "r", TaskType: "bogus"}
 	_, err := eng.prepareWorkflowScenario(scenario, "r")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bogus")
@@ -518,7 +519,7 @@ func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("run1", scenario)
 
 	// Execute a transition
@@ -552,7 +553,7 @@ func TestCommitPendingTransition_NilSkillFilterer(t *testing.T) {
 	exec := newWorkflowTransitionExecutor(spec, registry)
 	// No skillFilterer set — should not panic
 
-	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	scenario := &arenaconfig.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("run1", scenario)
 
 	args, _ := json.Marshal(map[string]string{"event": "RouteBilling"})
@@ -580,8 +581,8 @@ func TestWorkflowArtifactExecutor_DispatchesToRun(t *testing.T) {
 	}
 	registry := tools.NewRegistry()
 	transExec := newWorkflowTransitionExecutor(spec, registry)
-	transExec.RegisterRun("r1", &config.Scenario{ID: "r1"})
-	transExec.RegisterRun("r2", &config.Scenario{ID: "r2"})
+	transExec.RegisterRun("r1", &arenaconfig.Scenario{ID: "r1"})
+	transExec.RegisterRun("r2", &arenaconfig.Scenario{ID: "r2"})
 
 	artExec := &workflowArtifactExecutor{transExec: transExec}
 	assert.Equal(t, workflow.ArtifactExecutorMode, artExec.Name())
@@ -611,7 +612,7 @@ func TestWorkflowArtifactExecutor_DispatchesToRun(t *testing.T) {
 func TestEmitWorkflowError_Arena(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(testWorkflowSpec(), registry)
-	exec.RegisterRun("r", &config.Scenario{ID: "r"})
+	exec.RegisterRun("r", &arenaconfig.Scenario{ID: "r"})
 
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")
@@ -674,7 +675,7 @@ func TestCommitPendingTransition_EmitsRedirectedEvent(t *testing.T) {
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")
 
-	scenario := &config.Scenario{ID: "r", TaskType: "loop"}
+	scenario := &arenaconfig.Scenario{ID: "r", TaskType: "loop"}
 	exec.RegisterRunWithEmitter("r", scenario, emitter)
 
 	received := make(chan *events.Event, 4)

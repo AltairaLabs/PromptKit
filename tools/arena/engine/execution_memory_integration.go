@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // initMemory sets up the memory subsystem if config.Memory is set.
@@ -47,7 +47,7 @@ func (e *Engine) registerMemoryForRun(scenarioID, runID string) map[string]strin
 
 // seedMemoriesForRun pre-populates the memory store with seed entries from the
 // scenario config. Called after registerMemoryForRun and before the first turn.
-func (e *Engine) seedMemoriesForRun(scenario *config.Scenario, scope map[string]string) error {
+func (e *Engine) seedMemoriesForRun(scenario *arenaconfig.Scenario, scope map[string]string) error {
 	if e.memoryStore == nil || len(scenario.SeedMemories) == 0 {
 		return nil
 	}

@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/packc/compiler"
 )
 
@@ -238,8 +238,8 @@ func compilePromptCommand() {
 	}
 
 	// Create memory repository and register the prompt
-	memRepo, err := buildMemoryRepo(&config.Config{
-		LoadedPromptConfigs: map[string]*config.PromptConfigData{
+	memRepo, err := buildMemoryRepo(&arenaconfig.Config{
+		LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 			taskType: {
 				FilePath: *promptFile,
 				Config:   promptConfig,

@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 func TestGenerateRunPlan_AllCombinations(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		// No prompt configs needed for this test
@@ -22,7 +22,7 @@ func TestGenerateRunPlan_AllCombinations(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load multiple scenarios
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"s1": {ID: "s1", TaskType: "support"},
 		"s2": {ID: "s2", TaskType: "consulting"},
 	}
@@ -64,8 +64,8 @@ func TestGenerateRunPlan_AllCombinations(t *testing.T) {
 
 func TestGenerateRunPlan_NoRegions(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		// No prompt configs needed for this test
@@ -74,7 +74,7 @@ func TestGenerateRunPlan_NoRegions(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load scenario
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"support": {ID: "support", TaskType: "support"},
 	}
 
@@ -114,8 +114,8 @@ func TestGenerateRunPlan_NoRegions(t *testing.T) {
 
 func TestGenerateRunPlan_WithRegions(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		// No prompt configs needed for this test
@@ -124,7 +124,7 @@ func TestGenerateRunPlan_WithRegions(t *testing.T) {
 	eng := newTestEngine(t, tmpDir, cfg)
 
 	// Load scenario
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"support": {ID: "support", TaskType: "support"},
 	}
 
@@ -184,8 +184,8 @@ func TestGenerateRunPlan_WithRegions(t *testing.T) {
 
 func TestExecuteRuns_MultipleCombinations(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -194,7 +194,7 @@ func TestExecuteRuns_MultipleCombinations(t *testing.T) {
 	ctx := context.Background()
 
 	// Add scenario but execution will fail due to missing provider
-	eng.scenarios = map[string]*config.Scenario{
+	eng.scenarios = map[string]*arenaconfig.Scenario{
 		"s1": {ID: "s1", TaskType: "support"},
 	}
 

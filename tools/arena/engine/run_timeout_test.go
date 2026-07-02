@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -82,8 +83,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("returns default when run_timeout is empty", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "",
 				},
 			},
@@ -93,8 +94,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("parses valid duration", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "30s",
 				},
 			},
@@ -104,8 +105,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("parses minutes", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "10m",
 				},
 			},
@@ -115,8 +116,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("returns default for invalid duration", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "not-a-duration",
 				},
 			},
@@ -126,8 +127,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("returns default for zero duration", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "0s",
 				},
 			},
@@ -137,8 +138,8 @@ func TestResolveRunTimeout(t *testing.T) {
 
 	t.Run("returns default for negative duration", func(t *testing.T) {
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "-5s",
 				},
 			},
@@ -150,14 +151,14 @@ func TestResolveRunTimeout(t *testing.T) {
 		// Voice scenarios with selfplay routinely take longer than the 5m
 		// default — the scenario's declared duplex.timeout must override.
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "30s",
 				},
 			},
 		}
-		scenario := &config.Scenario{
-			Duplex: &config.DuplexConfig{Timeout: "12m"},
+		scenario := &arenaconfig.Scenario{
+			Duplex: &arenaconfig.DuplexConfig{Timeout: "12m"},
 		}
 		assert.Equal(t, 12*time.Minute, e.resolveRunTimeout(scenario))
 	})
@@ -166,11 +167,11 @@ func TestResolveRunTimeout(t *testing.T) {
 		// Pure-text scenarios don't have a Duplex block; we should still
 		// respect Defaults.RunTimeout from arena config.
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{RunTimeout: "45s"},
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{RunTimeout: "45s"},
 			},
 		}
-		scenario := &config.Scenario{}
+		scenario := &arenaconfig.Scenario{}
 		assert.Equal(t, 45*time.Second, e.resolveRunTimeout(scenario))
 	})
 }
@@ -181,15 +182,15 @@ func TestExecuteRun_Timeout(t *testing.T) {
 		executor := &hangingConversationExecutor{}
 
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "200ms", // Short timeout for test
 				},
 			},
 			stateStore:           store,
 			conversationExecutor: executor,
 			providerRegistry:     newMockProviderRegistry("mock-provider"),
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"test-scenario": {ID: "test-scenario", TaskType: "support"},
 			},
 			providers: map[string]*config.Provider{
@@ -226,15 +227,15 @@ func TestExecuteRun_Timeout(t *testing.T) {
 		executor := &fastConversationExecutor{}
 
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "10s", // Long timeout
 				},
 			},
 			stateStore:           store,
 			conversationExecutor: executor,
 			providerRegistry:     newMockProviderRegistry("mock-provider"),
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"test-scenario": {ID: "test-scenario", TaskType: "support"},
 			},
 			providers: map[string]*config.Provider{
@@ -268,15 +269,15 @@ func TestExecuteRuns_ContextAwareSemaphore(t *testing.T) {
 		executor := &fastConversationExecutor{}
 
 		e := &Engine{
-			config: &config.Config{
-				Defaults: config.Defaults{
+			config: &arenaconfig.Config{
+				Defaults: arenaconfig.Defaults{
 					RunTimeout: "10s",
 				},
 			},
 			stateStore:           store,
 			conversationExecutor: executor,
 			providerRegistry:     newMockProviderRegistry("p1"),
-			scenarios: map[string]*config.Scenario{
+			scenarios: map[string]*arenaconfig.Scenario{
 				"s1": {ID: "s1", TaskType: "support"},
 			},
 			providers: map[string]*config.Provider{

@@ -5,13 +5,14 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // applyProviderOverrides rewrites each `from` provider in cfg.LoadedProviders
 // with the spec of its `to` provider, in place, keeping the original ID/key.
 // Both ids must be defined providers; a typo hard-errors rather than silently
 // leaving the original provider in place.
-func applyProviderOverrides(cfg *config.Config, pairs []string) error {
+func applyProviderOverrides(cfg *arenaconfig.Config, pairs []string) error {
 	for _, p := range pairs {
 		from, to, err := parseOverridePair(p)
 		if err != nil {

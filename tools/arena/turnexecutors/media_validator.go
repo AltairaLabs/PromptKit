@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 // ValidateTurnMediaContent validates media content configuration for security and correctness
-func ValidateTurnMediaContent(media *config.TurnMediaContent, contentType string) error {
+func ValidateTurnMediaContent(media *arenaconfig.TurnMediaContent, contentType string) error {
 	if media == nil {
 		return fmt.Errorf("media content is nil")
 	}

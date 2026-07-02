@@ -3,10 +3,11 @@ package engine
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/memory"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestSeedMemoriesForRun(t *testing.T) {
@@ -16,9 +17,9 @@ func TestSeedMemoriesForRun(t *testing.T) {
 		memoryStore: store,
 	}
 
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-scenario",
-		SeedMemories: []config.SeedMemoryEntry{
+		SeedMemories: []arenaconfig.SeedMemoryEntry{
 			{
 				Content: "Customer prefers dark mode.",
 			},
@@ -55,8 +56,8 @@ func TestSeedMemoriesForRun(t *testing.T) {
 
 func TestSeedMemoriesForRun_NoMemoryStore(t *testing.T) {
 	eng := &Engine{memoryStore: nil}
-	scenario := &config.Scenario{
-		SeedMemories: []config.SeedMemoryEntry{{Content: "test"}},
+	scenario := &arenaconfig.Scenario{
+		SeedMemories: []arenaconfig.SeedMemoryEntry{{Content: "test"}},
 	}
 	// Should be a no-op, not an error
 	err := eng.seedMemoriesForRun(scenario, nil)
@@ -66,7 +67,7 @@ func TestSeedMemoriesForRun_NoMemoryStore(t *testing.T) {
 func TestSeedMemoriesForRun_EmptySeeds(t *testing.T) {
 	store := memory.NewInMemoryStore()
 	eng := &Engine{memoryStore: store}
-	scenario := &config.Scenario{}
+	scenario := &arenaconfig.Scenario{}
 
 	err := eng.seedMemoriesForRun(scenario, map[string]string{"run": "1"})
 	assert.NoError(t, err)
@@ -78,8 +79,8 @@ func TestSeedMemoriesForRun_EmptySeeds(t *testing.T) {
 func TestSeedMemoriesForRun_EmptyContent(t *testing.T) {
 	store := memory.NewInMemoryStore()
 	eng := &Engine{memoryStore: store}
-	scenario := &config.Scenario{
-		SeedMemories: []config.SeedMemoryEntry{{Content: ""}},
+	scenario := &arenaconfig.Scenario{
+		SeedMemories: []arenaconfig.SeedMemoryEntry{{Content: ""}},
 	}
 
 	err := eng.seedMemoriesForRun(scenario, map[string]string{"run": "1"})

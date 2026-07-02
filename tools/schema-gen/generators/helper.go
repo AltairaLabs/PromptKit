@@ -12,7 +12,7 @@ const jsonTypeString = "string"
 
 // SchemaConfig holds the configuration for generating a JSON schema from a Go type.
 type SchemaConfig struct {
-	// Target is the Go struct instance to reflect (e.g., &config.ArenaConfig{}).
+	// Target is the Go struct instance to reflect (e.g., &arenaconfig.ArenaConfig{}).
 	Target interface{}
 	// Filename is the schema output filename (e.g., "arena.json").
 	Filename string

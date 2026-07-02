@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (
@@ -29,14 +29,14 @@ const (
 // reads them when rendering the system prompt.
 type ScenarioContextExtractionStage struct {
 	stage.BaseStage
-	scenario  *config.Scenario
+	scenario  *arenaconfig.Scenario
 	turnState *stage.TurnState
 }
 
 // NewScenarioContextExtractionStageWithTurnState creates a scenario context
 // extraction stage that writes extracted variables into the shared *TurnState.
 func NewScenarioContextExtractionStageWithTurnState(
-	scenario *config.Scenario, turnState *stage.TurnState,
+	scenario *arenaconfig.Scenario, turnState *stage.TurnState,
 ) *ScenarioContextExtractionStage {
 	return &ScenarioContextExtractionStage{
 		BaseStage: stage.NewBaseStage("scenario_context_extraction", stage.StageTypeTransform),
@@ -98,7 +98,7 @@ func (s *ScenarioContextExtractionStage) accumulateInput(
 }
 
 // buildContextSlot creates the main context description from scenario and conversation
-func buildContextSlot(scenario *config.Scenario, messages []types.Message) string {
+func buildContextSlot(scenario *arenaconfig.Scenario, messages []types.Message) string {
 	contextParts := []string{}
 
 	if scenario.Description != "" {
@@ -121,7 +121,7 @@ func buildContextSlot(scenario *config.Scenario, messages []types.Message) strin
 }
 
 // extractFromScenario extracts context using scenario metadata and messages
-func extractFromScenario(scenario *config.Scenario, messages []types.Message) map[string]string {
+func extractFromScenario(scenario *arenaconfig.Scenario, messages []types.Message) map[string]string {
 	variables := make(map[string]string)
 
 	// Use scenario metadata if available

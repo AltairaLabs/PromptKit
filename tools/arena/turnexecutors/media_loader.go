@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (
@@ -66,7 +66,7 @@ func NewHTTPMediaLoader(timeout time.Duration, maxFileSize int64) *HTTPMediaLoad
 // The storageService parameter is optional and only needed when loading from storage references.
 func ConvertTurnPartsToMessageParts(
 	ctx context.Context,
-	turnParts []config.TurnContentPart,
+	turnParts []arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,
@@ -91,7 +91,7 @@ func ConvertTurnPartsToMessageParts(
 // convertSinglePart converts a single turn content part to a message content part
 func convertSinglePart(
 	ctx context.Context,
-	turnPart config.TurnContentPart,
+	turnPart arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,
@@ -115,7 +115,7 @@ func convertSinglePart(
 }
 
 // convertTextPart converts a text content part
-func convertTextPart(turnPart config.TurnContentPart, index int) (types.ContentPart, error) {
+func convertTextPart(turnPart arenaconfig.TurnContentPart, index int) (types.ContentPart, error) {
 	if turnPart.Text == "" {
 		return types.ContentPart{}, NewValidationError(index, "text", "", "empty text content")
 	}
@@ -148,7 +148,7 @@ func loadFromStorageReference(
 
 // mediaConversionConfig holds configuration for media conversion
 type mediaConversionConfig struct {
-	turnPart       config.TurnContentPart
+	turnPart       arenaconfig.TurnContentPart
 	baseDir        string
 	httpLoader     *HTTPMediaLoader
 	storageService storage.MediaStorageService
@@ -224,7 +224,7 @@ func convertMediaPart(
 // convertImagePart converts an image content part, loading from storage reference, file, or URL if needed
 func convertImagePart(
 	ctx context.Context,
-	turnPart config.TurnContentPart,
+	turnPart arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,
@@ -288,7 +288,7 @@ func convertImagePart(
 // convertAudioPart converts an audio content part, loading from storage reference, file, or URL if needed
 func convertAudioPart(
 	ctx context.Context,
-	turnPart config.TurnContentPart,
+	turnPart arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,
@@ -308,7 +308,7 @@ func convertAudioPart(
 // convertVideoPart converts a video content part, loading from storage reference, file, or URL if needed
 func convertVideoPart(
 	ctx context.Context,
-	turnPart config.TurnContentPart,
+	turnPart arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,
@@ -381,7 +381,7 @@ func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 // convertDocumentPart converts a document content part, loading from storage reference, file, or URL if needed
 func convertDocumentPart(
 	ctx context.Context,
-	turnPart config.TurnContentPart,
+	turnPart arenaconfig.TurnContentPart,
 	baseDir string,
 	httpLoader *HTTPMediaLoader,
 	storageService storage.MediaStorageService,

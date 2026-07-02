@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // CacheKey represents a structured cache key for user generators
@@ -18,23 +19,23 @@ type CacheKey struct {
 // Registry manages self-play providers, personas, and user generator creation
 type Registry struct {
 	providerRegistry *providers.Registry
-	providerMap      map[string]string                  // Maps role ID to provider ID
-	personas         map[string]*config.UserPersonaPack // Maps persona ID to persona config
-	roles            []config.SelfPlayRoleGroup         // Self-play role configurations
-	userGenerators   map[CacheKey]*ContentGenerator     // Cache for created user generators
-	ttsRegistry      *TTSRegistry                       // TTS service registry for audio generation
-	sttRegistry      *STTRegistry                       // STT service registry for audio transcription
-	cacheHits        int                                // Track cache hits for observability
-	cacheMisses      int                                // Track cache misses for observability
-	mu               sync.RWMutex                       // Protects concurrent access to cache
+	providerMap      map[string]string                       // Maps role ID to provider ID
+	personas         map[string]*arenaconfig.UserPersonaPack // Maps persona ID to persona config
+	roles            []arenaconfig.SelfPlayRoleGroup         // Self-play role configurations
+	userGenerators   map[CacheKey]*ContentGenerator          // Cache for created user generators
+	ttsRegistry      *TTSRegistry                            // TTS service registry for audio generation
+	sttRegistry      *STTRegistry                            // STT service registry for audio transcription
+	cacheHits        int                                     // Track cache hits for observability
+	cacheMisses      int                                     // Track cache misses for observability
+	mu               sync.RWMutex                            // Protects concurrent access to cache
 }
 
 // NewRegistry creates a new self-play registry
 func NewRegistry(
 	providerRegistry *providers.Registry,
 	providerMap map[string]string,
-	personas map[string]*config.UserPersonaPack,
-	roles []config.SelfPlayRoleGroup,
+	personas map[string]*arenaconfig.UserPersonaPack,
+	roles []arenaconfig.SelfPlayRoleGroup,
 ) *Registry {
 	return &Registry{
 		providerRegistry: providerRegistry,
@@ -54,8 +55,8 @@ func NewRegistry(
 func NewRegistryWithTTS(
 	providerRegistry *providers.Registry,
 	providerMap map[string]string,
-	personas map[string]*config.UserPersonaPack,
-	roles []config.SelfPlayRoleGroup,
+	personas map[string]*arenaconfig.UserPersonaPack,
+	roles []arenaconfig.SelfPlayRoleGroup,
 	ttsRegistry *TTSRegistry,
 ) *Registry {
 	reg := NewRegistry(providerRegistry, providerMap, personas, roles)
@@ -70,7 +71,7 @@ func NewRegistryWithTTS(
 // to surface the persona definition on selfplay user messages so the
 // arena UI can show "what drove this turn?" alongside the generated
 // text.
-func (r *Registry) GetPersona(personaID string) *config.UserPersonaPack {
+func (r *Registry) GetPersona(personaID string) *arenaconfig.UserPersonaPack {
 	if personaID == "" {
 		return nil
 	}

@@ -7,11 +7,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 )
 
 // counterSource is a minimal MCPSource that counts opens/closes for
@@ -60,14 +62,14 @@ func TestScopeHooks_SessionOpenedPerRepetition(t *testing.T) {
 // nil-scenario and empty-variables cases without allocation.
 func TestScenarioVariables_NilAndEmpty(t *testing.T) {
 	assert.Nil(t, scenarioVariables(nil))
-	assert.Nil(t, scenarioVariables(&config.Scenario{}))
-	assert.Nil(t, scenarioVariables(&config.Scenario{Variables: map[string]string{}}))
+	assert.Nil(t, scenarioVariables(&arenaconfig.Scenario{}))
+	assert.Nil(t, scenarioVariables(&arenaconfig.Scenario{Variables: map[string]string{}}))
 }
 
 // TestScenarioVariables_CopiesVariables verifies the helper returns a
 // copy of the scenario's Variables map (mutations don't leak back).
 func TestScenarioVariables_CopiesVariables(t *testing.T) {
-	sc := &config.Scenario{Variables: map[string]string{
+	sc := &arenaconfig.Scenario{Variables: map[string]string{
 		"repo":   "github.com/x/y",
 		"branch": "main",
 	}}
@@ -116,7 +118,7 @@ func TestOpenScenarioSessionMCPSources_OpensAndCloses(t *testing.T) {
 		},
 	}
 
-	scenario := &config.Scenario{Variables: map[string]string{"k": "v"}}
+	scenario := &arenaconfig.Scenario{Variables: map[string]string{"k": "v"}}
 	_, cleanup, err := e.openScenarioSessionMCPSources(
 		context.Background(), scenario, "scenario-1", "run-xyz")
 	require.NoError(t, err)

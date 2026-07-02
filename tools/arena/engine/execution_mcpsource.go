@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 )
 
 // scenarioVariables extracts a string map from the scenario's variables block
 // for use in MCP source arg templating ({{scenario.<key>}} expansion).
 // Returns nil when the scenario is nil or has no variables.
-func scenarioVariables(sc *config.Scenario) map[string]string {
+func scenarioVariables(sc *arenaconfig.Scenario) map[string]string {
 	if sc == nil || len(sc.Variables) == 0 {
 		return nil
 	}
@@ -39,7 +39,7 @@ func scenarioVariables(sc *config.Scenario) map[string]string {
 // dropped.
 func (e *Engine) openScenarioSessionMCPSources(
 	ctx context.Context,
-	scenario *config.Scenario,
+	scenario *arenaconfig.Scenario,
 	scenarioID, runID string,
 ) (runCtx context.Context, cleanup func(), err error) {
 	cleanup = func() {}

@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -78,8 +79,8 @@ func (tl *testLogger) assertContains(expected string) {
 
 func TestNewEngine(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -97,8 +98,8 @@ func TestNewEngine(t *testing.T) {
 
 func TestGenerateRunPlan_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -124,8 +125,8 @@ func TestGenerateRunPlan_Empty(t *testing.T) {
 
 func TestExecuteRuns_EmptyPlan(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -154,8 +155,8 @@ func TestExecuteRuns_EmptyPlan(t *testing.T) {
 
 func TestExecuteRuns_InvalidScenario(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 	}
@@ -206,8 +207,8 @@ func TestExecuteRuns_InvalidScenario(t *testing.T) {
 
 func TestEnableMockProviderMode(t *testing.T) {
 	// Create config with multiple providers
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		LoadedProviders: map[string]*config.Provider{
@@ -282,8 +283,8 @@ func TestEnableMockProviderMode(t *testing.T) {
 func TestEnableMockProviderMode_WithConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		LoadedProviders: map[string]*config.Provider{
@@ -336,8 +337,8 @@ scenarios:
 }
 
 func TestEnableMockProviderMode_WithInvalidConfigFile(t *testing.T) {
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Verbose: false,
 		},
 		LoadedProviders: map[string]*config.Provider{

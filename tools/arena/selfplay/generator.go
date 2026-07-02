@@ -6,13 +6,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
@@ -21,12 +21,12 @@ const selfPlayUserRole = "self-play user"
 // ContentGenerator generates user messages using an LLM
 type ContentGenerator struct {
 	provider       providers.Provider
-	persona        *config.UserPersonaPack
+	persona        *arenaconfig.UserPersonaPack
 	providerRubric string
 }
 
 // NewContentGenerator creates a new content generator with a specific provider and persona
-func NewContentGenerator(provider providers.Provider, persona *config.UserPersonaPack) *ContentGenerator {
+func NewContentGenerator(provider providers.Provider, persona *arenaconfig.UserPersonaPack) *ContentGenerator {
 	return &ContentGenerator{
 		provider: provider,
 		persona:  persona,
@@ -146,7 +146,7 @@ func (cg *ContentGenerator) NextUserTurn(
 	}
 
 	// Get temperature from persona or use default
-	temperature := config.DefaultPersonaTemperature
+	temperature := arenaconfig.DefaultPersonaTemperature
 	if cg.persona.Defaults.Temperature != nil {
 		temperature = *cg.persona.Defaults.Temperature
 	}
@@ -193,14 +193,14 @@ func (cg *ContentGenerator) NextUserTurn(
 	}
 	if selfplayTurnIndex > 0 {
 		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithHintAndTurnState(
-			&config.Scenario{ID: scenarioID},
+			&arenaconfig.Scenario{ID: scenarioID},
 			selfplayTurnIndex,
 			cg.persona.ID,
 			turnState,
 		)
 	} else {
 		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithTurnState(
-			&config.Scenario{ID: scenarioID},
+			&arenaconfig.Scenario{ID: scenarioID},
 			cg.persona.ID,
 			turnState,
 		)

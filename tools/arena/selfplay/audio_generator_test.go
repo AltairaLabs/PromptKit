@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // mockProvider implements providers.Provider for testing.
@@ -94,7 +95,7 @@ func newTestTTSProvider(voice string, sampleRate int) *config.Provider {
 	return &config.Provider{
 		ID:         "tts-test",
 		Type:       TTSProviderMock,
-		Role: config.RoleTTS,
+		Role:       config.RoleTTS,
 		Voice:      voice,
 		SampleRate: sampleRate,
 	}
@@ -103,10 +104,10 @@ func newTestTTSProvider(voice string, sampleRate int) *config.Provider {
 func TestAudioContentGenerator_NextUserTurnAudioStream(t *testing.T) {
 	mockProv := &mockProvider{response: "Hello, how can I help?"}
 
-	defaultTemp := config.DefaultPersonaTemperature
-	persona := &config.UserPersonaPack{
+	defaultTemp := arenaconfig.DefaultPersonaTemperature
+	persona := &arenaconfig.UserPersonaPack{
 		ID: "test-persona",
-		Defaults: config.PersonaDefaults{
+		Defaults: arenaconfig.PersonaDefaults{
 			Temperature: &defaultTemp,
 		},
 		SystemPrompt: "You are a helpful assistant",
@@ -139,7 +140,7 @@ func TestAudioContentGenerator_NextUserTurnAudioStream(t *testing.T) {
 
 func TestAudioContentGenerator_TTSError(t *testing.T) {
 	mockProv := &mockProvider{response: "Hello"}
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:           "test-persona",
 		SystemPrompt: "Test",
 	}
@@ -167,7 +168,7 @@ func TestAudioContentGenerator_TTSError(t *testing.T) {
 
 func TestAudioContentGenerator_TextGenerationError(t *testing.T) {
 	mockProv := &mockProvider{err: errors.New("LLM unavailable")}
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:           "test-persona",
 		SystemPrompt: "Test",
 	}
@@ -193,7 +194,7 @@ func TestAudioContentGenerator_TextGenerationError(t *testing.T) {
 
 func TestAudioContentGenerator_EmptyTextResponse(t *testing.T) {
 	mockProv := &mockProvider{response: ""}
-	persona := &config.UserPersonaPack{
+	persona := &arenaconfig.UserPersonaPack{
 		ID:           "test-persona",
 		SystemPrompt: "Test",
 	}
@@ -264,7 +265,7 @@ func TestAudioContentGenerator_SynthesizeTextStream_WithProvider(t *testing.T) {
 	p := &config.Provider{
 		ID:         "tts-test",
 		Type:       TTSProviderMock,
-		Role: config.RoleTTS,
+		Role:       config.RoleTTS,
 		Voice:      "test-voice",
 		SampleRate: 16000,
 	}
@@ -287,10 +288,10 @@ func TestAudioContentGenerator_SynthesizeTextStream_WithProvider(t *testing.T) {
 // full text-generation + TTS synthesis path.
 func TestAudioContentGenerator_NextUserTurnAudioStream_WithProvider(t *testing.T) {
 	mockProv := &mockProvider{response: "response from provider path"}
-	defaultTemp := config.DefaultPersonaTemperature
-	persona := &config.UserPersonaPack{
+	defaultTemp := arenaconfig.DefaultPersonaTemperature
+	persona := &arenaconfig.UserPersonaPack{
 		ID: "persona-provider-path",
-		Defaults: config.PersonaDefaults{
+		Defaults: arenaconfig.PersonaDefaults{
 			Temperature: &defaultTemp,
 		},
 		SystemPrompt: "You are helpful",
@@ -301,7 +302,7 @@ func TestAudioContentGenerator_NextUserTurnAudioStream_WithProvider(t *testing.T
 	p := &config.Provider{
 		ID:         "tts-provider",
 		Type:       TTSProviderMock,
-		Role: config.RoleTTS,
+		Role:       config.RoleTTS,
 		Voice:      "nova",
 		SampleRate: 24000,
 	}
@@ -330,8 +331,8 @@ func TestAudioContentGenerator_NextUserTurnAudioStream_WithProvider(t *testing.T
 func TestAudioContentGenerator_DefaultSampleRate(t *testing.T) {
 	mockTTS := &mockTTSServiceWithData{audioData: []byte("audio")}
 	p := &config.Provider{
-		ID:         "tts-no-rate",
-		Type:       TTSProviderMock,
+		ID:   "tts-no-rate",
+		Type: TTSProviderMock,
 		Role: config.RoleTTS,
 		// SampleRate deliberately omitted — should use defaultTTSSampleRate
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -24,7 +25,7 @@ type ConvertOptions struct {
 }
 
 // ConvertSessionToScenario converts a SessionDetail into a ScenarioConfig YAML document.
-func ConvertSessionToScenario(session *SessionDetail, opts ConvertOptions) (*config.ScenarioConfig, error) {
+func ConvertSessionToScenario(session *SessionDetail, opts ConvertOptions) (*arenaconfig.ScenarioConfig, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session is nil")
 	}
@@ -32,7 +33,7 @@ func ConvertSessionToScenario(session *SessionDetail, opts ConvertOptions) (*con
 	scenarioID := sanitizeID(session.ID)
 	description := buildDescription(session)
 
-	scenario := config.Scenario{
+	scenario := arenaconfig.Scenario{
 		ID:          scenarioID,
 		Description: description,
 	}
@@ -49,7 +50,7 @@ func ConvertSessionToScenario(session *SessionDetail, opts ConvertOptions) (*con
 	// Add turn-level assertions from failed turn eval results.
 	applyTurnAssertions(&scenario, session.TurnEvalResults)
 
-	return &config.ScenarioConfig{
+	return &arenaconfig.ScenarioConfig{
 		APIVersion: apiVersion,
 		Kind:       kindScenario,
 		Metadata: config.ObjectMeta{
@@ -92,13 +93,13 @@ func buildDescription(session *SessionDetail) string {
 	return strings.Join(parts, ", ")
 }
 
-func buildTurns(session *SessionDetail) []config.TurnDefinition {
-	var turns []config.TurnDefinition
+func buildTurns(session *SessionDetail) []arenaconfig.TurnDefinition {
+	var turns []arenaconfig.TurnDefinition
 	for i := range session.Messages {
 		if session.Messages[i].Role != roleUser {
 			continue
 		}
-		turns = append(turns, config.TurnDefinition{
+		turns = append(turns, arenaconfig.TurnDefinition{
 			Role:    roleUser,
 			Content: session.Messages[i].GetContent(),
 		})
@@ -129,7 +130,7 @@ func buildConversationAssertions(
 // applyTurnAssertions attaches per-turn assertions from failed TurnEvalResults
 // to the appropriate turn.
 func applyTurnAssertions(
-	scenario *config.Scenario,
+	scenario *arenaconfig.Scenario,
 	turnResults map[int][]TurnEvalResult,
 ) {
 	if len(turnResults) == 0 {

@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestCLIFormatOverride(t *testing.T) {
@@ -36,7 +37,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load configuration
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Test 1: No CLI flags - should use config defaults
@@ -124,7 +125,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load configuration
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Test that CLI still overrides even with old config format

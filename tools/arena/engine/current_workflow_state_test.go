@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
 // TestStampCurrentWorkflowState_LastAssistant verifies the explicit per-turn
@@ -130,14 +131,14 @@ func TestExecuteConversation_StampsTurnStartState(t *testing.T) {
 	newReq := func(store *statestore.ArenaStateStore, convID string) ConversationRequest {
 		return ConversationRequest{
 			Provider: &MockProvider{id: "mock"},
-			Scenario: &config.Scenario{
+			Scenario: &arenaconfig.Scenario{
 				ID: "sc",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "turn one"},
 					{Role: "user", Content: "turn two"},
 				},
 			},
-			Config:           &config.Config{},
+			Config:           &arenaconfig.Config{},
 			ConversationID:   convID,
 			RunID:            convID,
 			StateStoreConfig: &StateStoreConfig{Store: store},

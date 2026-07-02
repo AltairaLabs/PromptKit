@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
+
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // goldenHomeSizes is the size matrix for home golden snapshots.
@@ -149,7 +150,7 @@ func TestHome_DisabledItemSkipped(t *testing.T) {
 // needsConfig item IS selectable.
 func TestHome_EnabledWithConfig(t *testing.T) {
 	ctx := &AppContext{
-		Config:     &config.Config{},
+		Config:     &arenaconfig.Config{},
 		ConfigPath: "/tmp/arena/my-arena.yaml",
 		Version:    "vTEST",
 	}
@@ -192,7 +193,7 @@ func TestHome_ViewContainsLabels(t *testing.T) {
 func TestHome_ViewConfigIndicator(t *testing.T) {
 	t.Run("with config", func(t *testing.T) {
 		ctx := &AppContext{
-			Config:     &config.Config{},
+			Config:     &arenaconfig.Config{},
 			ConfigPath: "/projects/my-arena/arena.yaml",
 			Version:    "vTEST",
 		}
@@ -326,7 +327,7 @@ func TestHome_ConfigNameEdgeCases(t *testing.T) {
 // config is loaded.
 func TestGoldenHome_WithConfig(t *testing.T) {
 	ctx := &AppContext{
-		Config:     &config.Config{},
+		Config:     &arenaconfig.Config{},
 		ConfigPath: "/projects/my-arena/arena.yaml",
 		Version:    "vTEST",
 	}

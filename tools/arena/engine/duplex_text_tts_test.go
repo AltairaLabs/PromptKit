@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
@@ -72,8 +73,8 @@ func newRegistryWithFakeTTS(provider string, payload []byte) (*selfplay.Registry
 	reg := selfplay.NewRegistryWithTTS(
 		nil,
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 		ttsRegistry,
 	)
 	return reg, fake
@@ -84,10 +85,10 @@ func TestProcessScriptedTextDuplexTurn_ErrorsWithoutTTS(t *testing.T) {
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
 
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{ID: "s1"},
-		Config:   &config.Config{},
+		Scenario: &arenaconfig.Scenario{ID: "s1"},
+		Config:   &arenaconfig.Config{},
 	}
-	turn := &config.TurnDefinition{Role: "user", Content: "hello world"}
+	turn := &arenaconfig.TurnDefinition{Role: "user", Content: "hello world"}
 
 	in := make(chan stage.StreamElement, 4)
 	out := make(chan stage.StreamElement)
@@ -105,7 +106,7 @@ func newTestTTSProvider(providerName, voice string, sampleRate int) *config.Prov
 	return &config.Provider{
 		ID:         providerName,
 		Type:       providerName,
-		Role: config.RoleTTS,
+		Role:       config.RoleTTS,
 		Voice:      voice,
 		SampleRate: sampleRate,
 	}
@@ -267,8 +268,8 @@ func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
 	reg := selfplay.NewRegistryWithTTS(
 		nil,
 		map[string]string{},
-		map[string]*config.UserPersonaPack{},
-		[]config.SelfPlayRoleGroup{},
+		map[string]*arenaconfig.UserPersonaPack{},
+		[]arenaconfig.SelfPlayRoleGroup{},
 		ttsRegistry,
 	)
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
@@ -279,22 +280,22 @@ func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
 	provider := &config.Provider{
 		ID:         providerName,
 		Type:       "mock",
-		Role: config.RoleTTS,
+		Role:       config.RoleTTS,
 		AudioFiles: []string{}, // empty → MockTTSService with no rotation
 	}
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		Voices: []config.VoiceBinding{{ID: "scripted", Provider: providerName}},
 		LoadedTTSProviders: map[string]*config.Provider{
 			providerName: provider,
 		},
 	}
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:    "scripted",
 		Voice: "scripted",
 		// No TTS field — new path must not require legacy config.
 	}
 	req := &ConversationRequest{Scenario: scenario, Config: cfg}
-	turn := &config.TurnDefinition{Role: "user", Content: "hello world"}
+	turn := &arenaconfig.TurnDefinition{Role: "user", Content: "hello world"}
 
 	in := make(chan stage.StreamElement, 256)
 	out := make(chan stage.StreamElement, 1)
@@ -322,13 +323,13 @@ func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
 }
 
 func TestResolveTTSProvider_ViaPersona(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		Voices: []config.VoiceBinding{{ID: "v1", Provider: "p1"}},
 		LoadedTTSProviders: map[string]*config.Provider{
 			"p1": {ID: "p1", Type: "cartesia", Voice: "vid", Role: config.RoleTTS},
 		},
 	}
-	persona := &config.UserPersonaPack{ID: "p", Voice: "v1"}
+	persona := &arenaconfig.UserPersonaPack{ID: "p", Voice: "v1"}
 	got, err := resolveTTSProvider(cfg, persona)
 	if err != nil {
 		t.Fatalf("resolveTTSProvider: %v", err)
@@ -339,8 +340,8 @@ func TestResolveTTSProvider_ViaPersona(t *testing.T) {
 }
 
 func TestResolveTTSProvider_PersonaWithoutVoice(t *testing.T) {
-	cfg := &config.Config{}
-	persona := &config.UserPersonaPack{ID: "p"}
+	cfg := &arenaconfig.Config{}
+	persona := &arenaconfig.UserPersonaPack{ID: "p"}
 	got, err := resolveTTSProvider(cfg, persona)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -352,14 +353,14 @@ func TestResolveTTSProvider_PersonaWithoutVoice(t *testing.T) {
 
 func TestTurnHasAudioPart(t *testing.T) {
 	t.Run("no parts", func(t *testing.T) {
-		assert.False(t, turnHasAudioPart(&config.TurnDefinition{}))
+		assert.False(t, turnHasAudioPart(&arenaconfig.TurnDefinition{}))
 	})
 	t.Run("text part only", func(t *testing.T) {
-		turn := &config.TurnDefinition{Parts: []config.TurnContentPart{{Type: "text"}}}
+		turn := &arenaconfig.TurnDefinition{Parts: []arenaconfig.TurnContentPart{{Type: "text"}}}
 		assert.False(t, turnHasAudioPart(turn))
 	})
 	t.Run("audio part present", func(t *testing.T) {
-		turn := &config.TurnDefinition{Parts: []config.TurnContentPart{
+		turn := &arenaconfig.TurnDefinition{Parts: []arenaconfig.TurnContentPart{
 			{Type: "text"},
 			{Type: "audio"},
 		}}

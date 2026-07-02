@@ -16,11 +16,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestSpecCompliance_PackToolDefinitions tests that packc includes full tool definitions
@@ -108,7 +110,7 @@ spec:
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
 	// Load config
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err, "Failed to load arena config")
 
 	// Verify tools were loaded
@@ -347,14 +349,14 @@ spec:
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "tools"), 0755))
 
-	var toolRefs []config.ToolRef
+	var toolRefs []arenaconfig.ToolRef
 	var loadedTools []config.ToolData
 
 	for _, tool := range toolsList {
 		toolPath := filepath.Join(tmpDir, "tools", tool.name+".tool.yaml")
 		require.NoError(t, os.WriteFile(toolPath, []byte(tool.content), 0644))
 
-		toolRefs = append(toolRefs, config.ToolRef{File: "tools/" + tool.name + ".tool.yaml"})
+		toolRefs = append(toolRefs, arenaconfig.ToolRef{File: "tools/" + tool.name + ".tool.yaml"})
 		loadedTools = append(loadedTools, config.ToolData{
 			FilePath: toolPath,
 			Data:     []byte(tool.content),
@@ -405,7 +407,7 @@ spec:
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
 	// Load and compile
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	memRepo, repoErr := buildMemoryRepo(cfg)
@@ -501,7 +503,7 @@ spec:
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
 	// Load and compile
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	memRepo, repoErr := buildMemoryRepo(cfg)
@@ -608,7 +610,7 @@ spec:
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
 	// Load config
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	// Verify pack_evals were loaded from config
@@ -702,7 +704,7 @@ spec:
 	arenaPath := filepath.Join(tmpDir, "arena.yaml")
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	memRepo, repoErr := buildMemoryRepo(cfg)
@@ -779,7 +781,7 @@ spec:
 	arenaPath := filepath.Join(tmpDir, "arena.yaml")
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	memRepo, repoErr := buildMemoryRepo(cfg)
@@ -903,7 +905,7 @@ spec:
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
 	// Load config
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	// Verify workflow was loaded
@@ -1008,7 +1010,7 @@ spec:
 	arenaPath := filepath.Join(tmpDir, "arena.yaml")
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, cfg.Agents, "Agents should be loaded from config")
@@ -1105,7 +1107,7 @@ spec:
 	arenaPath := filepath.Join(tmpDir, "arena.yaml")
 	require.NoError(t, os.WriteFile(arenaPath, []byte(arenaYAML), 0644))
 
-	cfg, err := config.LoadConfig(arenaPath)
+	cfg, err := arenaconfig.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
 	memRepo, repoErr := buildMemoryRepo(cfg)

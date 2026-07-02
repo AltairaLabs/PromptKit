@@ -4,24 +4,24 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 	tests := []struct {
 		name             string
-		loadedConfigs    map[string]*config.PromptConfigData
+		loadedConfigs    map[string]*arenaconfig.PromptConfigData
 		scenarioTaskType string
 		expectedVars     map[string]string
 	}{
 		{
 			name: "vars found for matching task_type",
-			loadedConfigs: map[string]*config.PromptConfigData{
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{
 				"restaurant-support": {
 					TaskType: "restaurant-support",
 					Vars: map[string]string{
@@ -38,7 +38,7 @@ func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 		},
 		{
 			name: "no vars when task_type doesn't match",
-			loadedConfigs: map[string]*config.PromptConfigData{
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{
 				"product-support": {
 					TaskType: "product-support",
 					Vars: map[string]string{
@@ -51,7 +51,7 @@ func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 		},
 		{
 			name: "empty vars when config has no vars",
-			loadedConfigs: map[string]*config.PromptConfigData{
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{
 				"restaurant-support": {
 					TaskType: "restaurant-support",
 					Vars:     nil,
@@ -62,13 +62,13 @@ func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 		},
 		{
 			name:             "no vars when LoadedPromptConfigs is empty",
-			loadedConfigs:    map[string]*config.PromptConfigData{},
+			loadedConfigs:    map[string]*arenaconfig.PromptConfigData{},
 			scenarioTaskType: "restaurant-support",
 			expectedVars:     nil,
 		},
 		{
 			name: "vars from correct config among multiple",
-			loadedConfigs: map[string]*config.PromptConfigData{
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{
 				"restaurant-support": {
 					TaskType: "restaurant-support",
 					Vars: map[string]string{
@@ -102,22 +102,22 @@ func TestBuildTurnRequest_VarsLookup(t *testing.T) {
 
 			// Create test request
 			req := ConversationRequest{
-				Config: &config.Config{
+				Config: &arenaconfig.Config{
 					LoadedPromptConfigs: tt.loadedConfigs,
 					ConfigDir:           "/test/dir",
-					Defaults: config.Defaults{
+					Defaults: arenaconfig.Defaults{
 						Temperature: 0.7,
 						MaxTokens:   1000,
 						Seed:        42,
 					},
 				},
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					TaskType: tt.scenarioTaskType,
 				},
 				Provider: &MockProvider{id: "test"},
 			}
 
-			scenarioTurn := config.TurnDefinition{
+			scenarioTurn := arenaconfig.TurnDefinition{
 				Role:    "user",
 				Content: "Test message",
 			}
@@ -176,8 +176,8 @@ func TestBuildTurnRequest_VarsWithComplexValues(t *testing.T) {
 
 	// Test with complex var values (multiline, special characters)
 	req := ConversationRequest{
-		Config: &config.Config{
-			LoadedPromptConfigs: map[string]*config.PromptConfigData{
+		Config: &arenaconfig.Config{
+			LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{
 				"restaurant-support": {
 					TaskType: "restaurant-support",
 					Vars: map[string]string{
@@ -189,17 +189,17 @@ func TestBuildTurnRequest_VarsWithComplexValues(t *testing.T) {
 				},
 			},
 			ConfigDir: "/test",
-			Defaults: config.Defaults{
+			Defaults: arenaconfig.Defaults{
 				Temperature: 0.7,
 			},
 		},
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			TaskType: "restaurant-support",
 		},
 		Provider: &MockProvider{id: "test"},
 	}
 
-	scenarioTurn := config.TurnDefinition{
+	scenarioTurn := arenaconfig.TurnDefinition{
 		Role:    "user",
 		Content: "Test",
 	}
@@ -295,15 +295,15 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := ConversationRequest{
-				Config: &config.Config{
-					LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+				Config: &arenaconfig.Config{
+					LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 					ConfigDir:           "/test",
-					Defaults: config.Defaults{
+					Defaults: arenaconfig.Defaults{
 						Temperature: tt.configTemp,
 						MaxTokens:   tt.configMax,
 					},
 				},
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					TaskType: "test",
 				},
 				Provider:    &MockProvider{id: "test"},
@@ -311,7 +311,7 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 				MaxTokens:   tt.reqMax,
 			}
 
-			scenarioTurn := config.TurnDefinition{
+			scenarioTurn := arenaconfig.TurnDefinition{
 				Role:    "user",
 				Content: "Test",
 			}
@@ -342,14 +342,14 @@ func TestBuildTurnRequest_StateStoreConfig(t *testing.T) {
 	store := statestore.NewMemoryStore()
 
 	req := ConversationRequest{
-		Config: &config.Config{
-			LoadedPromptConfigs: map[string]*config.PromptConfigData{},
+		Config: &arenaconfig.Config{
+			LoadedPromptConfigs: map[string]*arenaconfig.PromptConfigData{},
 			ConfigDir:           "/test",
-			Defaults: config.Defaults{
+			Defaults: arenaconfig.Defaults{
 				Temperature: 0.7,
 			},
 		},
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			TaskType: "test",
 		},
 		Provider: &MockProvider{id: "test"},
@@ -360,7 +360,7 @@ func TestBuildTurnRequest_StateStoreConfig(t *testing.T) {
 		ConversationID: "conv-456",
 	}
 
-	scenarioTurn := config.TurnDefinition{
+	scenarioTurn := arenaconfig.TurnDefinition{
 		Role:    "user",
 		Content: "Test",
 	}
@@ -390,14 +390,14 @@ func TestBuildTurnRequest_ScenarioVariablesMerged(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		loadedConfigs map[string]*config.PromptConfigData
+		loadedConfigs map[string]*arenaconfig.PromptConfigData
 		taskType      string
 		scenarioVars  map[string]string
 		expectedVars  map[string]string
 	}{
 		{
 			name: "scenario variables override arena prompt-config vars",
-			loadedConfigs: map[string]*config.PromptConfigData{
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{
 				"support": {TaskType: "support", Vars: map[string]string{
 					"tone":    "formal",
 					"product": "CloudSync",
@@ -409,7 +409,7 @@ func TestBuildTurnRequest_ScenarioVariablesMerged(t *testing.T) {
 		},
 		{
 			name:          "scenario variables apply with no arena prompt-config (incl. empty value)",
-			loadedConfigs: map[string]*config.PromptConfigData{},
+			loadedConfigs: map[string]*arenaconfig.PromptConfigData{},
 			taskType:      "support",
 			scenarioVars:  map[string]string{"tool_instructions": ""},
 			expectedVars:  map[string]string{"tool_instructions": ""},
@@ -419,19 +419,19 @@ func TestBuildTurnRequest_ScenarioVariablesMerged(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := ConversationRequest{
-				Config: &config.Config{
+				Config: &arenaconfig.Config{
 					LoadedPromptConfigs: tt.loadedConfigs,
 					ConfigDir:           "/test",
-					Defaults:            config.Defaults{Temperature: 0.7},
+					Defaults:            arenaconfig.Defaults{Temperature: 0.7},
 				},
-				Scenario: &config.Scenario{
+				Scenario: &arenaconfig.Scenario{
 					TaskType:  tt.taskType,
 					Variables: tt.scenarioVars,
 				},
 				Provider: &MockProvider{id: "test"},
 			}
 
-			turnReq := executor.buildTurnRequest(req, config.TurnDefinition{Role: "user", Content: "x"})
+			turnReq := executor.buildTurnRequest(req, arenaconfig.TurnDefinition{Role: "user", Content: "x"})
 
 			if len(turnReq.PromptVars) != len(tt.expectedVars) {
 				t.Fatalf("expected %d vars, got %d (%v)", len(tt.expectedVars), len(turnReq.PromptVars), turnReq.PromptVars)

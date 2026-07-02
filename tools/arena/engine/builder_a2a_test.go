@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	a2amock "github.com/AltairaLabs/PromptKit/runtime/a2a/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestResolveA2AAuth(t *testing.T) {
@@ -18,30 +18,30 @@ func TestResolveA2AAuth(t *testing.T) {
 	})
 
 	t.Run("empty token returns nil", func(t *testing.T) {
-		auth := &config.A2AAuthConfig{Scheme: "Bearer"}
+		auth := &arenaconfig.A2AAuthConfig{Scheme: "Bearer"}
 		assert.Nil(t, resolveA2AAuth(auth))
 	})
 
 	t.Run("token from config", func(t *testing.T) {
-		auth := &config.A2AAuthConfig{Scheme: "Bearer", Token: "my-token"}
+		auth := &arenaconfig.A2AAuthConfig{Scheme: "Bearer", Token: "my-token"}
 		opt := resolveA2AAuth(auth)
 		assert.NotNil(t, opt)
 	})
 
 	t.Run("token from env", func(t *testing.T) {
 		t.Setenv("TEST_A2A_TOKEN_RESOLVE", "env-token")
-		auth := &config.A2AAuthConfig{Scheme: "ApiKey", TokenEnv: "TEST_A2A_TOKEN_RESOLVE"}
+		auth := &arenaconfig.A2AAuthConfig{Scheme: "ApiKey", TokenEnv: "TEST_A2A_TOKEN_RESOLVE"}
 		opt := resolveA2AAuth(auth)
 		assert.NotNil(t, opt)
 	})
 
 	t.Run("unset env returns nil", func(t *testing.T) {
-		auth := &config.A2AAuthConfig{Scheme: "Bearer", TokenEnv: "UNSET_A2A_TOKEN_XXXXX"}
+		auth := &arenaconfig.A2AAuthConfig{Scheme: "Bearer", TokenEnv: "UNSET_A2A_TOKEN_XXXXX"}
 		assert.Nil(t, resolveA2AAuth(auth))
 	})
 
 	t.Run("empty scheme defaults to Bearer", func(t *testing.T) {
-		auth := &config.A2AAuthConfig{Token: "tok"}
+		auth := &arenaconfig.A2AAuthConfig{Token: "tok"}
 		opt := resolveA2AAuth(auth)
 		assert.NotNil(t, opt)
 	})
@@ -92,12 +92,12 @@ func TestResolveA2AHeadersEngine(t *testing.T) {
 
 func TestBuildA2AMockConfig(t *testing.T) {
 	t.Run("basic agent config", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			Name: "test-agent",
-			Card: config.A2ACardConfig{
+			Card: arenaconfig.A2ACardConfig{
 				Name:        "Test Agent",
 				Description: "A test agent",
-				Skills: []config.A2ASkillConfig{
+				Skills: []arenaconfig.A2ASkillConfig{
 					{ID: "echo", Name: "Echo", Description: "Echo messages", Tags: []string{"utility"}},
 				},
 			},
@@ -113,15 +113,15 @@ func TestBuildA2AMockConfig(t *testing.T) {
 	})
 
 	t.Run("with responses and match rules", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			Name: "echo-agent",
-			Card: config.A2ACardConfig{Name: "Echo"},
-			Responses: []config.A2AResponseRule{
+			Card: arenaconfig.A2ACardConfig{Name: "Echo"},
+			Responses: []arenaconfig.A2AResponseRule{
 				{
 					Skill: "echo",
-					Match: &config.A2AMatchConfig{Contains: "hello", Regex: "^hello"},
-					Response: &config.A2AResponseConfig{
-						Parts: []config.A2APartConfig{{Text: "Hello back!"}},
+					Match: &arenaconfig.A2AMatchConfig{Contains: "hello", Regex: "^hello"},
+					Response: &arenaconfig.A2AResponseConfig{
+						Parts: []arenaconfig.A2APartConfig{{Text: "Hello back!"}},
 					},
 				},
 				{
@@ -149,7 +149,7 @@ func TestBuildA2AMockConfig(t *testing.T) {
 
 func TestPopulateConfigCard(t *testing.T) {
 	t.Run("populates empty card from discovered card", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{}
+		agentCfg := &arenaconfig.A2AAgentConfig{}
 		card := &a2a.AgentCard{
 			Name:        "Remote Agent",
 			Description: "Discovered description",
@@ -170,11 +170,11 @@ func TestPopulateConfigCard(t *testing.T) {
 	})
 
 	t.Run("does not overwrite existing card fields", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
-			Card: config.A2ACardConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
+			Card: arenaconfig.A2ACardConfig{
 				Name:        "Custom Name",
 				Description: "Custom Description",
-				Skills:      []config.A2ASkillConfig{{ID: "custom"}},
+				Skills:      []arenaconfig.A2ASkillConfig{{ID: "custom"}},
 			},
 		}
 		card := &a2a.AgentCard{
@@ -191,7 +191,7 @@ func TestPopulateConfigCard(t *testing.T) {
 	})
 
 	t.Run("empty discovered skills does not overwrite", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{}
+		agentCfg := &arenaconfig.A2AAgentConfig{}
 		card := &a2a.AgentCard{Name: "Agent", Skills: nil}
 		populateConfigCard(agentCfg, card)
 
@@ -202,7 +202,7 @@ func TestPopulateConfigCard(t *testing.T) {
 
 func TestBuildRemoteA2AServer(t *testing.T) {
 	t.Run("basic remote agent", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:  "https://agent.example.com/a2a",
 			Name: "remote",
 		}
@@ -216,9 +216,9 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 	})
 
 	t.Run("with auth token", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:  "https://agent.example.com/a2a",
-			Auth: &config.A2AAuthConfig{Scheme: "Bearer", Token: "tok123"},
+			Auth: &arenaconfig.A2AAuthConfig{Scheme: "Bearer", Token: "tok123"},
 		}
 		rs, err := buildRemoteA2AServer(agentCfg)
 
@@ -231,9 +231,9 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 
 	t.Run("with auth from env", func(t *testing.T) {
 		t.Setenv("TEST_REMOTE_TOKEN", "env-tok")
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:  "https://agent.example.com/a2a",
-			Auth: &config.A2AAuthConfig{Scheme: "Bearer", TokenEnv: "TEST_REMOTE_TOKEN"},
+			Auth: &arenaconfig.A2AAuthConfig{Scheme: "Bearer", TokenEnv: "TEST_REMOTE_TOKEN"},
 		}
 		rs, err := buildRemoteA2AServer(agentCfg)
 
@@ -244,7 +244,7 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 	})
 
 	t.Run("with headers", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:     "https://agent.example.com/a2a",
 			Headers: map[string]string{"X-Tenant": "acme"},
 		}
@@ -256,9 +256,9 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 	})
 
 	t.Run("with skill filter", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL: "https://agent.example.com/a2a",
-			SkillFilter: &config.A2ASkillFilter{
+			SkillFilter: &arenaconfig.A2ASkillFilter{
 				Allowlist: []string{"echo"},
 				Blocklist: []string{"debug"},
 			},
@@ -272,7 +272,7 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 	})
 
 	t.Run("with timeout", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:       "https://agent.example.com/a2a",
 			TimeoutMs: 5000,
 		}
@@ -283,7 +283,7 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 	})
 
 	t.Run("invalid headers_from_env returns error", func(t *testing.T) {
-		agentCfg := &config.A2AAgentConfig{
+		agentCfg := &arenaconfig.A2AAgentConfig{
 			URL:            "https://agent.example.com/a2a",
 			HeadersFromEnv: []string{"bad-format"},
 		}
@@ -293,13 +293,13 @@ func TestBuildRemoteA2AServer(t *testing.T) {
 }
 
 func TestStartA2AServers_LocalMock(t *testing.T) {
-	agentCfg := []config.A2AAgentConfig{
+	agentCfg := []arenaconfig.A2AAgentConfig{
 		{
 			Name: "test-echo",
-			Card: config.A2ACardConfig{
+			Card: arenaconfig.A2ACardConfig{
 				Name:        "Echo",
 				Description: "Echoes messages",
-				Skills: []config.A2ASkillConfig{
+				Skills: []arenaconfig.A2ASkillConfig{
 					{ID: "echo", Name: "echo", Description: "Echo a message"},
 				},
 			},
@@ -331,7 +331,7 @@ func TestDiscoverAndRegisterA2ATools_LocalMock(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
-	agents := []config.A2AAgentConfig{{Name: "echo"}}
+	agents := []arenaconfig.A2AAgentConfig{{Name: "echo"}}
 	servers := []a2aRunningServer{{url: url, server: server}}
 
 	registry := tools.NewRegistry()

@@ -3,13 +3,13 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // GenerateEvalSchema generates the JSON Schema for Eval configuration
 func GenerateEvalSchema() (interface{}, error) {
 	return Generate(&SchemaConfig{
-		Target:      &config.EvalConfig{},
+		Target:      &arenaconfig.EvalConfig{},
 		Filename:    "eval.json",
 		Title:       "PromptArena Eval Configuration",
 		Description: "Eval configuration for replaying and validating saved conversations",

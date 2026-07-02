@@ -1,9 +1,11 @@
-package config
+package arenaconfig
 
 import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 func TestArenaSpec_TTSProvidersAndVoices(t *testing.T) {
@@ -44,8 +46,8 @@ spec:
 
 func TestConfig_ResolveVoice(t *testing.T) {
 	cfg := &Config{
-		Voices: []VoiceBinding{{ID: "confident-man", Provider: "cartesia-confident-man"}},
-		LoadedTTSProviders: map[string]*Provider{
+		Voices: []config.VoiceBinding{{ID: "confident-man", Provider: "cartesia-confident-man"}},
+		LoadedTTSProviders: map[string]*config.Provider{
 			"cartesia-confident-man": {ID: "cartesia-confident-man", Type: "cartesia", Voice: "vid-1", Role: "tts"},
 		},
 	}
@@ -67,8 +69,8 @@ func TestConfig_ResolveVoice_UnknownID(t *testing.T) {
 
 func TestConfig_ResolveVoice_BindingMissingProvider(t *testing.T) {
 	cfg := &Config{
-		Voices:             []VoiceBinding{{ID: "confident-man", Provider: "ghost"}},
-		LoadedTTSProviders: map[string]*Provider{},
+		Voices:             []config.VoiceBinding{{ID: "confident-man", Provider: "ghost"}},
+		LoadedTTSProviders: map[string]*config.Provider{},
 	}
 	if _, err := cfg.ResolveVoice("confident-man"); err == nil {
 		t.Fatal("expected error when binding's provider is not loaded")

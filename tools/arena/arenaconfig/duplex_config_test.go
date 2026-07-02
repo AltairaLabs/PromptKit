@@ -1,4 +1,4 @@
-package config
+package arenaconfig
 
 import (
 	"testing"

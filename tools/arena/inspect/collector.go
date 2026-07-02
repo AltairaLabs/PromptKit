@@ -9,12 +9,13 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // CollectInspectionData collects all inspection data from a loaded config.
 // It does not collect cache stats; callers that want cache stats should call
 // CollectCacheStats separately and assign the result to data.CacheStats.
-func CollectInspectionData(cfg *config.Config, configFile string) *InspectionData {
+func CollectInspectionData(cfg *arenaconfig.Config, configFile string) *InspectionData {
 	data := &InspectionData{
 		ConfigFile:         filepath.Base(configFile),
 		AvailableTaskTypes: getAvailableTaskTypes(cfg),
@@ -37,7 +38,7 @@ func CollectInspectionData(cfg *config.Config, configFile string) *InspectionDat
 // CollectCacheStats collects cache statistics from a loaded config.
 // When verbose is true, the Entries fields are populated with individual entry
 // names; otherwise only the Size counts are set.
-func CollectCacheStats(cfg *config.Config, verbose bool) *CacheStatsData {
+func CollectCacheStats(cfg *arenaconfig.Config, verbose bool) *CacheStatsData {
 	// Collect basic cache information from loaded config.
 	// Always build the slice so we have an accurate Size even in non-verbose mode.
 	loadedPrompts := make([]string, 0, len(cfg.LoadedPromptConfigs))
@@ -80,7 +81,7 @@ func CollectCacheStats(cfg *config.Config, verbose bool) *CacheStatsData {
 }
 
 // collectPromptConfigs extracts prompt configuration details
-func collectPromptConfigs(cfg *config.Config) []PromptInspectData {
+func collectPromptConfigs(cfg *arenaconfig.Config) []PromptInspectData {
 	var prompts []PromptInspectData
 	for _, pc := range cfg.PromptConfigs {
 		promptData := PromptInspectData{
@@ -95,7 +96,7 @@ func collectPromptConfigs(cfg *config.Config) []PromptInspectData {
 }
 
 // populatePromptDetails fills in details from loaded prompt config
-func populatePromptDetails(promptData *PromptInspectData, cfg *config.Config, promptID string) {
+func populatePromptDetails(promptData *PromptInspectData, cfg *arenaconfig.Config, promptID string) {
 	loaded, ok := cfg.LoadedPromptConfigs[promptID]
 	if !ok || loaded.Config == nil {
 		return
@@ -119,7 +120,7 @@ func populatePromptDetails(promptData *PromptInspectData, cfg *config.Config, pr
 }
 
 // collectProviders extracts provider configuration details
-func collectProviders(cfg *config.Config) []ProviderInspectData {
+func collectProviders(cfg *arenaconfig.Config) []ProviderInspectData {
 	// Build a map of provider usage
 	providerUsage := buildProviderUsageMap(cfg)
 
@@ -147,7 +148,7 @@ func collectProviders(cfg *config.Config) []ProviderInspectData {
 }
 
 // buildProviderUsageMap builds a map of provider ID to what uses it
-func buildProviderUsageMap(cfg *config.Config) map[string][]string {
+func buildProviderUsageMap(cfg *arenaconfig.Config) map[string][]string {
 	usage := make(map[string][]string)
 
 	// Track judge usage
@@ -172,7 +173,7 @@ func buildProviderUsageMap(cfg *config.Config) map[string][]string {
 // appendJudgeProviders adds judge providers that aren't already in the providers list
 func appendJudgeProviders(
 	providers []ProviderInspectData,
-	cfg *config.Config,
+	cfg *arenaconfig.Config,
 	usage map[string][]string,
 ) []ProviderInspectData {
 	existingIDs := make(map[string]bool)
@@ -207,7 +208,7 @@ func appendJudgeProviders(
 }
 
 // populateProviderDetails fills in details from loaded provider
-func populateProviderDetails(providerData *ProviderInspectData, cfg *config.Config, filePath string) {
+func populateProviderDetails(providerData *ProviderInspectData, cfg *arenaconfig.Config, filePath string) {
 	fileBase := getProviderIDFromFile(filePath)
 	matched := findMatchingProvider(cfg, fileBase)
 	if matched != nil {
@@ -220,7 +221,7 @@ func populateProviderDetails(providerData *ProviderInspectData, cfg *config.Conf
 }
 
 // findMatchingProvider finds a loaded provider by file base name
-func findMatchingProvider(cfg *config.Config, fileBase string) *config.Provider {
+func findMatchingProvider(cfg *arenaconfig.Config, fileBase string) *config.Provider {
 	for provID, loaded := range cfg.LoadedProviders {
 		if loaded == nil {
 			continue
@@ -235,7 +236,7 @@ func findMatchingProvider(cfg *config.Config, fileBase string) *config.Provider 
 }
 
 // collectScenarios extracts scenario configuration details
-func collectScenarios(cfg *config.Config) []ScenarioInspectData {
+func collectScenarios(cfg *arenaconfig.Config) []ScenarioInspectData {
 	var scenarios []ScenarioInspectData
 	for _, s := range cfg.Scenarios {
 		scenarioData := ScenarioInspectData{File: s.File}
@@ -246,7 +247,7 @@ func collectScenarios(cfg *config.Config) []ScenarioInspectData {
 }
 
 // populateScenarioDetails fills in details from loaded scenario
-func populateScenarioDetails(scenarioData *ScenarioInspectData, cfg *config.Config, filePath string) {
+func populateScenarioDetails(scenarioData *ScenarioInspectData, cfg *arenaconfig.Config, filePath string) {
 	for id, loaded := range cfg.LoadedScenarios {
 		if !strings.HasSuffix(filePath, filepath.Base(loaded.ID)) && loaded.ID != id {
 			continue
@@ -265,7 +266,7 @@ func populateScenarioDetails(scenarioData *ScenarioInspectData, cfg *config.Conf
 }
 
 // countScenarioAssertions counts assertions and detects self-play
-func countScenarioAssertions(scenarioData *ScenarioInspectData, loaded *config.Scenario) {
+func countScenarioAssertions(scenarioData *ScenarioInspectData, loaded *arenaconfig.Scenario) {
 	for i := range loaded.Turns {
 		scenarioData.AssertionCount += len(loaded.Turns[i].Assertions)
 		if loaded.Turns[i].Persona != "" || loaded.Turns[i].Turns > 0 {
@@ -275,7 +276,7 @@ func countScenarioAssertions(scenarioData *ScenarioInspectData, loaded *config.S
 }
 
 // collectTools extracts tool configuration details
-func collectTools(cfg *config.Config) []ToolInspectData {
+func collectTools(cfg *arenaconfig.Config) []ToolInspectData {
 	var tools []ToolInspectData
 	for _, t := range cfg.LoadedTools {
 		toolData := ToolInspectData{File: t.FilePath}
@@ -311,7 +312,7 @@ func parseToolManifest(toolData *ToolInspectData, data []byte) {
 }
 
 // collectPersonas extracts persona configuration details
-func collectPersonas(cfg *config.Config) []PersonaInspectData {
+func collectPersonas(cfg *arenaconfig.Config) []PersonaInspectData {
 	var personas []PersonaInspectData
 	for id, persona := range cfg.LoadedPersonas {
 		personaData := PersonaInspectData{
@@ -328,7 +329,7 @@ func collectPersonas(cfg *config.Config) []PersonaInspectData {
 
 // collectJudges extracts judge configuration details. The judge's model is
 // inherited from its provider, surfaced here via the resolved judge target.
-func collectJudges(cfg *config.Config) []JudgeInspectData {
+func collectJudges(cfg *arenaconfig.Config) []JudgeInspectData {
 	var judges []JudgeInspectData
 	for _, j := range cfg.Judges {
 		data := JudgeInspectData{
@@ -344,7 +345,7 @@ func collectJudges(cfg *config.Config) []JudgeInspectData {
 }
 
 // collectSelfPlayRoles extracts self-play role configuration
-func collectSelfPlayRoles(cfg *config.Config) []SelfPlayRoleData {
+func collectSelfPlayRoles(cfg *arenaconfig.Config) []SelfPlayRoleData {
 	if cfg.SelfPlay == nil {
 		return nil
 	}
@@ -367,7 +368,7 @@ func collectSelfPlayRoles(cfg *config.Config) []SelfPlayRoleData {
 }
 
 // buildRolePersonaMap scans scenarios to find which personas are used by which roles
-func buildRolePersonaMap(cfg *config.Config) map[string]string {
+func buildRolePersonaMap(cfg *arenaconfig.Config) map[string]string {
 	rolePersona := make(map[string]string)
 	for _, scenario := range cfg.LoadedScenarios {
 		for i := range scenario.Turns {
@@ -382,7 +383,7 @@ func buildRolePersonaMap(cfg *config.Config) map[string]string {
 }
 
 // collectDefaults extracts default configuration values
-func collectDefaults(cfg *config.Config) *DefaultsInspectData {
+func collectDefaults(cfg *arenaconfig.Config) *DefaultsInspectData {
 	outputCfg := cfg.Defaults.GetOutputConfig()
 	return &DefaultsInspectData{
 		Temperature:   cfg.Defaults.Temperature,
@@ -407,7 +408,7 @@ func getProviderIDFromFile(filePath string) string {
 }
 
 // getAvailableTaskTypes extracts task types from loaded prompt configs
-func getAvailableTaskTypes(cfg *config.Config) []string {
+func getAvailableTaskTypes(cfg *arenaconfig.Config) []string {
 	taskTypes := make([]string, 0, len(cfg.LoadedPromptConfigs))
 	for taskType := range cfg.LoadedPromptConfigs {
 		taskTypes = append(taskTypes, taskType)
@@ -481,8 +482,8 @@ func CollectConnectivityChecks(data *InspectionData) []ValidationCheckData {
 // config-inspect CLI (e.g. the TUI hub's Inspect page) must call this; otherwise
 // ValidationPassed stays at its zero value (false) and the view wrongly reports
 // "Configuration has errors" for a perfectly valid config.
-func PopulateValidation(data *InspectionData, cfg *config.Config, configFile string) {
-	validator := config.NewConfigValidatorWithPath(cfg, configFile)
+func PopulateValidation(data *InspectionData, cfg *arenaconfig.Config, configFile string) {
+	validator := arenaconfig.NewConfigValidatorWithPath(cfg, configFile)
 	err := validator.Validate()
 	data.ValidationPassed = err == nil
 	if err != nil {

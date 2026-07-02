@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
@@ -64,10 +64,10 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 	)
 
 	// Create scenario with 10 turns (like MCP predictbot memory-conversations scenario)
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "memory-conversations",
 		TaskType: "memory-assistant",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hi! My name is Alice and I'm a software engineer."},
 			{Role: "user", Content: "What's my name and what do I do?"},
 			{Role: "user", Content: "I love Python programming and I'm currently working on a web scraper project."},
@@ -85,8 +85,8 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 		Region:   "default",
 		Scenario: scenario,
 		Provider: &MockProvider{id: "openai-gpt4o-mini"},
-		Config: &config.Config{
-			Defaults: config.Defaults{
+		Config: &arenaconfig.Config{
+			Defaults: arenaconfig.Defaults{
 				Verbose:     false,
 				Temperature: 0.7,
 				MaxTokens:   1000,

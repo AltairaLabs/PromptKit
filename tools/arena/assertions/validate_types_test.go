@@ -3,26 +3,27 @@ package assertions
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in handlers
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in handlers
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestValidateAssertionTypes(t *testing.T) {
 	registry := evals.NewEvalTypeRegistry()
 
 	t.Run("valid types produce no errors", func(t *testing.T) {
-		scenarios := map[string]*config.Scenario{
+		scenarios := map[string]*arenaconfig.Scenario{
 			"test-scenario": {
-				ConversationAssertions: []config.AssertionConfig{
+				ConversationAssertions: []arenaconfig.AssertionConfig{
 					{Type: "contains"},
 					{Type: "tools_called"},
 				},
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{
-						Assertions: []config.AssertionConfig{
+						Assertions: []arenaconfig.AssertionConfig{
 							{Type: "regex"},
 							{Type: "max_length"},
 						},
@@ -35,9 +36,9 @@ func TestValidateAssertionTypes(t *testing.T) {
 	})
 
 	t.Run("aliases are accepted", func(t *testing.T) {
-		scenarios := map[string]*config.Scenario{
+		scenarios := map[string]*arenaconfig.Scenario{
 			"test": {
-				ConversationAssertions: []config.AssertionConfig{
+				ConversationAssertions: []arenaconfig.AssertionConfig{
 					{Type: "tool_called"},     // alias for tools_called
 					{Type: "banned_words"},    // alias for content_excludes
 					{Type: "content_matches"}, // alias for regex
@@ -49,14 +50,14 @@ func TestValidateAssertionTypes(t *testing.T) {
 	})
 
 	t.Run("invalid types produce errors with suggestions", func(t *testing.T) {
-		scenarios := map[string]*config.Scenario{
+		scenarios := map[string]*arenaconfig.Scenario{
 			"hero-scenario": {
-				ConversationAssertions: []config.AssertionConfig{
+				ConversationAssertions: []arenaconfig.AssertionConfig{
 					{Type: "substring_present"},
 				},
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{
-						Assertions: []config.AssertionConfig{
+						Assertions: []arenaconfig.AssertionConfig{
 							{Type: "tool_called_with_args"},
 						},
 					},
@@ -77,9 +78,9 @@ func TestValidateAssertionTypes(t *testing.T) {
 	})
 
 	t.Run("suggestion includes close match", func(t *testing.T) {
-		scenarios := map[string]*config.Scenario{
+		scenarios := map[string]*arenaconfig.Scenario{
 			"test": {
-				ConversationAssertions: []config.AssertionConfig{
+				ConversationAssertions: []arenaconfig.AssertionConfig{
 					{Type: "contain"}, // close to "contains"
 				},
 			},

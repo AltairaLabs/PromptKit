@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 var promptDebugCmd = &cobra.Command{
@@ -145,7 +145,7 @@ func runPromptDebug(cmd *cobra.Command) error {
 	}
 
 	// Load configuration
-	cfg, err := config.LoadConfig(opts.ConfigFile)
+	cfg, err := arenaconfig.LoadConfig(opts.ConfigFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -166,12 +166,14 @@ func runPromptDebug(cmd *cobra.Command) error {
 }
 
 // applyScenarioOverrides loads a scenario file and overrides options with scenario data
-func applyScenarioOverrides(opts *promptDebugOptions, cfg *config.Config) error {
+func applyScenarioOverrides(
+	opts *promptDebugOptions, cfg *arenaconfig.Config, //nolint:unparam // cfg retained for signature consistency
+) error {
 	if opts.ScenarioFile == "" {
 		return nil
 	}
 
-	scenario, err := config.LoadScenario(opts.ScenarioFile)
+	scenario, err := arenaconfig.LoadScenario(opts.ScenarioFile)
 	if err != nil {
 		return fmt.Errorf("failed to load scenario file %s: %w", opts.ScenarioFile, err)
 	}
@@ -186,7 +188,7 @@ func applyScenarioOverrides(opts *promptDebugOptions, cfg *config.Config) error 
 }
 
 // applyScenarioData applies scenario data to options
-func applyScenarioData(opts *promptDebugOptions, scenario *config.Scenario) {
+func applyScenarioData(opts *promptDebugOptions, scenario *arenaconfig.Scenario) {
 	// Override task_type with scenario's task_type
 	opts.TaskType = scenario.TaskType
 
@@ -198,7 +200,7 @@ func applyScenarioData(opts *promptDebugOptions, scenario *config.Scenario) {
 }
 
 // applyContextMetadata applies context metadata from scenario if available
-func applyContextMetadata(opts *promptDebugOptions, scenario *config.Scenario) {
+func applyContextMetadata(opts *promptDebugOptions, scenario *arenaconfig.Scenario) {
 	if scenario.ContextMetadata == nil {
 		return
 	}
@@ -212,7 +214,7 @@ func applyContextMetadata(opts *promptDebugOptions, scenario *config.Scenario) {
 }
 
 // applyContextFromMap extracts context from scenario's context map
-func applyContextFromMap(opts *promptDebugOptions, scenario *config.Scenario) {
+func applyContextFromMap(opts *promptDebugOptions, scenario *arenaconfig.Scenario) {
 	if opts.Context != "" || scenario.Context == nil {
 		return
 	}
@@ -228,7 +230,7 @@ func applyContextFromMap(opts *promptDebugOptions, scenario *config.Scenario) {
 }
 
 // displayScenarioInfo shows scenario loading information if verbose mode is enabled
-func displayScenarioInfo(opts *promptDebugOptions, scenario *config.Scenario) {
+func displayScenarioInfo(opts *promptDebugOptions, scenario *arenaconfig.Scenario) {
 	if !opts.Verbose {
 		return
 	}
@@ -244,7 +246,7 @@ func displayScenarioInfo(opts *promptDebugOptions, scenario *config.Scenario) {
 }
 
 // showAvailableConfigurations displays all available configurations
-func showAvailableConfigurations(cfg *config.Config) error {
+func showAvailableConfigurations(cfg *arenaconfig.Config) error {
 	fmt.Printf("📋 Available Prompt Configurations\n")
 	fmt.Printf("===================================\n")
 
@@ -286,7 +288,7 @@ func showAvailableConfigurations(cfg *config.Config) error {
 }
 
 // generateAndDisplayPrompt generates a prompt and displays it according to options
-func generateAndDisplayPrompt(opts *promptDebugOptions, cfg *config.Config) error {
+func generateAndDisplayPrompt(opts *promptDebugOptions, cfg *arenaconfig.Config) error {
 	// Enable verbose debugging if requested
 	if opts.Verbose {
 		fmt.Printf("🔍 Prompt Debug Mode - Verbose Enabled\n")
@@ -308,7 +310,7 @@ func generateAndDisplayPrompt(opts *promptDebugOptions, cfg *config.Config) erro
 }
 
 // buildSystemPrompt constructs the system prompt based on options
-func buildSystemPrompt(opts *promptDebugOptions, cfg *config.Config) (string, string, map[string]string, error) {
+func buildSystemPrompt(opts *promptDebugOptions, cfg *arenaconfig.Config) (string, string, map[string]string, error) {
 	variables := make(map[string]string)
 
 	// Add context variables
@@ -330,7 +332,9 @@ func buildSystemPrompt(opts *promptDebugOptions, cfg *config.Config) (string, st
 }
 
 // buildPersonaPrompt builds a system prompt using a persona
-func buildPersonaPrompt(opts *promptDebugOptions, cfg *config.Config, variables map[string]string) (string, string, map[string]string, error) {
+func buildPersonaPrompt(
+	opts *promptDebugOptions, cfg *arenaconfig.Config, variables map[string]string,
+) (string, string, map[string]string, error) {
 	personaPack, exists := cfg.LoadedPersonas[opts.Persona]
 	if !exists {
 		availablePersonas := make([]string, 0, len(cfg.LoadedPersonas))
@@ -370,7 +374,9 @@ func buildPersonaPrompt(opts *promptDebugOptions, cfg *config.Config, variables 
 }
 
 // buildRegionTaskPrompt builds a system prompt using region and task type
-func buildRegionTaskPrompt(opts *promptDebugOptions, cfg *config.Config, variables map[string]string) (string, string, map[string]string, error) {
+func buildRegionTaskPrompt(
+	opts *promptDebugOptions, cfg *arenaconfig.Config, variables map[string]string,
+) (string, string, map[string]string, error) {
 	if opts.Region == "" || opts.TaskType == "" {
 		return "", "", nil, fmt.Errorf("region and task-type are required when not using persona mode")
 	}
@@ -416,7 +422,9 @@ func extractRegionFromPersonaID(persona string) string {
 }
 
 // displayPromptResults shows the generated prompt according to display options
-func displayPromptResults(opts *promptDebugOptions, cfg *config.Config, systemPrompt, promptType string, variables map[string]string) error {
+func displayPromptResults(
+	opts *promptDebugOptions, cfg *arenaconfig.Config, systemPrompt, promptType string, variables map[string]string,
+) error {
 	providers := cfg.LoadedProviders
 	scenarios := cfg.LoadedScenarios
 
@@ -455,7 +463,10 @@ func displayPromptResults(opts *promptDebugOptions, cfg *config.Config, systemPr
 }
 
 // displayMetadata shows metadata about the prompt generation
-func displayMetadata(opts *promptDebugOptions, cfg *config.Config, promptType string, variables map[string]string, providerCount, scenarioCount int) {
+func displayMetadata(
+	opts *promptDebugOptions, cfg *arenaconfig.Config, promptType string, variables map[string]string,
+	providerCount, scenarioCount int,
+) {
 	fmt.Printf("🎯 Prompt Generation Results\n")
 	fmt.Printf("=============================\n")
 	fmt.Printf("Prompt Type: %s\n", promptType)
@@ -494,7 +505,7 @@ func displaySystemPrompt(systemPrompt string) {
 }
 
 // displayDebugInfo shows debug information
-func displayDebugInfo(cfg *config.Config) {
+func displayDebugInfo(cfg *arenaconfig.Config) {
 	fmt.Printf("\n🔍 Debug Info\n")
 	fmt.Printf("-------------\n")
 

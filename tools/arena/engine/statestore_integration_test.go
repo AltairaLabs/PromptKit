@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -15,20 +16,20 @@ import (
 func TestStateStore_EndToEnd(t *testing.T) {
 	t.Skip("State store integration with pipeline needs to be completed - messages not being captured")
 	// Create config with StateStore
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		StateStore: &config.StateStoreConfig{
 			Type: "memory",
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				ID:       "test-scenario",
 				TaskType: "assistance",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "What is 2+2?"},
 					{Role: "user", Content: "And what is 3+3?"},
 				},

@@ -25,6 +25,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 
 	// Import provider subpackages to register their factories
+	"github.com/redis/go-redis/v9"
+
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/imagen"
@@ -37,11 +39,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	_ "github.com/AltairaLabs/PromptKit/tools/arena/mcpsource/docker/register" // register docker MCPSource
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
-	"github.com/redis/go-redis/v9"
 )
 
 // BuildEngineComponents builds all engine components from a loaded Config object.
@@ -56,14 +58,14 @@ import (
 // - Conversation executor
 //
 // This function is exported to enable programmatic creation of Arena engines
-// without requiring file-based configuration. Users can construct a *config.Config
+// without requiring file-based configuration. Users can construct a *arenaconfig.Config
 // programmatically and pass it to this function to get all required registries
 // for use with NewEngine.
 //
 // Returns all components needed to construct an Engine, or an error if any component fails to build.
 //
 //nolint:gocognit,gocritic // Pre-existing: complexity reduced from 24→20; 8 returns are the public API contract
-func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
+func BuildEngineComponents(cfg *arenaconfig.Config, providerFilter []string) (
 	providerRegistry *providers.Registry,
 	promptRegistry *prompt.Registry,
 	mcpRegistry *mcp.RegistryImpl,
@@ -228,7 +230,9 @@ func registerMediaGenTools(toolRegistry *tools.Registry, providerRegistry *provi
 // initialized — this avoids resolving credentials for providers that won't be
 // used (e.g., when --provider mock is passed, missing Azure API keys won't
 // cause a failure).
-func buildProviderRegistry(registry *providers.Registry, cfg *config.Config, providerFilter []string) error {
+func buildProviderRegistry( //nolint:gocognit // pre-existing complexity, unchanged by move
+	registry *providers.Registry, cfg *arenaconfig.Config, providerFilter []string,
+) error {
 	filterSet := make(map[string]bool, len(providerFilter))
 	for _, id := range providerFilter {
 		filterSet[id] = true
@@ -500,7 +504,7 @@ func discoverAndRegisterMCPTools(mcpRegistry *mcp.RegistryImpl, toolRegistry *to
 // buildPromptRegistry creates a prompt registry from config.
 // It uses a memory repository with pre-loaded prompt configs from the config layer.
 // Returns nil if no prompt configs are loaded.
-func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
+func buildPromptRegistry(cfg *arenaconfig.Config) (*prompt.Registry, error) {
 	if len(cfg.LoadedPromptConfigs) == 0 {
 		return nil, nil
 	}
@@ -563,7 +567,7 @@ func buildPromptRegistry(cfg *config.Config) (*prompt.Registry, error) {
 // buildToolRegistry creates a tool registry from config.
 // It parses tool files and uses a memory repository with pre-loaded tool descriptors.
 // Returns nil if no tools are loaded.
-func buildToolRegistry(cfg *config.Config) (*tools.Registry, error) {
+func buildToolRegistry(cfg *arenaconfig.Config) (*tools.Registry, error) {
 	// Create memory repository
 	memRepo := memory.NewToolRepository()
 
@@ -615,7 +619,7 @@ func resolveMockPartsPaths(tool *tools.ToolDescriptor, configDir string) {
 
 // buildMCPRegistry creates an MCP registry from config and registers all MCP servers.
 // Returns nil if no MCP servers are configured.
-func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
+func buildMCPRegistry(cfg *arenaconfig.Config) (*mcp.RegistryImpl, error) {
 	if len(cfg.MCPServers) == 0 {
 		return nil, nil
 	}
@@ -662,7 +666,7 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 // - DuplexConversationExecutor for bidirectional streaming scenarios (duplex mode)
 // Also returns the adapter registry for use in batch evaluation enumeration.
 func newConversationExecutor(
-	cfg *config.Config,
+	cfg *arenaconfig.Config,
 	toolRegistry *tools.Registry,
 	promptRegistry *prompt.Registry,
 	mediaStorage storage.MediaStorageService,
@@ -724,7 +728,9 @@ func newConversationExecutor(
 //     gap.
 //
 // The same handler registry validates all of them.
-func buildEvalOrchestrator(cfg *config.Config, skipEvals bool, evalTypeFilter []string) (*EvalOrchestrator, error) {
+func buildEvalOrchestrator(
+	cfg *arenaconfig.Config, skipEvals bool, evalTypeFilter []string,
+) (*EvalOrchestrator, error) {
 	allDefs, packID := collectAllEvalDefs(cfg)
 
 	if len(allDefs) == 0 && !skipEvals {
@@ -750,7 +756,7 @@ func buildEvalOrchestrator(cfg *config.Config, skipEvals bool, evalTypeFilter []
 // Returns (defs, packID). packID is empty when no compiled pack is
 // loaded — orchestrator code that emits pack-id-tagged events can
 // fall back to a sensible default.
-func collectAllEvalDefs(cfg *config.Config) (defs []evals.EvalDef, packID string) {
+func collectAllEvalDefs(cfg *arenaconfig.Config) (defs []evals.EvalDef, packID string) {
 	if cfg.LoadedPack != nil {
 		pack := cfg.LoadedPack
 		defs = pack.Evals
@@ -800,7 +806,7 @@ func buildEvalExecutor(
 
 // buildSelfPlayComponents creates the self-play registry and executor.
 func buildSelfPlayComponents(
-	cfg *config.Config,
+	cfg *arenaconfig.Config,
 	pipelineExecutor *turnexecutors.PipelineExecutor,
 	mainProviderRegistry *providers.Registry,
 ) (*selfplay.Registry, *turnexecutors.SelfPlayExecutor, error) {
@@ -850,7 +856,7 @@ func buildSelfPlayComponents(
 // Always returns a StateStore - defaults to ArenaStateStore if not configured.
 // ArenaStateStore is used by default for Arena testing to capture telemetry
 // (validation results, turn metrics, costs) for analysis.
-func buildStateStore(cfg *config.Config) (runtimestore.Store, error) {
+func buildStateStore(cfg *arenaconfig.Config) (runtimestore.Store, error) {
 	if cfg.StateStore == nil || cfg.StateStore.Type == "" || cfg.StateStore.Type == "memory" {
 		// Default to ArenaStateStore for telemetry capture
 		return statestore.NewArenaStateStore(), nil
@@ -898,7 +904,7 @@ func buildStateStore(cfg *config.Config) (runtimestore.Store, error) {
 // appended to the system prompt so skills marked preload: true are active from
 // turn 1 without the model having to call skill__activate.
 func discoverAndRegisterSkillTools(
-	cfg *config.Config, toolRegistry *tools.Registry,
+	cfg *arenaconfig.Config, toolRegistry *tools.Registry,
 ) (*skills.Executor, string, error) {
 	if len(cfg.LoadedSkillSources) == 0 {
 		return nil, "", nil
@@ -991,7 +997,7 @@ type a2aRunningServer struct {
 // startAndRegisterA2AAgents starts mock A2A servers (or connects to remote ones)
 // from config, discovers their tools, and registers them in the tool registry.
 // Returns a cleanup function that shuts down all mock servers.
-func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry) (func(), error) {
+func startAndRegisterA2AAgents(cfg *arenaconfig.Config, toolRegistry *tools.Registry) (func(), error) {
 	if len(cfg.A2AAgents) == 0 {
 		return nil, nil
 	}
@@ -1017,7 +1023,7 @@ func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry)
 }
 
 // startA2AServers starts mock A2A servers for local agents or resolves remote agents.
-func startA2AServers(agents []config.A2AAgentConfig) ([]a2aRunningServer, func(), error) {
+func startA2AServers(agents []arenaconfig.A2AAgentConfig) ([]a2aRunningServer, func(), error) {
 	var servers []a2aRunningServer
 	cleanup := func() {
 		for _, s := range servers {
@@ -1057,7 +1063,7 @@ func startA2AServers(agents []config.A2AAgentConfig) ([]a2aRunningServer, func()
 }
 
 // buildRemoteA2AServer creates an a2aRunningServer for a remote A2A agent.
-func buildRemoteA2AServer(agentCfg *config.A2AAgentConfig) (a2aRunningServer, error) {
+func buildRemoteA2AServer(agentCfg *arenaconfig.A2AAgentConfig) (a2aRunningServer, error) {
 	rs := a2aRunningServer{url: agentCfg.URL}
 
 	if opt := resolveA2AAuth(agentCfg.Auth); opt != nil {
@@ -1101,7 +1107,7 @@ func buildRemoteA2AServer(agentCfg *config.A2AAgentConfig) (a2aRunningServer, er
 
 // resolveA2AAuth builds a WithAuth client option from the auth config.
 // Returns nil if no auth is configured or the token is empty.
-func resolveA2AAuth(auth *config.A2AAuthConfig) a2a.ClientOption {
+func resolveA2AAuth(auth *arenaconfig.A2AAuthConfig) a2a.ClientOption {
 	if auth == nil {
 		return nil
 	}
@@ -1145,7 +1151,7 @@ func resolveA2AHeaders(
 }
 
 // buildA2AMockConfig converts an A2AAgentConfig to a mock.AgentConfig.
-func buildA2AMockConfig(agentCfg *config.A2AAgentConfig) *a2amock.AgentConfig {
+func buildA2AMockConfig(agentCfg *arenaconfig.A2AAgentConfig) *a2amock.AgentConfig {
 	card := a2a.AgentCard{
 		Name:               agentCfg.Card.Name,
 		Description:        agentCfg.Card.Description,
@@ -1184,10 +1190,10 @@ func buildA2AMockConfig(agentCfg *config.A2AAgentConfig) *a2amock.AgentConfig {
 }
 
 // discoverAndRegisterA2ATools discovers tools from running A2A servers and registers them.
-// For remote agents, it also populates the corresponding config.A2AAgentConfig.Card fields
+// For remote agents, it also populates the corresponding arenaconfig.A2AAgentConfig.Card fields
 // so that the report renderer can display agent card metadata.
 func discoverAndRegisterA2ATools(
-	servers []a2aRunningServer, toolRegistry *tools.Registry, agents []config.A2AAgentConfig,
+	servers []a2aRunningServer, toolRegistry *tools.Registry, agents []arenaconfig.A2AAgentConfig,
 ) (int, error) {
 	initCtx, cancel := context.WithTimeout(context.Background(), a2aInitTimeout)
 	defer cancel()
@@ -1232,7 +1238,7 @@ func discoverAndRegisterA2ATools(
 
 // populateConfigCard writes discovered agent card data back into the config
 // so the report renderer can display agent metadata for remote agents.
-func populateConfigCard(agentCfg *config.A2AAgentConfig, card *a2a.AgentCard) {
+func populateConfigCard(agentCfg *arenaconfig.A2AAgentConfig, card *a2a.AgentCard) {
 	if agentCfg.Card.Name == "" {
 		agentCfg.Card.Name = card.Name
 	}
@@ -1240,10 +1246,10 @@ func populateConfigCard(agentCfg *config.A2AAgentConfig, card *a2a.AgentCard) {
 		agentCfg.Card.Description = card.Description
 	}
 	if len(agentCfg.Card.Skills) == 0 && len(card.Skills) > 0 {
-		agentCfg.Card.Skills = make([]config.A2ASkillConfig, len(card.Skills))
+		agentCfg.Card.Skills = make([]arenaconfig.A2ASkillConfig, len(card.Skills))
 		for i := range card.Skills {
 			skill := &card.Skills[i]
-			agentCfg.Card.Skills[i] = config.A2ASkillConfig{
+			agentCfg.Card.Skills[i] = arenaconfig.A2ASkillConfig{
 				ID:          skill.ID,
 				Name:        skill.Name,
 				Description: skill.Description,

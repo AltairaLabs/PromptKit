@@ -3,8 +3,10 @@ package app
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // fakePage is a minimal Page implementation used to verify the contract.
@@ -26,7 +28,7 @@ func TestPageContract(t *testing.T) {
 
 	t.Run("AppContext HasConfig true when set", func(t *testing.T) {
 		// We only need a non-nil pointer; the concrete value does not matter here.
-		ctx := AppContext{Config: &config.Config{}}
+		ctx := AppContext{Config: &arenaconfig.Config{}}
 		if !ctx.HasConfig() {
 			t.Fatal("expected HasConfig() == true after setting Config")
 		}
@@ -49,42 +51,42 @@ func TestDetectInteractiveSession(t *testing.T) {
 		t.Fatalf("nil config should yield no session, got %+v", got)
 	}
 
-	textOnly := &config.Config{LoadedScenarios: map[string]*config.Scenario{
+	textOnly := &arenaconfig.Config{LoadedScenarios: map[string]*arenaconfig.Scenario{
 		"plain": {ID: "plain"},
 	}}
 	if got := DetectInteractiveSession(textOnly); got != nil {
 		t.Fatalf("text-only config should yield no session, got %+v", got)
 	}
 
-	realtime := &config.Config{LoadedScenarios: map[string]*config.Scenario{
-		"voice": {ID: "voice", Duplex: &config.DuplexConfig{
-			TurnDetection: &config.TurnDetectionConfig{Mode: config.TurnDetectionModeVAD},
+	realtime := &arenaconfig.Config{LoadedScenarios: map[string]*arenaconfig.Scenario{
+		"voice": {ID: "voice", Duplex: &arenaconfig.DuplexConfig{
+			TurnDetection: &arenaconfig.TurnDetectionConfig{Mode: arenaconfig.TurnDetectionModeVAD},
 		}},
 	}}
 	got := DetectInteractiveSession(realtime)
 	if got == nil {
 		t.Fatal("realtime config should enable an interactive session")
 	}
-	if got.TurnDetectionMode != config.TurnDetectionModeVAD {
-		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, config.TurnDetectionModeVAD)
+	if got.TurnDetectionMode != arenaconfig.TurnDetectionModeVAD {
+		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, arenaconfig.TurnDetectionModeVAD)
 	}
 }
 
 func TestDetectInteractiveSession_RealtimeProvider(t *testing.T) {
 	// A scenario-less config whose realtime intent lives on the provider.
-	cfg := &config.Config{LoadedProviders: map[string]*config.Provider{
+	cfg := &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{
 		"openai-realtime": {Type: "openai", AdditionalConfig: map[string]interface{}{"realtime": true}},
 	}}
 	got := DetectInteractiveSession(cfg)
 	if got == nil {
 		t.Fatal("realtime provider should enable an interactive session")
 	}
-	if got.TurnDetectionMode != config.TurnDetectionModeASM {
-		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, config.TurnDetectionModeASM)
+	if got.TurnDetectionMode != arenaconfig.TurnDetectionModeASM {
+		t.Fatalf("TurnDetectionMode = %q, want %q", got.TurnDetectionMode, arenaconfig.TurnDetectionModeASM)
 	}
 
 	// A plain provider must not trigger one.
-	plain := &config.Config{LoadedProviders: map[string]*config.Provider{
+	plain := &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{
 		"openai": {Type: "openai"},
 	}}
 	if DetectInteractiveSession(plain) != nil {

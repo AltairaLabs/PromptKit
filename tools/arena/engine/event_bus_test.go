@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"go.opentelemetry.io/otel/trace/noop"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 func TestConversationExecutorEmitsTurnEventsToBus(t *testing.T) {
@@ -204,15 +205,15 @@ func TestBuildTurnRequestSetsEventFields(t *testing.T) {
 	t.Parallel()
 
 	ce := &DefaultConversationExecutor{}
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		TaskType: "support",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "hi"},
 		},
 	}
 	req := ConversationRequest{
 		Scenario:       scenario,
-		Config:         &config.Config{},
+		Config:         &arenaconfig.Config{},
 		Region:         "us-east",
 		RunID:          "run-evt",
 		ConversationID: "conv-evt",

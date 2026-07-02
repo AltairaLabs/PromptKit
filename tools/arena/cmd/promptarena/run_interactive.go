@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -26,7 +26,7 @@ const (
 )
 
 // loadConfiguration loads and parses the arena configuration file
-func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
+func loadConfiguration(cmd *cobra.Command) (string, *arenaconfig.Config, error) {
 	configFile, err := cmd.Flags().GetString("config")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get config flag: %w", err)
@@ -44,7 +44,7 @@ func loadConfiguration(cmd *cobra.Command) (string, *config.Config, error) {
 	}
 
 	// Load main config
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -152,7 +152,7 @@ func runSimulations(cmd *cobra.Command) error {
 // executeRuns creates the engine and executes all simulation runs.
 // This function handles the decision between TUI and simple mode and manages the full execution lifecycle.
 // It is excluded from coverage testing as it requires real engine initialization and user interaction.
-func executeRuns(cfg *config.Config, params *RunParameters) ([]engine.RunResult, error) {
+func executeRuns(cfg *arenaconfig.Config, params *RunParameters) ([]engine.RunResult, error) {
 	// Create and configure engine
 	eng, plan, err := setupEngine(cfg, params)
 	if err != nil {
@@ -182,7 +182,7 @@ func executeRuns(cfg *config.Config, params *RunParameters) ([]engine.RunResult,
 // setupEngine creates and configures the engine with mock provider if needed.
 // It accepts an already-loaded config to avoid re-reading and re-parsing the
 // configuration file (the caller — executeRuns — receives cfg from loadConfiguration).
-func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
+func setupEngine(cfg *arenaconfig.Config, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
 	// Apply pack eval CLI overrides before building engine components
 	cfg.SkipPackEvals = params.SkipPackEvals
 	cfg.EvalTypeFilter = params.EvalTypes

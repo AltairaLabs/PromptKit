@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
@@ -87,7 +87,7 @@ func NewMarkdownResultRepositoryWithConfig(outputDir string, config *MarkdownCon
 }
 
 // CreateMarkdownConfigFromDefaults creates a MarkdownConfig from arena defaults.
-func CreateMarkdownConfigFromDefaults(defaults *config.Defaults) *MarkdownConfig {
+func CreateMarkdownConfigFromDefaults(defaults *arenaconfig.Defaults) *MarkdownConfig {
 	if defaults == nil {
 		return createDefaultMarkdownConfig()
 	}

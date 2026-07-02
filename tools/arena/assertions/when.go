@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // WhenEvaluator wraps an AssertionWhen with compiled-regex caching for
 // efficient repeated evaluation of tool-call pattern conditions.
 type WhenEvaluator struct {
-	w               *config.AssertionWhen
+	w               *arenaconfig.AssertionWhen
 	compiledPattern *regexp.Regexp
 }
 
 // NewWhenEvaluator creates a WhenEvaluator for the given condition.
-func NewWhenEvaluator(w *config.AssertionWhen) *WhenEvaluator {
+func NewWhenEvaluator(w *arenaconfig.AssertionWhen) *WhenEvaluator {
 	return &WhenEvaluator{w: w}
 }
 

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (
@@ -32,7 +32,7 @@ func writePackFile(path string, data []byte) error {
 	return os.WriteFile(path, data, outputFilePerm)
 }
 
-func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
+func buildMemoryRepo(cfg *arenaconfig.Config) (*memory.PromptRepository, error) {
 	memRepo := memory.NewPromptRepository()
 
 	for _, promptData := range cfg.LoadedPromptConfigs {

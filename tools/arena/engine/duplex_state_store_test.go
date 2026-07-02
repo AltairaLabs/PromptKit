@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -55,19 +56,19 @@ func TestDuplexStateStore_SystemPromptCaptured(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil, nil, nil)
 
 	// Setup: Create scenario that uses the task type
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test-scenario",
 		TaskType: taskType,
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "30s",
 		},
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{
 				Role: "user",
-				Parts: []config.TurnContentPart{
+				Parts: []arenaconfig.TurnContentPart{
 					{
 						Type: "audio",
-						Media: &config.TurnMediaContent{
+						Media: &arenaconfig.TurnMediaContent{
 							FilePath: "testdata/test.pcm",
 							MIMEType: "audio/L16",
 						},
@@ -81,7 +82,7 @@ func TestDuplexStateStore_SystemPromptCaptured(t *testing.T) {
 	req := ConversationRequest{
 		Provider:       mockProvider,
 		Scenario:       scenario,
-		Config:         &config.Config{LoadedProviders: map[string]*config.Provider{}},
+		Config:         &arenaconfig.Config{LoadedProviders: map[string]*config.Provider{}},
 		RunID:          "test-run",
 		ConversationID: conversationID,
 		StateStoreConfig: &StateStoreConfig{
@@ -193,7 +194,7 @@ func TestDuplexStateStore_BuildResultFromStateStore(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 	req := &ConversationRequest{
 		ConversationID: conversationID,
-		Scenario:       &config.Scenario{ID: "test"},
+		Scenario:       &arenaconfig.Scenario{ID: "test"},
 		StateStoreConfig: &StateStoreConfig{
 			Store: store,
 		},
@@ -274,7 +275,7 @@ func TestDuplexStateStore_MediaOutputCaptured(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 	req := &ConversationRequest{
 		ConversationID: conversationID,
-		Scenario:       &config.Scenario{ID: "test"},
+		Scenario:       &arenaconfig.Scenario{ID: "test"},
 		StateStoreConfig: &StateStoreConfig{
 			Store: store,
 		},
@@ -342,18 +343,18 @@ func TestDuplexStateStore_PipelineCapturesMediaFromProvider(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, nil, nil, nil, nil)
 
 	// Setup: Create scenario
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID: "test-media-pipeline",
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "30s",
 		},
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{
 				Role: "user",
-				Parts: []config.TurnContentPart{
+				Parts: []arenaconfig.TurnContentPart{
 					{
 						Type: "audio",
-						Media: &config.TurnMediaContent{
+						Media: &arenaconfig.TurnMediaContent{
 							FilePath: "testdata/test.pcm",
 							MIMEType: "audio/L16",
 						},
@@ -367,7 +368,7 @@ func TestDuplexStateStore_PipelineCapturesMediaFromProvider(t *testing.T) {
 	req := ConversationRequest{
 		Provider: mockProvider,
 		Scenario: scenario,
-		Config: &config.Config{
+		Config: &arenaconfig.Config{
 			LoadedProviders: map[string]*config.Provider{},
 		},
 		RunID:          "test-run",
@@ -447,10 +448,10 @@ func TestDuplexStateStore_SystemPromptPassedToStateStore(t *testing.T) {
 	executor := NewDuplexConversationExecutor(nil, promptRegistry, nil, nil, nil)
 
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID:       "test-scenario",
 			TaskType: taskType,
-			Duplex: &config.DuplexConfig{
+			Duplex: &arenaconfig.DuplexConfig{
 				Timeout: "30s",
 			},
 		},

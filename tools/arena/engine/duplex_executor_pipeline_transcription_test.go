@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 // TestBuildBaseSessionConfig_EnablesInputTranscription asserts that
@@ -19,7 +19,7 @@ import (
 func TestBuildBaseSessionConfig_EnablesInputTranscription(t *testing.T) {
 	de := &DuplexConversationExecutor{}
 	req := &ConversationRequest{
-		Scenario: &config.Scenario{
+		Scenario: &arenaconfig.Scenario{
 			ID: "voice-asm",
 		},
 	}

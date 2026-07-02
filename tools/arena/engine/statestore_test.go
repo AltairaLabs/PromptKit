@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	arenastatestore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
@@ -30,17 +31,17 @@ func TestConversationExecutor_WithStateStore(t *testing.T) {
 	mockProvider := &testProvider{id: "test-provider"}
 
 	// Create mock scenario
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test-scenario",
 		TaskType: "assistance",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 		},
 	}
 
 	// Create mock config
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
@@ -105,17 +106,17 @@ func TestConversationExecutor_WithoutStateStore(t *testing.T) {
 	mockProvider := &testProvider{id: "test-provider"}
 
 	// Create mock scenario
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "test-scenario",
 		TaskType: "assistance",
-		Turns: []config.TurnDefinition{
+		Turns: []arenaconfig.TurnDefinition{
 			{Role: "user", Content: "Hello"},
 		},
 	}
 
 	// Create mock config
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
@@ -179,18 +180,18 @@ func TestConversationExecutor_WithoutStateStore(t *testing.T) {
 func TestBuildStateStore(t *testing.T) {
 	tests := []struct {
 		name      string
-		config    *config.Config
+		config    *arenaconfig.Config
 		wantError bool
 		wantNil   bool
 	}{
 		{
 			name:    "no state store configured",
-			config:  &config.Config{},
+			config:  &arenaconfig.Config{},
 			wantNil: false, // Now defaults to MemoryStore
 		},
 		{
 			name: "memory store",
-			config: &config.Config{
+			config: &arenaconfig.Config{
 				StateStore: &config.StateStoreConfig{
 					Type: "memory",
 				},
@@ -199,7 +200,7 @@ func TestBuildStateStore(t *testing.T) {
 		},
 		{
 			name: "memory store (default)",
-			config: &config.Config{
+			config: &arenaconfig.Config{
 				StateStore: &config.StateStoreConfig{
 					Type: "",
 				},
@@ -208,7 +209,7 @@ func TestBuildStateStore(t *testing.T) {
 		},
 		{
 			name: "redis store without config",
-			config: &config.Config{
+			config: &arenaconfig.Config{
 				StateStore: &config.StateStoreConfig{
 					Type: "redis",
 				},
@@ -217,7 +218,7 @@ func TestBuildStateStore(t *testing.T) {
 		},
 		{
 			name: "unsupported store type",
-			config: &config.Config{
+			config: &arenaconfig.Config{
 				StateStore: &config.StateStoreConfig{
 					Type: "postgresql",
 				},
@@ -361,20 +362,20 @@ func (p *testProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 // TestEngine_WithStateStore verifies StateStore integration in Engine.ExecuteRuns
 func TestEngine_WithStateStore(t *testing.T) {
 	// Create config with StateStore
-	cfg := &config.Config{
+	cfg := &arenaconfig.Config{
 		StateStore: &config.StateStoreConfig{
 			Type: "memory",
 		},
-		Defaults: config.Defaults{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				ID:       "test-scenario",
 				TaskType: "assistance",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "Hello"},
 				},
 			},
@@ -471,17 +472,17 @@ func TestEngine_WithStateStore(t *testing.T) {
 // TestEngine_WithoutStateStore verifies Engine works without StateStore
 func TestEngine_WithoutStateStore(t *testing.T) {
 	// Create config WITHOUT StateStore
-	cfg := &config.Config{
-		Defaults: config.Defaults{
+	cfg := &arenaconfig.Config{
+		Defaults: arenaconfig.Defaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 			Seed:        42,
 		},
-		LoadedScenarios: map[string]*config.Scenario{
+		LoadedScenarios: map[string]*arenaconfig.Scenario{
 			"test-scenario": {
 				ID:       "test-scenario",
 				TaskType: "assistance",
-				Turns: []config.TurnDefinition{
+				Turns: []arenaconfig.TurnDefinition{
 					{Role: "user", Content: "Hello"},
 				},
 			},

@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/pkg/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
 func TestNewMarkdownResultRepository(t *testing.T) {
@@ -413,7 +414,7 @@ func TestNewMarkdownResultRepository_WithConfig(t *testing.T) {
 func TestCreateMarkdownConfigFromDefaults(t *testing.T) {
 	tests := []struct {
 		name     string
-		defaults *config.Defaults
+		defaults *arenaconfig.Defaults
 		expected *MarkdownConfig
 	}{
 		{
@@ -429,11 +430,11 @@ func TestCreateMarkdownConfigFromDefaults(t *testing.T) {
 		},
 		{
 			name: "custom markdown config from new output structure",
-			defaults: &config.Defaults{
-				Output: config.OutputConfig{
+			defaults: &arenaconfig.Defaults{
+				Output: arenaconfig.OutputConfig{
 					Dir:     "test-output",
 					Formats: []string{"markdown"},
-					Markdown: &config.MarkdownOutputConfig{
+					Markdown: &arenaconfig.MarkdownOutputConfig{
 						IncludeDetails:    false,
 						ShowOverview:      false,
 						ShowResultsMatrix: true,
@@ -452,8 +453,8 @@ func TestCreateMarkdownConfigFromDefaults(t *testing.T) {
 		},
 		{
 			name: "backward compatibility with old MarkdownConfig",
-			defaults: &config.Defaults{
-				MarkdownConfig: &config.MarkdownConfig{
+			defaults: &arenaconfig.Defaults{
+				MarkdownConfig: &arenaconfig.MarkdownConfig{
 					IncludeDetails:    false,
 					ShowOverview:      false,
 					ShowResultsMatrix: true,
@@ -471,7 +472,7 @@ func TestCreateMarkdownConfigFromDefaults(t *testing.T) {
 		},
 		{
 			name: "defaults without markdown config should return default config",
-			defaults: &config.Defaults{
+			defaults: &arenaconfig.Defaults{
 				Temperature: 0.7,
 				MaxTokens:   1000,
 			},
@@ -565,7 +566,7 @@ spec:
 	require.NoError(t, err)
 
 	// Load the config
-	cfg, err := config.LoadConfig(configFile)
+	cfg, err := arenaconfig.LoadConfig(configFile)
 	require.NoError(t, err)
 
 	// Create markdown config from defaults

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -12,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/safe"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
@@ -126,7 +126,7 @@ func (e *EvalConversationExecutor) loadRecording(
 // applyAllTurnAssertions extracts and applies all turn-level assertions to assistant messages.
 func (e *EvalConversationExecutor) applyAllTurnAssertions(
 	ctx context.Context,
-	turns []config.EvalTurnConfig,
+	turns []arenaconfig.EvalTurnConfig,
 	messages []types.Message,
 	convCtx *assertions.ConversationContext,
 ) {
@@ -139,7 +139,9 @@ func (e *EvalConversationExecutor) applyAllTurnAssertions(
 }
 
 // extractTurnAssertions collects all turn-level assertions from eval config.
-func (e *EvalConversationExecutor) extractTurnAssertions(turns []config.EvalTurnConfig) []assertions.AssertionConfig {
+func (e *EvalConversationExecutor) extractTurnAssertions(
+	turns []arenaconfig.EvalTurnConfig,
+) []assertions.AssertionConfig {
 	var assertionConfigs []assertions.AssertionConfig
 	for _, turnCfg := range turns {
 		if turnCfg.AllTurns != nil && len(turnCfg.AllTurns.Assertions) > 0 {
@@ -210,7 +212,7 @@ func (e *EvalConversationExecutor) ExecuteConversationStream(
 }
 
 // validateEvalConfig validates the eval configuration.
-func (e *EvalConversationExecutor) validateEvalConfig(eval *config.Eval) error {
+func (e *EvalConversationExecutor) validateEvalConfig(eval *arenaconfig.Eval) error {
 	if eval == nil {
 		return fmt.Errorf("eval configuration is required")
 	}

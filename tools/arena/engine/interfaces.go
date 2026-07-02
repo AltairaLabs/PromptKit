@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
@@ -53,9 +54,9 @@ type ConversationStreamChunk struct {
 type ConversationRequest struct {
 	// Required fields
 	Provider providers.Provider
-	Scenario *config.Scenario
-	Eval     *config.Eval // Eval configuration (mutually exclusive with Scenario)
-	Config   *config.Config
+	Scenario *arenaconfig.Scenario
+	Eval     *arenaconfig.Eval // Eval configuration (mutually exclusive with Scenario)
+	Config   *arenaconfig.Config
 	Region   string
 
 	// Optional overrides (for future use)

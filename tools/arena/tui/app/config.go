@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const arenaConfigFilename = "config.arena.yaml"
@@ -45,7 +45,7 @@ func ResultsDirFromConfig(configPath string) string {
 // ConfigPath on the context, and derives ResultsDir as the out/ directory
 // next to the config file.
 func (c *AppContext) LoadConfig(path string) error {
-	cfg, err := config.LoadConfig(path)
+	cfg, err := arenaconfig.LoadConfig(path)
 	if err != nil {
 		return err
 	}

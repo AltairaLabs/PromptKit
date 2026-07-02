@@ -48,6 +48,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/artifacts"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
@@ -68,16 +69,16 @@ const (
 // an LLM simulates user behavior. It handles provider initialization, concurrent
 // execution, and comprehensive result tracking including costs and tool usage.
 type Engine struct {
-	config               *config.Config
+	config               *arenaconfig.Config
 	providerRegistry     *providers.Registry // Registry for looking up providers by ID
 	promptRegistry       *prompt.Registry
 	mcpRegistry          *mcp.RegistryImpl           // Registry for MCP servers
 	stateStore           statestore.Store            // State store for conversation persistence (always enabled)
 	mediaStorage         storage.MediaStorageService // Media storage for externalization (always enabled)
-	scenarios            map[string]*config.Scenario
-	evals                map[string]*config.Eval
+	scenarios            map[string]*arenaconfig.Scenario
+	evals                map[string]*arenaconfig.Eval
 	providers            map[string]*config.Provider
-	personas             map[string]*config.UserPersonaPack
+	personas             map[string]*arenaconfig.UserPersonaPack
 	conversationExecutor ConversationExecutor
 	toolRegistry         *tools.Registry              // Tool descriptors and executors (workflow driver)
 	adapterRegistry      *adapters.Registry           // Registry for recording adapters (used for eval enumeration)
@@ -256,7 +257,7 @@ func (e *Engine) sessionEventMetadata(runCtx context.Context, runID string) map[
 //   - Provider type is unsupported
 func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 	// Load configuration from file (including all referenced resources)
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := arenaconfig.LoadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -268,7 +269,7 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 // This allows CLI or programmatic callers to modify the config before engine creation.
 // providerFilter limits which providers have credentials resolved; nil or empty
 // means all providers are initialized.
-func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine, error) {
+func NewEngineFromConfig(cfg *arenaconfig.Config, providerFilter ...string) (*Engine, error) {
 	// Build registries and executors from the config
 	providerRegistry, promptRegistry, mcpRegistry, convExecutor,
 		adapterRegistry, a2aCleanup, toolRegistry, skillExec, err := BuildEngineComponents(cfg, providerFilter)
@@ -363,7 +364,7 @@ func evalOrchestratorFrom(executor ConversationExecutor) *EvalOrchestrator {
 //
 // Returns an initialized Engine ready for test execution.
 func NewEngine(
-	cfg *config.Config,
+	cfg *arenaconfig.Config,
 	providerRegistry *providers.Registry,
 	promptRegistry *prompt.Registry,
 	mcpRegistry *mcp.RegistryImpl,
@@ -644,7 +645,7 @@ func (e *Engine) GetRecordingPath(runID string) string {
 }
 
 // GetConfig returns the engine's configuration.
-func (e *Engine) GetConfig() *config.Config {
+func (e *Engine) GetConfig() *arenaconfig.Config {
 	return e.config
 }
 
@@ -884,7 +885,7 @@ func (e *Engine) GetDuplexExecutor() *DuplexConversationExecutor {
 // store/retrieve/delete emits a runtime event and OTel span. The
 // event bus is bound later via Engine.SetEventBus → SetBus on the
 // wrapper; until then events are no-ops but spans still emit.
-func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) {
+func buildMediaStorage(cfg *arenaconfig.Config) (storage.MediaStorageService, error) {
 	// Determine the media storage directory
 	outDir := cfg.Defaults.Output.Dir
 	if outDir == "" {

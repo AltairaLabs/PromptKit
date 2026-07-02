@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/voice"
@@ -88,17 +89,17 @@ func (p *ChatPage) runVoice(audioIO voice.AudioIO, send func(tea.Msg)) tea.Cmd {
 
 	// 4. Build a minimal duplex scenario, honoring the turn-detection mode the
 	// config implied (ASM — the provider-native default — or VAD).
-	turnMode := config.TurnDetectionModeASM
+	turnMode := arenaconfig.TurnDetectionModeASM
 	if p.voice.TurnDetectionMode != "" {
 		turnMode = p.voice.TurnDetectionMode
 	}
 	conversationID := fmt.Sprintf("interactive-voice-%d", time.Now().UnixNano())
-	scenario := &config.Scenario{
+	scenario := &arenaconfig.Scenario{
 		ID:       "interactive-voice",
 		TaskType: p.taskType,
-		Duplex: &config.DuplexConfig{
+		Duplex: &arenaconfig.DuplexConfig{
 			Timeout: "30m",
-			TurnDetection: &config.TurnDetectionConfig{
+			TurnDetection: &arenaconfig.TurnDetectionConfig{
 				Mode: turnMode,
 			},
 		},
