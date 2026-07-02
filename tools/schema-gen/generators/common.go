@@ -4,7 +4,7 @@ import (
 	"github.com/invopop/jsonschema"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/promptarena/arena/arenaconfig"
 )
 
 // GenerateMetadataSchema generates the JSON Schema for Kubernetes ObjectMeta

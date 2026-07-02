@@ -3,7 +3,7 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
+	"github.com/AltairaLabs/promptarena/arena/arenaconfig"
 )
 
 // GenerateScenarioSchema generates the JSON Schema for Scenario configuration

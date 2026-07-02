@@ -1,8 +1,0 @@
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: PromptConfig
-metadata:
-  name: basic
-spec:
-  version: "1.0.0"
-  task_type: "basic"
-  system_template: "You are a helpful assistant."

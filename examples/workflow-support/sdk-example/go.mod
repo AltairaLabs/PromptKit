@@ -12,7 +12,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/AltairaLabs/PromptKit/pkg v1.2.0 // indirect
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5 // indirect
-	github.com/AltairaLabs/PromptKit/tools/arena v1.1.10 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect

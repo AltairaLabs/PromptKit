@@ -1,6 +1,0 @@
-{
-  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/common/media.json",
-  "type": "object",
-  "title": "PromptKit Media Types",
-  "description": "Media content types for multimodal scenarios"
-}
