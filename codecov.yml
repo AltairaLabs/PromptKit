@@ -32,15 +32,9 @@ flags:
   sdk:
     paths:
       - sdk/
-  arena:
+  schema-gen:
     paths:
-      - tools/arena/
-  packc:
-    paths:
-      - tools/packc/
-  inspect-state:
-    paths:
-      - tools/inspect-state/
+      - tools/schema-gen/
 
 ignore:
   - "**/*_test.go"

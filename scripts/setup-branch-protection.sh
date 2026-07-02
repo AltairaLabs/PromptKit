@@ -121,9 +121,7 @@ protect_tags "v*" "Version tags (v1.0.0, v1.1.0, etc.)"
 protect_tags "runtime/v*" "Runtime module tags"
 protect_tags "sdk/v*" "SDK module tags"
 protect_tags "pkg/v*" "Package module tags"
-protect_tags "tools/arena/v*" "Arena tool tags"
-protect_tags "tools/packc/v*" "PackC tool tags"
-protect_tags "tools/inspect-state/v*" "Inspect-state tool tags"
+protect_tags "server/a2a/v*" "A2A server module tags"
 
 # Summary
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

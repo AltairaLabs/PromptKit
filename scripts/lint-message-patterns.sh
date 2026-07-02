@@ -28,7 +28,7 @@ echo
 # Exclude test files and the constructor definition itself
 echo "=== Checking for direct tool message creation ==="
 PATTERN1_FILES=$(grep -rn 'types\.Message{' --include='*.go' \
-    runtime/pipeline runtime/streaming tools/arena 2>/dev/null | \
+    runtime/pipeline runtime/streaming 2>/dev/null | \
     grep -v '_test\.go' | \
     grep -v 'message\.go' | \
     grep 'Role.*"tool"' | \
