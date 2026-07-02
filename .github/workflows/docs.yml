@@ -9,10 +9,6 @@ on:
       - 'docs/**'
       - 'examples/**/README.md'
       - 'sdk/examples/**/README.md'
-      # Scaffolding templates and package READMEs hardcode production doc URLs
-      # that the check-doc-urls step validates.
-      - 'tools/arena/templates/**'
-      - 'npm/**/README.md'
       - 'scripts/prepare-examples-docs.sh'
       - 'scripts/rewrite-example-links.mjs'
       - '.github/workflows/docs.yml'
@@ -66,19 +62,12 @@ jobs:
           go-version: '1.26.0'
           cache: true
 
-      # Required by oto/v3 (transitive via tools/arena/audio LocalSink).
-      - name: Install ALSA dev headers
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
       - name: Install gomarkdoc
         run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
 
       - name: Install D2
         run: curl -fsSL https://d2lang.com/install.sh | sh -s --
 
-      - name: Build CLI tools
-        run: make build-tools
-      
       - name: Generate JSON schemas
         run: make schemas
       
