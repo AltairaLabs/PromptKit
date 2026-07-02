@@ -243,7 +243,7 @@ jobs:
         exit 0
 
   update-tools:
-    name: Update and Tag Tools
+    name: Update and Tag SDK Modules
     runs-on: ubuntu-latest
     needs: [validate, tag-dependencies]
     if: ${{ always() && (inputs.phase == 'full' || inputs.phase == 'tools-only') && needs.validate.result == 'success' }}
@@ -329,63 +329,18 @@ jobs:
         cd ..
         echo "✓ Updated sdk go.mod to $VERSION"
 
-    - name: Update arena dependencies
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Updating tools/arena to use $VERSION..."
-        cd tools/arena
-
-        # Update go.mod to require new versions
-        echo "Setting required versions to $VERSION..."
-        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
-        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
-        # arena imports tools/packc/compiler (cmd/promptarena/export.go), so packc
-        # must be a versioned require — not a local replace — or `go install
-        # .../tools/arena/cmd/promptarena@latest` fails with "replace directives".
-        go mod edit -require="github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"
-
-        # Remove local replace directives
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/tools/packc
-
-        cd ../..
-        echo "✓ Updated arena go.mod to $VERSION (go.sum finalized after packc is tagged)"
-    
-    - name: Update packc dependencies
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Updating tools/packc to use $VERSION..."
-        cd tools/packc
-        
-        # Update go.mod to require new versions
-        echo "Setting required versions to $VERSION..."
-        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
-        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
-        
-        # Remove local replace directives
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        
-        cd ../..
-        echo "✓ Updated packc go.mod to $VERSION"
-    
     - name: Commit changes
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
         BRANCH="release/tools/$VERSION"
-        
+
         # Check if there are changes to commit
-        if git diff --quiet server/a2a/go.mod server/a2a/go.sum sdk/go.mod sdk/go.sum tools/arena/go.mod tools/arena/go.sum tools/packc/go.mod tools/packc/go.sum; then
+        if git diff --quiet server/a2a/go.mod server/a2a/go.sum sdk/go.mod sdk/go.sum; then
           echo "⚠ No changes to commit (already up to date)"
         else
           git add server/a2a/go.mod server/a2a/go.sum
           git add sdk/go.mod sdk/go.sum
-          git add tools/arena/go.mod tools/arena/go.sum
-          git add tools/packc/go.mod tools/packc/go.sum
           git commit -m "release: update modules to $VERSION"
           git push origin "$BRANCH"
           echo "✓ Pushed $BRANCH"
@@ -415,172 +370,6 @@ jobs:
           git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
           git push origin "sdk/$VERSION"
           echo "✓ Tagged sdk/$VERSION"
-        fi
-
-    # NOTE: arena is tagged AFTER packc (see "Finalize arena go.sum and tag
-    # arena" below). arena requires tools/packc@$VERSION, and its go.sum can
-    # only be populated once packc@$VERSION is published to the Go proxy.
-    - name: Tag packc
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        if git rev-parse "tools/packc/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag tools/packc/$VERSION already exists, skipping"
-          else
-          git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
-          git push origin "tools/packc/$VERSION"
-          echo "✓ Tagged tools/packc/$VERSION"
-        fi
-
-    - name: Finalize arena go.sum and tag arena
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        BRANCH="release/tools/$VERSION"
-
-        # arena requires tools/packc@$VERSION; its go.sum can only be populated
-        # once packc@$VERSION is published to the Go proxy (tagged just above).
-        # Wait for proxy propagation before resolving sums (best-effort).
-        echo "Waiting for tools/packc@$VERSION on the Go proxy..."
-        for i in $(seq 1 10); do
-          if env GOWORK=off GOFLAGS=-mod=mod go list -m "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION" >/dev/null 2>&1; then
-            echo "✓ tools/packc@$VERSION is available"
-            break
-          fi
-          echo "  Attempt $i/10: not available yet, waiting 20s..."
-          sleep 20
-        done
-
-        # Populate go.sum for the now-versioned packc dependency. GOWORK=off so
-        # the workspace doesn't resolve packc back to the local module.
-        cd tools/arena
-        env GOWORK=off GOFLAGS=-mod=mod go get "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"
-        env GOWORK=off GOFLAGS=-mod=mod go mod download all
-        cd ../..
-
-        if ! git diff --quiet tools/arena/go.mod tools/arena/go.sum; then
-          git add tools/arena/go.mod tools/arena/go.sum
-          git commit -m "release: finalize arena go.sum for $VERSION"
-          git push origin "$BRANCH"
-          echo "✓ Finalized arena go.sum"
-        fi
-
-        if git rev-parse "tools/arena/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag tools/arena/$VERSION already exists, skipping"
-        else
-          git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
-          git push origin "tools/arena/$VERSION"
-          echo "✓ Tagged tools/arena/$VERSION"
-        fi
-
-    - name: Update promptarena-action version
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Updating promptarena-action to $VERSION..."
-        cd .github/actions/promptarena-action
-
-        # Update version in package.json
-        VERSION_NO_V="${VERSION#v}"
-        npm version "$VERSION_NO_V" --no-git-tag-version --allow-same-version
-
-        cd ../../..
-
-        # Commit if there are changes
-        if ! git diff --quiet .github/actions/promptarena-action/package.json; then
-          git add .github/actions/promptarena-action/package.json
-          git commit -m "release: update promptarena-action to $VERSION"
-          git push origin "release/tools/$VERSION"
-          echo "✓ Updated promptarena-action to $VERSION"
-        else
-          echo "⚠ promptarena-action already at $VERSION"
-        fi
-
-    - name: Tag promptarena-action
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        # Tag with specific version
-        if git rev-parse "actions/promptarena/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag actions/promptarena/$VERSION already exists, skipping"
-        else
-          git tag -a "actions/promptarena/$VERSION" -m "Release promptarena-action $VERSION"
-          git push origin "actions/promptarena/$VERSION"
-          echo "✓ Tagged actions/promptarena/$VERSION"
-        fi
-
-        # Update major version tag (e.g., v1 -> latest v1.x.x)
-        MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
-        echo "Updating major version tag $MAJOR_VERSION to point to $VERSION..."
-        git tag -fa "actions/promptarena/$MAJOR_VERSION" -m "Release promptarena-action $VERSION"
-        git push origin "actions/promptarena/$MAJOR_VERSION" --force
-        echo "✓ Updated actions/promptarena/$MAJOR_VERSION -> $VERSION"
-
-    - name: Update packc-action version
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Updating packc-action to $VERSION..."
-        cd .github/actions/packc-action
-
-        # Update version in package.json
-        VERSION_NO_V="${VERSION#v}"
-        npm version "$VERSION_NO_V" --no-git-tag-version --allow-same-version
-
-        cd ../../..
-
-        # Commit if there are changes
-        if ! git diff --quiet .github/actions/packc-action/package.json; then
-          git add .github/actions/packc-action/package.json
-          git commit -m "release: update packc-action to $VERSION"
-          git push origin "release/tools/$VERSION"
-          echo "✓ Updated packc-action to $VERSION"
-        else
-          echo "⚠ packc-action already at $VERSION"
-        fi
-
-    - name: Tag packc-action
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        # Tag with specific version
-        if git rev-parse "actions/packc/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag actions/packc/$VERSION already exists, skipping"
-        else
-          git tag -a "actions/packc/$VERSION" -m "Release packc-action $VERSION"
-          git push origin "actions/packc/$VERSION"
-          echo "✓ Tagged actions/packc/$VERSION"
-        fi
-
-        # Update major version tag (e.g., v1 -> latest v1.x.x)
-        MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
-        echo "Updating major version tag $MAJOR_VERSION to point to $VERSION..."
-        git tag -fa "actions/packc/$MAJOR_VERSION" -m "Release packc-action $VERSION"
-        git push origin "actions/packc/$MAJOR_VERSION" --force
-        echo "✓ Updated actions/packc/$MAJOR_VERSION -> $VERSION"
-
-    - name: Verify installation
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      continue-on-error: true
-      run: |
-        echo "Testing arena installation..."
-        echo "Note: This may fail if modules haven't fully propagated to the Go proxy yet."
-        echo "Installation will still work once propagation completes (usually within a few minutes)."
-        echo ""
-        
-        if go install "github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION" 2>&1; then
-          echo "✓ Arena installation successful"
-        else
-          echo "⚠ Arena installation needs more time to propagate"
-        fi
-        
-        echo ""
-        echo "Testing packc installation..."
-        if go install "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION" 2>&1; then
-          echo "✓ Packc installation successful"
-        else
-          echo "⚠ Packc installation needs more time to propagate"
         fi
 
     - name: Verify library modules on Go proxy
@@ -629,35 +418,35 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Install ALSA dev headers (Linux)
-      if: runner.os == 'Linux'
-      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
-    - name: Setup Go
-      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-      with:
-        go-version: '1.26.0'
-        cache: false  # Disable cache since we use a workspace setup
-
-    - name: Run GoReleaser
-      uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
-      with:
-        distribution: goreleaser
-        version: latest
-        args: release --clean
+    # PromptKit ships Go library modules only (runtime/pkg/sdk/server-a2a),
+    # consumed via `go get` from the tags created above — there are no binaries
+    # to build. Create a draft GitHub release with auto-generated notes; the
+    # verify-docs job publishes it with a PAT to trigger schema/docs deployment.
+    - name: Create draft GitHub release
       env:
-        GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-    
-    - name: Upload artifacts summary
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ needs.validate.outputs.version }}
+        GITHUB_REPO: ${{ github.repository }}
       run: |
-        echo "## 📦 Release Artifacts Created" >> $GITHUB_STEP_SUMMARY
+        echo "Creating draft release $VERSION (libraries only — no binaries)..."
+        if gh release view "$VERSION" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
+          echo "⚠ Release $VERSION already exists, skipping create"
+        else
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPO" \
+            --title "PromptKit $VERSION" \
+            --generate-notes \
+            --draft
+          echo "✓ Draft release $VERSION created"
+        fi
+
+    - name: Release summary
+      run: |
+        echo "## 📦 Draft Release Created" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "GoReleaser has created:" >> $GITHUB_STEP_SUMMARY
-        echo "- Multi-platform binaries (Linux, macOS, Windows)" >> $GITHUB_STEP_SUMMARY
-        echo "- Archives (tar.gz, zip)" >> $GITHUB_STEP_SUMMARY
-        echo "- Checksums for verification" >> $GITHUB_STEP_SUMMARY
-        echo "- Automated changelog" >> $GITHUB_STEP_SUMMARY
-        echo "- Draft GitHub release" >> $GITHUB_STEP_SUMMARY
+        echo "PromptKit ships Go library modules (no binaries)." >> $GITHUB_STEP_SUMMARY
+        echo "A draft GitHub release with auto-generated notes was created for ${{ needs.validate.outputs.version }}." >> $GITHUB_STEP_SUMMARY
+        echo "The verify-docs job publishes it to trigger schema/docs deployment." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Review at:** https://github.com/${{ github.repository }}/releases" >> $GITHUB_STEP_SUMMARY
 
@@ -767,49 +556,24 @@ jobs:
 
         - Validation: $VALIDATION_RESULT
         - Dependencies: $DEPENDENCIES_RESULT
-        - Tools: $TOOLS_RESULT
+        - SDK Modules: $TOOLS_RESULT
         - GitHub Release: $RELEASE_RESULT
         - Docs Deployment: $DOCS_RESULT
         - Downstream Notification: $DOWNSTREAM_RESULT
 
         ## Installation
-        
+
+        PromptKit ships Go library modules only. The PromptArena and PackC CLIs
+        now live in [github.com/AltairaLabs/promptarena](https://github.com/AltairaLabs/promptarena).
+
         **SDK Library:**
         \`\`\`bash
         go get github.com/AltairaLabs/PromptKit/sdk@$VERSION
-        \`\`\`
-        
-        **CLI Tools:**
-        \`\`\`bash
-        go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@$VERSION
-        go install github.com/AltairaLabs/PromptKit/tools/packc@$VERSION
-        \`\`\`
-
-        **GitHub Actions:**
-        \`\`\`yaml
-        # PromptArena Action - Run prompt tests
-        - uses: AltairaLabs/PromptKit/.github/actions/promptarena-action@$VERSION
-          with:
-            config-file: config.arena.yaml
-
-        # PackC Action - Compile and publish packs
-        - uses: AltairaLabs/PromptKit/.github/actions/packc-action@$VERSION
-          with:
-            config-file: config.arena.yaml
+        go get github.com/AltairaLabs/PromptKit/runtime@$VERSION
         \`\`\`
 
         ## Next Steps
-        
+
         1. Verify the [published release](https://github.com/$GITHUB_REPO/releases)
-        2. Update README.md with new version
-        3. Announce the release
-        4. Restore replace directives on main branch (if needed)
-        
-        ## Verification
-        
-        Test the release:
-        \`\`\`bash
-        promptarena --version
-        packc --version
-        \`\`\`
+        2. Announce the release
         EOF
