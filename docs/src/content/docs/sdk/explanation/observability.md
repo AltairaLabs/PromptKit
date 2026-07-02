@@ -196,7 +196,7 @@ EventBus ──► EventBusEvalListener ──► SessionAccumulator ──► E
 3. On **session close**, session-level evals run synchronously
 4. Results flow to configured `ResultWriters` (MetricCollector, metadata attachment)
 
-This pattern enables evals without explicit SDK middleware — events from RecordingStage or any other publisher are automatically evaluated. See [Arena Eval Framework](/arena/explanation/eval-framework/) for details.
+This pattern enables evals without explicit SDK middleware — events from RecordingStage or any other publisher are automatically evaluated. See [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for details.
 
 ## Event Flow
 
@@ -343,6 +343,6 @@ Event handlers are called asynchronously in a separate goroutine (see `EventBus.
 - [How-To: Monitor Events](/sdk/how-to/monitor-events/)
 - [How-To: Export Traces with OTLP](/runtime/how-to/export-traces-otlp) — send session traces to OpenTelemetry backends
 - [Telemetry Reference](/runtime/reference/telemetry) — OTLP exporter API, span attributes, and semantic conventions
-- [Arena Eval Framework](/arena/explanation/eval-framework/)
-- [Session Recording](/arena/explanation/session-recording/)
+- [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
+- [Session Recording](https://promptarena.altairalabs.ai/arena/explanation/session-recording/)
 - [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)

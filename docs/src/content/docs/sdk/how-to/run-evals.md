@@ -178,7 +178,7 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 You can also pass a raw `MetricRecorder` for custom implementations, but `MetricsCollector` is preferred for new code.
 
-Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/monitor-events/#prometheus-metrics) for the full metrics reference.
+Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/monitor-events/#prometheus-metrics) for the full metrics reference.
 
 ## Type Validation
 
@@ -312,7 +312,7 @@ Eval hooks are observational by contract — they cannot gate execution. Every r
 - [Metrics Reference](/runtime/reference/metrics/) -- Complete catalog of all emitted metrics
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
-- [Eval Framework](/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
+- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
 - [Hooks Reference](/runtime/reference/hooks/#evalhook) -- `EvalHook` and `ExecEvalHook` API
 - [Exec Hooks How-To](/sdk/how-to/exec-hooks/) -- subprocess-backed eval hooks in any language
 - [Monitor Events](/sdk/how-to/monitor-events/) -- Event-based observability

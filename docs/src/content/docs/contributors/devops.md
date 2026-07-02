@@ -10,7 +10,6 @@ This section contains documentation for maintainers and contributors about the p
 
 - [CI/CD Quick Reference](/devops/ci-cd-quickref/) - Fast lookup for common CI/CD tasks
 - [Branch Protection Quick Reference](/devops/branch-protection-quickref/) - Branch protection rules summary
-- [Testing Releases Quickstart](/devops/testing-releases-quickstart/) - Quick guide to testing releases locally
 
 ## CI/CD Pipelines
 
@@ -19,10 +18,17 @@ This section contains documentation for maintainers and contributors about the p
 
 ## Release Management
 
-- [Release Process](/devops/release-process/) - Step-by-step release procedures
-- [Release Automation](/devops/release-automation/) - Automated release workflows
-- [Testing Releases](/devops/testing-releases/) - How to test releases before publishing
-- [GoReleaser Integration](/devops/goreleaser-integration/) - GoReleaser configuration and usage
+PromptKit ships libraries only (`runtime`, `pkg`, `sdk`). Releases are cut by
+the automated `release.yml` GitHub Actions workflow, which tags the library
+modules and publishes them to the Go module proxy:
+
+```bash
+gh workflow run release.yml -f version=v1.3.9 -f phase=full
+```
+
+The Arena and PackC CLIs release from their own repository; see the
+[PromptArena docs](https://promptarena.altairalabs.ai/) for their release
+process.
 
 ## Branch Protection
 
@@ -45,7 +51,6 @@ Contributors should be familiar with:
 
 - [CI/CD Pipelines](/devops/ci-cd-pipelines/) - Understanding what checks run on PRs
 - [Branch Protection](/devops/branch-protection/) - What rules apply to contributions
-- [Testing Releases](/devops/testing-releases/) - How to test changes locally
 
 ## Getting Help
 

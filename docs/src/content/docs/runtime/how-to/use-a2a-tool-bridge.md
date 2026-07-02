@@ -163,5 +163,5 @@ The bridge automatically generates JSON Schemas for each tool based on the skill
 ## Next Steps
 
 - [Use Mock Server](/runtime/how-to/use-a2a-mock-server/) — test tool bridge without a real agent
-- [Test A2A Agents in Arena](/arena/how-to/test-a2a-agents/) — end-to-end testing with Arena
+- [Test A2A Agents in Arena](https://promptarena.altairalabs.ai/arena/how-to/test-a2a-agents/) — end-to-end testing with Arena
 - [Runtime A2A Reference](/runtime/reference/a2a/) — `ToolBridge` API details

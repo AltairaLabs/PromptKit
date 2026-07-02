@@ -393,7 +393,7 @@ These events can be consumed by any EventBus listener, including:
 - **EventBusEvalListener** for automatic eval execution on `message.created` events
 - **Prometheus metrics listener** for operational monitoring
 
-See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](/arena/explanation/eval-framework/) for how recorded events trigger evals.
+See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for how recorded events trigger evals.
 
 ## Performance Characteristics
 

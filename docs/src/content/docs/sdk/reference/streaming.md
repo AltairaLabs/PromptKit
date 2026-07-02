@@ -434,5 +434,5 @@ func streamAudioTurn(ctx context.Context, audioData []byte, inputChan chan<- sta
 
 - [Audio API Reference](/sdk/reference/audio/) - VAD mode, ASM mode, turn detection
 - [TTS API Reference](/sdk/reference/tts/) - Text-to-speech services
-- [Duplex Configuration](/arena/reference/duplex-config/) - Arena duplex configuration
-- [Duplex Architecture](/arena/explanation/duplex-architecture/) - How duplex streaming works
+- [Duplex Configuration](https://promptarena.altairalabs.ai/arena/reference/duplex-config/) - Arena duplex configuration
+- [Duplex Architecture](https://promptarena.altairalabs.ai/arena/explanation/duplex-architecture/) - How duplex streaming works

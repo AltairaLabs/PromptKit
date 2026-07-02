@@ -4,11 +4,10 @@
 //
 // This closes a gap in check-links.js: that crawler only follows links *within*
 // the built site and deliberately skips absolute promptkit.altairalabs.ai URLs
-// (canonical/og:url tags 404 until deploy). But scaffolding templates
-// (tools/arena/templates/**), package READMEs (npm/**), and example READMEs
-// hardcode absolute doc URLs that the crawler never sees — so a renamed or
-// mistyped page (e.g. /arena/guides/tools, /arena/reference/scenario) ships
-// broken into every `promptarena init` project without CI noticing.
+// (canonical/og:url tags 404 until deploy). But example READMEs and other
+// tracked files hardcode absolute doc URLs that the crawler never sees — so a
+// renamed or mistyped page (e.g. /sdk/guides/tools) ships broken without CI
+// noticing.
 //
 // We resolve each URL's path against dist/ (Astro builds directory-format pages
 // at <path>/index.html), so this runs offline and doesn't depend on the live

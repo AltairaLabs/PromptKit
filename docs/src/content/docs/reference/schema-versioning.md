@@ -308,5 +308,5 @@ If validation fails after updating schemas:
 ## Related Documentation
 
 - [Schema Validation](/reference/schema-validation/) - Using schemas for validation
-- [Configuration Reference](/arena/reference/config-schema/) - Arena config structure
-- [CI/CD Integration](/arena/how-to/integrate-ci-cd/) - Automating validation
+- [Configuration Reference](https://promptarena.altairalabs.ai/arena/reference/config-schema/) - Arena config structure
+- [CI/CD Integration](https://promptarena.altairalabs.ai/arena/how-to/integrate-ci-cd/) - Automating validation

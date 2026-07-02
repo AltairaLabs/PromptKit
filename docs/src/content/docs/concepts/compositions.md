@@ -352,5 +352,5 @@ The following are reserved for future RFC revisions and are not supported in the
 
 - [RFC 0010 — Workflow Composition](https://promptpack.org/docs/rfcs/workflow-composition) — the canonical spec
 - [State Management](/concepts/state-management/) — workflow state machines and persistence
-- [Workflow Regression Testing](/arena/how-to/workflow-regression/) — CI gate patterns for workflow scenarios
+- [Workflow Regression Testing](https://promptarena.altairalabs.ai/arena/how-to/workflow-regression/) — CI gate patterns for workflow scenarios
 - [Composition Checks](/reference/checks/#composition-checks) — `composition_step_output`, `composition_branch_taken`, `composition_parallel_complete`, `composition_output`

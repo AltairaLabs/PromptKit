@@ -19,7 +19,6 @@ make coverage      # Generate coverage report
 # Individual components
 cd runtime && go test ./...
 cd sdk && go test ./...
-cd tools/arena && go test ./...
 ```
 
 ## Checking CI Status
@@ -56,13 +55,10 @@ gh run download <run-id>
 gh workflow run docs.yml
 ```
 
-### Release Test Workflow
+### Library Release Workflow
 ```bash
-# Test arena release
-gh workflow run release-test.yml -f tool=arena -f version=v0.0.1-test
-
-# Test packc release
-gh workflow run release-test.yml -f tool=packc -f version=v0.0.1-test
+# Cut a library release (tags runtime, pkg, sdk)
+gh workflow run release.yml -f version=v1.0.0 -f phase=full
 ```
 
 ## Common CI Issues & Fixes
@@ -162,34 +158,6 @@ echo "<!-- trigger -->" >> docs/README.md
 git add docs/README.md
 git commit -m "docs: trigger rebuild"
 git push
-```
-
-## Release Testing
-
-### Safe Local Test
-
-```bash
-# Dry run - no git changes
-./scripts/test-release.sh arena v0.0.1-test
-
-# Review output, no files modified
-git status  # Should show no changes
-```
-
-### GitHub Actions Test
-
-```bash
-# Create test branch
-git checkout -b release-test/my-test
-git push origin release-test/my-test
-
-# Watch workflow
-gh run watch
-
-# Clean up
-git push origin --delete release-test/my-test
-git checkout main
-git branch -d release-test/my-test
 ```
 
 ## Monitoring & Debugging
@@ -314,7 +282,7 @@ Key files for CI/CD:
 .github/workflows/
 ├── ci.yml              # Main CI pipeline
 ├── docs.yml            # Documentation deployment
-└── release-test.yml    # Release testing
+└── release.yml         # Library release workflow
 
 Makefile                # Local build commands
 sonar-project.properties # SonarCloud config
@@ -325,7 +293,6 @@ codecov.yml             # Coverage config (if used)
 ## Further Reading
 
 - [CI/CD Pipeline Documentation](/devops/ci-cd-pipelines/) - Detailed pipeline documentation
-- [Testing Releases](/devops/testing-releases-quickstart/) - Release workflow
 - [GitHub Actions Docs](https://docs.github.com/en/actions) - Official documentation
 - [SonarCloud Docs](https://docs.sonarcloud.io/) - Code quality analysis
 

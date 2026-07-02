@@ -605,7 +605,7 @@ Error: must NOT have additional properties
 
 ## Related
 
-- [Arena Configuration Reference](/arena/reference/config-schema/)
-- [Scenario Format](/arena/reference/scenario-format/)
+- [Arena Configuration Reference](https://promptarena.altairalabs.ai/arena/reference/config-schema/)
+- [Scenario Format](https://promptarena.altairalabs.ai/arena/reference/scenario-format/)
 - [Provider Configuration](/runtime/reference/providers/)
-- [Configuration Validation](/packc/explanation/validation/)
+- [Configuration Validation](https://promptarena.altairalabs.ai/packc/explanation/validation/)

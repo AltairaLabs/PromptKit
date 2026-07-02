@@ -9,14 +9,13 @@ This document describes all GitHub Actions workflows configured for the PromptKi
 PromptKit uses GitHub Actions for:
 - **Continuous Integration** - Automated testing, linting, and quality checks
 - **Documentation Deployment** - Automatic GitHub Pages updates
-- **Release Testing** - Safe release workflow validation
 
 ### Recent CI Optimizations (Nov 2025)
 
 The CI pipeline has been optimized for efficiency and completeness:
 
 - ✅ **Eliminated duplicate test execution** - Reduced from 3 test runs to 2 (normal + race detector)
-- ✅ **Complete module coverage** - Now tests all modules including `pkg`, `tools/packc`, and `tools/inspect-state`
+- ✅ **Complete module coverage** - Tests all library modules including `runtime`, `sdk`, and `pkg`
 - ✅ **Single test result publication** - Coverage job now handles test reporting (removed duplicate from test job)
 - ✅ **Enhanced linting feedback** - golangci-lint GitHub Action provides inline PR annotations
 - ✅ **Faster CI feedback** - Reduced redundant overhead while maintaining thorough testing
@@ -50,9 +49,6 @@ These improvements ensure comprehensive testing across the entire monorepo while
 - `./runtime/...` - Core runtime components
 - `./sdk/...` - SDK library
 - `./pkg/...` - Shared configuration and utilities
-- `./tools/arena/...` - Arena CLI tool
-- `./tools/packc/...` - PackC CLI tool
-- `./tools/inspect-state/...` - State inspection utility
 
 **Note:** This job runs tests twice (normal + race detector) for fast feedback. Test result publishing is handled by the Coverage job to avoid duplication.
 
@@ -73,9 +69,6 @@ These improvements ensure comprehensive testing across the entire monorepo while
 - `./runtime/...` - Core runtime components
 - `./sdk/...` - SDK library
 - `./pkg/...` - Shared configuration and utilities
-- `./tools/arena/...` - Arena CLI tool
-- `./tools/packc/...` - PackC CLI tool
-- `./tools/inspect-state/...` - State inspection utility
 
 **SonarCloud Integration:**
 - Analyzes code quality, security, and coverage
@@ -175,59 +168,6 @@ permissions:
 
 ---
 
-### 3. Release Test Pipeline (`release-test.yml`)
-
-**Purpose:** Safely test release preparation without creating actual releases.
-
-**Triggers:**
-- Manual dispatch (`workflow_dispatch`) with inputs:
-  - `tool`: Choice of arena or packc
-  - `version`: Test version (default: v0.0.1-test)
-- Push to branches matching `release-test/**`
-- Push to tags matching `test/tools/*/v*`
-
-**Jobs:**
-
-#### Test Release Prep Job
-- **Runs on:** Ubuntu Latest
-- **Go Version:** 1.25.1
-- **Steps:**
-  1. Checkout code (full depth)
-  2. Setup Go
-  3. Determine tool to test (from input or tag)
-  4. Show current `go.mod` before changes
-  5. Simulate replace directive removal
-  6. Show modified `go.mod`
-  7. Attempt dependency resolution
-  8. Show git diff of changes
-  9. Test build with local dependencies
-  10. Generate release checklist
-  11. Upload checklist as artifact
-
-**Outputs:**
-- Release checklist markdown file
-- Step-by-step release commands
-- Validation of build process
-
-#### Dry Run Summary Job
-- **Runs on:** Ubuntu Latest
-- **Depends on:** Test release prep job
-- **Steps:**
-  1. Output summary to GitHub Actions summary page
-
-**Testing Strategies:**
-- ✅ Test repo approach
-- ✅ Test tags with prefix
-- ✅ Test branches
-
-**Permissions Required:**
-```yaml
-permissions:
-  contents: write
-```
-
----
-
 ## Secrets Required
 
 The following secrets must be configured in GitHub repository settings:
@@ -290,9 +230,6 @@ graph TD
     F --> I[SonarCloud]
     D --> J[Jekyll Build]
     J --> K[GitHub Pages Deploy]
-    
-    L[Manual/Test Branch] --> M[Release Test Pipeline]
-    M --> N[Validate Release Process]
 ```
 
 ---
@@ -361,11 +298,6 @@ jobs:
 - Check Gemfile dependencies
 - Verify markdown syntax
 
-**Release Test Failures:**
-- Review release checklist artifact
-- Ensure dependencies would be published first
-- Check go.mod for correct replace directives
-
 ---
 
 ## Local Testing
@@ -384,9 +316,6 @@ make coverage
 cd docs
 bundle install
 bundle exec jekyll serve
-
-# Test release process (dry run)
-./scripts/test-release.sh arena v0.0.1-test
 ```
 
 ---
@@ -428,7 +357,6 @@ Monitor pipeline health:
 
 ## Related Documentation
 
-- [Testing Releases](/devops/testing-releases-quickstart/) - Safe release testing
 - [Contributing Guide](/contributors/contributing/) - Development workflow
 
 ---

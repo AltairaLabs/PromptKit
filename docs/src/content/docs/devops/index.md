@@ -18,42 +18,22 @@ This directory contains operational and release management documentation for Pro
 - **[ci-cd-pipelines](/devops/ci-cd-pipelines/)** - Complete documentation of all GitHub Actions workflows
   - CI Pipeline - Automated testing, linting, and quality checks
   - Documentation Pipeline - GitHub Pages deployment
-  - Release Test Pipeline - Safe release workflow validation
 - **[ci-cd-quickref](/devops/ci-cd-quickref/)** - Quick reference for common CI/CD commands and tasks
 - **[ci-cd-diagrams](/devops/ci-cd-diagrams/)** - Visual diagrams of pipeline architecture and flows
 
-### GitHub Actions
-
-- **[promptarena-action](/devops/promptarena-action/)** - PromptArena GitHub Action for CI/CD integration
-  - Run prompt tests in GitHub workflows
-  - Native test reporting integration
-  - Multi-platform support
-- **[packc-action](/devops/packc-action/)** - PackC GitHub Action for CI/CD integration
-  - Compile prompt packs in GitHub workflows
-  - Publish to OCI registries (GHCR, Docker Hub, ECR)
-  - Supply chain security with Cosign signing
-
 ### Release Management
 
-- **[release-automation](/devops/release-automation/)** - ⭐ **Start here!** Automated release tools (local script + GitHub Actions)
-- **[goreleaser-integration](/devops/goreleaser-integration/)** - Binary builds and GitHub releases with GoReleaser
-- **[release-process](/devops/release-process/)** - Manual step-by-step guide (if automation fails)
-- **[testing-releases-quickstart](/devops/testing-releases-quickstart/)** - Quick reference for safely testing the release process
-- **[testing-releases](/devops/testing-releases/)** - Complete guide to testing releases without polluting git history
-
-### Scripts
-
-Release and testing scripts are located in `/scripts/`:
-
-- `scripts/release.sh` - **Automated release script** (recommended!)
-- `scripts/test-release.sh` - Local dry-run testing for releases
+PromptKit ships libraries only (`runtime`, `pkg`, `sdk`). Releases are cut by
+the automated `release.yml` GitHub Actions workflow, which tags the library
+modules and publishes them to the Go module proxy. The Arena and PackC CLIs
+release from their own repository — see the
+[PromptArena docs](https://promptarena.altairalabs.ai/).
 
 ### Workflows
 
 GitHub Actions workflows:
 
-- `.github/workflows/release.yml` - **Automated release workflow** (recommended!)
-- `.github/workflows/release-test.yml` - Release testing workflow
+- `.github/workflows/release.yml` - **Automated library release workflow**
 - `.github/workflows/ci.yml` - Continuous integration
 - `.github/workflows/docs.yml` - Documentation deployment
 
@@ -62,25 +42,9 @@ GitHub Actions workflows:
 ### Releasing a New Version
 
 ```bash
-# 🚀 RECOMMENDED: Automated release
-./scripts/release.sh v1.0.0
-
-# Or use GitHub Actions
-gh workflow run release.yml -f version=v1.0.0
+# Trigger the automated library release workflow
+gh workflow run release.yml -f version=v1.0.0 -f phase=full
 ```
-
-### Testing a Release
-
-```bash
-# Safe local test (no git changes)
-./scripts/test-release.sh arena v0.0.1-test
-```
-
-### Creating a Real Release (Manual)
-
-1. Review [testing-releases-quickstart](/devops/testing-releases-quickstart/) first
-2. Test thoroughly in a separate repository
-3. Follow the [release-process](/devops/release-process/) step-by-step guide
 
 ## For Maintainers
 

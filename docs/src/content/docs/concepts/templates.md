@@ -455,5 +455,5 @@ Templates provide:
 
 - [Prompts](/concepts/prompts/) - Prompt engineering basics
 - [Runtime Templates](/concepts/templates/) - Implementation guide
-- [PackC Documentation](/packc/) - Template packaging
+- [PackC Documentation](https://promptarena.altairalabs.ai/packc/) - Template packaging
 - [Template Reference](/concepts/templates/) - API details

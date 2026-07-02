@@ -63,7 +63,7 @@ Where `{ns}` is the configured namespace (default: `promptkit`).
 
 ### Eval Metrics
 
-Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. This separates eval metrics from pipeline metrics, making it easy to query all evals with a pattern like `myapp_eval_.*`. See [Eval Framework](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
+Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. This separates eval metrics from pipeline metrics, making it easy to query all evals with a pattern like `myapp_eval_.*`. See [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
 
 ## Standalone Eval Metrics
 
@@ -200,5 +200,5 @@ groups:
 
 - [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics, label architecture, and API reference
 - [Monitor Events](/sdk/how-to/monitor-events/) — Event-based observability and metrics setup
-- [Eval Framework](/arena/explanation/eval-framework/) — Eval architecture and metric types
+- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) — Eval architecture and metric types
 - [Run Evals](/sdk/how-to/run-evals/) — Programmatic eval execution via SDK

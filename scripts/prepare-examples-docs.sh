@@ -3,17 +3,18 @@
 # This runs during docs-build and copies example READMEs to the appropriate content collections
 #
 # Examples are integrated into their respective product collections:
-# - /examples -> docs/arena/examples/
 # - /sdk/examples -> docs/sdk/examples/
+#
+# Note: the top-level /examples (PromptArena scenarios) used to be published
+# under docs/arena/examples/, but the Arena docs now live in the separate
+# promptarena repo (https://promptarena.altairalabs.ai). Only SDK examples are
+# generated here.
 
-ARENA_OUTPUT="docs/src/content/docs/arena/examples"
 SDK_OUTPUT="docs/src/content/docs/sdk/examples"
 LINK_REWRITER="scripts/rewrite-example-links.mjs"
 
 # Clean up existing example directories
-rm -rf "$ARENA_OUTPUT"
 rm -rf "$SDK_OUTPUT"
-mkdir -p "$ARENA_OUTPUT"
 mkdir -p "$SDK_OUTPUT"
 
 # Function to process examples from a directory (Starlight version)
@@ -90,12 +91,8 @@ EOF
     fi
 }
 
-# Process PromptArena examples (top-level /examples) into arena/examples/
-echo "Processing PromptArena examples..."
-process_examples "examples" "$ARENA_OUTPUT"
-
 # Process SDK examples into sdk/examples/
 echo "Processing SDK examples..."
 process_examples "sdk/examples" "$SDK_OUTPUT"
 
-echo "✅ Example READMEs prepared for Starlight in arena/examples/ and sdk/examples/"
+echo "✅ Example READMEs prepared for Starlight in sdk/examples/"

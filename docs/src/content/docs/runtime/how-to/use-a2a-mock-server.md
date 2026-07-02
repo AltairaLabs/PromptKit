@@ -217,6 +217,6 @@ a2a_agents:
 
 ## Next Steps
 
-- [Test A2A Agents in Arena](/arena/how-to/test-a2a-agents/) — use mock agents in Arena scenarios
+- [Test A2A Agents in Arena](https://promptarena.altairalabs.ai/arena/how-to/test-a2a-agents/) — use mock agents in Arena scenarios
 - [Use Tool Bridge](/runtime/how-to/use-a2a-tool-bridge/) — pair mock server with tool bridge for integration tests
 - [Runtime A2A Reference](/runtime/reference/a2a/) — mock server API details

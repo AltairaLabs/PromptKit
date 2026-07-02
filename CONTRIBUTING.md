@@ -94,60 +94,20 @@ make build
 ```
 PromptKit/
 ├── runtime/          # Core runtime components
-├── pkg/              # Shared packages
-├── tools/arena/      # PromptKit Arena CLI
-├── tools/packc/      # Pack Compiler tool
+├── pkg/              # Shared packages (config, schema validation)
+├── server/a2a/       # A2A protocol server module
 ├── sdk/              # PromptKit SDK
+├── tools/schema-gen/ # JSON Schema generator
 ├── examples/         # Example configurations
 └── docs/             # Documentation
 ```
 
+> The **PromptArena** and **PackC** CLIs are developed in their own repository,
+> [github.com/AltairaLabs/promptarena](https://github.com/AltairaLabs/promptarena).
+> Contributions to the testing framework and pack compiler go there. This repo
+> covers the SDK, runtime, and the hosted JSON schemas.
+
 ## Component-Specific Contribution Guidelines
-
-### Arena CLI (`tools/arena/`)
-
-**Focus**: Testing framework for LLM applications
-
-**Key Areas for Contribution:**
-- New test scenario types and assertions
-- Provider integrations (OpenAI, Anthropic, Google, etc.)
-- MCP (Model Context Protocol) tool integrations
-- Report generation and visualization improvements
-- Performance optimizations for large test suites
-
-**Testing Arena Changes:**
-```bash
-# Build Arena
-make build-arena
-
-# Run Arena tests
-cd tools/arena && go test ./...
-
-# Test with example scenarios
-./bin/promptarena run examples/customer-support/arena.yaml
-```
-
-### PackC CLI (`tools/packc/`)
-
-**Focus**: Prompt packaging and compilation tool
-
-**Key Areas for Contribution:**
-- Pack format enhancements and validation
-- New output formats and deployment targets
-- Template processing improvements
-- Schema validation and error reporting
-
-**Testing PackC Changes:**
-```bash
-# Build PackC
-make build-packc
-
-# Run PackC tests
-cd tools/packc && go test ./...
-
-# Test pack compilation
-./bin/packc build examples/customer-support/packs/
-```
 
 ### SDK (`sdk/`)
 

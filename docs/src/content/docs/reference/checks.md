@@ -178,7 +178,7 @@ conversation_assertions:
     message: "Hidden tests must pass"
 ```
 
-Pair this with a [source-backed MCP entry](/arena/how-to/provision-mcp-sandbox/)
+Pair this with a [source-backed MCP entry](https://promptarena.altairalabs.ai/arena/how-to/provision-mcp-sandbox/)
 that supplies the `run_tests` tool — the sandbox lives for the
 session, runs the agent's edits, and the gate checks them at the end.
 
@@ -710,7 +710,7 @@ assertions:
 ```
 
 :::note[Three-role model]
-RAG checks are eval primitives invoked as assertions. They can also be wired as monitor-only guardrails via `runtime/hooks/guardrails/factory.go` — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](/arena/reference/validators/) for the guardrail-side wiring.
+RAG checks are eval primitives invoked as assertions. They can also be wired as monitor-only guardrails via `runtime/hooks/guardrails/factory.go` — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
 :::
 
 ---
@@ -990,7 +990,7 @@ For no-code extensibility, use the [`rest_eval`](#rest_eval) and [`a2a_eval`](#a
 ## See Also
 
 - [Unified Check Model](/concepts/validation/) -- How checks, assertions, guardrails, and evals relate
-- [Write Assertions](/arena/reference/assertions/) -- Using checks in Arena test scenarios
-- [Add Guardrails](/arena/reference/validators/) -- Using checks as runtime policy enforcers
-- [Eval Framework](/arena/explanation/eval-framework/) -- Production eval architecture
+- [Write Assertions](https://promptarena.altairalabs.ai/arena/reference/assertions/) -- Using checks in Arena test scenarios
+- [Add Guardrails](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Using checks as runtime policy enforcers
+- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Production eval architecture
 - [Run Evals](/sdk/how-to/run-evals/) -- Programmatic eval execution

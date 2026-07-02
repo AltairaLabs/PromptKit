@@ -242,5 +242,5 @@ func main() {
 ## Next Steps
 
 - [Use Tool Bridge (Runtime)](/runtime/how-to/use-a2a-tool-bridge/) — low-level bridge API
-- [Test A2A Agents (Arena)](/arena/how-to/test-a2a-agents/) — end-to-end testing with mock agents
+- [Test A2A Agents (Arena)](https://promptarena.altairalabs.ai/arena/how-to/test-a2a-agents/) — end-to-end testing with mock agents
 - [Register Tools](/sdk/how-to/register-tools/) — add custom Go tools alongside A2A tools
