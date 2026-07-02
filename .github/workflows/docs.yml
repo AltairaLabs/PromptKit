@@ -76,7 +76,14 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       
       - name: Install Node dependencies
-        run: make docs-install
+        # Regenerate the lockfile on the CI platform first: a macOS-generated
+        # lock omits the Linux rollup/esbuild native binaries (npm/cli#4828),
+        # which `npm install` then honours, breaking the Astro build. Deleting
+        # it forces a clean, platform-correct resolve. The committed lock stays
+        # for local dev and the setup-node cache key.
+        run: |
+          rm -f docs/package-lock.json
+          make docs-install
         
       - name: Build documentation
         run: make docs-build
