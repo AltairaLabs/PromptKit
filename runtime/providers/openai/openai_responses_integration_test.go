@@ -190,7 +190,7 @@ func TestHandleStreamEvent_AudioDelta(t *testing.T) {
 	data := fmt.Sprintf(`{"type":"response.audio.delta","delta":"%s"}`, audioB64)
 
 	tokens, tc, usage := provider.handleStreamEvent(
-		responsesStreamEvent{Type: "response.audio.delta"},
+		&responsesStreamEvent{Type: "response.audio.delta"},
 		data, &sb, 0, nil, nil, outChan, idMap,
 	)
 
@@ -234,7 +234,7 @@ func TestHandleStreamEvent_AudioTranscriptDelta(t *testing.T) {
 	data := `{"type":"response.audio_transcript.delta","delta":"Hello "}`
 
 	tokens, _, _ := provider.handleStreamEvent(
-		responsesStreamEvent{Type: "response.audio_transcript.delta"},
+		&responsesStreamEvent{Type: "response.audio_transcript.delta"},
 		data, &sb, 0, nil, nil, outChan, idMap,
 	)
 
@@ -269,7 +269,7 @@ func TestHandleStreamEvent_AudioDone(t *testing.T) {
 	data := `{"type":"response.audio.done"}`
 
 	tokens, tc, usage := provider.handleStreamEvent(
-		responsesStreamEvent{Type: "response.audio.done"},
+		&responsesStreamEvent{Type: "response.audio.done"},
 		data, &sb, 5, nil, nil, outChan, idMap,
 	)
 

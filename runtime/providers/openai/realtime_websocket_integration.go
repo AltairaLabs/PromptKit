@@ -3,8 +3,6 @@ package openai
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -35,15 +33,11 @@ func NewRealtimeWebSocket(model, apiKey string) *RealtimeWebSocket {
 // tests point it at a local fake WebSocket server to exercise the session's
 // receive/back-pressure behavior without the real API.
 func newRealtimeWebSocketAt(model, apiKey, endpoint string) *RealtimeWebSocket {
-	wsURL := fmt.Sprintf("%s?model=%s", endpoint, model)
-
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+apiKey)
-	// Per OpenAI's GA migration guide: do NOT send the OpenAI-Beta header
-	// against the GA Realtime API (gpt-realtime and friends). The legacy
-	// beta header was required for the original 2024 preview but is now
-	// rejected — the server treats it as a legacy connection and serves
-	// pre-GA defaults that conflict with the current event schema.
+	// URL + header construction is extracted into realtime_config.go
+	// (realtimeWSURL / realtimeWSHeaders) so the GA requirement — Authorization
+	// present, OpenAI-Beta absent — can be unit-tested without a live socket.
+	wsURL := realtimeWSURL(endpoint, model)
+	headers := realtimeWSHeaders(apiKey)
 
 	return &RealtimeWebSocket{
 		conn: streaming.NewConn(&streaming.ConnConfig{
