@@ -1235,8 +1235,30 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 	}
 	defer session.Close()
 
-	// Tool calls are currently no-op, just verify no error
-	time.Sleep(200 * time.Millisecond)
+	// The tool call must surface as a StreamChunk with a populated ToolCalls
+	// slice and finish_reason=tool_calls, with the FunctionCall args marshaled
+	// back to JSON.
+	select {
+	case chunk := <-session.Response():
+		if chunk.FinishReason == nil || *chunk.FinishReason != "tool_calls" {
+			t.Errorf("Expected finish_reason=tool_calls, got %v", chunk.FinishReason)
+		}
+		if len(chunk.ToolCalls) != 1 {
+			t.Fatalf("Expected 1 tool call, got %d", len(chunk.ToolCalls))
+		}
+		tc := chunk.ToolCalls[0]
+		if tc.ID != "call_1" {
+			t.Errorf("Expected tool call ID call_1, got %q", tc.ID)
+		}
+		if tc.Name != "test_function" {
+			t.Errorf("Expected tool call name test_function, got %q", tc.Name)
+		}
+		if string(tc.Args) != `{"arg":"value"}` {
+			t.Errorf("Expected args {\"arg\":\"value\"}, got %s", tc.Args)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for tool call chunk")
+	}
 }
 
 func TestStreamSessionConstants(t *testing.T) {
