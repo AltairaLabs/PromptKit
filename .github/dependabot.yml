@@ -1,6 +1,18 @@
 # Dependabot configuration for PromptKit
 # Automatically creates PRs for dependency updates across multiple ecosystems
 # See: https://docs.github.com/en/code-security/dependabot
+#
+# NOTE on internal modules: runtime/pkg/sdk/server-a2a are independently
+# released Go modules (github.com/AltairaLabs/PromptKit/*). Their cross-module
+# version pins are owned by the release pipeline (.github/workflows/release.yml),
+# which bumps them in lockstep and strips replace directives on release. Local
+# builds resolve them through go.work, so CI never exercises the pinned version.
+# We therefore `ignore` github.com/AltairaLabs/PromptKit/* in every gomod
+# ecosystem so Dependabot doesn't file untested, out-of-band bump PRs for them.
+#
+# commit-message: prefix is "chore" (NOT "chore(deps)") because include:"scope"
+# already appends the "(deps)" scope — a "chore(deps)" prefix produced the
+# doubled "chore(deps)(deps):" subject lines.
 
 version: 2
 updates:
@@ -16,8 +28,11 @@ updates:
       - "dependencies"
       - "go"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
+    ignore:
+      # Internal modules are versioned by the release pipeline, not Dependabot.
+      - dependency-name: "github.com/AltairaLabs/PromptKit/*"
 
   # Go modules - SDK
   - package-ecosystem: "gomod"
@@ -31,8 +46,10 @@ updates:
       - "dependencies"
       - "go"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
+    ignore:
+      - dependency-name: "github.com/AltairaLabs/PromptKit/*"
 
   # Go modules - pkg
   - package-ecosystem: "gomod"
@@ -46,8 +63,27 @@ updates:
       - "dependencies"
       - "go"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
+    ignore:
+      - dependency-name: "github.com/AltairaLabs/PromptKit/*"
+
+  # Go modules - A2A server
+  - package-ecosystem: "gomod"
+    directory: "/server/a2a"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    ignore:
+      - dependency-name: "github.com/AltairaLabs/PromptKit/*"
 
   # npm - Documentation site (Astro)
   - package-ecosystem: "npm"
@@ -62,7 +98,7 @@ updates:
       - "npm"
       - "documentation"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
 
   # GitHub Actions workflows
@@ -77,5 +113,5 @@ updates:
       - "dependencies"
       - "github-actions"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
