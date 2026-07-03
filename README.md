@@ -47,7 +47,7 @@ a `c6g.xlarge` reference ($0.136/hr). The load-test harness lives in
 [`benchmarks/`](./benchmarks); reproduce the numbers below with
 `make -C benchmarks round1-tools` (Docker spins up the mock upstream plus each
 framework). Full write-up:
-[*Bulletproofing Streaming LLM Calls*](https://altairalabs.ai/blog/streaming-llm-back-pressure).
+[*Bulletproofing Streaming LLM Calls*](https://www.altairalabs.ai/blog/streaming-llm-back-pressure).
 
 **Resident memory** (MB, lower is better)
 
@@ -176,4 +176,4 @@ Apache 2.0 - See [LICENSE](./LICENSE).
 
 ---
 
-Built by [AltairaLabs.ai](https://altairalabs.ai)
+Built by [AltairaLabs.ai](https://www.altairalabs.ai)
