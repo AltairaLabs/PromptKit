@@ -1,6 +1,0 @@
-scenarios:
-  standard-call:
-    turns:
-      1: "Hello there, and welcome to our customer support service! I'm so glad you reached out today, and I'm absolutely here to help you with whatever you need assistance with. Before we get started, could you please share a little more detail about the specific issue you're experiencing today so I can make sure we get this sorted out for you efficiently?"
-      2: "Thank you so much for sharing those details with me. Let me take a careful look at your account and the situation surrounding the issue you've described. This might take just a brief moment as I want to make absolutely sure I get this right for you and provide the most accurate information possible."
-      3: "Wonderful, I'm so pleased we were able to get this sorted out together! Please don't hesitate to reach back out to us if there's anything else you need help with going forward. Have a truly fantastic rest of your day, and thank you so much for choosing us!"

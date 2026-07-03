@@ -7,8 +7,6 @@ use (
 	./benchmarks/frameworks/promptkit/round2
 	./examples/a2a-auth-test
 	./examples/a2a-demo
-	./examples/workflow-agent-loops/sdk-example
-	./examples/workflow-support/sdk-example
 	./pkg
 	./runtime
 	./sdk
