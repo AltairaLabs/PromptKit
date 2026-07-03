@@ -156,8 +156,16 @@ else
             print_info "Linting $module..."
 
             # --new-from-rev=HEAD reports issues only in new/changed code.
+            # `env -u GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE`: when this hook runs
+            # from a linked git worktree, `git commit` exports GIT_DIR (an
+            # absolute path under .git/worktrees/<name>) into the hook env.
+            # golangci-lint's go-git-based revgrep then cannot resolve the work
+            # tree, fails open, and floods the whole module's pre-existing debt
+            # instead of just the diff. Unsetting those vars restores correct
+            # new-from-rev scoping (main repo and worktree behave identically).
             set +e
-            lint_out=$(run_in_module "$module" golangci-lint run --new-from-rev=HEAD --timeout=3m ./... 2>&1)
+            lint_out=$(run_in_module "$module" env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE \
+                golangci-lint run --new-from-rev=HEAD --timeout=3m ./... 2>&1)
             lint_rc=$?
             set -e
             [ -n "$lint_out" ] && echo "$lint_out"
@@ -272,14 +280,44 @@ else
         COVERAGE_FAILED=0
         COVERAGE_RESULTS=()
         
+        # Files exempt from the coverage gate — MUST stay in sync with
+        # sonar.coverage.exclusions. Each is thin live-I/O glue that cannot run
+        # in CI (real network/websocket to a provider, ffmpeg subprocess,
+        # cloud-SDK credential fetch) or a cross-package test harness. The
+        # *_integration.go / *_interactive.go suffix ALONE no longer grants an
+        # exemption — only membership in this list does — so new code cannot
+        # dodge the gate by adopting the suffix. Extract pure logic into a gated
+        # sibling and test it instead of adding entries here.
+        COVERAGE_EXEMPT_FILES="runtime/credentials/aws_integration.go
+runtime/credentials/azure_integration.go
+runtime/credentials/gcp_integration.go
+runtime/media/audio_converter_integration.go
+runtime/pipeline/stage/stages_video_frames_integration.go
+runtime/providers/gemini/stream_session_integration.go
+runtime/providers/gemini/stream_session_protocol_integration.go
+runtime/providers/gemini/stream_session_tools_integration.go
+runtime/providers/openai/openai_responses_integration.go
+runtime/providers/openai/realtime_session_integration.go
+runtime/providers/openai/realtime_tools_integration.go
+runtime/providers/openai/realtime_websocket_integration.go
+runtime/providers/openai/streaming_support_integration.go
+runtime/providers/provider_contract_integration.go
+runtime/skills/installer_integration.go
+runtime/tts/cartesia_interactive.go"
+
         if [ -f "$MERGED_COVERAGE" ]; then
-            # Check each staged Go file (excluding test, interactive, and integration files)
+            # Check each staged Go file (test files and the explicit exempt
+            # allowlist are skipped; the suffix alone is not an exemption).
             for file in $STAGED_GO_FILES; do
-                # Skip test files, interactive files, and integration files
-                if [[ "$file" == *_test.go ]] || [[ "$file" == *_interactive.go ]] || [[ "$file" == *_integration.go ]]; then
+                # Always skip test files.
+                if [[ "$file" == *_test.go ]]; then
                     continue
                 fi
-                
+                # Skip only files on the explicit coverage-exemption allowlist.
+                if printf '%s\n' "$COVERAGE_EXEMPT_FILES" | grep -qxF "$file"; then
+                    continue
+                fi
+
                 # Skip example files (examples directory) and integration tests (tests directory)
                 if [[ "$file" == examples/* ]] || [[ "$file" == */examples/* ]] || [[ "$file" == tests/* ]]; then
                     continue
@@ -345,7 +383,7 @@ else
                 echo ""
                 if [ $COVERAGE_FAILED -eq 1 ]; then
                     print_error "Some files have insufficient test coverage (threshold: ${COVERAGE_THRESHOLD}%)"
-                    print_info "Add tests or move untestable code to *_interactive.go or *_integration.go files"
+                    print_info "Add tests. If the code is genuinely un-runnable in CI (live network/device/subprocess), extract the pure logic into a gated sibling and test THAT — renaming to *_integration.go no longer exempts a file; only the COVERAGE_EXEMPT_FILES allowlist (mirrored in sonar.coverage.exclusions) does."
                     CHECKS_FAILED=1
                 else
                     print_success "All changed files meet coverage threshold (≥${COVERAGE_THRESHOLD}%)"
