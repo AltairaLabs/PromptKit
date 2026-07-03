@@ -8,14 +8,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"image"
 	_ "image/jpeg" // Register JPEG decoder
 	_ "image/png"  // Register PNG decoder
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
@@ -154,109 +151,4 @@ func (s *VideoToFramesStage) runFFmpeg(ctx context.Context, args []string) error
 	}
 
 	return nil
-}
-
-// readExtractedFrames reads output frames and creates StreamElements.
-//
-//nolint:gocognit // Complex but well-structured frame processing logic
-func (s *VideoToFramesStage) readExtractedFrames(
-	ctx context.Context,
-	tempDir string,
-	videoID string,
-	elem *StreamElement,
-	output chan<- StreamElement,
-) (int, error) {
-	// List output files
-	entries, err := os.ReadDir(tempDir)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read temp directory: %w", err)
-	}
-
-	// Filter and sort frame files
-	var frameFiles []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, "frame_") && (strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".png")) {
-			frameFiles = append(frameFiles, name)
-		}
-	}
-
-	// Sort by name to ensure correct order
-	sort.Strings(frameFiles)
-
-	totalFrames := len(frameFiles)
-	if totalFrames == 0 {
-		return 0, nil
-	}
-
-	// Emit each frame as an ImageData element
-	for i, fileName := range frameFiles {
-		framePath := filepath.Join(tempDir, fileName)
-
-		// Read frame data
-		//nolint:gosec // G304: framePath is constructed from temp directory and known pattern
-		data, err := os.ReadFile(framePath)
-		if err != nil {
-			logger.Warn("Failed to read frame file", "path", framePath, "error", err)
-			continue
-		}
-
-		// Decode to get dimensions
-		var width, height int
-		reader := bytes.NewReader(data)
-		img, _, err := image.Decode(reader)
-		if err == nil {
-			bounds := img.Bounds()
-			width = bounds.Dx()
-			height = bounds.Dy()
-		}
-
-		// Determine MIME type
-		mimeType := "image/jpeg"
-		format := "jpeg"
-		if strings.HasSuffix(fileName, ".png") {
-			mimeType = "image/png"
-			format = "png"
-		}
-
-		// Create ImageData
-		imageData := &ImageData{
-			Data:     data,
-			MIMEType: mimeType,
-			Width:    width,
-			Height:   height,
-			Format:   format,
-		}
-
-		// Create StreamElement
-		frameElem := NewImageElement(imageData)
-		frameElem.Sequence = elem.Sequence
-		frameElem.Source = elem.Source
-
-		// Add correlation metadata
-		frameElem.Meta.VideoFrames = &VideoFramesInfo{
-			VideoID:       videoID,
-			FrameIndex:    i,
-			TotalFrames:   totalFrames,
-			OriginalVideo: elem.Video,
-		}
-
-		// Propagate MediaExtract correlation when present
-		if elem.Meta.MediaExtract != nil {
-			info := *elem.Meta.MediaExtract
-			frameElem.Meta.MediaExtract = &info
-		}
-
-		// Emit frame
-		select {
-		case output <- frameElem:
-		case <-ctx.Done():
-			return i, ctx.Err()
-		}
-	}
-
-	return totalFrames, nil
 }
