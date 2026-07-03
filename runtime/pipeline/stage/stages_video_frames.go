@@ -2,11 +2,15 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"image"
 	_ "image/jpeg" // Register JPEG decoder
 	_ "image/png"  // Register PNG decoder
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -708,4 +712,116 @@ func (s *FramesToMessageStage) processTimeouts(ctx context.Context, output chan<
 // GetConfig returns the stage configuration.
 func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig {
 	return s.config
+}
+
+// readExtractedFrames reads the frame image files that ffmpeg wrote into
+// tempDir, decodes each to determine its dimensions and format, and emits one
+// ImageData StreamElement per frame in filename order.
+//
+// This is the PURE portion of the video-to-frames pipeline: it only reads
+// already-written files from disk (no subprocess), so it is unit-testable by
+// seeding tempDir with real JPEG/PNG files. The ffmpeg subprocess plumbing that
+// produces those files lives in stages_video_frames_integration.go.
+//
+//nolint:gocognit // Complex but well-structured frame processing logic
+func (s *VideoToFramesStage) readExtractedFrames(
+	ctx context.Context,
+	tempDir string,
+	videoID string,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) (int, error) {
+	// List output files
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read temp directory: %w", err)
+	}
+
+	// Filter and sort frame files
+	var frameFiles []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "frame_") && (strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".png")) {
+			frameFiles = append(frameFiles, name)
+		}
+	}
+
+	// Sort by name to ensure correct order
+	sort.Strings(frameFiles)
+
+	totalFrames := len(frameFiles)
+	if totalFrames == 0 {
+		return 0, nil
+	}
+
+	// Emit each frame as an ImageData element
+	for i, fileName := range frameFiles {
+		framePath := filepath.Join(tempDir, fileName)
+
+		// Read frame data
+		//nolint:gosec // G304: framePath is constructed from temp directory and known pattern
+		data, err := os.ReadFile(framePath)
+		if err != nil {
+			logger.Warn("Failed to read frame file", "path", framePath, "error", err)
+			continue
+		}
+
+		// Decode to get dimensions
+		var width, height int
+		reader := bytes.NewReader(data)
+		img, _, err := image.Decode(reader)
+		if err == nil {
+			bounds := img.Bounds()
+			width = bounds.Dx()
+			height = bounds.Dy()
+		}
+
+		// Determine MIME type
+		mimeType := "image/jpeg"
+		format := "jpeg"
+		if strings.HasSuffix(fileName, ".png") {
+			mimeType = "image/png"
+			format = "png"
+		}
+
+		// Create ImageData
+		imageData := &ImageData{
+			Data:     data,
+			MIMEType: mimeType,
+			Width:    width,
+			Height:   height,
+			Format:   format,
+		}
+
+		// Create StreamElement
+		frameElem := NewImageElement(imageData)
+		frameElem.Sequence = elem.Sequence
+		frameElem.Source = elem.Source
+
+		// Add correlation metadata
+		frameElem.Meta.VideoFrames = &VideoFramesInfo{
+			VideoID:       videoID,
+			FrameIndex:    i,
+			TotalFrames:   totalFrames,
+			OriginalVideo: elem.Video,
+		}
+
+		// Propagate MediaExtract correlation when present
+		if elem.Meta.MediaExtract != nil {
+			info := *elem.Meta.MediaExtract
+			frameElem.Meta.MediaExtract = &info
+		}
+
+		// Emit frame
+		select {
+		case output <- frameElem:
+		case <-ctx.Done():
+			return i, ctx.Err()
+		}
+	}
+
+	return totalFrames, nil
 }

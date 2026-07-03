@@ -11,8 +11,7 @@ import (
 
 // This file holds the pure, side-effect-free transforms used by the duplex
 // provider stage (no session I/O or channel plumbing — those live in
-// stages_duplex_provider_integration.go). Keeping them here means the standard
-// coverage gate enforces their tests.
+// stages_duplex_provider_session.go).
 
 // finishReasonMetaKey is the Message.Meta key carrying the turn's finish reason.
 const finishReasonMetaKey = "finish_reason"
