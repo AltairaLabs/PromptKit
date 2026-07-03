@@ -32,9 +32,6 @@ flags:
   sdk:
     paths:
       - sdk/
-  schema-gen:
-    paths:
-      - tools/schema-gen/
 
 ignore:
   - "**/*_test.go"

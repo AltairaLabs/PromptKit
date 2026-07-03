@@ -285,11 +285,6 @@ else
                     continue
                 fi
                 
-                # Skip build-time tooling (schema generators, etc.)
-                if [[ "$file" == tools/schema-gen/* ]]; then
-                    COVERAGE_RESULTS+=("○ $file: N/A (build tooling)")
-                    continue
-                fi
                 
                 # Calculate ACTUAL statement coverage from raw coverage.out
                 # Format: file:startLine.startCol,endLine.endCol numStatements count

@@ -76,13 +76,12 @@ jobs:
         gotestsum --junitfile test-results/coverage-runtime.xml --format testname -- -race -coverprofile=runtime/runtime-coverage.out ./runtime/...
         gotestsum --junitfile test-results/coverage-sdk.xml --format testname -- -race -coverprofile=sdk/sdk-coverage.out ./sdk/...
         gotestsum --junitfile test-results/coverage-pkg.xml --format testname -- -race -coverprofile=pkg/pkg-coverage.out ./pkg/...
-        gotestsum --junitfile test-results/coverage-schema-gen.xml --format testname -- -race -coverprofile=tools/schema-gen/schema-gen-coverage.out ./tools/schema-gen/...
         gotestsum --junitfile test-results/coverage-server-a2a.xml --format testname -- -race -coverprofile=server/a2a/server-a2a-coverage.out ./server/a2a/...
         gotestsum --junitfile test-results/coverage-sdk-integration.xml --format testname -- -race -coverpkg=github.com/AltairaLabs/PromptKit/sdk/... -coverprofile=sdk/sdk-integration-coverage.out ./sdk/integration/...
 
         # Merge coverage files
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out sdk/sdk-integration-coverage.out pkg/pkg-coverage.out tools/schema-gen/schema-gen-coverage.out server/a2a/server-a2a-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out sdk/sdk-integration-coverage.out pkg/pkg-coverage.out server/a2a/server-a2a-coverage.out >> coverage.out 2>/dev/null || true
 
         # Fix coverage paths for SonarCloud - strip module prefix to get repo-relative paths
         # Go coverage uses full module paths (github.com/AltairaLabs/PromptKit/...) but SonarCloud expects repo-relative paths
@@ -110,7 +109,7 @@ jobs:
           sdk/sdk-coverage.out
           sdk/sdk-integration-coverage.out
           pkg/pkg-coverage.out
-          tools/schema-gen/schema-gen-coverage.out
+         
           server/a2a/server-a2a-coverage.out
         retention-days: 5
 
@@ -187,7 +186,6 @@ jobs:
           - ./sdk
           - ./pkg
           - ./server/a2a
-          - ./tools/schema-gen
 
     steps:
     - name: Checkout code
@@ -208,7 +206,6 @@ jobs:
           sdk/go.sum
           pkg/go.sum
           server/a2a/go.sum
-          tools/schema-gen/go.sum
 
     - name: Run golangci-lint in ${{ matrix.module }}
       uses: golangci/golangci-lint-action@v9

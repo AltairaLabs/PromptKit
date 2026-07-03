@@ -37,15 +37,15 @@ Go workspace with multiple modules (see `go.work`):
 | `sdk/` | Developer SDK: `Open()`, `OpenDuplex()`, `OpenWorkflow()`, capabilities, options |
 | `pkg/` | Shared packages: config, schema validation |
 | `server/a2a/` | A2A protocol server module |
-| `tools/schema-gen/` | JSON Schema generator for the PromptArena config types |
-| `schemas/v1alpha1/` | Generated JSON schemas, hosted at promptkit.altairalabs.ai |
+| `schemas/v1alpha1/` | JSON schemas, fetched from promptarena and hosted at promptkit.altairalabs.ai |
 | `examples/` | Example projects and SDK usage |
 | `docs/` | Starlight documentation site |
 
 The **PromptArena** and **PackC** CLIs live in a separate repository,
-`github.com/AltairaLabs/promptarena`. This repo ships the Go SDK/runtime
-libraries and hosts the JSON schemas; `tools/schema-gen` imports the config
-types from the published promptarena module to generate them.
+`github.com/AltairaLabs/promptarena`, which also **generates** the JSON schemas
+(from its `arena/arenaconfig` + this repo's `pkg/config` types). PromptKit ships
+the Go SDK/runtime libraries, keeps a committed copy of the schemas (its
+`pkg/config` validator loads them), and hosts them at promptkit.altairalabs.ai.
 
 ## Build & Test Commands
 
@@ -63,12 +63,9 @@ go test ./runtime/... -v -race -count=1
 # Lint
 golangci-lint run ./...
 
-# Regenerate JSON schemas (after a PromptArena config-type change lands in the
-# published promptarena module) — schemas stay hosted at promptkit.altairalabs.ai
-go run ./tools/schema-gen/...   # or: make schemas
-
-# Build the schema generator
-make build-schema-gen
+# Refresh the JSON schemas from promptarena (the schema owner) and commit
+make schemas          # fetch schemas/v1alpha1 from AltairaLabs/promptarena
+make schemas-check    # CI gate: verify the committed copy matches promptarena
 ```
 
 ## SDK Architecture
@@ -92,13 +89,15 @@ Interfaces like `Conversation` and `StreamingConversation` are defined in `a2a`;
 
 ## Schemas
 
-PromptKit generates and hosts the PromptArena JSON schemas. The config types
-live in the published `github.com/AltairaLabs/promptarena` module; `tools/schema-gen`
-reflects them into `schemas/v1alpha1/`.
+The JSON schemas are **generated in the promptarena repo** (it owns the
+`arena/arenaconfig` types and imports this repo's `pkg/config`). PromptKit is the
+host: it keeps a committed copy under `schemas/v1alpha1/` (loaded by
+`pkg/config`'s validator and used by promptarena/packc via the hosted URL) and
+serves it at `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`.
 
-- Schemas are served from `https://promptkit.altairalabs.ai/schemas/v1alpha1/`.
-- Regenerate after a schema-relevant change: `go run ./tools/schema-gen/...` (or `make schemas`). The generated output must stay byte-identical unless the promptarena config types changed.
-- `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/` before publishing; it is a development-only tool and must not appear in shipped docs or example READMEs.
+- Refresh the committed copy from promptarena: `make schemas` (fetches via `scripts/fetch-schemas.sh`), then commit.
+- CI (`schemas.yml`) runs `make schemas-check` — fails if the committed copy drifts from promptarena's generated schemas.
+- `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/`; a development-only tool that must not appear in shipped docs or example READMEs.
 
 ## Concurrent Agents and Worktrees
 

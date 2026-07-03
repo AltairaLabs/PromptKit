@@ -152,7 +152,6 @@ promptkit/
 ├── runtime/           # Core runtime (providers, pipeline, streaming, tools, mcp, a2a, voice, deploy)
 ├── pkg/               # Shared config and schema-validation packages
 ├── server/a2a/        # A2A protocol server module
-├── tools/schema-gen/  # JSON Schema generator for config types
 ├── benchmarks/        # Efficiency/throughput harness vs LangChain, Vercel AI, Strands
 ├── examples/          # SDK examples (A2A, logging config)
 └── docs/              # Documentation
