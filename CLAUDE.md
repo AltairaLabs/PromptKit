@@ -36,13 +36,16 @@ Go workspace with multiple modules (see `go.work`):
 | `runtime/` | Core runtime: providers, pipeline, tools, types, a2a protocol, workflow engine |
 | `sdk/` | Developer SDK: `Open()`, `OpenDuplex()`, `OpenWorkflow()`, capabilities, options |
 | `pkg/` | Shared packages: config, schema validation |
-| `tools/arena/` | PromptArena — prompt testing/evaluation framework |
-| `tools/packc/` | Pack compiler CLI |
-| `tools/schema-gen/` | JSON Schema generator for config types |
-| `tools/inspect-state/` | State store inspection tool |
-| `schemas/v1alpha1/` | Generated JSON schemas for Arena config types |
-| `examples/` | Example packs, scenarios, and SDK usage |
+| `server/a2a/` | A2A protocol server module |
+| `tools/schema-gen/` | JSON Schema generator for the PromptArena config types |
+| `schemas/v1alpha1/` | Generated JSON schemas, hosted at promptkit.altairalabs.ai |
+| `examples/` | Example projects and SDK usage |
 | `docs/` | Starlight documentation site |
+
+The **PromptArena** and **PackC** CLIs live in a separate repository,
+`github.com/AltairaLabs/promptarena`. This repo ships the Go SDK/runtime
+libraries and hosts the JSON schemas; `tools/schema-gen` imports the config
+types from the published promptarena module to generate them.
 
 ## Build & Test Commands
 
@@ -56,51 +59,17 @@ go test ./... -count=1
 # Run specific module tests
 go test ./sdk/... -v -race -count=1
 go test ./runtime/... -v -race -count=1
-go test ./tools/arena/... -v -race -count=1
 
 # Lint
 golangci-lint run ./...
 
-# Regenerate JSON schemas (after changing Arena config types)
-go run ./tools/schema-gen/...
+# Regenerate JSON schemas (after a PromptArena config-type change lands in the
+# published promptarena module) — schemas stay hosted at promptkit.altairalabs.ai
+go run ./tools/schema-gen/...   # or: make schemas
 
-# Build tools (preferred: use make targets)
-make build-arena    # builds bin/promptarena with version info
-make build-packc    # builds bin/packc
-make build-tools    # builds all CLI tools
-
-# Alternative: direct go build (no version info)
-go build -o bin/promptarena ./tools/arena/cmd/promptarena
-go build -o bin/packc ./tools/packc
+# Build the schema generator
+make build-schema-gen
 ```
-
-## Running Arena Examples
-
-After building with `make build-arena`, run examples from their directory:
-
-```bash
-# Run an example with mock provider (no API keys needed)
-cd examples/guardrails-test
-../../bin/promptarena run --mock-provider --mock-config mock-responses.yaml --ci --formats html,json
-
-# Open the HTML report
-open out/report.html
-
-# Examples with pre-configured mock providers (have their own providers/mock-provider.yaml):
-# Do NOT use --mock-provider flag — just run directly
-cd examples/customer-support
-../../bin/promptarena run --ci --format html
-
-# Workflow examples run against published schemas as well
-cd examples/workflow-support
-../../bin/promptarena run --ci --format html
-```
-
-Key flags:
-- `--mock-provider`: Replaces all providers with generic mock (use `--mock-config` to specify response file)
-- `--ci`: Non-interactive mode, exits with code 0/1
-- `--formats html,json`: Output format(s)
-- `PROMPTKIT_SCHEMA_SOURCE=local`: Only needed when developing schema fields that haven't been published yet. Shipped examples must validate against the published remote schemas without this flag.
 
 ## SDK Architecture
 
@@ -121,31 +90,15 @@ Key flags:
 ### Circular dependency: `runtime/a2a` cannot import `sdk`
 Interfaces like `Conversation` and `StreamingConversation` are defined in `a2a`; `sdk` callers wrap their implementations.
 
-## PromptArena
+## Schemas
 
-### Running examples
-```bash
-cd examples/workflow-support
-promptarena run --ci --format html
+PromptKit generates and hosts the PromptArena JSON schemas. The config types
+live in the published `github.com/AltairaLabs/promptarena` module; `tools/schema-gen`
+reflects them into `schemas/v1alpha1/`.
 
-cd examples/workflow-order-processing
-promptarena run --ci --format html
-
-cd examples/customer-support
-promptarena run --ci --format html
-```
-
-All shipped examples must validate against the published remote schemas without `PROMPTKIT_SCHEMA_SOURCE=local`. If you add a new example that requires the flag, the corresponding schema changes must be released before the example is merged.
-
-### Schema validation
-- PromptArena validates scenario files against JSON schemas fetched from `https://promptkit.altairalabs.ai/schemas/v1alpha1/`
-- `PROMPTKIT_SCHEMA_SOURCE=local` is a development tool for validating new fields against in-repo `schemas/v1alpha1/` before they are published. It should never appear in shipped example READMEs or docs.
-- Test init files (`engine/test_init.go`, `cmd/promptarena/test_init.go`) disable schema validation for unit tests
-
-### Mock providers
-- Examples with pre-configured mock providers (e.g., `providers/mock-provider.yaml` referencing `mock-responses.yaml`) should be run **without** the `--mock-provider` flag
-- The `--mock-provider` flag replaces all providers with a generic mock that does NOT load scenario-specific response files
-- Mock responses support `tool_calls` for simulating LLM-initiated tool use (e.g., `workflow__transition`)
+- Schemas are served from `https://promptkit.altairalabs.ai/schemas/v1alpha1/`.
+- Regenerate after a schema-relevant change: `go run ./tools/schema-gen/...` (or `make schemas`). The generated output must stay byte-identical unless the promptarena config types changed.
+- `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/` before publishing; it is a development-only tool and must not appear in shipped docs or example READMEs.
 
 ## Concurrent Agents and Worktrees
 
@@ -178,21 +131,24 @@ SonarCloud runs on every PR and enforces quality on new code:
 **Never create releases manually** (no `gh release create`). Use the release pipeline:
 
 ```bash
-# Trigger a full release (tags all modules, builds binaries, creates GitHub release)
+# Trigger a full release (tags all library modules, creates a GitHub release)
 gh workflow run release.yml -f version=v1.3.9 -f phase=full
 
-# Re-run just the tools phase (if libs were already tagged)
+# Re-run just the SDK/server module tagging (if runtime/pkg were already tagged)
 gh workflow run release.yml -f version=v1.3.9 -f phase=tools-only
 
 # Skip tests (use only if CI already passed on main)
 gh workflow run release.yml -f version=v1.3.9 -f phase=full -f skip_tests=true
 ```
 
-The release workflow (`.github/workflows/release.yml`) handles:
+PromptKit ships Go library modules only — the PromptArena/PackC CLIs (and their
+binaries, npm packages and Homebrew casks) release from the separate
+`github.com/AltairaLabs/promptarena` repo. The release workflow
+(`.github/workflows/release.yml`) handles:
 1. **Validate** — semver format, version ordering, optional test suite
 2. **Tag libraries** — tags `runtime/`, `pkg/`, and root `vX.Y.Z`, verifies Go proxy propagation
-3. **Update & tag tools** — removes `replace` directives, tags `sdk/`, `server/a2a/`, `tools/arena/`, `tools/packc/`, GitHub Actions
-4. **Create GitHub release** — GoReleaser builds multi-platform binaries and draft release
-5. **Notify downstream** — dispatches `promptkit-release` event to `promptarena-deploy-agentcore`
+3. **Update & tag SDK modules** — removes `replace` directives, tags `sdk/`, `server/a2a/`
+4. **Create GitHub release** — `gh release create` (no binaries); publishing it triggers the docs/schema deployment
+5. **Notify downstream** — dispatches `promptkit-release` to the deploy repos
 
 Phases: `full` (all steps), `libs-only` (steps 1-2), `tools-only` (steps 1,3).

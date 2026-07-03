@@ -16,7 +16,7 @@ All status checks must pass before merging:
 
 **CI Workflow (`ci.yml`):**
 - ✅ `test` - Unit tests with Go 1.25.1
-- ✅ `lint` - Linting across all modules (runtime, sdk, pkg, arena, packc, inspect-state)
+- ✅ `lint` - Linting across all modules (runtime, sdk, pkg, server/a2a, schema-gen)
 - ✅ `build` - Build verification for all components
 - ✅ `coverage` - Coverage reporting and SonarCloud analysis
 
@@ -73,7 +73,7 @@ Tags are immutable version markers and must be protected.
 
 #### Tag Protection Rules
 
-- **Pattern**: `v*`, `runtime/v*`, `sdk/v*`, `pkg/v*`, `tools/arena/v*`, `tools/packc/v*`, `tools/inspect-state/v*`
+- **Pattern**: `v*`, `runtime/v*`, `sdk/v*`, `pkg/v*`, `server/a2a/v*`
 - **Restrict tag creation**: ✅ Enabled
   - Only release managers and `github-actions[bot]`
 - **Allow deletions**: ❌ Disabled
@@ -95,9 +95,7 @@ Create a `.github/CODEOWNERS` file to automatically assign reviewers:
 /sdk/**                             @AltairaLabs/sdk-team
 
 # Tools
-/tools/arena/**                     @AltairaLabs/arena-team
-/tools/packc/**                     @AltairaLabs/tools-team
-/tools/inspect-state/**             @AltairaLabs/tools-team
+/tools/schema-gen/**                @AltairaLabs/maintainers
 
 # CI/CD and infrastructure
 /.github/workflows/**               @AltairaLabs/devops-team
@@ -213,7 +211,6 @@ A: Your PR will be blocked. You'll need to sign the commits retroactively using 
 ## Related Documentation
 
 - [Contributing Guidelines](/contributors/contributing/)
-- [Release Process](/devops/release-process/)
 - [CI/CD Pipelines](/devops/ci-cd-pipelines/)
 - [Security Policy](/contributors/contributing/)
 - [Code of Conduct](/contributors/contributing/)

@@ -370,5 +370,5 @@ Leverage Go's type system:
 ## Related Documentation
 
 - **SDK**: [Built on top of Runtime](/sdk/)
-- **Arena**: [Uses Runtime for testing](/arena/)
+- **Arena**: [Uses Runtime for testing](https://promptarena.altairalabs.ai/arena/)
 - **Architecture**: [System Design](/architecture/)

@@ -4,8 +4,9 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 
+	"github.com/AltairaLabs/promptarena/arena/arenaconfig"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/tools/arena/arenaconfig"
 )
 
 const (

@@ -13,17 +13,16 @@
 /sdk/                               @AltairaLabs/maintainers
 
 # Tools
-/tools/arena/                       @AltairaLabs/maintainers
-/tools/packc/                       @AltairaLabs/maintainers
-/tools/inspect-state/               @AltairaLabs/maintainers
+/tools/schema-gen/                  @AltairaLabs/maintainers
+
+# Server
+/server/a2a/                        @AltairaLabs/maintainers
 
 # CI/CD and Infrastructure
 /.github/workflows/                 @AltairaLabs/maintainers
 /.github/CODEOWNERS                 @AltairaLabs/maintainers
-/.goreleaser.yml                    @AltairaLabs/maintainers
 /docs/devops/branch-protection*.md  @AltairaLabs/maintainers
 /Makefile                           @AltairaLabs/maintainers
-/Dockerfile.*                       @AltairaLabs/maintainers
 
 # Go module files
 go.work                             @AltairaLabs/maintainers

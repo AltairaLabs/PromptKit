@@ -7,7 +7,6 @@ use (
 	./benchmarks/frameworks/promptkit/round2
 	./examples/a2a-auth-test
 	./examples/a2a-demo
-	./examples/programmatic-arena
 	./examples/workflow-agent-loops/sdk-example
 	./examples/workflow-support/sdk-example
 	./pkg
@@ -22,8 +21,5 @@ use (
 	./sdk/examples/voice-chat
 	./sdk/examples/voice-interview
 	./server/a2a
-	./tools/arena
-	./tools/inspect-state
-	./tools/packc
 	./tools/schema-gen
 )

@@ -198,22 +198,6 @@ linters:
           - revive  # examples can have repetitive names for clarity
           - exhaustive  # examples don't need exhaustive switch coverage
           - dupl  # examples may have intentional duplication
-      # tools/arena/arenaconfig holds config-schema type definitions + loaders
-      # moved verbatim from pkg/config (repo extraction Phase 1). Their pre-existing
-      # lint profile is unchanged; these style/complexity linters only fire because
-      # git sees the relocated file as new. Excluding matches how the code was
-      # effectively treated (grandfathered) in pkg/config. TODO: revisit post-extraction.
-      - path: 'tools/arena/arenaconfig/'
-        linters:
-          - lll        # unwrappable jsonschema struct tags
-          - gocognit   # pre-existing loader complexity (LoadConfig, loadProviders)
-          - gocritic   # pre-existing hugeParam on value receivers
-          - unparam
-          - revive     # pre-existing exported-comment/repetitive-name (rename = API change)
-          - goconst    # repeated literals in pre-existing validation code
-          - gosec      # G304 file reads are inherent to a config loader
-          - nolintlint # pre-existing inline //nolint directives now redundant under this rule
-          - mnd        # pre-existing magic numbers in moved validation code
 
 # Formatter settings (goimports is a formatter in v2)
 formatters:

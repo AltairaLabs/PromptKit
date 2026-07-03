@@ -10,8 +10,6 @@ replace github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
 
 replace github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
 
-replace github.com/AltairaLabs/PromptKit/tools/arena => ../../../tools/arena
-
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5
 	github.com/AltairaLabs/PromptKit/sdk v0.0.0

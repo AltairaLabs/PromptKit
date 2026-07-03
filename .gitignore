@@ -5,7 +5,6 @@
 *.so
 *.dylib
 bin/
-!npm/*/bin/
 dist/
 
 # Generated files
@@ -53,13 +52,9 @@ Thumbs.db
 # Output directories
 output/
 results/
-!tools/arena/results/
 reports/
 *.html
 out/
-tools/arena/integration-test/**/*.json
-tools/arena/integration-test/**/*.html
-tools/arena/integration-test/**/*.xml
 iot-maintenance-demo/
 examples/my-demo-project/
 
@@ -89,7 +84,6 @@ docs/dist/
 docs/.astro/
 docs/node_modules/
 docs/src/content/api/
-docs/src/content/arena/examples/
 docs/src/content/sdk/examples/
 docs/src/content/reference/*-cli.txt
 docs/public/schemas/
@@ -101,17 +95,9 @@ packs/
 
 /promptpack-spec/
 
-# Ignore tools' built binaries (but not the source directories)
+# Ignore built binaries
 /evaluate
-/packc
-/promptarena
-bin/packc
-bin/promptarena
-tools/arena/arena
-tools/packc/packc
 commit-msg.txt
-!tools/packc/
-!tools/arena/
 
 # SDK examples: ignore everything except .go, .md, and go.mod/go.sum files
 sdk/examples/**/*
@@ -131,12 +117,6 @@ runtime/test_output.txt
 
 docs/linkinator-report.json
 
-# NPM packages
-npm/*/node_modules/
-npm/*/coverage/
-npm/*/promptarena
-npm/*/packc
-npm/*/*.exe
 
 # GitHub Actions test artifacts
 .github/actions/*/coverage/

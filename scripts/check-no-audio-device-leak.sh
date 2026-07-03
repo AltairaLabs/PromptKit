@@ -6,9 +6,9 @@
 # linked against glibc even at CGO_ENABLED=0, which breaks server/controller images
 # built on gcr.io/distroless/static or scratch (they have no dynamic loader).
 #
-# The device I/O lives in tools/arena/voice/portaudio (and, for demos, in
-# sdk/examples/audiohelper). Only binaries that genuinely open a sound card may
-# pull purego. Every foundational package below must stay purego-free.
+# The device I/O lives outside this repo in the PromptArena tools (and, for
+# demos, in sdk/examples/audiohelper). Only binaries that genuinely open a sound
+# card may pull purego. Every foundational package below must stay purego-free.
 #
 # Run from the repo root: scripts/check-no-audio-device-leak.sh
 set -euo pipefail
@@ -34,7 +34,7 @@ if [ "$fail" -ne 0 ]; then
 	echo ""
 	echo "A pure-Go package now drags in the PortAudio device binding. Keep audio.Chunk"
 	echo "and the DSP core in runtime/audio purego-free; device I/O belongs in"
-	echo "tools/arena/voice/portaudio (or sdk/examples/audiohelper for demos)."
+	echo "the PromptArena tools (or sdk/examples/audiohelper for demos)."
 	exit 1
 fi
 

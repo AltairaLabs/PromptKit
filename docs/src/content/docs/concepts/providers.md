@@ -52,7 +52,7 @@ it implements:
   embedders) via the `runtime/classify` task interfaces. Powers
   assertion handlers like `audio_emotion`. Today the only shipped
   backend is HuggingFace; see
-  [Inference Providers](/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
+  [Inference Providers](https://promptarena.altairalabs.ai/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
   in the configure-providers how-to.
 
 Providers route into role-specific registries at load time. One backend
@@ -565,6 +565,6 @@ Providers are:
 
 - [Provider System Explanation](/runtime/explanation/provider-system) - Architecture details
 - [Provider Reference](/runtime/reference/providers) - API documentation
-- [Cloud Provider Examples](/arena/examples/) - Bedrock, Vertex, Azure examples
+- [Cloud Provider Examples](https://promptarena.altairalabs.ai/arena/examples/) - Bedrock, Vertex, Azure examples
 - [Multi-Provider Fallback](/runtime/how-to/setup-providers/) - Implementation guide
 - [Cost Monitoring](/runtime/how-to/monitor-costs) - Track expenses

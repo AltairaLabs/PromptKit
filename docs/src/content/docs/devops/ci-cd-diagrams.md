@@ -37,13 +37,6 @@ graph TB
         O --> P[GitHub Pages Deploy]
     end
     
-    subgraph "Release Testing (release-test.yml)"
-        Q[Manual Trigger / Test Branch]
-        Q --> R[Simulate Release Prep]
-        R --> S[Generate Checklist]
-        R --> T[Validate Build]
-    end
-    
     subgraph "External Services"
         U[SonarCloud Dashboard]
         V[GitHub Pages Site]
@@ -56,8 +49,6 @@ graph TB
     A -->|Code Change| E
     
     A -->|Doc Change| N
-    
-    Q -.Manual.-> R
     
     H --> W
     I --> U
@@ -77,19 +68,15 @@ graph LR
     
     B -->|*.go, go.mod| C[CI Pipeline]
     B -->|docs/**| D[Docs Pipeline]
-    B -->|release-test/*| E[Release Test]
     
     C --> F[All Jobs in Parallel]
     D --> G[Build → Deploy]
-    E --> H[Validation Only]
     
     I[Manual Workflow Dispatch] -.-> D
-    I -.-> E
     
     style A fill:#e1f5ff
     style C fill:#ffe1e1
     style D fill:#e1ffe1
-    style E fill:#fff4e1
 ```
 
 ## Job Dependencies
@@ -130,11 +117,9 @@ graph LR
     
     B --> C[runtime/runtime-coverage.out]
     B --> D[sdk/sdk-coverage.out]
-    B --> E[tools/arena/arena-coverage.out]
     
     C --> F[Merge Coverage Files]
     D --> F
-    E --> F
     
     F --> G[coverage.out]
     G --> H[SonarCloud Scan]
@@ -145,35 +130,6 @@ graph LR
     
     style G fill:#fff4e1
     style I fill:#e1ffe1
-```
-
-## Release Test Flow
-
-```mermaid
-graph TD
-    A[Trigger Release Test] --> B{Input Type}
-    
-    B -->|Manual Dispatch| C[Use Form Inputs]
-    B -->|Test Branch| D[Extract from Branch]
-    B -->|Test Tag| E[Extract from Tag]
-    
-    C --> F[Determine Tool & Version]
-    D --> F
-    E --> F
-    
-    F --> G[Backup go.mod]
-    G --> H[Remove Replace Directives]
-    H --> I[Check Remote Dependencies]
-    I --> J[Test Build]
-    J --> K[Generate Diff]
-    K --> L[Restore go.mod]
-    L --> M[Upload Checklist]
-    
-    M --> N[Summary Report]
-    
-    style A fill:#e1f5ff
-    style M fill:#e1ffe1
-    style N fill:#fff4e1
 ```
 
 ## Secret & Permission Flow

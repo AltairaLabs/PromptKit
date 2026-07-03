@@ -435,8 +435,8 @@ variables:
 
 ## 📚 Related Documentation
 
-- [Configuration Schema](https://promptkit.altairalabs.ai/arena/reference/config-schema/)
-- [How to Write Scenarios](https://promptkit.altairalabs.ai/arena/how-to/write-scenarios/)
+- [Configuration Schema](https://promptarena.altairalabs.ai/arena/reference/config-schema/)
+- [How to Write Scenarios](https://promptarena.altairalabs.ai/arena/how-to/write-scenarios/)
 - [Template Variables](https://promptkit.altairalabs.ai/concepts/templates/)
 
 ---

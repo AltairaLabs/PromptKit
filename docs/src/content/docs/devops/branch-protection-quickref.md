@@ -150,7 +150,6 @@ For critical production issues:
 
 - Full guide: [branch-protection](/devops/branch-protection/)
 - Contributing: [Contributing Guidelines](/contributors/contributing/)
-- Release process: [release-process](/devops/release-process/)
 - CI/CD pipelines: [ci-cd-pipelines](/devops/ci-cd-pipelines/)
 
 ## 💡 Tips

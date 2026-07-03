@@ -369,7 +369,7 @@ workflow:
 
 ## Related Tools
 
-- **Arena**: [Test prompts before using them](/arena/)
-- **PackC**: [Compile prompts into packs](/packc/)
+- **Arena**: [Test prompts before using them](https://promptarena.altairalabs.ai/arena/)
+- **PackC**: [Compile prompts into packs](https://promptarena.altairalabs.ai/packc/)
 - **Runtime**: [Extend the SDK with custom providers](/runtime/)
 - **Complete Workflow**: [See all tools together](/)

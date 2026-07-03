@@ -349,4 +349,4 @@ Prompts are the foundation of LLM applications. Good prompts:
 - [Templates](/concepts/templates/) - Organizing prompts
 - [Validation](/concepts/validation/) - Content safety
 - [Runtime Templates](/concepts/templates/) - Implementation
-- [PackC](/packc/) - Prompt packaging
+- [PackC](https://promptarena.altairalabs.ai/packc/) - Prompt packaging

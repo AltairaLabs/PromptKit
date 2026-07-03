@@ -97,63 +97,15 @@ See the [Pre-Commit Hooks](/contributors/pre-commit-hooks/) guide for details on
 PromptKit/
 ├── runtime/          # Core runtime components
 ├── pkg/              # Shared packages
-├── tools/arena/      # PromptKit Arena CLI
-├── tools/packc/      # Pack Compiler tool
 ├── sdk/              # PromptKit SDK
 ├── examples/         # Example configurations
 └── docs/             # Documentation
 ```
 
+The Arena and PackC CLIs live in a separate repository. See the
+[PromptArena docs](https://promptarena.altairalabs.ai/) to contribute to them.
+
 ## Component-Specific Contribution Guidelines
-
-### Arena CLI (`tools/arena/`)
-
-**Focus**: Testing framework for LLM applications
-
-**Key Areas for Contribution:**
-
-- New test scenario types and assertions
-- Provider integrations (OpenAI, Anthropic, Google, etc.)
-- MCP (Model Context Protocol) tool integrations
-- Report generation and visualization improvements
-- Performance optimizations for large test suites
-
-**Testing Arena Changes:**
-
-```bash
-# Build Arena
-make build-arena
-
-# Run Arena tests
-cd tools/arena && go test ./...
-
-# Test with example scenarios
-./bin/promptarena run examples/customer-support/arena.yaml
-```
-
-### PackC CLI (`tools/packc/`)
-
-**Focus**: Prompt packaging and compilation tool
-
-**Key Areas for Contribution:**
-
-- Pack format enhancements and validation
-- New output formats and deployment targets
-- Template processing improvements
-- Schema validation and error reporting
-
-**Testing PackC Changes:**
-
-```bash
-# Build PackC
-make build-packc
-
-# Run PackC tests
-cd tools/packc && go test ./...
-
-# Test pack compilation
-./bin/packc build examples/customer-support/packs/
-```
 
 ### SDK (`sdk/`)
 

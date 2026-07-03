@@ -1,8 +1,0 @@
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-
-metadata:
-  name: minimal-test-config
-  description: Minimal fixture for unit tests
-
-spec: {}

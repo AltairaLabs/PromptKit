@@ -1,7 +1,6 @@
 # PromptKit
 
 [![CI](https://github.com/AltairaLabs/PromptKit/workflows/CI/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/ci.yml)
-[![Provider Matrix](https://github.com/AltairaLabs/PromptKit/actions/workflows/capability-matrix.yml/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/capability-matrix.yml)
 [![Docs](https://github.com/AltairaLabs/PromptKit/actions/workflows/docs.yml/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/docs.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
@@ -18,11 +17,18 @@ PromptKit is the open-source toolkit for [**PromptPack**](https://github.com/Alt
 ```
 PromptPack  ── open spec for portable prompts (JSON, vendor-neutral)
     │
-    └── PromptKit  ── this repo
+    ├── PromptKit  ── this repo: Go SDK + runtime libraries + hosted schemas
+    │
+    └── PromptArena  ── github.com/AltairaLabs/promptarena
          ├── promptarena  ── test, red-team, evaluate (CLI)
-         ├── packc        ── compile config → portable pack
-         └── SDK          ── embed in your Go application
+         └── packc        ── compile config → portable pack
 ```
+
+The **PromptArena** and **PackC** command-line tools now live in their own
+repository, [github.com/AltairaLabs/promptarena](https://github.com/AltairaLabs/promptarena),
+and are documented at [promptarena.altairalabs.ai](https://promptarena.altairalabs.ai).
+This repository is the Go SDK and runtime that they (and your own applications)
+build on.
 
 ## Why PromptKit
 
@@ -113,7 +119,7 @@ cd my-refund-demo
 promptarena run --provider mock-duplex --ci   # no API keys needed
 ```
 
-Swap in `--provider gemini-2-flash` or `openai-gpt4o-realtime` (plus TTS keys) to run it against a live voice agent — pass rates vary, and that variation is the test. Full breakdown: [voice-refund walkthrough](https://altairalabs.github.io/PromptKit/arena/examples/voice-refund-demo/).
+Swap in `--provider gemini-2-flash` or `openai-gpt4o-realtime` (plus TTS keys) to run it against a live voice agent — pass rates vary, and that variation is the test. Full breakdown: [voice-refund walkthrough](https://promptarena.altairalabs.ai/arena/examples/voice-refund-demo/).
 
 ## Features
 
@@ -169,12 +175,13 @@ See the [GitHub Actions documentation](https://altairalabs.github.io/PromptKit/d
 
 ```
 promptkit/
-├── tools/arena/     # PromptKit Arena CLI (testing, red-team, deploy)
-├── tools/packc/     # Pack Compiler CLI
-├── sdk/             # Production SDK (conversations, workflows, A2A, skills)
-├── runtime/         # Shared runtime (providers, pipeline, tools, skills, a2a, deploy)
-├── examples/        # Example projects
-└── docs/            # Documentation
+├── sdk/               # Production SDK (conversations, workflows, A2A, skills)
+├── runtime/           # Shared runtime (providers, pipeline, tools, skills, a2a, deploy)
+├── pkg/               # Shared config and schema-validation packages
+├── server/a2a/        # A2A protocol server module
+├── tools/schema-gen/  # JSON Schema generator for config types
+├── examples/          # Example projects
+└── docs/              # Documentation
 ```
 
 ## Contributing

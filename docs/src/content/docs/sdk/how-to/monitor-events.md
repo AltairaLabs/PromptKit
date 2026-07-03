@@ -388,4 +388,4 @@ func main() {
 - [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
 - [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)
 - [Explanation: Observability](/sdk/explanation/observability/)
-- [Arena Eval Framework](/arena/explanation/eval-framework/)
+- [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
