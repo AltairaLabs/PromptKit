@@ -47,35 +47,7 @@ func (s *StreamSession) SendToolResponses(ctx context.Context, responses []provi
 	}
 	s.mu.Unlock()
 
-	// Build Gemini's BidiGenerateContentToolResponse format
-	// Per docs: toolResponse.functionResponses[].{id, name, response}
-	functionResponses := make([]map[string]interface{}, len(responses))
-	for i, resp := range responses {
-		// Parse result as JSON if possible, otherwise wrap as string
-		var resultObj interface{}
-		if err := json.Unmarshal([]byte(resp.Result), &resultObj); err != nil {
-			// Result is not valid JSON, wrap it
-			resultObj = map[string]interface{}{"result": resp.Result}
-		}
-
-		funcResp := map[string]interface{}{
-			"id":       resp.ToolCallID,
-			"response": resultObj,
-		}
-
-		// Add error flag if the tool execution failed
-		if resp.IsError {
-			funcResp["error"] = true
-		}
-
-		functionResponses[i] = funcResp
-	}
-
-	msg := map[string]interface{}{
-		"toolResponse": map[string]interface{}{
-			"functionResponses": functionResponses,
-		},
-	}
+	msg := buildToolResponseMessage(responses)
 
 	// Log tool response for debugging
 	if logger.DefaultLogger != nil {

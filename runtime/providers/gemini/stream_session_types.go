@@ -1,7 +1,5 @@
 package gemini
 
-import "encoding/json"
-
 // ServerMessage represents a message from the Gemini server (BidiGenerateContentServerMessage)
 type ServerMessage struct {
 	SetupComplete *SetupComplete `json:"setupComplete,omitempty"`
@@ -65,15 +63,4 @@ type Part struct {
 type InlineData struct {
 	MimeType string `json:"mimeType,omitempty"` // camelCase!
 	Data     string `json:"data,omitempty"`     // Base64 encoded
-}
-
-// UnmarshalJSON unmarshals ServerMessage from JSON with custom handling.
-func (s *ServerMessage) UnmarshalJSON(data []byte) error {
-	type Alias ServerMessage
-	aux := &struct {
-		*Alias
-	}{
-		Alias: (*Alias)(s),
-	}
-	return json.Unmarshal(data, aux)
 }
