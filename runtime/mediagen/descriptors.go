@@ -5,7 +5,7 @@
 //
 // The package lives in runtime so both the SDK and Arena can wire it without
 // duplicating provider-resolution logic. It depends only on runtime/providers/base,
-// runtime/tools, and runtime/types — never on sdk or tools/arena.
+// runtime/tools, and runtime/types — never on sdk or downstream consumers.
 package mediagen
 
 import (

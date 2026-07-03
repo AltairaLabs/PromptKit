@@ -557,7 +557,7 @@ func (s *STTStage) Process(
 }
 
 // sttCostMetaKey is the Message.Meta key for STT ancillary cost.
-// Mirrors the constant in tools/arena/engine/cost_aggregation.go.
+// Mirrors the constant in PromptArena's engine/cost_aggregation.go.
 const sttCostMetaKey = "stt_cost"
 
 // itoa converts an int to its decimal string representation.

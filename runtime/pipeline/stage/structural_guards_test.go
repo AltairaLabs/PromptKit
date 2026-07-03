@@ -17,7 +17,7 @@ import (
 // never via the bulk-write escape hatch.
 //
 // Scope is intentionally limited to the runtime stages. Arena's stages
-// (tools/arena/stages) and admin tooling (tools/arena/cmd/) are explicit
+// (PromptArena's stages) and admin tooling (PromptArena's cmd/) are explicit
 // consumers of BulkWriter and live outside this guard. If a parallel
 // hot-path stage is added in another directory, this test won't catch
 // it — extend the walk to that directory if/when that happens.

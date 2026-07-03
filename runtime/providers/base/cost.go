@@ -152,7 +152,7 @@ func MakeCostInfo(
 // CostInfoToMetaMap serializes a CostInfo into the map[string]any shape
 // the arena statestore expects when reading ancillary cost from
 // Message.Meta keys (tts_cost, stt_cost, etc.). The keys and types must
-// match what tools/arena/statestore/telemetry.go's costInfoFromMeta reads.
+// match what PromptArena's statestore telemetry costInfoFromMeta reads.
 func CostInfoToMetaMap(ci *types.CostInfo) map[string]any {
 	if ci == nil {
 		return nil

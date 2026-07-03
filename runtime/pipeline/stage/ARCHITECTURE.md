@@ -1,6 +1,6 @@
 # Pipeline Architecture
 
-This document is the architectural contract for `runtime/pipeline/stage` and the consumers that build pipelines on top of it (`sdk/`, `tools/arena/`). It describes the layered model, what kinds of dependencies each layer is allowed to hold, and the rules for adding new ones.
+This document is the architectural contract for `runtime/pipeline/stage` and the consumers that build pipelines on top of it (`sdk/`, and PromptArena). It describes the layered model, what kinds of dependencies each layer is allowed to hold, and the rules for adding new ones.
 
 PR reviewers should cite specific sections of this document when challenging design choices in stage / pipeline / service-injection PRs. New stages and services are reviewed against the principles below; deviations require updating this document first.
 
@@ -14,8 +14,8 @@ PromptKit pipelines have three distinct lifetimes. Mixing them produces leaks, r
 
 | Layer | Lifetime | Realised today as |
 |---|---|---|
-| **Run** | A multi-turn execution: one `sdk.Conversation`, one Arena `Engine` run | `sdk/conversation.go::Conversation` struct; `tools/arena/engine/engine.go::Engine` struct |
-| **Turn** | One pipeline execution: one `sdk.Conversation.Send`, one `arena.TurnExecutor.ExecuteTurn` | `sdk/internal/pipeline.Config` (built per `Send`); `tools/arena/turnexecutors.TurnRequest` |
+| **Run** | A multi-turn execution: one `sdk.Conversation`, one Arena `Engine` run | `sdk/conversation.go::Conversation` struct; PromptArena's `engine.Engine` struct |
+| **Turn** | One pipeline execution: one `sdk.Conversation.Send`, one `arena.TurnExecutor.ExecuteTurn` | `sdk/internal/pipeline.Config` (built per `Send`); PromptArena's `turnexecutors.TurnRequest` |
 | **Stage** | One `Stage.Process` invocation inside a Turn | Each individual Stage struct (e.g. `PromptAssemblyStage`, `TemplateStage`, `ProviderStage`) |
 
 ### 1.1 Run-level state
@@ -173,7 +173,7 @@ Anything that extends the architecture at any layer requires updating this docum
 1. Identify which Turn-level dependencies the stage needs. List them in the constructor.
 2. Stages do not look up services dynamically — dependencies are injected at construction.
 3. If the stage performs side effects on a service (Load, Save, Render, Emit, Execute), add a contract test in `sdk/integration/probes/` pinning the per-Send budget. See [the contract regime](../../../sdk/integration/probes/) for the pattern.
-4. Add the stage to the pipeline builder in `sdk/internal/pipeline/builder.go` and (if Arena uses it) `tools/arena/engine/builder_integration.go`.
+4. Add the stage to the pipeline builder in `sdk/internal/pipeline/builder.go` and (if PromptArena uses it) its engine builder.
 
 ### 5.5 Adding a new authoring layer for hooks
 
@@ -206,4 +206,4 @@ Out of scope, deferred to other proposals:
 - **Memory extraction wiring.** Currently the `MemoryRetrievalStage` and `MemoryExtractionStage` are scaffolded but the data feed (`Metadata["messages"]`) was never populated by production code. PR 3 deletes the dead reference. A separate proposal will decide how memory extraction is fed (likely via a `TurnState` cursor or a `ConversationView` extension).
 - **`ConversationView` coordinator.** A higher-level abstraction over `statestore.Store` that consolidates the read/write access patterns four pipeline stages currently make independently. Out of scope here; deferred to a follow-on proposal once `TurnState` is in place.
 - **Eval runner positioning.** `EvalRunner` is a Run-level service today (§1.1). Its relationship to Turn-boundaries (when does it fire, how does it get judge providers from the pool, etc.) is documented in `runtime/evals/` and not duplicated here.
-- **Self-play executors and Arena's TurnExecutor abstraction.** Arena builds pipelines per turn and orchestrates multiple turns; the layer above pipeline (the `TurnExecutor`) is documented in [`tools/arena/CLAUDE.md`](../../../tools/arena/CLAUDE.md). This document covers the pipeline layer.
+- **Self-play executors and Arena's TurnExecutor abstraction.** Arena builds pipelines per turn and orchestrates multiple turns; the layer above pipeline (the `TurnExecutor`) is documented in the PromptArena repo. This document covers the pipeline layer.

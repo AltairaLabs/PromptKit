@@ -139,37 +139,22 @@ Swap in `--provider gemini-2-flash` or `openai-gpt4o-realtime` (plus TTS keys) t
 
 ## GitHub Actions
 
-Integrate PromptKit into your CI/CD pipelines with our GitHub Actions:
-
-### PromptArena Action
-
-Run prompt tests in your workflows:
+The **PromptArena** and **PackC** CI/CD actions live in the
+[promptarena repo](https://github.com/AltairaLabs/promptarena):
 
 ```yaml
-- name: Run prompt tests
-  uses: AltairaLabs/PromptKit/.github/actions/promptarena-action@v1
+- uses: AltairaLabs/promptarena/.github/actions/promptarena-action@v1
   with:
     config-file: config.arena.yaml
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-```
 
-### PackC Action
-
-Compile and publish prompt packs to OCI registries:
-
-```yaml
-- name: Build and publish pack
-  uses: AltairaLabs/PromptKit/.github/actions/packc-action@v1
+- uses: AltairaLabs/promptarena/.github/actions/packc-action@v1
   with:
     config-file: config.arena.yaml
-    registry: ghcr.io
-    repository: ${{ github.repository }}/prompts
-    username: ${{ github.actor }}
-    password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-See the [GitHub Actions documentation](https://altairalabs.github.io/PromptKit/devops/) for full usage details.
+See the [PromptArena docs](https://promptarena.altairalabs.ai) for full usage details.
 
 ## Repository Structure
 
