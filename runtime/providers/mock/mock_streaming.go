@@ -114,7 +114,7 @@ type MockStreamSession struct {
 	// toolResponses collects every tool execution result the runtime has
 	// fed back into this session via SendToolResponse(s). Lets tests
 	// verify the runtime delivered the expected payload for a scripted
-	// tool_call. Implementation lives in mock_streaming_tools_integration.go
+	// tool_call. Implementation lives in mock_streaming_tools.go
 	// so the file scoping makes the dependency on ToolResponseSupport
 	// obvious from the directory listing.
 	toolResponses []providers.ToolResponse
@@ -478,7 +478,7 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 
 // convertMockToolCalls maps the YAML Turn.ToolCalls list onto runtime
 // MessageToolCall values, marshaling each argument map into a JSON
-// RawMessage. Mirrors the conversion in mock_tool_provider_interactive.go's
+// RawMessage. Mirrors the conversion in mock_tool_provider.go's
 // PredictWithTools so duplex and non-duplex mock paths produce structurally
 // identical tool-call shapes.
 func convertMockToolCalls(turnToolCalls []ToolCall) []types.MessageToolCall {
