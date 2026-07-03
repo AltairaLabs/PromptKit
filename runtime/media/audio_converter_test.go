@@ -2,8 +2,93 @@ package media
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
+
+func TestAudioConverter_buildFFmpegArgs(t *testing.T) {
+	const in, out = "/tmp/in.raw", "/tmp/out.dat"
+	base := []string{"-y", "-i", in, "-vn"}
+
+	tests := []struct {
+		name   string
+		config AudioConverterConfig
+		format string
+		want   []string
+	}{
+		{
+			name:   "wav uses pcm_s16le, no options",
+			config: AudioConverterConfig{},
+			format: AudioFormatWAV,
+			want:   append(append([]string{}, base...), "-acodec", "pcm_s16le", out),
+		},
+		{
+			name:   "mp3 defaults bitrate to 192k",
+			config: AudioConverterConfig{},
+			format: AudioFormatMP3,
+			want:   append(append([]string{}, base...), "-acodec", "libmp3lame", "-b:a", "192k", out),
+		},
+		{
+			name:   "mp3 honors custom bitrate",
+			config: AudioConverterConfig{BitRate: "128k"},
+			format: AudioFormatMP3,
+			want:   append(append([]string{}, base...), "-acodec", "libmp3lame", "-b:a", "128k", out),
+		},
+		{
+			name:   "flac has no bitrate flag",
+			config: AudioConverterConfig{BitRate: "256k"},
+			format: AudioFormatFLAC,
+			want:   append(append([]string{}, base...), "-acodec", "flac", out),
+		},
+		{
+			name:   "ogg omits bitrate when unset",
+			config: AudioConverterConfig{},
+			format: AudioFormatOGG,
+			want:   append(append([]string{}, base...), "-acodec", "libvorbis", out),
+		},
+		{
+			name:   "ogg includes bitrate when set",
+			config: AudioConverterConfig{BitRate: "96k"},
+			format: AudioFormatOGG,
+			want:   append(append([]string{}, base...), "-acodec", "libvorbis", "-b:a", "96k", out),
+		},
+		{
+			name:   "aac maps to aac codec",
+			config: AudioConverterConfig{BitRate: "64k"},
+			format: AudioFormatAAC,
+			want:   append(append([]string{}, base...), "-acodec", "aac", "-b:a", "64k", out),
+		},
+		{
+			name:   "m4a shares aac codec, no bitrate when unset",
+			config: AudioConverterConfig{},
+			format: AudioFormatM4A,
+			want:   append(append([]string{}, base...), "-acodec", "aac", out),
+		},
+		{
+			name:   "sample rate and channels are inserted before codec",
+			config: AudioConverterConfig{SampleRate: 16000, Channels: 1},
+			format: AudioFormatWAV,
+			want: append(append([]string{}, base...),
+				"-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", out),
+		},
+		{
+			name:   "unknown format yields no codec options",
+			config: AudioConverterConfig{},
+			format: "opus",
+			want:   append(append([]string{}, base...), out),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &AudioConverter{config: tt.config}
+			got := c.buildFFmpegArgs(in, out, tt.format)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildFFmpegArgs(%q)\n got: %v\nwant: %v", tt.format, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestNewAudioConverter(t *testing.T) {
 	t.Run("default config", func(t *testing.T) {
@@ -268,7 +353,7 @@ func TestNormalizeMIMEType(t *testing.T) {
 		{"audio/x-flac", MIMETypeAudioFLAC},
 		{"audio/x-m4a", MIMETypeAudioM4A},
 		{"audio/mpeg", MIMETypeAudioMP3},
-		{"AUDIO/MPEG", MIMETypeAudioMP3}, // case insensitive
+		{"AUDIO/MPEG", MIMETypeAudioMP3},          // case insensitive
 		{"audio/wav; codecs=1", MIMETypeAudioWAV}, // strips parameters
 	}
 
