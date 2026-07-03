@@ -1,6 +1,0 @@
-scenarios:
-  standard-call:
-    turns:
-      1: "Hi, I'd be glad to help. What's the issue?"
-      2: "Understood — let me check that for you."
-      3: "All sorted. Anything else?"

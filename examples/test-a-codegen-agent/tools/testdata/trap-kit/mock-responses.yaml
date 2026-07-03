@@ -1,5 +1,0 @@
-# trap-kit/mock-responses.yaml — keyed on spec.id (WRONG; should be metadata.name)
-scenarios:
-  refund-flow-id:
-    turns:
-      1: "ok"
