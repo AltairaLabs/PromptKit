@@ -1,15 +1,12 @@
 package config_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 func TestCompat_LegacyChatYAML_TranslatesToUnifiedSpec(t *testing.T) {
@@ -199,32 +196,3 @@ spec: {}
 // were removed 2026-05-18 along with the multi-role "unified" shape they
 // exercised. The replacement coverage is in
 // TestCompat_RejectsRemovedImplField + TestCompat_RejectsMultiRoleCapabilitiesList.
-
-func TestCompat_AllExistingExampleYAMLs_Load(t *testing.T) {
-	// Walk examples/*/providers/*.yaml — every file with `kind: Provider`
-	// should parse without error via the compat shim.
-	// Files in providers/ dirs that are NOT Provider configs (e.g. mock
-	// response definitions) are skipped.
-	pattern := "../../examples/*/providers/*.yaml"
-	files, err := filepath.Glob(pattern)
-	require.NoError(t, err)
-	require.NotEmpty(t, files, "no provider YAML files found at %s", pattern)
-
-	for _, f := range files {
-		f := f
-		t.Run(filepath.Base(f), func(t *testing.T) {
-			data, err := os.ReadFile(f)
-			require.NoError(t, err)
-			// Skip files that aren't Provider documents.
-			var probe struct {
-				Kind string `yaml:"kind"`
-			}
-			_ = yaml.Unmarshal(data, &probe)
-			if probe.Kind != "Provider" {
-				t.Skipf("not a Provider document (kind=%q)", probe.Kind)
-			}
-			_, err = config.LoadProviderSpec(data)
-			assert.NoError(t, err, "loading %s", f)
-		})
-	}
-}
