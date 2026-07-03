@@ -51,8 +51,6 @@ var ErrEmptyResponse = errors.New("empty response, likely interrupted")
 // Returns:
 //   - ResponseAction: what action to take
 //   - error: any error to return (only set when action is ResponseActionError)
-//
-//nolint:gocognit // Complexity is acceptable for response state handling
 func ProcessResponseElement(elem *stage.StreamElement, logPrefix string) (ResponseAction, error) {
 	// Check for errors
 	if elem.Error != nil {
