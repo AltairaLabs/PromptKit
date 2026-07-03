@@ -452,7 +452,7 @@ func (c *Conversation) registerMCPExecutors() {
 
 	// Register a single runtime MCP executor that dispatches every
 	// Mode="mcp" tool to the underlying MCP client. This is the canonical
-	// wiring used by arena (tools/arena/engine/builder_integration.go) —
+	// wiring used by PromptArena's engine —
 	// the runtime's tools.Registry.getExecutorForTool resolves Mode="mcp"
 	// to executor name "mcp", which only the runtime executor satisfies.
 	c.toolRegistry.RegisterExecutor(tools.NewMCPExecutor(c.mcpRegistry))

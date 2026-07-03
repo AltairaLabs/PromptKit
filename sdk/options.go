@@ -929,7 +929,7 @@ const (
 
 // AudioMonitorOptions configures real-time audio monitoring for duplex SDK
 // conversations. Mirrors the canonical audio.Options shape but is defined here
-// so sdk/ stays independent of the tools/arena/audio package.
+// so sdk/ stays independent of PromptArena's audio package.
 //
 // Consumers who want full control of the audio stack (router, local sink, web
 // SSE, level meter) can supply this struct via WithAudioMonitor; the SDK

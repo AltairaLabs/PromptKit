@@ -6,7 +6,7 @@ The runtime is PromptKit's core library. It defines all interfaces, executes LLM
 
 ## Key Invariant
 
-**Runtime has zero dependencies on `sdk/` or `tools/arena/`**. All extensibility is via interfaces that higher-level modules implement. If you need to add functionality that both SDK and Arena use, it belongs here.
+**Runtime has zero dependencies on `sdk/` or downstream consumers (PromptArena)**. All extensibility is via interfaces that higher-level modules implement. If you need to add functionality that both SDK and Arena use, it belongs here.
 
 ## Architecture Overview
 

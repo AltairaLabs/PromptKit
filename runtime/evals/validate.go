@@ -102,7 +102,7 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 // ValidateParams, so handlers only need to check canonical key names.
 //
 // Callers:
-//   - tools/arena/engine/builder_integration.go treats any returned errors as fatal.
+//   - PromptArena's engine treats any returned errors as fatal.
 //   - sdk/eval_middleware.go uses this to warn-and-skip bad defs.
 //   - sdk/evaluate.go exposes it as a public preflight.
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {

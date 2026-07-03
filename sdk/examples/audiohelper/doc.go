@@ -5,5 +5,5 @@
 // It exists so the SDK voice examples can drive real audio hardware without the
 // SDK core (or runtime) depending on a sound-card binding. It is an
 // example-grade copy of the device I/O; the production implementation lives in
-// tools/arena/voice/portaudio. See issue #1536.
+// the PromptArena repo's voice/portaudio package. See issue #1536.
 package audiohelper

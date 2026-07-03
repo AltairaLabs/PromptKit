@@ -17,7 +17,7 @@ const (
 )
 
 // ToolCallRecord captures a single tool invocation for eval/assertion context.
-// Shared between runtime/evals and tools/arena/assertions.
+// Shared between runtime/evals and PromptArena's assertions.
 type ToolCallRecord struct {
 	TurnIndex int            `json:"turn_index"`
 	ToolName  string         `json:"tool_name"`

@@ -128,7 +128,7 @@ func (s *TTSStage) processElement(ctx context.Context, elem *StreamElement) erro
 }
 
 // ttsCostMetaKey is the Message.Meta key for TTS ancillary cost.
-// Mirrors the constant in tools/arena/engine/cost_aggregation.go.
+// Mirrors the constant in PromptArena's engine/cost_aggregation.go.
 const ttsCostMetaKey = "tts_cost"
 
 // extractText extracts text content from an element.

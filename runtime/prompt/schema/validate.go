@@ -41,7 +41,7 @@ type ValidationResult struct {
 
 // ValidateJSONAgainstLoader validates raw JSON bytes against a schema provided as a gojsonschema.JSONLoader.
 // This is the shared, low-level validation entry point used by Arena config validation (pkg/config),
-// PromptPack validation (sdk/internal/pack), and the pack compiler (tools/packc).
+// PromptPack validation (sdk/internal/pack), and the pack compiler (PackC).
 func ValidateJSONAgainstLoader(jsonData []byte, schemaLoader gojsonschema.JSONLoader) (*ValidationResult, error) {
 	documentLoader := gojsonschema.NewBytesLoader(jsonData)
 
