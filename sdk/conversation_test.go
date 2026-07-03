@@ -1457,6 +1457,58 @@ func TestSendWithMockProvider(t *testing.T) {
 	assert.Greater(t, resp.Duration().Nanoseconds(), int64(0))
 }
 
+func TestBuildContextSummary_EmptyHistory(t *testing.T) {
+	conv := newTestConversation()
+	// No messages have been exchanged, so the summary is empty.
+	assert.Equal(t, "", buildContextSummary("greeting", conv))
+}
+
+func TestBuildContextSummary_WithHistory(t *testing.T) {
+	ctx := context.Background()
+
+	repo := mock.NewInMemoryMockRepository("Sure, happy to help!")
+	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "summary-pack",
+		Prompts: map[string]*pack.Prompt{
+			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
+		},
+	}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["chat"],
+		promptName:     "chat",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		config:         &config{provider: mockProv},
+		mode:           UnaryMode,
+		handlers:       make(map[string]ToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:   sdktools.NewPendingStore(),
+	}
+
+	pipeline, err := conv.buildPipelineWithParams(store, "summary-conv", nil, nil)
+	require.NoError(t, err)
+	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
+		ConversationID: "summary-conv",
+		StateStore:     store,
+		Pipeline:       pipeline,
+	})
+	require.NoError(t, err)
+	conv.unarySession = unarySession
+
+	_, err = conv.Send(ctx, "Can you help me?")
+	require.NoError(t, err)
+
+	summary := buildContextSummary("intake", conv)
+	assert.Contains(t, summary, "[Previous state: intake")
+	assert.Contains(t, summary, "Can you help me?")
+	assert.Contains(t, summary, "Sure, happy to help!")
+}
+
 func TestSendWithImageOptions(t *testing.T) {
 	ctx := context.Background()
 	repo := mock.NewInMemoryMockRepository("I see the image")
