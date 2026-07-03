@@ -2,10 +2,45 @@ package media
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+func TestContentConverter_convertAudioContent_SameFormatNoFFmpeg(t *testing.T) {
+	conv := NewContentConverter(DefaultAudioConverterConfig())
+	raw := []byte("fake wav bytes")
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	media := &types.MediaContent{Data: &encoded, MIMEType: MIMETypeAudioWAV}
+
+	// Same source and target MIME => AudioConverter short-circuits without ffmpeg.
+	got, err := conv.convertAudioContent(context.Background(), media, MIMETypeAudioWAV)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.MIMEType != MIMETypeAudioWAV {
+		t.Errorf("expected MIME %q, got %q", MIMETypeAudioWAV, got.MIMEType)
+	}
+	if got.Data == nil {
+		t.Fatal("expected non-nil converted data")
+	}
+	decoded, decErr := base64.StdEncoding.DecodeString(*got.Data)
+	if decErr != nil {
+		t.Fatalf("result data is not valid base64: %v", decErr)
+	}
+	if string(decoded) != string(raw) {
+		t.Errorf("expected round-tripped data %q, got %q", raw, decoded)
+	}
+}
+
+func TestContentConverter_convertAudioContent_NoData(t *testing.T) {
+	conv := NewContentConverter(DefaultAudioConverterConfig())
+	media := &types.MediaContent{MIMEType: MIMETypeAudioWAV} // no Data
+	if _, err := conv.convertAudioContent(context.Background(), media, MIMETypeAudioMP3); err == nil {
+		t.Error("expected error when MediaContent has no data")
+	}
+}
 
 func TestNewContentConverter(t *testing.T) {
 	config := DefaultAudioConverterConfig()

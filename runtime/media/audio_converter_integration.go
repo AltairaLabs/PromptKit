@@ -65,60 +65,6 @@ func (c *AudioConverter) convertWithFFmpeg(
 	return output, nil
 }
 
-// buildFFmpegArgs constructs ffmpeg command arguments.
-func (c *AudioConverter) buildFFmpegArgs(inputPath, outputPath, toFormat string) []string {
-	args := []string{
-		"-y",
-		"-i", inputPath,
-		"-vn",
-	}
-
-	// Add sample rate if specified
-	if c.config.SampleRate > 0 {
-		args = append(args, "-ar", fmt.Sprintf("%d", c.config.SampleRate))
-	}
-
-	// Add channels if specified
-	if c.config.Channels > 0 {
-		args = append(args, "-ac", fmt.Sprintf("%d", c.config.Channels))
-	}
-
-	// Format-specific options
-	switch toFormat {
-	case AudioFormatWAV:
-		// PCM 16-bit signed little-endian for maximum compatibility
-		args = append(args, "-acodec", "pcm_s16le")
-
-	case AudioFormatMP3:
-		args = append(args, "-acodec", "libmp3lame")
-		if c.config.BitRate != "" {
-			args = append(args, "-b:a", c.config.BitRate)
-		} else {
-			args = append(args, "-b:a", "192k") // Default to good quality
-		}
-
-	case AudioFormatFLAC:
-		args = append(args, "-acodec", "flac")
-
-	case AudioFormatOGG:
-		args = append(args, "-acodec", "libvorbis")
-		if c.config.BitRate != "" {
-			args = append(args, "-b:a", c.config.BitRate)
-		}
-
-	case AudioFormatAAC, AudioFormatM4A:
-		args = append(args, "-acodec", "aac")
-		if c.config.BitRate != "" {
-			args = append(args, "-b:a", c.config.BitRate)
-		}
-	}
-
-	// Output file
-	args = append(args, outputPath)
-
-	return args
-}
-
 // runFFmpeg executes ffmpeg with timeout.
 func (c *AudioConverter) runFFmpeg(ctx context.Context, args []string) error {
 	// Create context with timeout
