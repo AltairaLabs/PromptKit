@@ -12,9 +12,6 @@
 # SDK
 /sdk/                               @AltairaLabs/maintainers
 
-# Tools
-/tools/schema-gen/                  @AltairaLabs/maintainers
-
 # Server
 /server/a2a/                        @AltairaLabs/maintainers
 

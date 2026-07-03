@@ -19,5 +19,4 @@ use (
 	./sdk/examples/voice-chat
 	./sdk/examples/voice-interview
 	./server/a2a
-	./tools/schema-gen
 )

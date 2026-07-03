@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-schema-gen test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci
+.PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy
 
 # Route unknown targets to help
 .DEFAULT:
@@ -18,7 +18,6 @@ install: ## Install dependencies
 	@cd sdk && go mod download
 	@cd pkg && go mod download || echo "No pkg dependencies yet"
 	@cd server/a2a && go mod download
-	@cd tools/schema-gen && go mod download
 
 build: ## Build current components
 	@echo "Building runtime..."
@@ -30,11 +29,6 @@ build: ## Build current components
 	@echo "Building pkg..."
 	@cd pkg && go build ./... || echo "No packages yet"
 
-build-schema-gen: ## Build schema-gen utility
-	@echo "Building schema-gen..."
-	@cd tools/schema-gen && go build -o ../../bin/schema-gen .
-	@echo "schema-gen built successfully -> bin/schema-gen"
-
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...
@@ -44,8 +38,6 @@ test: ## Run all tests
 	@cd sdk && go test -v ./...
 	@echo "Testing pkg..."
 	@cd pkg && go test -v ./... || echo "No pkg tests yet"
-	@echo "Testing schema-gen..."
-	@cd tools/schema-gen && go test -v ./... || echo "schema-gen tests completed"
 
 # =============================================================================
 # SDK E2E Tests
@@ -140,18 +132,14 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for server/a2a..."
 	@cd server/a2a && go test -coverprofile=server-a2a-coverage.out ./... || echo "No server/a2a test coverage"
 	@cd server/a2a && go tool cover -func=server-a2a-coverage.out | grep "^total:" 2>/dev/null || echo "No server/a2a coverage data"
-	@echo "Generating coverage for schema-gen..."
-	@cd tools/schema-gen && go test -coverprofile=schema-gen-coverage.out ./... || echo "No schema-gen test coverage"
-	@cd tools/schema-gen && go tool cover -func=schema-gen-coverage.out | grep "^total:" 2>/dev/null || echo "No schema-gen coverage data"
 	@echo "Copying coverage files to root for SonarCloud..."
 	@cp runtime/runtime-coverage.out runtime-coverage.out 2>/dev/null || true
 	@cp sdk/sdk-coverage.out sdk-coverage.out 2>/dev/null || true
 	@cp pkg/pkg-coverage.out pkg-coverage.out 2>/dev/null || true
 	@cp server/a2a/server-a2a-coverage.out server-a2a-coverage.out 2>/dev/null || true
-	@cp tools/schema-gen/schema-gen-coverage.out schema-gen-coverage.out 2>/dev/null || true
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
-	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out server/a2a/server-a2a-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out server/a2a/server-a2a-coverage.out >> coverage.out 2>/dev/null || true
 	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
@@ -167,14 +155,11 @@ lint: ## Run linters
 	@echo "Linting server/a2a..."
 	@cd server/a2a && go vet ./...
 	@cd server/a2a && go fmt ./...
-	@echo "Linting schema-gen..."
-	@cd tools/schema-gen && go vet ./... && go fmt ./...
 	@echo "Running golangci-lint..."
 	@cd runtime && golangci-lint run ./...
 	@cd sdk && golangci-lint run ./...
 	@cd pkg && golangci-lint run ./...
 	@cd server/a2a && golangci-lint run ./...
-	@cd tools/schema-gen && golangci-lint run ./...
 	@echo "Running gosec security scanner..."
 	@$(MAKE) security-scan
 	@echo "Checking message content patterns..."
@@ -182,7 +167,7 @@ lint: ## Run linters
 
 lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
-	@MODULES="runtime sdk pkg server/a2a tools/schema-gen"; \
+	@MODULES="runtime sdk pkg server/a2a"; \
 	CHANGED=0; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
@@ -202,7 +187,7 @@ lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 security-scan: ## Run gosec security scanner on all code
 	@if command -v gosec >/dev/null 2>&1; then \
 		echo "🔒 Running security scan..."; \
-		gosec -quiet -fmt=text ./runtime/... ./sdk/... ./pkg/... ./server/... ./tools/...; \
+		gosec -quiet -fmt=text ./runtime/... ./sdk/... ./pkg/... ./server/...; \
 	else \
 		echo "⚠️  gosec not installed. Install with: brew install gosec"; \
 		echo "   Or visit: https://github.com/securego/gosec"; \
@@ -210,7 +195,7 @@ security-scan: ## Run gosec security scanner on all code
 
 security-scan-diff: ## Run gosec on changed code only (for pre-commit)
 	@if command -v gosec >/dev/null 2>&1; then \
-		MODULES="runtime sdk pkg server/a2a tools/schema-gen"; \
+		MODULES="runtime sdk pkg server/a2a"; \
 		for module in $$MODULES; do \
 			if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
 				echo "Security scan: $$module"; \
@@ -223,7 +208,7 @@ security-scan-diff: ## Run gosec on changed code only (for pre-commit)
 
 test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 	@echo "🧪 Testing changed packages..."
-	@MODULES="runtime sdk pkg server/a2a tools/schema-gen"; \
+	@MODULES="runtime sdk pkg server/a2a"; \
 	CHANGED=0; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
@@ -241,25 +226,26 @@ test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 verify: lint-diff test-fast ## Run all verification checks (used by CI and pre-commit)
 	@echo "✓ All verification checks passed!"
 
-schemas: build-schema-gen ## Generate JSON schemas (including latest refs)
-	@echo "Generating JSON schemas..."
-	@./bin/schema-gen
+schemas: ## Fetch JSON schemas from promptarena (the schema owner)
+	@./scripts/fetch-schemas.sh
 
-schemas-check: build-schema-gen ## Check if schemas are up to date (for CI)
-	@echo "Checking if schemas are up to date..."
-	@./bin/schema-gen --check
+schemas-check: ## Check committed schemas match promptarena (for CI)
+	@echo "Checking schemas are in sync with promptarena..."
+	@tmp=$$(mktemp -d); \
+	./scripts/fetch-schemas.sh "$$tmp" >/dev/null; \
+	if diff -rq "$$tmp" schemas/v1alpha1 >/dev/null 2>&1; then \
+		echo "✓ Schemas are in sync with promptarena"; rm -rf "$$tmp"; \
+	else \
+		echo "::error::schemas/v1alpha1 is out of sync with promptarena — run 'make schemas' and commit"; \
+		diff -rq "$$tmp" schemas/v1alpha1 || true; rm -rf "$$tmp"; exit 1; \
+	fi
 
-schemas-copy: schemas ## Copy schemas to docs/public for hosting
+schemas-copy: schemas ## Copy schemas to docs/public for hosting (+ latest refs)
 	@echo "Copying schemas to docs/public/schemas..."
 	@mkdir -p docs/public/schemas
 	@cp -r schemas/* docs/public/schemas/
-	@echo "✓ Schemas copied to docs/public/schemas"
-	@echo ""
-	@echo "Schemas will be available at:"
-	@find docs/public/schemas -name "*.json" -type f | while read -r file; do \
-		rel_path=$$(echo $$file | sed 's|docs/public/schemas/||'); \
-		echo "  https://promptkit.altairalabs.ai/schemas/$$rel_path"; \
-	done
+	@./scripts/gen-schema-latest-refs.sh schemas/v1alpha1 docs/public/schemas/latest
+	@echo "✓ Schemas hosted at https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/"
 
 clean: ## Clean build artifacts
 	@rm -rf bin/
@@ -267,7 +253,6 @@ clean: ## Clean build artifacts
 	@rm -f sdk/coverage.out
 	@rm -f coverage.out
 	@rm -f *-coverage.out
-	@rm -f tools/schema-gen/schema-gen
 	@rm -rf sdk/e2e-results/
 	@echo "Cleaned build artifacts"
 

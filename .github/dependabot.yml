@@ -49,22 +49,6 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
 
-  # Go modules - schema-gen tool
-  - package-ecosystem: "gomod"
-    directory: "/tools/schema-gen"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "go"
-      - "tools"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
-
   # npm - Documentation site (Astro)
   - package-ecosystem: "npm"
     directory: "/docs"

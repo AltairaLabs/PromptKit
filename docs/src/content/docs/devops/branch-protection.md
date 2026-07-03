@@ -16,7 +16,7 @@ All status checks must pass before merging:
 
 **CI Workflow (`ci.yml`):**
 - ✅ `test` - Unit tests with Go 1.25.1
-- ✅ `lint` - Linting across all modules (runtime, sdk, pkg, server/a2a, schema-gen)
+- ✅ `lint` - Linting across all modules (runtime, sdk, pkg, server/a2a)
 - ✅ `build` - Build verification for all components
 - ✅ `coverage` - Coverage reporting and SonarCloud analysis
 
@@ -95,7 +95,6 @@ Create a `.github/CODEOWNERS` file to automatically assign reviewers:
 /sdk/**                             @AltairaLabs/sdk-team
 
 # Tools
-/tools/schema-gen/**                @AltairaLabs/maintainers
 
 # CI/CD and infrastructure
 /.github/workflows/**               @AltairaLabs/devops-team

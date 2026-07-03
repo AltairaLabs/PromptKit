@@ -523,11 +523,11 @@ repos:
 
 ## Schema Generation
 
-Schemas are automatically generated from the PromptKit Go codebase using reflection.
+Schemas are generated from the config Go types (arena/arenaconfig in the promptarena repo, plus pkg/config here) using reflection, by promptarena's schema-gen; PromptKit hosts the result.
 
 ### How It Works
 
-1. The `schema-gen` tool analyzes Go struct definitions
+1. promptarena's `schema-gen` tool analyzes the config Go struct definitions
 2. Generates JSON Schema Draft 7 compatible schemas
 3. Adds descriptions from Go doc comments
 4. Includes validation rules from struct tags

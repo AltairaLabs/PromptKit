@@ -97,7 +97,6 @@ PromptKit/
 ├── pkg/              # Shared packages (config, schema validation)
 ├── server/a2a/       # A2A protocol server module
 ├── sdk/              # PromptKit SDK
-├── tools/schema-gen/ # JSON Schema generator
 ├── examples/         # Example configurations
 └── docs/             # Documentation
 ```

@@ -4,17 +4,15 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'pkg/config/**'
-      - 'tools/schema-gen/**'
       - 'schemas/**/*.json'
+      - 'scripts/fetch-schemas.sh'
       - 'runtime/prompt/schema/**'
       - '.github/workflows/schemas.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'pkg/config/**'
-      - 'tools/schema-gen/**'
       - 'schemas/**/*.json'
+      - 'scripts/fetch-schemas.sh'
       - 'runtime/prompt/schema/**'
       - '.github/workflows/schemas.yml'
 
@@ -26,38 +24,16 @@ jobs:
   validate-schemas:
     name: Validate JSON Schemas
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-    
-    - name: Set up Go
-      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-      with:
-        go-version: '1.26.0'
-    
-    - name: Install dependencies
-      run: |
-        go work sync
-        cd tools/schema-gen && go mod download
-    
-    - name: Check if schemas are up to date
+
+    # The schemas are generated + owned by the promptarena repo; PromptKit keeps
+    # a committed copy (pkg/config validates against it, docs hosts it). Fail if
+    # the committed copy has drifted from promptarena's generated schemas.
+    - name: Check committed schemas match promptarena
       run: make schemas-check
-    
-    - name: Generate schemas (if check failed)
-      if: failure()
-      run: |
-        echo "::error::Schemas are out of date. Run 'make schemas' locally and commit the changes."
-        make schemas
-        echo "Expected schemas:"
-        find schemas -name "*.json" -type f
-    
-    - name: Test schema generator
-      run: |
-        echo "Running schema generator tests..."
-        cd tools/schema-gen
-        go test -v -coverprofile=coverage.out ./...
-        go tool cover -func=coverage.out | grep total
 
   check-promptpack-schema:
     name: Check PromptPack Schema Freshness
