@@ -54,58 +54,6 @@ const (
 // APIMode represents the OpenAI API mode to use
 type APIMode string
 
-// requiresResponsesAPI returns true if the model is only served by the Responses
-// API. OpenAI's "pro" reasoning models (o1-pro, gpt-5-pro, gpt-5.2-pro, ...) all
-// 404 on v1/chat/completions and must use v1/responses. This is a genuine,
-// OpenAI-defined model property (not a behavior we can default), so it's keyed
-// off the "-pro" suffix that those models share rather than enumerated one by one.
-func requiresResponsesAPI(model string) bool {
-	return strings.HasSuffix(model, "-pro")
-}
-
-// transformToResponsesCallID converts a call ID to Responses API format.
-// The Responses API requires function call IDs to start with 'fc_'.
-// Chat Completions API uses 'call_' prefix which must be transformed.
-func transformToResponsesCallID(callID string) string {
-	// If already in Responses format, return as-is
-	if strings.HasPrefix(callID, "fc_") {
-		return callID
-	}
-	// Transform call_ prefix to fc_ prefix
-	if strings.HasPrefix(callID, "call_") {
-		return "fc_" + strings.TrimPrefix(callID, "call_")
-	}
-	// For any other format, add fc_ prefix
-	return "fc_" + callID
-}
-
-// getAPIMode determines which OpenAI API to use. Priority:
-//  1. Explicit config (additional_config.api_mode) — data-driven, always wins.
-//  2. requiresResponsesAPI fallback — for Responses-only models when the
-//     config doesn't declare a mode.
-//  3. Default to the legacy Chat Completions API.
-//
-// Config-first ordering means a provider config is the source of truth; the
-// model-name heuristic is only a best-effort default for undeclared configs.
-func getAPIMode(model string, additionalConfig map[string]any) APIMode {
-	if additionalConfig != nil {
-		if mode, ok := additionalConfig["api_mode"].(string); ok {
-			switch strings.ToLower(mode) {
-			case "completions", "chat_completions", "legacy":
-				return APIModeCompletions
-			case "responses":
-				return APIModeResponses
-			}
-		}
-	}
-
-	if requiresResponsesAPI(model) {
-		return APIModeResponses
-	}
-
-	return APIModeCompletions
-}
-
 // Responses API response structures
 
 // responsesResponse represents the response from the Responses API
@@ -237,189 +185,6 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	}
 
 	return responsesReq
-}
-
-// convertMessagesToResponsesInput converts messages to Responses API input format
-// The Responses API expects a flat list where tool calls are separate function_call items
-func (p *Provider) convertMessagesToResponsesInput(messages []types.Message) []any {
-	// Allocate extra capacity for tool calls which become separate items
-	const toolCallCapacityMultiplier = 2
-	input := make([]any, 0, len(messages)*toolCallCapacityMultiplier)
-	for i := range messages {
-		items := p.convertSingleMessageToResponsesInput(&messages[i])
-		for _, item := range items {
-			input = append(input, item)
-		}
-	}
-	return input
-}
-
-// convertSingleMessageToResponsesInput converts a single message to Responses API format
-// Returns a slice because assistant messages with tool calls become multiple items
-func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []map[string]any {
-	// Handle tool results - these are function_call_output items
-	// NOTE: The Responses API only supports text output for function_call_output.
-	// Multimodal tool results (images, audio) are reduced to text here.
-	// Use the Chat Completions API for full multimodal tool result support.
-	if msg.Role == roleToolResult && msg.ToolResult != nil {
-		// call_id must match the call_id on the corresponding function_call input
-		return []map[string]any{{
-			"type":    "function_call_output",
-			"call_id": msg.ToolResult.ID,
-			"output":  msg.ToolResult.GetTextContent(),
-		}}
-	}
-
-	// Handle assistant messages with tool calls
-	// In Responses API, tool calls become separate function_call items
-	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-		items := make([]map[string]any, 0, len(msg.ToolCalls)+1)
-
-		// Add text content as a message if present
-		content := msg.GetContent()
-		if content != "" {
-			items = append(items, map[string]any{
-				"type": "message",
-				"role": "assistant",
-				"content": []map[string]any{{
-					"type": "output_text",
-					"text": content,
-				}},
-			})
-		}
-
-		// Add each tool call as a separate function_call item
-		for _, tc := range msg.ToolCalls {
-			// Responses API expects arguments as a JSON string, not object
-			fcID := transformToResponsesCallID(tc.ID)
-			items = append(items, map[string]any{
-				"type":      typeFunctionCall,
-				"id":        fcID,
-				"call_id":   tc.ID,
-				"name":      tc.Name,
-				"arguments": string(tc.Args),
-			})
-		}
-		return items
-	}
-
-	// Regular message (user or assistant without tool calls)
-	inputMsg := map[string]any{
-		"role": msg.Role,
-	}
-
-	// Handle content (multimodal or simple text)
-	inputMsg["content"] = p.getMessageContent(msg)
-
-	return []map[string]any{inputMsg}
-}
-
-// getMessageContent extracts content from a message in Responses API format
-func (p *Provider) getMessageContent(msg *types.Message) any {
-	if len(msg.Parts) == 0 {
-		return msg.GetContent()
-	}
-
-	parts := make([]map[string]any, 0, len(msg.Parts))
-	for i := range msg.Parts {
-		if part := p.convertPartToResponsesFormat(&msg.Parts[i]); part != nil {
-			parts = append(parts, part)
-		}
-	}
-	return parts
-}
-
-// convertPartToResponsesFormat converts a single message part to Responses API format
-func (p *Provider) convertPartToResponsesFormat(part *types.ContentPart) map[string]any {
-	switch part.Type {
-	case partTypeText:
-		return map[string]any{
-			"type": "input_text",
-			"text": part.Text,
-		}
-	case "image":
-		if part.Media != nil {
-			var imageURL string
-
-			// Check for URL first
-			if part.Media.URL != nil && *part.Media.URL != "" {
-				imageURL = *part.Media.URL
-			} else if part.Media.Data != nil && *part.Media.Data != "" {
-				// Handle base64 data - construct data URL
-				mimeType := part.Media.MIMEType
-				if mimeType == "" {
-					mimeType = "image/png" // Default mime type
-				}
-				imageURL = "data:" + mimeType + ";base64," + *part.Media.Data
-			}
-
-			if imageURL != "" {
-				// Responses API expects image_url as a string (the URL directly)
-				return map[string]any{
-					"type":      "input_image",
-					"image_url": imageURL,
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// convertToolsToResponsesFormat converts tools to Responses API format
-func (p *Provider) convertToolsToResponsesFormat(tools any) []any {
-	// Tools format is similar but uses "function" type with slightly different structure
-	openAITools, ok := tools.([]openAITool)
-	if !ok {
-		return nil
-	}
-
-	result := make([]any, len(openAITools))
-	for i, tool := range openAITools {
-		entry := map[string]any{
-			"type":        "function",
-			"name":        tool.Function.Name,
-			"description": tool.Function.Description,
-			"parameters":  tool.Function.Parameters,
-		}
-		if tool.Function.Strict {
-			entry["strict"] = true
-		}
-		result[i] = entry
-	}
-	return result
-}
-
-// convertResponseFormatToResponses converts response format to Responses API format
-func (p *Provider) convertResponseFormatToResponses(rf *providers.ResponseFormat) map[string]any {
-	if rf == nil {
-		return nil
-	}
-
-	result := map[string]any{
-		"format": map[string]any{
-			"type": string(rf.Type),
-		},
-	}
-
-	if rf.Type == providers.ResponseFormatJSONSchema && len(rf.JSONSchema) > 0 {
-		var schema any
-		if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
-			schemaName := rf.SchemaName
-			if schemaName == "" {
-				schemaName = defaultResponseSchema
-			}
-			result["format"] = map[string]any{
-				"type": "json_schema",
-				"json_schema": map[string]any{
-					"name":   schemaName,
-					"schema": schema,
-					"strict": rf.Strict,
-				},
-			}
-		}
-	}
-
-	return result
 }
 
 // predictWithResponses performs a prediction using the Responses API
@@ -646,11 +411,11 @@ func (p *Provider) sendFinalChunk(
 	outChan <- finalChunk
 }
 
-// handleStreamEvent processes a single streaming event and returns updated state
-//
-//nolint:gocritic // hugeParam: event passed by value for simplicity in switch dispatch
+// handleStreamEvent processes a single streaming event and returns updated state.
+// event is taken by pointer to avoid copying the (~120-byte) struct on every SSE
+// event in the hot streaming loop.
 func (p *Provider) handleStreamEvent(
-	event responsesStreamEvent,
+	event *responsesStreamEvent,
 	data string,
 	sb *strings.Builder,
 	totalTokens int,
@@ -992,7 +757,7 @@ func (p *Provider) streamResponsesResponse(
 
 		// Handle different event types
 		totalTokens, accumulatedToolCalls, usage = p.handleStreamEvent(
-			event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan, idMap,
+			&event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan, idMap,
 		)
 
 		// Check if we should return (completed or error events signal this via usage being set and returned)

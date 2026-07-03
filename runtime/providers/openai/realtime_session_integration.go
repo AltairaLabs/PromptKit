@@ -230,88 +230,11 @@ func (s *RealtimeSession) sendSessionUpdate() error {
 	return s.ws.Send(event)
 }
 
-// buildSessionConfig converts our internal RealtimeSessionConfig into
-// the GA Realtime session.update payload. Output modalities flatten
-// (audio implies text-too); codec, voice, VAD, and transcription nest
-// under audio.{input,output}; temperature dropped (GA moved it to
-// per-response.create); voice moved into audio.output.voice.
+// buildSessionConfig delegates to the pure buildRealtimeSessionConfig; the GA
+// config-translation logic lives in realtime_config.go so it can be unit-tested
+// without a live session.
 func (s *RealtimeSession) buildSessionConfig() SessionConfig {
-	cfg := SessionConfig{
-		Type:             "realtime",
-		Instructions:     s.config.Instructions,
-		OutputModalities: outputModalities(s.config.Modalities),
-		Audio: &RealtimeAudioConfig{
-			Input: &RealtimeAudioInput{
-				Format: pcmFormat(s.config.InputAudioFormat, DefaultRealtimeSampleRate),
-			},
-			Output: &RealtimeAudioOutput{
-				Format: pcmFormat(s.config.OutputAudioFormat, DefaultRealtimeSampleRate),
-				Voice:  s.config.Voice,
-			},
-		},
-	}
-
-	if s.config.InputAudioTranscription != nil {
-		cfg.Audio.Input.Transcription = &TranscriptionConfig{
-			Model: s.config.InputAudioTranscription.Model,
-		}
-	}
-
-	if s.config.TurnDetection != nil {
-		cfg.Audio.Input.TurnDetection = &TurnDetectionConfig{
-			Type:              s.config.TurnDetection.Type,
-			Threshold:         s.config.TurnDetection.Threshold,
-			PrefixPaddingMs:   s.config.TurnDetection.PrefixPaddingMs,
-			SilenceDurationMs: s.config.TurnDetection.SilenceDurationMs,
-			CreateResponse:    s.config.TurnDetection.CreateResponse,
-		}
-	}
-	// When TurnDetection is nil we leave audio.input.turn_detection nil;
-	// the pointer-without-omitempty tag marshals it as
-	// `"turn_detection":null` — the GA signal for "manual turn control".
-
-	if len(s.config.Tools) > 0 {
-		cfg.Tools = make([]RealtimeToolDef, len(s.config.Tools))
-		for i, tool := range s.config.Tools {
-			cfg.Tools[i] = RealtimeToolDef{
-				Type:        "function",
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  tool.Parameters,
-			}
-		}
-	}
-
-	if s.config.MaxResponseOutputTokens != nil {
-		cfg.MaxOutputTokens = s.config.MaxResponseOutputTokens
-	}
-
-	return cfg
-}
-
-// outputModalities maps our internal modality list onto the GA
-// output_modalities field. The GA API accepts ["audio"] (which implies
-// text-too) or ["text"] for text-only.
-func outputModalities(in []string) []string {
-	for _, m := range in {
-		if m == "audio" {
-			return []string{"audio"}
-		}
-	}
-	if len(in) == 0 {
-		return []string{"audio"} // safe default for a Realtime session
-	}
-	return []string{"text"}
-}
-
-// pcmFormat returns the GA-shape audio format descriptor for a legacy
-// "pcm16"-style codec name. Empty / unknown formats fall through as nil
-// so the server uses its default.
-func pcmFormat(legacy string, rate int) *RealtimeAudioFormat {
-	if legacy != "" && legacy != "pcm16" {
-		return nil
-	}
-	return &RealtimeAudioFormat{Type: "audio/pcm", Rate: rate}
+	return buildRealtimeSessionConfig(s.config)
 }
 
 // nextEventID generates a unique event ID.
@@ -408,7 +331,7 @@ func (s *RealtimeSession) SendSystemContext(ctx context.Context, text string) er
 			Type:    "session.update",
 		},
 		Session: SessionConfig{
-			Type:         "realtime",
+			Type:         sessionTypeRealtime,
 			Instructions: text,
 		},
 	}
@@ -783,7 +706,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 	s.emitCh <- providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
 			Data:       rawBytes,
-			MIMEType:   "audio/pcm",
+			MIMEType:   mimeAudioPCM,
 			SampleRate: s.outputSampleRate(),
 			Channels:   1,
 		},
@@ -883,17 +806,6 @@ func (s *RealtimeSession) handleOutputItemDone(e *ResponseOutputItemDoneEvent) {
 	}
 }
 
-// markToolCallEmitted records that a tool call for the given item ID was already
-// emitted to responseCh; returns true if the caller should skip its emission.
-// Items with empty IDs are never deduped (best-effort emit).
-func (s *RealtimeSession) markToolCallEmitted(itemID string) bool {
-	if itemID == "" {
-		return false
-	}
-	_, alreadyEmitted := s.emittedToolCalls.LoadOrStore(itemID, struct{}{})
-	return alreadyEmitted
-}
-
 func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	// The response is over (completed or canceled by barge-in); stop treating
 	// further speech_started as barge-in and stop dropping audio.
@@ -942,67 +854,9 @@ func (s *RealtimeSession) handleRateLimits(e *RateLimitsUpdatedEvent) {
 	}
 }
 
-// gpt-realtime GA pricing per 1K tokens (USD). Audio costs an order of
-// magnitude more than text — pricing one against the other vastly mis-
-// estimates the bill. The wire `usage` payload includes a per-type
-// breakdown (input_token_details / output_token_details), and we use it.
-//
-// Cached input is billed at the same per-1K rate as fresh input on the
-// gpt-realtime GA model (10% discount for prompt-cached audio is folded
-// in by the server already; we don't double-count).
-//
-// Source: https://platform.openai.com/docs/pricing (gpt-realtime row).
-const (
-	defaultAudioInputCostPer1K  = 0.032 // $32 / 1M
-	defaultAudioOutputCostPer1K = 0.064 // $64 / 1M
-	defaultTextInputCostPer1K   = 0.004 // $4  / 1M
-	defaultTextOutputCostPer1K  = 0.016 // $16 / 1M
-)
-
+// calculateCost delegates to the pure calculateRealtimeCost, passing the
+// session's per-1K audio-rate overrides (0 ⇒ use the GA defaults). The money
+// math lives in realtime_cost.go so it can be unit-tested in isolation.
 func (s *RealtimeSession) calculateCost(usage *UsageInfo) *types.CostInfo {
-	if usage == nil {
-		return nil
-	}
-
-	// Default to GA gpt-realtime rates. The provider config can override
-	// the audio rates via inputCostPer1K / outputCostPer1K — those are
-	// applied to AUDIO tokens, since that's where the bulk of the bill
-	// lives in a realtime session.
-	audioInRate := s.inputCostPer1K
-	if audioInRate == 0 {
-		audioInRate = defaultAudioInputCostPer1K
-	}
-	audioOutRate := s.outputCostPer1K
-	if audioOutRate == 0 {
-		audioOutRate = defaultAudioOutputCostPer1K
-	}
-
-	inAudio := usage.InputTokenDetails.AudioTokens
-	inText := usage.InputTokenDetails.TextTokens
-	outAudio := usage.OutputTokenDetails.AudioTokens
-	outText := usage.OutputTokenDetails.TextTokens
-
-	// Fall back to "all tokens are audio" if the breakdown is missing
-	// (older API responses, mock providers, etc.) so we don't silently
-	// report $0 — overcounting text at audio rates is preferable to
-	// undercounting audio at text rates for a Realtime session.
-	if inAudio == 0 && inText == 0 {
-		inAudio = usage.InputTokens
-	}
-	if outAudio == 0 && outText == 0 {
-		outAudio = usage.OutputTokens
-	}
-
-	inputCost := float64(inAudio)/tokensPerThousand*audioInRate +
-		float64(inText)/tokensPerThousand*defaultTextInputCostPer1K
-	outputCost := float64(outAudio)/tokensPerThousand*audioOutRate +
-		float64(outText)/tokensPerThousand*defaultTextOutputCostPer1K
-
-	return &types.CostInfo{
-		InputTokens:   usage.InputTokens,
-		OutputTokens:  usage.OutputTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		TotalCost:     inputCost + outputCost,
-	}
+	return calculateRealtimeCost(usage, s.inputCostPer1K, s.outputCostPer1K)
 }
