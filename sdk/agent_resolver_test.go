@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -370,41 +369,5 @@ func TestAgentToolResolver_NonAgentToolsUnaffected(t *testing.T) {
 	assert.Nil(t, descriptors)
 }
 
-func TestPackToRuntimePack(t *testing.T) {
-	// Test the internal conversion from sdk pack to runtime pack
-	sdkPack := &pack.Pack{
-		ID:      "test",
-		Version: "1.0.0",
-		Prompts: map[string]*pack.Prompt{
-			"chat": {
-				Name:        "Chat",
-				Description: "A chat prompt",
-			},
-		},
-		Agents: &pack.AgentsConfig{
-			Entry: "chat",
-			Members: map[string]*pack.AgentDef{
-				"chat": {
-					Description: "Chat agent",
-					Tags:        []string{"chat"},
-					InputModes:  []string{"text/plain"},
-					OutputModes: []string{"text/plain"},
-				},
-			},
-		},
-	}
-
-	rp := packToRuntimePack(sdkPack)
-	require.NotNil(t, rp)
-	assert.Equal(t, "test", rp.ID)
-	assert.Equal(t, "1.0.0", rp.Version)
-
-	require.Contains(t, rp.Prompts, "chat")
-	assert.Equal(t, "Chat", rp.Prompts["chat"].Name)
-
-	require.NotNil(t, rp.Agents)
-	assert.Equal(t, "chat", rp.Agents.Entry)
-	require.Contains(t, rp.Agents.Members, "chat")
-	assert.Equal(t, "Chat agent", rp.Agents.Members["chat"].Description)
-	assert.Equal(t, []string{"chat"}, rp.Agents.Members["chat"].Tags)
-}
+// (TestPackToRuntimePack removed: the SDK and runtime pack types are now one
+// type, so there is no conversion to test.)

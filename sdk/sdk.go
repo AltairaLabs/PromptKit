@@ -1119,46 +1119,6 @@ func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
 	return result
 }
 
-// packToRuntimePack converts the SDK internal pack types to a runtime
-// prompt.Pack. Only the fields needed by agentcard.GenerateAgentCards are
-// populated (Agents and Prompts).
-func packToRuntimePack(p *pack.Pack) *rtprompt.Pack {
-	rp := &rtprompt.Pack{
-		ID:      p.ID,
-		Version: p.Version,
-	}
-
-	// Convert prompts
-	if len(p.Prompts) > 0 {
-		rp.Prompts = make(map[string]*rtprompt.PackPrompt, len(p.Prompts))
-		for name, pr := range p.Prompts {
-			rp.Prompts[name] = &rtprompt.PackPrompt{
-				Name:        pr.Name,
-				Description: pr.Description,
-			}
-		}
-	}
-
-	// Convert agents
-	if p.Agents != nil {
-		rp.Agents = &rtprompt.AgentsConfig{
-			Entry:   p.Agents.Entry,
-			Members: make(map[string]*rtprompt.AgentDef, len(p.Agents.Members)),
-		}
-		for name, def := range p.Agents.Members {
-			rp.Agents.Members[name] = &rtprompt.AgentDef{
-				Description: def.Description,
-				Tags:        def.Tags,
-				InputModes:  def.InputModes,
-				OutputModes: def.OutputModes,
-				State:       def.State,
-			}
-		}
-	}
-
-	return rp
-}
-
 // convertPackValidatorsToHooks auto-converts pack prompt validators into
 // provider hooks, prepending them before any user-registered hooks. The
 // per-validator translation lives in guardrails.ValidatorsToHooks so SDK and
