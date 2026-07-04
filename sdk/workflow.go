@@ -135,8 +135,9 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 		return nil, ErrNoWorkflow
 	}
 
-	// Convert SDK workflow spec to runtime workflow spec
-	spec := convertWorkflowSpec(p.Workflow)
+	// p.Workflow is already a *workflow.Spec (the pack types are runtime-owned),
+	// so use it directly — no lossy re-copy.
+	spec := p.Workflow
 	machine := workflow.NewStateMachine(spec)
 	if startState != "" {
 		machine = workflow.NewStateMachineFromContext(spec, workflow.NewContext(startState, time.Now()))
@@ -273,7 +274,7 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		return nil, fmt.Errorf("failed to hydrate workflow context lists: %w", err)
 	}
 
-	spec := convertWorkflowSpec(p.Workflow)
+	spec := p.Workflow
 	machine := workflow.NewStateMachineFromContext(spec, wfCtx)
 
 	// Open conversation for current state's prompt_task.
@@ -889,28 +890,6 @@ func loadWorkflowList[T any](
 		}
 	}
 	return out, nil
-}
-
-// convertWorkflowSpec converts the SDK's internal pack.WorkflowSpec to a
-// runtime workflow.Spec for use with the state machine.
-func convertWorkflowSpec(sdkSpec *pack.WorkflowSpec) *workflow.Spec {
-	states := make(map[string]*workflow.State, len(sdkSpec.States))
-	for name, s := range sdkSpec.States {
-		states[name] = &workflow.State{
-			PromptTask:    s.PromptTask,
-			Description:   s.Description,
-			OnEvent:       s.OnEvent,
-			Persistence:   workflow.Persistence(s.Persistence),
-			Orchestration: workflow.Orchestration(s.Orchestration),
-			Composition:   s.Composition,
-		}
-	}
-	return &workflow.Spec{
-		Version: sdkSpec.Version,
-		Entry:   sdkSpec.Entry,
-		States:  states,
-		Engine:  sdkSpec.Engine,
-	}
 }
 
 // emitTransitionEvents and maxVisitsForState live in sdk/workflow_events.go.
