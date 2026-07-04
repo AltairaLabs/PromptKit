@@ -1389,8 +1389,8 @@ func TestCreatePackPrompt_ValidatorMessageFolding(t *testing.T) {
 		v := prompt.Validators[0]
 		assert.Equal(t, "Content blocked by policy", v.Params["message"],
 			"Message should be folded into Params")
-		assert.Empty(t, v.Message,
-			"top-level Message should be cleared after folding")
+		// The compiled Validator type has no Message field at all — the
+		// "no top-level message" guarantee is now enforced by the type system.
 	})
 
 	t.Run("no message means no params change", func(t *testing.T) {

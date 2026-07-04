@@ -260,8 +260,8 @@ type PackPrompt struct {
 	// Parameters
 	Parameters *ParametersPack `json:"parameters,omitempty"` // Model-specific parameters
 
-	// Validators
-	Validators []ValidatorConfig `json:"validators,omitempty"`
+	// Validators — spec-exact compiled validators (see prompt.Validator).
+	Validators []Validator `json:"validators,omitempty"`
 
 	// Evals - Prompt-level eval definitions (override pack-level evals by ID)
 	Evals []evals.EvalDef `json:"evals,omitempty"`
@@ -371,7 +371,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		SystemTemplate: config.Spec.SystemTemplate,
 		Variables:      config.Spec.Variables,
 		Tools:          config.Spec.AllowedTools,
-		Validators:     config.Spec.Validators,
+		Validators:     foldValidatorMessages(config.Spec.Validators),
 		MediaConfig:    config.Spec.MediaConfig,
 		TestedModels:   config.Spec.TestedModels,
 		ModelOverrides: config.Spec.ModelOverrides,
@@ -652,26 +652,32 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 	}
 }
 
-// foldValidatorMessages moves ValidatorConfig.Message into Params["message"]
-// so the compiled pack conforms to the promptpack schema (which has no top-level
-// message field on Validator). Existing Params["message"] values are preserved.
-func foldValidatorMessages(validators []ValidatorConfig) []ValidatorConfig {
+// foldValidatorMessages converts authoring-side ValidatorConfigs into the
+// spec-exact compiled Validators that appear in a PromptPack. A top-level
+// Message is folded into Params["message"] (the schema has no top-level message
+// field on Validator); existing Params["message"] values are preserved. A nil
+// Enabled defaults to true (the runtime always enforces a declared validator).
+func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 	if len(validators) == 0 {
-		return validators
+		return nil
 	}
-	out := make([]ValidatorConfig, len(validators))
-	copy(out, validators)
-	for i := range out {
-		if out[i].Message == "" {
-			continue
+	out := make([]Validator, len(validators))
+	for i, vc := range validators {
+		params := vc.Params
+		if vc.Message != "" {
+			if params == nil {
+				params = make(map[string]interface{})
+			}
+			if _, exists := params["message"]; !exists {
+				params["message"] = vc.Message
+			}
 		}
-		if out[i].Params == nil {
-			out[i].Params = make(map[string]interface{})
+		out[i] = Validator{
+			Type:            vc.Type,
+			Enabled:         vc.Enabled == nil || *vc.Enabled,
+			FailOnViolation: vc.FailOnViolation,
+			Params:          params,
 		}
-		if _, exists := out[i].Params["message"]; !exists {
-			out[i].Params["message"] = out[i].Message
-		}
-		out[i].Message = ""
 	}
 	return out
 }

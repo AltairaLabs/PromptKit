@@ -226,6 +226,23 @@ type ValidatorConfig struct {
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
+// Validator is the spec-exact, compiled form of a validator as it appears in a
+// PromptPack on disk (PackPrompt.Validators). It mirrors the promptpack schema's
+// $defs/Validator exactly (additionalProperties:false) and is pinned to that
+// schema by TestValidatorStructMatchesPromptPackSpec.
+//
+// It deliberately has NO Message field: the on-disk spec carries a user-facing
+// message inside Params["message"], not as a top-level property. The authoring
+// type ValidatorConfig keeps Message (it also backs Arena assertions, which are
+// test-only and never compiled into a pack); foldValidatorMessages converts a
+// ValidatorConfig into this compiled Validator.
+type Validator struct {
+	Type            string                 `json:"type"`
+	Enabled         bool                   `json:"enabled"`
+	FailOnViolation *bool                  `json:"fail_on_violation,omitempty"`
+	Params          map[string]interface{} `json:"params,omitempty"`
+}
+
 // DefaultBlockedMessage is the user-facing message shown when a content guardrail blocks output.
 const DefaultBlockedMessage = "Sorry, we can't provide this response as it would violate our content policy."
 
