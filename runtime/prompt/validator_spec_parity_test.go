@@ -108,3 +108,13 @@ func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
 func TestVariableStructMatchesPromptPackSpec(t *testing.T) {
 	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.Variable{}), "Variable")
 }
+
+// TestPromptStructMatchesPromptPackSpec pins prompt.PackPrompt to $defs/Prompt.
+func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackPrompt{}), "Prompt")
+}
+
+// TestToolStructMatchesPromptPackSpec pins prompt.PackTool to $defs/Tool.
+func TestToolStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackTool{}), "Tool")
+}
