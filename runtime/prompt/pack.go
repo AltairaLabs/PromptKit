@@ -249,8 +249,8 @@ type PackPrompt struct {
 	// Prompt
 	SystemTemplate string `json:"system_template"`
 
-	// Variables
-	Variables []VariableMetadata `json:"variables,omitempty"`
+	// Variables — spec-exact compiled variables (see prompt.Variable).
+	Variables []Variable `json:"variables,omitempty"`
 
 	// Tools
 	Tools      []string        `json:"tools,omitempty"`       // Allowed tool names
@@ -374,7 +374,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		Description:    config.Spec.Description,
 		Version:        config.Spec.Version,
 		SystemTemplate: config.Spec.SystemTemplate,
-		Variables:      config.Spec.Variables,
+		Variables:      compileVariables(config.Spec.Variables),
 		Tools:          config.Spec.AllowedTools,
 		Validators:     foldValidatorMessages(config.Spec.Validators),
 		MediaConfig:    config.Spec.MediaConfig,
@@ -627,14 +627,9 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 
 // createPackPrompt creates a PackPrompt from a Config
 func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
-	// Ensure all variables have a type (default to "string" per PromptPack spec)
-	variables := make([]VariableMetadata, len(config.Spec.Variables))
-	for i, v := range config.Spec.Variables {
-		variables[i] = v
-		if variables[i].Type == "" {
-			variables[i].Type = "string"
-		}
-	}
+	// Compile variables to their spec-exact form (defaults type to "string",
+	// drops the runtime-only Binding).
+	variables := compileVariables(config.Spec.Variables)
 
 	validators := foldValidatorMessages(config.Spec.Validators)
 
@@ -988,6 +983,13 @@ func (p *Pack) ListTools() []string {
 // registration in a prompt.Registry. It carries the fields the prompt-assembly
 // pipeline needs; tools and validators are wired separately by the caller.
 func (pr *PackPrompt) ToPromptConfig(taskType string) *Config {
+	var vars []VariableMetadata
+	if len(pr.Variables) > 0 {
+		vars = make([]VariableMetadata, len(pr.Variables))
+		for i, v := range pr.Variables {
+			vars[i] = v.toMetadata()
+		}
+	}
 	return &Config{
 		APIVersion: "promptkit.io/v1alpha1",
 		Kind:       "Prompt",
@@ -997,8 +999,48 @@ func (pr *PackPrompt) ToPromptConfig(taskType string) *Config {
 			Description:    pr.Description,
 			SystemTemplate: pr.SystemTemplate,
 			AllowedTools:   pr.Tools,
-			Variables:      pr.Variables,
+			Variables:      vars,
 		},
+	}
+}
+
+// compileVariables converts authoring variables into their spec-exact compiled
+// form: an empty type defaults to "string", and Binding is dropped (variable
+// binding is a runtime concern, not part of the portable pack).
+func compileVariables(vars []VariableMetadata) []Variable {
+	if len(vars) == 0 {
+		return nil
+	}
+	out := make([]Variable, len(vars))
+	for i, v := range vars {
+		t := v.Type
+		if t == "" {
+			t = "string"
+		}
+		out[i] = Variable{
+			Name:        v.Name,
+			Type:        t,
+			Required:    v.Required,
+			Default:     v.Default,
+			Description: v.Description,
+			Example:     v.Example,
+			Validation:  v.Validation,
+		}
+	}
+	return out
+}
+
+// toMetadata converts a compiled variable back to the authoring metadata form.
+// Binding is always nil — it is not carried in the pack.
+func (v Variable) toMetadata() VariableMetadata {
+	return VariableMetadata{
+		Name:        v.Name,
+		Type:        v.Type,
+		Required:    v.Required,
+		Default:     v.Default,
+		Description: v.Description,
+		Example:     v.Example,
+		Validation:  v.Validation,
 	}
 }
 

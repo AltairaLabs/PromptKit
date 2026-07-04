@@ -38,7 +38,7 @@ func TestPack_Validate(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "1.0.0", // Add version
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -170,7 +170,7 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 			prompt: &PackPrompt{
 				SystemTemplate: "Hello {{name}}",
 				Version:        "1.0.0",
-				Variables:      []VariableMetadata{{Name: "name", Required: true}},
+				Variables:      []Variable{{Name: "name", Required: true}},
 			},
 			expectWarn: false,
 		},
@@ -250,7 +250,7 @@ func TestPack_GetRequiredVariables(t *testing.T) {
 	pack := &Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []VariableMetadata{
+				Variables: []Variable{
 					{Name: "name", Required: true},
 					{Name: "age", Required: true},
 					{Name: "city", Required: false},
@@ -277,7 +277,7 @@ func TestPack_GetOptionalVariables(t *testing.T) {
 	pack := &Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []VariableMetadata{
+				Variables: []Variable{
 					{Name: "name", Required: true, Default: "John"},
 					{Name: "city", Required: false, Default: "NYC"},
 					{Name: "country", Required: false, Default: "USA"},
@@ -367,7 +367,7 @@ func TestLoadPack(t *testing.T) {
 				"greeting": {
 					ID:             "greeting",
 					SystemTemplate: "Hello {{name}}",
-					Variables: []VariableMetadata{
+					Variables: []Variable{
 						{Name: "name", Required: true},
 					},
 				},
@@ -1228,9 +1228,9 @@ func TestPack_ValidateWorkflow(t *testing.T) {
 			Version: "v1.0.0",
 			Prompts: map[string]*PackPrompt{
 				"gather": {ID: "gather", SystemTemplate: "Gather", Version: "1.0.0",
-					Variables: []VariableMetadata{{Name: "x", Required: true}}},
+					Variables: []Variable{{Name: "x", Required: true}}},
 				"solve": {ID: "solve", SystemTemplate: "Solve", Version: "1.0.0",
-					Variables: []VariableMetadata{{Name: "x", Required: true}}},
+					Variables: []Variable{{Name: "x", Required: true}}},
 			},
 			TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 			Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
@@ -1287,9 +1287,9 @@ func TestPack_ValidateWorkflowDetailed(t *testing.T) {
 		Version: "v1.0.0",
 		Prompts: map[string]*PackPrompt{
 			"gather": {ID: "gather", SystemTemplate: "G", Version: "1.0.0",
-				Variables: []VariableMetadata{{Name: "x", Required: true}}},
+				Variables: []Variable{{Name: "x", Required: true}}},
 			"solve": {ID: "solve", SystemTemplate: "S", Version: "1.0.0",
-				Variables: []VariableMetadata{{Name: "x", Required: true}}},
+				Variables: []Variable{{Name: "x", Required: true}}},
 		},
 		TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 		Compilation:    &CompilationInfo{CompiledWith: "packc v1"},

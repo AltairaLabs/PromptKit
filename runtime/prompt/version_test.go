@@ -156,14 +156,14 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "1.0.0",
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "name", Required: true},
 						},
 					},
 					"test2": {
 						SystemTemplate: "Goodbye {{name}}",
 						Version:        "v2.1.0",
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -206,7 +206,7 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "v1", // Invalid - missing minor and patch
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -228,14 +228,14 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test1": {
 						SystemTemplate: "Hello",
 						Version:        "version-1", // Invalid
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "test", Required: true},
 						},
 					},
 					"test2": {
 						SystemTemplate: "Goodbye",
 						Version:        "2.0", // Invalid - missing patch
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "test", Required: true},
 						},
 					},
@@ -260,7 +260,7 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello",
 						Version:        "1.0.0",
-						Variables: []VariableMetadata{
+						Variables: []Variable{
 							{Name: "test", Required: true},
 						},
 					},

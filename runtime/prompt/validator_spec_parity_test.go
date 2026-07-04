@@ -12,15 +12,18 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
-// TestValidatorStructMatchesPromptPackSpec pins prompt.Validator — the
-// spec-exact, compiled validator that appears in a PromptPack on disk — to the
-// embedded PromptPack spec ($defs/Validator). Any drift (a renamed JSON tag, a
-// removed field, or a new field not in the spec) fails at build time.
+// assertStructMatchesSchemaDef pins a compiled-pack struct to a named $def in
+// the embedded PromptPack schema: every schema property must exist on the
+// struct, the struct may carry no field the schema doesn't define (mirroring
+// additionalProperties:false), and required fields must not have omitempty (so a
+// round-trip preserves the spec's required set).
 //
-// This guard lives in runtime because the runtime is the source of truth for
-// the pack format: Arena and packc build/test packs through the runtime, so the
+// These guards live in runtime because the runtime is the source of truth for
+// the pack format — Arena and packc build/test packs through the runtime, so the
 // spec-parity guarantee must be runtime-owned, not stranded in the SDK.
-func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
+func assertStructMatchesSchemaDef(t *testing.T, structType reflect.Type, defName string) {
+	t.Helper()
+
 	raw := schema.GetEmbeddedSchema()
 	require.NotEmpty(t, raw, "embedded promptpack schema must load")
 
@@ -30,11 +33,11 @@ func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
 	defs, ok := root["$defs"].(map[string]any)
 	require.True(t, ok, "embedded schema must have $defs")
 
-	validatorDef, ok := defs["Validator"].(map[string]any)
-	require.True(t, ok, "embedded schema must define $defs/Validator")
+	def, ok := defs[defName].(map[string]any)
+	require.True(t, ok, "embedded schema must define $defs/"+defName)
 
-	props, ok := validatorDef["properties"].(map[string]any)
-	require.True(t, ok, "Validator must have properties")
+	props, ok := def["properties"].(map[string]any)
+	require.True(t, ok, defName+" must have properties")
 
 	expected := make(map[string]bool, len(props))
 	for name := range props {
@@ -42,7 +45,7 @@ func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
 	}
 
 	required := map[string]bool{}
-	if reqList, ok := validatorDef["required"].([]any); ok {
+	if reqList, ok := def["required"].([]any); ok {
 		for _, r := range reqList {
 			if name, ok := r.(string); ok {
 				required[name] = true
@@ -51,17 +54,14 @@ func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
 	}
 
 	addlProps := true
-	if v, ok := validatorDef["additionalProperties"].(bool); ok {
+	if v, ok := def["additionalProperties"].(bool); ok {
 		addlProps = v
 	}
 
-	// Walk prompt.Validator via reflection.
-	tp := reflect.TypeOf(prompt.Validator{})
-	actual := make(map[string]bool, tp.NumField())
-	omitEmpty := make(map[string]bool, tp.NumField())
-	for i := 0; i < tp.NumField(); i++ {
-		field := tp.Field(i)
-		tag := field.Tag.Get("json")
+	actual := make(map[string]bool, structType.NumField())
+	omitEmpty := make(map[string]bool, structType.NumField())
+	for i := 0; i < structType.NumField(); i++ {
+		tag := structType.Field(i).Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
@@ -75,30 +75,36 @@ func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
 		}
 	}
 
-	// Assertion 1: every schema property exists on the struct.
 	for name := range expected {
 		if !actual[name] {
-			t.Errorf("promptpack Validator property %q is missing from prompt.Validator", name)
+			t.Errorf("promptpack %s property %q is missing from prompt.%s", defName, name, structType.Name())
 		}
 	}
-
-	// Assertion 2: the struct has no fields the schema doesn't define
-	// (mirrors the schema's additionalProperties:false).
 	if !addlProps {
 		for name := range actual {
 			if !expected[name] {
-				t.Errorf("prompt.Validator has JSON field %q not in the promptpack spec "+
-					"(additionalProperties:false)", name)
+				t.Errorf("prompt.%s has JSON field %q not in the promptpack spec "+
+					"(additionalProperties:false)", structType.Name(), name)
 			}
 		}
 	}
-
-	// Assertion 3: required fields must not have omitempty — they must
-	// always serialize, so a round-trip preserves the spec's required set.
 	for name := range required {
 		if omitEmpty[name] {
-			t.Errorf("promptpack required field %q has omitempty on prompt.Validator — "+
-				"required fields must always serialize", name)
+			t.Errorf("promptpack required field %q has omitempty on prompt.%s — "+
+				"required fields must always serialize", name, structType.Name())
 		}
 	}
+}
+
+// TestValidatorStructMatchesPromptPackSpec pins prompt.Validator (the compiled
+// validator; no top-level Message — that lives on the authoring ValidatorConfig).
+func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.Validator{}), "Validator")
+}
+
+// TestVariableStructMatchesPromptPackSpec pins prompt.Variable (the compiled
+// variable; no Binding — variable binding is a runtime concern on the authoring
+// VariableMetadata, not part of the portable pack).
+func TestVariableStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.Variable{}), "Variable")
 }

@@ -307,6 +307,25 @@ type VariableMetadata struct {
 	Binding *VariableBinding `yaml:"binding,omitempty" json:"binding,omitempty"`
 }
 
+// Variable is the spec-exact, compiled form of a template variable as it appears
+// in a PromptPack on disk (PackPrompt.Variables). It mirrors the promptpack
+// schema's $defs/Variable exactly (additionalProperties:false) and is pinned to
+// it by TestVariableStructMatchesPromptPackSpec.
+//
+// It deliberately omits Binding: variable binding (auto-population from platform
+// resources: project/provider/workspace/secret/configmap) is a runtime concern,
+// resolved before/at compile time — not part of the portable pack. The authoring
+// type VariableMetadata carries Binding; compileVariables drops it.
+type Variable struct {
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`
+	Required    bool                   `json:"required"`
+	Default     interface{}            `json:"default,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Example     interface{}            `json:"example,omitempty"`
+	Validation  map[string]interface{} `json:"validation,omitempty"`
+}
+
 // Metadata contains additional metadata for the pack format
 type Metadata struct {
 	Domain       string              `yaml:"domain,omitempty"`        // Domain/category (e.g., "customer-support")

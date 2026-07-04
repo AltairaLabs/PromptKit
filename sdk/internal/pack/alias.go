@@ -21,8 +21,8 @@ type Prompt = prompt.PackPrompt
 // Tool is a pack-level tool definition.
 type Tool = prompt.PackTool
 
-// Variable is a prompt template variable definition.
-type Variable = prompt.VariableMetadata
+// Variable is a spec-exact compiled prompt template variable (no Binding).
+type Variable = prompt.Variable
 
 // Validator is a compiled, spec-exact pack validator.
 type Validator = prompt.Validator
@@ -45,15 +45,6 @@ type AgentDef = prompt.AgentDef
 // SkillSourceConfig declares a skill source for the pack.
 type SkillSourceConfig = prompt.SkillSourceConfig
 
-// VariableBinding binds a variable to a system resource.
-type VariableBinding = prompt.VariableBinding
-
-// VariableBindingKind is the kind of resource a variable binds to.
-type VariableBindingKind = prompt.VariableBindingKind
-
-// VariableBindingFilter filters bound resources.
-type VariableBindingFilter = prompt.VariableBindingFilter
-
 // WorkflowSpec is a pack's workflow state-machine specification.
 type WorkflowSpec = workflow.Spec
 
@@ -62,12 +53,3 @@ type WorkflowState = workflow.State
 
 // WorkflowArtifactDef declares a workflow artifact.
 type WorkflowArtifactDef = workflow.ArtifactDef
-
-// Variable binding kinds (aliased from the runtime).
-const (
-	BindingKindProject   = prompt.BindingKindProject
-	BindingKindProvider  = prompt.BindingKindProvider
-	BindingKindWorkspace = prompt.BindingKindWorkspace
-	BindingKindSecret    = prompt.BindingKindSecret
-	BindingKindConfigMap = prompt.BindingKindConfigMap
-)
