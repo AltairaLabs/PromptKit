@@ -8,23 +8,17 @@ import (
 )
 
 // packSchemaExceptions lists example packs that intentionally do NOT validate
-// against the embedded PromptPack schema, with the reason. Anything not listed
-// here MUST validate cleanly — that is the whole point of this test: the packs
-// we ship are the spec's reference material, so they have to be spec-compliant.
+// against the embedded PromptPack schema, keyed by a path substring with the
+// reason. It is currently empty: every shipped pack is spec-compliant, which is
+// the whole point of this test — the packs we ship are the spec's reference
+// material.
 //
-// The key is a path substring (matched against the discovered file path).
-var packSchemaExceptions = map[string]string{
-	// client-tools declares tool-level `mode: "client"` and a `client: {consent}`
-	// block. These are real runtime concepts (runtime/tools.ToolDescriptor.Mode +
-	// ClientConfig, documented as a built-in mode in runtime/CLAUDE.md), but they
-	// are ahead of the published spec on two fronts: (1) the upstream
-	// promptpack.org schema's Tool definition is additionalProperties:false and
-	// does not yet model them, and (2) the SDK loader (pack.ToToolRepository)
-	// currently drops them and hardcodes Mode:"local". Until the schema models
-	// client tools and the loader reads them, this example is knowingly ahead of
-	// spec. See https://github.com/AltairaLabs/promptpack-spec.
-	"client-tools": "declares tool mode/client (client-side execution) not yet in the published schema",
-}
+// If you must add an entry, prefer fixing the pack. A legitimate exception is
+// one where the pack is deliberately ahead of the published schema; note that a
+// tool's execution mode (client/live/mcp/...) is a HOSTING concern bound by the
+// host (e.g. conv.OnClientTool), not a pack field — do not reintroduce it here.
+// The test below asserts excepted packs still FAIL, so the list can't rot.
+var packSchemaExceptions = map[string]string{}
 
 // TestExamplePacksAreSchemaCompliant validates every *.pack.json we ship (SDK
 // examples + testdata) against the embedded PromptPack schema. New or edited

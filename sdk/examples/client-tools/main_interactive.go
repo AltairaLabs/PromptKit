@@ -70,9 +70,8 @@ func deferredExample() {
 	if resp.HasPendingClientTools() {
 		for _, tool := range resp.ClientTools() {
 			fmt.Printf("  [Client] Tool requested: %s\n", tool.ToolName)
-			fmt.Printf("  [Client] Consent message: %s\n", tool.ConsentMsg)
 
-			// Simulate user granting consent and providing data.
+			// Simulate the caller fulfilling the client tool on-device.
 			err := conv.SendToolResult(ctx, tool.CallID, map[string]any{
 				"lat": 37.7749, "lon": -122.4194, "city": "San Francisco",
 			})
