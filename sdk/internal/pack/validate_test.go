@@ -111,7 +111,7 @@ func TestValidateAgents_NilAgents(t *testing.T) {
 	p := &Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	assert.NoError(t, err, "nil agents should pass validation")
 }
 
@@ -136,7 +136,7 @@ func TestValidateAgents_Valid(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	assert.NoError(t, err)
 }
 
@@ -148,7 +148,7 @@ func TestValidateAgents_EmptyMembers(t *testing.T) {
 			Members: map[string]*AgentDef{},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -165,7 +165,7 @@ func TestValidateAgents_MissingEntry(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -186,7 +186,7 @@ func TestValidateAgents_EntryNotInMembers(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -213,7 +213,7 @@ func TestValidateAgents_MemberNotInPrompts(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -241,7 +241,7 @@ func TestValidateAgents_InvalidInputMode(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -269,7 +269,7 @@ func TestValidateAgents_InvalidOutputMode(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -291,7 +291,7 @@ func TestValidateAgents_MultipleErrors(t *testing.T) {
 			Members: map[string]*AgentDef{},
 		},
 	}
-	err := p.ValidateAgents()
+	err := validateAgentsSection(p)
 	require.Error(t, err)
 
 	agentsErr, ok := err.(*AgentsValidationError)
@@ -337,7 +337,7 @@ func TestValidateWorkflow_NilWorkflow(t *testing.T) {
 	p := &Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	assert.NoError(t, err, "nil workflow should pass validation")
 }
 
@@ -358,7 +358,7 @@ func TestValidateWorkflow_Valid(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	assert.NoError(t, err)
 }
 
@@ -372,7 +372,7 @@ func TestValidateWorkflow_InvalidVersion(t *testing.T) {
 			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
 		},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workflow validation failed")
 }
@@ -386,7 +386,7 @@ func TestValidateWorkflow_EntryNotInStates(t *testing.T) {
 			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
 		},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	require.Error(t, err)
 
 	wfErr, ok := err.(*WorkflowValidationError)
@@ -403,7 +403,7 @@ func TestValidateWorkflow_PromptTaskNotInPrompts(t *testing.T) {
 			States:  map[string]*WorkflowState{"s": {PromptTask: "missing"}},
 		},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not reference a valid prompt")
 }
@@ -419,7 +419,7 @@ func TestValidateWorkflow_EventTargetNotInStates(t *testing.T) {
 			},
 		},
 	}
-	err := p.ValidateWorkflow()
+	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist in states")
 }

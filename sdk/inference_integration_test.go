@@ -82,7 +82,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         cfg,
 		mode:           UnaryMode,

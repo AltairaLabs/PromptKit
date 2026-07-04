@@ -309,8 +309,8 @@ func TestPackWithMediaConfig(t *testing.T) {
 				"id": "vision",
 				"system_template": "Analyze images",
 				"media": {
-					"allowed_types": ["image/png", "image/jpeg"],
-					"max_size": 10485760
+					"enabled": true,
+					"supported_types": ["image", "audio"]
 				}
 			}
 		}
@@ -322,9 +322,9 @@ func TestPackWithMediaConfig(t *testing.T) {
 	prompt := p.GetPrompt("vision")
 	require.NotNil(t, prompt)
 	require.NotNil(t, prompt.MediaConfig)
-	assert.Len(t, prompt.MediaConfig.AllowedTypes, 2)
-	assert.Contains(t, prompt.MediaConfig.AllowedTypes, "image/png")
-	assert.Equal(t, 10485760, prompt.MediaConfig.MaxSize)
+	assert.True(t, prompt.MediaConfig.Enabled)
+	assert.Len(t, prompt.MediaConfig.SupportedTypes, 2)
+	assert.Contains(t, prompt.MediaConfig.SupportedTypes, "image")
 }
 
 func TestPackWithFragments(t *testing.T) {
@@ -411,7 +411,7 @@ func TestToPromptRegistry(t *testing.T) {
 	p, err := Parse(data)
 	require.NoError(t, err)
 
-	registry := p.ToPromptRegistry()
+	registry := ToPromptRegistry(p)
 	assert.NotNil(t, registry)
 
 	// Check that the prompt was registered
@@ -465,7 +465,7 @@ func TestToToolRepository(t *testing.T) {
 	p, err := Parse(data)
 	require.NoError(t, err)
 
-	repo := p.ToToolRepository()
+	repo := ToToolRepository(p)
 	assert.NotNil(t, repo)
 
 	// Check that the tool was registered

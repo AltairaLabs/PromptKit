@@ -110,6 +110,11 @@ type Pack struct {
 
 	// Skills - Skill sources for dynamic capability loading
 	Skills []SkillSourceConfig `json:"skills,omitempty" yaml:"skills,omitempty"`
+
+	// FilePath is the on-disk path this pack was loaded from, if any. It is
+	// never serialized; loaders set it so schema/fragment resolution can
+	// resolve paths relative to the pack file.
+	FilePath string `json:"-" yaml:"-"`
 }
 
 // SkillSourceConfig represents a skill source in the pack YAML.
@@ -957,6 +962,44 @@ func (p *Pack) ListPrompts() []string {
 		prompts = append(prompts, taskType)
 	}
 	return prompts
+}
+
+// GetTool returns a specific tool by name, or nil if not found.
+func (p *Pack) GetTool(name string) *PackTool {
+	if p.Tools == nil {
+		return nil
+	}
+	return p.Tools[name]
+}
+
+// ListTools returns all tool names defined in the pack.
+func (p *Pack) ListTools() []string {
+	if p.Tools == nil {
+		return nil
+	}
+	names := make([]string, 0, len(p.Tools))
+	for name := range p.Tools {
+		names = append(names, name)
+	}
+	return names
+}
+
+// ToPromptConfig converts a pack prompt into a prompt.Config suitable for
+// registration in a prompt.Registry. It carries the fields the prompt-assembly
+// pipeline needs; tools and validators are wired separately by the caller.
+func (pr *PackPrompt) ToPromptConfig(taskType string) *Config {
+	return &Config{
+		APIVersion: "promptkit.io/v1alpha1",
+		Kind:       "Prompt",
+		Spec: Spec{
+			TaskType:       taskType,
+			Version:        pr.Version,
+			Description:    pr.Description,
+			SystemTemplate: pr.SystemTemplate,
+			AllowedTools:   pr.Tools,
+			Variables:      pr.Variables,
+		},
+	}
 }
 
 // GetRequiredVariables returns all required variable names for a specific prompt

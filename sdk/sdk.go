@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
@@ -221,7 +220,7 @@ func initConversation(
 	// Use caller-provided tool registry or create a new one from the pack.
 	toolReg := cfg.toolRegistry
 	if toolReg == nil {
-		toolReg = tools.NewRegistryWithRepository(p.ToToolRepository())
+		toolReg = tools.NewRegistryWithRepository(pack.ToToolRepository(p))
 	}
 
 	// Create conversation
@@ -229,7 +228,7 @@ func initConversation(
 		pack:           p,
 		prompt:         prompt,
 		promptName:     promptName,
-		promptRegistry: p.ToPromptRegistry(), // Create registry for PromptAssemblyMiddleware
+		promptRegistry: pack.ToPromptRegistry(p), // Create registry for PromptAssemblyMiddleware
 		toolRegistry:   toolReg,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
@@ -836,17 +835,24 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 	// This is called before session is created, so we need to track these
 	// temporarily. The session will be initialized with these variables later.
 	for _, v := range prompt.Variables {
-		if v.Default != "" {
-			// Store in a temporary map until session is created
-			if conv.config != nil && conv.config.initialVariables == nil {
-				conv.config.initialVariables = make(map[string]string)
-			}
-			if conv.config != nil {
-				// Only set default if user didn't provide a value
-				if _, exists := conv.config.initialVariables[v.Name]; !exists {
-					conv.config.initialVariables[v.Name] = v.Default
-				}
-			}
+		if v.Default == nil || conv.config == nil {
+			continue
+		}
+		// The spec allows any-typed defaults; template variables are strings.
+		defStr, isStr := v.Default.(string)
+		if !isStr {
+			defStr = fmt.Sprintf("%v", v.Default)
+		}
+		if defStr == "" {
+			continue
+		}
+		// Store in a temporary map until session is created.
+		if conv.config.initialVariables == nil {
+			conv.config.initialVariables = make(map[string]string)
+		}
+		// Only set default if user didn't provide a value.
+		if _, exists := conv.config.initialVariables[v.Name]; !exists {
+			conv.config.initialVariables[v.Name] = defStr
 		}
 	}
 }
@@ -993,20 +999,15 @@ func OpenComposition(packPath, name string, opts ...Option) (*Conversation, erro
 		return nil, fmt.Errorf("failed to load pack: %w", err)
 	}
 
-	raw, ok := p.Compositions[name]
+	comp, ok := p.Compositions[name]
 	if !ok {
 		return nil, fmt.Errorf("composition %q not found in pack", name)
-	}
-
-	var comp composition.Composition
-	if err := json.Unmarshal(raw, &comp); err != nil {
-		return nil, fmt.Errorf("failed to parse composition %q: %w", name, err)
 	}
 
 	// Open a regular Conversation with the composition active. The empty prompt
 	// name is correct — loadAndValidatePack skips the prompt-not-found check
 	// when cfg.activeComposition is non-nil.
-	return Open(packPath, "", append(opts, withResolvedComposition(name, &comp))...)
+	return Open(packPath, "", append(opts, withResolvedComposition(name, comp))...)
 }
 
 // ensureA2ACapability adds an A2ACapability if the config has a bridge or

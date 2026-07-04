@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -201,15 +200,11 @@ func resolveCompositionForState(p *pack.Pack, stateName string) (Option, error) 
 		return nil, nil
 	}
 	compName := state.Composition
-	raw, ok := p.Compositions[compName]
+	comp, ok := p.Compositions[compName]
 	if !ok {
 		return nil, fmt.Errorf("composition %q not found in pack", compName)
 	}
-	var comp composition.Composition
-	if err := json.Unmarshal(raw, &comp); err != nil {
-		return nil, fmt.Errorf("failed to parse composition %q: %w", compName, err)
-	}
-	return withResolvedComposition(compName, &comp), nil
+	return withResolvedComposition(compName, comp), nil
 }
 
 // resolveCompositionOptForState delegates to resolveCompositionForState and is

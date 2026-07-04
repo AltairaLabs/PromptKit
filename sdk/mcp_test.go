@@ -297,7 +297,7 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 			},
 		}
 		// Reinitialize toolRegistry with the local tool
-		conv.toolRegistry = tools.NewRegistryWithRepository(conv.pack.ToToolRepository())
+		conv.toolRegistry = tools.NewRegistryWithRepository(pack.ToToolRepository(conv.pack))
 
 		conv.OnTool("local_tool", func(args map[string]any) (any, error) {
 			return "result", nil
