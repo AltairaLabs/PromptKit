@@ -1,16 +1,22 @@
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "a2a-demo-assistant",
   "name": "a2a-demo-assistant",
   "version": "1.0.0",
   "description": "Demo assistant for A2A examples",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "prompts": {
     "chat": {
-      "provider": {
-        "type": "openai"
-      },
-      "model": "gpt-4o-mini",
-      "task_type": "chat",
-      "system": "You are a helpful assistant. Answer questions clearly and concisely. When tools are available, use them to provide accurate information.",
-      "max_tokens": 1024
+      "id": "chat",
+      "name": "Chat Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. Answer questions clearly and concisely. When tools are available, use them to provide accurate information.",
+      "parameters": {
+        "max_tokens": 1024
+      }
     }
   }
 }

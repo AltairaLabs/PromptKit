@@ -26,9 +26,14 @@ var packSchemaExceptions = map[string]string{}
 // example smoke test passes WithSkipSchemaValidation() and nothing checks that
 // the shipped packs actually conform to the schema they advertise.
 func TestExamplePacksAreSchemaCompliant(t *testing.T) {
+	// Cover every *.pack.json we ship, across modules. These are file reads +
+	// schema validation only (no cross-module compilation), so walking sibling
+	// module trees from here is safe. Paths are relative to this package dir.
 	roots := []string{
-		filepath.Join("..", "..", "examples"),
-		filepath.Join("..", "..", "testdata", "packs"),
+		filepath.Join("..", "..", "examples"),          // sdk/examples
+		filepath.Join("..", "..", "testdata", "packs"), // sdk/testdata/packs
+		filepath.Join("..", "..", "..", "examples"),    // repo-root examples/
+		filepath.Join("..", "..", "..", "benchmarks"),  // benchmarks/
 	}
 
 	var files []string
