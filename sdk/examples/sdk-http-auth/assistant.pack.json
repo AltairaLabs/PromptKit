@@ -1,7 +1,13 @@
 {
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "http-auth-demo",
   "name": "http-auth-demo",
   "version": "1.0.0",
   "description": "Demonstrates HTTP tool authentication patterns",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
   "tools": {
     "get_customer": {
       "name": "get_customer",
@@ -48,7 +54,10 @@
   },
   "prompts": {
     "assistant": {
-      "system": "You are a helpful assistant with access to customer, product, and analytics tools.",
+      "id": "assistant",
+      "name": "HTTP Auth Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant with access to customer, product, and analytics tools.",
       "tools": ["get_customer", "search_products", "get_analytics"]
     }
   }

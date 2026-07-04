@@ -21,7 +21,6 @@
     "get_location": {
       "name": "get_location",
       "description": "Get the user's current GPS location",
-      "mode": "client",
       "parameters": {
         "type": "object",
         "properties": {
@@ -30,13 +29,6 @@
             "enum": ["high", "low"],
             "description": "GPS accuracy level"
           }
-        }
-      },
-      "client": {
-        "consent": {
-          "required": true,
-          "message": "This app wants to access your location",
-          "decline_strategy": "graceful"
         }
       }
     }
