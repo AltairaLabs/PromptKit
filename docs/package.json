@@ -12,7 +12,7 @@
     "check-doc-urls": "node check-doc-urls.js"
   },
   "dependencies": {
-    "@astrojs/mdx": "^6.0.3",
+    "@astrojs/mdx": "^7.0.2",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "~0.41.3",
     "@fontsource/space-grotesk": "^5.2.10",
