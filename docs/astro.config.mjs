@@ -1,7 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import starlightThemeGalaxy from 'starlight-theme-galaxy';
 import d2 from 'astro-d2';
 
 // https://astro.build/config
@@ -12,11 +11,43 @@ export default defineConfig({
     starlight({
       title: 'PromptKit',
       logo: {
-        src: './public/logo.svg',
-        alt: 'PromptKit Logo',
+        src: './public/atlas/logo-promptkit.svg',
+        alt: 'PromptKit',
       },
-      plugins: [starlightThemeGalaxy()],
       customCss: ['./src/styles/custom.css'],
+      // Atlas-themed code blocks: a distinct ink-void surface, mono code font,
+      // hairline frame with a soft shadow, and a violet active-tab indicator —
+      // so docs code blocks read as first-class, not the plain default.
+      expressiveCode: {
+        // Vibrant, legible syntax themes (dark = tokyo-night's blue/violet/cyan
+        // fits the night-sky brand; light = github-light). Starlight swaps them
+        // with data-theme.
+        themes: ['tokyo-night', 'github-light'],
+        styleOverrides: {
+          borderColor: 'var(--hairline)',
+          borderRadius: 'var(--radius-code)',
+          codeBackground: 'var(--ink-void)',
+          codeFontFamily: 'var(--font-mono)',
+          codeFontSize: '13.5px',
+          uiFontFamily: 'var(--font-sans)',
+          frames: {
+            editorActiveTabBackground: 'var(--ink-void)',
+            editorTabBarBackground: 'var(--ink-surface)',
+            editorActiveTabIndicatorBottomColor: 'var(--nebula-violet)',
+            editorTabBarBorderBottomColor: 'var(--hairline)',
+            terminalBackground: 'var(--ink-void)',
+            terminalTitlebarBackground: 'var(--ink-surface)',
+            terminalTitlebarBorderBottomColor: 'var(--hairline)',
+            frameBoxShadowCssValue: '0 12px 32px -18px rgba(0, 0, 0, 0.6)',
+          },
+        },
+      },
+      // Custom Header renders the AltairaLabs masterbrand family bar as a strip
+      // across the top of the fixed header, so every doc page carries the same
+      // family chrome as the landing.
+      components: {
+        Header: './src/components/Header.astro',
+      },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/AltairaLabs/PromptKit' },
       ],

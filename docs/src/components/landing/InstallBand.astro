@@ -1,0 +1,234 @@
+---
+import CopyButton from './CopyButton.astro';
+import { icon } from './icons';
+
+const install = 'go get github.com/AltairaLabs/PromptKit/sdk';
+---
+
+<section id="install" class="install">
+  <div class="atlas-inner grid">
+    <div class="col-left">
+      <p class="eyebrow">INSTALL</p>
+      <h2>One import away.</h2>
+      <p class="copy">
+        Add the SDK to your Go module and open a conversation from a portable
+        <code>PromptPack</code>. Test, red-team and compile packs with
+        <a href="https://promptarena.altairalabs.ai">PromptArena</a>.
+      </p>
+      <div class="cta">
+        <a class="btn-primary" href="/sdk/">
+          Read the quickstart <span set:html={icon('arrow-right', 16)} />
+        </a>
+        <a class="btn-text" href="/sdk/reference/">
+          SDK reference <span set:html={icon('external', 14)} />
+        </a>
+      </div>
+      <p class="note">requires Go 1.26+ · Apache-2.0</p>
+    </div>
+
+    <div class="col-right">
+      <div class="cmd-row">
+        <code><span class="prompt">$</span> {install}</code>
+        <CopyButton command={install} />
+      </div>
+      <div class="code-card">
+        <div class="cc-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="cc-title">hello.go</span>
+        </div>
+        <pre class="cc-body"><code><span class="k">package</span> main
+
+<span class="k">import</span> (
+  <span class="s">"context"</span>
+  <span class="s">"fmt"</span>
+  <span class="s">"log"</span>
+
+  <span class="s">"github.com/AltairaLabs/PromptKit/sdk"</span>
+)
+
+<span class="k">func</span> <span class="fn">main</span>() &#123;
+  conv, err := sdk.<span class="fn">Open</span>(<span class="s">"./app.pack.json"</span>, <span class="s">"chat"</span>)
+  <span class="k">if</span> err != <span class="k">nil</span> &#123;
+    log.<span class="fn">Fatal</span>(err)
+  &#125;
+  <span class="k">defer</span> conv.<span class="fn">Close</span>()
+
+  resp, err := conv.<span class="fn">Send</span>(context.<span class="fn">Background</span>(), <span class="s">"Summarize Q3 in three bullets."</span>)
+  <span class="k">if</span> err != <span class="k">nil</span> &#123;
+    log.<span class="fn">Fatal</span>(err)
+  &#125;
+  fmt.<span class="fn">Println</span>(resp.<span class="fn">Text</span>())
+&#125;</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .install {
+    padding: 70px 30px;
+    border-top: 1px solid var(--hairline);
+    background: var(--atmo-violet), var(--bg-app);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 1.14;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .copy {
+    margin: 16px 0 0;
+    max-width: 460px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+  .copy code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--nebula-violet);
+  }
+  .copy a {
+    color: var(--nebula-violet);
+  }
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 26px;
+  }
+  .btn-primary,
+  .btn-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    border-radius: var(--radius-btn);
+    transition: all var(--dur-base) var(--ease-standard);
+  }
+  .btn-primary {
+    padding: 12px 20px;
+    font-size: 14px;
+    background: var(--nebula-violet);
+    color: #1c1630;
+    box-shadow: 0 8px 22px -10px rgba(139, 92, 246, 0.55);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+  }
+  :global(html[data-theme='light']) .btn-primary {
+    color: #ffffff;
+  }
+  .btn-text {
+    font-size: 14px;
+    color: var(--star-700);
+  }
+  .btn-text:hover {
+    color: var(--star-200);
+  }
+  .btn-primary :global(svg),
+  .btn-text :global(svg) {
+    display: block;
+  }
+  .note {
+    margin: 18px 0 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--star-900);
+  }
+
+  .col-right {
+    display: grid;
+    gap: 12px;
+  }
+  .cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-code);
+    background: var(--surface-code);
+    padding: 15px 16px;
+  }
+  .cmd-row code {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    color: var(--star-300);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .cmd-row .prompt {
+    color: var(--star-700);
+    margin-right: 8px;
+  }
+
+  .code-card {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-code);
+    background: var(--surface-code);
+    overflow: hidden;
+  }
+  .cc-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .cc-bar .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--star-dim);
+  }
+  .cc-title {
+    margin-left: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--star-800);
+  }
+  .cc-body {
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--star-400);
+    overflow-x: auto;
+  }
+  .cc-body .k {
+    color: var(--nebula-violet);
+  }
+  .cc-body .fn {
+    color: var(--starlight-200);
+  }
+  .cc-body .s {
+    color: var(--pulsar-300);
+  }
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

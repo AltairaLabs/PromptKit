@@ -1,0 +1,56 @@
+---
+import { icon } from './icons';
+
+const { command } = Astro.props;
+---
+
+<button
+  class="copy"
+  type="button"
+  data-copy={command}
+  aria-label="Copy command to clipboard"
+  set:html={icon('copy', 16)}
+></button>
+
+<script is:inline>
+  // Idempotent: is:inline scripts run once per component instance, so guard
+  // with data-wired to avoid double-binding when multiple buttons exist.
+  document.querySelectorAll('.copy').forEach((b) => {
+    if (b.dataset.wired) return;
+    b.dataset.wired = '1';
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(b.dataset.copy);
+        b.classList.add('copied');
+        setTimeout(() => b.classList.remove('copied'), 1200);
+      } catch {}
+    });
+  });
+</script>
+
+<style>
+  .copy {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-btn);
+    background: transparent;
+    color: var(--star-600);
+    cursor: pointer;
+    transition: color var(--dur-base) var(--ease-standard),
+      border-color var(--dur-base) var(--ease-standard);
+  }
+  .copy:hover {
+    color: var(--star-300);
+  }
+  .copy :global(svg) {
+    display: block;
+  }
+  .copy.copied {
+    color: var(--pulsar-300);
+    border-color: var(--pulsar-300);
+  }
+</style>

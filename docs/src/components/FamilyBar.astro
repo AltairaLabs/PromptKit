@@ -1,0 +1,319 @@
+---
+// AltairaLabs masterbrand family bar — a constant 38px strip above each
+// product's own nav. Always dark (#05080E) in both site themes: it is the
+// family's identity, not the product's. Gold appears ONLY here.
+//
+// `docs` = true renders it for the Starlight header context (full-width,
+// absolutely positioned in the fixed header); default is the landing context
+// (centered to the 1120 content column, normal flow).
+const { docs = false } = Astro.props;
+
+// The switcher splits by who drives the product, not license — all open source.
+// The dot is each product's star color from the Atlas mark system.
+const inHouse = [
+  { name: 'Omnia', cat: 'Platform', dot: '#93C5FD', href: 'https://omnia.altairalabs.ai' },
+  { name: 'PromptKit', cat: 'Runtime', dot: '#C4B5FD', href: '/', current: true },
+  { name: 'PromptArena', cat: 'Studio', dot: '#67E8F9', href: 'https://promptarena.altairalabs.ai' },
+  { name: 'CodeGen', cat: 'Codegen', dot: '#7DD3A8', href: 'https://codegen.altairalabs.ai' },
+];
+---
+
+<div class:list={['family-bar', { docs }]}>
+  <div class="fb-inner">
+    <a class="fb-brand" href="https://altairalabs.ai" aria-label="AltairaLabs">
+      <svg class="fb-mark" width="18" height="18" viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="3" y="3" width="58" height="58" rx="16" fill="#E3B341"></rect>
+        <polygon points="32,9 37.5,26.5 55,32 37.5,37.5 32,55 26.5,37.5 9,32 26.5,26.5" fill="#0A1322"
+        ></polygon>
+      </svg>
+      <span class="fb-wordmark">ALTAIRA<span class="fb-labs"> LABS</span></span>
+    </a>
+
+    <div class="fb-right">
+      <div class="fb-switcher">
+        <button class="fb-pill" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="fb-dot" style="background:#C4B5FD"></span>
+          PromptKit
+          <span class="fb-caret" aria-hidden="true">▾</span>
+        </button>
+
+        <div class="fb-menu" role="menu" hidden>
+          <div class="fb-menu-head">
+            <div class="fb-menu-title">Switch product</div>
+            <div class="fb-menu-sub">Every product open source · Apache-2.0</div>
+          </div>
+          <div class="fb-menu-body">
+            <div class="fb-group">In-house <span>· built &amp; maintained by AltairaLabs</span></div>
+            {
+              inHouse.map((p) => (
+                <a
+                  class:list={['fb-item', { current: p.current }]}
+                  href={p.href}
+                  role="menuitem"
+                  aria-current={p.current ? 'page' : undefined}
+                >
+                  <span class="fb-dot" style={`background:${p.dot}`} />
+                  <span class="fb-name">{p.name}</span>
+                  <span class="fb-cat">{p.cat}</span>
+                </a>
+              ))
+            }
+            <div class="fb-group">Community <span>· open governance</span></div>
+            <a class="fb-item" href="https://promptpack.org" role="menuitem">
+              <span class="fb-dot hollow"></span>
+              <span class="fb-name">PromptPack<span class="fb-org">.org</span></span>
+              <span class="fb-cat">Spec</span>
+            </a>
+          </div>
+          <a class="fb-menu-foot" href="https://altairalabs.ai">
+            <svg width="13" height="13" viewBox="0 0 64 64" aria-hidden="true">
+              <rect x="3" y="3" width="58" height="58" rx="16" fill="#E3B341"></rect>
+              <polygon points="32,9 37.5,26.5 55,32 37.5,37.5 32,55 26.5,37.5 9,32 26.5,26.5" fill="#0A1322"
+              ></polygon>
+            </svg>
+            All products at altairalabs.ai
+          </a>
+        </div>
+      </div>
+
+      <a class="fb-link" href="/sdk/">Docs</a>
+      <a class="fb-link" href="https://altairalabs.ai/blog">Blog</a>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  (() => {
+    const sw = document.querySelector('.fb-switcher');
+    if (!sw || sw.dataset.wired) return;
+    sw.dataset.wired = '1';
+    const pill = sw.querySelector('.fb-pill');
+    const menu = sw.querySelector('.fb-menu');
+    const setOpen = (open) => {
+      menu.hidden = !open;
+      pill.setAttribute('aria-expanded', String(open));
+      sw.classList.toggle('open', open);
+    };
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setOpen(menu.hidden);
+    });
+    document.addEventListener('click', (e) => {
+      if (!sw.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    });
+  })();
+</script>
+
+<style>
+  /* Masterbrand strip — fixed dark identity in both site themes. */
+  .family-bar {
+    height: 38px;
+    background: #05080e;
+    border-bottom: 1px solid rgba(147, 197, 253, 0.08);
+    font-family: var(--font-sans, 'Space Grotesk', sans-serif);
+  }
+  .fb-inner {
+    height: 38px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* Docs context: full-width strip pinned to the top of the fixed header. */
+  .family-bar.docs {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1;
+  }
+  .family-bar.docs .fb-inner {
+    max-width: none;
+    padding: 0 20px;
+  }
+
+  .fb-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+  }
+  .fb-mark {
+    display: block;
+  }
+  .fb-wordmark {
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: #e6edf8;
+  }
+  .fb-labs {
+    color: #e3b341;
+  }
+
+  .fb-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .fb-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .fb-dot.hollow {
+    background: transparent;
+    border: 1.5px solid #93c5fd;
+  }
+
+  .fb-switcher {
+    position: relative;
+  }
+  .fb-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 11px;
+    color: #c7d5ea;
+    background: transparent;
+    border: 1px solid rgba(147, 197, 253, 0.16);
+    border-radius: 6px;
+    padding: 5px 9px;
+    cursor: pointer;
+  }
+  .fb-pill:hover {
+    border-color: rgba(196, 181, 253, 0.42);
+  }
+  .fb-caret {
+    color: #5e708c;
+    transition: transform var(--dur-base, 200ms) ease;
+  }
+  .fb-switcher.open .fb-caret {
+    transform: rotate(180deg);
+  }
+
+  .fb-link {
+    font-weight: 500;
+    font-size: 11px;
+    color: #8195b0;
+    text-decoration: none;
+    transition: color 200ms ease;
+  }
+  .fb-link:hover {
+    color: #e6edf8;
+  }
+
+  /* ---- Dropdown ---- */
+  .fb-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    background: #0c1424;
+    border: 1px solid rgba(147, 197, 253, 0.14);
+    border-radius: 12px;
+    box-shadow: 0 24px 50px -20px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+    z-index: 60;
+  }
+  .fb-menu[hidden] {
+    display: none;
+  }
+  .fb-menu-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(147, 197, 253, 0.08);
+  }
+  .fb-menu-title {
+    font-family: var(--font-mono, monospace);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5e708c;
+  }
+  .fb-menu-sub {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    color: #7dd3a8;
+    margin-top: 7px;
+  }
+  .fb-menu-body {
+    padding: 6px;
+  }
+  .fb-group {
+    font-family: var(--font-mono, monospace);
+    font-weight: 500;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5e708c;
+    padding: 11px 11px 6px;
+  }
+  .fb-group span {
+    color: #3e4a5e;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .fb-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 11px;
+    border-radius: 8px;
+    text-decoration: none;
+  }
+  .fb-item:hover {
+    background: rgba(147, 197, 253, 0.06);
+  }
+  .fb-item.current {
+    background: rgba(196, 181, 253, 0.1);
+  }
+  .fb-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: #c7d5ea;
+  }
+  .fb-item.current .fb-name {
+    color: #f2f6fc;
+  }
+  .fb-org {
+    font-family: var(--font-mono, monospace);
+    font-weight: 400;
+    font-size: 11px;
+    color: #93c5fd;
+  }
+  .fb-cat {
+    margin-left: auto;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: #5e708c;
+  }
+  .fb-menu-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(147, 197, 253, 0.08);
+    font-weight: 500;
+    font-size: 11px;
+    color: #8195b0;
+    text-decoration: none;
+  }
+  .fb-menu-foot:hover {
+    color: #e6edf8;
+  }
+
+  @media (max-width: 640px) {
+    .fb-link {
+      display: none;
+    }
+  }
+</style>

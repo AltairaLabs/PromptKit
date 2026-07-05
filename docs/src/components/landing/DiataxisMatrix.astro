@@ -1,0 +1,305 @@
+---
+import { icon } from './icons';
+
+// 2x2 compass. Learning<->Working (rows) x Practical<->Theoretical (columns).
+//   TL Tutorials  | TR Explanation
+//   BL How-to     | BR Reference
+const quadrants = [
+  {
+    key: 'tutorials',
+    icon: 'graduation-cap',
+    kicker: 'Learning-oriented',
+    title: 'Tutorials',
+    body: 'From go get to a streaming conversation with tools — no prior setup assumed.',
+    lead: true,
+    links: [
+      { text: 'Your first conversation', href: '/runtime/tutorials/' },
+      { text: 'Stream with tools', href: '/runtime/tutorials/' },
+      { text: 'Add a workflow', href: '/runtime/tutorials/' },
+    ],
+  },
+  {
+    key: 'explanation',
+    icon: 'compass',
+    kicker: 'Understanding-oriented',
+    title: 'Explanation',
+    body: 'The design behind the runtime — the why, not the how.',
+    links: [
+      { text: 'The back-pressure model', href: '/runtime/explanation/' },
+      { text: 'How A2A orchestration works', href: '/runtime/explanation/' },
+      { text: 'Why a Go runtime', href: '/runtime/explanation/' },
+    ],
+  },
+  {
+    key: 'how-to',
+    icon: 'list-checks',
+    kicker: 'Task-oriented',
+    title: 'How-to guides',
+    body: 'Focused recipes for real jobs you already know you need to do.',
+    links: [
+      { text: 'Wire up MCP tools', href: '/runtime/how-to/' },
+      { text: 'Register a custom provider', href: '/runtime/how-to/' },
+      { text: 'Gate performance in CI', href: '/runtime/how-to/' },
+    ],
+  },
+  {
+    key: 'reference',
+    icon: 'book-open',
+    kicker: 'Information-oriented',
+    title: 'Reference',
+    body: 'Every package, option, and provider — exact and complete, for looking up.',
+    links: [
+      { text: 'SDK API (Open / Duplex / Workflow)', href: '/runtime/reference/' },
+      { text: 'Provider & capability matrix', href: '/runtime/reference/' },
+      { text: 'PromptPack schema', href: '/runtime/reference/' },
+    ],
+  },
+];
+---
+
+<section class="diataxis">
+  <div class="atlas-inner">
+    <header class="head">
+      <p class="eyebrow">FIND YOUR PATH</p>
+      <h2>Documentation, four ways.</h2>
+      <p class="intro">
+        The PromptKit docs follow <a href="https://diataxis.fr/">Diátaxis</a> — four modes on
+        two axes, so you land where you need to be: learning or working, practical steps or
+        the theory behind them.
+      </p>
+    </header>
+
+    <div class="matrix">
+      <span class="axis-corner"></span>
+      <span class="axis-col">PRACTICAL STEPS</span>
+      <span class="axis-col">THEORETICAL KNOWLEDGE</span>
+
+      <span class="axis-row">WHEN LEARNING</span>
+      {
+        quadrants.slice(0, 2).map((q) => (
+          <article class:list={['quad', { lead: q.lead }]}>
+            <div class="q-head">
+              <span class="q-icon" set:html={icon(q.icon, 20)} />
+              <div>
+                <span class="kicker">{q.kicker}</span>
+                <h3><a class="q-title-link" href={q.links[0].href}>{q.title}</a></h3>
+              </div>
+            </div>
+            <p class="q-body">{q.body}</p>
+            <ul>
+              {q.links.map((l) => (
+                <li>
+                  <a href={l.href}>→ {l.text}</a>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+
+      <span class="axis-row">WHEN WORKING</span>
+      {
+        quadrants.slice(2, 4).map((q) => (
+          <article class="quad">
+            <div class="q-head">
+              <span class="q-icon" set:html={icon(q.icon, 20)} />
+              <div>
+                <span class="kicker">{q.kicker}</span>
+                <h3><a class="q-title-link" href={q.links[0].href}>{q.title}</a></h3>
+              </div>
+            </div>
+            <p class="q-body">{q.body}</p>
+            <ul>
+              {q.links.map((l) => (
+                <li>
+                  <a href={l.href}>→ {l.text}</a>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .diataxis {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-app);
+  }
+  .head {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .intro {
+    margin: 16px auto 0;
+    max-width: 560px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+  .intro a {
+    color: var(--nebula-violet);
+  }
+
+  .matrix {
+    display: grid;
+    grid-template-columns: 118px 1fr 1fr;
+    align-items: stretch;
+  }
+  .axis-col,
+  .axis-row {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--star-900);
+    display: flex;
+    align-items: center;
+  }
+  .axis-col {
+    justify-content: center;
+    padding-bottom: 12px;
+  }
+  .axis-row {
+    justify-content: flex-start;
+  }
+
+  .quad {
+    position: relative;
+    border: 1px solid var(--hairline);
+    padding: 26px 28px;
+    background: var(--surface-card);
+    transition: border-color var(--dur-base) var(--ease-standard);
+  }
+  /* The whole card is clickable → its section. The title carries a stretched
+     link that covers the card; the deep-link bullets sit above it (z-index). */
+  .q-title-link {
+    color: inherit;
+  }
+  .q-title-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .quad:hover h3 .q-title-link {
+    color: var(--nebula-violet);
+  }
+  .quad.lead {
+    background: var(--grad-violet-wash);
+  }
+  /* Share edges — round only the outer corners so the four read as one chart. */
+  .quad:nth-of-type(1) {
+    border-top-left-radius: var(--radius-card);
+  }
+  .quad:nth-of-type(2) {
+    border-top-right-radius: var(--radius-card);
+    border-left: none;
+  }
+  .quad:nth-of-type(3) {
+    border-bottom-left-radius: var(--radius-card);
+    border-top: none;
+  }
+  .quad:nth-of-type(4) {
+    border-bottom-right-radius: var(--radius-card);
+    border-top: none;
+    border-left: none;
+  }
+  .quad:hover {
+    border-color: var(--violet-border);
+    position: relative;
+    z-index: 1;
+  }
+
+  .q-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .q-icon {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--violet-tint);
+    color: var(--nebula-violet);
+  }
+  .kicker {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--star-900);
+  }
+  h3 {
+    margin: 2px 0 0;
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--star-100);
+  }
+  .q-body {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--star-600);
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+    /* Above the stretched title-link so bullets remain independently clickable. */
+    position: relative;
+    z-index: 1;
+  }
+  ul a {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--star-500);
+    transition: color var(--dur-base) var(--ease-standard);
+  }
+  ul a:hover {
+    color: var(--nebula-violet);
+  }
+
+  @media (max-width: 880px) {
+    .matrix {
+      grid-template-columns: 1fr;
+    }
+    .axis-col,
+    .axis-row {
+      display: none;
+    }
+    .quad,
+    .quad:nth-of-type(n) {
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-card);
+      margin-bottom: 12px;
+    }
+  }
+</style>

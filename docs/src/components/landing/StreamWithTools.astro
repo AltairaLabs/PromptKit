@@ -1,0 +1,176 @@
+---
+// 3-step code walkthrough. Braces in Go snippets are HTML-escaped so Astro
+// doesn't parse them as template expressions.
+---
+
+<section class="stream">
+  <div class="atlas-inner">
+    <header class="head">
+      <p class="eyebrow">STREAM WITH TOOLS</p>
+      <h2>Chunks arrive as they're produced.</h2>
+      <p class="intro">
+        Open a streaming conversation, register an MCP tool, and let the model call it
+        mid-stream. You'll see chunks arrive as they're produced, with the runtime
+        handling the tool round-trip.
+      </p>
+    </header>
+
+    <div class="steps">
+      <article class="step">
+        <div class="s-head">
+          <div class="s-num">1 · Open a streaming conversation</div>
+          <p class="s-desc">
+            Same pack, same API — <code>Stream</code> returns a channel of chunks you range over.
+          </p>
+        </div>
+        <pre class="s-code"><code>conv, _ := sdk.<span class="fn">Open</span>(<span class="s">"./app.pack.json"</span>, <span class="s">"chat"</span>)
+<span class="k">defer</span> conv.<span class="fn">Close</span>()
+
+<span class="k">for</span> chunk := <span class="k">range</span> conv.<span class="fn">Stream</span>(ctx, msg) &#123;
+  <span class="k">if</span> chunk.Type == sdk.ChunkDone &#123;
+    <span class="k">break</span>
+  &#125;
+  fmt.<span class="fn">Print</span>(chunk.Text)
+&#125;</code></pre>
+      </article>
+
+      <article class="step">
+        <div class="s-head">
+          <div class="s-num">2 · Register an MCP tool</div>
+          <p class="s-desc">
+            Point the runtime at a live MCP server. Tools are discovered and callable the
+            moment the conversation opens.
+          </p>
+        </div>
+        <pre class="s-code"><code>conv, _ := sdk.<span class="fn">Open</span>(<span class="s">"./app.pack.json"</span>, <span class="s">"chat"</span>,
+  sdk.<span class="fn">WithMCP</span>(<span class="s">"filesystem"</span>,
+    <span class="s">"npx"</span>,
+    <span class="s">"@modelcontextprotocol/server-filesystem"</span>,
+    <span class="s">"./data"</span>,
+  ),
+)</code></pre>
+      </article>
+
+      <article class="step">
+        <div class="s-head">
+          <div class="s-num">3 · Watch the metrics</div>
+          <p class="s-desc">
+            Every stage emits Prometheus metrics. Scrape them and gate on them.
+          </p>
+        </div>
+        <pre class="s-code"><code><span class="prompt">$</span> curl -s :9090/metrics \
+  | grep promptkit_
+
+<span class="cmt"># in-flight gauge, retry budget,</span>
+<span class="cmt"># first-chunk latency histogram</span>
+promptkit_inflight_streams 1000
+promptkit_first_chunk_ms_p50 41</code></pre>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .stream {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--surface-1);
+  }
+  .head {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .intro {
+    margin: 16px auto 0;
+    max-width: 620px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    background: var(--surface-card);
+    overflow: hidden;
+  }
+  .s-head {
+    padding: 18px 20px 14px;
+  }
+  .s-num {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+    margin-bottom: 10px;
+  }
+  .s-desc {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--star-600);
+  }
+  .s-desc code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    color: var(--nebula-violet);
+  }
+  .s-code {
+    margin: 0;
+    flex: 1;
+    padding: 16px 18px;
+    border-top: 1px solid var(--hairline);
+    background: var(--surface-code);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--star-400);
+    overflow-x: auto;
+  }
+  .s-code .k {
+    color: var(--nebula-violet);
+  }
+  .s-code .fn {
+    color: var(--starlight-200);
+  }
+  .s-code .s {
+    color: var(--pulsar-300);
+  }
+  .s-code .prompt {
+    color: var(--star-700);
+  }
+  .s-code .cmt {
+    color: var(--star-800);
+  }
+  @media (max-width: 880px) {
+    .steps {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

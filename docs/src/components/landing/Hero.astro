@@ -1,0 +1,173 @@
+---
+import Terminal from './Terminal.astro';
+import { icon } from './icons';
+---
+
+<section class="hero">
+  <div class="atlas-inner grid">
+    <div class="col-left">
+      <p class="eyebrow">PROMPTKIT · GO RUNTIME</p>
+      <h1>The Go runtime for production agents.</h1>
+      <p class="lead">
+        The high-performance Go runtime and SDK for production LLM applications.
+        Multi-provider streaming with bounded back-pressure, native MCP tools, A2A
+        orchestration, workflow state machines, voice and multimodal — one pipeline.
+      </p>
+      <div class="cta">
+        <a class="btn-primary" href="/sdk/">
+          Read the docs <span set:html={icon('arrow-right', 16)} />
+        </a>
+        <a class="btn-text" href="https://github.com/AltairaLabs/PromptKit">
+          GitHub <span set:html={icon('external', 14)} />
+        </a>
+      </div>
+      <p class="note">requires Go 1.26+ · Apache-2.0</p>
+    </div>
+    <div class="col-right">
+      <Terminal />
+      <div class="status">
+        <span><span class="s-dot pulsar"></span>2000 concurrent</span>
+        <span><span class="s-dot violet"></span>607MB resident</span>
+        <span class="accent">p50 41ms · 0 dropped</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding: 74px 30px 68px;
+    background: var(--atmo-violet), var(--bg-app);
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/atlas/starfield.svg') center / cover no-repeat;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  /* The starfield texture carries an opaque dark backdrop — great over the
+     night sky, muddy over the light chart. Show it in dark only; the light
+     hero rides the --atmo-violet bloom alone. */
+  :global(html[data-theme='light']) .hero::before {
+    opacity: 0;
+  }
+  .grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 52px;
+    align-items: center;
+  }
+  .eyebrow {
+    margin: 0 0 20px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h1 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 50px;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--star-100);
+  }
+  .lead {
+    margin: 22px 0 0;
+    max-width: 520px;
+    font-size: 19px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-top: 30px;
+  }
+  .btn-primary,
+  .btn-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    border-radius: var(--radius-btn);
+    transition: all var(--dur-base) var(--ease-standard);
+  }
+  .btn-primary {
+    padding: 12px 20px;
+    font-size: 14px;
+    background: var(--nebula-violet);
+    color: #1c1630;
+    box-shadow: 0 8px 22px -10px rgba(139, 92, 246, 0.55);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 26px -8px rgba(139, 92, 246, 0.6);
+  }
+  /* On light paper the violet ramp deepens; flip to white text for contrast. */
+  :global(html[data-theme='light']) .btn-primary {
+    color: #ffffff;
+  }
+  .btn-text {
+    font-size: 14px;
+    color: var(--star-700);
+  }
+  .btn-text:hover {
+    color: var(--star-200);
+  }
+  .btn-primary :global(svg),
+  .btn-text :global(svg) {
+    display: block;
+  }
+  .note {
+    margin: 18px 0 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--star-900);
+  }
+  .status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--star-900);
+  }
+  .status span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .accent {
+    color: var(--nebula-violet);
+  }
+  .s-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+  .s-dot.pulsar {
+    background: var(--pulsar-500);
+  }
+  .s-dot.violet {
+    background: var(--nebula-violet);
+  }
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 36px;
+    }
+    h1 {
+      font-size: 40px;
+    }
+  }
+</style>

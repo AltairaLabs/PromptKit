@@ -1,0 +1,51 @@
+---
+import { icon } from './icons';
+---
+
+<button id="atlas-theme-toggle" type="button" aria-label="Toggle color theme">
+  <span class="i-moon" set:html={icon('moon', 18)} />
+  <span class="i-sun" set:html={icon('sun', 18)} />
+</button>
+
+<script is:inline>
+  (() => {
+    const btn = document.getElementById('atlas-theme-toggle');
+    const apply = (t) => {
+      document.documentElement.dataset.theme = t;
+      try {
+        localStorage.setItem('starlight-theme', t);
+      } catch {}
+    };
+    btn?.addEventListener('click', () =>
+      apply(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'),
+    );
+  })();
+</script>
+
+<style>
+  button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-btn);
+    background: transparent;
+    color: var(--star-600);
+    cursor: pointer;
+    transition: color var(--dur-base) var(--ease-standard),
+      border-color var(--dur-base) var(--ease-standard);
+  }
+  button:hover {
+    color: var(--star-200);
+    border-color: var(--nebula-violet);
+  }
+  button :global(svg) {
+    display: block;
+  }
+  /* Moon shows in light (click -> dark); sun shows in dark. */
+  :global(html[data-theme='light']) .i-sun,
+  :global(html:not([data-theme='light'])) .i-moon {
+    display: none;
+  }
+</style>
