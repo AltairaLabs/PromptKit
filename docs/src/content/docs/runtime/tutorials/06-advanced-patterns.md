@@ -593,5 +593,5 @@ You've completed the Runtime tutorial series! You now know how to build producti
 ## See Also
 
 - [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
-- [Handle Errors](/runtime/how-to/handle-errors/) - Error strategies
-- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost optimization
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error strategies
+- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost optimization

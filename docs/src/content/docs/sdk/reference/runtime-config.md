@@ -449,6 +449,6 @@ spec:
 
 ## See Also
 
-- [Use RuntimeConfig](/sdk/how-to/use-runtime-config/) — how-to guide for loading and applying RuntimeConfig
-- [Exec Tools](/sdk/how-to/exec-tools/) — how-to guide for subprocess tool bindings
-- [Exec Hooks](/sdk/how-to/exec-hooks/) — how-to guide for external process hooks
+- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/) — how-to guide for loading and applying RuntimeConfig
+- [Exec Tools](/sdk/how-to/tools/exec-tools/) — how-to guide for subprocess tool bindings
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — how-to guide for external process hooks

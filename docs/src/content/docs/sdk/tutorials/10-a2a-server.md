@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial: A2A Server'
+title: 'Tutorial 10: A2A Server'
 sidebar:
   order: 10
 ---
@@ -201,7 +201,7 @@ http.ListenAndServe(":8080", mux)
 ## Next Steps
 
 - [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) — connect to this server from a client
-- [Use Tool Bridge](/runtime/how-to/use-a2a-tool-bridge/) — register this agent as a tool in another agent
+- [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register this agent as a tool in another agent
 - [A2A Concept](/concepts/a2a/) — understand the protocol in depth
 
 ## See Also

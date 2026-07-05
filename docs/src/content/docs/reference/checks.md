@@ -993,4 +993,4 @@ For no-code extensibility, use the [`rest_eval`](#rest_eval) and [`a2a_eval`](#a
 - [Write Assertions](https://promptarena.altairalabs.ai/arena/reference/assertions/) -- Using checks in Arena test scenarios
 - [Add Guardrails](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Using checks as runtime policy enforcers
 - [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Production eval architecture
-- [Run Evals](/sdk/how-to/run-evals/) -- Programmatic eval execution
+- [Run Evals](/sdk/how-to/observability/run-evals/) -- Programmatic eval execution

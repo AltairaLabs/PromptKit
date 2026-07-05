@@ -181,8 +181,8 @@ tasks, err := client.ListTasks(ctx, &a2a.ListTasksRequest{
 ## Next Steps
 
 - [A2A Server Tutorial](/sdk/tutorials/10-a2a-server/) — build the server side
-- [Use Tool Bridge](/runtime/how-to/use-a2a-tool-bridge/) — register this agent as a tool
-- [Use Mock Server](/runtime/how-to/use-a2a-mock-server/) — test without a real server
+- [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register this agent as a tool
+- [Use Mock Server](/runtime/how-to/a2a/use-a2a-mock-server/) — test without a real server
 - [A2A Concept](/concepts/a2a/) — understand the protocol in depth
 
 ## See Also

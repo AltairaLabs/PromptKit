@@ -33,22 +33,25 @@ const SKIP_FILES = new Set([
 ]);
 
 // Mapping from old /deploy/ absolute links to their new arena paths (shared across adapters).
+// A `{adapter}` token in a target is substituted with the current adapter's name
+// at rewrite time (see rewriteLinks), so generic upstream links resolve to the
+// adapter-scoped page rather than a non-existent shared page.
 const DEPLOY_LINK_MAP = {
-  "/deploy/": "/arena/explanation/deploy/overview/",
+  "/deploy/": "/arena/explanation/deploy/{adapter}/overview/",
   "/deploy/tutorials/01-first-deployment/":
     "/arena/tutorials/deploy/first-deployment/",
   "/deploy/tutorials/02-multi-environment/":
     "/arena/tutorials/deploy/multi-environment/",
   "/deploy/how-to/install-adapters/":
     "/arena/how-to/deploy/install-adapters/",
-  "/deploy/how-to/configure-deploy/": "/arena/how-to/deploy/configure/",
+  "/deploy/how-to/configure-deploy/": "/arena/how-to/deploy/{adapter}/configure/",
   "/deploy/how-to/plan-and-apply/": "/arena/how-to/deploy/plan-and-apply/",
   "/deploy/how-to/ci-cd-integration/": "/arena/how-to/deploy/ci-cd/",
   "/deploy/reference/cli-commands/": "/arena/reference/deploy/cli-commands/",
   "/deploy/reference/adapter-sdk/": "/arena/reference/deploy/adapter-sdk/",
-  "/deploy/reference/protocol/": "/arena/reference/deploy/protocol/",
+  "/deploy/reference/protocol/": "/arena/reference/deploy/agentcore/runtime-protocols/",
   "/deploy/explanation/adapter-architecture/":
-    "/arena/explanation/deploy/adapter-architecture/",
+    "/arena/explanation/deploy/{adapter}/overview/",
   "/deploy/explanation/state-management/":
     "/arena/explanation/deploy/state-management/",
 };
@@ -222,8 +225,8 @@ DEPLOY_LINK_MAP["/deploy/adapters/omnia/"] =
   "/arena/explanation/deploy/omnia/overview/";
 
 // Arena deploy configure page — upstream adapter may reference /arena/how-to/configure or /how-to/configure.
-DEPLOY_LINK_MAP["/arena/how-to/configure/"] = "/arena/how-to/deploy/configure/";
-DEPLOY_LINK_MAP["/how-to/configure/"] = "/arena/how-to/deploy/configure/";
+DEPLOY_LINK_MAP["/arena/how-to/configure/"] = "/arena/how-to/deploy/{adapter}/configure/";
+DEPLOY_LINK_MAP["/how-to/configure/"] = "/arena/how-to/deploy/{adapter}/configure/";
 
 // Agentcore adapter internal cross-reference links.
 // Both /arena/-prefixed and unprefixed variants are needed because the upstream
@@ -331,6 +334,10 @@ function rewriteLinks(content, adapter) {
   return content.replace(
     /\[([^\]]*)\]\(([^)]+)\)/g,
     (match, text, url) => {
+      // Substitute the `{adapter}` token in a mapped target with this adapter's
+      // name, so generic upstream links resolve to the adapter-scoped page.
+      const scope = (newPath) => newPath.replace(/\{adapter\}/g, adapter.name);
+
       // Skip external URLs and anchors
       if (url.startsWith("http") || url.startsWith("#") || url.startsWith("//")) {
         return match;
@@ -365,7 +372,7 @@ function rewriteLinks(content, adapter) {
           // Strategy 1: Look up in DEPLOY_LINK_MAP (handles known path rewrites).
           const deployUrl = `/${cleanUrl}${cleanUrl.endsWith("/") ? "" : "/"}`;
           if (DEPLOY_LINK_MAP[deployUrl]) {
-            return `[${text}](${DEPLOY_LINK_MAP[deployUrl]})`;
+            return `[${text}](${scope(DEPLOY_LINK_MAP[deployUrl])})`;
           }
 
           // Strategy 2: Multi-segment path where last segment is a known slug.
@@ -398,7 +405,7 @@ function rewriteLinks(content, adapter) {
       // Handle absolute /deploy/ links → new arena paths (exact match).
       for (const [oldPath, newPath] of Object.entries(DEPLOY_LINK_MAP)) {
         if (url === oldPath) {
-          return `[${text}](${newPath})`;
+          return `[${text}](${scope(newPath)})`;
         }
       }
 
@@ -407,7 +414,7 @@ function rewriteLinks(content, adapter) {
         const base = oldPath.replace(/\/$/, "");
         if (url.startsWith(base) && (url.length === base.length || url[base.length] === "#" || url[base.length] === "/")) {
           const fragment = url.slice(base.length);
-          return `[${text}](${newPath}${fragment})`;
+          return `[${text}](${scope(newPath)}${fragment})`;
         }
       }
 

@@ -325,8 +325,8 @@ This approach gives operators full control over which metrics carry exemplars an
 
 ## See Also
 
-- [Prometheus Metrics How-To](/runtime/how-to/prometheus-metrics/) — Setup guide with Grafana dashboard and alerts
-- [Monitor Events](/sdk/how-to/monitor-events/) — EventBus hooks and metrics in the SDK
-- [Run Evals](/sdk/how-to/run-evals/) — Standalone eval execution with metrics
+- [Prometheus Metrics How-To](/runtime/how-to/observability/prometheus-metrics/) — Setup guide with Grafana dashboard and alerts
+- [Monitor Events](/sdk/how-to/observability/monitor-events/) — EventBus hooks and metrics in the SDK
+- [Run Evals](/sdk/how-to/observability/run-evals/) — Standalone eval execution with metrics
 - [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) — Eval architecture and metric definitions
 - [Telemetry Reference](/runtime/reference/telemetry/) — OpenTelemetry tracing (complementary to metrics)

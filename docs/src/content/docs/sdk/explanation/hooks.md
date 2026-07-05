@@ -102,7 +102,7 @@ sdk.WithProviderHook(customExpensiveHook),                      // slow
 ## See also
 
 - [Hooks Reference](/runtime/reference/hooks/) — interface signatures, registration, built-in guardrails
-- [Custom Hooks How-To](/sdk/how-to/custom-hooks/) — implement each hook type in Go
-- [Exec Hooks How-To](/sdk/how-to/exec-hooks/) — subprocess-backed hooks in any language
+- [Custom Hooks How-To](/sdk/how-to/hooks/custom-hooks/) — implement each hook type in Go
+- [Exec Hooks How-To](/sdk/how-to/hooks/exec-hooks/) — subprocess-backed hooks in any language
 - [Exec Protocol Reference](/sdk/reference/exec-protocol/) — stdin/stdout wire format
-- [RuntimeConfig](/sdk/how-to/use-runtime-config/) — declarative hook configuration via YAML
+- [RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/) — declarative hook configuration via YAML

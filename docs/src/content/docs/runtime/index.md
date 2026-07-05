@@ -106,15 +106,15 @@ Step-by-step guides for extending Runtime:
 
 Focused guides for specific Runtime tasks:
 
-- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Pipeline setup
-- [Setup Providers](/runtime/how-to/setup-providers/) - Provider configuration
-- [Handle Errors](/runtime/how-to/handle-errors/) - Error handling
-- [Streaming Responses](/runtime/how-to/streaming-responses/) - Real-time output
-- [Manage State](/runtime/how-to/manage-state/) - Conversation persistence
-- [Integrate MCP](/runtime/how-to/integrate-mcp/) - MCP server integration
-- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost tracking
-- [Use A2A Tool Bridge](/runtime/how-to/use-a2a-tool-bridge/) - Register agents as tools
-- [Use A2A Mock Server](/runtime/how-to/use-a2a-mock-server/) - Deterministic testing
+- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - Pipeline setup
+- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Provider configuration
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error handling
+- [Streaming Responses](/runtime/how-to/pipeline/streaming-responses/) - Real-time output
+- [Manage State](/runtime/how-to/state/manage-state/) - Conversation persistence
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) - MCP server integration
+- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost tracking
+- [Use A2A Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) - Register agents as tools
+- [Use A2A Mock Server](/runtime/how-to/a2a/use-a2a-mock-server/) - Deterministic testing
 
 ### Explanation (Understand the Concepts)
 

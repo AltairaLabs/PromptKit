@@ -251,7 +251,7 @@ A2A handles **agent-to-agent** communication — agents calling other agents as 
 
 - [Tutorial: A2A Client](/runtime/tutorials/07-a2a-client/) — discover agents and send messages
 - [Tutorial: A2A Server](/sdk/tutorials/10-a2a-server/) — expose your agent as an A2A service
-- [Tool Bridge How-To](/runtime/how-to/use-a2a-tool-bridge/) — register agents as tools
+- [Tool Bridge How-To](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register agents as tools
 - [Runtime A2A Reference](/runtime/reference/a2a/) — client, types, bridge, mock API
 - [SDK A2A Reference](/sdk/reference/a2a-server/) — server, task store, opener API
 - [AG-UI Concept](/concepts/ag-ui/) — the complementary agent-to-frontend protocol

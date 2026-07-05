@@ -353,6 +353,6 @@ Continue to [Tutorial 2: Multi-Turn Conversations](/runtime/tutorials/02-multi-t
 
 ## See Also
 
-- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - More configuration options
-- [Setup Providers](/runtime/how-to/setup-providers/) - Other LLM providers
+- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - More configuration options
+- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Other LLM providers
 - [Pipeline Reference](/runtime/reference/pipeline/) - Complete API

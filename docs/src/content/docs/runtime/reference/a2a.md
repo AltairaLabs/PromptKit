@@ -487,5 +487,5 @@ const (
 
 - [A2A Concept](/concepts/a2a/) — protocol design and concepts
 - [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) — hands-on walkthrough
-- [Tool Bridge How-To](/runtime/how-to/use-a2a-tool-bridge/) — usage patterns
+- [Tool Bridge How-To](/runtime/how-to/a2a/use-a2a-tool-bridge/) — usage patterns
 - [SDK A2A Reference](/sdk/reference/a2a-server/) — server, task store, opener API
