@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go build -C benchmarks/frameworks/promptkit/round1 -o /bench-promptkit-round1 .
