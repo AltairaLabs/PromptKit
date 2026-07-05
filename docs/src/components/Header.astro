@@ -1,0 +1,23 @@
+---
+/**
+ * Custom Header Component
+ *
+ * Wraps Starlight's default header to add the AltairaLabs masterbrand family
+ * bar as a strip across the top of the fixed header, so every doc page carries
+ * the same family chrome as the landing.
+ */
+import type { Props } from '@astrojs/starlight/props';
+import DefaultHeader from '@astrojs/starlight/components/Header.astro';
+import FamilyBar from './FamilyBar.astro';
+---
+
+<div class="header-wrapper">
+  <FamilyBar docs />
+  <DefaultHeader {...Astro.props}><slot /></DefaultHeader>
+</div>
+
+<style>
+  .header-wrapper {
+    display: contents;
+  }
+</style>

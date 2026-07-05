@@ -1,0 +1,172 @@
+---
+import { icon } from './icons';
+
+const nodes = [
+  {
+    key: 'user',
+    icon: 'user',
+    label: 'Input',
+    title: 'User',
+    body: 'Text, voice or multimodal — the request enters the pipeline.',
+  },
+  {
+    key: 'runtime',
+    icon: 'cpu',
+    label: 'Runtime',
+    title: 'PromptKit agent',
+    body: 'Streaming, back-pressure, tools, workflows and metrics — one pipeline.',
+    lead: true,
+  },
+  {
+    key: 'tools',
+    icon: 'wrench',
+    label: 'Execution',
+    title: 'Your tools',
+    body: 'MCP servers, other agents and your code — called mid-stream.',
+  },
+];
+---
+
+<section class="fits">
+  <div class="atlas-inner">
+    <header class="head">
+      <p class="eyebrow">HOW IT FITS TOGETHER</p>
+      <h2>The runtime layer of the AgentOS.</h2>
+      <p class="intro">
+        PromptKit is the runtime inside Omnia's AgentOS — the engine that turns a request
+        into an answer. Every turn runs the same spine: the user talks to an agent, the
+        agent reaches for your tools, and PromptKit drives the round-trip.
+      </p>
+    </header>
+
+    <div class="spine">
+      {
+        nodes.map((n, i) => (
+          <>
+            <article class:list={['node', { lead: n.lead }]}>
+              <span class="glyph" set:html={icon(n.icon, 22)} />
+              <span class="label">{n.label}</span>
+              <h3>{n.title}</h3>
+              <p>{n.body}</p>
+            </article>
+            {i < nodes.length - 1 && (
+              <span class="link" set:html={icon('arrow-right', 22)} />
+            )}
+          </>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .fits {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--surface-1);
+  }
+  .head {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .intro {
+    margin: 16px auto 0;
+    max-width: 620px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+
+  .spine {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0;
+    flex-wrap: wrap;
+  }
+  .node {
+    flex: 1 1 200px;
+    min-width: 180px;
+    max-width: 300px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    background: var(--surface-card);
+    padding: 24px 22px;
+    text-align: center;
+    box-shadow: var(--shadow-card);
+  }
+  .node.lead {
+    border-color: var(--violet-border);
+    background: var(--grad-violet-wash);
+  }
+  .glyph {
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 14px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    background: var(--violet-tint);
+    color: var(--nebula-violet);
+  }
+  .label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--star-900);
+    margin-bottom: 8px;
+  }
+  h3 {
+    margin: 0 0 6px;
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--star-100);
+  }
+  .node p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--star-600);
+  }
+  .link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    color: var(--star-800);
+    flex: 0 0 auto;
+  }
+  @media (max-width: 720px) {
+    .spine {
+      flex-direction: column;
+      align-items: center;
+    }
+    .node {
+      max-width: none;
+      width: 100%;
+    }
+    .link {
+      transform: rotate(90deg);
+      padding: 6px 0;
+    }
+  }
+</style>

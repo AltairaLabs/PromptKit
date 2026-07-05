@@ -1,0 +1,41 @@
+/* Map Atlas tokens onto Starlight's design variables so every doc page
+ * inherits the night-sky theme. Starlight already toggles data-theme on
+ * <html>, so the light overrides ride Atlas's own light ramp.
+ *
+ * PromptKit delta vs PromptArena: the accent is nebula-violet (PromptKit's
+ * product color), not ion-cyan. */
+
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
+
+  /* Accent = nebula violet */
+  --sl-color-accent-low: var(--violet-tint);
+  --sl-color-accent: var(--nebula-violet-deep);
+  --sl-color-accent-high: var(--star-100);
+
+  /* Text ramp */
+  --sl-color-white: var(--star-100);
+  --sl-color-gray-1: var(--star-300);
+  --sl-color-gray-2: var(--star-500);
+  --sl-color-gray-3: var(--star-600);
+  --sl-color-gray-4: var(--star-800);
+  --sl-color-gray-5: var(--star-900);
+  --sl-color-gray-6: var(--ink-raised);
+  --sl-color-black: var(--ink-canvas);
+
+  /* Surfaces */
+  --sl-color-bg: var(--bg-app);
+  --sl-color-bg-nav: var(--ink-canvas);
+  --sl-color-bg-sidebar: var(--surface-1);
+  --sl-color-bg-inline-code: var(--violet-tint);
+  --sl-color-bg-accent: var(--nebula-violet);
+  --sl-color-hairline: var(--hairline);
+  --sl-color-hairline-light: var(--hairline-faint);
+  --sl-color-hairline-shade: var(--hairline-strong);
+  --sl-color-text: var(--text-body);
+  --sl-color-text-accent: var(--nebula-violet);
+  --sl-color-text-invert: var(--gold-ink);
+}

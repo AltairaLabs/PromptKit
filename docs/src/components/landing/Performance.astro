@@ -1,0 +1,251 @@
+---
+import { icon } from './icons';
+---
+
+<section class="perf">
+  <div class="atlas-inner grid">
+    <div class="col-left">
+      <p class="eyebrow">FLAT UNDER LOAD</p>
+      <h2>Flat where others balloon.</h2>
+      <p class="copy">
+        A realistic tool-calling profile, sampled from 100 to 2000 concurrent streams
+        against a shared mock upstream. Bounded concurrency, a cross-call retry budget,
+        and a total in-flight semaphore keep resident memory and CPU flat where naive
+        clients balloon.
+      </p>
+      <div class="stats">
+        <div class="stat">
+          <div class="num">~29<span class="unit">%</span></div>
+          <div class="lbl">cpu — flat, 100→2000</div>
+        </div>
+        <div class="stat">
+          <div class="num">0</div>
+          <div class="lbl">streams dropped at peak</div>
+        </div>
+        <div class="stat accent">
+          <div class="num">3.8×</div>
+          <div class="lbl">less memory vs LangChain</div>
+        </div>
+      </div>
+      <p class="ci">
+        <span set:html={icon('shield-check', 15)} />
+        Gate perf in CI — the benchmark floor fails the build on regression.
+      </p>
+    </div>
+
+    <div class="chart">
+      <div class="chart-head">
+        <span class="chart-title">Resident memory under load</span>
+        <span class="chart-unit">MB · lower is better</span>
+      </div>
+      <svg viewBox="0 0 420 240" role="img" aria-label="Resident memory in megabytes at 100, 500, 1000 and 2000 concurrent streams. PromptKit stays roughly flat from 180 to 607 MB; LangChain balloons from 430 to about 2900 MB.">
+        <defs>
+          <linearGradient id="pkFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="var(--nebula-violet-deep)" stop-opacity="0.30"></stop>
+            <stop offset="1" stop-color="var(--nebula-violet-deep)" stop-opacity="0"></stop>
+          </linearGradient>
+        </defs>
+        <g stroke="var(--hairline)" stroke-width="1">
+          <line x1="46" y1="30" x2="410" y2="30"></line>
+          <line x1="46" y1="80" x2="410" y2="80"></line>
+          <line x1="46" y1="130" x2="410" y2="130"></line>
+          <line x1="46" y1="180" x2="410" y2="180"></line>
+          <line x1="46" y1="200" x2="410" y2="200"></line>
+        </g>
+        <g fill="var(--star-900)" font-family="var(--font-mono)" font-size="9" text-anchor="end">
+          <text x="40" y="33">3000</text>
+          <text x="40" y="83">2250</text>
+          <text x="40" y="133">1500</text>
+          <text x="40" y="183">750</text>
+          <text x="40" y="203">0</text>
+        </g>
+        <g fill="var(--star-700)" font-family="var(--font-mono)" font-size="9" text-anchor="middle">
+          <text x="70" y="222">100</text>
+          <text x="185" y="222">500</text>
+          <text x="300" y="222">1000</text>
+          <text x="392" y="222">2000</text>
+        </g>
+        <!-- LangChain (ballooning): 430,820,1331,2900 -> y = 200 - v/15 -->
+        <polyline
+          fill="none"
+          stroke="var(--signal-red)"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.85"
+          points="70,171 185,145 300,111 392,7"></polyline>
+        <g fill="var(--signal-red)">
+          <circle cx="70" cy="171" r="3"></circle>
+          <circle cx="185" cy="145" r="3"></circle>
+          <circle cx="300" cy="111" r="3"></circle>
+          <circle cx="392" cy="7" r="3.5"></circle>
+        </g>
+        <!-- PromptKit (flat-ish): 180,280,348,607 -> y = 200 - v/15 -->
+        <polygon fill="url(#pkFill)" points="70,188 185,181 300,177 392,160 392,200 70,200"></polygon>
+        <polyline
+          fill="none"
+          stroke="var(--nebula-violet-deep)"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          points="70,188 185,181 300,177 392,160"></polyline>
+        <g fill="var(--nebula-violet)">
+          <circle cx="70" cy="188" r="3"></circle>
+          <circle cx="185" cy="181" r="3"></circle>
+          <circle cx="300" cy="177" r="3"></circle>
+          <circle cx="392" cy="160" r="3.5"></circle>
+        </g>
+      </svg>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--nebula-violet-deep)"></span>PromptKit · 607 MB @ 2000</span>
+        <span><span class="sw" style="background:var(--signal-red)"></span>LangChain · ~2,900 MB @ 2000</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .perf {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-app);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0 0 16px;
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .copy {
+    margin: 0 0 24px;
+    max-width: 440px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+  .stats {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-input);
+    background: var(--surface-card);
+    padding: 16px 18px;
+    min-width: 120px;
+  }
+  .stat.accent {
+    border-color: var(--violet-border);
+    background: var(--grad-violet-wash);
+  }
+  .num {
+    font-weight: 600;
+    font-size: 30px;
+    line-height: 1;
+    color: var(--starlight-200);
+    margin-bottom: 6px;
+  }
+  .stat.accent .num {
+    color: var(--nebula-violet);
+  }
+  .num .unit {
+    font-size: 15px;
+    color: var(--star-700);
+  }
+  .lbl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--star-900);
+  }
+  .ci {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 22px 0 0;
+    padding: 8px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-pill);
+    background: var(--surface-card);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--star-700);
+  }
+  .ci :global(svg) {
+    color: var(--pulsar-500);
+    flex: none;
+  }
+
+  .chart {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-feature);
+    background: var(--surface-card);
+    padding: 24px 26px 20px;
+    box-shadow: var(--shadow-card);
+  }
+  .chart-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .chart-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--star-200);
+  }
+  .chart-unit {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--star-900);
+    white-space: nowrap;
+  }
+  .chart svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--star-700);
+  }
+  .legend .sw {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: -1px;
+  }
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 36px;
+    }
+  }
+</style>

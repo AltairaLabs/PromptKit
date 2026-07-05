@@ -1,0 +1,94 @@
+---
+import '../styles/atlas/tokens.css';
+import '../styles/atlas/semantic.css';
+import '@fontsource/space-grotesk/400.css';
+import '@fontsource/space-grotesk/500.css';
+import '@fontsource/space-grotesk/600.css';
+import '@fontsource/space-grotesk/700.css';
+import '@fontsource/spline-sans-mono/400.css';
+import '@fontsource/spline-sans-mono/500.css';
+import FamilyBar from '../components/FamilyBar.astro';
+import ProductNav from '../components/landing/ProductNav.astro';
+import Hero from '../components/landing/Hero.astro';
+import HowItFits from '../components/landing/HowItFits.astro';
+import Performance from '../components/landing/Performance.astro';
+import Capabilities from '../components/landing/Capabilities.astro';
+import InstallBand from '../components/landing/InstallBand.astro';
+import StreamWithTools from '../components/landing/StreamWithTools.astro';
+import DiataxisMatrix from '../components/landing/DiataxisMatrix.astro';
+import RepoStructure from '../components/landing/RepoStructure.astro';
+import SiteFooter from '../components/landing/SiteFooter.astro';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PromptKit — The Go runtime for production agents</title>
+    <meta
+      name="description"
+      content="The high-performance Go runtime and SDK for production LLM applications. Multi-provider streaming with bounded back-pressure, native MCP tools, A2A orchestration, workflow state machines, voice and multimodal — one pipeline."
+    />
+    <link rel="icon" href="/atlas/logo-promptkit.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://promptkit.altairalabs.ai/" />
+    <script is:inline>
+      // Pre-hydration theme init: localStorage -> prefers-color-scheme.
+      const t =
+        localStorage.getItem('starlight-theme') ||
+        (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.dataset.theme = t;
+    </script>
+  </head>
+  <body>
+    <FamilyBar />
+    <ProductNav />
+    <main>
+      <Hero />
+      <HowItFits />
+      <Performance />
+      <Capabilities />
+      <InstallBand />
+      <StreamWithTools />
+      <DiataxisMatrix />
+      <RepoStructure />
+    </main>
+    <SiteFooter />
+    <style is:global>
+      html {
+        background: var(--bg-app);
+        color-scheme: dark light;
+        overflow-x: hidden;
+      }
+      body {
+        margin: 0;
+        font-family: var(--font-sans);
+        background: var(--bg-app);
+        color: var(--text-body);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overflow-x: hidden;
+      }
+      .atlas-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+      /* Let grid/flex tracks shrink below their content's intrinsic width so
+         scrollable code panels scroll internally instead of widening the page. */
+      main .grid > *,
+      main .steps > *,
+      main .cols > * {
+        min-width: 0;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+    </style>
+  </body>
+</html>

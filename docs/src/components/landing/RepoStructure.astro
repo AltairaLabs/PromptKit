@@ -1,0 +1,130 @@
+---
+const entries = [
+  { dir: 'runtime/', desc: 'Core runtime — providers, pipeline, tools, A2A, workflows.' },
+  { dir: 'sdk/', desc: 'Developer SDK — Open, Send, Stream, options, capabilities.' },
+  { dir: 'pkg/', desc: 'Shared packages — config and schema validation.' },
+  { dir: 'server/a2a/', desc: 'The A2A protocol server module.' },
+  { dir: 'examples/', desc: 'Runnable example projects and SDK usage.' },
+  { dir: 'docs/', desc: 'This Starlight documentation site.' },
+];
+---
+
+<section class="repo">
+  <div class="atlas-inner grid">
+    <div class="col-left">
+      <p class="eyebrow">REPOSITORY</p>
+      <h2>A tidy Go workspace.</h2>
+      <p class="copy">
+        One workspace, clear seams. The runtime never imports the SDK; the SDK composes
+        the runtime into a friendly API.
+      </p>
+      <ul class="list">
+        {
+          entries.map((e) => (
+            <li>
+              <b>{e.dir}</b>
+              <span>{e.desc}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <pre class="tree" aria-hidden="true"><code>PromptKit/
+├── <span class="dir">runtime/</span>      <span class="cmt"># core: providers · pipeline · tools</span>
+│   ├── a2a/       <span class="cmt"># agent-to-agent protocol</span>
+│   ├── workflow/  <span class="cmt"># state machines</span>
+│   └── types/     <span class="cmt"># messages · content parts</span>
+├── <span class="dir">sdk/</span>          <span class="cmt"># Open() · Send() · Stream()</span>
+├── <span class="dir">pkg/</span>          <span class="cmt"># config · schema validation</span>
+├── <span class="dir">server/a2a/</span>   <span class="cmt"># A2A protocol server</span>
+├── <span class="dir">examples/</span>     <span class="cmt"># runnable SDK examples</span>
+└── <span class="dir">docs/</span>         <span class="cmt"># this site</span></code></pre>
+  </div>
+</section>
+
+<style>
+  .repo {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--surface-1);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0 0 16px;
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 1.14;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .copy {
+    margin: 0 0 20px;
+    max-width: 440px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .list li {
+    display: flex;
+    gap: 12px;
+    padding: 12px 2px;
+    border-bottom: 1px solid var(--hairline-faint);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--star-600);
+  }
+  .list b {
+    flex: none;
+    min-width: 108px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--star-200);
+  }
+  .tree {
+    margin: 0;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-code);
+    background: var(--surface-code);
+    padding: 22px 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 2;
+    color: var(--star-500);
+    overflow-x: auto;
+  }
+  .tree .dir {
+    color: var(--starlight-200);
+  }
+  .tree .cmt {
+    color: var(--star-900);
+  }
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

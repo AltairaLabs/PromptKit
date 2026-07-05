@@ -1,0 +1,150 @@
+---
+const columns = [
+  {
+    title: 'Product',
+    links: [
+      { text: 'Runtime', href: '/runtime/' },
+      { text: 'SDK', href: '/sdk/' },
+      { text: 'Reference', href: '/runtime/reference/' },
+    ],
+  },
+  {
+    title: 'Docs',
+    links: [
+      { text: 'Tutorials', href: '/runtime/tutorials/' },
+      { text: 'How-to guides', href: '/runtime/how-to/' },
+      { text: 'Explanation', href: '/runtime/explanation/' },
+    ],
+  },
+  {
+    title: 'Family',
+    links: [
+      { text: 'PromptArena', href: 'https://promptarena.altairalabs.ai' },
+      { text: 'PromptPack.org', href: 'https://promptpack.org' },
+      { text: 'GitHub ↗', href: 'https://github.com/AltairaLabs/PromptKit' },
+    ],
+  },
+];
+---
+
+<footer class="site-footer">
+  <div class="atlas-inner">
+    <div class="cols">
+      <div class="brand-col">
+        <a class="brand" href="/">
+          <img src="/atlas/logo-promptkit.svg" width="26" height="26" alt="" />
+          <span>PromptKit</span>
+        </a>
+        <p class="tagline">
+          The high-performance Go runtime and SDK for production LLM applications.
+        </p>
+      </div>
+      {
+        columns.map((col) => (
+          <nav class="link-col">
+            <h4>{col.title}</h4>
+            <ul>
+              {col.links.map((l) => (
+                <li>
+                  <a href={l.href}>{l.text}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+
+    <div class="bottom">
+      <span class="legal">© AltairaLabs · Apache-2.0 · open source</span>
+      <span class="family">
+        <img src="/atlas/star-glyph-gold.svg" width="14" height="14" alt="" />
+        part of the AltairaLabs family
+      </span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    padding: 52px 30px 40px;
+    border-top: 1px solid var(--hairline);
+    background: var(--ink-void);
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    gap: 40px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--star-100);
+  }
+  .tagline {
+    margin: 14px 0 0;
+    max-width: 260px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--star-800);
+  }
+  h4 {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--star-900);
+    font-weight: 500;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .link-col a {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--star-700);
+    transition: color var(--dur-base) var(--ease-standard);
+  }
+  .link-col a:hover {
+    color: var(--star-200);
+  }
+  .bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 40px;
+    padding-top: 22px;
+    border-top: 1px solid var(--hairline-faint);
+  }
+  .legal {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--star-950);
+  }
+  .family {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--star-700);
+  }
+  @media (max-width: 780px) {
+    .cols {
+      grid-template-columns: 1fr 1fr;
+    }
+    .bottom {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>

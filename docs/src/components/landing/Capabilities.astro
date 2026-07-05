@@ -1,0 +1,220 @@
+---
+import { icon } from './icons';
+
+const caps = [
+  {
+    icon: 'grid',
+    tone: 'blue',
+    label: 'Interface',
+    title: 'Providers',
+    body: 'One interface across inference, STT, TTS, embeddings and image — OpenAI, Anthropic, Gemini, Ollama, vLLM.',
+    extra:
+      'Run any provider on its vendor API or a hyperscaler with keyless auth — Azure, AWS Bedrock, Google Vertex.',
+  },
+  {
+    icon: 'activity',
+    tone: 'green',
+    label: 'Resilience',
+    title: 'Back-pressure',
+    body: 'Three-layer back-pressure: bounded pre-first-chunk retry, per-provider budget, a total in-flight semaphore.',
+  },
+  {
+    icon: 'wrench',
+    tone: 'cyan',
+    label: 'Tools',
+    title: 'Tools (MCP)',
+    body: 'Native tool calling with a real Model Context Protocol client for live tool execution.',
+  },
+  {
+    icon: 'network',
+    tone: 'blue',
+    label: 'Orchestration',
+    title: 'A2A',
+    body: 'Multi-agent orchestration, discovery, and an A2A protocol server for delegation between agents.',
+  },
+  {
+    icon: 'workflow',
+    tone: 'violet',
+    label: 'State',
+    title: 'Workflows',
+    body: 'Event-driven state machines with orchestration modes and context carry-forward.',
+  },
+  {
+    icon: 'audio',
+    tone: 'violet',
+    label: 'Realtime',
+    title: 'Voice & duplex',
+    body: 'Streaming STT + TTS stages and full-duplex realtime — Gemini Live, OpenAI Realtime — same retry semantics.',
+  },
+  {
+    icon: 'image',
+    tone: 'cyan',
+    label: 'Inputs',
+    title: 'Multimodal',
+    body: 'Audio, vision and video inputs, plus image and media generation across capable providers.',
+  },
+  {
+    icon: 'chart',
+    tone: 'green',
+    label: 'Observability',
+    title: 'Metrics',
+    body: "Direct-update Prometheus metrics — in-flight gauges, retry budgets, first-chunk latency — that don't drop under load.",
+  },
+  {
+    icon: 'shield-check',
+    tone: 'blue',
+    label: 'Safety',
+    title: 'Evals & guardrails',
+    body: 'Assertion and guardrail primitives run inline in the pipeline — enforce in production, verify in tests.',
+  },
+  {
+    icon: 'database',
+    tone: 'cyan',
+    label: 'Persistence',
+    title: 'Memory & state',
+    body: 'Multi-layer memory and durable conversation state carried across sessions and turns.',
+  },
+];
+---
+
+<section class="caps">
+  <div class="atlas-inner">
+    <header class="head">
+      <p class="eyebrow">CAPABILITIES</p>
+      <h2>One pipeline. Every capability.</h2>
+      <p class="intro">
+        Providers, tools, orchestration, voice and observability behind a single
+        interface — with structured error types and metrics that hold under load.
+      </p>
+    </header>
+
+    <div class="grid">
+      {
+        caps.map((c) => (
+          <article class="cap">
+            <span class:list={['c-icon', c.tone]} set:html={icon(c.icon, 19)} />
+            <span class="c-label">{c.label}</span>
+            <h3>{c.title}</h3>
+            <p class="c-body">{c.body}</p>
+            {c.extra && <p class="c-extra">{c.extra}</p>}
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .caps {
+    padding: 76px 30px 84px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-app);
+  }
+  .head {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nebula-violet);
+  }
+  h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--star-100);
+  }
+  .intro {
+    margin: 16px auto 0;
+    max-width: 560px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--star-600);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .cap {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-input);
+    background: var(--surface-card);
+    padding: 22px;
+    transition: border-color var(--dur-base) var(--ease-standard);
+  }
+  .cap:hover {
+    border-color: var(--violet-border);
+  }
+  .c-icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    margin-bottom: 15px;
+  }
+  .c-icon.violet {
+    background: var(--violet-tint);
+    color: var(--nebula-violet);
+  }
+  .c-icon.blue {
+    background: var(--starlight-tint);
+    color: var(--starlight-200);
+  }
+  .c-icon.cyan {
+    background: rgba(103, 232, 249, 0.12);
+    color: var(--ion-cyan);
+  }
+  .c-icon.green {
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--pulsar-500);
+  }
+  .c-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--star-900);
+    margin-bottom: 8px;
+  }
+  h3 {
+    margin: 0 0 8px;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--star-100);
+  }
+  .c-body {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--star-600);
+  }
+  .c-extra {
+    margin: 8px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--hairline-faint);
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--star-700);
+  }
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 560px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

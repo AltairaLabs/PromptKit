@@ -1,33 +1,137 @@
-/* PromptKit Custom Theme Colors
- * Override Galaxy theme's blue accents with purple to match our logo
- * Logo colors: #6366f1 (indigo) → #8b5cf6 (violet) → #a855f7 (purple)
- */
+/* Fonts (self-hosted via Fontsource) */
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/spline-sans-mono/400.css';
+@import '@fontsource/spline-sans-mono/500.css';
 
-/* Dark mode theme variables */
-:root,
-::backdrop {
-  /* Accent colors - purple/violet gradient matching logo */
-  --sl-color-accent: hsl(258, 90%, 66%);  /* violet-500 #8b5cf6 */
-  --sl-color-accent-low: hsl(258, 70%, 30%);
-  --sl-color-accent-high: #c4b5fd;  /* violet-300 */
+/* Atlas token layer */
+@import './atlas/tokens.css';
+@import './atlas/semantic.css';
+@import './atlas/starlight-map.css';
 
-  /* Steps component */
-  --fb-steps-bg-color: var(--sl-color-accent-high);
-
-  /* TOC highlight */
-  --fb-toc-color-current-bg: rgba(139, 92, 246, 0.2);
+/* ---- Family bar in the Starlight header ---- */
+/* Reserve a 38px masterbrand strip at the top of the fixed header: grow the
+   nav height by --fam-h so content/sidebar offsets stay correct, and push the
+   default header's nav content into the row below the strip. */
+:root {
+  --fam-h: 38px;
+  --sl-nav-height: calc(3.5rem + var(--fam-h));
+}
+@media (min-width: 50rem) {
+  :root {
+    --sl-nav-height: calc(4rem + var(--fam-h));
+  }
+}
+/* Scope to the <header> SHELL only — Starlight also gives the inner nav row
+   class="header sl-flex", and padding it breaks the nav's vertical centering. */
+header.header {
+  /* Reserve the strip PLUS the shell's natural top padding, so the nav row
+     stays vertically centered in the band below the family strip. */
+  padding-top: calc(var(--fam-h) + var(--sl-nav-pad-y));
+  /* Let the switcher dropdown escape the header bounds. */
+  overflow: visible;
+}
+/* Starlight sizes the logo from --sl-nav-height; pin it so the taller header
+   (which now includes the family strip) doesn't inflate the mark. */
+header.header .site-title img {
+  height: 2rem;
+  width: auto;
 }
 
-/* Light mode theme variables */
-:root[data-theme='light'] {
-  /* Accent colors - slightly darker for light backgrounds */
-  --sl-color-accent: hsl(258, 89%, 55%);  /* violet-600 */
-  --sl-color-accent-low: hsl(258, 89%, 90%);
-  --sl-color-accent-high: hsl(258, 80%, 40%);
+/* ---- Inner doc-chrome (Atlas) ---- */
 
-  /* Steps component */
-  --fb-steps-bg-color: hsl(258, 89%, 55%);
+/* Sidebar active item: violet tint + 2px violet left rail. */
+.sidebar-content a[aria-current='page'] {
+  background: var(--violet-tint);
+  border-left: 2px solid var(--nebula-violet-deep);
+  border-radius: 0 6px 6px 0;
+  color: var(--sl-color-white);
+}
 
-  /* TOC highlight */
-  --fb-toc-color-current-bg: rgba(139, 92, 246, 0.15);
+/* Sidebar group labels: mono, uppercase, wide-tracked. */
+.sidebar-content .group-label > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--star-900);
+}
+
+/* Right TOC active anchor: violet with a 2px violet left rail. */
+starlight-toc a[aria-current='true'],
+starlight-toc a[aria-current='page'] {
+  color: var(--nebula-violet-deep);
+  border-inline-start: 2px solid var(--nebula-violet-deep);
+}
+
+/* Inline code (not code blocks): violet on a violet tint. */
+.sl-markdown-content :not(pre) > code {
+  color: var(--nebula-violet-deep);
+  background: var(--violet-tint);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+}
+
+/* Code blocks get a window titlebar with dots — the same terminal chrome as
+   the landing, so docs code reads as first-class, not the plain default.
+   Applied to plain code frames (not ones that already show a title tab or a
+   terminal header). */
+.sl-markdown-content .expressive-code {
+  --code-bar-h: 36px;
+}
+.sl-markdown-content .expressive-code .frame:not(.has-title):not(.is-terminal) {
+  position: relative;
+  padding-top: var(--code-bar-h);
+  background: var(--ink-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-code);
+  box-shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+/* Three traffic-light dots at the left of the titlebar. */
+.sl-markdown-content .expressive-code .frame:not(.has-title):not(.is-terminal)::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow:
+    16px 0 0 #febc2e,
+    32px 0 0 #28c840;
+  opacity: 0.9;
+  z-index: 1;
+}
+/* Titlebar bottom hairline. */
+.sl-markdown-content .expressive-code .frame:not(.has-title):not(.is-terminal)::after {
+  content: '';
+  position: absolute;
+  top: var(--code-bar-h);
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--hairline);
+  z-index: 1;
+}
+.sl-markdown-content .expressive-code .frame:not(.has-title):not(.is-terminal) pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  background: var(--ink-void);
+}
+/* Keep the copy button clear of the titlebar dots. */
+.sl-markdown-content .expressive-code .frame:not(.has-title):not(.is-terminal) .copy {
+  top: 3px;
+}
+
+/* Asides / callouts: violet border + tint for note & tip. */
+.sl-markdown-content .starlight-aside--note,
+.sl-markdown-content .starlight-aside--tip {
+  border: 1px solid var(--violet-border);
+  background: var(--violet-tint);
+  border-radius: var(--radius-input);
 }

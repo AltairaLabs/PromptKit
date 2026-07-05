@@ -1,0 +1,21 @@
+/* Atlas semantic aliases. Re-declared per [data-theme] scope so nested
+ * themed wrappers re-resolve them (handoff "Theming" gotcha). */
+
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  --bg-app: var(--ink-canvas);
+  --surface-1: var(--ink-surface);
+  --surface-card: var(--ink-raised);
+  --surface-code: var(--ink-void);
+  --text-body: var(--star-500);
+  --text-muted: var(--star-700);
+  --border: var(--hairline);
+  --border-strong: var(--hairline-strong);
+}
+
+/* On light, the "deepest ink" code surface would be pure white; use the
+ * tile tone instead so code panels read as inset. */
+:root[data-theme='light'] {
+  --surface-code: var(--ink-tile);
+}

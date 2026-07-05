@@ -1,0 +1,111 @@
+/* Atlas — AltairaLabs Design System · raw token layer.
+ * Dark-first: :root = night sky. [data-theme=light] = printed star chart.
+ * [data-theme=dark] restores the dark raw ramp so a nested/toggled dark
+ * wrapper doesn't inherit a light ancestor.
+ *
+ * Ported from the canonical PromptArena docs; values kept identical so
+ * spacing/radii/durations/semantic aliases match across the family. The
+ * only PromptKit delta is a violet atmosphere (its product accent). */
+
+:root,
+:root[data-theme='dark'] {
+  /* Fonts */
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Ink ramp (surfaces) */
+  --ink-void: #070C16;
+  --ink-canvas: #0A1120;
+  --ink-surface: #0C1526;
+  --ink-raised: #111C2E;
+  --ink-tile: #101D30;
+  --ink-hairline-solid: #1E3149;
+
+  /* Star ramp (text, bright -> faint) */
+  --star-100: #F4F8FF; --star-200: #F2F6FC; --star-300: #E6EDF8;
+  --star-400: #DCE6F5; --star-500: #C7D5EA; --star-600: #9FB1CC;
+  --star-700: #8195B0; --star-800: #73849F; --star-900: #5E708C;
+  --star-950: #4A5A74; --star-dim: #2E3D54;
+
+  /* Leads */
+  --gold-500: #E3B341;   /* fills */
+  --gold-300: #F0D79A;   /* light gold text / hover */
+  --gold-ink: #06122A;   /* text on gold */
+  --starlight: #3B82F6;  --starlight-200: #93C5FD;  --starlight-faint: #BFD6F2;
+
+  /* Support (nebula) */
+  --nebula-violet: #C4B5FD;   /* PromptKit lead accent */
+  --nebula-violet-deep: #8B5CF6;
+  --ion-cyan: #67E8F9;
+  --pulsar-500: #34D399; --pulsar-300: #7DD3A8;
+  --amber: #F59E0B; --signal-red: #EF4444;
+
+  /* Hairlines / borders (starlight at low alpha) */
+  --hairline: rgba(147,197,253,0.10);
+  --hairline-strong: rgba(147,197,253,0.18);
+  --hairline-faint: rgba(147,197,253,0.06);
+
+  /* Tints / washes */
+  --gold-tint: rgba(227,179,65,0.10);
+  --gold-border: rgba(227,179,65,0.30);
+  --starlight-tint: rgba(59,130,246,0.12);
+  --starlight-border: rgba(59,130,246,0.30);
+  --violet-tint: rgba(196,181,253,0.12);
+  --violet-border: rgba(196,181,253,0.30);
+
+  /* Gradients + atmospheres */
+  --grad-blue-wash: linear-gradient(180deg, rgba(59,130,246,0.05), #0C1526);
+  --grad-gold-wash: linear-gradient(180deg, rgba(227,179,65,0.06), #0C1526);
+  --grad-violet-wash: linear-gradient(180deg, rgba(139,92,246,0.09), #0C1526);
+  --atmo-starlight: radial-gradient(1100px 540px at 86% -12%, rgba(59,130,246,0.16), transparent 58%);
+  --atmo-gold: radial-gradient(1100px 560px at 84% -14%, rgba(227,179,65,0.12), transparent 56%);
+  --atmo-violet: radial-gradient(1100px 560px at 82% -14%, rgba(139,92,246,0.16), transparent 56%);
+
+  --shadow-card: none;
+
+  /* Radii */
+  --radius-btn: 7px; --radius-tag: 6px; --radius-pill: 999px;
+  --radius-input: 12px; --radius-card: 14px; --radius-feature: 16px;
+  --radius-code: 8px; --radius-frame: 20px;
+
+  /* Motion */
+  --dur-base: 200ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme='light'] {
+  /* Surfaces */
+  --ink-void: #E9EEF6; --ink-canvas: #F3F6FB; --ink-surface: #FFFFFF;
+  --ink-raised: #FFFFFF; --ink-tile: #EAF0F8; --ink-hairline-solid: #D3DCE8;
+
+  /* Text (dark-navy ramp) */
+  --star-100: #0A1424; --star-200: #101C2F; --star-300: #1E2C44;
+  --star-400: #263751; --star-500: #3A4C68; --star-600: #4E6081;
+  --star-700: #5E7091; --star-800: #74849F; --star-900: #7E8DA6;
+  --star-950: #93A0B6; --star-dim: #C4CEDC;
+
+  /* Leads (gold fills stay; gold text deepens) */
+  --gold-500: #E3B341; --gold-300: #96690C;
+  --starlight: #2563EB; --ion-cyan: #0E7490;
+  --nebula-violet: #7C3AED; --nebula-violet-deep: #6D28D9;
+  --pulsar-300: #0F7A4E; --amber: #B4740A;
+
+  /* Hairlines */
+  --hairline: rgba(16,27,46,0.10);
+  --hairline-strong: rgba(16,27,46,0.16);
+  --hairline-faint: rgba(16,27,46,0.06);
+  --violet-tint: rgba(124,58,237,0.08);
+  --violet-border: rgba(124,58,237,0.30);
+
+  /* Washes/atmospheres must terminate at the LIGHT surface, not the dark
+     ink baked into the :root defaults, or wash-backed cards go muddy. */
+  --grad-blue-wash: linear-gradient(180deg, rgba(37,99,235,0.05), #FFFFFF);
+  --grad-gold-wash: linear-gradient(180deg, rgba(227,179,65,0.06), #FFFFFF);
+  --grad-violet-wash: linear-gradient(180deg, rgba(124,58,237,0.06), #FFFFFF);
+  --atmo-starlight: radial-gradient(1100px 540px at 86% -12%, rgba(37,99,235,0.10), transparent 58%);
+  --atmo-gold: radial-gradient(1100px 560px at 84% -14%, rgba(227,179,65,0.10), transparent 56%);
+  --atmo-violet: radial-gradient(1100px 560px at 82% -14%, rgba(124,58,237,0.10), transparent 56%);
+
+  --shadow-card: 0 1px 2px rgba(16,27,46,0.05), 0 10px 28px -18px rgba(16,27,46,0.20);
+}
