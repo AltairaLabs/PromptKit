@@ -769,6 +769,24 @@ func TestApplyDefaultVariables(t *testing.T) {
 		// User-provided values should NOT be overwritten
 		assert.Equal(t, "user-value3", conv.config.initialVariables["var3"])
 	})
+
+	t.Run("stringifies non-string defaults", func(t *testing.T) {
+		// The spec allows any-typed defaults; template variables are strings.
+		conv := &Conversation{config: &config{}}
+		prompt := &pack.Prompt{
+			Variables: []pack.Variable{
+				{Name: "count", Default: float64(42)},
+				{Name: "enabled", Default: true},
+				{Name: "no_default"},
+			},
+		}
+		applyDefaultVariables(conv, prompt)
+
+		assert.Equal(t, "42", conv.config.initialVariables["count"])
+		assert.Equal(t, "true", conv.config.initialVariables["enabled"])
+		_, hasNoDefault := conv.config.initialVariables["no_default"]
+		assert.False(t, hasNoDefault)
+	})
 }
 
 func TestInitEventBus(t *testing.T) {
