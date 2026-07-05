@@ -69,7 +69,7 @@ func (e *WorkflowValidationError) Error() string {
 // ValidateWorkflow validates the workflow section of a pack.
 // Returns nil if workflow is nil (the section is optional) or if validation passes.
 // Warnings are returned inside the error value when errors are also present.
-func (p *Pack) ValidateWorkflow() error {
+func validateWorkflowSection(p *Pack) error {
 	if p.Workflow == nil {
 		return nil
 	}
@@ -86,7 +86,7 @@ func (p *Pack) ValidateWorkflow() error {
 		errs = append(errs, fmt.Sprintf(
 			"workflow.entry %q does not reference a key in states", p.Workflow.Entry))
 	}
-	errs = append(errs, p.validateWorkflowStateRefs()...)
+	errs = append(errs, validateWorkflowStateRefs(p)...)
 
 	if len(errs) > 0 {
 		return &WorkflowValidationError{Errors: errs}
@@ -96,7 +96,7 @@ func (p *Pack) ValidateWorkflow() error {
 
 // validateWorkflowStateRefs checks each state's prompt_task resolves to a prompt
 // and each on_event target resolves to a state.
-func (p *Pack) validateWorkflowStateRefs() []string {
+func validateWorkflowStateRefs(p *Pack) []string {
 	promptSet := make(map[string]bool, len(p.Prompts))
 	for k := range p.Prompts {
 		promptSet[k] = true
@@ -136,7 +136,7 @@ func (e *AgentsValidationError) Error() string {
 
 // ValidateAgents validates the agents section of a pack.
 // Returns nil if agents is nil (the section is optional) or if validation passes.
-func (p *Pack) ValidateAgents() error {
+func validateAgentsSection(p *Pack) error {
 	if p.Agents == nil {
 		return nil
 	}

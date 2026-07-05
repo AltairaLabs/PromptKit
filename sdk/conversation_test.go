@@ -40,7 +40,7 @@ func newTestConversation() *Conversation {
 		},
 	}
 	// Create a minimal textSession for tests - requires a pipeline with at least one stage
-	promptRegistry := p.ToPromptRegistry()
+	promptRegistry := pack.ToPromptRegistry(p)
 	minimalPipeline, _ := stage.NewPipelineBuilder().
 		Chain(stage.NewPromptAssemblyStage(promptRegistry, "chat", nil)).
 		Build()
@@ -56,8 +56,8 @@ func newTestConversation() *Conversation {
 		pack:           p,
 		prompt:         &pack.Prompt{ID: "chat", SystemTemplate: "You are helpful."},
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
-		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		promptRegistry: pack.ToPromptRegistry(p),
+		toolRegistry:   tools.NewRegistryWithRepository(pack.ToToolRepository(p)),
 		config:         &config{},
 		handlers:       make(map[string]ToolHandler),
 		mode:           UnaryMode,
@@ -1428,7 +1428,7 @@ func TestSendWithMockProvider(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
@@ -1481,7 +1481,7 @@ func TestBuildContextSummary_WithHistory(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
@@ -1529,7 +1529,7 @@ func TestSendWithImageOptions(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
@@ -1593,7 +1593,7 @@ func TestSendWithProviderError(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
@@ -1796,7 +1796,7 @@ func TestSendWithOptions(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
@@ -1916,7 +1916,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["chat"],
 		promptName:     "chat",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config:         &config{provider: mock.NewProvider("test-mock", "test-model", false)},
 		mode:           UnaryMode,
@@ -1947,7 +1947,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 			pack:           p,
 			prompt:         p.Prompts["chat"],
 			promptName:     "chat",
-			promptRegistry: p.ToPromptRegistry(),
+			promptRegistry: pack.ToPromptRegistry(p),
 			toolRegistry:   tools.NewRegistry(),
 			config: &config{
 				provider:          mock.NewProvider("test-mock", "test-model", false),
@@ -1970,7 +1970,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 			pack:           p,
 			prompt:         p.Prompts["chat"],
 			promptName:     "chat",
-			promptRegistry: p.ToPromptRegistry(),
+			promptRegistry: pack.ToPromptRegistry(p),
 			toolRegistry:   tools.NewRegistry(),
 			config: &config{
 				provider:           mock.NewProvider("test-mock", "test-model", false),
@@ -1994,7 +1994,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 			pack:           p,
 			prompt:         p.Prompts["chat"],
 			promptName:     "chat",
-			promptRegistry: p.ToPromptRegistry(),
+			promptRegistry: pack.ToPromptRegistry(p),
 			toolRegistry:   tools.NewRegistry(),
 			config: &config{
 				provider:           mock.NewProvider("test-mock", "test-model", false),
@@ -2045,7 +2045,7 @@ func TestBuildStreamPipelineWiresTurnDetector(t *testing.T) {
 		pack:           p,
 		prompt:         p.Prompts["voice"],
 		promptName:     "voice",
-		promptRegistry: p.ToPromptRegistry(),
+		promptRegistry: pack.ToPromptRegistry(p),
 		toolRegistry:   tools.NewRegistry(),
 		config: &config{
 			provider:     mock.NewProvider("test-mock", "test-model", false),

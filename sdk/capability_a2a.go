@@ -39,8 +39,7 @@ func (c *A2ACapability) Name() string { return "a2a" }
 func (c *A2ACapability) Init(ctx CapabilityContext) error {
 	p := ctx.Pack
 	if p.Agents != nil && len(p.Agents.Members) > 0 {
-		runtimePack := packToRuntimePack(p)
-		resolver := NewAgentToolResolver(runtimePack)
+		resolver := NewAgentToolResolver(p)
 		if resolver != nil {
 			if c.endpointResolver != nil {
 				resolver.SetEndpointResolver(c.endpointResolver)

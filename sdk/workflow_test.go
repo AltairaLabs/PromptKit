@@ -17,7 +17,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,58 +134,9 @@ func TestOpenWorkflow_InitialState(t *testing.T) {
 	assert.Contains(t, wc.AvailableEvents(), "NeedMore")
 }
 
-func TestConvertWorkflowSpec(t *testing.T) {
-	sdkSpec := &pack.WorkflowSpec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*pack.WorkflowState{
-			"start": {
-				PromptTask:    "greeting",
-				Description:   "Entry point",
-				OnEvent:       map[string]string{"Next": "end"},
-				Persistence:   "persistent",
-				Orchestration: "internal",
-			},
-			"end": {
-				PromptTask: "farewell",
-			},
-		},
-		Engine: map[string]any{"timeout": 300},
-	}
-
-	spec := convertWorkflowSpec(sdkSpec)
-
-	assert.Equal(t, 1, spec.Version)
-	assert.Equal(t, "start", spec.Entry)
-	assert.Len(t, spec.States, 2)
-
-	start := spec.States["start"]
-	assert.Equal(t, "greeting", start.PromptTask)
-	assert.Equal(t, "Entry point", start.Description)
-	assert.Equal(t, "end", start.OnEvent["Next"])
-	assert.Equal(t, workflow.PersistencePersistent, start.Persistence)
-	assert.Equal(t, workflow.OrchestrationInternal, start.Orchestration)
-
-	assert.Equal(t, 300, spec.Engine["timeout"])
-}
-
-func TestConvertWorkflowSpec_CarriesComposition(t *testing.T) {
-	in := &pack.WorkflowSpec{
-		Version: 1,
-		Entry:   "analyze",
-		States: map[string]*pack.WorkflowState{
-			"analyze": {Orchestration: "composition", Composition: "analyze_doc", Terminal: true},
-		},
-	}
-	out := convertWorkflowSpec(in)
-	st := out.States["analyze"]
-	if st.Orchestration != workflow.OrchestrationComposition {
-		t.Errorf("orchestration = %q, want %q", st.Orchestration, workflow.OrchestrationComposition)
-	}
-	if st.Composition != "analyze_doc" {
-		t.Errorf("composition = %q, want analyze_doc", st.Composition)
-	}
-}
+// (TestConvertWorkflowSpec* removed: pack.WorkflowSpec is now workflow.Spec, so
+// there is no SDK→runtime conversion to test — the pack's workflow is handed to
+// the state machine directly, preserving all fields the old copy dropped.)
 
 func TestWorkflowConversation_ClosedErrors(t *testing.T) {
 	// Test that closed workflow returns errors

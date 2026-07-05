@@ -226,6 +226,23 @@ type ValidatorConfig struct {
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
+// Validator is the spec-exact, compiled form of a validator as it appears in a
+// PromptPack on disk (PackPrompt.Validators). It mirrors the promptpack schema's
+// $defs/Validator exactly (additionalProperties:false) and is pinned to that
+// schema by TestValidatorStructMatchesPromptPackSpec.
+//
+// It deliberately has NO Message field: the on-disk spec carries a user-facing
+// message inside Params["message"], not as a top-level property. The authoring
+// type ValidatorConfig keeps Message (it also backs Arena assertions, which are
+// test-only and never compiled into a pack); foldValidatorMessages converts a
+// ValidatorConfig into this compiled Validator.
+type Validator struct {
+	Type            string                 `json:"type"`
+	Enabled         bool                   `json:"enabled"`
+	FailOnViolation *bool                  `json:"fail_on_violation,omitempty"`
+	Params          map[string]interface{} `json:"params,omitempty"`
+}
+
 // DefaultBlockedMessage is the user-facing message shown when a content guardrail blocks output.
 const DefaultBlockedMessage = "Sorry, we can't provide this response as it would violate our content policy."
 
@@ -288,6 +305,25 @@ type VariableMetadata struct {
 	// Binding enables automatic population from system resources and type-safe UI selection.
 	// This allows prompts to declare semantic meaning for variables beyond just their data type.
 	Binding *VariableBinding `yaml:"binding,omitempty" json:"binding,omitempty"`
+}
+
+// Variable is the spec-exact, compiled form of a template variable as it appears
+// in a PromptPack on disk (PackPrompt.Variables). It mirrors the promptpack
+// schema's $defs/Variable exactly (additionalProperties:false) and is pinned to
+// it by TestVariableStructMatchesPromptPackSpec.
+//
+// It deliberately omits Binding: variable binding (auto-population from platform
+// resources: project/provider/workspace/secret/configmap) is a runtime concern,
+// resolved before/at compile time — not part of the portable pack. The authoring
+// type VariableMetadata carries Binding; compileVariables drops it.
+type Variable struct {
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`
+	Required    bool                   `json:"required"`
+	Default     interface{}            `json:"default,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Example     interface{}            `json:"example,omitempty"`
+	Validation  map[string]interface{} `json:"validation,omitempty"`
 }
 
 // Metadata contains additional metadata for the pack format

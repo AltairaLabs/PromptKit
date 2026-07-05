@@ -89,8 +89,8 @@ func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error) {
 
 	return &PackTemplate{
 		pack:           p,
-		promptRegistry: p.ToPromptRegistry(),
-		toolRepository: p.ToToolRepository(),
+		promptRegistry: pack.ToPromptRegistry(p),
+		toolRepository: pack.ToToolRepository(p),
 	}, nil
 }
 
