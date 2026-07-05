@@ -135,3 +135,47 @@ starlight-toc a[aria-current='page'] {
   background: var(--violet-tint);
   border-radius: var(--radius-input);
 }
+
+/* ---- Prev/Next pagination ---- */
+/* Starlight's default cards are oversized for Atlas (2xl title, 1.5rem arrow,
+   1rem padding). Slim them into hairline cards: a small mono-uppercase
+   "Previous/Next" micro-label (matching the sidebar group labels) over a
+   normal-weight title, with a violet hover. */
+.pagination-links a {
+  gap: 0.35rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-input);
+  box-shadow: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pagination-links a:hover {
+  border-color: var(--violet-border);
+  background: var(--violet-tint);
+}
+/* Shrink the direction arrow. */
+.pagination-links a svg {
+  --sl-icon-size: 1rem;
+}
+/* The wrapping span carries the "Previous"/"Next" label text. */
+.pagination-links a > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--star-900);
+}
+/* The page title: normal case/size, sits below the micro-label. */
+.pagination-links a .link-title {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.3;
+  color: var(--sl-color-white);
+}
+.pagination-links a:hover .link-title {
+  color: var(--nebula-violet-deep);
+}

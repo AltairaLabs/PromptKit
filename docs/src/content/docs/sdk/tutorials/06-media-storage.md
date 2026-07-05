@@ -174,7 +174,7 @@ func enableDebug(conv *sdk.Conversation) {
 
 ## Next Steps
 
-- **[How-To: Monitor Events](/sdk/how-to/monitor-events/)** - Advanced monitoring
+- **[How-To: Monitor Events](/sdk/how-to/observability/monitor-events/)** - Advanced monitoring
 - **[Explanation: Observability](/sdk/explanation/observability/)** - Architecture deep-dive
 
 ## Complete Example

@@ -536,5 +536,5 @@ Continue to [Tutorial 3: MCP Integration](/runtime/tutorials/03-mcp-integration/
 
 ## See Also
 
-- [Manage State](/runtime/how-to/manage-state/) - Advanced state management
+- [Manage State](/runtime/how-to/state/manage-state/) - Advanced state management
 - [StateStore Reference](/runtime/reference/statestore/) - Complete API

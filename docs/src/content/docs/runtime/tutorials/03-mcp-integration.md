@@ -402,5 +402,5 @@ Continue to [Tutorial 4: Validation & Guardrails](/runtime/tutorials/04-validati
 
 ## See Also
 
-- [Integrate MCP](/runtime/how-to/integrate-mcp/) - More MCP patterns
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) - More MCP patterns
 - [Tools & MCP Reference](/runtime/reference/tools-mcp/) - Complete API

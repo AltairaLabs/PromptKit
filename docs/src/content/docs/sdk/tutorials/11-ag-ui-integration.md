@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial: AG-UI Integration'
+title: 'Tutorial 11: AG-UI Integration'
 sidebar:
   order: 11
 ---

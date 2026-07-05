@@ -233,7 +233,7 @@ fmt.Println(user2)  // "Bob"
 ## Next Steps
 
 - **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
-- **[How-To: Manage State](/sdk/how-to/manage-state/)** - Advanced state
+- **[How-To: Manage State](/sdk/how-to/conversations/manage-state/)** - Advanced state
 
 ## Complete Example
 

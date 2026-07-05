@@ -435,5 +435,5 @@ Continue to [Tutorial 6: Advanced Patterns](/runtime/tutorials/06-advanced-patte
 
 ## See Also
 
-- [Handle Errors](/runtime/how-to/handle-errors/) - Error strategies
-- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost tracking
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error strategies
+- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost tracking

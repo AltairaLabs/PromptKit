@@ -1393,7 +1393,7 @@ for chunk := range streamChan {
 - [MediaLoader](#medialoader) - Unified media loading
 - [Pipeline Reference](/runtime/reference/pipeline/) - Using providers in pipelines
 - [Tools Reference](/runtime/reference/tools-mcp/) - Function calling
-- [Provider How-To](/runtime/how-to/setup-providers/) - Configuration guide
+- [Provider How-To](/runtime/how-to/providers/setup-providers/) - Configuration guide
 - [Provider Explanation](/runtime/explanation/provider-system/) - Architecture details
 
 ## MediaLoader

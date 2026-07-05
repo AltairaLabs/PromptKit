@@ -383,4 +383,4 @@ Continue to [Tutorial 5: Production Deployment](/runtime/tutorials/05-production
 - [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
 - [Guardrails Reference](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Guardrail configuration and behavior
 - [Hooks & Guardrails Reference](/runtime/reference/hooks/) -- Runtime hook system API
-- [Handle Errors](/runtime/how-to/handle-errors/) -- Error strategies
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) -- Error strategies

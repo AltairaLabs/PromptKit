@@ -87,5 +87,5 @@ The docs previously used "validator" as a synonym for "guardrail." We now consis
 - [Write Assertions](https://promptarena.altairalabs.ai/arena/reference/assertions/) -- Using checks in Arena scenarios
 - [Guardrails](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Using checks as runtime guardrails
 - [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
-- [Run Evals](/sdk/how-to/run-evals/) -- Programmatic eval execution
+- [Run Evals](/sdk/how-to/observability/run-evals/) -- Programmatic eval execution
 - [Hooks & Guardrails](/runtime/reference/hooks/) -- Runtime hook system API

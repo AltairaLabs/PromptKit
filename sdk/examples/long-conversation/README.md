@@ -111,5 +111,5 @@ When context management options are set, the SDK inserts two pipeline stages:
 
 ## See Also
 
-- [Manage Context How-To](/sdk/how-to/manage-context/) — SDK context management options
+- [Manage Context How-To](/sdk/how-to/conversations/manage-context/) — SDK context management options
 - [State Store Reference](/runtime/reference/statestore/) — Store interfaces and implementations

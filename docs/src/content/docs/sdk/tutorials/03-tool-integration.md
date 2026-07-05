@@ -266,7 +266,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 
 - **[Tutorial 4: Variables](/sdk/tutorials/04-state-management/)** - Template variables
 - **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
-- **[How-To: Register Tools](/sdk/how-to/register-tools/)** - Advanced patterns
+- **[How-To: Register Tools](/sdk/how-to/tools/register-tools/)** - Advanced patterns
 
 ## Complete Example
 

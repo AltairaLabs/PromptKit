@@ -340,8 +340,8 @@ Event handlers are called asynchronously in a separate goroutine (see `EventBus.
 
 ## See Also
 
-- [How-To: Monitor Events](/sdk/how-to/monitor-events/)
-- [How-To: Export Traces with OTLP](/runtime/how-to/export-traces-otlp) — send session traces to OpenTelemetry backends
+- [How-To: Monitor Events](/sdk/how-to/observability/monitor-events/)
+- [How-To: Export Traces with OTLP](/runtime/how-to/observability/export-traces-otlp) — send session traces to OpenTelemetry backends
 - [Telemetry Reference](/runtime/reference/telemetry) — OTLP exporter API, span attributes, and semantic conventions
 - [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
 - [Session Recording](https://promptarena.altairalabs.ai/arena/explanation/session-recording/)

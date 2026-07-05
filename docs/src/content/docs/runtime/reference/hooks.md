@@ -5,7 +5,7 @@ sidebar:
 ---
 Reference for the four hook interfaces PromptKit exposes for intercepting LLM calls, tool execution, session lifecycle, and eval results — plus the built-in guardrails that ship on top of them.
 
-For *how* to write a hook, see [Custom Hooks](/sdk/how-to/custom-hooks/) and [Exec Hooks](/sdk/how-to/exec-hooks/).
+For *how* to write a hook, see [Custom Hooks](/sdk/how-to/hooks/custom-hooks/) and [Exec Hooks](/sdk/how-to/hooks/exec-hooks/).
 For *when* to reach for which hook type, see [The Hook System](/sdk/explanation/hooks/).
 
 ## Hook types
@@ -383,7 +383,7 @@ import (
 
 ## Exec adapters
 
-External-subprocess implementations of each hook type, configured via RuntimeConfig YAML. See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
+External-subprocess implementations of each hook type, configured via RuntimeConfig YAML. See [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) for the full how-to and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
 
 | Adapter | Implements | Modes |
 |---|---|---|
@@ -394,8 +394,8 @@ External-subprocess implementations of each hook type, configured via RuntimeCon
 
 ## See also
 
-- [Custom Hooks](/sdk/how-to/custom-hooks/) — write a Go hook of any type
-- [Exec Hooks](/sdk/how-to/exec-hooks/) — write a hook as a subprocess in any language
+- [Custom Hooks](/sdk/how-to/hooks/custom-hooks/) — write a Go hook of any type
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — write a hook as a subprocess in any language
 - [The Hook System](/sdk/explanation/hooks/) — mental model and design rationale
 - [Exec Protocol](/sdk/reference/exec-protocol/) — wire format for exec adapters
 - [Checks Reference](/reference/checks/) — guardrail/assertion/eval check types

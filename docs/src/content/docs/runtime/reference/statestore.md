@@ -453,5 +453,5 @@ store.Save(ctx, state)
 ## See Also
 
 - [Pipeline Reference](/runtime/reference/pipeline/) - Using state stores in pipelines
-- [State Store How-To](/runtime/how-to/manage-state/) - State management patterns
+- [State Store How-To](/runtime/how-to/state/manage-state/) - State management patterns
 - [State Store Tutorial](/runtime/tutorials/05-production-deployment/) - Building stateful apps

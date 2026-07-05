@@ -908,6 +908,6 @@ wg.Wait()
 ## See Also
 
 - [Pipeline Reference](/runtime/reference/pipeline/) - Using tools in pipelines
-- [Integrate MCP](/runtime/how-to/integrate-mcp/) - MCP integration guide
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) - MCP integration guide
 - [MCP Tutorial](/runtime/tutorials/03-mcp-integration/) - Step-by-step MCP setup
 - [Runtime Tools Architecture](/architecture/runtime-tools-mcp/) - Tool system architecture
