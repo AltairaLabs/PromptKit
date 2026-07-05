@@ -1,105 +1,87 @@
 ---
 import { icon } from './icons';
+
+// Real, committed numbers from the CI performance gate (.github/workflows/ci.yml):
+// round1 tool-calling benchmark, 500 concurrent streams, 5,000 requests, against
+// the in-repo mock upstream, on a GitHub Actions runner.
+//   throughput 1,640 req/s   (gate floor 1,300)
+//   resident   181 MB RSS    (gate ceiling 512 MB)
+//   cpu        102.6%        (gate ceiling 150%)
+const gauges = [
+  { label: 'Throughput', value: 1640, unit: 'req/s', gate: 1300, gateLabel: 'floor', max: 2000, higherBetter: true },
+  { label: 'Resident memory', value: 181, unit: 'MB', gate: 512, gateLabel: 'ceiling', max: 640, higherBetter: false },
+  { label: 'CPU', value: 102.6, unit: '%', gate: 150, gateLabel: 'ceiling', max: 200, higherBetter: false },
+];
 ---
 
 <section class="perf">
   <div class="atlas-inner grid">
     <div class="col-left">
-      <p class="eyebrow">FLAT UNDER LOAD</p>
-      <h2>Flat where others balloon.</h2>
+      <p class="eyebrow">MEASURED · GATED IN CI</p>
+      <h2>Bounded under load.</h2>
       <p class="copy">
-        A realistic tool-calling profile, sampled from 100 to 2000 concurrent streams
-        against a shared mock upstream. Bounded concurrency, a cross-call retry budget,
-        and a total in-flight semaphore keep resident memory and CPU flat where naive
-        clients balloon.
+        A three-layer back-pressure stack — bounded pre-first-chunk retry, a per-provider
+        budget, and a total in-flight semaphore — keeps resident memory and CPU bounded
+        under load. Measured at 500 concurrent streams over 5,000 requests against the
+        in-repo mock upstream, on a GitHub Actions runner.
       </p>
       <div class="stats">
         <div class="stat">
-          <div class="num">~29<span class="unit">%</span></div>
-          <div class="lbl">cpu — flat, 100→2000</div>
+          <div class="num">1,640</div>
+          <div class="lbl">req/s @ 500 concurrent</div>
         </div>
         <div class="stat">
-          <div class="num">0</div>
-          <div class="lbl">streams dropped at peak</div>
+          <div class="num">181<span class="unit"> MB</span></div>
+          <div class="lbl">resident (RSS)</div>
         </div>
         <div class="stat accent">
-          <div class="num">3.8×</div>
-          <div class="lbl">less memory vs LangChain</div>
+          <div class="num">~1<span class="unit"> core</span></div>
+          <div class="lbl">102.6% cpu</div>
         </div>
       </div>
       <p class="ci">
         <span set:html={icon('shield-check', 15)} />
-        Gate perf in CI — the benchmark floor fails the build on regression.
+        Re-run on every PR — the build fails if throughput drops below 1,300 req/s or
+        memory tops 512 MB.
       </p>
     </div>
 
     <div class="chart">
       <div class="chart-head">
-        <span class="chart-title">Resident memory under load</span>
-        <span class="chart-unit">MB · lower is better</span>
+        <span class="chart-title">Measured vs CI gate</span>
+        <span class="chart-unit">500 concurrent · 5,000 req</span>
       </div>
-      <svg viewBox="0 0 420 240" role="img" aria-label="Resident memory in megabytes at 100, 500, 1000 and 2000 concurrent streams. PromptKit stays roughly flat from 180 to 607 MB; LangChain balloons from 430 to about 2900 MB.">
-        <defs>
-          <linearGradient id="pkFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="var(--nebula-violet-deep)" stop-opacity="0.30"></stop>
-            <stop offset="1" stop-color="var(--nebula-violet-deep)" stop-opacity="0"></stop>
-          </linearGradient>
-        </defs>
-        <g stroke="var(--hairline)" stroke-width="1">
-          <line x1="46" y1="30" x2="410" y2="30"></line>
-          <line x1="46" y1="80" x2="410" y2="80"></line>
-          <line x1="46" y1="130" x2="410" y2="130"></line>
-          <line x1="46" y1="180" x2="410" y2="180"></line>
-          <line x1="46" y1="200" x2="410" y2="200"></line>
-        </g>
-        <g fill="var(--star-900)" font-family="var(--font-mono)" font-size="9" text-anchor="end">
-          <text x="40" y="33">3000</text>
-          <text x="40" y="83">2250</text>
-          <text x="40" y="133">1500</text>
-          <text x="40" y="183">750</text>
-          <text x="40" y="203">0</text>
-        </g>
-        <g fill="var(--star-700)" font-family="var(--font-mono)" font-size="9" text-anchor="middle">
-          <text x="70" y="222">100</text>
-          <text x="185" y="222">500</text>
-          <text x="300" y="222">1000</text>
-          <text x="392" y="222">2000</text>
-        </g>
-        <!-- LangChain (ballooning): 430,820,1331,2900 -> y = 200 - v/15 -->
-        <polyline
-          fill="none"
-          stroke="var(--signal-red)"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          opacity="0.85"
-          points="70,171 185,145 300,111 392,7"></polyline>
-        <g fill="var(--signal-red)">
-          <circle cx="70" cy="171" r="3"></circle>
-          <circle cx="185" cy="145" r="3"></circle>
-          <circle cx="300" cy="111" r="3"></circle>
-          <circle cx="392" cy="7" r="3.5"></circle>
-        </g>
-        <!-- PromptKit (flat-ish): 180,280,348,607 -> y = 200 - v/15 -->
-        <polygon fill="url(#pkFill)" points="70,188 185,181 300,177 392,160 392,200 70,200"></polygon>
-        <polyline
-          fill="none"
-          stroke="var(--nebula-violet-deep)"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          points="70,188 185,181 300,177 392,160"></polyline>
-        <g fill="var(--nebula-violet)">
-          <circle cx="70" cy="188" r="3"></circle>
-          <circle cx="185" cy="181" r="3"></circle>
-          <circle cx="300" cy="177" r="3"></circle>
-          <circle cx="392" cy="160" r="3.5"></circle>
-        </g>
-      </svg>
-      <div class="legend">
-        <span><span class="sw" style="background:var(--nebula-violet-deep)"></span>PromptKit · 607 MB @ 2000</span>
-        <span><span class="sw" style="background:var(--signal-red)"></span>LangChain · ~2,900 MB @ 2000</span>
+      <div class="gauges">
+        {
+          gauges.map((g) => {
+            const fill = Math.min(100, (g.value / g.max) * 100);
+            const gatePct = Math.min(100, (g.gate / g.max) * 100);
+            return (
+              <div class="gauge">
+                <div class="g-top">
+                  <span class="g-label">{g.label}</span>
+                  <span class="g-val">
+                    {g.value.toLocaleString()}
+                    <span class="g-unit"> {g.unit}</span>
+                  </span>
+                </div>
+                <div class="g-track">
+                  <div class="g-fill" style={`width:${fill}%`} />
+                  <div class="g-gate" style={`left:${gatePct}%`}>
+                    <span class="g-gate-lbl">
+                      {g.gateLabel} {g.gate.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        }
       </div>
+      <p class="chart-foot">
+        Real numbers from the committed CI perf gate. Absolute figures track the runner;
+        the gate is what holds.
+      </p>
     </div>
   </div>
 </section>
@@ -135,7 +117,7 @@ import { icon } from './icons';
   }
   .copy {
     margin: 0 0 24px;
-    max-width: 440px;
+    max-width: 460px;
     font-size: 16px;
     line-height: 1.6;
     color: var(--star-600);
@@ -207,7 +189,7 @@ import { icon } from './icons';
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 18px;
+    margin-bottom: 22px;
   }
   .chart-title {
     font-weight: 600;
@@ -220,28 +202,75 @@ import { icon } from './icons';
     color: var(--star-900);
     white-space: nowrap;
   }
-  .chart svg {
-    width: 100%;
-    height: auto;
-    display: block;
+
+  .gauges {
+    display: grid;
+    gap: 34px;
   }
-  .legend {
+  .g-top {
     display: flex;
-    gap: 18px;
-    flex-wrap: wrap;
-    margin-top: 14px;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .g-label {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--star-300);
+  }
+  .g-val {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--nebula-violet);
+  }
+  .g-unit {
     color: var(--star-700);
+    font-weight: 400;
   }
-  .legend .sw {
-    display: inline-block;
-    width: 10px;
+  .g-track {
+    position: relative;
     height: 10px;
-    border-radius: 2px;
-    margin-right: 6px;
-    vertical-align: -1px;
+    border-radius: var(--radius-pill);
+    background: var(--ink-void);
+    border: 1px solid var(--hairline);
   }
+  .g-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--nebula-violet-deep), var(--nebula-violet));
+  }
+  .g-gate {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--star-700);
+    border-radius: 1px;
+  }
+  .g-gate-lbl {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--star-900);
+  }
+  .chart-foot {
+    margin: 22px 0 0;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--star-900);
+  }
+
   @media (max-width: 880px) {
     .grid {
       grid-template-columns: 1fr;

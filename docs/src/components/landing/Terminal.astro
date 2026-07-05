@@ -13,11 +13,10 @@
   </div>
   <pre class="body"><code><span class="prompt">~ ❯</span> <span class="cmd">go run</span> <span class="path">.</span>
 <span class="ok">✓</span> <span class="out">opened conversation · pack "chat"</span>
-<span class="out">streaming · first chunk 41ms · 0 dropped</span>
+<span class="out">streaming · tool call resolved mid-stream</span>
+<span class="ok">✓</span> <span class="out">response complete</span>
 <span class="prompt">~ ❯</span> <span class="cmd">curl</span> <span class="path">:9090/metrics</span> <span class="flag">| grep promptkit_</span>
-<span class="out">promptkit_inflight_streams 2000</span>
-<span class="out">promptkit_first_chunk_ms_p50 41</span>
-<span class="comment"># flat under load</span><span class="cursor"> </span></code></pre>
+<span class="comment"># every stage emits Prometheus metrics</span><span class="cursor"> </span></code></pre>
 </div>
 
 <style>

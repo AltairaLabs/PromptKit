@@ -61,10 +61,9 @@
         <pre class="s-code"><code><span class="prompt">$</span> curl -s :9090/metrics \
   | grep promptkit_
 
-<span class="cmt"># in-flight gauge, retry budget,</span>
-<span class="cmt"># first-chunk latency histogram</span>
-promptkit_inflight_streams 1000
-promptkit_first_chunk_ms_p50 41</code></pre>
+<span class="cmt"># in-flight gauge, retry budget, and</span>
+<span class="cmt"># first-chunk latency histogram —</span>
+<span class="cmt"># scrape them, gate on them in CI.</span></code></pre>
       </article>
     </div>
   </div>
