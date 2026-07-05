@@ -1,86 +1,124 @@
 ---
 import { icon } from './icons';
 
-// Real, committed numbers from the CI performance gate (.github/workflows/ci.yml):
-// round1 tool-calling benchmark, 500 concurrent streams, 5,000 requests, against
-// the in-repo mock upstream, on a GitHub Actions runner.
-//   throughput 1,640 req/s   (gate floor 1,300)
-//   resident   181 MB RSS    (gate ceiling 512 MB)
-//   cpu        102.6%        (gate ceiling 150%)
-const gauges = [
-  { label: 'Throughput', value: 1640, unit: 'req/s', gate: 1300, gateLabel: 'floor', max: 2000, higherBetter: true },
-  { label: 'Resident memory', value: 181, unit: 'MB', gate: 512, gateLabel: 'ceiling', max: 640, higherBetter: false },
-  { label: 'CPU', value: 102.6, unit: '%', gate: 150, gateLabel: 'ceiling', max: 200, higherBetter: false },
+// REAL measured numbers. Reproduce with `make round1-tools` in benchmarks/.
+// round1 tool-calling profile, shared mock upstream, linux/arm64 · 14 cores
+// (Docker). Throughput (req/s), higher is better:
+//   concurrent | promptkit | vercelai | strands | langchain
+//   100        |   141     |   136    |   89     |   25
+//   250        |   360     |   250    |  129     |   39
+//   500        |   710     |   340    |  146     |   60
+//   1000       |  1404     |   303    |  144     |   55
+//   2000       |  2740     |   299    |  129     |    6
+// At 2000 concurrent: promptkit 0 errors / ~104ms first-byte p50;
+// langchain 18,265 errors of 20,000. Peak RSS @ 1000 concurrent:
+// promptkit 514 MB · vercelai 661 MB · langchain 2,178 MB · strands 8,896 MB.
+const tiers = [100, 250, 500, 1000, 2000];
+const series = [
+  { name: 'PromptKit', color: 'var(--nebula-violet)', width: 3, values: [141, 360, 710, 1404, 2740] },
+  { name: 'Vercel AI', color: 'var(--ion-cyan)', width: 2, values: [136, 250, 340, 303, 299] },
+  { name: 'Strands', color: 'var(--pulsar-500)', width: 2, values: [89, 129, 146, 144, 129] },
+  { name: 'LangChain', color: 'var(--signal-red)', width: 2, values: [25, 39, 60, 55, 6] },
 ];
+
+const W = 440;
+const H = 240;
+const xL = 40;
+const xR = 424;
+const yT = 16;
+const yB = 205;
+const maxY = 2800;
+const x = (i: number) => xL + (i / (tiers.length - 1)) * (xR - xL);
+const y = (v: number) => yB - (v / maxY) * (yB - yT);
+const pts = (vals: number[]) => vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
 ---
 
 <section class="perf">
   <div class="atlas-inner grid">
     <div class="col-left">
-      <p class="eyebrow">MEASURED · GATED IN CI</p>
-      <h2>Bounded under load.</h2>
+      <p class="eyebrow">REAL BENCHMARK · TOOL-CALLING</p>
+      <h2>Scales where others stall.</h2>
       <p class="copy">
-        A three-layer back-pressure stack — bounded pre-first-chunk retry, a per-provider
-        budget, and a total in-flight semaphore — keeps resident memory and CPU bounded
-        under load. Measured at 500 concurrent streams over 5,000 requests against the
-        in-repo mock upstream, on a GitHub Actions runner.
+        The same tool-calling workload, 100 to 2,000 concurrent streams against a shared
+        mock upstream. PromptKit's Go runtime scales to <strong>2,740 req/s with zero
+        errors</strong>; the Python and Node frameworks plateau at one core and fall behind.
+        It's also the leanest under load — 514 MB at 1,000 concurrent, vs 2.2 GB (LangChain)
+        and 8.9 GB (Strands).
       </p>
       <div class="stats">
         <div class="stat">
-          <div class="num">1,640</div>
-          <div class="lbl">req/s @ 500 concurrent</div>
+          <div class="num">2,740</div>
+          <div class="lbl">req/s @ 2,000 concurrent · 0 errors</div>
         </div>
         <div class="stat">
-          <div class="num">181<span class="unit"> MB</span></div>
-          <div class="lbl">resident (RSS)</div>
+          <div class="num">~104<span class="unit"> ms</span></div>
+          <div class="lbl">first-byte p50 — flat 100→2,000</div>
         </div>
         <div class="stat accent">
-          <div class="num">~1<span class="unit"> core</span></div>
-          <div class="lbl">102.6% cpu</div>
+          <div class="num">9×</div>
+          <div class="lbl">the throughput of the next framework at 2,000</div>
         </div>
       </div>
       <p class="ci">
         <span set:html={icon('shield-check', 15)} />
-        Re-run on every PR — the build fails if throughput drops below 1,300 req/s or
-        memory tops 512 MB.
+        Reproduce with <code>make round1-tools</code> · gated in CI on every PR.
       </p>
     </div>
 
     <div class="chart">
       <div class="chart-head">
-        <span class="chart-title">Measured vs CI gate</span>
-        <span class="chart-unit">500 concurrent · 5,000 req</span>
+        <span class="chart-title">Throughput under load</span>
+        <span class="chart-unit">req/s · higher is better</span>
       </div>
-      <div class="gauges">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img"
+        aria-label="Throughput in requests per second at 100, 250, 500, 1000 and 2000 concurrent streams. PromptKit rises to 2,740 req/s; Vercel AI, Strands and LangChain stay flat near the bottom.">
+        <g stroke="var(--hairline)" stroke-width="1">
+          <line x1={xL} y1={y(2800)} x2={xR} y2={y(2800)}></line>
+          <line x1={xL} y1={y(2100)} x2={xR} y2={y(2100)}></line>
+          <line x1={xL} y1={y(1400)} x2={xR} y2={y(1400)}></line>
+          <line x1={xL} y1={y(700)} x2={xR} y2={y(700)}></line>
+          <line x1={xL} y1={yB} x2={xR} y2={yB}></line>
+        </g>
+        <g fill="var(--star-900)" font-family="var(--font-mono)" font-size="9" text-anchor="end">
+          <text x={xL - 6} y={y(2800) + 3}>2800</text>
+          <text x={xL - 6} y={y(1400) + 3}>1400</text>
+          <text x={xL - 6} y={yB + 3}>0</text>
+        </g>
+        <g fill="var(--star-700)" font-family="var(--font-mono)" font-size="9" text-anchor="middle">
+          {tiers.map((t, i) => <text x={x(i)} y={H - 12}>{t}</text>)}
+        </g>
         {
-          gauges.map((g) => {
-            const fill = Math.min(100, (g.value / g.max) * 100);
-            const gatePct = Math.min(100, (g.gate / g.max) * 100);
-            return (
-              <div class="gauge">
-                <div class="g-top">
-                  <span class="g-label">{g.label}</span>
-                  <span class="g-val">
-                    {g.value.toLocaleString()}
-                    <span class="g-unit"> {g.unit}</span>
-                  </span>
-                </div>
-                <div class="g-track">
-                  <div class="g-fill" style={`width:${fill}%`} />
-                  <div class="g-gate" style={`left:${gatePct}%`}>
-                    <span class="g-gate-lbl">
-                      {g.gateLabel} {g.gate.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          series.map((s) => (
+            <>
+              <polyline
+                fill="none"
+                stroke={s.color}
+                stroke-width={s.width}
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                opacity={s.name === 'PromptKit' ? 1 : 0.85}
+                points={pts(s.values)}
+              />
+              {s.values.map((v, i) => (
+                <circle cx={x(i)} cy={y(v)} r={s.name === 'PromptKit' ? 3 : 2.4} fill={s.color} />
+              ))}
+            </>
+          ))
+        }
+      </svg>
+      <div class="legend">
+        {
+          series.map((s) => (
+            <span>
+              <span class="sw" style={`background:${s.color}`} />
+              {s.name}
+            </span>
+          ))
         }
       </div>
       <p class="chart-foot">
-        Real numbers from the committed CI perf gate. Absolute figures track the runner;
-        the gate is what holds.
+        Measured on linux/arm64 · 14 cores (Docker). Absolute figures track the hardware;
+        the shape is the point.
       </p>
     </div>
   </div>
@@ -117,10 +155,14 @@ const gauges = [
   }
   .copy {
     margin: 0 0 24px;
-    max-width: 460px;
+    max-width: 470px;
     font-size: 16px;
     line-height: 1.6;
     color: var(--star-600);
+  }
+  .copy strong {
+    color: var(--star-300);
+    font-weight: 600;
   }
   .stats {
     display: flex;
@@ -132,7 +174,8 @@ const gauges = [
     border-radius: var(--radius-input);
     background: var(--surface-card);
     padding: 16px 18px;
-    min-width: 120px;
+    min-width: 118px;
+    flex: 1;
   }
   .stat.accent {
     border-color: var(--violet-border);
@@ -172,6 +215,12 @@ const gauges = [
     line-height: 1.4;
     color: var(--star-700);
   }
+  .ci code {
+    color: var(--nebula-violet);
+    background: var(--violet-tint);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
   .ci :global(svg) {
     color: var(--pulsar-500);
     flex: none;
@@ -189,7 +238,7 @@ const gauges = [
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 22px;
+    margin-bottom: 14px;
   }
   .chart-title {
     font-weight: 600;
@@ -202,69 +251,30 @@ const gauges = [
     color: var(--star-900);
     white-space: nowrap;
   }
-
-  .gauges {
-    display: grid;
-    gap: 34px;
+  .chart svg {
+    width: 100%;
+    height: auto;
+    display: block;
   }
-  .g-top {
+  .legend {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .g-label {
-    font-weight: 500;
-    font-size: 13px;
-    color: var(--star-300);
-  }
-  .g-val {
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
     font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--nebula-violet);
-  }
-  .g-unit {
+    font-size: 11px;
     color: var(--star-700);
-    font-weight: 400;
   }
-  .g-track {
-    position: relative;
+  .legend .sw {
+    display: inline-block;
+    width: 10px;
     height: 10px;
-    border-radius: var(--radius-pill);
-    background: var(--ink-void);
-    border: 1px solid var(--hairline);
-  }
-  .g-fill {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    border-radius: var(--radius-pill);
-    background: linear-gradient(90deg, var(--nebula-violet-deep), var(--nebula-violet));
-  }
-  .g-gate {
-    position: absolute;
-    top: -4px;
-    bottom: -4px;
-    width: 2px;
-    background: var(--star-700);
-    border-radius: 1px;
-  }
-  .g-gate-lbl {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--star-900);
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: -1px;
   }
   .chart-foot {
-    margin: 22px 0 0;
+    margin: 14px 0 0;
     font-family: var(--font-mono);
     font-size: 10.5px;
     line-height: 1.5;
