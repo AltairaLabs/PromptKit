@@ -219,3 +219,49 @@ func TestJitterBuffer_Concurrency(t *testing.T) {
 	wg.Wait()
 	// No race / panic is the assertion (race detector enforces correctness).
 }
+
+func TestJitterBuffer_UnderrunCounters(t *testing.T) {
+	jb := NewJitterBuffer(1000)
+	jb.Push([]int16{1, 2, 3}) // 3 samples buffered
+
+	// Pull 10 -> 3 real + 7 silence: one underrun, 7 silence samples.
+	_ = jb.Pull(10)
+	if got := jb.Underruns(); got != 1 {
+		t.Errorf("Underruns after starved pull = %d, want 1", got)
+	}
+	if got := jb.UnderrunSamples(); got != 7 {
+		t.Errorf("UnderrunSamples = %d, want 7", got)
+	}
+
+	// Buffer now empty: Pull 5 -> 5 silence, second underrun, +5 samples.
+	_ = jb.Pull(5)
+	if got := jb.Underruns(); got != 2 {
+		t.Errorf("Underruns after second starved pull = %d, want 2", got)
+	}
+	if got := jb.UnderrunSamples(); got != 12 {
+		t.Errorf("UnderrunSamples = %d, want 12", got)
+	}
+}
+
+func TestJitterBuffer_NoUnderrunWhenSatisfied(t *testing.T) {
+	jb := NewJitterBuffer(1000)
+	jb.Push(make([]int16, 20))
+	_ = jb.Pull(10) // fully satisfied
+	if got := jb.Underruns(); got != 0 {
+		t.Errorf("Underruns on satisfied pull = %d, want 0", got)
+	}
+	if got := jb.UnderrunSamples(); got != 0 {
+		t.Errorf("UnderrunSamples on satisfied pull = %d, want 0", got)
+	}
+}
+
+func TestJitterBuffer_ZeroCapacityCountsUnderrun(t *testing.T) {
+	jb := NewJitterBuffer(0)
+	_ = jb.Pull(8) // all silence
+	if got := jb.Underruns(); got != 1 {
+		t.Errorf("Underruns on zero-cap pull = %d, want 1", got)
+	}
+	if got := jb.UnderrunSamples(); got != 8 {
+		t.Errorf("UnderrunSamples on zero-cap pull = %d, want 8", got)
+	}
+}

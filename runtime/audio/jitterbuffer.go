@@ -19,6 +19,9 @@ type JitterBuffer struct {
 	count    int   // number of valid samples in buf
 	capacity int   // maximum samples
 	drops    int64 // cumulative dropped-sample count
+
+	underruns       int64 // cumulative pulls that short-filled with silence
+	underrunSamples int64 // cumulative silence samples substituted on underrun
 }
 
 // NewJitterBuffer returns a JitterBuffer with the given maximum capacity in
@@ -83,12 +86,20 @@ func (j *JitterBuffer) Pull(n int) []int16 {
 	// Zero-capacity buffers never hold samples; return n zeros without touching
 	// the ring (the modulo below would divide by zero otherwise).
 	if j.capacity == 0 {
+		if n > 0 {
+			j.underruns++
+			j.underrunSamples += int64(n)
+		}
 		return out
 	}
 
 	avail := j.count
 	if avail > n {
 		avail = n
+	}
+	if avail < n {
+		j.underruns++
+		j.underrunSamples += int64(n - avail)
 	}
 	for i := 0; i < avail; i++ {
 		out[i] = j.buf[j.head]
@@ -122,4 +133,22 @@ func (j *JitterBuffer) Drops() int64 {
 	d := j.drops
 	j.mu.Unlock()
 	return d
+}
+
+// Underruns returns the cumulative number of Pull calls that had to
+// substitute silence because fewer than n samples were buffered.
+func (j *JitterBuffer) Underruns() int64 {
+	j.mu.Lock()
+	u := j.underruns
+	j.mu.Unlock()
+	return u
+}
+
+// UnderrunSamples returns the cumulative number of silence samples
+// substituted across all underrunning Pull calls.
+func (j *JitterBuffer) UnderrunSamples() int64 {
+	j.mu.Lock()
+	s := j.underrunSamples
+	j.mu.Unlock()
+	return s
 }
