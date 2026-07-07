@@ -95,6 +95,36 @@ These are registered at Collector creation time and recorded automatically when 
 
 **Source events:** `validation.passed`, `validation.failed`
 
+## Realtime Audio Health Metrics
+
+Unlike the metrics above — which are derived from EventBus events — these are **direct-update** counters, incremented inline at the source (the pipeline stage, the realtime audio consumer, or the event bus itself). This is deliberate: at high concurrency (~2k duplex streams per instance) the event bus drops events under burst load, which would corrupt any health or autoscaling signal derived from it. Keeping realtime audio telemetry off the bus makes it accurate under exactly the load where it matters (see [PromptKit#853](https://github.com/AltairaLabs/PromptKit/issues/853)).
+
+### Registration
+
+The audio-health counters are registered **automatically** whenever you create a `metrics.Collector` with pipeline metrics enabled — `NewCollector` calls `providers.RegisterDefaultStreamMetrics(registerer, namespace, constLabels)` internally, so no extra wiring is required. They populate as soon as a duplex/voice pipeline runs.
+
+The **event-bus saturation** metric is a pull-based collector that reads the bus's live dropped-count at scrape time. Register it explicitly against the bus you built:
+
+```go
+reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", prometheus.Labels{"env": "prod"}))
+```
+
+### Audio Health
+
+| Metric | Type | Event Labels | Emitted By | Description |
+|--------|------|--------------|------------|-------------|
+| `{ns}_audio_frame_underruns_total` | Counter | `direction` | Realtime consumer | Consumer pulls that short-filled with silence because the buffer was starved — the **stutter** signal |
+| `{ns}_audio_frame_underrun_samples_total` | Counter | `direction` | Realtime consumer | Cumulative silence samples substituted on underrun (magnitude of starvation) |
+| `{ns}_audio_frame_drops_total` | Counter | `direction`, `reason` | Realtime consumer | Cumulative audio samples dropped (`reason=overflow`: producer exceeded buffer capacity / real-time cadence) |
+| `{ns}_audio_pacing_behind_deadline_total` | Counter | `direction` | `AudioPacingStage` | Times the pacing stage was already past a chunk's playback deadline — the pipeline **cannot hold real time** |
+| `{ns}_eventbus_events_dropped_total` | Counter | — | `EventBus` (pull) | Total events dropped because the bus buffer was full. Early-warning for saturation; tune `PROMPTKIT_EVENT_BUS_*` before it starves autoscaling signals |
+
+`direction` values: `input`, `output` &nbsp;•&nbsp; `reason` values: `overflow`
+
+**Emission:** underrun/drop counters are reported by realtime audio consumers through the shared, PortAudio-free `providers.JitterHealthReporter` (a thin seam over the `audio.JitterBuffer` primitive); `audio_pacing_behind_deadline_total` is emitted by the pacing stage's past-deadline branch. All are direct-update — they never transit the event bus.
+
+**Cardinality (non-negotiable at scale):** these metrics are **never** labeled by stream, session, or connection ID — that would be unbounded and would OOM Prometheus at 2k streams. Because they are process-wide direct-update counters, they also do **not** carry per-conversation instance labels; only const labels plus the bounded labels above apply. Per-stream detail comes from [OTel traces](/runtime/reference/telemetry/), not metric labels.
+
 ## Eval Metrics
 
 Eval metrics are registered dynamically on first observation (with double-checked locking for thread safety). Disable with `DisableEvalMetrics: true`.
@@ -283,6 +313,11 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `promptkit_tool_calls_total` | Counter | Tool |
 | `promptkit_validation_duration_seconds` | Histogram | Validation |
 | `promptkit_validations_total` | Counter | Validation |
+| `promptkit_audio_frame_underruns_total` | Counter | Realtime Audio |
+| `promptkit_audio_frame_underrun_samples_total` | Counter | Realtime Audio |
+| `promptkit_audio_frame_drops_total` | Counter | Realtime Audio |
+| `promptkit_audio_pacing_behind_deadline_total` | Counter | Realtime Audio |
+| `promptkit_eventbus_events_dropped_total` | Counter | Event Bus |
 | `{ns}_eval_{metric_name}` | Varies | Eval (explicit pack-defined metric) |
 | `{ns}_eval_{eval_id}` | Gauge | Eval (auto-generated when no metric defined) |
 

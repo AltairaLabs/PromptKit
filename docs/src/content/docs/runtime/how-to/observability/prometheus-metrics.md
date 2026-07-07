@@ -61,6 +61,26 @@ func main() {
 
 Where `{ns}` is the configured namespace (default: `promptkit`).
 
+### Realtime Audio Health Metrics
+
+For duplex/voice pipelines, PromptKit emits **direct-update** health metrics — incremented inline at the source and kept **off the event bus**, so they stay accurate under the burst load that causes the bus to drop events. The audio counters are registered automatically by `NewCollector`; the event-bus saturation counter needs one extra line.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `{ns}_audio_frame_underruns_total` | Counter | `direction` | Consumer pulls short-filled with silence (stutter) |
+| `{ns}_audio_frame_underrun_samples_total` | Counter | `direction` | Magnitude of starvation (silence samples) |
+| `{ns}_audio_frame_drops_total` | Counter | `direction`, `reason` | Audio samples dropped (`reason=overflow`) |
+| `{ns}_audio_pacing_behind_deadline_total` | Counter | `direction` | Pacing fell behind real time |
+| `{ns}_eventbus_events_dropped_total` | Counter | — | Event-bus buffer saturation |
+
+```go
+// Audio counters register automatically with NewCollector.
+// Register the event-bus saturation collector against your bus:
+reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", nil))
+```
+
+`direction` is `input` or `output`; these metrics are never labeled by stream/session ID (bounded cardinality). See the [Metrics Reference](/runtime/reference/metrics/#realtime-audio-health-metrics) for the off-bus rationale and label semantics.
+
 ### Eval Metrics
 
 Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. This separates eval metrics from pipeline metrics, making it easy to query all evals with a pattern like `myapp_eval_.*`. See [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
