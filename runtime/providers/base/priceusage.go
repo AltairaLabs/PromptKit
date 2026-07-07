@@ -28,7 +28,7 @@ func PriceUsage(
 ) types.CostInfo {
 	ci := types.CostInfo{
 		Quantities:     usage.Quantities(),
-		DimensionMatch: dims,
+		DimensionMatch: copyMap(dims),
 		ProviderName:   providerName,
 		Capability:     string(capability),
 		Latency:        latency,
@@ -50,6 +50,10 @@ func PriceUsage(
 //	CachedCostUSD <- cache_read
 //	OutputCostUSD <- output + reasoning + audio_output
 //
+// Any other unit (e.g. a custom unit priced via TokenUsage.Extra) falls into
+// the default arm below and is folded into OutputCostUSD, so the invariant
+// holds for every priced unit, canonical or not.
+//
 // Token headlines: InputTokens<-input, CachedTokens<-cache_read,
 // OutputTokens<-output (visible-only). Other token counts live in Quantities.
 func deriveHeadlines(ci *types.CostInfo) {
@@ -60,6 +64,10 @@ func deriveHeadlines(ci *types.CostInfo) {
 		case UnitCacheReadToken:
 			ci.CachedCostUSD += li.USD
 		case UnitOutputToken, UnitReasoningToken, UnitAudioOutputToken:
+			ci.OutputCostUSD += li.USD
+		default:
+			// Unknown/custom priced units (e.g. TokenUsage.Extra) default to
+			// the output-side bucket so TotalCost == In+Out+Cached always holds.
 			ci.OutputCostUSD += li.USD
 		}
 	}
