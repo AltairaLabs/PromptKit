@@ -264,7 +264,10 @@ docs-install: ## Install documentation dependencies
 		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest; \
 	}
 	@echo "Installing Astro dependencies..."
-	@cd docs && npm install
+	@# --legacy-peer-deps: @astrojs/starlight declares a peer of astro ^7 but the
+	@# site is pinned to astro ^6 (they build together fine); a fresh resolve on
+	@# strict npm (CI removes the lockfile first) otherwise fails ERESOLVE.
+	@cd docs && npm install --legacy-peer-deps
 	@echo "✅ Documentation dependencies installed"
 
 docs-api: ## Generate API documentation from Go code
