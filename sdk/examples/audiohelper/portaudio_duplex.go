@@ -64,6 +64,8 @@ func (p *portaudioIO) duplexLoop(ctx context.Context) {
 		if rc := p.duplexWrite(out); rc != 0 {
 			return
 		}
+		// Report underrun/drop deltas off-bus (see #853 flood invariant).
+		p.reportJitterHealth()
 	}
 }
 

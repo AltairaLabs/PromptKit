@@ -7,7 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 // warnCountHandler is a minimal slog.Handler that counts WARN-level records, so
@@ -51,6 +55,57 @@ func TestDuplexPlay_WarnsOnceOnJitterOverflow(t *testing.T) {
 	}
 	if h.warns != 1 {
 		t.Fatalf("expected exactly 1 overflow warning, got %d", h.warns)
+	}
+}
+
+// TestDuplexLoop_ReportsUnderrunsAndDrops drives the duplex loop with a starved
+// jitter buffer and asserts the off-bus underrun/drop metrics climb via the
+// process-wide StreamMetrics. No PortAudio device (read/write seams injected).
+func TestDuplexLoop_ReportsUnderrunsAndDrops(t *testing.T) {
+	providers.ResetDefaultStreamMetrics()
+	t.Cleanup(providers.ResetDefaultStreamMetrics)
+	reg := prometheus.NewRegistry()
+	providers.RegisterDefaultStreamMetrics(reg, "test", nil)
+
+	// One-block jitter buffer, left empty so every Pull underruns.
+	p := &portaudioIO{
+		captureRate:  audio.DuplexRate, // identity resample (48k -> 48k)
+		playbackRate: audio.DuplexRate,
+		jitter:       audio.NewJitterBuffer(duplexBlockFrames),
+		captureCh:    make(chan []byte, captureChanBuffer),
+		done:         make(chan struct{}),
+	}
+	p.duplex.Store(true)
+
+	// Reads succeed with silence; writes succeed and stop the loop after 3 ticks.
+	var ticks int
+	p.readFn = func([]int16) int32 { return 0 }
+	p.writeFn = func([]int16) int32 {
+		ticks++
+		if ticks >= 3 {
+			close(p.done)
+		}
+		return 0
+	}
+
+	p.wg.Add(1)
+	p.duplexLoop(context.Background())
+
+	m := providers.DefaultStreamMetrics()
+	if got := testutil.ToFloat64(m.FrameUnderrunsVec().WithLabelValues("output")); got < 1 {
+		t.Errorf("audio_frame_underruns_total{output} = %v, want >= 1", got)
+	}
+	if got := testutil.ToFloat64(m.FrameUnderrunSamplesVec().WithLabelValues("output")); got < float64(duplexBlockFrames) {
+		t.Errorf("audio_frame_underrun_samples_total{output} = %v, want >= %d", got, duplexBlockFrames)
+	}
+
+	// Now force overflow drops and confirm they are reported.
+	before := testutil.ToFloat64(m.FrameDropsVec().WithLabelValues("output", "overflow"))
+	p.jitter.Push(make([]int16, duplexBlockFrames*4)) // overflow the 1-block buffer
+	p.reportJitterHealth()
+	after := testutil.ToFloat64(m.FrameDropsVec().WithLabelValues("output", "overflow"))
+	if after <= before {
+		t.Errorf("audio_frame_drops_total{output,overflow} did not increase: %v -> %v", before, after)
 	}
 }
 
