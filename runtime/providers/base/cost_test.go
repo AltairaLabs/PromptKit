@@ -69,6 +69,13 @@ func TestComputeCost_NoMatchingDimensions_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestComputeCost_WrapperErrorsWhenUnpriced(t *testing.T) {
+	desc := &base.PricingDescriptor{Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.001}}}
+	info := &types.CostInfo{Quantities: map[string]float64{base.UnitReasoningToken: 20}}
+	_, _, err := base.ComputeCost(desc, info)
+	assert.Error(t, err)
+}
+
 func TestComputeCost_NilPricing_ReturnsZero(t *testing.T) {
 	info := &types.CostInfo{Quantities: map[string]float64{"image": 1}}
 	total, breakdown, err := base.ComputeCost(nil, info)
