@@ -867,6 +867,7 @@ func TestProviderStage_EmitsProviderCallCompletedEvent(t *testing.T) {
 	require.True(t, ok, "event data should be *ProviderCallCompletedData")
 	assert.Equal(t, "test-provider", data.Provider)
 	assert.Greater(t, data.Duration, time.Duration(0), "duration should be positive")
+	assert.NotEmpty(t, data.FinishReason, "FinishReason must be populated, not the placeholder empty string")
 }
 
 func TestProviderStage_EmitsProviderCallCompletedEvent_NonStreaming(t *testing.T) {
@@ -3232,11 +3233,12 @@ func TestProcessStreamChunks_AccumulatesReasoning(t *testing.T) {
 	in <- providers.StreamChunk{Content: "answer", Delta: "answer", FinishReason: &fr}
 	close(in)
 
-	content, _, _, trace, _, err := s.processStreamChunks(context.Background(), in, out)
+	content, _, _, trace, _, finishReason, err := s.processStreamChunks(context.Background(), in, out)
 	require.NoError(t, err)
 	assert.Equal(t, "answer", content, "content must exclude reasoning")
 	require.NotNil(t, trace, "expected a reasoning trace")
 	assert.Equal(t, "think more", trace.Text)
+	assert.Equal(t, "stop", finishReason, "finish reason must be threaded out for the completion event")
 
 	close(out)
 	var sawReasoning bool

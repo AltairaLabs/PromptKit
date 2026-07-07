@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -18,6 +19,38 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
 )
+
+// TestProcessStreamElements_PopulatesFinalResultCost guards the streaming-cost
+// phantom: the streaming path must fold assistant-message CostInfo into the
+// terminal chunk's FinalResult, so the streaming Response reports real cost/
+// tokens instead of zero (the non-streaming Send() path was always correct).
+func TestProcessStreamElements_PopulatesFinalResultCost(t *testing.T) {
+	stageChan := make(chan stage.StreamElement, 2)
+	chunkChan := make(chan providers.StreamChunk, 8)
+
+	msg := types.Message{
+		Role:     "assistant",
+		Content:  "hi",
+		CostInfo: &types.CostInfo{InputTokens: 11, OutputTokens: 7, TotalCost: 0.02},
+	}
+	stageChan <- stage.StreamElement{Message: &msg}
+	close(stageChan)
+
+	processStreamElements(context.Background(), stageChan, chunkChan)
+	close(chunkChan)
+
+	var final *rtpipeline.ExecutionResult
+	for chunk := range chunkChan {
+		if r, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
+			final = r
+		}
+	}
+
+	require.NotNil(t, final, "terminal chunk must carry a FinalResult with cost data")
+	assert.Equal(t, 11, final.CostInfo.InputTokens, "input tokens must survive to the streaming Response")
+	assert.Equal(t, 7, final.CostInfo.OutputTokens)
+	assert.InEpsilon(t, 0.02, final.CostInfo.TotalCost, 1e-9)
+}
 
 func TestNewUnarySession(t *testing.T) {
 	t.Run("creates session successfully", func(t *testing.T) {

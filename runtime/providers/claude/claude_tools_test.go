@@ -325,6 +325,11 @@ func TestClaudeParseToolResponse_WithToolCall(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
+	// The tool path must surface the normalized finish reason, not an empty string.
+	if predictResp.FinishReason != types.FinishReasonToolUse {
+		t.Errorf("Expected FinishReason %q, got %q", types.FinishReasonToolUse, predictResp.FinishReason)
+	}
+
 	if len(toolCalls) != 1 {
 		t.Fatalf("Expected 1 tool call, got %d", len(toolCalls))
 	}

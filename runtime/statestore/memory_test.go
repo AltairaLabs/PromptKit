@@ -1414,6 +1414,44 @@ func TestMemoryStore_LoadSummaries_ReadOnly(t *testing.T) {
 	wg.Wait()
 }
 
+// TestCloneMessage_PreservesFinishReasonAndProviderMetadata guards against the
+// silent field-drop class: cloneMessage rebuilds types.Message field-by-field,
+// so a forgotten field silently becomes zero-value after any statestore
+// round-trip. FinishReason (used to detect max_output_tokens/safety/refusal)
+// and MessageToolCall.ProviderMetadata (carries Gemini 3 thought_signature that
+// must be replayed) must survive the clone.
+func TestCloneMessage_PreservesFinishReasonAndProviderMetadata(t *testing.T) {
+	orig := &types.Message{
+		Role:         "assistant",
+		Content:      "capped",
+		FinishReason: types.FinishReasonMaxOutputTokens,
+		ToolCalls: []types.MessageToolCall{{
+			ID:               "call-1",
+			Name:             "search",
+			Args:             json.RawMessage(`{"q":"x"}`),
+			ProviderMetadata: map[string]string{"gemini.thought_signature": "sig-abc"},
+		}},
+	}
+
+	cloned := cloneMessage(orig)
+
+	if cloned.FinishReason != types.FinishReasonMaxOutputTokens {
+		t.Errorf("FinishReason dropped: got %q, want %q", cloned.FinishReason, types.FinishReasonMaxOutputTokens)
+	}
+	if len(cloned.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls not cloned: got %d", len(cloned.ToolCalls))
+	}
+	if got := cloned.ToolCalls[0].ProviderMetadata["gemini.thought_signature"]; got != "sig-abc" {
+		t.Errorf("ProviderMetadata dropped: got %q, want %q", got, "sig-abc")
+	}
+
+	// Deep-copy isolation: mutating the clone's ProviderMetadata must not touch the original.
+	cloned.ToolCalls[0].ProviderMetadata["gemini.thought_signature"] = "mutated"
+	if orig.ToolCalls[0].ProviderMetadata["gemini.thought_signature"] != "sig-abc" {
+		t.Errorf("ProviderMetadata not deep-copied: mutation leaked to original")
+	}
+}
+
 func TestDeepCopyState_Nil(t *testing.T) {
 	result := deepCopyState(nil)
 	assert.Nil(t, result)
