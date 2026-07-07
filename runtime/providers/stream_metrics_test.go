@@ -92,6 +92,46 @@ func TestStreamMetrics_RetryAttempt(t *testing.T) {
 	}
 }
 
+// --- Audio health counters (#1585) ---
+
+func TestStreamMetrics_AudioHealth_NilSafe(t *testing.T) {
+	t.Parallel()
+	var m *StreamMetrics
+	m.FrameUnderrunInc("output")
+	m.FrameUnderrunSamplesAdd("output", 480)
+	m.FrameDropAdd("output", "overflow", 128)
+	m.PacingBehindDeadlineInc("input")
+	if m.FrameUnderrunsVec() != nil {
+		t.Errorf("nil receiver accessor should return nil")
+	}
+}
+
+func TestStreamMetrics_AudioHealthCounters(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := NewStreamMetrics(reg, "test", nil)
+
+	m.FrameUnderrunInc("output")
+	m.FrameUnderrunInc("output")
+	m.FrameUnderrunSamplesAdd("output", 480)
+	m.FrameDropAdd("output", "overflow", 128)
+	m.PacingBehindDeadlineInc("input")
+	m.PacingBehindDeadlineInc("output")
+
+	if got := testutil.ToFloat64(m.FrameUnderrunsVec().WithLabelValues("output")); got != 2 {
+		t.Errorf("audio_frame_underruns_total{output} = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(m.FrameUnderrunSamplesVec().WithLabelValues("output")); got != 480 {
+		t.Errorf("audio_frame_underrun_samples_total{output} = %v, want 480", got)
+	}
+	if got := testutil.ToFloat64(m.FrameDropsVec().WithLabelValues("output", "overflow")); got != 128 {
+		t.Errorf("audio_frame_drops_total{output,overflow} = %v, want 128", got)
+	}
+	if got := testutil.ToFloat64(m.PacingBehindDeadlineVec().WithLabelValues("input")); got != 1 {
+		t.Errorf("audio_pacing_behind_deadline_total{input} = %v, want 1", got)
+	}
+}
+
 // --- Namespace and const labels ---
 
 func TestNewStreamMetrics_DefaultNamespace(t *testing.T) {
