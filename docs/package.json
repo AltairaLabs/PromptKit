@@ -14,11 +14,11 @@
   "dependencies": {
     "@astrojs/mdx": "^6.0.3",
     "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/starlight": "~0.40.0",
+    "@astrojs/starlight": "~0.41.3",
     "@fontsource/space-grotesk": "^5.2.10",
     "@fontsource/spline-sans-mono": "^5.2.8",
     "astro": "^6.4.8",
-    "astro-d2": "^0.11.0",
+    "astro-d2": "^0.12.0",
     "mermaid": "^11.16.0",
     "starlight-theme-galaxy": "^0.8.0"
   },
