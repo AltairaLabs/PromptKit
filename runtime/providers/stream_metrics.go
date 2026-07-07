@@ -33,11 +33,24 @@ var streamErrorChunksForwardedBuckets = []float64{
 	0, 1, 5, 20, 100, 500, 2000, 10000,
 }
 
+// Off-bus realtime-audio telemetry invariant (AltairaLabs/PromptKit#853):
+//
+// Underruns, frame drops, and pacing-behind-deadline are realtime, per-frame
+// health signals. They are recorded here via StreamMetrics as DIRECT-UPDATE
+// counters — updated inline at the source, never published to the event bus.
+//
+// Routing per-frame audio telemetry through EventBus.Publish reintroduces the
+// #853 flood failure mode: at ~2k concurrent duplex streams the bus buffer
+// saturates, events are dropped, and the autoscaling/health signals they carry
+// are silently corrupted. The regression guard in
+// runtime/pipeline/stage/audio_offbus_regression_test.go enforces this — it
+// asserts the audio path publishes zero events and that per-frame metric calls
+// are allocation-bounded. Do not attach audio health to the bus.
+
 // StreamMetrics holds the direct-update Prometheus metrics for streaming
 // provider calls. These are updated inline at the source (not via the
 // event bus) so that burst-load drops on the event bus cannot corrupt
-// autoscaling signals. See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md
-// for the design rationale.
+// autoscaling signals (see the off-bus invariant above).
 //
 // All methods are nil-safe: if StreamMetrics is nil, the call is a no-op.
 // This lets provider code unconditionally call s.StreamsInFlightInc(...)
