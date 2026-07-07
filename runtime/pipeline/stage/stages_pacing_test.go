@@ -5,6 +5,11 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 // fakeClock simulates wall-clock time for AudioPacingStage tests. now()
@@ -261,6 +266,49 @@ func TestAudioPacingStage_ContextCancelDuringSleep(t *testing.T) {
 	err := stage.Process(ctx, inCh, outCh)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestAudioPacingStage_ReportsBehindDeadline(t *testing.T) {
+	providers.ResetDefaultStreamMetrics()
+	t.Cleanup(providers.ResetDefaultStreamMetrics)
+	reg := prometheus.NewRegistry()
+	providers.RegisterDefaultStreamMetrics(reg, "test", nil)
+
+	// A clock whose sleep OVER-advances past the requested delay, so the
+	// chunk after a paced one lands past its deadline (consumer behind).
+	clock := newFakeClock()
+	clock.onSleep = func(_ context.Context, d time.Duration) error {
+		clock.t = clock.t.Add(d + 100*time.Millisecond)
+		return nil
+	}
+
+	const sampleRate = 24000
+	// 2400 bytes = 1200 samples = 50 ms/chunk at 24 kHz. preroll=0.
+	// chunk1: immediate; chunk2: sleeps 50ms then over-advances +100ms;
+	// chunk3: now is 100ms past its 100ms deadline -> behind-deadline branch.
+	_, _, err := runPacingWithPreroll(t, []StreamElement{
+		audioElem(2400, sampleRate),
+		audioElem(2400, sampleRate),
+		audioElem(2400, sampleRate),
+	}, clock, 0)
+	if err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	m := providers.DefaultStreamMetrics()
+	if got := testutil.ToFloat64(m.PacingBehindDeadlineVec().WithLabelValues("input")); got < 1 {
+		t.Errorf("audio_pacing_behind_deadline_total{input} = %v, want >= 1", got)
+	}
+}
+
+func TestPacingDirection(t *testing.T) {
+	t.Parallel()
+	if got := pacingDirection("audio-pacing"); got != "input" {
+		t.Errorf("pacingDirection(audio-pacing) = %q, want input", got)
+	}
+	if got := pacingDirection("audio-pacing-output"); got != "output" {
+		t.Errorf("pacingDirection(audio-pacing-output) = %q, want output", got)
 	}
 }
 
