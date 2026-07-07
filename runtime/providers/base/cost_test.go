@@ -114,6 +114,16 @@ func TestMakeCostInfo_NilPricing_ReturnsQuantitiesWithZeroCost(t *testing.T) {
 	assert.Equal(t, float64(100), info.Quantities["character"])
 }
 
+func TestMakeCostInfo_UnpricedNonzeroNotSwallowedToZero(t *testing.T) {
+	desc := &base.PricingDescriptor{Items: []base.PriceItem{{Unit: "character", Rate: 0.00001}}}
+	// quantity present, but unit "second" has no price item
+	ci := base.MakeCostInfo(desc, "tts", base.ProviderTypeTTS,
+		map[string]float64{"character": 1000, "second": 5}, 0)
+	// priced-partial: only the 1000 characters, NOT a swallowed $0
+	assert.InDelta(t, 1000*0.00001, ci.TotalCost, 1e-9)
+	assert.NotEmpty(t, ci.Breakdown)
+}
+
 func TestCostInfoToMetaMap_NilReturnsNil(t *testing.T) {
 	assert.Nil(t, base.CostInfoToMetaMap(nil))
 }

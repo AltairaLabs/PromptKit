@@ -142,11 +142,14 @@ func PricingFromAdditionalConfig(additional map[string]any) *PricingDescriptor {
 	return &desc
 }
 
-// MakeCostInfo builds a *types.CostInfo from raw quantities and runs
-// ComputeCost against the supplied descriptor to fill TotalCost. Returns
-// the CostInfo with quantities and identity tags populated even if pricing
-// is nil or doesn't match — callers can decide whether to drop a nil-cost
-// entry. This is the shared cost-construction path for ancillary providers
+// MakeCostInfo builds a *types.CostInfo from raw quantities and prices every
+// unit it can match against the supplied descriptor. Returns the CostInfo
+// with quantities and identity tags populated even if pricing is nil —
+// callers can decide whether to drop a nil-cost entry. Any nonzero quantity
+// unit that has no matching price item is NOT silently swallowed to $0: the
+// priced-partial total is kept and the gap is surfaced via a deduped warning
+// (see warnUnpriced), so operators see undercounted cost instead of a false
+// zero. This is the shared cost-construction path for ancillary providers
 // (TTS, STT, image gen) that report a single-quantity unit at call time.
 func MakeCostInfo(
 	desc *PricingDescriptor,
@@ -164,8 +167,11 @@ func MakeCostInfo(
 	if desc == nil {
 		return info
 	}
-	if usd, _, err := ComputeCost(desc, info); err == nil {
-		info.TotalCost = usd
+	total, breakdown, unpriced := computeCostPartial(desc, info)
+	info.TotalCost = total
+	info.Breakdown = toCostLineItems(providerName, capability, breakdown)
+	if len(unpriced) > 0 {
+		warnUnpriced(providerName, capability, unpriced)
 	}
 	return info
 }
