@@ -3,9 +3,11 @@ package stage
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 // AudioPacingStage delays each audio element so that it is forwarded at
@@ -240,10 +242,23 @@ func (s *AudioPacingStage) paceFor(ctx context.Context, elem *StreamElement) err
 		s.last = deadline
 	} else {
 		// We're already past the deadline (consumer running behind);
-		// don't try to claw back the gap, just resume from now.
+		// don't try to claw back the gap, just resume from now. Record it:
+		// this is the "cannot hold real time" health signal, reported
+		// direct-update (never via the event bus — see #853).
 		s.last = now
+		providers.DefaultStreamMetrics().PacingBehindDeadlineInc(pacingDirection(s.Name()))
 	}
 	return nil
+}
+
+// pacingDirection maps a pacing stage's name to a bounded metric label.
+// The output-direction instance is named with a "-output" suffix
+// (created in the Arena pipeline); every other pacing stage is input.
+func pacingDirection(stageName string) string {
+	if strings.HasSuffix(stageName, "-output") {
+		return "output"
+	}
+	return "input"
 }
 
 // chunkDurationFor returns the wall-clock playback time of an

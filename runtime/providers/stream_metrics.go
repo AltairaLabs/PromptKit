@@ -14,6 +14,10 @@ import (
 // exactly the workload this histogram exists to observe.
 var streamFirstChunkBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300}
 
+// labelDirection is the bounded audio-direction label name shared by the
+// realtime audio health metric vecs (values: "input" / "output").
+const labelDirection = "direction"
+
 // streamErrorChunksForwardedBuckets partitions the "chunks forwarded
 // before error" histogram. The critical boundary is 0 vs 1: zero
 // chunks means Phase 1 pre-first-chunk retry could have caught the
@@ -29,11 +33,24 @@ var streamErrorChunksForwardedBuckets = []float64{
 	0, 1, 5, 20, 100, 500, 2000, 10000,
 }
 
+// Off-bus realtime-audio telemetry invariant (AltairaLabs/PromptKit#853):
+//
+// Underruns, frame drops, and pacing-behind-deadline are realtime, per-frame
+// health signals. They are recorded here via StreamMetrics as DIRECT-UPDATE
+// counters — updated inline at the source, never published to the event bus.
+//
+// Routing per-frame audio telemetry through EventBus.Publish reintroduces the
+// #853 flood failure mode: at ~2k concurrent duplex streams the bus buffer
+// saturates, events are dropped, and the autoscaling/health signals they carry
+// are silently corrupted. The regression guard in
+// runtime/pipeline/stage/audio_offbus_regression_test.go enforces this — it
+// asserts the audio path publishes zero events and that per-frame metric calls
+// are allocation-bounded. Do not attach audio health to the bus.
+
 // StreamMetrics holds the direct-update Prometheus metrics for streaming
 // provider calls. These are updated inline at the source (not via the
 // event bus) so that burst-load drops on the event bus cannot corrupt
-// autoscaling signals. See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md
-// for the design rationale.
+// autoscaling signals (see the off-bus invariant above).
 //
 // All methods are nil-safe: if StreamMetrics is nil, the call is a no-op.
 // This lets provider code unconditionally call s.StreamsInFlightInc(...)
@@ -49,6 +66,10 @@ type StreamMetrics struct {
 	httpConnsInUse              *prometheus.GaugeVec
 	pipelineStageElements       *prometheus.CounterVec
 	pipelineStageAudioBytes     *prometheus.CounterVec
+	audioFrameUnderruns         *prometheus.CounterVec
+	audioFrameUnderrunSamples   *prometheus.CounterVec
+	audioFrameDrops             *prometheus.CounterVec
+	audioPacingBehindDeadline   *prometheus.CounterVec
 }
 
 // NewStreamMetrics creates and registers the Phase 1 streaming metrics
@@ -143,6 +164,36 @@ func NewStreamMetrics(
 				"indicates the stage is dropping or not forwarding audio elements.",
 			ConstLabels: constLabels,
 		}, []string{"stage"}),
+		audioFrameUnderruns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "audio_frame_underruns_total",
+			Help: "Realtime audio consumer pulls that short-filled with silence " +
+				"because the buffer was starved (the stutter signal), by direction. " +
+				"Direct-update, off the event bus.",
+			ConstLabels: constLabels,
+		}, []string{labelDirection}),
+		audioFrameUnderrunSamples: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "audio_frame_underrun_samples_total",
+			Help: "Cumulative count of silence samples substituted on underrun " +
+				"(magnitude of starvation), by direction.",
+			ConstLabels: constLabels,
+		}, []string{labelDirection}),
+		audioFrameDrops: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "audio_frame_drops_total",
+			Help: "Cumulative audio samples dropped, by direction and reason " +
+				"(reason=overflow: producer exceeded buffer capacity / real-time cadence).",
+			ConstLabels: constLabels,
+		}, []string{labelDirection, "reason"}),
+		audioPacingBehindDeadline: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "audio_pacing_behind_deadline_total",
+			Help: "Times the audio pacing stage was already past a chunk's playback " +
+				"deadline when it went to forward it (the consumer/pipeline cannot hold " +
+				"real time), by direction.",
+			ConstLabels: constLabels,
+		}, []string{labelDirection}),
 		httpConnsInUse: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "http_conns_in_use",
@@ -168,6 +219,10 @@ func NewStreamMetrics(
 		m.httpConnsInUse,
 		m.pipelineStageElements,
 		m.pipelineStageAudioBytes,
+		m.audioFrameUnderruns,
+		m.audioFrameUnderrunSamples,
+		m.audioFrameDrops,
+		m.audioPacingBehindDeadline,
 	)
 	return m
 }
@@ -327,6 +382,74 @@ func (m *StreamMetrics) PipelineStageAudioBytesVec() *prometheus.CounterVec {
 		return nil
 	}
 	return m.pipelineStageAudioBytes
+}
+
+// FrameUnderrunInc records one realtime-audio consumer pull that short-filled
+// with silence (a stutter). direction is "input" or "output". Nil-safe.
+func (m *StreamMetrics) FrameUnderrunInc(direction string) {
+	if m == nil {
+		return
+	}
+	m.audioFrameUnderruns.WithLabelValues(direction).Inc()
+}
+
+// FrameUnderrunSamplesAdd adds n silence samples substituted on underrun to
+// the magnitude counter for direction. Nil-safe.
+func (m *StreamMetrics) FrameUnderrunSamplesAdd(direction string, n int) {
+	if m == nil {
+		return
+	}
+	m.audioFrameUnderrunSamples.WithLabelValues(direction).Add(float64(n))
+}
+
+// FrameDropAdd adds n dropped samples for (direction, reason). reason is a
+// small closed set (e.g. "overflow"). Nil-safe.
+func (m *StreamMetrics) FrameDropAdd(direction, reason string, n int) {
+	if m == nil {
+		return
+	}
+	m.audioFrameDrops.WithLabelValues(direction, reason).Add(float64(n))
+}
+
+// PacingBehindDeadlineInc records one occurrence of the audio pacing stage
+// being past a chunk's playback deadline (cannot hold real time). Nil-safe.
+func (m *StreamMetrics) PacingBehindDeadlineInc(direction string) {
+	if m == nil {
+		return
+	}
+	m.audioPacingBehindDeadline.WithLabelValues(direction).Inc()
+}
+
+// FrameUnderrunsVec returns the raw counter vec for cross-package tests.
+func (m *StreamMetrics) FrameUnderrunsVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.audioFrameUnderruns
+}
+
+// FrameUnderrunSamplesVec returns the raw counter vec for cross-package tests.
+func (m *StreamMetrics) FrameUnderrunSamplesVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.audioFrameUnderrunSamples
+}
+
+// FrameDropsVec returns the raw counter vec for cross-package tests.
+func (m *StreamMetrics) FrameDropsVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.audioFrameDrops
+}
+
+// PacingBehindDeadlineVec returns the raw counter vec for cross-package tests.
+func (m *StreamMetrics) PacingBehindDeadlineVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.audioPacingBehindDeadline
 }
 
 // RegisterDefaultStreamMetrics during startup; all provider code reads

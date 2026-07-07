@@ -22,6 +22,7 @@ import (
 	"github.com/ebitengine/purego"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 const (
@@ -144,6 +145,10 @@ type portaudioIO struct {
 	// jitterOverflowOnce guards a single per-session warning the first time the
 	// playback jitter buffer drops samples (a writer exceeding real-time cadence).
 	jitterOverflowOnce sync.Once
+	// jitterHealth forwards playback jitter-buffer underrun/drop deltas to the
+	// process-wide StreamMetrics (off-bus). Zero value ready; state advances per
+	// duplex-loop tick, which is the single goroutine that touches it.
+	jitterHealth providers.JitterHealthReporter
 	// readFn/writeFn are injectable seams: nil on the real path (the loop calls
 	// Pa_ReadStream/Pa_WriteStream on duplexStream); set by tests to fakes so the
 	// loop body is unit-testable without an audio device.
@@ -316,6 +321,16 @@ func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
 	p.wg.Add(1)
 	go p.duplexLoop(ctx)
 	return nil
+}
+
+// reportJitterHealth emits the deltas of the playback jitter buffer's
+// underrun/drop counters to the process-wide StreamMetrics via the shared,
+// PortAudio-free providers.JitterHealthReporter. Called once per duplex loop
+// tick. Direct-update, off the event bus (see #853). DefaultStreamMetrics() is
+// nil when the sample runs standalone (no collector registered), in which case
+// the nil-safe reporter makes this a no-op.
+func (p *portaudioIO) reportJitterHealth() {
+	p.jitterHealth.Report(providers.DefaultStreamMetrics(), p.jitter, "output")
 }
 
 func (p *portaudioIO) captureLoop(ctx context.Context) {
