@@ -366,6 +366,14 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
 		})
 	}
 
+	// Fold emitted messages into finalResult so the terminal chunk carries real
+	// cost/token/validation data. Without this the streaming Response reports
+	// zero cost/tokens even though tokens were spent (the non-streaming Send()
+	// path is unaffected). Mirrors stage.accumulateResult.
+	if elem.Message != nil {
+		p.accumulateMessage(elem.Message)
+	}
+
 	if elem.Text != nil && *elem.Text != "" {
 		p.sb.WriteString(*elem.Text)
 		if !p.sendChunk(&providers.StreamChunk{Delta: *elem.Text}) {
@@ -377,6 +385,40 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
 		p.emitPendingTools(elem.Meta.PendingTools)
 	}
 	return true
+}
+
+// streamRoleAssistant is the role of assistant messages whose cost/token usage
+// is accumulated into the streaming final result.
+const streamRoleAssistant = "assistant"
+
+// accumulateMessage folds an emitted message into finalResult, summing cost/token
+// usage from assistant messages and recording the response so the terminal
+// stream chunk (and thus the streaming Response) reports real values instead of
+// zeros. Mirrors stage.accumulateResult for the streaming path.
+func (p *streamProcessor) accumulateMessage(msg *types.Message) {
+	if p.finalResult == nil {
+		p.finalResult = &pipeline.ExecutionResult{}
+	}
+	p.finalResult.Messages = append(p.finalResult.Messages, *msg)
+	if msg.Role != streamRoleAssistant {
+		return
+	}
+	p.finalResult.Response = &pipeline.Response{
+		Role:      msg.Role,
+		Content:   msg.Content,
+		Parts:     msg.Parts,
+		ToolCalls: msg.ToolCalls,
+	}
+	if msg.CostInfo != nil {
+		ci := &p.finalResult.CostInfo
+		ci.InputTokens += msg.CostInfo.InputTokens
+		ci.OutputTokens += msg.CostInfo.OutputTokens
+		ci.CachedTokens += msg.CostInfo.CachedTokens
+		ci.InputCostUSD += msg.CostInfo.InputCostUSD
+		ci.OutputCostUSD += msg.CostInfo.OutputCostUSD
+		ci.CachedCostUSD += msg.CostInfo.CachedCostUSD
+		ci.TotalCost += msg.CostInfo.TotalCost
+	}
 }
 
 // emitPendingTools surfaces pending tool calls as a final stream chunk.

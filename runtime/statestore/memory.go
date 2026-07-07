@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"encoding/json"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -1117,11 +1118,18 @@ func cloneContentPart(cp *types.ContentPart) types.ContentPart {
 
 // cloneToolCall returns a deep copy of a types.MessageToolCall.
 func cloneToolCall(tc *types.MessageToolCall) types.MessageToolCall {
-	return types.MessageToolCall{
+	clone := types.MessageToolCall{
 		ID:   tc.ID,
 		Name: tc.Name,
 		Args: cloneRawMessage(tc.Args),
 	}
+	// ProviderMetadata carries opaque provider round-trip data (e.g. Gemini 3's
+	// thought_signature) that must survive a statestore round-trip to be replayed.
+	if len(tc.ProviderMetadata) > 0 {
+		clone.ProviderMetadata = make(map[string]string, len(tc.ProviderMetadata))
+		maps.Copy(clone.ProviderMetadata, tc.ProviderMetadata)
+	}
+	return clone
 }
 
 // cloneValidationResult returns a deep copy of a types.ValidationResult.
@@ -1139,11 +1147,12 @@ func cloneValidationResult(vr *types.ValidationResult) types.ValidationResult {
 // Only reference types (slices, maps, pointers) need deep copying for isolation.
 func cloneMessage(msg *types.Message) types.Message {
 	cp := types.Message{
-		Role:      msg.Role,
-		Content:   msg.Content,
-		Source:    msg.Source,
-		Timestamp: msg.Timestamp,
-		LatencyMs: msg.LatencyMs,
+		Role:         msg.Role,
+		Content:      msg.Content,
+		Source:       msg.Source,
+		Timestamp:    msg.Timestamp,
+		LatencyMs:    msg.LatencyMs,
+		FinishReason: msg.FinishReason,
 	}
 
 	// Only clone reference-type fields when non-nil to avoid unnecessary allocations

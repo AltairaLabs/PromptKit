@@ -1091,6 +1091,7 @@ func (s *ProviderStage) executeRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			FinishReason:  resp.FinishReason,
 			Source:        s.config.Source,
 			Labels:        s.config.Labels,
 		}
@@ -1271,7 +1272,8 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, costInfo, reasoning, chunkValidations, err := s.processStreamChunks(ctx, streamChan, output)
+	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason, err :=
+		s.processStreamChunks(ctx, streamChan, output)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -1296,6 +1298,7 @@ func (s *ProviderStage) executeStreamingRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			FinishReason:  finishReason,
 			Source:        s.config.Source,
 			Labels:        s.config.Labels,
 		}
@@ -1430,13 +1433,14 @@ func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
-) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, error) {
+) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, string, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
 	var costInfo *types.CostInfo
 	var reasoning strings.Builder
 	var opaqueReasoning []types.OpaqueReasoning
 	var pendingValidations []types.ValidationResult
+	var finishReason string
 
 	for chunk := range streamChan {
 		ResetIdleFromContext(ctx)
@@ -1456,7 +1460,7 @@ func (s *ProviderStage) processStreamChunks(
 
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, nil, nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return "", nil, nil, nil, nil, "", fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
@@ -1467,13 +1471,18 @@ func (s *ProviderStage) processStreamChunks(
 		if chunk.CostInfo != nil {
 			costInfo = chunk.CostInfo
 		}
+		// Capture the finish reason (last non-nil wins) so the completion event
+		// carries it instead of an empty string.
+		if chunk.FinishReason != nil {
+			finishReason = *chunk.FinishReason
+		}
 		// Accumulate reasoning (deltas) separately from content; it surfaces on
 		// Message.Reasoning, never as content or future context.
 		reasoning.WriteString(chunk.Reasoning)
 		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
 
 		if err := s.emitChunkElement(ctx, &chunk, output); err != nil {
-			return "", nil, nil, nil, nil, err
+			return "", nil, nil, nil, nil, "", err
 		}
 
 		// Run chunk interceptor hooks
@@ -1498,7 +1507,7 @@ func (s *ProviderStage) processStreamChunks(
 					content = chunk.Content
 					break
 				}
-				return "", nil, nil, nil, nil, &providers.ValidationAbortError{
+				return "", nil, nil, nil, nil, "", &providers.ValidationAbortError{
 					Reason: d.Reason,
 					Chunk:  chunk,
 				}
@@ -1510,7 +1519,7 @@ func (s *ProviderStage) processStreamChunks(
 	if reasoning.Len() > 0 || len(opaqueReasoning) > 0 {
 		trace = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaqueReasoning}
 	}
-	return content, toolCalls, costInfo, trace, pendingValidations, nil
+	return content, toolCalls, costInfo, trace, pendingValidations, finishReason, nil
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.

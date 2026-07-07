@@ -570,6 +570,10 @@ func (p *ToolProvider) parseToolResponse(
 	predictResp.Latency = latency
 	predictResp.Raw = respBytes
 	predictResp.ToolCalls = toolCalls
+	// Normalize + surface the stop reason (tool_use / end_turn / max_tokens /
+	// refusal); the non-streaming and streaming paths already do this — the tool
+	// path was the only one dropping it, emitting an empty FinishReason.
+	predictResp.FinishReason = normalizeFinishReason(resp.StopReason)
 
 	return *predictResp, toolCalls, nil
 }
