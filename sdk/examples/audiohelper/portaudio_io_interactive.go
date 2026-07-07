@@ -145,12 +145,10 @@ type portaudioIO struct {
 	// jitterOverflowOnce guards a single per-session warning the first time the
 	// playback jitter buffer drops samples (a writer exceeding real-time cadence).
 	jitterOverflowOnce sync.Once
-	// prev* hold the last-reported cumulative JitterBuffer counters so the duplex
-	// loop can emit deltas to the process-wide StreamMetrics without double-counting.
-	// Only the duplex loop reads/writes them (single goroutine).
-	prevUnderruns       int64
-	prevUnderrunSamples int64
-	prevDrops           int64
+	// jitterHealth forwards playback jitter-buffer underrun/drop deltas to the
+	// process-wide StreamMetrics (off-bus). Zero value ready; state advances per
+	// duplex-loop tick, which is the single goroutine that touches it.
+	jitterHealth providers.JitterHealthReporter
 	// readFn/writeFn are injectable seams: nil on the real path (the loop calls
 	// Pa_ReadStream/Pa_WriteStream on duplexStream); set by tests to fakes so the
 	// loop body is unit-testable without an audio device.
@@ -326,32 +324,13 @@ func (p *portaudioIO) startDuplexLocked(ctx context.Context) error {
 }
 
 // reportJitterHealth emits the deltas of the playback jitter buffer's
-// underrun/drop counters to the process-wide StreamMetrics. Called once per
-// duplex loop tick. Direct-update, off the event bus (see #853).
-// DefaultStreamMetrics() is nil when the sample runs standalone (no collector
-// registered), in which case the nil-safe methods make this a no-op.
+// underrun/drop counters to the process-wide StreamMetrics via the shared,
+// PortAudio-free providers.JitterHealthReporter. Called once per duplex loop
+// tick. Direct-update, off the event bus (see #853). DefaultStreamMetrics() is
+// nil when the sample runs standalone (no collector registered), in which case
+// the nil-safe reporter makes this a no-op.
 func (p *portaudioIO) reportJitterHealth() {
-	m := providers.DefaultStreamMetrics()
-
-	u := p.jitter.Underruns()
-	if d := u - p.prevUnderruns; d > 0 {
-		for i := int64(0); i < d; i++ {
-			m.FrameUnderrunInc("output")
-		}
-		p.prevUnderruns = u
-	}
-
-	us := p.jitter.UnderrunSamples()
-	if d := us - p.prevUnderrunSamples; d > 0 {
-		m.FrameUnderrunSamplesAdd("output", int(d))
-		p.prevUnderrunSamples = us
-	}
-
-	dr := p.jitter.Drops()
-	if d := dr - p.prevDrops; d > 0 {
-		m.FrameDropAdd("output", "overflow", int(d))
-		p.prevDrops = dr
-	}
+	p.jitterHealth.Report(providers.DefaultStreamMetrics(), p.jitter, "output")
 }
 
 func (p *portaudioIO) captureLoop(ctx context.Context) {
