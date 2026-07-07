@@ -110,16 +110,19 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 	// Create channels between stages
 	channels := p.createChannels()
 
-	// Start stages and collect output
+	// Start stages and collect output. totals accumulates the message/token/cost
+	// counts as output elements flow through, so the completion event reports
+	// real numbers instead of zeros.
+	totals := &completionTotals{}
 	stageErrors := p.startStages(ctx, input, channels)
-	outputDone := p.startOutputCollection(channels, output)
+	outputDone := p.startOutputCollection(channels, output, totals)
 
 	// Wait for errors and output collection
 	firstError := p.waitForStageErrors(stageErrors)
 	<-outputDone
 
-	// Emit completion event
-	p.emitCompletionEvent(firstError, time.Since(start))
+	// Emit completion event with the real totals observed during collection.
+	p.emitCompletionEvent(firstError, time.Since(start), totals)
 }
 
 // monitorExecutionTimeout logs when execution timeout triggers.
@@ -169,10 +172,11 @@ func (p *StreamPipeline) startStages(ctx context.Context, input <-chan StreamEle
 func (p *StreamPipeline) startOutputCollection(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
+	totals *completionTotals,
 ) <-chan struct{} {
 	outputDone := make(chan struct{})
 	go func() {
-		p.collectOutput(channels, output)
+		p.collectOutput(channels, output, totals)
 		close(output)
 		close(outputDone)
 	}()
@@ -190,8 +194,48 @@ func (p *StreamPipeline) waitForStageErrors(stageErrors <-chan error) error {
 	return firstError
 }
 
+// completionTotals accumulates the message/token/cost counts observed as output
+// elements flow through collectOutput, so the pipeline.completed event carries
+// real numbers instead of placeholder zeros. It is written from the (possibly
+// concurrent) leaf fan-in goroutines, so access is mutex-guarded; the lock is
+// only taken for elements that carry a Message, which are rare relative to
+// audio/text stream elements.
+type completionTotals struct {
+	mu           sync.Mutex
+	messageCount int
+	inputTokens  int
+	outputTokens int
+	totalCost    float64
+}
+
+// observe records a single output element's contribution to the totals. Nil-safe
+// on the receiver so callers (and tests) can pass a nil accumulator to opt out.
+func (t *completionTotals) observe(elem *StreamElement) {
+	if t == nil || elem.Message == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.messageCount++
+	if elem.Message.Role == roleAssistant && elem.Message.CostInfo != nil {
+		t.inputTokens += elem.Message.CostInfo.InputTokens
+		t.outputTokens += elem.Message.CostInfo.OutputTokens
+		t.totalCost += elem.Message.CostInfo.TotalCost
+	}
+}
+
+// snapshot returns the accumulated totals. Nil-safe (returns zeros).
+func (t *completionTotals) snapshot() (messages, inputTokens, outputTokens int, cost float64) {
+	if t == nil {
+		return 0, 0, 0, 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.messageCount, t.inputTokens, t.outputTokens, t.totalCost
+}
+
 // emitCompletionEvent emits the appropriate pipeline completion event.
-func (p *StreamPipeline) emitCompletionEvent(err error, duration time.Duration) {
+func (p *StreamPipeline) emitCompletionEvent(err error, duration time.Duration, totals *completionTotals) {
 	if p.eventEmitter == nil {
 		return
 	}
@@ -199,7 +243,8 @@ func (p *StreamPipeline) emitCompletionEvent(err error, duration time.Duration) 
 	if err != nil {
 		p.eventEmitter.PipelineFailed(err, duration)
 	} else {
-		p.eventEmitter.PipelineCompleted(duration, 0, 0, 0, 0)
+		messages, inputTokens, outputTokens, cost := totals.snapshot()
+		p.eventEmitter.PipelineCompleted(duration, cost, inputTokens, outputTokens, messages)
 	}
 }
 
@@ -339,7 +384,11 @@ func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan S
 // collectOutput collects output from all leaf stages into the pipeline output
 // channel. Leaf stages are read concurrently so that a slow leaf does not
 // block faster ones.
-func (p *StreamPipeline) collectOutput(channels map[string]chan StreamElement, output chan<- StreamElement) {
+func (p *StreamPipeline) collectOutput(
+	channels map[string]chan StreamElement,
+	output chan<- StreamElement,
+	totals *completionTotals,
+) {
 	// Identify leaf stages (stages with no outgoing edges).
 	var leafChans []<-chan StreamElement
 	for _, stage := range p.stages {
@@ -352,6 +401,7 @@ func (p *StreamPipeline) collectOutput(channels map[string]chan StreamElement, o
 		// Fast path: single leaf — no extra goroutines needed.
 		for _, ch := range leafChans {
 			for elem := range ch {
+				totals.observe(&elem)
 				output <- elem
 			}
 		}
@@ -365,6 +415,7 @@ func (p *StreamPipeline) collectOutput(channels map[string]chan StreamElement, o
 		go func(src <-chan StreamElement) {
 			defer wg.Done()
 			for elem := range src {
+				totals.observe(&elem)
 				output <- elem
 			}
 		}(ch)

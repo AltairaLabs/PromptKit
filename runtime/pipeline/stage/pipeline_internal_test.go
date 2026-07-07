@@ -258,7 +258,7 @@ func TestCollectOutput_ConcurrentLeafStages(t *testing.T) {
 
 	output := make(chan StreamElement, 10)
 	go func() {
-		pipeline.collectOutput(channels, output)
+		pipeline.collectOutput(channels, output, &completionTotals{})
 		close(output)
 	}()
 
@@ -282,8 +282,8 @@ func TestEmitCompletionEvent(t *testing.T) {
 		}
 
 		// Should not panic
-		pipeline.emitCompletionEvent(nil, time.Second)
-		pipeline.emitCompletionEvent(errors.New("error"), time.Second)
+		pipeline.emitCompletionEvent(nil, time.Second, nil)
+		pipeline.emitCompletionEvent(errors.New("error"), time.Second, nil)
 	})
 
 	t.Run("success event with emitter", func(t *testing.T) {
@@ -294,7 +294,7 @@ func TestEmitCompletionEvent(t *testing.T) {
 		}
 
 		// Should not panic - emitter handles nil bus gracefully
-		pipeline.emitCompletionEvent(nil, time.Second)
+		pipeline.emitCompletionEvent(nil, time.Second, &completionTotals{})
 	})
 
 	t.Run("failure event with emitter", func(t *testing.T) {
@@ -306,7 +306,7 @@ func TestEmitCompletionEvent(t *testing.T) {
 
 		testErr := errors.New("test error")
 		// Should not panic - emitter handles nil bus gracefully
-		pipeline.emitCompletionEvent(testErr, time.Second)
+		pipeline.emitCompletionEvent(testErr, time.Second, &completionTotals{})
 	})
 }
 
