@@ -266,8 +266,9 @@ Configures conversation state persistence. Defaults to in-memory storage when om
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | no | Store implementation: `memory` (default) or `redis`. |
+| `type` | string | no | Store implementation: `memory` (default), `redis`, or `file`. |
 | `redis` | object | conditional | Redis configuration. Required when `type` is `redis`. See [redis](#redis). |
+| `file` | object | conditional | Filesystem store configuration. Required when `type` is `file`. See [file](#file). |
 
 #### redis
 
@@ -278,6 +279,16 @@ Configures conversation state persistence. Defaults to in-memory storage when om
 | `database` | int | no | Redis database number (0-15, default: 0). |
 | `ttl` | string | no | Key TTL as a Go duration string (e.g., `24h`, `168h`). Default: `24h`. |
 | `prefix` | string | no | Key prefix for all state keys. Default: `promptkit`. |
+
+#### file
+
+Single-machine, filesystem-backed persistence (survives process restarts; no cross-process locking).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `root` | string | yes | Directory under which per-conversation state is stored. Created if absent. |
+| `fsync` | string | no | Durability policy: `off`, `on-save` (default), `on-append`. |
+| `ttl_days` | int | no | At startup, remove conversation state older than this many days. Default: `0` (disabled). |
 
 ---
 
