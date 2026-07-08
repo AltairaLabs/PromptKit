@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -175,18 +176,14 @@ func (p *Provider) Predict(
 	return p.predictWithMessages(ctx, req, messages)
 }
 
-// CalculateCost calculates cost breakdown - Ollama is free (local inference)
+// CalculateCost calculates cost breakdown - Ollama is free (local inference).
+// A nil pricing descriptor routes through the shared engine as $0 while still
+// populating the headline token counts (see base.PriceUsage). tokensIn is the
+// total prompt token count including any cached tokens, so it is reduced by
+// cachedTokens before being reported as the canonical (uncached) input unit.
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
-	// Ollama is free local inference - no cost
-	return types.CostInfo{
-		InputTokens:   tokensIn - cachedTokens,
-		OutputTokens:  tokensOut,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  0,
-		OutputCostUSD: 0,
-		CachedCostUSD: 0,
-		TotalCost:     0,
-	}
+	return base.PriceUsage(nil, p.ID(), base.ProviderTypeInference,
+		base.TokenUsage{Input: tokensIn - cachedTokens, CacheRead: cachedTokens, Output: tokensOut}, nil, 0)
 }
 
 // PredictStream streams a predict response from Ollama
