@@ -261,7 +261,7 @@ docs-install: ## Install documentation dependencies
 	@echo "📦 Installing documentation dependencies..."
 	@command -v gomarkdoc >/dev/null 2>&1 || { \
 		echo "Installing gomarkdoc..."; \
-		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest; \
+		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0; \
 	}
 	@echo "Installing Astro dependencies..."
 	@cd docs && npm install

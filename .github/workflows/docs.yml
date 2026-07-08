@@ -63,7 +63,7 @@ jobs:
           cache: true
 
       - name: Install gomarkdoc
-        run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+        run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0
 
       - name: Install D2
         run: curl -fsSL https://d2lang.com/install.sh | sh -s --
