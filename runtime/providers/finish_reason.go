@@ -8,7 +8,9 @@ import "github.com/AltairaLabs/PromptKit/runtime/types"
 // Shared by the OpenAI, vLLM, and Ollama providers, which speak this vocabulary.
 func NormalizeOpenAIFinishReason(raw string) string {
 	switch raw {
-	case "stop":
+	case "stop", "eos_token":
+		// "eos_token" is vLLM's native (non-OpenAI-compat) stop reason,
+		// surfaced verbatim by some vLLM deployments/engines instead of "stop".
 		return types.FinishReasonStop
 	case "length":
 		return types.FinishReasonMaxOutputTokens

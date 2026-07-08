@@ -175,8 +175,8 @@ func (p *Provider) PredictWithTools( // NOSONAR
 	choice := vllmResp.Choices[0]
 	predictResp.Content = choice.Message.Content.(string)
 
-	// Calculate cost
-	costInfo := p.CalculateCost(vllmResp.Usage.PromptTokens, vllmResp.Usage.CompletionTokens, 0)
+	// Calculate cost from the full wire usage.
+	costInfo := p.costFromUsage(vllmResp.Usage)
 	predictResp.CostInfo = &costInfo
 
 	// Set latency
@@ -302,6 +302,9 @@ func (p *Provider) buildToolRequest(
 	reqMap["top_p"] = vllmReq.TopP
 	reqMap["max_tokens"] = vllmReq.MaxTokens
 	reqMap["stream"] = vllmReq.Stream
+	if vllmReq.StreamOptions != nil {
+		reqMap["stream_options"] = vllmReq.StreamOptions
+	}
 
 	if vllmReq.Seed != nil {
 		reqMap["seed"] = vllmReq.Seed
@@ -446,13 +449,21 @@ func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, c
 			}
 		}
 
-		// Check for finish reason
+		// Check for finish reason. Normalize to the canonical vocabulary (matching
+		// the non-tool streaming and non-streaming paths) and, when the terminal
+		// chunk carries usage (requires stream_options.include_usage on the
+		// request, see buildRequest), attach the priced cost breakdown.
 		if choice.FinishReason != "" {
-			finishReason := choice.FinishReason
-			chunks <- providers.StreamChunk{
+			finishReason := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
+			terminal := providers.StreamChunk{
 				FinishReason: &finishReason,
 				ToolCalls:    toolCalls,
 			}
+			if chunk.Usage != nil {
+				costInfo := p.costFromUsage(*chunk.Usage)
+				terminal.CostInfo = &costInfo
+			}
+			chunks <- terminal
 		}
 	}
 

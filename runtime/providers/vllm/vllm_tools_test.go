@@ -337,8 +337,12 @@ data: [DONE]
 		t.Fatal("Expected final chunk with finish reason")
 	}
 
-	if *finalChunk.FinishReason != "tool_calls" {
-		t.Errorf("Expected finish reason 'tool_calls', got %s", *finalChunk.FinishReason)
+	// Terminal tool-streaming finish reasons are now normalized to the
+	// canonical vocabulary (task 14, finding J), matching the non-tool
+	// streaming and non-streaming PredictWithTools paths: raw "tool_calls"
+	// becomes types.FinishReasonToolUse ("tool_use"), not the raw wire value.
+	if *finalChunk.FinishReason != types.FinishReasonToolUse {
+		t.Errorf("Expected finish reason %q, got %s", types.FinishReasonToolUse, *finalChunk.FinishReason)
 	}
 
 	if len(finalChunk.ToolCalls) != 1 {
