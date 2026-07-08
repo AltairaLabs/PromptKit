@@ -74,6 +74,55 @@ func TestAggregateCost_HeadlineOnlyPartNotDropped(t *testing.T) {
 	assert.Equal(t, 1000.0, got.Quantities[base.UnitInputToken])
 }
 
+func TestAggregateCost_TotalCostOnlyPartNotDropped(t *testing.T) {
+	// Regression guard (imagen shape): a part carries only a non-canonical
+	// Quantities unit (image count) and a flat TotalCost, no token buckets,
+	// no Breakdown. The $ amount and the quantity must both survive.
+	imagen := &types.CostInfo{
+		Quantities:   map[string]float64{"image": 1},
+		TotalCost:    0.04,
+		ProviderName: "imagen",
+		Capability:   "image",
+	}
+	got := base.AggregateCost(imagen)
+	assert.InDelta(t, 0.04, got.TotalCost, 1e-9)
+	assert.InDelta(t, 0.04, got.OutputCostUSD, 1e-9)
+	assert.InDelta(t, got.TotalCost, got.InputCostUSD+got.OutputCostUSD+got.CachedCostUSD, 1e-9)
+	assert.Equal(t, 1.0, got.Quantities["image"])
+}
+
+func TestAggregateCost_TokensAndTotalCostNoBuckets(t *testing.T) {
+	// Regression guard (replay shape): token counts + TotalCost are present
+	// but no bucket-USD and no Breakdown. Cost must not be zeroed out, and
+	// the token headline counts must still survive the roll-up.
+	replay := &types.CostInfo{
+		InputTokens:  100,
+		OutputTokens: 50,
+		CachedTokens: 10,
+		TotalCost:    0.02,
+	}
+	got := base.AggregateCost(replay)
+	assert.InDelta(t, 0.02, got.TotalCost, 1e-9)
+	assert.InDelta(t, got.TotalCost, got.InputCostUSD+got.OutputCostUSD+got.CachedCostUSD, 1e-9)
+	assert.Equal(t, 100, got.InputTokens)
+	assert.Equal(t, 50, got.OutputTokens)
+	assert.Equal(t, 10, got.CachedTokens)
+}
+
+func TestAggregateCost_FreeProviderQuantitiesPreserved(t *testing.T) {
+	// Regression guard: a free/local provider carries real Quantities (e.g.
+	// reasoning_token) at $0 with no Breakdown. The quantities must survive
+	// even though there is no cost to preserve.
+	free := &types.CostInfo{
+		Quantities:  map[string]float64{base.UnitInputToken: 100, base.UnitReasoningToken: 20},
+		InputTokens: 100,
+		TotalCost:   0,
+	}
+	got := base.AggregateCost(free)
+	assert.Equal(t, 20.0, got.Quantities[base.UnitReasoningToken])
+	assert.InDelta(t, 0, got.TotalCost, 1e-9)
+}
+
 func TestAggregateCost_MixedBreakdownAndHeadlineOnly(t *testing.T) {
 	// One part carries a real Breakdown, the other is headline-only. Both
 	// must contribute, with no double-counting.

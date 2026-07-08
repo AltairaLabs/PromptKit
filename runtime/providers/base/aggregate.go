@@ -32,18 +32,38 @@ func AggregateCost(parts ...*types.CostInfo) types.CostInfo {
 			out.ProviderName = p.ProviderName
 			out.Capability = p.Capability
 		}
+		for unit, qty := range p.Quantities {
+			out.Quantities[unit] += qty
+		}
 		if len(p.Breakdown) > 0 {
-			for unit, qty := range p.Quantities {
-				out.Quantities[unit] += qty
-			}
 			for i := range p.Breakdown {
 				mergeLine(lines, &order, p.Breakdown[i])
 			}
 			continue
 		}
+		var synthUSD float64
 		for _, li := range synthesizeLines(p) {
-			out.Quantities[li.Unit] += li.Quantity
+			if _, ok := p.Quantities[li.Unit]; !ok {
+				out.Quantities[li.Unit] += li.Quantity
+			}
+			synthUSD += li.USD
 			mergeLine(lines, &order, li)
+		}
+		// Preserve any cost the flat TotalCost carries that the synthesized
+		// lines didn't account for (e.g. imagen's per-image TotalCost with no
+		// token buckets, or replay's token counts priced at $0 with the real
+		// cost only in TotalCost). Without this, a headline-only part whose
+		// TotalCost isn't fully explained by Input/Output/CachedCostUSD would
+		// silently lose the difference.
+		residual := p.TotalCost - synthUSD
+		if residual > 1e-12 || residual < -1e-12 {
+			mergeLine(lines, &order, types.CostLineItem{
+				Provider:   p.ProviderName,
+				Capability: p.Capability,
+				Unit:       UnitOutputToken,
+				Quantity:   0,
+				USD:        residual,
+			})
 		}
 	}
 

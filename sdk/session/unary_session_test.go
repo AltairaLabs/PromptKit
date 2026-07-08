@@ -30,12 +30,9 @@ func TestProcessStreamElements_PopulatesFinalResultCost(t *testing.T) {
 	chunkChan := make(chan providers.StreamChunk, 8)
 
 	msg := types.Message{
-		Role:    "assistant",
-		Content: "hi",
-		CostInfo: &types.CostInfo{
-			InputTokens: 11, OutputTokens: 7,
-			InputCostUSD: 0.015, OutputCostUSD: 0.005, TotalCost: 0.02,
-		},
+		Role:     "assistant",
+		Content:  "hi",
+		CostInfo: &types.CostInfo{InputTokens: 11, OutputTokens: 7, TotalCost: 0.02},
 	}
 	stageChan <- stage.StreamElement{Message: &msg}
 	close(stageChan)
@@ -92,6 +89,31 @@ func TestStreamProcessor_AccumulateMessage_PreservesBreakdown(t *testing.T) {
 	assert.InEpsilon(t, 35.0, p.finalResult.CostInfo.Breakdown[0].Quantity, 1e-9)
 	assert.InEpsilon(t, 0.03, p.finalResult.CostInfo.Breakdown[0].USD, 1e-9)
 	assert.InEpsilon(t, 0.03, p.finalResult.CostInfo.TotalCost, 1e-9)
+}
+
+// TestStreamProcessor_AccumulateMessage_TotalCostOnlyNotDropped guards the
+// same phantom as TestProcessStreamElements_PopulatesFinalResultCost but for
+// a headline that carries no token buckets at all (the imagen/replay shape:
+// a non-canonical Quantities unit plus a flat TotalCost, no Breakdown, no
+// Input/Output/CachedCostUSD). accumulateMessage routes through
+// base.AggregateCost, so this must survive the roll-up instead of silently
+// zeroing out.
+func TestStreamProcessor_AccumulateMessage_TotalCostOnlyNotDropped(t *testing.T) {
+	p := &streamProcessor{}
+
+	msg := &types.Message{
+		Role: streamRoleAssistant,
+		CostInfo: &types.CostInfo{
+			Quantities: map[string]float64{"image": 1},
+			TotalCost:  0.04,
+		},
+	}
+
+	p.accumulateMessage(msg)
+
+	require.NotNil(t, p.finalResult)
+	assert.InEpsilon(t, 0.04, p.finalResult.CostInfo.TotalCost, 1e-9,
+		"a TotalCost-only message with no buckets/Breakdown must not aggregate to $0")
 }
 
 func TestNewUnarySession(t *testing.T) {
