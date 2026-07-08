@@ -107,7 +107,11 @@ sdk.WithDocumentData(pdfBytes, "application/pdf")
 Register a hook that intercepts LLM provider calls (before/after). Multiple hooks execute in order; the first deny short-circuits.
 
 ```go
-sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"hack"}))
+hook, err := guardrails.NewGuardrailHook("banned_words", map[string]any{"words": []any{"hack"}})
+if err != nil {
+    log.Fatal(err)
+}
+conv, err := sdk.Open("./chat.pack.json", "assistant", sdk.WithProviderHook(hook))
 ```
 
 ### WithToolHook
@@ -144,15 +148,19 @@ sdk.WithVideoFile("/path/to/video.mp4")
 
 ### WithRecording
 
-Enable session recording by inserting RecordingStages into the pipeline. These stages capture full binary content (images, audio, video) and publish events directly to the EventBus for session replay.
+Enable session recording by inserting RecordingStages into the pipeline. These stages capture full binary content (images, audio, video) and write directly to the configured `EventStore` for session replay — no event-bus hop, no drop-under-burst.
 
-If `cfg` is nil, default settings are used (audio=true, video=false, images=true). An EventBus is automatically created if none was provided via `WithEventBus`.
+If `cfg` is nil, default settings are used (audio=true, video=false, images=true). An `EventStore` **must** be configured via `WithEventStore` for recording to take effect — without one, the recording stages are silently skipped at pipeline build time.
 
 ```go
+store, _ := events.NewFileEventStore("/var/log/sessions")
+
 // Use defaults
+sdk.WithEventStore(store)
 sdk.WithRecording(nil)
 
 // Custom config
+sdk.WithEventStore(store)
 sdk.WithRecording(&sdk.RecordingConfig{
     IncludeAudio:  true,
     IncludeVideo:  true,
@@ -161,7 +169,7 @@ sdk.WithRecording(&sdk.RecordingConfig{
 ```
 
 :::note
-Without `WithRecording`, the emitter's `MessageCreated` events strip binary data from content parts (keeping only metadata like MIMEType, SizeKB, dimensions). RecordingStages bypass the emitter and publish full binary data directly to the EventBus.
+Without `WithRecording`, the emitter's `MessageCreated` events strip binary data from content parts (keeping only metadata like MIMEType, SizeKB, dimensions). RecordingStages bypass the emitter and write full binary data directly to the `EventStore`.
 :::
 
 ### WithCompaction
@@ -298,10 +306,10 @@ func (c *Conversation) Clear() error
 
 ### Fork
 
-Create an isolated copy.
+Create an isolated copy. Returns an error if rebuilding the forked pipeline fails.
 
 ```go
-func (c *Conversation) Fork() *Conversation
+func (c *Conversation) Fork() (*Conversation, error)
 ```
 
 ### Close
@@ -374,12 +382,13 @@ func (r *Response) PendingTools() []PendingTool
 
 ```go
 type StreamChunk struct {
-    Type     ChunkType              // ChunkText, ChunkToolCall, ChunkMedia, ChunkDone
-    Text     string                 // Text content (for ChunkText)
-    ToolCall *types.MessageToolCall // Tool call (for ChunkToolCall)
-    Media    *types.MediaContent    // Media content (for ChunkMedia)
-    Message  *Response              // Complete response (for ChunkDone)
-    Error    error                  // Error if any
+    Type       ChunkType                  // ChunkText, ChunkToolCall, ChunkMedia, ChunkClientTool, ChunkDone
+    Text       string                     // Text content (for ChunkText)
+    ToolCall   *types.MessageToolCall     // Tool call (for ChunkToolCall)
+    Media      *providers.StreamMediaData // Media content (for ChunkMedia)
+    ClientTool *PendingClientTool         // Pending client tool request (for ChunkClientTool)
+    Message    *Response                  // Complete response (for ChunkDone)
+    Error      error                      // Error if any
 }
 ```
 
@@ -387,12 +396,15 @@ type StreamChunk struct {
 
 ```go
 const (
-    ChunkText     ChunkType = iota // 0 - text content
-    ChunkToolCall                  // 1 - tool call
-    ChunkMedia                     // 2 - media content
-    ChunkDone                      // 3 - streaming complete
+    ChunkText       ChunkType = iota // 0 - text content
+    ChunkToolCall                    // 1 - tool call
+    ChunkMedia                       // 2 - media content
+    ChunkDone                        // 3 - streaming complete
+    ChunkClientTool                  // 4 - client tool request needing caller fulfillment
 )
 ```
+
+`ClientTool` requests are fulfilled via `SendToolResult`/`RejectClientTool`, then resumed with `ResumeStream` (`sdk/client_tools.go`).
 
 ## Handler Types
 
@@ -412,14 +424,18 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 
 ```go
 var (
-    ErrConversationClosed  = errors.New("conversation is closed")
+    ErrConversationClosed   = errors.New("conversation is closed")
     ErrConversationNotFound = errors.New("conversation not found")
-    ErrNoStateStore        = errors.New("no state store configured")
-    ErrPromptNotFound      = errors.New("prompt not found in pack")
-    ErrPackNotFound        = errors.New("pack file not found")
-    ErrProviderNotDetected = errors.New("could not detect provider: no API keys found in environment")
-    ErrToolNotRegistered   = errors.New("tool handler not registered")
-    ErrToolNotInPack       = errors.New("tool not defined in pack")
+    ErrNoStateStore         = errors.New("no state store configured")
+    ErrPromptNotFound       = errors.New("prompt not found in pack")
+    ErrPackNotFound         = errors.New("pack file not found")
+    ErrProviderNotDetected  = errors.New("could not detect provider: no API keys found in environment")
+    ErrToolNotRegistered    = errors.New("tool handler not registered")
+    ErrToolNotInPack        = errors.New("tool not defined in pack")
+    ErrNoWorkflow           = errors.New("pack has no workflow section")
+    ErrWorkflowClosed       = errors.New("workflow conversation is closed")
+    ErrWorkflowTerminal     = errors.New("workflow is in terminal state")
+    ErrMessageTooLarge      = errors.New("message exceeds maximum size")
 )
 ```
 
@@ -434,10 +450,15 @@ import (
     // Hooks & guardrails
     rthooks "github.com/AltairaLabs/PromptKit/runtime/hooks"
     "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+
+    // Recording (WithRecording / WithEventStore)
+    "github.com/AltairaLabs/PromptKit/runtime/events"
 )
 ```
 
 ## Additional References
+
+Audio, TTS, streaming, and variable-provider docs live under the Runtime reference (they document `runtime/audio`, `runtime/tts`, `runtime/streaming`, `runtime/variables` packages, not `sdk/`):
 
 ### Audio & Voice
 
@@ -449,13 +470,19 @@ import (
 
 - **[Variable Providers](/runtime/reference/variables/)** - Dynamic variable resolution, built-in providers, custom providers
 
-### A2A Server
+### A2A & AG-UI Integration
 
 - **[A2A Server](/sdk/reference/a2a-server/)** - A2AServer, A2ATaskStore, A2AConversationOpener
+- **[AG-UI Integration](/sdk/reference/ag-ui/)** - Bidirectional converters between PromptKit and AG-UI SDK types (`sdk/agui`)
+
+### Configuration & Protocols
+
+- **[RuntimeConfig](/sdk/reference/runtime-config/)** - YAML config schema for exec tools, hooks, and sandboxes
+- **[Exec Protocol](/sdk/reference/exec-protocol/)** - Wire protocol for subprocess tools, evals, and hooks
 
 ### Related
 
-- **[ConversationManager](/sdk/reference/conversation-manager/)** - Legacy conversation management
+- **[ConversationManager](/sdk/reference/conversation-manager/)** - Full generated `sdk` package reference
 
 ## See Also
 
