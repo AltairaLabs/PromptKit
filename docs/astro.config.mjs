@@ -71,8 +71,17 @@ const howToRedirects = {
 // per-package generated pages (`tools.md` + `mcp.md`, see
 // docs/scripts/gen-reference.sh); redirect the retired URL so external/
 // bookmarked links don't 404.
+//
+// The hand-written `sdk/reference/{streaming,tts,audio,variables}.md` pages
+// documented runtime packages (`runtime/streaming`, `runtime/tts`,
+// `runtime/audio`, `runtime/variables`) and were misfiled under sdk/
+// reference; they were replaced by generated pages under runtime/reference.
 const referenceRedirects = {
   '/runtime/reference/tools-mcp/': '/runtime/reference/tools/',
+  '/sdk/reference/streaming/': '/runtime/reference/streaming/',
+  '/sdk/reference/tts/': '/runtime/reference/tts/',
+  '/sdk/reference/audio/': '/runtime/reference/audio/',
+  '/sdk/reference/variables/': '/runtime/reference/variables/',
 };
 
 // https://astro.build/config

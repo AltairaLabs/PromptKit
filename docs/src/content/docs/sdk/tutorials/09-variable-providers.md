@@ -384,5 +384,5 @@ You've completed the SDK tutorials! Explore:
 
 ## See Also
 
-- [Variable Providers Reference](/sdk/reference/variables/) - Complete API
+- [Variable Providers Reference](/runtime/reference/variables/) - Complete API
 - [State Management Tutorial](/sdk/tutorials/04-state-management/) - Conversation state

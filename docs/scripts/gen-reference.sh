@@ -24,6 +24,10 @@ MAP=(
   "./telemetry|telemetry|Telemetry|13"
   "./logger|logging|Logging|8"
   "./pipeline/stage|pipeline|Pipeline|2"
+  "./streaming|streaming|Streaming|14"
+  "./tts|tts|TTS|15"
+  "./audio|audio|Audio|16"
+  "./variables|variables|Variables|17"
 )
 
 mkdir -p "$OUT"

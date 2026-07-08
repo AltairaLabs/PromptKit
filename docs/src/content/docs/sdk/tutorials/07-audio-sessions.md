@@ -322,6 +322,6 @@ See the `sdk/examples/voice-interview/` directory for a complete working example
 
 ## See Also
 
-- [VADModeConfig Reference](/sdk/reference/audio/) - Complete VAD configuration
-- [TTS Service Reference](/sdk/reference/tts/) - TTS providers and options
+- [VADModeConfig Reference](/runtime/reference/audio/) - Complete VAD configuration
+- [TTS Service Reference](/runtime/reference/tts/) - TTS providers and options
 - [Voice Interview Example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/voice-interview)

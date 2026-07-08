@@ -306,5 +306,5 @@ Estimate costs before production deployment.
 
 ## See Also
 
-- [TTS API Reference](/sdk/reference/tts/) - Complete API documentation
+- [TTS API Reference](/runtime/reference/tts/) - Complete API documentation
 - [Audio Sessions Tutorial](/sdk/tutorials/07-audio-sessions/) - Full voice integration

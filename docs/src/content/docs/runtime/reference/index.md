@@ -34,6 +34,10 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 | **Logging** | Structured logging with context | [logging.md](/runtime/reference/logging/) |
 | **Metrics** | Prometheus metrics collection | [metrics.md](/runtime/reference/metrics/) |
 | **Telemetry** | OpenTelemetry trace export | [telemetry.md](/runtime/reference/telemetry/) |
+| **Streaming** | Duplex response state machine, audio streaming, tool execution | [streaming.md](/runtime/reference/streaming/) |
+| **TTS** | Text-to-speech service interface and providers | [tts.md](/runtime/reference/tts/) |
+| **Audio** | VAD, turn detection, interruption handling | [audio.md](/runtime/reference/audio/) |
+| **Variables** | Dynamic variable resolution for prompt templates | [variables.md](/runtime/reference/variables/) |
 
 ### Import Paths
 
