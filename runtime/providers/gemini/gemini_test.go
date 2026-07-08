@@ -205,16 +205,22 @@ func TestGeminiProvider_CostBreakdown(t *testing.T) {
 	expectedInputCost := 0.00125 // 1000 tokens = 1 * $0.00125
 	expectedOutputCost := 0.0025 // 500 tokens = 0.5 * $0.005
 
-	if breakdown.InputCostUSD != expectedInputCost {
+	// Tolerance-based comparison: the priced-partial engine sums per-unit costs
+	// via a map iteration (computeCostPartial ranges over Quantities), whose
+	// order is randomized per call. Summation order can flip the last bit or
+	// two of a float64 total even though the two orderings are mathematically
+	// equal, so exact equality against a hand-computed literal is flaky here.
+	tolerance := 0.0000001
+	if breakdown.InputCostUSD < expectedInputCost-tolerance || breakdown.InputCostUSD > expectedInputCost+tolerance {
 		t.Errorf("Expected input cost %.5f, got %.5f", expectedInputCost, breakdown.InputCostUSD)
 	}
 
-	if breakdown.OutputCostUSD != expectedOutputCost {
+	if breakdown.OutputCostUSD < expectedOutputCost-tolerance || breakdown.OutputCostUSD > expectedOutputCost+tolerance {
 		t.Errorf("Expected output cost %.4f, got %.4f", expectedOutputCost, breakdown.OutputCostUSD)
 	}
 
 	expectedTotal := expectedInputCost + expectedOutputCost
-	if breakdown.TotalCost != expectedTotal {
+	if breakdown.TotalCost < expectedTotal-tolerance || breakdown.TotalCost > expectedTotal+tolerance {
 		t.Errorf("Expected total cost %.5f, got %.5f", expectedTotal, breakdown.TotalCost)
 	}
 }
@@ -232,7 +238,6 @@ func TestGeminiProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 	provider := NewProvider("test", "gemini-1.5-pro", "url", defaults, false)
 
 	// 1000 input (total), 500 output, 200 cached
-	// Gemini cached tokens cost 50% of input tokens
 	breakdown := provider.CalculateCost(1000, 500, 200)
 
 	// InputTokens field contains only non-cached input tokens
@@ -248,8 +253,17 @@ func TestGeminiProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		t.Error("CachedTokens mismatch")
 	}
 
-	// Cached tokens cost 50% of regular input tokens (Gemini pricing)
-	expectedCachedCost := 0.000125 // 200 * 0.00125 / 1000 * 0.5 = 0.000125
+	// The legacy flat providers.Pricing{InputCostPer1K,OutputCostPer1K} config
+	// carries only input_token/output_token rates (base.ResolveLLMPricing's
+	// FlatPricing branch, by design — it can't know a provider-specific cache
+	// multiplier). So with flat config set, cache reads have no matching price
+	// item: the quantity is still tracked (CachedTokens above) but the dollar
+	// amount is $0, surfaced via a loud "unpriced unit" warning rather than a
+	// silently assumed 50% discount. Cache-aware pricing requires either the
+	// built-in per-model table (geminiPricingTable, used when flat pricing is
+	// NOT configured) or an explicit PricingDescriptor with a cache_read_token
+	// item.
+	expectedCachedCost := 0.0
 	// Input cost is for 800 tokens only
 	expectedInputCost := 0.001   // 800 * 0.00125 / 1000 = 0.001
 	expectedOutputCost := 0.0025 // 500 * 0.005 / 1000 = 0.0025

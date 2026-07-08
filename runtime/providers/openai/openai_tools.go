@@ -440,13 +440,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
-		Usage struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			PromptTokensDetails *struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details,omitempty"`
-		} `json:"usage"`
+		Usage openAIUsage `json:"usage"`
 	}
 
 	if err := json.Unmarshal(respBytes, &openaiResp); err != nil {
@@ -459,14 +453,10 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 
 	choice := openaiResp.Choices[0]
 
-	// Get cached tokens if available
-	cachedTokens := 0
-	if openaiResp.Usage.PromptTokensDetails != nil {
-		cachedTokens = openaiResp.Usage.PromptTokensDetails.CachedTokens
-	}
-
-	// Calculate cost breakdown
-	costBreakdown := p.Provider.CalculateCost(openaiResp.Usage.PromptTokens, openaiResp.Usage.CompletionTokens, cachedTokens)
+	// Calculate cost breakdown. Route the full wire usage through
+	// costFromUsage (not the CalculateCost wrapper) so reasoning tokens are
+	// priced rather than silently dropped.
+	costBreakdown := p.costFromUsage(openaiResp.Usage)
 
 	resp := providers.PredictionResponse{
 		Content:      choice.Message.Content,

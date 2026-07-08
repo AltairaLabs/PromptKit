@@ -17,19 +17,25 @@ type LineItem struct {
 	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 
-// ComputeCost multiplies raw quantities by matching rates from the pricing descriptor.
-// Returns total USD, the breakdown for reports, and an error if any unit lacks a match.
+// unpricedUnit is a nonzero quantity with no matching price item.
+type unpricedUnit struct {
+	Unit     string
+	Quantity float64
+}
+
+// computeCostPartial prices every unit it can match against desc and returns
+// the nonzero units it could not price rather than failing outright. A nil
+// descriptor (free/local provider) returns zero cost and no unpriced units.
 //
 // Matching rule: a PriceItem matches a quantity unit if PriceItem.Unit == unit AND
 // every key in PriceItem.Dimensions has a matching value in info.DimensionMatch.
 // When multiple items match, the one with the most dimension keys wins (most specific).
-//
-// nil pricing returns zero cost without error (free / local provider).
-func ComputeCost(desc *PricingDescriptor, info *types.CostInfo) (totalUSD float64, breakdown []LineItem, err error) {
+func computeCostPartial(
+	desc *PricingDescriptor, info *types.CostInfo,
+) (totalUSD float64, breakdown []LineItem, unpriced []unpricedUnit) {
 	if desc == nil || info == nil || len(info.Quantities) == 0 {
 		return 0, nil, nil
 	}
-
 	breakdown = make([]LineItem, 0, len(info.Quantities))
 	for unit, qty := range info.Quantities {
 		if qty == 0 {
@@ -37,7 +43,8 @@ func ComputeCost(desc *PricingDescriptor, info *types.CostInfo) (totalUSD float6
 		}
 		item, ok := matchPriceItem(desc.Items, unit, info.DimensionMatch)
 		if !ok {
-			return 0, nil, fmt.Errorf("no pricing match for unit=%q dimensions=%v", unit, info.DimensionMatch)
+			unpriced = append(unpriced, unpricedUnit{Unit: unit, Quantity: qty})
+			continue
 		}
 		usd := qty * item.Rate
 		totalUSD += usd
@@ -49,7 +56,21 @@ func ComputeCost(desc *PricingDescriptor, info *types.CostInfo) (totalUSD float6
 			Dimensions: copyMap(item.Dimensions),
 		})
 	}
-	return totalUSD, breakdown, nil
+	return totalUSD, breakdown, unpriced
+}
+
+// ComputeCost multiplies raw quantities by matching rates from the pricing
+// descriptor. Returns total USD, the breakdown, and an error if ANY nonzero
+// unit lacks a match (back-compat: callers relying on the strict error).
+//
+// nil pricing returns zero cost without error (free / local provider).
+func ComputeCost(desc *PricingDescriptor, info *types.CostInfo) (totalUSD float64, breakdown []LineItem, err error) {
+	total, bd, unpriced := computeCostPartial(desc, info)
+	if len(unpriced) > 0 {
+		return 0, nil, fmt.Errorf("no pricing match for unit=%q dimensions=%v",
+			unpriced[0].Unit, info.DimensionMatch)
+	}
+	return total, bd, nil
 }
 
 // matchPriceItem returns the most-specific matching PriceItem for the given unit and dimensions.
@@ -121,11 +142,14 @@ func PricingFromAdditionalConfig(additional map[string]any) *PricingDescriptor {
 	return &desc
 }
 
-// MakeCostInfo builds a *types.CostInfo from raw quantities and runs
-// ComputeCost against the supplied descriptor to fill TotalCost. Returns
-// the CostInfo with quantities and identity tags populated even if pricing
-// is nil or doesn't match — callers can decide whether to drop a nil-cost
-// entry. This is the shared cost-construction path for ancillary providers
+// MakeCostInfo builds a *types.CostInfo from raw quantities and prices every
+// unit it can match against the supplied descriptor. Returns the CostInfo
+// with quantities and identity tags populated even if pricing is nil —
+// callers can decide whether to drop a nil-cost entry. Any nonzero quantity
+// unit that has no matching price item is NOT silently swallowed to $0: the
+// priced-partial total is kept and the gap is surfaced via a deduped warning
+// (see warnUnpriced), so operators see undercounted cost instead of a false
+// zero. This is the shared cost-construction path for ancillary providers
 // (TTS, STT, image gen) that report a single-quantity unit at call time.
 func MakeCostInfo(
 	desc *PricingDescriptor,
@@ -143,8 +167,11 @@ func MakeCostInfo(
 	if desc == nil {
 		return info
 	}
-	if usd, _, err := ComputeCost(desc, info); err == nil {
-		info.TotalCost = usd
+	total, breakdown, unpriced := computeCostPartial(desc, info)
+	info.TotalCost = total
+	info.Breakdown = toCostLineItems(providerName, capability, breakdown)
+	if len(unpriced) > 0 {
+		warnUnpriced(providerName, capability, unpriced)
 	}
 	return info
 }

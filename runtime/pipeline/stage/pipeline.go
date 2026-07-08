@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -496,15 +497,10 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 					Parts:     elem.Message.Parts,
 					ToolCalls: elem.Message.ToolCalls,
 				}
-				// Propagate cost info from provider response to result
+				// Propagate cost info from provider response to result via the
+				// single shared aggregator so Breakdown/Quantities are never dropped.
 				if elem.Message.CostInfo != nil {
-					result.CostInfo.InputTokens += elem.Message.CostInfo.InputTokens
-					result.CostInfo.OutputTokens += elem.Message.CostInfo.OutputTokens
-					result.CostInfo.CachedTokens += elem.Message.CostInfo.CachedTokens
-					result.CostInfo.InputCostUSD += elem.Message.CostInfo.InputCostUSD
-					result.CostInfo.OutputCostUSD += elem.Message.CostInfo.OutputCostUSD
-					result.CostInfo.CachedCostUSD += elem.Message.CostInfo.CachedCostUSD
-					result.CostInfo.TotalCost += elem.Message.CostInfo.TotalCost
+					result.CostInfo = base.AggregateCost(&result.CostInfo, elem.Message.CostInfo)
 				}
 			}
 		}

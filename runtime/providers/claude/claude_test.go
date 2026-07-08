@@ -179,16 +179,22 @@ func TestClaudeProvider_CostBreakdown(t *testing.T) {
 	expectedInputCost := 0.003   // 1000 tokens = 1 * $0.003
 	expectedOutputCost := 0.0075 // 500 tokens = 0.5 * $0.015
 
-	if breakdown.InputCostUSD != expectedInputCost {
+	// Tolerance-based comparison: the priced-partial engine sums per-unit costs
+	// via a map iteration (computeCostPartial ranges over Quantities), whose
+	// order is randomized per call. Summation order can flip the last bit or
+	// two of a float64 total even though the two orderings are mathematically
+	// equal, so exact equality against a hand-computed literal is flaky here.
+	tolerance := 0.0000001
+	if breakdown.InputCostUSD < expectedInputCost-tolerance || breakdown.InputCostUSD > expectedInputCost+tolerance {
 		t.Errorf("Expected input cost %.4f, got %.4f", expectedInputCost, breakdown.InputCostUSD)
 	}
 
-	if breakdown.OutputCostUSD != expectedOutputCost {
+	if breakdown.OutputCostUSD < expectedOutputCost-tolerance || breakdown.OutputCostUSD > expectedOutputCost+tolerance {
 		t.Errorf("Expected output cost %.4f, got %.4f", expectedOutputCost, breakdown.OutputCostUSD)
 	}
 
 	expectedTotal := expectedInputCost + expectedOutputCost
-	if breakdown.TotalCost != expectedTotal {
+	if breakdown.TotalCost < expectedTotal-tolerance || breakdown.TotalCost > expectedTotal+tolerance {
 		t.Errorf("Expected total cost %.4f, got %.4f", expectedTotal, breakdown.TotalCost)
 	}
 }
@@ -206,8 +212,7 @@ func TestClaudeProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "url", defaults, false)
 
 	// Anthropic's input_tokens EXCLUDES cache reads (cache_read_input_tokens is a
-	// separate field), so the 1000 here is already the non-cached input; 200 cached
-	// is billed on top at 10%. (Verified live in caching_integration_test.go.)
+	// separate field), so the 1000 here is already the non-cached input.
 	breakdown := provider.CalculateCost(1000, 500, 200)
 
 	// InputTokens is the non-cached input as reported by the API — not reduced again.
@@ -223,10 +228,19 @@ func TestClaudeProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		t.Error("CachedTokens mismatch")
 	}
 
-	// Cached tokens cost 10% of regular input tokens (Claude pricing)
-	expectedCachedCost := 0.00006 // 200 * 0.003 / 1000 * 0.1 = 0.00006
-	expectedInputCost := 0.003    // 1000 * 0.003 / 1000 = 0.003
-	expectedOutputCost := 0.0075  // 500 * 0.015 / 1000 = 0.0075
+	// The legacy flat providers.Pricing{InputCostPer1K,OutputCostPer1K} config
+	// carries only input_token/output_token rates (base.ResolveLLMPricing's
+	// FlatPricing branch, by design — it can't know a provider-specific cache
+	// multiplier). So with flat config set, cache reads have no matching price
+	// item: the quantity is still tracked (CachedTokens above) but the dollar
+	// amount is $0, surfaced via a loud "unpriced unit" warning rather than a
+	// silently assumed 10% discount. Cache-aware pricing requires either the
+	// built-in per-model table (claudePricingTable, used when flat pricing is
+	// NOT configured) or an explicit PricingDescriptor with cache_read_token/
+	// cache_write_token items.
+	expectedCachedCost := 0.0
+	expectedInputCost := 0.003   // 1000 * 0.003 / 1000 = 0.003
+	expectedOutputCost := 0.0075 // 500 * 0.015 / 1000 = 0.0075
 
 	// Use tolerance for floating point comparison
 	tolerance := 0.0000001

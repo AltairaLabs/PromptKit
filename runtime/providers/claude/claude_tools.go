@@ -560,8 +560,11 @@ func (p *ToolProvider) parseToolResponse(
 	// Parse tool calls from raw response
 	toolCalls := parseToolCallsFromRawResponse(respBytes)
 
-	// Calculate cost breakdown
-	costBreakdown := p.Provider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)
+	// Calculate cost breakdown. resp.Usage already carries
+	// CacheCreationInputTokens (cache WRITE) alongside read/input/output, so
+	// route the full wire usage through costFromUsage directly rather than
+	// the CalculateCost wrapper (which only accepts cache reads).
+	costBreakdown := p.costFromUsage(resp.Usage)
 
 	predictResp.Content = textContent
 	predictResp.Parts = extractContentParts(resp.Content)

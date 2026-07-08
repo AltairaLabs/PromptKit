@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -21,7 +22,6 @@ const (
 	vllmChatCompletionsPath = "/v1/chat/completions"
 	contentTypeHeader       = "Content-Type"
 	applicationJSON         = "application/json"
-	tokensPerThousand       = 1000.0 // divisor for per-1K pricing
 )
 
 // Provider implements the Provider interface for vLLM
@@ -83,6 +83,9 @@ type vllmRequest struct {
 	MaxTokens   int           `json:"max_tokens"`
 	Seed        *int          `json:"seed,omitempty"`
 	Stream      bool          `json:"stream"`
+	// StreamOptions carries streaming-only parameters. Set only when Stream is
+	// true, so vLLM knows to emit a terminal usage-bearing chunk before [DONE].
+	StreamOptions *vllmStreamOptions `json:"stream_options,omitempty"`
 
 	// vLLM-specific parameters
 	UseBeamSearch     bool                   `json:"use_beam_search,omitempty"`
@@ -93,6 +96,14 @@ type vllmRequest struct {
 	GuidedRegex       string                 `json:"guided_regex,omitempty"`
 	GuidedGrammar     string                 `json:"guided_grammar,omitempty"`
 	GuidedChoice      []string               `json:"guided_choice,omitempty"`
+}
+
+// vllmStreamOptions requests that the OpenAI-compatible streaming endpoint
+// include a final usage-bearing chunk before [DONE], mirroring OpenAI's
+// stream_options.include_usage. Without it vLLM's streaming responses never
+// carry token counts, so cost is silently unavailable.
+type vllmStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type vllmMessage struct {
@@ -219,6 +230,10 @@ func (p *Provider) buildRequest( // NOSONAR
 		Seed:        req.Seed,
 		Stream:      stream,
 	}
+	if stream {
+		// Request the terminal usage chunk so streamed responses carry cost.
+		vllmReq.StreamOptions = &vllmStreamOptions{IncludeUsage: true}
+	}
 
 	// Apply vLLM-specific configuration from additional_config
 	if p.additionalConfig != nil {
@@ -268,28 +283,34 @@ func (p *Provider) Predict(
 	return p.predictWithMessages(ctx, req, messages)
 }
 
-// CalculateCost calculates cost breakdown
-// vLLM is typically self-hosted, so default is $0 unless custom pricing is configured
+// vllmUsageToTokens maps vLLM's OpenAI-compatible usage into canonical units.
+// vLLM's wire usage carries no cache breakdown, so PromptTokens maps straight
+// to full-price input; a nonzero cachedTokens on the legacy CalculateCost
+// wrapper is subtracted before this mapping runs (see CalculateCost below).
+func vllmUsageToTokens(u vllmUsage) base.TokenUsage {
+	return base.TokenUsage{Input: u.PromptTokens, Output: u.CompletionTokens}
+}
+
+// costFromUsage prices a vllmUsage through the unit-keyed pricing engine: an
+// explicit config descriptor wins, then legacy flat per-1K config, else nil.
+// vLLM is typically self-hosted with no embedded pricing table, so an
+// unconfigured provider prices as $0 while still reporting token counts
+// (PriceUsage handles a nil descriptor silently, no warning).
+func (p *Provider) costFromUsage(u vllmUsage) types.CostInfo {
+	desc := base.ResolveLLMPricing(
+		p.Pricing(),
+		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
+		nil, p.model)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, vllmUsageToTokens(u), nil, 0)
+}
+
+// CalculateCost calculates cost breakdown. Thin wrapper over costFromUsage,
+// kept for the Provider interface's legacy signature. vLLM's wire usage has
+// no separate cache-read count, so cachedTokens is folded out of the billed
+// input before pricing (matching the prior behavior of excluding it from
+// InputCostUSD); it is not reported back as a cache unit.
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
-	// Default: free for self-hosted
-	inputCost := 0.0
-	outputCost := 0.0
-
-	// Use configured pricing if available
-	if p.defaults.Pricing.InputCostPer1K > 0 || p.defaults.Pricing.OutputCostPer1K > 0 {
-		inputCost = float64(tokensIn-cachedTokens) * p.defaults.Pricing.InputCostPer1K / tokensPerThousand
-		outputCost = float64(tokensOut) * p.defaults.Pricing.OutputCostPer1K / tokensPerThousand
-	}
-
-	return types.CostInfo{
-		InputTokens:   tokensIn - cachedTokens,
-		OutputTokens:  tokensOut,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		CachedCostUSD: 0,
-		TotalCost:     inputCost + outputCost,
-	}
+	return p.costFromUsage(vllmUsage{PromptTokens: tokensIn - cachedTokens, CompletionTokens: tokensOut})
 }
 
 // PredictStream streams a prediction response from vLLM
@@ -400,10 +421,8 @@ func (p *Provider) predictWithMessages(
 
 	latency := time.Since(start)
 
-	// Calculate cost breakdown
-	costBreakdown := p.CalculateCost(
-		vllmResp.Usage.PromptTokens, vllmResp.Usage.CompletionTokens, 0,
-	)
+	// Calculate cost breakdown from the full wire usage.
+	costBreakdown := p.costFromUsage(vllmResp.Usage)
 
 	// Extract content
 	content := extractContentString(vllmResp.Choices[0].Message.Content)
@@ -540,7 +559,7 @@ func (p *Provider) streamResponse(
 
 		// Send final chunk with finish reason and usage
 		if choice.FinishReason != "" && chunk.Usage != nil {
-			costInfo := p.CalculateCost(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0)
+			costInfo := p.costFromUsage(*chunk.Usage)
 			normalized := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
 			outChan <- providers.StreamChunk{
 				Content:      sb.String(),

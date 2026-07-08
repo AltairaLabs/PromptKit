@@ -9,6 +9,7 @@ import (
 func TestNormalizeOpenAIFinishReason(t *testing.T) {
 	cases := map[string]string{
 		"stop":           types.FinishReasonStop,
+		"eos_token":      types.FinishReasonStop, // vLLM native stop-token reason
 		"length":         types.FinishReasonMaxOutputTokens,
 		"tool_calls":     types.FinishReasonToolUse,
 		"function_call":  types.FinishReasonToolUse,

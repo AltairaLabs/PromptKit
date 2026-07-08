@@ -488,18 +488,22 @@ func TestHandleGeminiFinishReason(t *testing.T) {
 	}
 }
 
-// TestProcessGeminiStreamChunk tests stream chunk processing
+// TestProcessGeminiStreamChunk tests stream chunk processing. Regression
+// coverage for finding I: TokenCount on the emitted StreamChunk must come
+// only from real usageMetadata (the finish-chunk case), never from a
+// per-part-incremented approximation (the old totalTokens fabrication) —
+// interim chunks emit TokenCount 0.
 func TestProcessGeminiStreamChunk(t *testing.T) {
 	provider := NewProvider("test", "gemini-2.0-flash", "https://api.test", providers.ProviderDefaults{}, false)
 
 	tests := []struct {
-		name         string
-		chunk        geminiResponse
-		accumulated  string
-		totalTokens  int
-		wantFinished bool
-		wantContent  string
-		wantTokens   int
+		name           string
+		chunk          geminiResponse
+		accumulated    string
+		wantFinished   bool
+		wantContent    string
+		wantEmit       bool
+		wantTokenCount int
 	}{
 		{
 			name: "Regular chunk with text",
@@ -512,11 +516,11 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 					},
 				},
 			},
-			accumulated:  "Previous ",
-			totalTokens:  1,
-			wantFinished: false,
-			wantContent:  "Previous Hello",
-			wantTokens:   2,
+			accumulated:    "Previous ",
+			wantFinished:   false,
+			wantContent:    "Previous Hello",
+			wantEmit:       true,
+			wantTokenCount: 0,
 		},
 		{
 			name: "Finish chunk with usage",
@@ -534,11 +538,11 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 					CandidatesTokenCount: 5,
 				},
 			},
-			accumulated:  "Hello",
-			totalTokens:  5,
-			wantFinished: true,
-			wantContent:  "Hello!",
-			wantTokens:   6,
+			accumulated:    "Hello",
+			wantFinished:   true,
+			wantContent:    "Hello!",
+			wantEmit:       true,
+			wantTokenCount: 5, // real usageMetadata.CandidatesTokenCount
 		},
 		{
 			name: "Empty chunk",
@@ -546,10 +550,9 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 				Candidates: []geminiCandidate{},
 			},
 			accumulated:  "Hello",
-			totalTokens:  5,
 			wantFinished: false,
 			wantContent:  "Hello",
-			wantTokens:   5,
+			wantEmit:     false,
 		},
 	}
 
@@ -560,11 +563,36 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 
 			var sb strings.Builder
 			sb.WriteString(tt.accumulated)
-			tokens, _, finished := provider.processGeminiStreamChunk(tt.chunk, &sb, tt.totalTokens, nil, outChan)
+			_, finished := provider.processGeminiStreamChunk(tt.chunk, &sb, nil, outChan)
 
 			assert.Equal(t, tt.wantContent, sb.String())
-			assert.Equal(t, tt.wantTokens, tokens)
 			assert.Equal(t, tt.wantFinished, finished)
+
+			// A finish-chunk that also carries a text part emits two
+			// StreamChunks: the interim text delta first, then the terminal
+			// chunk with the real TokenCount. Drain all of them and check the
+			// last (the terminal one when finished, the only one otherwise).
+			var emitted []providers.StreamChunk
+		drain:
+			for {
+				select {
+				case sc := <-outChan:
+					emitted = append(emitted, sc)
+				default:
+					break drain
+				}
+			}
+
+			if !tt.wantEmit {
+				if len(emitted) != 0 {
+					t.Fatalf("did not expect a chunk to be emitted, got %+v", emitted)
+				}
+				return
+			}
+			if len(emitted) == 0 {
+				t.Fatal("expected a chunk to be emitted")
+			}
+			assert.Equal(t, tt.wantTokenCount, emitted[len(emitted)-1].TokenCount)
 		})
 	}
 }

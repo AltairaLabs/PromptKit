@@ -448,14 +448,14 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-// CalculateCost returns zero cost as replays don't incur real costs.
+// CalculateCost returns zero cost as replays don't incur real costs. A nil
+// pricing descriptor routes through the shared engine as $0 while still
+// populating the headline token counts (see base.PriceUsage). Unlike
+// ollama/mock, inputTokens here is already the exclusive (non-cached) count,
+// so it is passed through unmodified.
 func (p *Provider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
-	return types.CostInfo{
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		CachedTokens: cachedTokens,
-		TotalCost:    0, // No real cost for replays
-	}
+	return base.PriceUsage(nil, p.ID(), base.ProviderTypeInference,
+		base.TokenUsage{Input: inputTokens, CacheRead: cachedTokens, Output: outputTokens}, nil, 0)
 }
 
 // Reset resets the provider to replay from the beginning.

@@ -267,13 +267,12 @@ func (p *Provider) processClaudeMessageStop(
 			finalChunk.FinishReason = &finishReason
 		}
 
-		// Extract cost from usage if available
+		// Extract cost from usage if available. event.Message.Usage already
+		// carries CacheCreationInputTokens (cache WRITE), so route it through
+		// costFromUsage directly rather than the CalculateCost wrapper (which
+		// only accepts cache reads).
 		if event.Message.Usage != nil {
-			tokensIn := event.Message.Usage.InputTokens
-			tokensOut := event.Message.Usage.OutputTokens
-			cachedTokens := event.Message.Usage.CacheReadInputTokens
-
-			costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+			costBreakdown := p.costFromUsage(*event.Message.Usage)
 			finalChunk.CostInfo = &costBreakdown
 		}
 	}
@@ -301,7 +300,7 @@ func (p *Provider) streamResponse(
 	totalTokens := 0
 
 	// Track usage from message_start and message_delta events
-	var inputTokens, outputTokens, cachedTokens int
+	var inputTokens, outputTokens, cachedTokens, cacheWriteTokens int
 	var stopReason string
 
 	// Track tool calls from content_block_start and content_block_delta events
@@ -344,6 +343,7 @@ func (p *Provider) streamResponse(
 				if startEvent.Message != nil && startEvent.Message.Usage != nil {
 					inputTokens = startEvent.Message.Usage.InputTokens
 					cachedTokens = startEvent.Message.Usage.CacheReadInputTokens
+					cacheWriteTokens = startEvent.Message.Usage.CacheCreationInputTokens
 				}
 			}
 
@@ -458,9 +458,14 @@ func (p *Provider) streamResponse(
 				FinishReason: &finishReason,
 			}
 
-			// Calculate cost from accumulated usage
+			// Calculate cost from accumulated usage, including cache writes
+			// (cache_creation_input_tokens from message_start) alongside the
+			// cache-read/input/output counts tracked across the stream.
 			if inputTokens > 0 || outputTokens > 0 {
-				costBreakdown := p.CalculateCost(inputTokens, outputTokens, cachedTokens)
+				costBreakdown := p.costFromUsage(claudeUsage{
+					InputTokens: inputTokens, OutputTokens: outputTokens,
+					CacheReadInputTokens: cachedTokens, CacheCreationInputTokens: cacheWriteTokens,
+				})
 				finalChunk.CostInfo = &costBreakdown
 			}
 

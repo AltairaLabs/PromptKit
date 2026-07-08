@@ -309,26 +309,32 @@ func (m *Provider) ShouldIncludeRawOutput() bool {
 	return m.includeRawOutput
 }
 
-// CalculateCost calculates cost breakdown for given token counts.
+// Mock provider's simple fixed test pricing, mirrored into mockPricing below.
+const (
+	mockTokensPer1K     = 1000.0
+	mockInputCostPer1K  = 0.01
+	mockOutputCostPer1K = 0.01
+	mockCachedCostPer1K = 0.005 // 50% discount for cached tokens
+)
+
+// mockPricing preserves the mock provider's intentionally nonzero, fixed
+// pricing so mock-based cost tests keep their historical expected values
+// after routing through the shared base.PriceUsage engine.
+var mockPricing = &base.PricingDescriptor{
+	Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: mockInputCostPer1K / mockTokensPer1K},
+		{Unit: base.UnitCacheReadToken, Rate: mockCachedCostPer1K / mockTokensPer1K},
+		{Unit: base.UnitOutputToken, Rate: mockOutputCostPer1K / mockTokensPer1K},
+	},
+}
+
+// CalculateCost calculates cost breakdown for given token counts. inputTokens
+// is the total prompt token count including any cached tokens, so it is
+// reduced by cachedTokens before being reported as the canonical (uncached)
+// input unit — matching the historical formula's InputTokens semantics.
 func (m *Provider) CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo {
-	// Mock provider uses simple fixed pricing
-	inputCostPer1K := 0.01
-	outputCostPer1K := 0.01
-	cachedCostPer1K := 0.005 // 50% discount for cached tokens
-
-	inputCost := float64(inputTokens-cachedTokens) / 1000.0 * inputCostPer1K
-	cachedCost := float64(cachedTokens) / 1000.0 * cachedCostPer1K
-	outputCost := float64(outputTokens) / 1000.0 * outputCostPer1K
-
-	return types.CostInfo{
-		InputTokens:   inputTokens - cachedTokens,
-		OutputTokens:  outputTokens,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		CachedCostUSD: cachedCost,
-		TotalCost:     inputCost + cachedCost + outputCost,
-	}
+	return base.PriceUsage(mockPricing, m.ID(), base.ProviderTypeInference,
+		base.TokenUsage{Input: inputTokens - cachedTokens, CacheRead: cachedTokens, Output: outputTokens}, nil, 0)
 }
 
 // generateContentSummary creates a human-readable summary from content parts

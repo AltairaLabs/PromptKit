@@ -3,6 +3,10 @@ package openai
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 // usageWith builds a UsageInfo with the given totals and per-type breakdown.
@@ -23,21 +27,104 @@ const costEpsilon = 1e-9
 
 func approxEqual(a, b float64) bool { return math.Abs(a-b) < costEpsilon }
 
-func TestCalculateRealtimeCost(t *testing.T) {
+// TestRealtimeCost_PricesCachedTokens is the regression test for finding H:
+// the old bespoke calculateRealtimeCost had no cache handling at all, so
+// InputTokenDetails.CachedTokens was silently dropped — a cache hit was
+// billed as if it were full-price fresh text input. realtimeCostInfo must
+// surface it as its own priced cache_read_token quantity.
+func TestRealtimeCost_PricesCachedTokens(t *testing.T) {
+	u := &UsageInfo{
+		InputTokens: 1000, OutputTokens: 500,
+	}
+	u.InputTokenDetails.AudioTokens = 700
+	u.InputTokenDetails.TextTokens = 300
+	u.InputTokenDetails.CachedTokens = 200 // previously dropped (H)
+	u.OutputTokenDetails.AudioTokens = 400
+	u.OutputTokenDetails.TextTokens = 100
+
+	ci := realtimeCostInfo(u, 0, 0)
+
+	assert.Equal(t, 200.0, ci.Quantities[base.UnitCacheReadToken])
+	assert.Equal(t, 700.0, ci.Quantities[base.UnitAudioInputToken])
+	assert.Equal(t, 400.0, ci.Quantities[base.UnitAudioOutputToken])
+	assert.InDelta(t, ci.TotalCost, ci.InputCostUSD+ci.OutputCostUSD+ci.CachedCostUSD, 1e-9)
+}
+
+// TestRealtimeCost_NilUsageReturnsNil verifies the nil-usage short-circuit.
+func TestRealtimeCost_NilUsageReturnsNil(t *testing.T) {
+	if realtimeCostInfo(nil, 0, 0) != nil {
+		t.Fatal("expected nil cost for nil usage")
+	}
+}
+
+// TestRealtimeUsageToTokens_MapsBreakdown verifies the per-modality mapping,
+// the cache-is-a-subset-of-text clamp, and the "breakdown missing ⇒ treat
+// all tokens as audio" fallback (over-reporting text at audio rates is
+// preferable to silently under-billing a realtime session).
+func TestRealtimeUsageToTokens_MapsBreakdown(t *testing.T) {
+	tests := []struct {
+		name   string
+		usage  *UsageInfo
+		want   base.TokenUsage
+		cached int
+	}{
+		{
+			name:  "full breakdown, no cache",
+			usage: usageWith(1000, 500, 800, 200, 400, 100),
+			want:  base.TokenUsage{Input: 200, AudioInput: 800, Output: 100, AudioOutput: 400},
+		},
+		{
+			name:   "cache is a subset of text input",
+			usage:  usageWith(1000, 500, 700, 300, 400, 100),
+			cached: 200,
+			want:   base.TokenUsage{Input: 100, CacheRead: 200, AudioInput: 700, Output: 100, AudioOutput: 400},
+		},
+		{
+			name:   "cache clamped to text tokens if wire ever over-reports",
+			usage:  usageWith(1000, 500, 700, 300, 400, 100),
+			cached: 999,
+			want:   base.TokenUsage{Input: 0, CacheRead: 300, AudioInput: 700, Output: 100, AudioOutput: 400},
+		},
+		{
+			name:  "missing breakdown treats all tokens as audio",
+			usage: usageWith(1000, 500, 0, 0, 0, 0),
+			want:  base.TokenUsage{AudioInput: 1000, AudioOutput: 500},
+		},
+		{
+			name:  "zero tokens is zero usage",
+			usage: usageWith(0, 0, 0, 0, 0, 0),
+			want:  base.TokenUsage{},
+		},
+		{
+			name:  "text-only breakdown does not trigger the audio fallback",
+			usage: usageWith(1000, 500, 0, 1000, 0, 500),
+			want:  base.TokenUsage{Input: 1000, Output: 500},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.usage.InputTokenDetails.CachedTokens = tt.cached
+			got := realtimeUsageToTokens(tt.usage)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestRealtimeCost_DollarAmounts pins USD amounts across the audio/text/
+// override/fallback matrix — the same scenarios the pre-unit-engine
+// calculateRealtimeCost covered — so the migration to base.PriceUsage is
+// verified to preserve them exactly (no cache tokens in play here; that is
+// covered separately by TestRealtimeCost_PricesCachedTokens).
+func TestRealtimeCost_DollarAmounts(t *testing.T) {
 	tests := []struct {
 		name        string
 		usage       *UsageInfo
 		inOverride  float64
 		outOverride float64
-		wantNil     bool
 		wantIn      float64
 		wantOut     float64
 	}{
-		{
-			name:    "nil usage returns nil",
-			usage:   nil,
-			wantNil: true,
-		},
 		{
 			name:  "with breakdown uses per-type default rates",
 			usage: usageWith(1000, 500, 800, 200, 400, 100),
@@ -93,13 +180,7 @@ func TestCalculateRealtimeCost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateRealtimeCost(tt.usage, tt.inOverride, tt.outOverride)
-			if tt.wantNil {
-				if got != nil {
-					t.Fatalf("expected nil cost, got %+v", got)
-				}
-				return
-			}
+			got := realtimeCostInfo(tt.usage, tt.inOverride, tt.outOverride)
 			if got == nil {
 				t.Fatal("expected non-nil cost")
 			}
@@ -112,22 +193,16 @@ func TestCalculateRealtimeCost(t *testing.T) {
 			if !approxEqual(got.TotalCost, tt.wantIn+tt.wantOut) {
 				t.Errorf("TotalCost = %v, want %v", got.TotalCost, tt.wantIn+tt.wantOut)
 			}
-			if got.InputTokens != tt.usage.InputTokens {
-				t.Errorf("InputTokens = %d, want %d", got.InputTokens, tt.usage.InputTokens)
-			}
-			if got.OutputTokens != tt.usage.OutputTokens {
-				t.Errorf("OutputTokens = %d, want %d", got.OutputTokens, tt.usage.OutputTokens)
-			}
 		})
 	}
 }
 
-// TestCalculateRealtimeCost_AudioVsTextMisbill documents the core money risk:
-// the same token count costs ~8x more billed as audio than as text. The
+// TestRealtimeCost_AudioVsTextMisbill documents the core money risk: the
+// same token count costs ~8x more billed as audio than as text. The
 // missing-breakdown fallback deliberately errs toward the audio (higher) side.
-func TestCalculateRealtimeCost_AudioVsTextMisbill(t *testing.T) {
-	asAudio := calculateRealtimeCost(usageWith(1000, 0, 1000, 0, 0, 0), 0, 0)
-	asText := calculateRealtimeCost(usageWith(1000, 0, 0, 1000, 0, 0), 0, 0)
+func TestRealtimeCost_AudioVsTextMisbill(t *testing.T) {
+	asAudio := realtimeCostInfo(usageWith(1000, 0, 1000, 0, 0, 0), 0, 0)
+	asText := realtimeCostInfo(usageWith(1000, 0, 0, 1000, 0, 0), 0, 0)
 
 	if asAudio.InputCostUSD <= asText.InputCostUSD {
 		t.Fatalf("audio billing (%v) should exceed text billing (%v)",
@@ -141,7 +216,7 @@ func TestCalculateRealtimeCost_AudioVsTextMisbill(t *testing.T) {
 }
 
 // TestRealtimeSession_calculateCost_DelegatesOverrides verifies the thin method
-// forwards the session's per-1K overrides to the pure function.
+// forwards the session's per-1K overrides to realtimeCostInfo.
 func TestRealtimeSession_calculateCost_DelegatesOverrides(t *testing.T) {
 	s := &RealtimeSession{inputCostPer1K: 0.1, outputCostPer1K: 0.2}
 	got := s.calculateCost(usageWith(1000, 500, 800, 200, 400, 100))

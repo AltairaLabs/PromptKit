@@ -23,8 +23,16 @@ func (i *Implementation) Name() string { return i.name }
 // Type returns the capability type.
 func (i *Implementation) Type() ProviderType { return i.typ }
 
-// Pricing returns the configured pricing descriptor (may be nil).
-func (i *Implementation) Pricing() *PricingDescriptor { return i.pricing }
+// Pricing returns the configured pricing descriptor (may be nil). Safe to
+// call on a nil receiver — a provider struct built via a raw literal (common
+// in tests) that skips NewImplementation has a nil *Implementation, and this
+// must degrade to "no pricing configured" rather than panic.
+func (i *Implementation) Pricing() *PricingDescriptor {
+	if i == nil {
+		return nil
+	}
+	return i.pricing
+}
 
 // Validate performs synchronous config validation. Default no-op.
 func (i *Implementation) Validate() error { return nil }

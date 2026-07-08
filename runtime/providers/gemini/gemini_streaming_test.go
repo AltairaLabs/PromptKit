@@ -388,11 +388,10 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 		var sb strings.Builder
 		sb.WriteString("prev")
 
-		tokens, toolCalls, finished := provider.processGeminiStreamChunk(
-			chunk, &sb, 5, nil, outChan)
+		toolCalls, finished := provider.processGeminiStreamChunk(chunk, &sb, nil, outChan)
 
-		if sb.String() != "prev" || tokens != 5 || finished {
-			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", sb.String(), tokens, finished)
+		if sb.String() != "prev" || finished {
+			t.Errorf("expected unchanged state, got acc=%q finished=%v", sb.String(), finished)
 		}
 		if len(toolCalls) != 0 {
 			t.Errorf("expected no tool calls, got %d", len(toolCalls))
@@ -409,15 +408,17 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 		var sb strings.Builder
 		sb.WriteString("prev")
 
-		tokens, _, finished := provider.processGeminiStreamChunk(
-			chunk, &sb, 5, nil, outChan)
+		_, finished := provider.processGeminiStreamChunk(chunk, &sb, nil, outChan)
 
-		if sb.String() != "prev" || tokens != 5 || finished {
-			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", sb.String(), tokens, finished)
+		if sb.String() != "prev" || finished {
+			t.Errorf("expected unchanged state, got acc=%q finished=%v", sb.String(), finished)
 		}
 	})
 
-	t.Run("text part emits chunk and accumulates", func(t *testing.T) {
+	// Regression for finding I: interim text chunks must not fabricate a
+	// TokenCount by incrementing a per-part counter. TokenCount/DeltaTokens
+	// only ever reflect real usageMetadata, reported on the terminal chunk.
+	t.Run("text part emits chunk and accumulates without fabricating token count", func(t *testing.T) {
 		chunk := geminiResponse{
 			Candidates: []geminiCandidate{
 				{Content: geminiContent{Parts: []geminiPart{{Text: "delta"}}}},
@@ -427,14 +428,10 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 		var sb strings.Builder
 		sb.WriteString("prev")
 
-		tokens, _, finished := provider.processGeminiStreamChunk(
-			chunk, &sb, 5, nil, outChan)
+		_, finished := provider.processGeminiStreamChunk(chunk, &sb, nil, outChan)
 
 		if sb.String() != "prevdelta" {
 			t.Errorf("expected accumulated 'prevdelta', got %q", sb.String())
-		}
-		if tokens != 6 {
-			t.Errorf("expected 6 tokens, got %d", tokens)
 		}
 		if finished {
 			t.Error("expected not finished")
@@ -444,6 +441,10 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 		case sc := <-outChan:
 			if sc.Delta != "delta" {
 				t.Errorf("expected delta 'delta', got %q", sc.Delta)
+			}
+			if sc.TokenCount != 0 || sc.DeltaTokens != 0 {
+				t.Errorf("interim chunk must not fabricate a token count, got TokenCount=%d DeltaTokens=%d",
+					sc.TokenCount, sc.DeltaTokens)
 			}
 		default:
 			t.Fatal("expected chunk on channel")
@@ -471,8 +472,7 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 		outChan := make(chan providers.StreamChunk, 10)
 		var sb strings.Builder
 
-		_, toolCalls, finished := provider.processGeminiStreamChunk(
-			chunk, &sb, 0, nil, outChan)
+		toolCalls, finished := provider.processGeminiStreamChunk(chunk, &sb, nil, outChan)
 
 		if !finished {
 			t.Error("expected finished")
@@ -484,6 +484,42 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 			t.Errorf("expected tool name 'myTool', got %q", toolCalls[0].Name)
 		}
 	})
+}
+
+// TestGeminiStreaming_NoFabricatedTokenCount is the regression test for
+// finding I: a stream whose chunks carry no usageMetadata until the final
+// chunk must not report a per-part-incremented TokenCount on intermediate
+// chunks; the final chunk must reflect the real usageMetadata.
+func TestGeminiStreaming_NoFabricatedTokenCount(t *testing.T) {
+	provider := &Provider{}
+	responses := []geminiResponse{
+		{Candidates: []geminiCandidate{{Content: geminiContent{Parts: []geminiPart{{Text: "Hello"}}}}}},
+		{Candidates: []geminiCandidate{{Content: geminiContent{Parts: []geminiPart{{Text: " world"}}}}}},
+		{
+			Candidates: []geminiCandidate{
+				{Content: geminiContent{Parts: []geminiPart{{Text: "!"}}}, FinishReason: "STOP"},
+			},
+			UsageMetadata: &geminiUsage{PromptTokenCount: 10, CandidatesTokenCount: 3},
+		},
+	}
+
+	body := marshalJSONArray(t, responses)
+	outChan := make(chan providers.StreamChunk, 10)
+	provider.streamResponse(context.Background(), io.NopCloser(body), outChan)
+	chunks := collectChunks(t, outChan)
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+	for _, c := range chunks[:len(chunks)-1] {
+		if c.TokenCount != 0 {
+			t.Errorf("interim chunk must not fabricate a token count, got %d", c.TokenCount)
+		}
+	}
+	last := chunks[len(chunks)-1]
+	if last.TokenCount <= 0 {
+		t.Errorf("expected final chunk to report a positive real token count, got %d", last.TokenCount)
+	}
 }
 
 // --- Helpers ---

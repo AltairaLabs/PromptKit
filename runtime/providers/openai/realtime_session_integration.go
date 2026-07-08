@@ -33,7 +33,6 @@ const (
 	responseChannelSize = 10
 	heartbeatInterval   = 30 * time.Second
 	setupTimeout        = 10 * time.Second
-	tokensPerThousand   = 1000.0
 
 	// receiveLoopBlockWarn is the threshold above which receiveLoop logs that an
 	// inbound event blocked while being forwarded to responseCh. receiveLoop is
@@ -854,9 +853,9 @@ func (s *RealtimeSession) handleRateLimits(e *RateLimitsUpdatedEvent) {
 	}
 }
 
-// calculateCost delegates to the pure calculateRealtimeCost, passing the
+// calculateCost delegates to the pure realtimeCostInfo, passing the
 // session's per-1K audio-rate overrides (0 ⇒ use the GA defaults). The money
 // math lives in realtime_cost.go so it can be unit-tested in isolation.
 func (s *RealtimeSession) calculateCost(usage *UsageInfo) *types.CostInfo {
-	return calculateRealtimeCost(usage, s.inputCostPer1K, s.outputCostPer1K)
+	return realtimeCostInfo(usage, s.inputCostPer1K, s.outputCostPer1K)
 }

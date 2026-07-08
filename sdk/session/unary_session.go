@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -410,14 +411,7 @@ func (p *streamProcessor) accumulateMessage(msg *types.Message) {
 		ToolCalls: msg.ToolCalls,
 	}
 	if msg.CostInfo != nil {
-		ci := &p.finalResult.CostInfo
-		ci.InputTokens += msg.CostInfo.InputTokens
-		ci.OutputTokens += msg.CostInfo.OutputTokens
-		ci.CachedTokens += msg.CostInfo.CachedTokens
-		ci.InputCostUSD += msg.CostInfo.InputCostUSD
-		ci.OutputCostUSD += msg.CostInfo.OutputCostUSD
-		ci.CachedCostUSD += msg.CostInfo.CachedCostUSD
-		ci.TotalCost += msg.CostInfo.TotalCost
+		p.finalResult.CostInfo = base.AggregateCost(&p.finalResult.CostInfo, msg.CostInfo)
 	}
 }
 
