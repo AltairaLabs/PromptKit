@@ -15,7 +15,7 @@ GOMARKDOC="github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0"
 # module | pkg | filename | title | sidebar-order
 MAP=(
   "sdk|.|conversation-manager|Conversation|2"
-  "sdk|./agui|ag-ui|AG-UI Integration|8"
+  "sdk|./agui|ag-ui|AG-UI Integration|6"
   "server/a2a|.|a2a-server|A2A Server|7"
 )
 
