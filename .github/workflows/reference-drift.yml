@@ -41,7 +41,7 @@ jobs:
         go-version: '1.26.0'
 
     - name: Install gomarkdoc
-      run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+      run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0
 
     - name: Check runtime reference is up to date
       run: make docs-reference-check

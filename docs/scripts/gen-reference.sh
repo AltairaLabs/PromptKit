@@ -8,7 +8,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 OUT="${1:-$ROOT/docs/src/content/docs/runtime/reference}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-GOMARKDOC="github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest"
+GOMARKDOC="github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0"
 
 # pkg | filename | title | sidebar-order
 MAP=(
