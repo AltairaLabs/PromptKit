@@ -132,7 +132,8 @@ Complete API documentation:
 - [Pipeline API](/runtime/reference/pipeline/) - Stage and pipeline interfaces
 - [Providers API](/runtime/reference/providers/) - Provider interfaces
 - [Types API](/runtime/reference/types/) - Core type definitions
-- [Tools & MCP API](/runtime/reference/tools-mcp/) - Tool execution
+- [Tools API](/runtime/reference/tools/) - Tool execution
+- [MCP API](/runtime/reference/mcp/) - Model Context Protocol integration
 - [Hooks & Guardrails API](/runtime/reference/hooks/) - Hook and guardrail interfaces
 - [Storage API](/runtime/reference/storage/) - State storage
 - [A2A API](/runtime/reference/a2a/) - Client, types, tool bridge, mock

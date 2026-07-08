@@ -236,6 +236,12 @@ jobs:
     - name: Check foundational packages are purego-free (issue #1536)
       run: ./scripts/check-no-audio-device-leak.sh
 
+    - name: Install gomarkdoc
+      run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+
+    - name: Check runtime reference is up to date
+      run: make docs-reference-check
+
   perf-regression:
     name: Performance Regression Check
     runs-on: ubuntu-latest

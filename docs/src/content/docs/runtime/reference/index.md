@@ -24,7 +24,8 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 |-----------|-------------|-----------|
 | **Pipeline** | Stage-based execution engine | [pipeline.md](/runtime/reference/pipeline/) |
 | **Providers** | LLM provider implementations | [providers.md](/runtime/reference/providers/) |
-| **Tools** | Function calling and MCP integration | [tools-mcp.md](/runtime/reference/tools-mcp/) |
+| **Tools** | Function calling | [tools.md](/runtime/reference/tools/) |
+| **MCP** | Model Context Protocol integration | [mcp.md](/runtime/reference/mcp/) |
 | **State Store** | Conversation persistence | [statestore.md](/runtime/reference/statestore/) |
 | **Types** | Core data structures | [types.md](/runtime/reference/types/) |
 | **A2A** | Client, types, tool bridge, mock | [a2a.md](/runtime/reference/a2a/) |
@@ -269,7 +270,8 @@ for chunk := range streamChan {
 
 - [Pipeline Reference](/runtime/reference/pipeline/) - Detailed pipeline API
 - [Provider Reference](/runtime/reference/providers/) - Provider implementations
-- [Tools & MCP Reference](/runtime/reference/tools-mcp/) - Tool registry and execution
+- [Tools Reference](/runtime/reference/tools/) - Tool registry and execution
+- [MCP Reference](/runtime/reference/mcp/) - Model Context Protocol integration
 - [Types Reference](/runtime/reference/types/) - Core data structures
 
 ## Next Steps

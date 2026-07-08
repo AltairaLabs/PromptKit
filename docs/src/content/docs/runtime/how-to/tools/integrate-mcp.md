@@ -434,5 +434,5 @@ response, err := client.CallTool(ctx, "read_file", args)
 
 ## See Also
 
-- [MCP Reference](/runtime/reference/tools-mcp/) - Complete API
+- [MCP Reference](/runtime/reference/mcp/) - Complete API
 - [MCP Tutorial](/runtime/tutorials/03-mcp-integration/) - Step-by-step guide

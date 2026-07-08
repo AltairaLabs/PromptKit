@@ -299,6 +299,10 @@ docs-reference: ## Generate per-package runtime reference pages from Go source
 	@docs/scripts/gen-reference.sh
 	@echo "✅ Runtime reference generated"
 
+docs-reference-check: ## Fail if committed runtime reference pages drift from source
+	@chmod +x docs/scripts/check-reference.sh
+	@docs/scripts/check-reference.sh
+
 docs-validate: ## Validate and auto-fix documentation formatting
 	@echo "🔍 Validating and fixing documentation..."
 	@find docs/src/content/docs -name "*.md" -type f | while read file; do \

@@ -447,5 +447,6 @@ Tools & MCP provide:
 
 - [Integrate MCP](/runtime/how-to/tools/integrate-mcp) - MCP integration guide
 - [MCP Tutorial](/runtime/tutorials/03-mcp-integration) - Step-by-step setup
-- [Tools & MCP Reference](/runtime/reference/tools-mcp) - API documentation
+- [Tools Reference](/runtime/reference/tools) - API documentation
+- [MCP Reference](/runtime/reference/mcp) - API documentation
 - [Runtime Tools Architecture](/architecture/runtime-tools-mcp/) - Technical details
