@@ -182,6 +182,46 @@ func MessageToMessage(msg *Message) (*types.Message, error)
 
 MessageToMessage converts an A2A Message to a PromptKit Message.
 
+<details><summary>Example</summary>
+<p>
+
+ExampleMessageToMessage shows converting an A2A protocol Message into PromptKit's internal types.Message. This is a pure conversion — no network call or running A2A server required. The "agent" role maps to PromptKit's "assistant" role.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+)
+
+func main() {
+	text := "hello from agent"
+	msg := &a2a.Message{
+		MessageID: "m1",
+		Role:      a2a.RoleAgent,
+		Parts:     []a2a.Part{{Text: &text}},
+	}
+
+	out, err := a2a.MessageToMessage(msg)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(out.Role, "->", out.GetContent())
+}
+```
+
+#### Output
+
+```
+assistant -> hello from agent
+```
+
+</p>
+</details>
+
 <a name="PartToContentPart"></a>
 ## func PartToContentPart
 
