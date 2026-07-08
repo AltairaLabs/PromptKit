@@ -26,10 +26,13 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 | **Providers** | LLM provider implementations | [providers.md](/runtime/reference/providers/) |
 | **Tools** | Function calling | [tools.md](/runtime/reference/tools/) |
 | **MCP** | Model Context Protocol integration | [mcp.md](/runtime/reference/mcp/) |
+| **Hooks** | Provider/tool/session hooks and guardrails | [hooks.md](/runtime/reference/hooks/) |
 | **State Store** | Conversation persistence | [statestore.md](/runtime/reference/statestore/) |
+| **Storage** | Media storage backends | [storage.md](/runtime/reference/storage/) |
 | **Types** | Core data structures | [types.md](/runtime/reference/types/) |
 | **A2A** | Client, types, tool bridge, mock | [a2a.md](/runtime/reference/a2a/) |
 | **Logging** | Structured logging with context | [logging.md](/runtime/reference/logging/) |
+| **Metrics** | Prometheus metrics collection | [metrics.md](/runtime/reference/metrics/) |
 | **Telemetry** | OpenTelemetry trace export | [telemetry.md](/runtime/reference/telemetry/) |
 
 ### Import Paths

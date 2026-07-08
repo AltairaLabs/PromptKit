@@ -98,6 +98,20 @@ store.Save(ctx, state)
 **After execution**:
 - Save new messages to store
 
+## Choosing a Backend
+
+| Backend  | Durable across restarts | Multi-process | Ops surface     |
+|----------|--------------------------|----------------|------------------|
+| In-memory | No                       | No             | None             |
+| File     | Yes                      | No (single process per root) | Local disk only |
+| Redis    | Yes                      | Yes            | Redis server     |
+
+File-backed state closes the gap between volatile memory and a network-attached Redis: solo
+developers, single-box deployments, and one-process-per-agent setups (e.g. Omnia function-mode
+AgentRuntimes) get crash-survivable mid-tool-loop state without standing up Redis. Two processes
+pointed at the same root will corrupt each other's data — use Redis for horizontally-scaled
+deployments.
+
 ## State Store Interface
 
 All stores implement:
@@ -167,6 +181,29 @@ store := statestore.NewRedisStore(redisClient)
 - Multi-instance scaling
 - Long-lived sessions
 - High availability
+
+### File-Backed Store
+
+`runtime/statestore/file` persists each conversation to disk as a `state.json` snapshot plus
+append-only JSONL files, so it survives restarts like Redis but with no daemon to run:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/statestore/file"
+
+store, err := file.NewStore(file.Options{
+    Root:  "/var/lib/promptkit/conversations",
+    FSync: file.FSyncOnSave, // off | on-save (default) | on-append
+})
+```
+
+**Use cases**:
+- Solo developer / single-box deployments where Redis is overkill
+- Per-process agents (e.g. Omnia function-mode AgentRuntimes) on a node with a persistent volume
+- Anywhere mid-tool-loop crash recovery matters more than horizontal scale
+
+**Not a fit for**: two PromptKit processes pointed at the same `Root` — undefined behavior, since
+the store has no cross-process locking. Use Redis once more than one process needs to see the same
+conversation.
 
 ## Design Decisions
 

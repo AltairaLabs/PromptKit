@@ -196,6 +196,14 @@ Spans follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetr
 - **Message events** are named `gen_ai.<role>.message` following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
 - **PromptKit-specific attributes** are namespaced under `promptkit.*` (e.g., `promptkit.provider.cost`, `promptkit.workflow.from_state`)
 
+## Event Ordering
+
+Runtime events are dispatched to subscribers — including the OTel listener — through a worker
+pool, not strictly in publish order, so a `*.completed` event can be delivered before its matching
+`*.started` event under concurrent load. The listener handles this transparently: early
+completions are buffered and applied once the matching start event arrives, so spans still end up
+correctly nested regardless of delivery order.
+
 ## Export to the OpenTelemetry Collector
 
 If you run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/), point the exporter at its OTLP HTTP receiver (default port 4318):

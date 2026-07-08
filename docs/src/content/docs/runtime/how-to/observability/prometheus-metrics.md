@@ -137,6 +137,23 @@ conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string
 | `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
 | `DisableEvalMetrics` | `bool` | Disable eval result metrics |
 
+## Label Architecture
+
+Labels on a metric observation come from three layers, applied in order:
+
+| Layer | Set at | Scope | Examples |
+|-------|--------|-------|----------|
+| Const labels | `CollectorOpts.ConstLabels` | Process-wide, baked into the metric descriptor | `env`, `region` |
+| Instance labels | `InstanceLabels` + `Bind()` / `MetricsInstanceLabels` | Per-conversation | `tenant`, `prompt_name` |
+| Event labels | Automatic, per observation | Per-metric-observation | `provider`, `model`, `status`, `tool` |
+
+`InstanceLabels` are sorted internally when the collector is created, so the key order passed to
+`Bind()` doesn't matter — values are looked up by name, not position.
+
+Eval metric names are auto-prefixed with `{namespace}_eval_`, and the prefix is idempotent — a
+name that already starts with it isn't doubled. This keeps eval metrics queryable separately from
+pipeline metrics (`{namespace}_pipeline_...`) with a pattern like `{namespace}_eval_.*`.
+
 ## Grafana Dashboard
 
 PromptKit includes a pre-built Grafana dashboard at `runtime/metrics/grafana/pipeline-dashboard.json`.

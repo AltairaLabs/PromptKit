@@ -9,6 +9,17 @@ Connect Model Context Protocol servers for external tools.
 
 Set up MCP servers and integrate tools into your pipeline.
 
+## Transports
+
+MCP servers can be reached over three transports, selected by which `ServerConfig` fields are set:
+
+- **stdio** (default when `Command` is set) — PromptKit spawns the MCP server as a local
+  subprocess. Set `Command` and optional `Args` / `Env`.
+- **HTTP+SSE** (default when `URL` is set) — the legacy two-endpoint transport from the MCP
+  2024-11-05 spec.
+- **Streamable HTTP** — the single-endpoint POST transport from the MCP 2025-03-26 spec. Explicit
+  opt-in: set `URL` together with `TransportName: mcp.TransportStreamableHTTP`.
+
 ## Quick Start
 
 ### Step 1: Create MCP Registry
