@@ -1,0 +1,47 @@
+name: Reference Drift
+
+# ci.yml has a workflow-level `paths-ignore: docs/**`, so a PR that changes
+# only docs (e.g. a hand-edit of a generated reference page) never runs the
+# `build` job and the drift gate never executes. This workflow exists to
+# catch exactly that case: it triggers on changes to either the Go source
+# that generates the reference pages OR the generated pages themselves.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/**'
+      - 'docs/src/content/docs/runtime/reference/**'
+      - 'docs/scripts/gen-reference.sh'
+      - 'docs/scripts/check-reference.sh'
+      - 'Makefile'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'runtime/**'
+      - 'docs/src/content/docs/runtime/reference/**'
+      - 'docs/scripts/gen-reference.sh'
+      - 'docs/scripts/check-reference.sh'
+      - 'Makefile'
+
+permissions:
+  contents: read
+
+jobs:
+  reference-drift:
+    name: Runtime Reference Drift Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Set up Go
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Install gomarkdoc
+      run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+
+    - name: Check runtime reference is up to date
+      run: make docs-reference-check

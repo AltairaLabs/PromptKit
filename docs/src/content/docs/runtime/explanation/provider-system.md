@@ -481,7 +481,7 @@ Provider abstraction provides:
 ## Related Topics
 
 - [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How providers fit in pipelines
-- [Tool Integration](/runtime/reference/tools-mcp/) - Function calling across providers
+- [Tool Integration](/runtime/reference/tools/) - Function calling across providers
 - [Providers Reference](/runtime/reference/providers/) - Complete API
 
 ## Further Reading
