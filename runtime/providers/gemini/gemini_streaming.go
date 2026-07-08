@@ -78,16 +78,22 @@ func (p *Provider) PredictStream(
 	}, p.streamResponse)
 }
 
-// processGeminiStreamChunk processes a single chunk from the Gemini stream
+// processGeminiStreamChunk processes a single chunk from the Gemini stream.
+//
+// TokenCount/DeltaTokens are populated ONLY from real usageMetadata (present
+// on the terminal chunk), never from a per-part-incremented approximation —
+// Gemini's "tokens" are not 1:1 with text parts (a part can be a whole
+// sentence or a single character), so counting parts fabricated a number that
+// looked precise but was not calibrated to anything real. Interim chunks
+// leave TokenCount/DeltaTokens at their zero value.
 func (p *Provider) processGeminiStreamChunk(
 	chunk geminiResponse,
 	sb *strings.Builder,
-	totalTokens int,
 	toolCalls []types.MessageToolCall,
 	outChan chan<- providers.StreamChunk,
-) (newTotalTokens int, newToolCalls []types.MessageToolCall, finished bool) {
+) (newToolCalls []types.MessageToolCall, finished bool) {
 	if len(chunk.Candidates) == 0 {
-		return totalTokens, toolCalls, false
+		return toolCalls, false
 	}
 
 	candidate := chunk.Candidates[0]
@@ -112,13 +118,10 @@ func (p *Provider) processGeminiStreamChunk(
 		// Handle text content
 		if part.Text != "" {
 			sb.WriteString(part.Text)
-			totalTokens++ // Approximate
 
 			outChan <- providers.StreamChunk{
-				Content:     sb.String(),
-				Delta:       part.Text,
-				TokenCount:  totalTokens,
-				DeltaTokens: 1,
+				Content: sb.String(),
+				Delta:   part.Text,
 			}
 		}
 
@@ -157,32 +160,30 @@ func (p *Provider) processGeminiStreamChunk(
 				),
 				FinishReason: &candidate.FinishReason,
 			}
-			return totalTokens, toolCalls, true
+			return toolCalls, true
 		}
 
 		normalized := normalizeFinishReason(candidate.FinishReason)
 		finalChunk := providers.StreamChunk{
 			Content:      sb.String(),
-			TokenCount:   totalTokens,
 			FinishReason: &normalized,
 			ToolCalls:    toolCalls,
 		}
 
-		// Extract cost from usage metadata if available
+		// TokenCount and CostInfo come from real usageMetadata only — routed
+		// through costFromUsage (not the CalculateCost wrapper) so thinking
+		// tokens are priced too (see Task 10).
 		if chunk.UsageMetadata != nil {
-			costBreakdown := p.CalculateCost(
-				chunk.UsageMetadata.PromptTokenCount,
-				chunk.UsageMetadata.CandidatesTokenCount,
-				chunk.UsageMetadata.CachedContentTokenCount,
-			)
+			finalChunk.TokenCount = chunk.UsageMetadata.CandidatesTokenCount
+			costBreakdown := p.costFromUsage(*chunk.UsageMetadata)
 			finalChunk.CostInfo = &costBreakdown
 		}
 
 		outChan <- finalChunk
-		return totalTokens, toolCalls, true // Signal finish
+		return toolCalls, true // Signal finish
 	}
 
-	return totalTokens, toolCalls, false
+	return toolCalls, false
 }
 
 // streamResponse reads a JSON array stream from Gemini and sends chunks incrementally.
@@ -225,7 +226,6 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	}
 
 	var sb strings.Builder
-	totalTokens := 0
 	var toolCalls []types.MessageToolCall
 
 	// Decode each element incrementally as it arrives
@@ -252,8 +252,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		var finished bool
-		totalTokens, toolCalls, finished = p.processGeminiStreamChunk(
-			chunk, &sb, totalTokens, toolCalls, outChan)
+		toolCalls, finished = p.processGeminiStreamChunk(chunk, &sb, toolCalls, outChan)
 		if finished {
 			return
 		}
@@ -269,10 +268,11 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		return
 	}
 
-	// No finish reason received, send final chunk
+	// No finish reason received, send final chunk. No usageMetadata was seen
+	// on this path, so TokenCount stays at its zero value rather than a
+	// fabricated approximation.
 	outChan <- providers.StreamChunk{
 		Content:      sb.String(),
-		TokenCount:   totalTokens,
 		ToolCalls:    toolCalls,
 		FinishReason: providers.StringPtr("stop"),
 	}
