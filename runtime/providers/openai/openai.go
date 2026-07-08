@@ -15,6 +15,7 @@ import (
 	credentials "github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -30,13 +31,6 @@ const (
 	authorizationHeader          = "Authorization"
 	bearerPrefix                 = "Bearer "
 	httpClientTimeout            = 60 * time.Second
-)
-
-// Default pricing constants (GPT-4o pricing used as fallback for unknown models)
-const (
-	defaultInputCostPer1K  = 0.0025
-	defaultOutputCostPer1K = 0.01
-	defaultCachedCostPer1K = 0.00125
 )
 
 // oSeriesMinLen is the minimum length of an o-series model name (e.g. "o1").
@@ -534,14 +528,24 @@ type openAIChoice struct {
 }
 
 type openAIUsage struct {
-	PromptTokens        int                  `json:"prompt_tokens"`
-	CompletionTokens    int                  `json:"completion_tokens"`
-	TotalTokens         int                  `json:"total_tokens"`
-	PromptTokensDetails *openAIPromptDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                      `json:"prompt_tokens"`
+	CompletionTokens        int                      `json:"completion_tokens"`
+	TotalTokens             int                      `json:"total_tokens"`
+	PromptTokensDetails     *openAIPromptDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *openAICompletionDetails `json:"completion_tokens_details,omitempty"`
 }
 
 type openAIPromptDetails struct {
 	CachedTokens int `json:"cached_tokens"`
+}
+
+// openAICompletionDetails carries the reasoning-token sub-count OpenAI
+// reports on completion_tokens_details. completion_tokens on the wire
+// INCLUDES reasoning tokens (they share the same output budget), so this
+// value must be subtracted back out to get the visible-only output count —
+// see openAIUsageToTokens.
+type openAICompletionDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 type openAIError struct {
@@ -652,61 +656,52 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 // prefix is stable across rounds (see the deterministic tool-order fix).
 func (p *Provider) SupportsPromptCaching() bool { return true }
 
-// CalculateCost calculates detailed cost breakdown including optional cached tokens
+// openAIUsageToTokens maps OpenAI's cache-INCLUSIVE prompt accounting and
+// reasoning-INCLUSIVE completion accounting into canonical units.
+// prompt_tokens on the wire INCLUDES any cached_tokens sub-count, so cached
+// must be subtracted back out to get full-price input. completion_tokens
+// likewise INCLUDES reasoning_tokens, so output is the visible-only
+// remainder and reasoning is priced as its own additive unit.
+func openAIUsageToTokens(u openAIUsage) base.TokenUsage {
+	reasoning, cached := 0, 0
+	if u.CompletionTokensDetails != nil {
+		reasoning = u.CompletionTokensDetails.ReasoningTokens
+	}
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	return base.TokenUsage{
+		Input:     u.PromptTokens - cached,
+		CacheRead: cached,
+		Output:    u.CompletionTokens - reasoning,
+		Reasoning: reasoning,
+	}
+}
+
+// costFromUsage prices an openAIUsage through the unit-keyed pricing engine:
+// an explicit config descriptor wins, then legacy flat per-1K config, then
+// the built-in per-model table (openaiPricingTable), else nil (priced units
+// are surfaced loudly by PriceUsage rather than silently reported as $0
+// without warning — see ResolveLLMPricing/PriceUsage doc comments).
+func (p *Provider) costFromUsage(u openAIUsage) types.CostInfo {
+	desc := base.ResolveLLMPricing(
+		p.Pricing(),
+		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
+		openaiPricingTable, p.model)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, openAIUsageToTokens(u), nil, 0)
+}
+
+// CalculateCost calculates detailed cost breakdown including optional cached
+// tokens. Thin wrapper over costFromUsage, kept for the Provider interface's
+// legacy signature (cachedTokens here means cache reads only — callers that
+// also have a reasoning-token count, e.g. wire openAIUsage, should call
+// costFromUsage directly instead so reasoning tokens aren't dropped).
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
-	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
-
-	// Use configured pricing if available
-	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
-		inputCostPer1K = p.defaults.Pricing.InputCostPer1K
-		outputCostPer1K = p.defaults.Pricing.OutputCostPer1K
-		// Assume cached tokens cost 50% of input tokens
-		cachedCostPer1K = inputCostPer1K * 0.5
-	} else {
-		switch p.model {
-		case "gpt-4":
-			inputCostPer1K = 0.03   // $0.03 per 1K input tokens
-			outputCostPer1K = 0.06  // $0.06 per 1K output tokens
-			cachedCostPer1K = 0.015 // $0.015 per 1K cached tokens (50% discount)
-		case "gpt-4o-mini":
-			inputCostPer1K = 0.00015   // $0.00015 per 1K input tokens
-			outputCostPer1K = 0.0006   // $0.0006 per 1K output tokens
-			cachedCostPer1K = 0.000075 // $0.000075 per 1K cached tokens (50% discount)
-		case "gpt-3.5-turbo":
-			inputCostPer1K = 0.0015   // $0.0015 per 1K input tokens
-			outputCostPer1K = 0.002   // $0.002 per 1K output tokens
-			cachedCostPer1K = 0.00075 // $0.00075 per 1K cached tokens (50% discount)
-		case "gpt-4o":
-			inputCostPer1K = defaultInputCostPer1K
-			outputCostPer1K = defaultOutputCostPer1K
-			cachedCostPer1K = defaultCachedCostPer1K
-		default:
-			// Unknown model (e.g. a local/self-hosted server behind a custom
-			// base_url): there is no reliable price. Report zero rather than
-			// fabricate a cost from GPT-4o rates. Configure `pricing` on the
-			// provider to get real cost numbers for unrecognized models.
-			logger.Warn("No pricing configured for unknown model; reporting zero cost",
-				"provider", p.ID(), "model", p.model)
-			inputCostPer1K = 0
-			outputCostPer1K = 0
-			cachedCostPer1K = 0
-		}
-	}
-
-	// Calculate costs
-	inputCost := float64(tokensIn-cachedTokens) / 1000.0 * inputCostPer1K
-	cachedCost := float64(cachedTokens) / 1000.0 * cachedCostPer1K
-	outputCost := float64(tokensOut) / 1000.0 * outputCostPer1K
-
-	return types.CostInfo{
-		InputTokens:   tokensIn - cachedTokens,
-		OutputTokens:  tokensOut,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		CachedCostUSD: cachedCost,
-		TotalCost:     inputCost + cachedCost + outputCost,
-	}
+	return p.costFromUsage(openAIUsage{
+		PromptTokens:        tokensIn,
+		CompletionTokens:    tokensOut,
+		PromptTokensDetails: &openAIPromptDetails{CachedTokens: cachedTokens},
+	})
 }
 
 // PredictStream streams a predict response from OpenAI.
@@ -834,14 +829,10 @@ func (p *Provider) createFinalStreamChunk(accumulated string, accumulatedToolCal
 	}
 
 	if usage != nil {
-		tokensIn := usage.PromptTokens
-		tokensOut := usage.CompletionTokens
-		cachedTokens := 0
-		if usage.PromptTokensDetails != nil {
-			cachedTokens = usage.PromptTokensDetails.CachedTokens
-		}
-
-		costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+		// Route the full wire usage through costFromUsage (not the CalculateCost
+		// wrapper) so reasoning tokens reported in the final streamed usage chunk
+		// are priced rather than silently dropped.
+		costBreakdown := p.costFromUsage(*usage)
 		finalChunk.CostInfo = &costBreakdown
 	}
 
@@ -1160,13 +1151,10 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	latency := time.Since(start)
 
-	cachedTokens := 0
-	if openAIResp.Usage.PromptTokensDetails != nil {
-		cachedTokens = openAIResp.Usage.PromptTokensDetails.CachedTokens
-	}
-
-	// Calculate cost breakdown
-	costBreakdown := p.CalculateCost(openAIResp.Usage.PromptTokens, openAIResp.Usage.CompletionTokens, cachedTokens)
+	// Calculate cost breakdown. Route the full wire usage through costFromUsage
+	// (not the CalculateCost wrapper) so reasoning tokens are priced rather
+	// than silently dropped.
+	costBreakdown := p.costFromUsage(openAIResp.Usage)
 
 	// Extract content - can be string or array of content parts
 	content := extractContentString(openAIResp.Choices[0].Message.Content)

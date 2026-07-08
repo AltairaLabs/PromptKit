@@ -101,6 +101,22 @@ type responsesUsage struct {
 	OutputTokensCached int `json:"output_tokens_cached,omitempty"`
 }
 
+// responsesUsageToOpenAIUsage builds the equivalent chat-shape openAIUsage
+// from a Responses API usage payload so both API surfaces share a single
+// costFromUsage pricing path. InputTokensCached maps to the chat
+// prompt_tokens_details.cached_tokens sub-count; a nil usage returns a
+// zero-value openAIUsage (zero cost).
+func responsesUsageToOpenAIUsage(u *responsesUsage) openAIUsage {
+	if u == nil {
+		return openAIUsage{}
+	}
+	return openAIUsage{
+		PromptTokens:        u.InputTokens,
+		CompletionTokens:    u.OutputTokens,
+		PromptTokensDetails: &openAIPromptDetails{CachedTokens: u.InputTokensCached},
+	}
+}
+
 // responsesError represents an error in the Responses API
 type responsesError struct {
 	Code    string `json:"code"`
@@ -283,11 +299,7 @@ func (p *Provider) predictWithResponses(
 	// Calculate cost
 	var costInfo *types.CostInfo
 	if responsesResp.Usage != nil {
-		cost := p.CalculateCost(
-			responsesResp.Usage.InputTokens,
-			responsesResp.Usage.OutputTokens,
-			responsesResp.Usage.InputTokensCached,
-		)
+		cost := p.costFromUsage(responsesUsageToOpenAIUsage(responsesResp.Usage))
 		costInfo = &cost
 	}
 
@@ -405,7 +417,7 @@ func (p *Provider) sendFinalChunk(
 		FinishReason: &reason,
 	}
 	if usage != nil {
-		cost := p.CalculateCost(usage.InputTokens, usage.OutputTokens, usage.InputTokensCached)
+		cost := p.costFromUsage(responsesUsageToOpenAIUsage(usage))
 		finalChunk.CostInfo = &cost
 	}
 	outChan <- finalChunk

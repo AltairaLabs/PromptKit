@@ -240,8 +240,13 @@ func TestOpenAIProvider_CostBreakdown(t *testing.T) {
 		t.Errorf("Expected output cost %.4f, got %.4f", expectedOutputCost, breakdown.OutputCostUSD)
 	}
 
+	// TotalCost is summed independently by the shared pricing engine (over an
+	// unordered Quantities map) rather than as InputCostUSD+OutputCostUSD, so
+	// use a tolerance rather than exact float equality — see
+	// base.PriceUsage/deriveHeadlines.
 	expectedTotal := expectedInputCost + expectedOutputCost
-	if breakdown.TotalCost != expectedTotal {
+	const costTolerance = 1e-9
+	if diff := breakdown.TotalCost - expectedTotal; diff < -costTolerance || diff > costTolerance {
 		t.Errorf("Expected total cost %.4f, got %.4f", expectedTotal, breakdown.TotalCost)
 	}
 }
@@ -275,8 +280,18 @@ func TestOpenAIProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		t.Error("CachedTokens mismatch")
 	}
 
-	// Cached tokens cost 50% of regular input tokens
-	expectedCachedCost := 0.001 // 200 * 0.01 / 1000 * 0.5 = 0.001
+	// The legacy flat providers.Pricing{InputCostPer1K,OutputCostPer1K} config
+	// carries only input_token/output_token rates (base.ResolveLLMPricing's
+	// FlatPricing branch, by design — it can't know a provider-specific cache
+	// discount). So with flat config set, cache reads have no matching price
+	// item: the quantity is still tracked (CachedTokens above) but the dollar
+	// amount is $0, surfaced via a loud "unpriced unit" warning rather than a
+	// silently assumed 50% discount. Cache-aware pricing requires either the
+	// built-in per-model table (openaiPricingTable, used when flat pricing is
+	// NOT configured) or an explicit PricingDescriptor with a cache_read_token
+	// item. See TestCalculateCost_FallbackPricing/gpt-4_with_cached_tokens for
+	// the table-driven cache-aware path.
+	expectedCachedCost := 0.0
 	// Input cost is for 800 tokens only
 	expectedInputCost := 0.008  // 800 * 0.01 / 1000 = 0.008
 	expectedOutputCost := 0.015 // 500 * 0.03 / 1000 = 0.015
@@ -289,9 +304,12 @@ func TestOpenAIProvider_CostBreakdownWithCachedTokens(t *testing.T) {
 		t.Errorf("Expected input cost %.4f, got %.4f", expectedInputCost, breakdown.InputCostUSD)
 	}
 
-	// Total should include all costs
+	// Total should include all costs. TotalCost is summed independently by the
+	// shared pricing engine, so use a tolerance rather than exact float
+	// equality — see base.PriceUsage/deriveHeadlines.
 	expectedTotal := expectedInputCost + expectedCachedCost + expectedOutputCost
-	if breakdown.TotalCost != expectedTotal {
+	const costTolerance = 1e-9
+	if diff := breakdown.TotalCost - expectedTotal; diff < -costTolerance || diff > costTolerance {
 		t.Errorf("Expected total cost %.4f, got %.4f", expectedTotal, breakdown.TotalCost)
 	}
 }
