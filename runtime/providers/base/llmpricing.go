@@ -26,9 +26,16 @@ func ResolveLLMPricing(
 		return configDesc
 	}
 	if flat.Input > 0 && flat.Output > 0 {
+		// Reasoning tokens bill at the output rate for every provider that
+		// splits them out (OpenAI o-series, Gemini thinking), so a flat config
+		// — which does carry a known output rate — must price reasoning too, or
+		// a thinking model under flat config understates cost by the reasoning
+		// amount. (Cache tokens are deliberately NOT priced here: a flat config
+		// carries no provider-specific cache multiplier, so they go loud-unpriced.)
 		return &PricingDescriptor{Source: PricingSourceInline, Items: []PriceItem{
 			{Unit: UnitInputToken, Rate: flat.Input / per1KScale},
 			{Unit: UnitOutputToken, Rate: flat.Output / per1KScale},
+			{Unit: UnitReasoningToken, Rate: flat.Output / per1KScale},
 		}}
 	}
 	if d, ok := table[normalizeModel(model)]; ok {
