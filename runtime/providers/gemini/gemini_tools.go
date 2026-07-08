@@ -551,15 +551,13 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 		}
 	}
 
-	var tokensIn, tokensOut, cachedTokens int
+	// costFromUsage (not the CalculateCost wrapper) so thinking tokens
+	// (ThoughtsTokenCount) are priced; the wrapper's narrower signature drops them.
+	var usage geminiUsage
 	if resp.UsageMetadata != nil {
-		tokensIn = resp.UsageMetadata.PromptTokenCount
-		tokensOut = resp.UsageMetadata.CandidatesTokenCount
-		cachedTokens = resp.UsageMetadata.CachedContentTokenCount
+		usage = *resp.UsageMetadata
 	}
-
-	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
-	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+	costBreakdown := p.costFromUsage(usage)
 
 	predictResp.Content = textBuilder.String()
 	predictResp.Reasoning = reasoningFromToolParts(candidate.Content.Parts)

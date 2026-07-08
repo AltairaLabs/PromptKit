@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -273,6 +274,34 @@ type geminiUsage struct {
 	CandidatesTokenCount    int `json:"candidatesTokenCount"`
 	TotalTokenCount         int `json:"totalTokenCount"`
 	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
+	// ThoughtsTokenCount is Gemini 2.5+ "thinking" token usage. It is billed
+	// on top of CandidatesTokenCount (at the output rate), not a subset of it.
+	ThoughtsTokenCount int `json:"thoughtsTokenCount,omitempty"`
+}
+
+// geminiUsageToTokens maps Gemini's cache-INCLUSIVE prompt accounting into
+// canonical units: uncached input = prompt - cached; thoughts are billed on
+// top of candidates, so they become the reasoning unit.
+func geminiUsageToTokens(u geminiUsage) base.TokenUsage {
+	return base.TokenUsage{
+		Input:     u.PromptTokenCount - u.CachedContentTokenCount,
+		CacheRead: u.CachedContentTokenCount,
+		Output:    u.CandidatesTokenCount,
+		Reasoning: u.ThoughtsTokenCount,
+	}
+}
+
+// costFromUsage prices a geminiUsage through the unit-keyed pricing engine: an
+// explicit config descriptor wins, then legacy flat per-1K config, then the
+// built-in per-model table (geminiPricingTable), else nil (priced units are
+// surfaced loudly by PriceUsage rather than silently reported as $0 without
+// warning — see ResolveLLMPricing/PriceUsage doc comments).
+func (p *Provider) costFromUsage(u geminiUsage) types.CostInfo {
+	desc := base.ResolveLLMPricing(
+		p.Pricing(),
+		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
+		geminiPricingTable, p.model)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, geminiUsageToTokens(u), nil, 0)
 }
 
 type geminiPromptFeedback struct {
@@ -661,18 +690,16 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		return predictResp, err
 	}
 
-	// Extract token counts
-	var tokensIn, tokensOut, cachedTokens int
+	// costFromUsage (not the CalculateCost wrapper) so thinking tokens
+	// (ThoughtsTokenCount) are priced; the wrapper's narrower signature drops them.
+	var usage geminiUsage
 	if geminiResp.UsageMetadata != nil {
-		tokensIn = geminiResp.UsageMetadata.PromptTokenCount
-		tokensOut = geminiResp.UsageMetadata.CandidatesTokenCount
-		cachedTokens = geminiResp.UsageMetadata.CachedContentTokenCount
+		usage = *geminiResp.UsageMetadata
 	}
 
 	latency := time.Since(start)
 
-	// promptTokenCount includes cached tokens; CalculateCost subtracts them.
-	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+	costBreakdown := p.costFromUsage(usage)
 
 	// Extract all content parts (text + inline media + markdown images)
 	var contentParts []types.ContentPart
@@ -757,9 +784,9 @@ func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 	)
 
 	switch model {
-	case "gemini-1.5-pro", "gemini-2.5-pro":
+	case idGemini15Pro, idGemini25Pro:
 		return proInput, proOutput, proCached
-	case "gemini-1.5-flash", "gemini-2.5-flash":
+	case idGemini15Flash, idGemini25Flash:
 		return flashInput, flashOutput, flashCached
 	case "gemini-pro":
 		return geminiInput, geminiOutput, geminiCached
@@ -775,36 +802,16 @@ func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 // deterministic tool-order fix).
 func (p *Provider) SupportsPromptCaching() bool { return true }
 
-// CalculateCost calculates detailed cost breakdown including optional cached tokens
+// CalculateCost calculates detailed cost breakdown including optional cached
+// tokens. Thin wrapper over costFromUsage, kept for the Provider interface's
+// legacy signature. Note Gemini's promptTokenCount is cache-INCLUSIVE on the
+// wire, but this legacy signature's tokensIn parameter is documented (at call
+// sites) as already including cached tokens, so it is passed straight through
+// as PromptTokenCount and geminiUsageToTokens subtracts cachedTokens from it.
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
-	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
-
-	// Use configured pricing if available
-	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
-		inputCostPer1K = p.defaults.Pricing.InputCostPer1K
-		outputCostPer1K = p.defaults.Pricing.OutputCostPer1K
-		// Cached tokens cost 50% of input tokens for Gemini
-		cachedCostPer1K = inputCostPer1K * 0.5
-	} else {
-		// Fallback to hardcoded pricing with warning
-		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.model)
-	}
-
-	// Calculate costs
-	inputCost := float64(tokensIn-cachedTokens) / 1000.0 * inputCostPer1K
-	cachedCost := float64(cachedTokens) / 1000.0 * cachedCostPer1K
-	outputCost := float64(tokensOut) / 1000.0 * outputCostPer1K
-
-	return types.CostInfo{
-		InputTokens:   tokensIn - cachedTokens,
-		OutputTokens:  tokensOut,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		CachedCostUSD: cachedCost,
-		TotalCost:     inputCost + cachedCost + outputCost,
-	}
+	return p.costFromUsage(geminiUsage{
+		PromptTokenCount: tokensIn, CandidatesTokenCount: tokensOut, CachedContentTokenCount: cachedTokens,
+	})
 }
 
 // inferMediaTypeFromMIME infers the content type (image/audio/video) from a MIME type

@@ -260,18 +260,16 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 		return predictResp, err
 	}
 
-	// Extract token counts
-	var tokensIn, tokensOut, cachedTokens int
+	// costFromUsage (not the CalculateCost wrapper) so thinking tokens
+	// (ThoughtsTokenCount) are priced; the wrapper's narrower signature drops them.
+	var usage geminiUsage
 	if geminiResp.UsageMetadata != nil {
-		tokensIn = geminiResp.UsageMetadata.PromptTokenCount
-		tokensOut = geminiResp.UsageMetadata.CandidatesTokenCount
-		cachedTokens = geminiResp.UsageMetadata.CachedContentTokenCount
+		usage = *geminiResp.UsageMetadata
 	}
 
 	latency := time.Since(start)
 
-	// Calculate cost breakdown
-	costBreakdown := p.CalculateCost(tokensIn, tokensOut, cachedTokens)
+	costBreakdown := p.costFromUsage(usage)
 
 	// Guard against an empty/odd API response (no candidates, no parts) rather
 	// than panicking with an index-out-of-range.
