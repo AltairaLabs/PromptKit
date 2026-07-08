@@ -75,13 +75,13 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 {"error": "city not found"}
 ```
 
-**Pending (human-in-the-loop):**
+**Pending (schema only — not currently acted on):**
 
 ```json
 {"pending": {"reason": "requires_approval", "message": "Refund of $500 requires manager approval"}}
 ```
 
-A pending response pauses the pipeline until the operation is resolved externally.
+`ExecExecutor.Execute` (`runtime/tools/exec_executor.go`) unmarshals this field but never reads it: it checks `error`, then `result`, and otherwise falls back to returning the raw stdout bytes as the tool result. There is currently **no subprocess-level pause/resume mechanism** for exec tools — a `pending`-only response does not suspend the pipeline. The working human-in-the-loop path is the in-process `sdk.OnToolAsync` / `PendingResult` (`sdk/tools/pending.go`), which is unrelated to this wire protocol. Do not rely on `pending` from an exec subprocess to suspend execution.
 
 ## Eval Protocol
 
@@ -113,6 +113,10 @@ A pending response pauses the pipeline until the operation is resolved externall
 | `context.tool_calls` | array | Tool calls made during this turn |
 | `context.variables` | object | Template variables in scope |
 | `context.metadata` | object | Arbitrary metadata from the pipeline |
+| `context.session_id` | string | Session identifier (omitted when empty) |
+| `context.prompt_id` | string | Prompt identifier (omitted when empty) |
+
+`context.tool_calls` items are a `toolCallView` (`runtime/evals/handlers/tool_call_views.go`), which has **no `json` tags** — populated entries serialize with PascalCase keys (`Name`, `Args`, `Result`, `Error`, `Index`), not snake_case, e.g. `{"Name": "db_query", "Args": {...}, "Result": "...", "Error": "", "Index": 0}`.
 
 ### Response (stdout)
 
@@ -133,12 +137,16 @@ A pending response pauses the pipeline until the operation is resolved externall
 ### How Callers Use the Result
 
 - **Assertions**: `AssertionEvalHandler` checks min/max score thresholds to determine pass/fail.
-- **Guardrails**: `GuardrailHookAdapter` calls `IsPassed()` (score < 1.0 = fail) to enforce or monitor.
+- **Guardrails**: `GuardrailHookAdapter` derives pass/fail directly from `Score` (`Score == nil || *Score < 1.0` → fail) to enforce or monitor. There is no `IsPassed()` method — the check is inlined (`runtime/hooks/guardrails/adapter.go`).
 - **Standalone evals**: Score is recorded as a metric.
 
 ## Hook Protocol
 
 Hooks receive a JSON object describing the hook type, phase, and event-specific payload.
+
+:::caution
+The envelope fields (`hook`, `phase`, `request`, `response`, `event`) are tagged on `execHookRequest` (`runtime/hooks/exec_hooks.go`) and always serialize as shown below. The **nested payload structs** — `ProviderRequest`, `ProviderResponse`, `ToolRequest`, `ToolResponse`, `SessionEvent` (`runtime/hooks/types.go`) — have **no `json` tags**, so `encoding/json` marshals them using the Go field names verbatim (PascalCase), not snake_case. A subprocess coded to snake_case keys inside `request`/`response`/`event` gets all-zero values. The examples below show the actual wire casing.
+:::
 
 ### Provider Hook
 
@@ -149,11 +157,12 @@ Hooks receive a JSON object describing the hook type, phase, and event-specific 
   "hook": "provider",
   "phase": "before_call",
   "request": {
-    "provider_id": "anthropic-main",
-    "model": "claude-sonnet-4-20250514",
-    "messages": [],
-    "system_prompt": "You are a helpful assistant.",
-    "round": 1
+    "ProviderID": "anthropic-main",
+    "Model": "claude-sonnet-4-20250514",
+    "Messages": [],
+    "SystemPrompt": "You are a helpful assistant.",
+    "Round": 1,
+    "Metadata": null
   }
 }
 ```
@@ -165,17 +174,19 @@ Hooks receive a JSON object describing the hook type, phase, and event-specific 
   "hook": "provider",
   "phase": "after_call",
   "request": {
-    "provider_id": "anthropic-main",
-    "model": "claude-sonnet-4-20250514",
-    "messages": [],
-    "system_prompt": "You are a helpful assistant.",
-    "round": 1
+    "ProviderID": "anthropic-main",
+    "Model": "claude-sonnet-4-20250514",
+    "Messages": [],
+    "SystemPrompt": "You are a helpful assistant.",
+    "Round": 1,
+    "Metadata": null
   },
   "response": {
-    "provider_id": "anthropic-main",
-    "model": "claude-sonnet-4-20250514",
-    "message": {},
-    "latency_ms": 450
+    "ProviderID": "anthropic-main",
+    "Model": "claude-sonnet-4-20250514",
+    "Message": {},
+    "Round": 1,
+    "LatencyMs": 450
   }
 }
 ```
@@ -189,9 +200,9 @@ Hooks receive a JSON object describing the hook type, phase, and event-specific 
   "hook": "tool",
   "phase": "before_execution",
   "request": {
-    "name": "db_query",
-    "args": {"query": "SELECT ..."},
-    "call_id": "call_abc123"
+    "Name": "db_query",
+    "Args": {"query": "SELECT ..."},
+    "CallID": "call_abc123"
   }
 }
 ```
@@ -203,15 +214,16 @@ Hooks receive a JSON object describing the hook type, phase, and event-specific 
   "hook": "tool",
   "phase": "after_execution",
   "request": {
-    "name": "db_query",
-    "args": {"query": "SELECT ..."},
-    "call_id": "call_abc123"
+    "Name": "db_query",
+    "Args": {"query": "SELECT ..."},
+    "CallID": "call_abc123"
   },
   "response": {
-    "name": "db_query",
-    "call_id": "call_abc123",
-    "content": "{\"rows\": []}",
-    "latency_ms": 120
+    "Name": "db_query",
+    "CallID": "call_abc123",
+    "Content": "{\"rows\": []}",
+    "Error": "",
+    "LatencyMs": 120
   }
 }
 ```
@@ -223,10 +235,11 @@ Hooks receive a JSON object describing the hook type, phase, and event-specific 
   "hook": "session",
   "phase": "session_start",
   "event": {
-    "session_id": "sess_123",
-    "conversation_id": "conv_456",
-    "messages": [],
-    "turn_index": 0
+    "SessionID": "sess_123",
+    "ConversationID": "conv_456",
+    "Messages": [],
+    "TurnIndex": 0,
+    "Metadata": null
   }
 }
 ```
@@ -271,6 +284,6 @@ Session hooks are observe-only and do not influence the pipeline.
 
 ## See Also
 
-- Exec Tools (how-to)
-- Exec Hooks (how-to)
-- RuntimeConfig (reference)
+- [Exec Tools](/sdk/how-to/tools/exec-tools/) — how-to guide for subprocess tool bindings
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — how-to guide for external process hooks
+- [RuntimeConfig](/sdk/reference/runtime-config/) — YAML config reference

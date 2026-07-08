@@ -10,17 +10,27 @@ on:
     branches: [ main ]
     paths:
       - 'runtime/**'
+      - 'sdk/**'
+      - 'server/a2a/**'
       - 'docs/src/content/docs/runtime/reference/**'
+      - 'docs/src/content/docs/sdk/reference/**'
       - 'docs/scripts/gen-reference.sh'
       - 'docs/scripts/check-reference.sh'
+      - 'docs/scripts/gen-sdk-reference.sh'
+      - 'docs/scripts/check-sdk-reference.sh'
       - 'Makefile'
   pull_request:
     branches: [ main ]
     paths:
       - 'runtime/**'
+      - 'sdk/**'
+      - 'server/a2a/**'
       - 'docs/src/content/docs/runtime/reference/**'
+      - 'docs/src/content/docs/sdk/reference/**'
       - 'docs/scripts/gen-reference.sh'
       - 'docs/scripts/check-reference.sh'
+      - 'docs/scripts/gen-sdk-reference.sh'
+      - 'docs/scripts/check-sdk-reference.sh'
       - 'Makefile'
 
 permissions:
@@ -28,7 +38,7 @@ permissions:
 
 jobs:
   reference-drift:
-    name: Runtime Reference Drift Check
+    name: Reference Drift Check
     runs-on: ubuntu-latest
 
     steps:
@@ -45,3 +55,6 @@ jobs:
 
     - name: Check runtime reference is up to date
       run: make docs-reference-check
+
+    - name: Check SDK reference is up to date
+      run: make docs-sdk-reference-check

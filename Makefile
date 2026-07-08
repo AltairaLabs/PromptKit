@@ -291,6 +291,7 @@ docs-api: ## Generate API documentation from Go code
 	@cat docs/src/content/docs/api/runtime-temp.md >> docs/src/content/docs/api/runtime.md
 	@rm docs/src/content/docs/api/runtime-temp.md
 	@$(MAKE) docs-reference
+	@$(MAKE) docs-sdk-reference
 	@echo "✅ API documentation generated"
 
 docs-reference: ## Generate per-package runtime reference pages from Go source
@@ -302,6 +303,16 @@ docs-reference: ## Generate per-package runtime reference pages from Go source
 docs-reference-check: ## Fail if committed runtime reference pages drift from source
 	@chmod +x docs/scripts/check-reference.sh
 	@docs/scripts/check-reference.sh
+
+docs-sdk-reference: ## Generate the SDK-owned reference pages from Go source
+	@echo "📖 Generating SDK reference..."
+	@chmod +x docs/scripts/gen-sdk-reference.sh
+	@docs/scripts/gen-sdk-reference.sh
+	@echo "✅ SDK reference generated"
+
+docs-sdk-reference-check: ## Fail if committed SDK-owned reference pages drift from source
+	@chmod +x docs/scripts/check-sdk-reference.sh
+	@docs/scripts/check-sdk-reference.sh
 
 docs-validate: ## Validate and auto-fix documentation formatting
 	@echo "🔍 Validating and fixing documentation..."
