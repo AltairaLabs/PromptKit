@@ -492,12 +492,19 @@ func TestCalculateCost(t *testing.T) {
 			expectCost:   true,
 		},
 		{
-			name:         "Unknown model falls back to Sonnet pricing",
+			// Routed through the unit-keyed pricing engine (base.ResolveLLMPricing),
+			// an unmatched model has no exact-match table entry and no substring
+			// heuristic fallback, so it prices as $0 (surfaced via a loud warning,
+			// not a silently guessed constant) — the same fix applied to Gemini's
+			// unknown-model handling. Guessing "assume Sonnet" for a genuinely
+			// unknown model is the class of bug this effort is removing, not
+			// preserving.
+			name:         "Unknown model prices as zero, not a guessed constant",
 			model:        "claude-unknown",
 			tokensIn:     1000,
 			tokensOut:    500,
 			cachedTokens: 0,
-			expectCost:   true,
+			expectCost:   false,
 		},
 	}
 
@@ -516,6 +523,12 @@ func TestCalculateCost(t *testing.T) {
 			assert.Equal(t, tt.tokensIn, costInfo.InputTokens)
 			assert.Equal(t, tt.tokensOut, costInfo.OutputTokens)
 			assert.Equal(t, tt.cachedTokens, costInfo.CachedTokens)
+
+			if !tt.expectCost {
+				assert.Zero(t, costInfo.TotalCost)
+				return
+			}
+
 			assert.Greater(t, costInfo.TotalCost, 0.0)
 			assert.Greater(t, costInfo.InputCostUSD, 0.0)
 			assert.Greater(t, costInfo.OutputCostUSD, 0.0)

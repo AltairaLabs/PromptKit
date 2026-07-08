@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -855,8 +856,11 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	latency := time.Since(start)
 
-	// Calculate cost breakdown
-	costBreakdown := p.CalculateCost(claudeResp.Usage.InputTokens, claudeResp.Usage.OutputTokens, claudeResp.Usage.CacheReadInputTokens)
+	// Calculate cost breakdown. claudeResp.Usage already carries
+	// CacheCreationInputTokens (cache WRITE) alongside the read/input/output
+	// counts, so route the full wire usage straight through costFromUsage
+	// rather than the CalculateCost wrapper (which only accepts cache reads).
+	costBreakdown := p.costFromUsage(claudeResp.Usage)
 
 	predictResp.Content = responseText
 	predictResp.CostInfo = &costBreakdown
@@ -892,21 +896,21 @@ func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 	)
 
 	switch model {
-	case "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620", "claude-3-sonnet-20240229":
+	case idClaude35Sonnet20241022, idClaude35Sonnet20240620, idClaude3Sonnet20240229:
 		return sonnetInput, sonnetOutput, sonnetCached
-	case "claude-sonnet-4-6", "claude-sonnet-4-5":
+	case "claude-sonnet-4-6", idClaudeSonnet45:
 		return sonnetInput, sonnetOutput, sonnetCached
-	case "claude-haiku-4-5":
+	case idClaudeHaiku45:
 		return haikuInput, haikuOutput, haikuCached
-	case "claude-3-5-haiku-20241022":
+	case idClaude35Haiku20241022:
 		return haikuInput, haikuOutput, haikuCached
 	case "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6":
 		return opus4Input, opus4Output, opus4Cached
 	case "claude-fable-5", "claude-mythos-5", "claude-mythos-preview":
 		return fableInput, fableOutput, fableCached
-	case "claude-3-opus-20240229":
+	case idClaude3Opus20240229:
 		return opus3Input, opus3Output, opus3Cached
-	case "claude-3-haiku-20240307":
+	case idClaude3Haiku20240307:
 		return haiku3Input, haiku3Output, haiku3Cached
 	default:
 		// Heuristic fallback for unlisted IDs (e.g. a future dated snapshot) so a
@@ -925,40 +929,42 @@ func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) 
 	}
 }
 
-// CalculateCost calculates detailed cost breakdown including optional cached tokens
+// claudeUsageToTokens maps Anthropic's cache-EXCLUSIVE input accounting into
+// canonical units: input_tokens is already full-price, uncached input (do NOT
+// subtract cache reads/writes from it — cache_read_input_tokens and
+// cache_creation_input_tokens are separate wire fields, not a subset of
+// input_tokens).
+func claudeUsageToTokens(u claudeUsage) base.TokenUsage {
+	return base.TokenUsage{
+		Input:      u.InputTokens,
+		CacheRead:  u.CacheReadInputTokens,
+		CacheWrite: u.CacheCreationInputTokens,
+		Output:     u.OutputTokens,
+	}
+}
+
+// costFromUsage prices a claudeUsage through the unit-keyed pricing engine:
+// an explicit config descriptor wins, then legacy flat per-1K config, then
+// the built-in per-model table (claudePricingTable), else nil (priced units
+// are surfaced loudly by PriceUsage rather than silently reported as $0
+// without warning — see ResolveLLMPricing/PriceUsage doc comments).
+func (p *Provider) costFromUsage(u claudeUsage) types.CostInfo {
+	desc := base.ResolveLLMPricing(
+		p.Pricing(),
+		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
+		claudePricingTable, p.model)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, claudeUsageToTokens(u), nil, 0)
+}
+
+// CalculateCost calculates detailed cost breakdown including optional cached
+// tokens. Thin wrapper over costFromUsage, kept for the Provider interface's
+// legacy signature (cachedTokens here means cache READS only — callers that
+// also have cache-write counts, e.g. wire claudeUsage, should call
+// costFromUsage directly instead so cache writes aren't dropped).
 func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.CostInfo {
-	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
-
-	// Use configured pricing if available
-	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
-		inputCostPer1K = p.defaults.Pricing.InputCostPer1K
-		outputCostPer1K = p.defaults.Pricing.OutputCostPer1K
-		// Cached tokens cost 10% of input tokens according to Anthropic pricing
-		cachedCostPer1K = inputCostPer1K * 0.1
-	} else {
-		// Fallback to hardcoded pricing with warning
-		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.model)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = claudePricing(p.model)
-	}
-
-	// Calculate costs. Anthropic reports input_tokens EXCLUSIVE of cache reads
-	// (cache_read_input_tokens is a separate field), so tokensIn is already the
-	// uncached, full-price input — do NOT subtract cachedTokens (that double-counts
-	// and goes negative once a cache read exceeds the fresh input).
-	const per1K = 1000.0
-	inputCost := float64(tokensIn) / per1K * inputCostPer1K
-	cachedCost := float64(cachedTokens) / per1K * cachedCostPer1K
-	outputCost := float64(tokensOut) / per1K * outputCostPer1K
-
-	return types.CostInfo{
-		InputTokens:   tokensIn,
-		OutputTokens:  tokensOut,
-		CachedTokens:  cachedTokens,
-		InputCostUSD:  inputCost,
-		OutputCostUSD: outputCost,
-		CachedCostUSD: cachedCost,
-		TotalCost:     inputCost + cachedCost + outputCost,
-	}
+	return p.costFromUsage(claudeUsage{
+		InputTokens: tokensIn, OutputTokens: tokensOut, CacheReadInputTokens: cachedTokens,
+	})
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
