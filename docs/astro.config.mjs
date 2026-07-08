@@ -67,10 +67,18 @@ const howToRedirects = {
   '/runtime/how-to/use-a2a-tool-bridge/': '/runtime/how-to/a2a/use-a2a-tool-bridge/',
 };
 
+// The hand-written runtime reference page `tools-mcp.md` was replaced by
+// per-package generated pages (`tools.md` + `mcp.md`, see
+// docs/scripts/gen-reference.sh); redirect the retired URL so external/
+// bookmarked links don't 404.
+const referenceRedirects = {
+  '/runtime/reference/tools-mcp/': '/runtime/reference/tools/',
+};
+
 // https://astro.build/config
 export default defineConfig({
   site: 'https://promptkit.altairalabs.ai',
-  redirects: howToRedirects,
+  redirects: { ...howToRedirects, ...referenceRedirects },
   integrations: [
     d2(),
     starlight({
