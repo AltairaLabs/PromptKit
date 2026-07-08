@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -29,9 +30,12 @@ func TestProcessStreamElements_PopulatesFinalResultCost(t *testing.T) {
 	chunkChan := make(chan providers.StreamChunk, 8)
 
 	msg := types.Message{
-		Role:     "assistant",
-		Content:  "hi",
-		CostInfo: &types.CostInfo{InputTokens: 11, OutputTokens: 7, TotalCost: 0.02},
+		Role:    "assistant",
+		Content: "hi",
+		CostInfo: &types.CostInfo{
+			InputTokens: 11, OutputTokens: 7,
+			InputCostUSD: 0.015, OutputCostUSD: 0.005, TotalCost: 0.02,
+		},
 	}
 	stageChan <- stage.StreamElement{Message: &msg}
 	close(stageChan)
@@ -50,6 +54,44 @@ func TestProcessStreamElements_PopulatesFinalResultCost(t *testing.T) {
 	assert.Equal(t, 11, final.CostInfo.InputTokens, "input tokens must survive to the streaming Response")
 	assert.Equal(t, 7, final.CostInfo.OutputTokens)
 	assert.InEpsilon(t, 0.02, final.CostInfo.TotalCost, 1e-9)
+}
+
+// TestStreamProcessor_AccumulateMessage_PreservesBreakdown guards the
+// session roll-up against the lossy hand-rolled-field-sum pattern: it must
+// route through base.AggregateCost so Quantities/Breakdown survive (and sum
+// correctly across messages), not just the flat headline fields.
+func TestStreamProcessor_AccumulateMessage_PreservesBreakdown(t *testing.T) {
+	p := &streamProcessor{}
+
+	msg1 := &types.Message{
+		Role: streamRoleAssistant,
+		CostInfo: &types.CostInfo{
+			Quantities: map[string]float64{base.UnitReasoningToken: 25},
+			Breakdown: []types.CostLineItem{
+				{Provider: "g", Capability: "inference", Unit: base.UnitReasoningToken, Quantity: 25, USD: 0.02},
+			},
+		},
+	}
+	msg2 := &types.Message{
+		Role: streamRoleAssistant,
+		CostInfo: &types.CostInfo{
+			Quantities: map[string]float64{base.UnitReasoningToken: 10},
+			Breakdown: []types.CostLineItem{
+				{Provider: "g", Capability: "inference", Unit: base.UnitReasoningToken, Quantity: 10, USD: 0.01},
+			},
+		},
+	}
+
+	p.accumulateMessage(msg1)
+	p.accumulateMessage(msg2)
+
+	require.NotNil(t, p.finalResult)
+	assert.Equal(t, 35.0, p.finalResult.CostInfo.Quantities[base.UnitReasoningToken],
+		"quantities must sum across accumulated messages")
+	require.Len(t, p.finalResult.CostInfo.Breakdown, 1, "matching lines must merge into a single breakdown row")
+	assert.InEpsilon(t, 35.0, p.finalResult.CostInfo.Breakdown[0].Quantity, 1e-9)
+	assert.InEpsilon(t, 0.03, p.finalResult.CostInfo.Breakdown[0].USD, 1e-9)
+	assert.InEpsilon(t, 0.03, p.finalResult.CostInfo.TotalCost, 1e-9)
 }
 
 func TestNewUnarySession(t *testing.T) {
