@@ -36,3 +36,18 @@ func ExampleNewImagePartFromURL() {
 	fmt.Println("type:", part.Type)
 	// Output: type: image
 }
+
+// ExampleNewMultimodalMessage builds a message combining text and image
+// parts. GetContent() extracts the text part(s) from Parts.
+func ExampleNewMultimodalMessage() {
+	parts := []types.ContentPart{
+		types.NewTextPart("What is in this image?"),
+		types.NewImagePartFromURL("https://example.com/cat.png", nil),
+	}
+	msg := types.NewMultimodalMessage("user", parts)
+	fmt.Println(msg.GetContent())
+	fmt.Println("parts:", len(msg.Parts))
+	// Output:
+	// What is in this image?
+	// parts: 2
+}

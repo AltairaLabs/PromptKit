@@ -1912,6 +1912,46 @@ func (ml *MediaLoader) GetBase64Data(ctx context.Context, media *types.MediaCont
 
 GetBase64Data loads media content and returns it as base64\-encoded data. It handles all media sources: inline data, file paths, URLs, and storage references. It enforces per\-item size limits, aggregate size limits, and item count limits.
 
+<details><summary>Example</summary>
+<p>
+
+ExampleMediaLoader\_GetBase64Data shows loading inline base64 media data via a MediaLoader. Inline data is returned as\-is with no file or network access, so this example needs no external resources or credentials.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
+
+func main() {
+	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+
+	data := "aGVsbG8=" // base64 for "hello"
+	media := &types.MediaContent{Data: &data, MIMEType: "text/plain"}
+
+	encoded, err := loader.GetBase64Data(context.Background(), media)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(encoded)
+}
+```
+
+#### Output
+
+```
+aGVsbG8=
+```
+
+</p>
+</details>
+
 <a name="MediaLoaderConfig"></a>
 ## type MediaLoaderConfig
 
@@ -2159,6 +2199,35 @@ type ProviderDefaults struct {
 }
 ```
 
+<details><summary>Example</summary>
+<p>
+
+ExampleProviderDefaults shows the defaults passed to every provider constructor.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+)
+
+func main() {
+	d := providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}
+	fmt.Printf("temp=%.1f max=%d\n", d.Temperature, d.MaxTokens)
+}
+```
+
+#### Output
+
+```
+temp=0.7 max=2000
+```
+
+</p>
+</details>
+
 <a name="ProviderFactory"></a>
 ## type ProviderFactory
 
@@ -2393,6 +2462,35 @@ func NewRegistry() *Registry
 ```
 
 NewRegistry creates a new provider registry.
+
+<details><summary>Example</summary>
+<p>
+
+ExampleNewRegistry shows creating a provider registry and listing the \(initially empty\) set of registered inference providers.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+)
+
+func main() {
+	reg := providers.NewRegistry()
+	fmt.Println("providers:", len(reg.List()))
+}
+```
+
+#### Output
+
+```
+providers: 0
+```
+
+</p>
+</details>
 
 <a name="Registry.Base"></a>
 ### func \(\*Registry\) Base

@@ -810,6 +810,41 @@ func NewMultimodalMessage(role string, parts []ContentPart) Message
 
 NewMultimodalMessage creates a message with multimodal content parts. When using Parts, the Content field is intentionally left empty as GetContent\(\) will extract text from Parts.
 
+<details><summary>Example</summary>
+<p>
+
+ExampleNewMultimodalMessage builds a message combining text and image parts. GetContent\(\) extracts the text part\(s\) from Parts.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
+
+func main() {
+	parts := []types.ContentPart{
+		types.NewTextPart("What is in this image?"),
+		types.NewImagePartFromURL("https://example.com/cat.png", nil),
+	}
+	msg := types.NewMultimodalMessage("user", parts)
+	fmt.Println(msg.GetContent())
+	fmt.Println("parts:", len(msg.Parts))
+}
+```
+
+#### Output
+
+```
+What is in this image?
+parts: 2
+```
+
+</p>
+</details>
+
 <a name="NewSystemMessage"></a>
 ### func NewSystemMessage
 
