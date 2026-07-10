@@ -315,7 +315,7 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			Content: "Hello",
 		}
 
-		result := provider.convertSingleMessageForTools(msg)
+		result := provider.convertSingleMessageForTools(context.Background(), msg)
 
 		if result["role"] != "user" {
 			t.Error("Role mismatch")
@@ -333,7 +333,7 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			},
 		}
 
-		result := provider.convertSingleMessageForTools(msg)
+		result := provider.convertSingleMessageForTools(context.Background(), msg)
 
 		if result["tool_calls"] == nil {
 			t.Error("Expected tool_calls in result")
@@ -348,7 +348,7 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			ToolResult: &toolResult,
 		}
 
-		result := provider.convertSingleMessageForTools(msg)
+		result := provider.convertSingleMessageForTools(context.Background(), msg)
 
 		if result["tool_call_id"] != "call_1" {
 			t.Error("Expected tool_call_id")

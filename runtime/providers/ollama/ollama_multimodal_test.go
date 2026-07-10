@@ -1,6 +1,7 @@
 package ollama
 
 import (
+	"context"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -52,7 +53,7 @@ func TestProvider_ConvertMessageToOllama_TextOnly(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	result, err := provider.convertMessageToOllama(msg)
+	result, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -93,7 +94,7 @@ func TestProvider_ConvertMessageToOllama_Multimodal(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertMessageToOllama(msg)
+	result, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -127,7 +128,7 @@ func TestProvider_ConvertMessageToOllama_UnsupportedMedia(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOllama(msg)
+	_, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err == nil {
 		t.Error("Expected error for unsupported audio content")
@@ -148,7 +149,7 @@ func TestProvider_ConvertMessageToOllama_MissingMediaContent(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOllama(msg)
+	_, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err == nil {
 		t.Error("Expected error for missing media content")
@@ -171,7 +172,7 @@ func TestProvider_ConvertImagePartToOllama_URL(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertImagePartToOllama(part)
+	result, err := provider.convertImagePartToOllama(context.Background(), part)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -204,7 +205,7 @@ func TestProvider_ConvertImagePartToOllama_MissingMedia(t *testing.T) {
 		Media: nil,
 	}
 
-	_, err := provider.convertImagePartToOllama(part)
+	_, err := provider.convertImagePartToOllama(context.Background(), part)
 
 	if err == nil {
 		t.Error("Expected error for missing media")
@@ -224,7 +225,7 @@ func TestProvider_ConvertMessagesToOllama(t *testing.T) {
 		},
 	}
 
-	messages, err := provider.convertMessagesToOllama(req)
+	messages, err := provider.prepareMessages(context.Background(), req)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -258,7 +259,7 @@ func TestProvider_ConvertMessageToOllama_UnknownContentType(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOllama(msg)
+	_, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err == nil {
 		t.Error("Expected error for unknown content type")
@@ -279,7 +280,7 @@ func TestProvider_ConvertMessageToOllama_VideoUnsupported(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOllama(msg)
+	_, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err == nil {
 		t.Error("Expected error for unsupported video content")
@@ -304,7 +305,7 @@ func TestProvider_ConvertMessageToOllama_EmptyTextPart(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertMessageToOllama(msg)
+	result, err := provider.convertMessageToOllama(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -335,7 +336,7 @@ func TestProvider_ConvertImagePartToOllama_Base64(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertImagePartToOllama(part)
+	result, err := provider.convertImagePartToOllama(context.Background(), part)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -367,7 +368,7 @@ func TestProvider_ConvertImagePartToOllama_MissingURLAndData(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToOllama(part)
+	_, err := provider.convertImagePartToOllama(context.Background(), part)
 
 	if err == nil {
 		t.Error("Expected error for missing URL and data")

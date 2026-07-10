@@ -30,33 +30,10 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	}
 }
 
-// convertMessagesToOllama converts PromptKit messages to Ollama format
-// Handles both legacy text-only and new multimodal messages
-func (p *Provider) convertMessagesToOllama(req providers.PredictionRequest) ([]ollamaMessage, error) {
-	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
-
-	// Add system message if present
-	if req.System != "" {
-		messages = append(messages, ollamaMessage{
-			Role:    "system",
-			Content: req.System,
-		})
-	}
-
-	// Convert each message
-	for i := range req.Messages {
-		converted, err := p.convertMessageToOllama(&req.Messages[i])
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, converted)
-	}
-
-	return messages, nil
-}
-
 // convertMessageToOllama converts a single PromptKit message to Ollama format
-func (p *Provider) convertMessageToOllama(msg *types.Message) (ollamaMessage, error) {
+func (p *Provider) convertMessageToOllama(
+	ctx context.Context, msg *types.Message,
+) (ollamaMessage, error) {
 	// Handle legacy text-only messages
 	if !msg.IsMultimodal() {
 		return ollamaMessage{
@@ -84,7 +61,7 @@ func (p *Provider) convertMessageToOllama(msg *types.Message) (ollamaMessage, er
 				return ollamaMessage{}, fmt.Errorf("image part missing media content")
 			}
 
-			imagePart, err := p.convertImagePartToOllama(part)
+			imagePart, err := p.convertImagePartToOllama(ctx, part)
 			if err != nil {
 				return ollamaMessage{}, err
 			}
@@ -105,7 +82,9 @@ func (p *Provider) convertMessageToOllama(msg *types.Message) (ollamaMessage, er
 }
 
 // convertImagePartToOllama converts an image ContentPart to Ollama's format
-func (p *Provider) convertImagePartToOllama(part types.ContentPart) (map[string]any, error) {
+func (p *Provider) convertImagePartToOllama(
+	ctx context.Context, part types.ContentPart,
+) (map[string]any, error) {
 	if part.Media == nil {
 		return nil, fmt.Errorf("image part missing media content")
 	}
@@ -116,19 +95,20 @@ func (p *Provider) convertImagePartToOllama(part types.ContentPart) (map[string]
 
 	imageURL := make(map[string]any)
 
-	// Handle different data sources
-	if part.Media.URL != nil && *part.Media.URL != "" {
-		// External URL - use directly
-		imageURL["url"] = *part.Media.URL
+	// Resolve to a URL when possible (external URL or storage reference), else
+	// fall back to inline base64 data. The MediaLoader is store-aware via the
+	// injected MediaStorageService.
+	loader := p.MediaLoader()
+	if url, ok, err := loader.ResolveURL(ctx, part.Media); err != nil {
+		return nil, fmt.Errorf("failed to resolve image: %w", err)
+	} else if ok {
+		imageURL["url"] = url
 	} else {
-		// Use MediaLoader for all other sources (Data, FilePath, StorageReference)
-		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-		data, err := loader.GetBase64Data(context.Background(), part.Media)
+		data, err := loader.GetBase64Data(ctx, part.Media)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load image data: %w", err)
 		}
-		dataURL := fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, data)
-		imageURL["url"] = dataURL
+		imageURL["url"] = fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, data)
 	}
 
 	// Add detail level if specified
