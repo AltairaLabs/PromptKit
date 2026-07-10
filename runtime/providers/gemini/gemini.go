@@ -323,52 +323,40 @@ type geminiSafetyRating struct {
 //
 // For messages with actual media content (images, audio, video), each part is
 // converted separately using the multimodal conversion functions.
-func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
+func (p *Provider) convertMessagesToGeminiContents(ctx context.Context, messages []types.Message) []geminiContent {
 	contents := make([]geminiContent, 0, len(messages))
 	for i := range messages {
-		role := messages[i].Role
-		// Gemini uses "user" and "model" roles
-		if role == roleAssistant {
-			role = roleModel
-		}
-
-		// Check if this message has actual media content (images, audio, video).
-		// We use HasMediaContent() rather than IsMultimodal() because IsMultimodal()
-		// returns true even for text-only messages that use Parts (SDK-style).
-		// For text-only messages, we want to combine all text into a single part.
-		if messages[i].HasMediaContent() {
-			// Convert multimodal parts using the shared conversion functions
-			var parts []geminiPart
-			conversionFailed := false
-			for _, part := range messages[i].Parts {
-				gPart, err := convertPartToGemini(part)
-				if err != nil {
-					// Fall back to text-only on conversion error
-					conversionFailed = true
-					break
-				}
-				parts = append(parts, gPart)
-			}
-			if conversionFailed {
-				contents = append(contents, geminiContent{
-					Role:  role,
-					Parts: []geminiPart{{Text: messages[i].GetContent()}},
-				})
-			} else {
-				contents = append(contents, geminiContent{
-					Role:  role,
-					Parts: parts,
-				})
-			}
-		} else {
-			// Text-only message (legacy or SDK-style with only text parts)
-			contents = append(contents, geminiContent{
-				Role:  role,
-				Parts: []geminiPart{{Text: messages[i].GetContent()}},
-			})
-		}
+		contents = append(contents, p.geminiContentForMessage(ctx, &messages[i]))
 	}
 	return contents
+}
+
+// geminiContentForMessage converts a single provider message to Gemini content.
+// Messages with actual media (images, audio, video) convert each part; text-only
+// messages combine all text via GetContent(). We use HasMediaContent() rather
+// than IsMultimodal() because IsMultimodal() is true even for text-only Parts
+// (SDK-style). On any per-part conversion error we fall back to text-only.
+func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Message) geminiContent {
+	role := msg.Role
+	// Gemini uses "user" and "model" roles
+	if role == roleAssistant {
+		role = roleModel
+	}
+
+	if !msg.HasMediaContent() {
+		return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}
+	}
+
+	parts := make([]geminiPart, 0, len(msg.Parts))
+	for _, part := range msg.Parts {
+		gPart, err := p.convertPartToGemini(ctx, part)
+		if err != nil {
+			// Fall back to text-only on conversion error
+			return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}
+		}
+		parts = append(parts, gPart)
+	}
+	return geminiContent{Role: role, Parts: parts}
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
@@ -392,7 +380,7 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 }
 
 // prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (
+func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.PredictionRequest) (
 	contents []geminiContent,
 	systemInstruction *geminiContent,
 	temperature, topP float32,
@@ -406,7 +394,7 @@ func (p *Provider) prepareGeminiRequest(req providers.PredictionRequest) (
 	}
 
 	// Convert conversation messages
-	contents = convertMessagesToGeminiContents(req.Messages)
+	contents = p.convertMessagesToGeminiContents(ctx, req.Messages)
 
 	// Apply defaults using the shared method
 	temperature, topP, maxTokens = p.applyRequestDefaults(req)
@@ -654,7 +642,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(req)
+	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(ctx, req)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)

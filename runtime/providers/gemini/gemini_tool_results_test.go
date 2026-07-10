@@ -311,7 +311,7 @@ func TestProcessToolMessage_TextOnly(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp, ok := result["functionResponse"].(map[string]any)
 	if !ok {
 		t.Fatalf("Expected functionResponse map, got %T", result["functionResponse"])
@@ -362,7 +362,7 @@ func TestProcessToolMessage_ImagePart(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp := result["functionResponse"].(map[string]any)
 
 	if funcResp["name"] != "generate_chart" {
@@ -415,7 +415,7 @@ func TestProcessToolMessage_MixedContent(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp := result["functionResponse"].(map[string]any)
 	response := funcResp["response"].(map[string]any)
 
@@ -450,7 +450,7 @@ func TestProcessToolMessage_ImageOnlyNoText(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp := result["functionResponse"].(map[string]any)
 	response := funcResp["response"].(map[string]any)
 
@@ -523,7 +523,7 @@ func TestBuildMultimodalToolResponse(t *testing.T) {
 		},
 	}
 
-	response := buildMultimodalToolResponse(result)
+	response := convProvider().buildMultimodalToolResponse(context.Background(), result)
 
 	if response["text"] != "Image ready" {
 		t.Errorf("Expected text 'Image ready', got '%v'", response["text"])
@@ -561,7 +561,7 @@ func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
 	}
 
 	// Process the tool message
-	result := processToolMessage(toolResultMsg)
+	result := convProvider().processToolMessage(context.Background(), toolResultMsg)
 
 	// Verify the result has functionResponse
 	funcResponse, ok := result["functionResponse"].(map[string]interface{})

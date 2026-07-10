@@ -564,7 +564,7 @@ func TestConvertMessagesToGeminiContents_WithParts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := tt.setup()
-			contents := convertMessagesToGeminiContents([]types.Message{msg})
+			contents := convProvider().convertMessagesToGeminiContents(context.Background(), []types.Message{msg})
 
 			if len(contents) != 1 {
 				t.Fatalf("Expected 1 content, got %d", len(contents))

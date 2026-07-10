@@ -624,7 +624,7 @@ func TestGeminiToolProvider_ParseToolResponse_NoCandidates(t *testing.T) {
 func TestConvertMediaPartToMap(t *testing.T) {
 	t.Run("nil media", func(t *testing.T) {
 		part := types.ContentPart{Type: types.ContentTypeImage}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result != nil {
 			t.Errorf("expected nil for nil media, got %v", result)
 		}
@@ -639,7 +639,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 				Data:     &data,
 			},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -658,7 +658,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeImage,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -674,7 +674,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeAudio,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -690,7 +690,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeVideo,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -706,7 +706,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeDocument,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -721,7 +721,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  "unknown",
 			Media: &types.MediaContent{},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result != nil {
 			t.Errorf("expected nil for unknown type, got %v", result)
 		}
@@ -732,7 +732,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeImage,
 			Media: &types.MediaContent{MIMEType: "image/png"},
 		}
-		result := convertMediaPartToMap(part)
+		result := convProvider().convertMediaPartToMap(context.Background(), part)
 		if result != nil {
 			t.Errorf("expected nil for no data, got %v", result)
 		}
@@ -755,7 +755,7 @@ func TestBuildMessageParts_MultimodalContent(t *testing.T) {
 			},
 		},
 	}
-	parts := buildMessageParts(msg, nil)
+	parts := convProvider().buildMessageParts(context.Background(), msg, nil)
 	if len(parts) != 2 {
 		t.Fatalf("expected 2 parts, got %d", len(parts))
 	}

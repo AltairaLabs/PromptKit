@@ -165,7 +165,7 @@ func (p *ToolProvider) PredictWithTools(
 // with text and inlineData entries per Gemini's multimodal function response format.
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
-func processToolMessage(msg types.Message) map[string]any {
+func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) map[string]any {
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
 		"name", msg.ToolResult.Name,
@@ -179,7 +179,7 @@ func processToolMessage(msg types.Message) map[string]any {
 	var response any
 
 	if msg.ToolResult.HasMedia() {
-		response = buildMultimodalToolResponse(msg.ToolResult)
+		response = p.buildMultimodalToolResponse(ctx, msg.ToolResult)
 	} else {
 		response = buildTextToolResponse(msg.ToolResult.GetTextContent())
 	}
@@ -218,13 +218,15 @@ func buildTextToolResponse(content string) any {
 //	  "text": "Chart generated successfully",
 //	  "inlineData": { "mimeType": "image/png", "data": "..." }
 //	}
-func buildMultimodalToolResponse(result *types.MessageToolResult) map[string]any {
+func (p *Provider) buildMultimodalToolResponse(
+	ctx context.Context, result *types.MessageToolResult,
+) map[string]any {
 	response := make(map[string]any)
 
 	// Collect text content from all text parts
 	textContent := result.GetTextContent()
 	if textContent != "" {
-		response["text"] = textContent
+		response[wireKeyText] = textContent
 	}
 
 	// Find the first media part and add it as inlineData.
@@ -233,7 +235,7 @@ func buildMultimodalToolResponse(result *types.MessageToolResult) map[string]any
 		if part.Type == types.ContentTypeText || part.Media == nil {
 			continue
 		}
-		mediaMap := convertMediaPartToMap(part)
+		mediaMap := p.convertMediaPartToMap(ctx, part)
 		if mediaMap != nil {
 			// mediaMap is {"inlineData": {"mimeType": ..., "data": ...}}
 			if inlineData, ok := mediaMap["inlineData"]; ok {
@@ -249,7 +251,9 @@ func buildMultimodalToolResponse(result *types.MessageToolResult) map[string]any
 // buildMessageParts creates parts array for a message including text, images, and tool calls
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
-func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) []any {
+func (p *Provider) buildMessageParts(
+	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
+) []any {
 	parts := make([]any, 0)
 
 	// Add pending tool results first if this is a user message
@@ -261,61 +265,70 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) [
 
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
-		// Process each part including images
-		for _, part := range msg.Parts {
-			switch part.Type {
-			case types.ContentTypeText:
-				if part.Text != nil && *part.Text != "" {
-					parts = append(parts, map[string]any{
-						"text": *part.Text,
-					})
-				}
-			case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
-				if part.Media != nil {
-					mediaMap := convertMediaPartToMap(part)
-					if mediaMap != nil {
-						parts = append(parts, mediaMap)
-					}
-				}
-			}
-		}
-	} else {
-		// Add text content - use GetContent() to properly handle both Content field and Parts
-		textContent := msg.GetContent()
-		if textContent != "" {
-			parts = append(parts, map[string]any{
-				"text": textContent,
-			})
-		}
+		parts = append(parts, p.mediaContentParts(ctx, msg.Parts)...)
+	} else if textContent := msg.GetContent(); textContent != "" {
+		// Text content - use GetContent() to handle both Content field and Parts
+		parts = append(parts, map[string]any{wireKeyText: textContent})
 	}
 
 	// Add tool calls if this is a model message
-	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-		for _, toolCall := range msg.ToolCalls {
-			var args any
-			if err := json.Unmarshal(toolCall.Args, &args); err != nil {
-				args = string(toolCall.Args)
-			}
-			partMap := map[string]any{
-				"functionCall": map[string]any{
-					"name": toolCall.Name,
-					"args": args,
-				},
-			}
-			// Replay Gemini 3's thoughtSignature verbatim. Gemini 2.x ignores
-			// unknown part fields, so emitting it unconditionally is safe.
-			if sig := toolCall.ProviderMetadata[providerMetaThoughtSignature]; sig != "" {
-				partMap["thoughtSignature"] = sig
-			}
-			parts = append(parts, partMap)
-		}
+	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
+		parts = append(parts, toolCallParts(msg.ToolCalls)...)
 	}
 
 	return parts
 }
 
-// convertMediaPartToMap converts a media ContentPart to Gemini's inline_data format
-func convertMediaPartToMap(part types.ContentPart) map[string]any {
+// mediaContentParts converts a multimodal message's parts into Gemini part maps,
+// emitting text entries for text parts and inlineData for resolved media parts.
+func (p *Provider) mediaContentParts(ctx context.Context, msgParts []types.ContentPart) []any {
+	parts := make([]any, 0, len(msgParts))
+	for _, part := range msgParts {
+		switch part.Type {
+		case types.ContentTypeText:
+			if part.Text != nil && *part.Text != "" {
+				parts = append(parts, map[string]any{wireKeyText: *part.Text})
+			}
+		case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
+			if part.Media != nil {
+				if mediaMap := p.convertMediaPartToMap(ctx, part); mediaMap != nil {
+					parts = append(parts, mediaMap)
+				}
+			}
+		}
+	}
+	return parts
+}
+
+// toolCallParts converts an assistant message's tool calls into Gemini
+// functionCall part maps, replaying any Gemini 3 thoughtSignature verbatim.
+func toolCallParts(toolCalls []types.MessageToolCall) []any {
+	parts := make([]any, 0, len(toolCalls))
+	for _, toolCall := range toolCalls {
+		var args any
+		if err := json.Unmarshal(toolCall.Args, &args); err != nil {
+			args = string(toolCall.Args)
+		}
+		partMap := map[string]any{
+			"functionCall": map[string]any{
+				"name": toolCall.Name,
+				"args": args,
+			},
+		}
+		// Gemini 2.x ignores unknown part fields, so emitting it unconditionally is safe.
+		if sig := toolCall.ProviderMetadata[providerMetaThoughtSignature]; sig != "" {
+			partMap["thoughtSignature"] = sig
+		}
+		parts = append(parts, partMap)
+	}
+	return parts
+}
+
+// convertMediaPartToMap converts a media ContentPart to Gemini's inline_data format.
+// All media sources (Data, StorageReference, FilePath, URL) are resolved through
+// the provider's store-aware MediaLoader so externalized media (e.g. an S3
+// StorageReference) is fetched and inlined as base64 like any other source.
+func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.ContentPart) map[string]any {
 	if part.Media == nil {
 		return nil
 	}
@@ -338,20 +351,10 @@ func convertMediaPartToMap(part types.ContentPart) map[string]any {
 		}
 	}
 
-	// Get base64 data - try Data field first, then URL
-	var base64Data string
-	if part.Media.Data != nil && *part.Media.Data != "" {
-		base64Data = *part.Media.Data
-	} else if part.Media.URL != nil && *part.Media.URL != "" {
-		// For URL-based media, use the MediaLoader
-		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-		data, err := loader.GetBase64Data(context.Background(), part.Media)
-		if err != nil {
-			logger.Warn("Failed to load media from URL", "url", *part.Media.URL, "error", err)
-			return nil
-		}
-		base64Data = data
-	} else {
+	// Resolve base64 data from any source via the store-aware MediaLoader.
+	base64Data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
+	if err != nil {
+		logger.Warn("Failed to load media for Gemini tool request", "mime_type", mimeType, "error", err)
 		return nil
 	}
 
@@ -398,7 +401,7 @@ func (p *ToolProvider) buildToolRequest(
 
 	for i := range req.Messages {
 		if req.Messages[i].Role == "tool" {
-			pendingToolResults = append(pendingToolResults, processToolMessage(req.Messages[i]))
+			pendingToolResults = append(pendingToolResults, p.processToolMessage(ctx, req.Messages[i]))
 			continue
 		}
 
@@ -411,7 +414,7 @@ func (p *ToolProvider) buildToolRequest(
 			pendingToolResults = nil
 		}
 
-		parts := buildMessageParts(req.Messages[i], pendingToolResults)
+		parts := p.buildMessageParts(ctx, req.Messages[i], pendingToolResults)
 		if req.Messages[i].Role == roleUser {
 			pendingToolResults = nil
 		}
@@ -458,7 +461,7 @@ func (p *ToolProvider) buildToolRequest(
 	if req.System != "" {
 		request["systemInstruction"] = map[string]any{
 			"parts": []any{
-				map[string]any{"text": req.System},
+				map[string]any{wireKeyText: req.System},
 			},
 		}
 	}

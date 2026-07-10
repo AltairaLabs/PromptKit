@@ -27,7 +27,7 @@ func (p *Provider) PredictStream(
 	})
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(req)
+	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(ctx, req)
 
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
