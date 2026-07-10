@@ -168,6 +168,20 @@ func NewImagePartFromData(base64Data, mimeType string, detail *string) ContentPa
 	}
 }
 
+// NewImagePartFromStorageRef creates an image ContentPart backed by a durable
+// storage reference. The reference is resolved to a URL or bytes at
+// provider-call time (see providers.MediaLoader).
+func NewImagePartFromStorageRef(ref, mimeType string, detail *string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeImage,
+		Media: &MediaContent{
+			StorageReference: &ref,
+			MIMEType:         mimeType,
+			Detail:           detail,
+		},
+	}
+}
+
 // NewAudioPart creates a ContentPart with audio content from a file path
 func NewAudioPart(filePath string) (ContentPart, error) {
 	mimeType, err := inferMIMEType(filePath)
@@ -192,6 +206,14 @@ func NewAudioPartFromData(base64Data, mimeType string) ContentPart {
 			Data:     &base64Data,
 			MIMEType: mimeType,
 		},
+	}
+}
+
+// NewAudioPartFromStorageRef creates an audio ContentPart backed by a storage reference.
+func NewAudioPartFromStorageRef(ref, mimeType string) ContentPart {
+	return ContentPart{
+		Type:  ContentTypeAudio,
+		Media: &MediaContent{StorageReference: &ref, MIMEType: mimeType},
 	}
 }
 
@@ -222,6 +244,14 @@ func NewVideoPartFromData(base64Data, mimeType string) ContentPart {
 	}
 }
 
+// NewVideoPartFromStorageRef creates a video ContentPart backed by a storage reference.
+func NewVideoPartFromStorageRef(ref, mimeType string) ContentPart {
+	return ContentPart{
+		Type:  ContentTypeVideo,
+		Media: &MediaContent{StorageReference: &ref, MIMEType: mimeType},
+	}
+}
+
 // NewDocumentPart creates a ContentPart with document content from a file path
 func NewDocumentPart(filePath string) (ContentPart, error) {
 	mimeType, err := inferMIMEType(filePath)
@@ -246,6 +276,14 @@ func NewDocumentPartFromData(base64Data, mimeType string) ContentPart {
 			Data:     &base64Data,
 			MIMEType: mimeType,
 		},
+	}
+}
+
+// NewDocumentPartFromStorageRef creates a document ContentPart backed by a storage reference.
+func NewDocumentPartFromStorageRef(ref, mimeType string) ContentPart {
+	return ContentPart{
+		Type:  ContentTypeDocument,
+		Media: &MediaContent{StorageReference: &ref, MIMEType: mimeType},
 	}
 }
 
@@ -278,9 +316,10 @@ func (mc *MediaContent) Validate() error {
 	hasData := mc.Data != nil && *mc.Data != ""
 	hasFilePath := mc.FilePath != nil && *mc.FilePath != ""
 	hasURL := mc.URL != nil && *mc.URL != ""
+	hasStorageRef := mc.StorageReference != nil && *mc.StorageReference != ""
 
-	if !hasData && !hasFilePath && !hasURL {
-		return fmt.Errorf("media content must have a data source (data, file_path, or url)")
+	if !hasData && !hasFilePath && !hasURL && !hasStorageRef {
+		return fmt.Errorf("media content must have a data source (data, file_path, url, or storage_reference)")
 	}
 	if hasURL && hasData {
 		return fmt.Errorf("media content cannot have both url and inline data")
