@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -123,6 +124,44 @@ func (ml *MediaLoader) GetBase64Data(ctx context.Context, media *types.MediaCont
 	}
 
 	return "", fmt.Errorf("no media source available (data, storage_reference, file_path, or url)")
+}
+
+// ResolveURL returns a URL a provider can hand to the model when the media can
+// be represented as one. ok is false when the source cannot be a fetchable URL
+// (inline data, local file path, a non-remote storage URL such as file://, or a
+// storage reference with no store configured); callers then fall back to
+// GetBase64Data. URL expiry/caching is entirely the store's concern — we pass 0
+// so the store chooses its own policy.
+func (ml *MediaLoader) ResolveURL(ctx context.Context, media *types.MediaContent) (string, bool, error) {
+	if media == nil {
+		return "", false, nil
+	}
+	if media.URL != nil && *media.URL != "" {
+		return *media.URL, true, nil
+	}
+	if media.StorageReference != nil && *media.StorageReference != "" {
+		if ml.storageService == nil {
+			return "", false, nil
+		}
+		u, err := ml.storageService.GetURL(ctx, storage.Reference(*media.StorageReference), 0)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to resolve storage reference %s to URL: %w", *media.StorageReference, err)
+		}
+		if isRemoteURL(u) {
+			return u, true, nil
+		}
+		return "", false, nil
+	}
+	return "", false, nil
+}
+
+// isRemoteURL reports whether raw is an http(s) URL the provider's model can fetch.
+func isRemoteURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
 }
 
 // trackSize adds rawSize to the aggregate tracker and returns an error if the
