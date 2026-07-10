@@ -62,33 +62,8 @@ func isAudioModel(model string) bool {
 	}
 }
 
-// convertMessagesToOpenAI converts PromptKit messages to OpenAI format
-// Handles both legacy text-only and new multimodal messages
-func (p *Provider) convertMessagesToOpenAI(req providers.PredictionRequest) ([]openAIMessage, error) {
-	messages := make([]openAIMessage, 0, len(req.Messages)+1)
-
-	// Add system message if present
-	if req.System != "" {
-		messages = append(messages, openAIMessage{
-			Role:    "system",
-			Content: req.System,
-		})
-	}
-
-	// Convert each message
-	for i := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(req.Messages[i])
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, converted)
-	}
-
-	return messages, nil
-}
-
 // convertMessageToOpenAI converts a single PromptKit message to OpenAI format
-func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, error) {
+func (p *Provider) convertMessageToOpenAI(ctx context.Context, msg types.Message) (openAIMessage, error) {
 	// Handle legacy text-only messages
 	if !msg.IsMultimodal() {
 		return openAIMessage{
@@ -100,47 +75,13 @@ func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, err
 	// Handle multimodal messages - OpenAI uses a different structure
 	// Content becomes an array of content parts
 	var contentParts []interface{}
-
 	for _, part := range msg.Parts {
-		switch part.Type {
-		case types.ContentTypeText:
-			if part.Text != nil && *part.Text != "" {
-				contentParts = append(contentParts, map[string]interface{}{
-					"type": "text",
-					"text": *part.Text,
-				})
-			}
-
-		case types.ContentTypeImage:
-			if part.Media == nil {
-				return openAIMessage{}, fmt.Errorf("image part missing media content")
-			}
-
-			imagePart, err := p.convertImagePartToOpenAI(part)
-			if err != nil {
-				return openAIMessage{}, err
-			}
-			contentParts = append(contentParts, imagePart)
-
-		case types.ContentTypeAudio:
-			// Audio is only supported for audio models using Chat Completions API
-			if p.apiMode != APIModeCompletions || !p.supportsAudioInput() {
-				return openAIMessage{}, fmt.Errorf("audio content requires audio model with Chat Completions API")
-			}
-			if part.Media == nil {
-				return openAIMessage{}, fmt.Errorf("audio part missing media content")
-			}
-			audioPart, err := p.convertAudioPartToOpenAI(part)
-			if err != nil {
-				return openAIMessage{}, err
-			}
-			contentParts = append(contentParts, audioPart)
-
-		case types.ContentTypeVideo:
-			return openAIMessage{}, fmt.Errorf("video content not supported by OpenAI API")
-
-		default:
-			return openAIMessage{}, fmt.Errorf("unknown content type: %s", part.Type)
+		element, err := p.convertContentPartToOpenAI(ctx, part)
+		if err != nil {
+			return openAIMessage{}, err
+		}
+		if element != nil {
+			contentParts = append(contentParts, element)
 		}
 	}
 
@@ -150,8 +91,47 @@ func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, err
 	}, nil
 }
 
+// convertContentPartToOpenAI converts a single multimodal content part to its
+// OpenAI representation. It returns (nil, nil) for parts that produce no output
+// (e.g. empty text) so callers skip them.
+func (p *Provider) convertContentPartToOpenAI(
+	ctx context.Context, part types.ContentPart,
+) (interface{}, error) {
+	switch part.Type {
+	case types.ContentTypeText:
+		if part.Text == nil || *part.Text == "" {
+			return nil, nil
+		}
+		return map[string]interface{}{keyType: partTypeText, partTypeText: *part.Text}, nil
+
+	case types.ContentTypeImage:
+		if part.Media == nil {
+			return nil, fmt.Errorf("image part missing media content")
+		}
+		return p.convertImagePartToOpenAI(ctx, part)
+
+	case types.ContentTypeAudio:
+		// Audio is only supported for audio models using Chat Completions API
+		if p.apiMode != APIModeCompletions || !p.supportsAudioInput() {
+			return nil, fmt.Errorf("audio content requires audio model with Chat Completions API")
+		}
+		if part.Media == nil {
+			return nil, fmt.Errorf("audio part missing media content")
+		}
+		return p.convertAudioPartToOpenAI(ctx, part)
+
+	case types.ContentTypeVideo:
+		return nil, fmt.Errorf("video content not supported by OpenAI API")
+
+	default:
+		return nil, fmt.Errorf("unknown content type: %s", part.Type)
+	}
+}
+
 // convertImagePartToOpenAI converts an image ContentPart to OpenAI's format
-func (p *Provider) convertImagePartToOpenAI(part types.ContentPart) (map[string]interface{}, error) {
+func (p *Provider) convertImagePartToOpenAI(
+	ctx context.Context, part types.ContentPart,
+) (map[string]interface{}, error) {
 	if part.Media == nil {
 		return nil, fmt.Errorf("image part missing media content")
 	}
@@ -162,19 +142,19 @@ func (p *Provider) convertImagePartToOpenAI(part types.ContentPart) (map[string]
 
 	imageURL := make(map[string]interface{})
 
-	// Handle different data sources
-	if part.Media.URL != nil && *part.Media.URL != "" {
-		// External URL - use directly
-		imageURL["url"] = *part.Media.URL
+	// Prefer a model-fetchable URL (external URL or storage reference resolved via
+	// the injected store); otherwise fall back to inline base64 bytes.
+	loader := p.MediaLoader()
+	if url, ok, err := loader.ResolveURL(ctx, part.Media); err != nil {
+		return nil, fmt.Errorf("failed to resolve image: %w", err)
+	} else if ok {
+		imageURL["url"] = url
 	} else {
-		// Use MediaLoader for all other sources (Data, FilePath, StorageReference)
-		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-		data, err := loader.GetBase64Data(context.Background(), part.Media)
+		data, err := loader.GetBase64Data(ctx, part.Media)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load image data: %w", err)
 		}
-		dataURL := fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, data)
-		imageURL["url"] = dataURL
+		imageURL["url"] = fmt.Sprintf("data:%s;base64,%s", part.Media.MIMEType, data)
 	}
 
 	// Add detail level if specified
@@ -189,23 +169,18 @@ func (p *Provider) convertImagePartToOpenAI(part types.ContentPart) (map[string]
 
 // convertAudioPartToOpenAI converts an audio ContentPart to OpenAI's input_audio format
 // OpenAI audio input format: { "type": "input_audio", "input_audio": { "data": base64, "format": "wav"|"mp3" } }
-func (p *Provider) convertAudioPartToOpenAI(part types.ContentPart) (map[string]interface{}, error) {
+func (p *Provider) convertAudioPartToOpenAI(
+	ctx context.Context, part types.ContentPart,
+) (map[string]interface{}, error) {
 	if part.Media == nil {
 		return nil, fmt.Errorf("audio part missing media content")
 	}
 
-	// Get base64-encoded audio data
-	var audioData string
-	if part.Media.Data != nil && *part.Media.Data != "" {
-		audioData = *part.Media.Data
-	} else {
-		// Use MediaLoader for URL, FilePath, or StorageReference
-		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-		data, err := loader.GetBase64Data(context.Background(), part.Media)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load audio data: %w", err)
-		}
-		audioData = data
+	// Get base64-encoded audio data. The store-aware loader already returns inline
+	// Data first, then resolves a StorageReference via the injected store.
+	audioData, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load audio data: %w", err)
 	}
 
 	// Determine audio format from MIME type
