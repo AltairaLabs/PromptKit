@@ -568,7 +568,7 @@ func (p *Provider) SupportsPromptCaching() bool {
 
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
 // Handles both text-only and multimodal (image) messages inline.
-func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []claudeMessage {
+func (p *Provider) convertMessagesToClaudeFormat(ctx context.Context, messages []types.Message) []claudeMessage {
 	claudeMessages := make([]claudeMessage, 0, len(messages))
 	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
@@ -578,7 +578,7 @@ func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []cla
 		// Check if message has media content (images, audio, video)
 		if msg.HasMediaContent() {
 			// Use multimodal conversion path
-			claudeMsg, err := p.convertMessageToClaudeMultimodal(*msg)
+			claudeMsg, err := p.convertMessageToClaudeMultimodal(ctx, *msg)
 			if err != nil {
 				// Fall back to text-only on conversion error
 				logger.Warn("Failed to convert multimodal message, falling back to text", "error", err)
@@ -830,7 +830,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Build the canonical request via the shared base builder, then layer on
 	// structured outputs (the no-tools paths honor output_config).
-	messages := p.convertMessagesToClaudeFormat(req.Messages)
+	messages := p.convertMessagesToClaudeFormat(ctx, req.Messages)
 	claudeReq := p.buildBaseRequest(req, messages)
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 

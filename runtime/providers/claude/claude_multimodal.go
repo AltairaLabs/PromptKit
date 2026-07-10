@@ -76,8 +76,9 @@ func (p *Provider) convertMessagesToClaudeMultimodal(messages []types.Message) (
 			continue
 		}
 
-		// Convert multimodal message
-		claudeMsg, err := p.convertMessageToClaudeMultimodal(*msg)
+		// Convert multimodal message. This helper has no production caller (the
+		// live path is convertMessagesToClaudeFormat); background context suffices.
+		claudeMsg, err := p.convertMessageToClaudeMultimodal(context.Background(), *msg)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -89,7 +90,7 @@ func (p *Provider) convertMessagesToClaudeMultimodal(messages []types.Message) (
 }
 
 // convertMessageToClaudeMultimodal converts a single PromptKit message to Claude format
-func (p *Provider) convertMessageToClaudeMultimodal(msg types.Message) (claudeMessage, error) {
+func (p *Provider) convertMessageToClaudeMultimodal(ctx context.Context, msg types.Message) (claudeMessage, error) {
 	var contentBlocks []interface{}
 
 	// Handle legacy string content
@@ -100,7 +101,7 @@ func (p *Provider) convertMessageToClaudeMultimodal(msg types.Message) (claudeMe
 		})
 	} else {
 		// Handle multimodal parts
-		blocks, err := p.convertPartsToClaudeBlocks(msg.Parts)
+		blocks, err := p.convertPartsToClaudeBlocks(ctx, msg.Parts)
 		if err != nil {
 			return claudeMessage{}, err
 		}
@@ -112,7 +113,7 @@ func (p *Provider) convertMessageToClaudeMultimodal(msg types.Message) (claudeMe
 }
 
 // convertPartsToClaudeBlocks converts content parts to Claude content blocks
-func (p *Provider) convertPartsToClaudeBlocks(parts []types.ContentPart) ([]interface{}, error) {
+func (p *Provider) convertPartsToClaudeBlocks(ctx context.Context, parts []types.ContentPart) ([]interface{}, error) {
 	var contentBlocks []interface{}
 
 	for _, part := range parts {
@@ -126,14 +127,14 @@ func (p *Provider) convertPartsToClaudeBlocks(parts []types.ContentPart) ([]inte
 			}
 
 		case types.ContentTypeImage:
-			block, err := p.convertImagePartToClaude(part)
+			block, err := p.convertImagePartToClaude(ctx, part)
 			if err != nil {
 				return nil, err
 			}
 			contentBlocks = append(contentBlocks, block)
 
 		case types.ContentTypeDocument:
-			block, err := p.convertDocumentPartToClaude(part)
+			block, err := p.convertDocumentPartToClaude(ctx, part)
 			if err != nil {
 				return nil, err
 			}
@@ -175,7 +176,9 @@ func (p *Provider) buildClaudeMessage(role string, contentBlocks []interface{}) 
 }
 
 // convertImagePartToClaude converts an image part to Claude's format
-func (p *Provider) convertImagePartToClaude(part types.ContentPart) (claudeContentBlockMultimodal, error) {
+func (p *Provider) convertImagePartToClaude(
+	ctx context.Context, part types.ContentPart,
+) (claudeContentBlockMultimodal, error) {
 	if part.Media == nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("image part missing media data")
 	}
@@ -187,15 +190,16 @@ func (p *Provider) convertImagePartToClaude(part types.ContentPart) (claudeConte
 		},
 	}
 
-	// Determine which data source is set
-	if part.Media.URL != nil && *part.Media.URL != "" {
-		// External URL - use directly
+	// Prefer a model-fetchable URL (explicit URL or presigned StorageReference);
+	// fall back to inlined base64 bytes when no URL is available.
+	loader := p.MediaLoader()
+	if url, ok, err := loader.ResolveURL(ctx, part.Media); err != nil {
+		return claudeContentBlockMultimodal{}, fmt.Errorf("failed to resolve image: %w", err)
+	} else if ok {
 		block.Source.Type = "url"
-		block.Source.URL = *part.Media.URL
+		block.Source.URL = url
 	} else {
-		// Use MediaLoader for all other sources (Data, FilePath, StorageReference)
-		loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-		data, err := loader.GetBase64Data(context.Background(), part.Media)
+		data, err := loader.GetBase64Data(ctx, part.Media)
 		if err != nil {
 			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image data: %w", err)
 		}
@@ -207,7 +211,9 @@ func (p *Provider) convertImagePartToClaude(part types.ContentPart) (claudeConte
 }
 
 // convertDocumentPartToClaude converts a document part to Claude's format
-func (p *Provider) convertDocumentPartToClaude(part types.ContentPart) (claudeContentBlockMultimodal, error) {
+func (p *Provider) convertDocumentPartToClaude(
+	ctx context.Context, part types.ContentPart,
+) (claudeContentBlockMultimodal, error) {
 	if part.Media == nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("document part missing media data")
 	}
@@ -224,10 +230,9 @@ func (p *Provider) convertDocumentPartToClaude(part types.ContentPart) (claudeCo
 		},
 	}
 
-	// Claude documents only support base64 encoding (no URL support)
-	// Use MediaLoader for all sources (Data, FilePath, StorageReference)
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-	data, err := loader.GetBase64Data(context.Background(), part.Media)
+	// Claude documents only support base64 encoding (no URL support).
+	// The store-aware loader resolves Data, FilePath, and StorageReference.
+	data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
 	if err != nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load document data: %w", err)
 	}

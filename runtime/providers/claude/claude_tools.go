@@ -122,7 +122,7 @@ func (p *ToolProvider) PredictWithTools(
 	start := time.Now()
 
 	// Build Claude request with tools
-	claudeReq := p.buildToolRequest(req, tools, toolChoice)
+	claudeReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -149,7 +149,7 @@ func (p *ToolProvider) PredictWithTools(
 // For multimodal results (containing images, documents, etc.), content is an array of content blocks.
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
-func processClaudeToolResult(msg types.Message) claudeToolResult {
+func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Message) claudeToolResult {
 	result := claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
@@ -157,7 +157,7 @@ func processClaudeToolResult(msg types.Message) claudeToolResult {
 
 	// If the tool result has media parts, serialize as an array of content blocks
 	if msg.ToolResult.HasMedia() {
-		result.Content = buildToolResultContentBlocks(msg.ToolResult.Parts)
+		result.Content = p.buildToolResultContentBlocks(ctx, msg.ToolResult.Parts)
 		return result
 	}
 
@@ -168,10 +168,10 @@ func processClaudeToolResult(msg types.Message) claudeToolResult {
 
 // buildToolResultContentBlocks converts tool result parts to Claude content block array.
 // Each part is converted independently via convertToolResultPart.
-func buildToolResultContentBlocks(parts []types.ContentPart) []interface{} {
+func (p *Provider) buildToolResultContentBlocks(ctx context.Context, parts []types.ContentPart) []interface{} {
 	blocks := make([]interface{}, 0, len(parts))
 	for _, part := range parts {
-		if block := convertToolResultPart(part); block != nil {
+		if block := p.convertToolResultPart(ctx, part); block != nil {
 			blocks = append(blocks, block)
 		}
 	}
@@ -180,7 +180,7 @@ func buildToolResultContentBlocks(parts []types.ContentPart) []interface{} {
 
 // convertToolResultPart converts a single content part to a Claude content block.
 // Returns nil if the part cannot be converted.
-func convertToolResultPart(part types.ContentPart) interface{} {
+func (p *Provider) convertToolResultPart(ctx context.Context, part types.ContentPart) interface{} {
 	switch part.Type {
 	case types.ContentTypeText:
 		if part.Text != nil && *part.Text != "" {
@@ -188,18 +188,20 @@ func convertToolResultPart(part types.ContentPart) interface{} {
 		}
 	case types.ContentTypeImage:
 		if part.Media != nil {
-			return buildToolResultMediaBlock("image", part)
+			return p.buildToolResultMediaBlock(ctx, "image", part)
 		}
 	case types.ContentTypeDocument:
 		if part.Media != nil {
-			return buildToolResultMediaBlock("document", part)
+			return p.buildToolResultMediaBlock(ctx, "document", part)
 		}
 	}
 	return nil
 }
 
 // buildToolResultMediaBlock creates a Claude media content block (image or document).
-func buildToolResultMediaBlock(blockType string, part types.ContentPart) interface{} {
+func (p *Provider) buildToolResultMediaBlock(
+	ctx context.Context, blockType string, part types.ContentPart,
+) interface{} {
 	block := claudeContentBlockMultimodal{
 		Type: blockType,
 		Source: &claudeImageSource{
@@ -214,9 +216,8 @@ func buildToolResultMediaBlock(blockType string, part types.ContentPart) interfa
 		return block
 	}
 
-	// Use MediaLoader for base64 data (supports Data, FilePath, StorageReference)
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-	data, err := loader.GetBase64Data(context.Background(), part.Media)
+	// Use the store-aware MediaLoader for base64 data (Data, FilePath, StorageReference)
+	data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
 	if err != nil {
 		return nil
 	}
@@ -229,6 +230,7 @@ func buildToolResultMediaBlock(blockType string, part types.ContentPart) interfa
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *ToolProvider) buildClaudeMessageContent(
+	ctx context.Context,
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
 ) []interface{} {
@@ -242,7 +244,7 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	}
 
 	// Add message content (text and/or media)
-	content = append(content, p.buildMessageContentBlocks(msg)...)
+	content = append(content, p.buildMessageContentBlocks(ctx, msg)...)
 
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
@@ -266,11 +268,11 @@ func (p *ToolProvider) buildClaudeMessageContent(
 // This is extracted to reduce cognitive complexity of buildClaudeMessageContent.
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
-func (p *ToolProvider) buildMessageContentBlocks(msg types.Message) []interface{} {
+func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.Message) []interface{} {
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
 		// Use multimodal conversion path
-		blocks, err := p.convertPartsToClaudeBlocks(msg.Parts)
+		blocks, err := p.convertPartsToClaudeBlocks(ctx, msg.Parts)
 		if err == nil {
 			return blocks
 		}
@@ -326,6 +328,7 @@ func flushPendingToolResults(pendingToolResults []claudeToolResult) claudeToolMe
 
 // processMessageForTools processes a single message and manages tool results
 func (p *ToolProvider) processMessageForTools(
+	ctx context.Context,
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
 	messages []claudeToolMessage,
@@ -337,7 +340,7 @@ func (p *ToolProvider) processMessageForTools(
 		pendingToolResults = nil
 	}
 
-	content := p.buildClaudeMessageContent(msg, pendingToolResults)
+	content := p.buildClaudeMessageContent(ctx, msg, pendingToolResults)
 	if msg.Role == roleUser {
 		pendingToolResults = nil
 	}
@@ -396,18 +399,20 @@ func markLastBlockCacheable(messages []claudeToolMessage) {
 }
 
 //nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
-func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools any, toolChoice string) claudeRequest {
+func (p *ToolProvider) buildToolRequest(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) claudeRequest {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
 	for i := range req.Messages {
 		msg := &req.Messages[i]
 		if msg.Role == roleTool {
-			pendingToolResults = append(pendingToolResults, processClaudeToolResult(*msg))
+			pendingToolResults = append(pendingToolResults, p.processClaudeToolResult(ctx, *msg))
 			continue
 		}
 
-		messages, pendingToolResults = p.processMessageForTools(*msg, pendingToolResults, messages, tools)
+		messages, pendingToolResults = p.processMessageForTools(ctx, *msg, pendingToolResults, messages, tools)
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message
@@ -670,7 +675,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build Claude request with tools
-	claudeReq := p.buildToolRequest(req, tools, toolChoice)
+	claudeReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Add streaming flag
 	claudeReq.Stream = true

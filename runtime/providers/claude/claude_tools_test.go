@@ -732,7 +732,7 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(req, nil, "")
+			request := provider.buildToolRequest(context.Background(), req, nil, "")
 
 			if request.Temperature != tt.expectedTemp {
 				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request.Temperature)

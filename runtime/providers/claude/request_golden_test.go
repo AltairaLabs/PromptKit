@@ -149,7 +149,7 @@ func TestUnifiedBuilder_OmitsZeroTemperature(t *testing.T) {
 	tools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
 		{Name: "Bash", Description: "run", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	})
-	body, err := json.Marshal(tp.buildToolRequest(req, tools, ""))
+	body, err := json.Marshal(tp.buildToolRequest(context.Background(), req, tools, ""))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
