@@ -35,16 +35,21 @@ import (
 // S3/GCS presigned URL would, without the credential and network coupling.
 // =============================================================================
 
-// publicStorageRefImageURL is the same stable public test image the vision
-// URL test (e2e_vision_test.go) uses; reused so both cover an identical
-// remote-URL model path.
-const publicStorageRefImageURL = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/" +
-	"PNG_transparency_demonstration_1.png/300px-PNG_transparency_demonstration_1.png"
+// publicStorageRefImageURL is a stable, provider-fetchable public PNG. It stands
+// in for a presigned S3/GCS URL: the point is that the model fetches a remote URL
+// our code produced from a StorageReference. GitHub raw is used (not Wikipedia,
+// which bot-blocks provider fetchers with a 400 "unable to download").
+const publicStorageRefImageURL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/opencv-logo.png"
 
 // urlFakeStore is a minimal MediaStorageService whose GetURL always returns a
 // stable, public, remote image URL. It lets the URL-resolution path be tested
-// without any cloud credentials.
-type urlFakeStore struct{ url string }
+// without any cloud credentials. URL-capable providers (Claude, OpenAI) hand
+// the model that URL; base64-only providers (Gemini) instead call RetrieveMedia,
+// so it also serves real image bytes.
+type urlFakeStore struct {
+	url      string
+	bytesB64 string // base64 image bytes, served by RetrieveMedia for base64-only providers
+}
 
 func (s *urlFakeStore) StoreMedia(
 	_ context.Context, _ *types.MediaContent, _ *storage.MediaMetadata,
@@ -55,7 +60,8 @@ func (s *urlFakeStore) StoreMedia(
 func (s *urlFakeStore) RetrieveMedia(
 	_ context.Context, _ storage.Reference,
 ) (*types.MediaContent, error) {
-	return nil, nil
+	data := s.bytesB64
+	return &types.MediaContent{Data: &data, MIMEType: "image/png"}, nil
 }
 
 func (s *urlFakeStore) DeleteMedia(_ context.Context, _ storage.Reference) error {
@@ -77,7 +83,10 @@ func TestE2E_StorageRef_URLPath(t *testing.T) {
 			t.Skip("Mock provider doesn't support real vision")
 		}
 
-		store := &urlFakeStore{url: publicStorageRefImageURL}
+		store := &urlFakeStore{
+			url:      publicStorageRefImageURL,
+			bytesB64: base64.StdEncoding.EncodeToString(getTestImage(t)),
+		}
 
 		conv := NewVisionConversation(t, provider, WithMediaStorage(store))
 		defer conv.Close()
