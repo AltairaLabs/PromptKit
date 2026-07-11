@@ -204,6 +204,9 @@ func (ml *MediaLoader) loadFromStorage(ctx context.Context, ref string) (string,
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve media from storage %s: %w", ref, err)
 	}
+	if media == nil {
+		return "", fmt.Errorf("storage returned nil media for reference: %s", ref)
+	}
 
 	// Storage can return media with either Data or FilePath
 	if media.Data != nil && *media.Data != "" {

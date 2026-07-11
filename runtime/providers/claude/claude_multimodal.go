@@ -46,8 +46,11 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 
 // claudeImageSource represents an image or document source in Claude's format
 type claudeImageSource struct {
-	Type      string `json:"type"`       // "base64" or "url"
-	MediaType string `json:"media_type"` // MIME type
+	Type string `json:"type"` // "base64" or "url"
+	// MediaType is required for base64 sources but MUST be omitted for url
+	// sources — Anthropic rejects "media_type" on a url source with 400
+	// "Extra inputs are not permitted".
+	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`
 	URL       string `json:"url,omitempty"`
 }
@@ -175,6 +178,9 @@ func (p *Provider) buildClaudeMessage(role string, contentBlocks []interface{}) 
 	return claudeMsg, nil
 }
 
+// claudeBlockTypeImage is the Claude content-block type for image sources.
+const claudeBlockTypeImage = "image"
+
 // convertImagePartToClaude converts an image part to Claude's format
 func (p *Provider) convertImagePartToClaude(
 	ctx context.Context, part types.ContentPart,
@@ -184,14 +190,13 @@ func (p *Provider) convertImagePartToClaude(
 	}
 
 	block := claudeContentBlockMultimodal{
-		Type: "image",
-		Source: &claudeImageSource{
-			MediaType: part.Media.MIMEType,
-		},
+		Type:   claudeBlockTypeImage,
+		Source: &claudeImageSource{},
 	}
 
 	// Prefer a model-fetchable URL (explicit URL or presigned StorageReference);
-	// fall back to inlined base64 bytes when no URL is available.
+	// fall back to inlined base64 bytes when no URL is available. MediaType is
+	// set only on the base64 branch — Anthropic rejects it on a url source.
 	loader := p.MediaLoader()
 	if url, ok, err := loader.ResolveURL(ctx, part.Media); err != nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("failed to resolve image: %w", err)
@@ -204,6 +209,7 @@ func (p *Provider) convertImagePartToClaude(
 			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image data: %w", err)
 		}
 		block.Source.Type = "base64"
+		block.Source.MediaType = part.Media.MIMEType
 		block.Source.Data = data
 	}
 
