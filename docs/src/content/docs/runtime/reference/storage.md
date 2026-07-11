@@ -228,7 +228,8 @@ type MediaStorageService interface {
     // Parameters:
     //   - ctx: Context for cancellation and timeouts
     //   - reference: The storage reference
-    //   - expiry: How long the URL should be valid (ignored for local storage)
+    //   - expiry: How long the URL should be valid (ignored for local storage).
+    //     An expiry <= 0 means the store chooses its own expiry/caching policy.
     //
     // Returns:
     //   - URL string that can be used to access the media

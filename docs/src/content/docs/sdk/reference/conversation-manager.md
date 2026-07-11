@@ -307,6 +307,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithMaxActiveSkillsOption\(n int\) Option](<#WithMaxActiveSkillsOption>)
   - [func WithMaxConcurrentEvals\(n int\) Option](<#WithMaxConcurrentEvals>)
   - [func WithMaxMessageSize\(bytes int\) Option](<#WithMaxMessageSize>)
+  - [func WithMediaStorage\(store storage.MediaStorageService\) Option](<#WithMediaStorage>)
   - [func WithMemory\(store memory.Store, scope map\[string\]string, opts ...MemoryOption\) Option](<#WithMemory>)
   - [func WithMessageLog\(log statestore.MessageLog\) Option](<#WithMessageLog>)
   - [func WithMetricRecorder\(r evals.MetricRecorder\) Option](<#WithMetricRecorder>)
@@ -399,15 +400,19 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
 - [type SendOption](<#SendOption>)
   - [func WithAudioData\(data \[\]byte, mimeType string\) SendOption](<#WithAudioData>)
   - [func WithAudioFile\(path string\) SendOption](<#WithAudioFile>)
+  - [func WithAudioStorageRef\(ref, mimeType string\) SendOption](<#WithAudioStorageRef>)
   - [func WithDocumentData\(data \[\]byte, mimeType string\) SendOption](<#WithDocumentData>)
   - [func WithDocumentFile\(path string\) SendOption](<#WithDocumentFile>)
   - [func WithFile\(name string, data \[\]byte\) SendOption](<#WithFile>)
+  - [func WithFileStorageRef\(name, ref, mimeType string\) SendOption](<#WithFileStorageRef>)
   - [func WithImageData\(data \[\]byte, mimeType string, detail ...\*string\) SendOption](<#WithImageData>)
   - [func WithImageFile\(path string, detail ...\*string\) SendOption](<#WithImageFile>)
+  - [func WithImageStorageRef\(ref, mimeType string, detail ...\*string\) SendOption](<#WithImageStorageRef>)
   - [func WithImageURL\(url string, detail ...\*string\) SendOption](<#WithImageURL>)
   - [func WithJSONInput\(v any\) SendOption](<#WithJSONInput>)
   - [func WithVideoData\(data \[\]byte, mimeType string\) SendOption](<#WithVideoData>)
   - [func WithVideoFile\(path string\) SendOption](<#WithVideoFile>)
+  - [func WithVideoStorageRef\(ref, mimeType string\) SendOption](<#WithVideoStorageRef>)
 - [type SessionMode](<#SessionMode>)
 - [type ShutdownManager](<#ShutdownManager>)
   - [func NewShutdownManager\(\) \*ShutdownManager](<#NewShutdownManager>)
@@ -3380,6 +3385,15 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 )
 ```
 
+<a name="WithMediaStorage"></a>
+### func WithMediaStorage
+
+```go
+func WithMediaStorage(store storage.MediaStorageService) Option
+```
+
+WithMediaStorage injects a MediaStorageService so MediaContent.StorageReference values \(e.g. from WithImageStorageRef\) resolve to a model\-fetchable URL or bytes at provider\-call time. Applied to every provider in the pool.
+
 <a name="WithMemory"></a>
 ### func WithMemory
 
@@ -4923,6 +4937,15 @@ resp, _ := conv.Send(ctx, "Transcribe this audio",
 )
 ```
 
+<a name="WithAudioStorageRef"></a>
+### func WithAudioStorageRef
+
+```go
+func WithAudioStorageRef(ref, mimeType string) SendOption
+```
+
+WithAudioStorageRef attaches audio by durable storage reference.
+
 <a name="WithDocumentData"></a>
 ### func WithDocumentData
 
@@ -4970,6 +4993,15 @@ resp, _ := conv.Send(ctx, "Analyze this data",
 )
 ```
 
+<a name="WithFileStorageRef"></a>
+### func WithFileStorageRef
+
+```go
+func WithFileStorageRef(name, ref, mimeType string) SendOption
+```
+
+WithFileStorageRef attaches a document by durable storage reference. The name is preserved as the media caption for downstream display.
+
 <a name="WithImageData"></a>
 ### func WithImageData
 
@@ -4997,6 +5029,21 @@ WithImageFile attaches an image from a file path.
 ```
 resp, _ := conv.Send(ctx, "What's in this image?",
     sdk.WithImageFile("/path/to/image.jpg"),
+)
+```
+
+<a name="WithImageStorageRef"></a>
+### func WithImageStorageRef
+
+```go
+func WithImageStorageRef(ref, mimeType string, detail ...*string) SendOption
+```
+
+WithImageStorageRef attaches an image by durable storage reference. The reference is resolved to a model\-fetchable URL or bytes at provider\-call time by the MediaStorageService configured via WithMediaStorage.
+
+```
+resp, _ := conv.Send(ctx, "What's in this image?",
+    sdk.WithImageStorageRef("s3://bucket/key", "image/png"),
 )
 ```
 
@@ -5064,6 +5111,15 @@ resp, _ := conv.Send(ctx, "Describe this video",
     sdk.WithVideoFile("/path/to/video.mp4"),
 )
 ```
+
+<a name="WithVideoStorageRef"></a>
+### func WithVideoStorageRef
+
+```go
+func WithVideoStorageRef(ref, mimeType string) SendOption
+```
+
+WithVideoStorageRef attaches a video by durable storage reference.
 
 <a name="SessionMode"></a>
 ## type SessionMode
