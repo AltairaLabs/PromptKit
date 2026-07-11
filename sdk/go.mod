@@ -3,9 +3,9 @@ module github.com/AltairaLabs/PromptKit/sdk
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
+	github.com/AltairaLabs/PromptKit/pkg v1.5.5
+	github.com/AltairaLabs/PromptKit/runtime v1.5.5
+	github.com/AltairaLabs/PromptKit/server/a2a v1.5.5
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
@@ -99,7 +99,3 @@ require (
 )
 
 replace github.com/AltairaLabs/PromptKit/pkg => ../pkg
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
-
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../server/a2a
