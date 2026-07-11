@@ -70,7 +70,18 @@ jobs:
             exit 1
           fi
         fi
-        
+
+        # tools-only re-runs finish tagging the SDK/server modules for a version
+        # whose libraries (runtime/pkg/root) are already tagged. The
+        # newer-than-latest ordering check below would always fail for that case
+        # (LATEST == the version being completed), so skip it for tools-only.
+        if [ "${{ inputs.phase }}" = "tools-only" ]; then
+          echo "✓ tools-only phase: skipping newer-than-latest ordering check"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✓ Version $VERSION is valid for a tools-only release"
+          exit 0
+        fi
+
         # Get latest version and compare
         echo "Checking if $VERSION is newer than existing versions..."
         LATEST_TAG=$(git tag -l "runtime/v*" | sort -V | tail -n1)
