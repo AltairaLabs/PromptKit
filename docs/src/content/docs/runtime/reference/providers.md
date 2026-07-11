@@ -109,6 +109,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b \*BaseProvider\) MakeJSONRequest\(ctx context.Context, url string, request any, headers RequestHeaders, providerName string\) \(\[\]byte, error\)](<#BaseProvider.MakeJSONRequest>)
   - [func \(b \*BaseProvider\) MakeRawRequest\(ctx context.Context, url string, body \[\]byte, headers RequestHeaders, providerName string\) \(\[\]byte, error\)](<#BaseProvider.MakeRawRequest>)
   - [func \(b \*BaseProvider\) MaxPayloadSize\(\) int64](<#BaseProvider.MaxPayloadSize>)
+  - [func \(b \*BaseProvider\) MediaLoader\(\) \*MediaLoader](<#BaseProvider.MediaLoader>)
   - [func \(b \*BaseProvider\) RateLimiter\(\) \*rate.Limiter](<#BaseProvider.RateLimiter>)
   - [func \(b \*BaseProvider\) ReleaseStreamSlot\(\)](<#BaseProvider.ReleaseStreamSlot>)
   - [func \(b \*BaseProvider\) RunStreamingRequest\(ctx context.Context, req \*StreamRetryRequest, consumer StreamConsumer\) \(\<\-chan StreamChunk, error\)](<#BaseProvider.RunStreamingRequest>)
@@ -116,6 +117,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b \*BaseProvider\) SetHTTPTimeout\(timeout time.Duration\)](<#BaseProvider.SetHTTPTimeout>)
   - [func \(b \*BaseProvider\) SetHTTPTransport\(rt http.RoundTripper\)](<#BaseProvider.SetHTTPTransport>)
   - [func \(b \*BaseProvider\) SetMaxPayloadSize\(size int64\)](<#BaseProvider.SetMaxPayloadSize>)
+  - [func \(b \*BaseProvider\) SetMediaStorageService\(store storage.MediaStorageService\)](<#BaseProvider.SetMediaStorageService>)
   - [func \(b \*BaseProvider\) SetRateLimit\(requestsPerSecond float64, burst int\)](<#BaseProvider.SetRateLimit>)
   - [func \(b \*BaseProvider\) SetRetryPolicy\(policy pipeline.RetryPolicy\)](<#BaseProvider.SetRetryPolicy>)
   - [func \(b \*BaseProvider\) SetStreamIdleTimeout\(d time.Duration\)](<#BaseProvider.SetStreamIdleTimeout>)
@@ -169,7 +171,9 @@ This file contains exported test helpers that can be used by provider implementa
 - [type MediaLoader](<#MediaLoader>)
   - [func NewMediaLoader\(config MediaLoaderConfig\) \*MediaLoader](<#NewMediaLoader>)
   - [func \(ml \*MediaLoader\) GetBase64Data\(ctx context.Context, media \*types.MediaContent\) \(string, error\)](<#MediaLoader.GetBase64Data>)
+  - [func \(ml \*MediaLoader\) ResolveURL\(ctx context.Context, media \*types.MediaContent\) \(string, bool, error\)](<#MediaLoader.ResolveURL>)
 - [type MediaLoaderConfig](<#MediaLoaderConfig>)
+- [type MediaStorageConfigurable](<#MediaStorageConfigurable>)
 - [type MultimodalCapabilities](<#MultimodalCapabilities>)
 - [type MultimodalCapabilityProvider](<#MultimodalCapabilityProvider>)
   - [func GetMultimodalProvider\(p Provider\) MultimodalCapabilityProvider](<#GetMultimodalProvider>)
@@ -1184,6 +1188,15 @@ func (b *BaseProvider) MaxPayloadSize() int64
 
 MaxPayloadSize returns the current maximum request payload size in bytes.
 
+<a name="BaseProvider.MediaLoader"></a>
+### func \(\*BaseProvider\) MediaLoader
+
+```go
+func (b *BaseProvider) MediaLoader() *MediaLoader
+```
+
+MediaLoader returns a per\-call MediaLoader configured with this provider's injected storage service \(if any\). Providers use it to resolve media parts \(ResolveURL for URL\-first providers, GetBase64Data for byte\-based ones\).
+
 <a name="BaseProvider.RateLimiter"></a>
 ### func \(\*BaseProvider\) RateLimiter
 
@@ -1261,6 +1274,15 @@ func (b *BaseProvider) SetMaxPayloadSize(size int64)
 ```
 
 SetMaxPayloadSize configures the maximum allowed request payload size in bytes. A zero or negative value disables payload size checking.
+
+<a name="BaseProvider.SetMediaStorageService"></a>
+### func \(\*BaseProvider\) SetMediaStorageService
+
+```go
+func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
+```
+
+SetMediaStorageService injects the media storage service used to resolve MediaContent.StorageReference values at request\-build time. Nil \(the default\) preserves prior behavior. See MediaStorageConfigurable in registry.go.
 
 <a name="BaseProvider.SetRateLimit"></a>
 ### func \(\*BaseProvider\) SetRateLimit
@@ -1952,6 +1974,15 @@ aGVsbG8=
 </p>
 </details>
 
+<a name="MediaLoader.ResolveURL"></a>
+### func \(\*MediaLoader\) ResolveURL
+
+```go
+func (ml *MediaLoader) ResolveURL(ctx context.Context, media *types.MediaContent) (string, bool, error)
+```
+
+ResolveURL returns a URL a provider can hand to the model when the media can be represented as one. ok is false when the source cannot be a fetchable URL \(inline data, local file path, a non\-remote storage URL such as file://, or a storage reference with no store configured\); callers then fall back to GetBase64Data. URL expiry/caching is entirely the store's concern — we pass 0 so the store chooses its own policy.
+
 <a name="MediaLoaderConfig"></a>
 ## type MediaLoaderConfig
 
@@ -1967,6 +1998,19 @@ type MediaLoaderConfig struct {
 
     // MaxURLSizeBytes is the maximum size for URL-based media (default: 50MB)
     MaxURLSizeBytes int64
+}
+```
+
+<a name="MediaStorageConfigurable"></a>
+## type MediaStorageConfigurable
+
+MediaStorageConfigurable is implemented by any provider embedding \*BaseProvider. CreateProviderFromSpec uses it to inject the media storage service so providers can resolve MediaContent.StorageReference values at request\-build time.
+
+NOSONAR: name intentionally matches the existing \*Configurable pattern for post\-construction wiring interfaces \(timeoutConfigurable etc.\)
+
+```go
+type MediaStorageConfigurable interface {
+    SetMediaStorageService(storage.MediaStorageService)
 }
 ```
 
@@ -2367,6 +2411,12 @@ type ProviderSpec struct {
     // via SetStreamSemaphore on providers that implement the
     // streamConcurrencyConfigurable interface.
     StreamMaxConcurrent int
+
+    // StorageService resolves MediaContent.StorageReference values at
+    // request-build time (to a model-fetchable URL via GetURL, or bytes via
+    // RetrieveMedia). Applied via SetMediaStorageService on providers
+    // implementing MediaStorageConfigurable. Nil = disabled.
+    StorageService storage.MediaStorageService
 
     // HTTPTransport configures the per-provider HTTP connection pool.
     // Zero-valued fields fall back to package-level defaults

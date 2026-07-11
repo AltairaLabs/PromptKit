@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			messages, err := provider.prepareOpenAIMessages(tt.req)
+			messages, err := provider.prepareOpenAIMessages(context.Background(), tt.req)
 			if err != nil {
 				t.Fatalf("Failed to prepare messages: %v", err)
 			}
@@ -562,7 +563,7 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare messages
-		messages, err := provider.prepareOpenAIMessages(req)
+		messages, err := provider.prepareOpenAIMessages(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to prepare messages: %v", err)
 		}

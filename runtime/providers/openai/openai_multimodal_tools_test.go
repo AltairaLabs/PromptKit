@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -249,7 +250,7 @@ func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
 		},
 	}
 
-	openaiMsg := provider.convertSingleMessageForTools(msg)
+	openaiMsg := provider.convertSingleMessageForTools(context.Background(), msg)
 
 	if openaiMsg["tool_call_id"] != "call_100" {
 		t.Errorf("Expected tool_call_id 'call_100', got %v", openaiMsg["tool_call_id"])
@@ -343,7 +344,7 @@ func TestToolProvider_WithMultimodalMessages(t *testing.T) {
 
 	// The current buildToolRequest uses msg.Content directly
 	// This will NOT work correctly with multimodal messages
-	toolReq := toolProvider.buildToolRequest(req, nil, "")
+	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
 
 	// Extract the message that was built
 	messages, ok := toolReq["messages"].([]map[string]interface{})
@@ -408,7 +409,7 @@ func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 		Messages: []types.Message{msg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(req, nil, "")
+	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 1 {
@@ -460,7 +461,7 @@ func TestToolProvider_BuildToolRequestWithTools(t *testing.T) {
 		},
 	}
 
-	toolReq := toolProvider.buildToolRequest(req, tools, "auto")
+	toolReq := toolProvider.buildToolRequest(context.Background(), req, tools, "auto")
 
 	// Verify tools are present
 	if toolReq["tools"] == nil {
@@ -512,7 +513,7 @@ func TestToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
 		Messages: []types.Message{assistantMsg, toolResultMsg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(req, nil, "")
+	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 2 {
@@ -588,7 +589,7 @@ func TestToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) 
 		Messages: []types.Message{userMsg, assistantMsg, toolMsg, finalMsg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(req, nil, "")
+	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 4 {
@@ -643,7 +644,7 @@ func TestToolProvider_MultimodalValidation(t *testing.T) {
 	}
 
 	// This should fail validation since OpenAI doesn't support audio in predict
-	_, err := toolProvider.convertMessageToOpenAI(msg)
+	_, err := toolProvider.convertMessageToOpenAI(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for unsupported audio content")
 	} else {

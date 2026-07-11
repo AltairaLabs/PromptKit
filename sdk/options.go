@@ -27,6 +27,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -77,6 +78,11 @@ type config struct {
 	apiKey     string
 	model      string
 	credential *credentialConfig
+
+	// mediaStorage resolves MediaContent.StorageReference values (e.g. from
+	// WithImageStorageRef) to a model-fetchable URL or bytes at provider-call
+	// time. Injected into every provider in the pool via WithMediaStorage.
+	mediaStorage storage.MediaStorageService
 
 	// State management
 	stateStore     statestore.Store
@@ -378,6 +384,16 @@ func WithProvider(p providers.Provider) Option {
 			return nil
 		}
 		registerAgentProvider(c, p)
+		return nil
+	}
+}
+
+// WithMediaStorage injects a MediaStorageService so MediaContent.StorageReference
+// values (e.g. from WithImageStorageRef) resolve to a model-fetchable URL or bytes
+// at provider-call time. Applied to every provider in the pool.
+func WithMediaStorage(store storage.MediaStorageService) Option {
+	return func(c *config) error {
+		c.mediaStorage = store
 		return nil
 	}
 }
@@ -2058,7 +2074,7 @@ func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithLLMProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
-		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
 		if err != nil {
 			return fmt.Errorf("WithLLMProvider %q: %w", spec.idOrType(), err)
 		}
@@ -2075,7 +2091,7 @@ func WithLLMProvider(spec ProviderSpec) Option {
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithImageProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
-		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
 		if err != nil {
 			return fmt.Errorf("WithImageProvider %q: %w", spec.idOrType(), err)
 		}
@@ -2661,10 +2677,75 @@ func WithDocumentData(data []byte, mimeType string) SendOption {
 	}
 }
 
+// WithImageStorageRef attaches an image by durable storage reference. The
+// reference is resolved to a model-fetchable URL or bytes at provider-call
+// time by the MediaStorageService configured via WithMediaStorage.
+//
+//	resp, _ := conv.Send(ctx, "What's in this image?",
+//	    sdk.WithImageStorageRef("s3://bucket/key", "image/png"),
+//	)
+func WithImageStorageRef(ref, mimeType string, detail ...*string) SendOption {
+	return func(c *sendConfig) error {
+		var d *string
+		if len(detail) > 0 {
+			d = detail[0]
+		}
+		c.parts = append(c.parts, imageStorageRefPart{ref: ref, mimeType: mimeType, detail: d})
+		return nil
+	}
+}
+
+// WithAudioStorageRef attaches audio by durable storage reference.
+func WithAudioStorageRef(ref, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, audioStorageRefPart{ref: ref, mimeType: mimeType})
+		return nil
+	}
+}
+
+// WithVideoStorageRef attaches a video by durable storage reference.
+func WithVideoStorageRef(ref, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, videoStorageRefPart{ref: ref, mimeType: mimeType})
+		return nil
+	}
+}
+
+// WithFileStorageRef attaches a document by durable storage reference. The
+// name is preserved as the media caption for downstream display.
+func WithFileStorageRef(name, ref, mimeType string) SendOption {
+	return func(c *sendConfig) error {
+		c.parts = append(c.parts, documentStorageRefPart{name: name, ref: ref, mimeType: mimeType})
+		return nil
+	}
+}
+
 // Internal types for content parts
 type imageFilePart struct {
 	path   string
 	detail *string
+}
+
+type imageStorageRefPart struct {
+	ref      string
+	mimeType string
+	detail   *string
+}
+
+type audioStorageRefPart struct {
+	ref      string
+	mimeType string
+}
+
+type videoStorageRefPart struct {
+	ref      string
+	mimeType string
+}
+
+type documentStorageRefPart struct {
+	name     string
+	ref      string
+	mimeType string
 }
 
 type imageURLPart struct {

@@ -217,6 +217,13 @@ func initConversation(
 		return nil, nil, err
 	}
 
+	// Inject the media storage service into every pooled provider. This runs
+	// after all options are applied and the pool is fully populated
+	// (resolveProvider registers the agent/summarizer), and well before the
+	// first provider call (the pipeline is built per-Send). Providers that
+	// don't implement MediaStorageConfigurable are skipped.
+	applyMediaStorageToPool(cfg)
+
 	// Use caller-provided tool registry or create a new one from the pack.
 	toolReg := cfg.toolRegistry
 	if toolReg == nil {
@@ -418,6 +425,22 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	return detected, nil
 }
 
+// applyMediaStorageToPool injects the configured MediaStorageService into every
+// provider in the pool that implements providers.MediaStorageConfigurable.
+// No-op when no store is configured or the pool is empty.
+func applyMediaStorageToPool(c *config) {
+	if c.mediaStorage == nil || c.providers == nil {
+		return
+	}
+	for _, id := range c.providers.List() {
+		if p, ok := c.providers.Get(id); ok {
+			if mc, ok := p.(providers.MediaStorageConfigurable); ok {
+				mc.SetMediaStorageService(c.mediaStorage)
+			}
+		}
+	}
+}
+
 // registerAgentProvider installs p as the agent provider in the pool.
 func registerAgentProvider(cfg *config, p providers.Provider) {
 	ensureProviderPool(cfg)
@@ -505,6 +528,7 @@ func resolvePlatformProvider(cfg *config) (providers.Provider, error) {
 			TopP:        1.0,
 			MaxTokens:   defaultMaxTokens,
 		},
+		StorageService: cfg.mediaStorage,
 	}
 
 	return providers.CreateProviderFromSpec(spec)

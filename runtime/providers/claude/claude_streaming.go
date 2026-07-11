@@ -36,7 +36,7 @@ func (p *Provider) PredictStream(
 	// Build the canonical request via the shared base builder, then layer on the
 	// streaming deltas. PredictStream is the no-tools path, so it honors
 	// output_config with no tool-use conflict to guard against.
-	messages := p.convertMessagesToClaudeFormat(req.Messages)
+	messages := p.convertMessagesToClaudeFormat(ctx, req.Messages)
 	claudeReq := p.buildBaseRequest(req, messages)
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 	claudeReq.Stream = true

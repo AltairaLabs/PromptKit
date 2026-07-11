@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 
 	// Side-effect imports register provider factories so CreateFromSpec
 	// can resolve declarative entries.
@@ -112,7 +113,7 @@ func WithRuntimeConfig(path string) Option {
 func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// Apply provider (use first provider if configured and no provider already set)
 	if len(spec.Providers) > 0 && c.getAgentProvider() == nil {
-		prov, err := createProviderFromConfig(&spec.Providers[0])
+		prov, err := createProviderFromConfig(&spec.Providers[0], c.mediaStorage)
 		if err != nil {
 			return fmt.Errorf("creating provider from runtime config: %w", err)
 		}
@@ -576,7 +577,12 @@ func slogLevel(level string) slog.Level {
 }
 
 // createProviderFromConfig converts a config.Provider to a providers.Provider.
-func createProviderFromConfig(p *pkgconfig.Provider) (providers.Provider, error) {
+// store, when non-nil, is threaded onto the spec so StorageReference media
+// resolves at model-call time (best-effort; the pool-injection loop in
+// initConversation is the order-independent guarantee).
+func createProviderFromConfig(
+	p *pkgconfig.Provider, store storage.MediaStorageService,
+) (providers.Provider, error) {
 	ctx := context.Background()
 
 	// Resolve credential
@@ -626,6 +632,7 @@ func createProviderFromConfig(p *pkgconfig.Provider) (providers.Provider, error)
 				OutputCostPer1K: p.Pricing.OutputCostPer1K,
 			},
 		},
+		StorageService: store,
 	}
 	return providers.CreateProviderFromSpec(spec)
 }

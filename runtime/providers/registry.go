@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 )
 
 const (
@@ -177,6 +178,12 @@ type ProviderSpec struct {
 	// streamConcurrencyConfigurable interface.
 	StreamMaxConcurrent int
 
+	// StorageService resolves MediaContent.StorageReference values at
+	// request-build time (to a model-fetchable URL via GetURL, or bytes via
+	// RetrieveMedia). Applied via SetMediaStorageService on providers
+	// implementing MediaStorageConfigurable. Nil = disabled.
+	StorageService storage.MediaStorageService
+
 	// HTTPTransport configures the per-provider HTTP connection pool.
 	// Zero-valued fields fall back to package-level defaults
 	// (DefaultMaxConnsPerHost, etc.). Applied via SetHTTPTransport on
@@ -252,6 +259,17 @@ type httpTransportConfigurable interface {
 // for post-construction wiring interfaces (timeoutConfigurable etc.)
 type headersConfigurable interface {
 	SetCustomHeaders(map[string]string)
+}
+
+// MediaStorageConfigurable is implemented by any provider embedding
+// *BaseProvider. CreateProviderFromSpec uses it to inject the media storage
+// service so providers can resolve MediaContent.StorageReference values at
+// request-build time.
+//
+// NOSONAR: name intentionally matches the existing *Configurable pattern for
+// post-construction wiring interfaces (timeoutConfigurable etc.)
+type MediaStorageConfigurable interface {
+	SetMediaStorageService(storage.MediaStorageService)
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -366,6 +384,12 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	// empty map is a no-op at request time.
 	if hc, ok := provider.(headersConfigurable); ok && len(spec.Headers) > 0 {
 		hc.SetCustomHeaders(spec.Headers)
+	}
+
+	// Inject the media storage service so the provider can resolve
+	// MediaContent.StorageReference values at request-build time.
+	if mc, ok := provider.(MediaStorageConfigurable); ok && spec.StorageService != nil {
+		mc.SetMediaStorageService(spec.StorageService)
 	}
 
 	return provider, nil

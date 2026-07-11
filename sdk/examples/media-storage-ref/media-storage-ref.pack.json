@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "media-storage-ref-example",
+  "name": "Media Storage Reference Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating sending media to a vision model by durable storage reference",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "vision-analyst": {
+      "id": "vision-analyst",
+      "name": "Vision Analyst",
+      "version": "1.0.0",
+      "system_template": "You are an expert visual analyst. When shown images, provide detailed, accurate descriptions and analysis. Be thorough but concise. If you cannot see an image or it fails to load, let the user know.",
+      "parameters": {
+        "temperature": 0.7,
+        "max_tokens": 1024
+      }
+    }
+  }
+}

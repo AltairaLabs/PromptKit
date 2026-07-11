@@ -92,7 +92,7 @@ func (p *ToolProvider) PredictWithTools(
 	start := time.Now()
 
 	// Build Ollama request with tools
-	ollamaReq := p.buildToolRequest(req, tools, toolChoice)
+	ollamaReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -127,11 +127,12 @@ func (p *ToolProvider) PredictWithTools(
 
 // buildToolRequest constructs the Ollama API request with tools
 func (p *ToolProvider) buildToolRequest(
+	ctx context.Context,
 	req providers.PredictionRequest,
 	tools any,
 	toolChoice string,
 ) map[string]any {
-	messages := p.convertRequestMessagesToOllama(req)
+	messages := p.convertRequestMessagesToOllama(ctx, req)
 
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -164,7 +165,7 @@ func (p *ToolProvider) buildToolRequest(
 
 // convertRequestMessagesToOllama converts all messages in a request to Ollama format
 func (p *ToolProvider) convertRequestMessagesToOllama(
-	req providers.PredictionRequest,
+	ctx context.Context, req providers.PredictionRequest,
 ) []map[string]any {
 	messages := make([]map[string]any, 0, len(req.Messages)+1)
 
@@ -178,7 +179,7 @@ func (p *ToolProvider) convertRequestMessagesToOllama(
 
 	// Add conversation messages
 	for i := range req.Messages {
-		ollamaMsg := p.convertSingleMessageForTools(&req.Messages[i])
+		ollamaMsg := p.convertSingleMessageForTools(ctx, &req.Messages[i])
 		messages = append(messages, ollamaMsg)
 	}
 
@@ -186,9 +187,11 @@ func (p *ToolProvider) convertRequestMessagesToOllama(
 }
 
 // convertSingleMessageForTools converts a single message to Ollama format including tool metadata
-func (p *ToolProvider) convertSingleMessageForTools(msg *types.Message) map[string]any {
+func (p *ToolProvider) convertSingleMessageForTools(
+	ctx context.Context, msg *types.Message,
+) map[string]any {
 	// Convert message to Ollama format (handles both legacy and multimodal)
-	convertedMsg, err := p.convertMessageToOllama(msg)
+	convertedMsg, err := p.convertMessageToOllama(ctx, msg)
 	if err != nil {
 		// Log error but continue with best effort (use Content as fallback)
 		convertedMsg = ollamaMessage{
@@ -333,7 +336,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	})
 
 	// Build Ollama request with tools (same as non-streaming)
-	ollamaReq := p.buildToolRequest(req, tools, toolChoice)
+	ollamaReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Add streaming options
 	ollamaReq["stream"] = true

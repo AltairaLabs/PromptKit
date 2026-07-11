@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -138,7 +139,7 @@ func TestOpenAIProvider_ConvertLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	converted, err := provider.convertMessageToOpenAI(legacyMsg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), legacyMsg)
 	if err != nil {
 		t.Fatalf("Failed to convert legacy message: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestOpenAIProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		Parts: []types.ContentPart{types.NewTextPart("Hello from multimodal!")},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert text-only multimodal message: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestOpenAIProvider_ConvertImageURLMessage(t *testing.T) {
 		},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert image URL message: %v", err)
 	}
@@ -274,7 +275,7 @@ func TestOpenAIProvider_ConvertImageBase64Message(t *testing.T) {
 		},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert base64 image message: %v", err)
 	}
@@ -319,7 +320,7 @@ func TestOpenAIProvider_ConvertImageWithDetail(t *testing.T) {
 		},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert image with detail: %v", err)
 	}
@@ -370,7 +371,7 @@ func TestOpenAIProvider_ConvertMultipleImages(t *testing.T) {
 		},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert multiple images: %v", err)
 	}
@@ -418,7 +419,7 @@ func TestOpenAIProvider_ConvertAudioReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOpenAI(msg)
+	_, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err == nil {
 		t.Fatal("Expected error when converting audio content, got nil")
 	}
@@ -446,7 +447,7 @@ func TestOpenAIProvider_ConvertVideoReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOpenAI(msg)
+	_, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err == nil {
 		t.Fatal("Expected error when converting video content, got nil")
 	}
@@ -466,7 +467,7 @@ func TestOpenAIProvider_ConvertEmptyTextPart(t *testing.T) {
 		},
 	}
 
-	converted, err := provider.convertMessageToOpenAI(msg)
+	converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert empty text part: %v", err)
 	}
@@ -495,7 +496,7 @@ func TestOpenAIProvider_ConvertImageMissingMedia(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOpenAI(msg)
+	_, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	if err == nil {
 		t.Fatal("Expected error when image part is missing media content, got nil")
 	}
@@ -517,7 +518,7 @@ func TestOpenAIProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToOpenAI(msg.Parts[0])
+	_, err := provider.convertImagePartToOpenAI(context.Background(), msg.Parts[0])
 	if err == nil {
 		t.Fatal("Expected error when image has no data source, got nil")
 	}
@@ -735,7 +736,7 @@ func TestOpenAIProvider_ConvertMessagesToOpenAI(t *testing.T) {
 		},
 	}
 
-	messages, err := provider.convertMessagesToOpenAI(req)
+	messages, err := provider.prepareOpenAIMessages(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Failed to convert messages: %v", err)
 	}
@@ -1075,7 +1076,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		result, err := provider.convertAudioPartToOpenAI(part)
+		result, err := provider.convertAudioPartToOpenAI(context.Background(), part)
 		require.NoError(t, err)
 
 		assert.Equal(t, "input_audio", result["type"])
@@ -1095,7 +1096,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		result, err := provider.convertAudioPartToOpenAI(part)
+		result, err := provider.convertAudioPartToOpenAI(context.Background(), part)
 		require.NoError(t, err)
 
 		inputAudio := result["input_audio"].(map[string]interface{})
@@ -1112,7 +1113,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		_, err := provider.convertAudioPartToOpenAI(part)
+		_, err := provider.convertAudioPartToOpenAI(context.Background(), part)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported audio format")
 	})
@@ -1123,7 +1124,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			Media: nil,
 		}
 
-		_, err := provider.convertAudioPartToOpenAI(part)
+		_, err := provider.convertAudioPartToOpenAI(context.Background(), part)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing media content")
 	})
@@ -1152,7 +1153,7 @@ func TestOpenAIProvider_AudioModelConvertMessage(t *testing.T) {
 			},
 		}
 
-		converted, err := provider.convertMessageToOpenAI(msg)
+		converted, err := provider.convertMessageToOpenAI(context.Background(), msg)
 		require.NoError(t, err)
 
 		parts, ok := converted.Content.([]interface{})
@@ -1226,7 +1227,7 @@ func TestOpenAIProvider_AudioNotSupportedOnNonAudioModel(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToOpenAI(msg)
+	_, err := provider.convertMessageToOpenAI(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "audio content requires audio model")
 }

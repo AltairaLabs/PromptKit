@@ -202,7 +202,7 @@ func (p *ToolProvider) predictWithCompletions(
 	start := time.Now()
 
 	// Build OpenAI request with tools
-	openaiReq := p.buildToolRequest(req, tools, toolChoice)
+	openaiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -236,8 +236,10 @@ func (p *ToolProvider) predictWithCompletions(
 }
 
 // buildToolRequest constructs the OpenAI API request with tools
-func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools interface{}, toolChoice string) map[string]interface{} {
-	messages := p.convertRequestMessagesToOpenAI(req)
+func (p *ToolProvider) buildToolRequest(
+	ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string,
+) map[string]interface{} {
+	messages := p.convertRequestMessagesToOpenAI(ctx, req)
 
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -276,7 +278,9 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
-func (p *ToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRequest) []map[string]interface{} {
+func (p *ToolProvider) convertRequestMessagesToOpenAI(
+	ctx context.Context, req providers.PredictionRequest,
+) []map[string]interface{} {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -289,7 +293,7 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRe
 
 	// Add conversation messages
 	for i := range req.Messages {
-		openaiMsg := p.convertSingleMessageForTools(req.Messages[i])
+		openaiMsg := p.convertSingleMessageForTools(ctx, req.Messages[i])
 		messages = append(messages, openaiMsg)
 	}
 
@@ -297,9 +301,9 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(req providers.PredictionRe
 }
 
 // convertSingleMessageForTools converts a single message to OpenAI format including tool metadata
-func (p *ToolProvider) convertSingleMessageForTools(msg types.Message) map[string]interface{} {
+func (p *ToolProvider) convertSingleMessageForTools(ctx context.Context, msg types.Message) map[string]interface{} {
 	// Convert message to OpenAI format (handles both legacy and multimodal)
-	convertedMsg, err := p.convertMessageToOpenAI(msg)
+	convertedMsg, err := p.convertMessageToOpenAI(ctx, msg)
 	if err != nil {
 		// Log error but continue with best effort (use Content as fallback)
 		// This allows tool calls to work even if multimodal conversion fails
@@ -601,7 +605,7 @@ func (p *ToolProvider) predictStreamWithCompletions(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build OpenAI request with tools (same as non-streaming)
-	openaiReq := p.buildToolRequest(req, tools, toolChoice)
+	openaiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
 	// Add streaming options
 	openaiReq["stream"] = true

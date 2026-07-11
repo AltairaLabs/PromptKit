@@ -57,7 +57,7 @@ func TestGeminiProvider_ConvertLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert legacy message: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGeminiProvider_ConvertAssistantRole(t *testing.T) {
 		Content: "I can help!",
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestGeminiProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestGeminiProvider_ConvertImageBase64Message(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestGeminiProvider_ConvertMultipleImages(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestGeminiProvider_ConvertImageURLReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for URL-based images (Gemini doesn't support URLs)")
 	}
@@ -244,7 +244,7 @@ func TestGeminiProvider_ConvertEmptyTextPart(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for empty text part")
 	}
@@ -258,7 +258,7 @@ func TestGeminiProvider_ConvertImageMissingMedia(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for image without media")
 	}
@@ -278,7 +278,7 @@ func TestGeminiProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for image without data source")
 	}
@@ -411,7 +411,7 @@ func TestGeminiProvider_ConvertMessagesToGemini(t *testing.T) {
 		},
 	}
 
-	contents, sysInst, err := convertMessagesToGemini(messages, "You are helpful")
+	contents, sysInst, err := convProvider().convertMessagesToGemini(context.Background(), messages, "You are helpful")
 	if err != nil {
 		t.Fatalf("Failed to convert messages: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestGeminiProvider_AudioSupport(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert audio message: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestGeminiProvider_VideoSupport(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert video message: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestGeminiProvider_MixedMultimodal(t *testing.T) {
 		},
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert mixed multimodal message: %v", err)
 	}
@@ -698,7 +698,7 @@ func TestConvertImageMissingMIMEType(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing mime_type")
 }
@@ -714,7 +714,7 @@ func TestConvertUnsupportedPartType(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported part type")
 }
@@ -731,7 +731,7 @@ func TestConvertNilTextPart(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty text")
 }
@@ -753,7 +753,7 @@ func TestConvertMediaURLNotSupported(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	// MediaLoader now fetches URLs, so we expect connection error
 	assert.Contains(t, err.Error(), "failed to load image data")
@@ -774,7 +774,7 @@ func TestConvertMediaMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no media source available")
 }
@@ -791,7 +791,7 @@ func TestConvertMediaMissingMediaField(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing media field")
 }
@@ -1006,7 +1006,7 @@ func TestConvertMessagesToGemini_WithSystemPrompt(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 	}
 
-	contents, systemInstruction, err := convertMessagesToGemini(messages, "You are helpful")
+	contents, systemInstruction, err := convProvider().convertMessagesToGemini(context.Background(), messages, "You are helpful")
 	require.NoError(t, err)
 	require.NotNil(t, systemInstruction)
 	assert.Equal(t, "You are helpful", systemInstruction.Parts[0].Text)
@@ -1024,7 +1024,7 @@ func TestConvertMessagesToGemini_ConversionError(t *testing.T) {
 		},
 	}
 
-	_, _, err := convertMessagesToGemini(messages, "")
+	_, _, err := convProvider().convertMessagesToGemini(context.Background(), messages, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported part type")
 }
@@ -1063,7 +1063,7 @@ func TestConvertEmptyTextString(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty text")
 }
@@ -1084,7 +1084,7 @@ func TestConvertAudioPartWithFilePath(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read file")
 }
@@ -1105,7 +1105,7 @@ func TestConvertVideoPartWithFilePath(t *testing.T) {
 		},
 	}
 
-	_, err := convertMessageToGemini(msg)
+	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read file")
 }

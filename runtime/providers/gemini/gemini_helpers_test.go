@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -55,7 +56,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			contents := convertMessagesToGeminiContents(tt.messages)
+			contents := convProvider().convertMessagesToGeminiContents(context.Background(), tt.messages)
 
 			if len(contents) != tt.expected {
 				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
@@ -171,7 +172,7 @@ func TestPrepareGeminiRequest(t *testing.T) {
 				defaults: tt.defaults,
 			}
 
-			contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(tt.req)
+			contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(context.Background(), tt.req)
 
 			// Check contents
 			if len(contents) != len(tt.req.Messages) {
@@ -321,7 +322,7 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare request
-		contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(req)
+		contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(context.Background(), req)
 
 		if len(contents) != 3 {
 			t.Errorf("Expected 3 contents, got %d", len(contents))

@@ -290,7 +290,7 @@ func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
 	}
 
 	// Process the tool result
-	result := processClaudeToolResult(toolResultMsg)
+	result := testClaudeProvider().processClaudeToolResult(context.Background(), toolResultMsg)
 
 	// Verify the result uses ToolResult text content as a plain string
 	contentStr, ok := result.Content.(string)
@@ -325,7 +325,7 @@ func TestProcessClaudeToolResult_MultimodalImageResult(t *testing.T) {
 		},
 	}
 
-	result := processClaudeToolResult(msg)
+	result := testClaudeProvider().processClaudeToolResult(context.Background(), msg)
 
 	if result.ToolUseID != "toolu_img_123" {
 		t.Errorf("Expected ToolUseID 'toolu_img_123', got '%s'", result.ToolUseID)
@@ -398,7 +398,7 @@ func TestProcessClaudeToolResult_DocumentResult(t *testing.T) {
 		},
 	}
 
-	result := processClaudeToolResult(msg)
+	result := testClaudeProvider().processClaudeToolResult(context.Background(), msg)
 
 	blocks, ok := result.Content.([]interface{})
 	if !ok {
@@ -447,7 +447,7 @@ func TestProcessClaudeToolResult_TextOnlyRegression(t *testing.T) {
 		}(),
 	}
 
-	result := processClaudeToolResult(msg)
+	result := testClaudeProvider().processClaudeToolResult(context.Background(), msg)
 
 	// Should be a plain string, not an array
 	contentStr, ok := result.Content.(string)
@@ -489,7 +489,7 @@ func TestProcessClaudeToolResult_ImageWithURL(t *testing.T) {
 		},
 	}
 
-	result := processClaudeToolResult(msg)
+	result := testClaudeProvider().processClaudeToolResult(context.Background(), msg)
 
 	blocks, ok := result.Content.([]interface{})
 	if !ok {

@@ -757,7 +757,7 @@ func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(req, nil, "")
+			request := provider.buildToolRequest(context.Background(), req, nil, "")
 
 			if temp, ok := request["temperature"].(float32); !ok || temp != tt.expectedTemp {
 				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request["temperature"])
@@ -1011,7 +1011,7 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 	}
 
 	// Convert to OpenAI format
-	openaiMsg := provider.convertSingleMessageForTools(toolResultMsg)
+	openaiMsg := provider.convertSingleMessageForTools(context.Background(), toolResultMsg)
 
 	// Verify tool_call_id and name are set
 	if openaiMsg["tool_call_id"] != "call_123" {
@@ -1060,7 +1060,7 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 		},
 	}
 
-	messages := provider.convertRequestMessagesToOpenAI(req)
+	messages := provider.convertRequestMessagesToOpenAI(context.Background(), req)
 
 	// Find the tool result message
 	var toolMsg map[string]interface{}
@@ -1119,7 +1119,7 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 		},
 	}
 
-	result := provider.buildToolRequest(req, nil, "")
+	result := provider.buildToolRequest(context.Background(), req, nil, "")
 
 	// Must have modalities set
 	modalities, ok := result["modalities"]
@@ -1173,7 +1173,7 @@ func TestBuildToolRequest_AudioModalities_TextInput(t *testing.T) {
 		}},
 	}
 
-	result := provider.buildToolRequest(req, nil, "")
+	result := provider.buildToolRequest(context.Background(), req, nil, "")
 
 	mods, ok := result["modalities"].([]string)
 	if !ok {

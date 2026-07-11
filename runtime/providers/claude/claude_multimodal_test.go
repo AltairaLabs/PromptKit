@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestClaudeProvider_ConvertLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestClaudeProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestClaudeProvider_ConvertImageBase64Message(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestClaudeProvider_ConvertImageURLMessage(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestClaudeProvider_ConvertMultipleImages(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestClaudeProvider_ConvertAudioReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(msg)
+	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for audio content, got nil")
 	}
@@ -247,7 +248,7 @@ func TestClaudeProvider_ConvertVideoReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(msg)
+	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for video content, got nil")
 	}
@@ -275,7 +276,7 @@ func TestClaudeProvider_ConvertEmptyTextPart(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -302,7 +303,7 @@ func TestClaudeProvider_ConvertImageMissingMedia(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(msg)
+	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for image without media, got nil")
 	}
@@ -330,7 +331,7 @@ func TestClaudeProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(msg)
+	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err == nil {
 		t.Error("Expected error for image without data source, got nil")
 	}
@@ -517,7 +518,7 @@ func TestClaudeProvider_MixedMultimodal(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(msg)
+	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert mixed multimodal message: %v", err)
 	}
@@ -591,7 +592,7 @@ func TestClaudeProvider_ConvertPartsToClaudeBlocks(t *testing.T) {
 		types.NewTextPart("Valid text"),
 	}
 
-	blocks, err := provider.convertPartsToClaudeBlocks(parts)
+	blocks, err := provider.convertPartsToClaudeBlocks(context.Background(), parts)
 	if err != nil {
 		t.Fatalf("Failed to convert parts: %v", err)
 	}
@@ -606,7 +607,7 @@ func TestClaudeProvider_ConvertPartsToClaudeBlocks(t *testing.T) {
 		{Type: "unsupported-type"},
 	}
 
-	_, err = provider.convertPartsToClaudeBlocks(unsupportedParts)
+	_, err = provider.convertPartsToClaudeBlocks(context.Background(), unsupportedParts)
 	if err == nil {
 		t.Error("Expected error for unsupported content type")
 	}
@@ -631,7 +632,7 @@ func TestClaudeProvider_ConvertImagePartToClaude_FilePath(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToClaude(part)
+	_, err := provider.convertImagePartToClaude(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for nonexistent file path")
 	}
@@ -735,7 +736,7 @@ func testClaudeProvider() *Provider {
 func TestConvertDocumentPartToClaude_NilMedia(t *testing.T) {
 	provider := testClaudeProvider()
 	part := types.ContentPart{Type: types.ContentTypeDocument}
-	_, err := provider.convertDocumentPartToClaude(part)
+	_, err := provider.convertDocumentPartToClaude(context.Background(), part)
 	if err == nil {
 		t.Error("expected error for nil media")
 	}
@@ -749,7 +750,7 @@ func TestConvertDocumentPartToClaude_UnsupportedType(t *testing.T) {
 			MIMEType: "application/msword",
 		},
 	}
-	_, err := provider.convertDocumentPartToClaude(part)
+	_, err := provider.convertDocumentPartToClaude(context.Background(), part)
 	if err == nil {
 		t.Error("expected error for non-PDF document")
 	}
@@ -768,7 +769,7 @@ func TestConvertDocumentPartToClaude_PDF(t *testing.T) {
 			Data:     &data,
 		},
 	}
-	block, err := provider.convertDocumentPartToClaude(part)
+	block, err := provider.convertDocumentPartToClaude(context.Background(), part)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

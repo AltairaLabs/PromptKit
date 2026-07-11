@@ -555,7 +555,9 @@ type openAIError struct {
 }
 
 // prepareOpenAIMessages converts predict request messages to OpenAI format with system message
-func (p *Provider) prepareOpenAIMessages(req providers.PredictionRequest) ([]openAIMessage, error) {
+func (p *Provider) prepareOpenAIMessages(
+	ctx context.Context, req providers.PredictionRequest,
+) ([]openAIMessage, error) {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
@@ -566,7 +568,7 @@ func (p *Provider) prepareOpenAIMessages(req providers.PredictionRequest) ([]ope
 
 	// Convert each message, handling both legacy text and multimodal Parts
 	for i := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(req.Messages[i])
+		converted, err := p.convertMessageToOpenAI(ctx, req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
@@ -641,7 +643,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	// Convert messages to OpenAI format
-	messages, err := p.prepareOpenAIMessages(req)
+	messages, err := p.prepareOpenAIMessages(ctx, req)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -726,7 +728,7 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 	}
 
 	// Convert messages to OpenAI format
-	messages, err := p.prepareOpenAIMessages(req)
+	messages, err := p.prepareOpenAIMessages(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}

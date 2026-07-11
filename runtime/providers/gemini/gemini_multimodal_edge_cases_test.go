@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -132,7 +133,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
 		},
 	}
 
-	_, err := convertMediaPartToGemini(part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for unreachable URL")
 	}
@@ -153,7 +154,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingMIMEType(t *testing.T) {
 		},
 	}
 
-	_, err := convertMediaPartToGemini(part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for missing MIME type")
 	}
@@ -168,7 +169,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingDataSource(t *testing.T)
 		},
 	}
 
-	_, err := convertMediaPartToGemini(part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for missing data source")
 	}
@@ -181,7 +182,7 @@ func TestGeminiProvider_ConvertPartToGemini_EmptyText(t *testing.T) {
 		Text: &emptyText,
 	}
 
-	_, err := convertPartToGemini(part)
+	_, err := convProvider().convertPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for empty text")
 	}
@@ -193,7 +194,7 @@ func TestGeminiProvider_ConvertPartToGemini_NilText(t *testing.T) {
 		Text: nil,
 	}
 
-	_, err := convertPartToGemini(part)
+	_, err := convProvider().convertPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for nil text")
 	}
@@ -204,7 +205,7 @@ func TestGeminiProvider_ConvertPartToGemini_UnsupportedType(t *testing.T) {
 		Type: "unsupported-type",
 	}
 
-	_, err := convertPartToGemini(part)
+	_, err := convProvider().convertPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for unsupported part type")
 	}
@@ -216,7 +217,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingMedia(t *testing.T) {
 		Media: nil,
 	}
 
-	_, err := convertMediaPartToGemini(part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for missing media")
 	}
@@ -232,7 +233,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_FilePathError(t *testing.T) {
 		},
 	}
 
-	_, err := convertMediaPartToGemini(part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
 	if err == nil {
 		t.Error("Expected error for nonexistent file path")
 	}
@@ -288,7 +289,7 @@ func TestGeminiProvider_ConvertMessagesToGemini_EmptySystem(t *testing.T) {
 		},
 	}
 
-	contents, sysInst, err := convertMessagesToGemini(messages, "")
+	contents, sysInst, err := convProvider().convertMessagesToGemini(context.Background(), messages, "")
 	if err != nil {
 		t.Fatalf("Failed to convert messages: %v", err)
 	}
@@ -309,7 +310,7 @@ func TestGeminiProvider_ConvertMessageToGemini_RoleConversion(t *testing.T) {
 		Content: "I can help",
 	}
 
-	converted, err := convertMessageToGemini(msg)
+	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Failed to convert: %v", err)
 	}

@@ -291,7 +291,7 @@ func TestCreateProviderFromConfig_WithPlatform(t *testing.T) {
 		Type:  "mock",
 		Model: "mock-model",
 	}
-	prov, err := createProviderFromConfig(p)
+	prov, err := createProviderFromConfig(p, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, prov)
 }

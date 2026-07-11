@@ -118,7 +118,9 @@ type ollamaError struct {
 }
 
 // prepareMessages converts predict request messages to Ollama format with system message
-func (p *Provider) prepareMessages(req providers.PredictionRequest) ([]ollamaMessage, error) {
+func (p *Provider) prepareMessages(
+	ctx context.Context, req providers.PredictionRequest,
+) ([]ollamaMessage, error) {
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, ollamaMessage{
@@ -129,7 +131,7 @@ func (p *Provider) prepareMessages(req providers.PredictionRequest) ([]ollamaMes
 
 	// Convert each message, handling both legacy text and multimodal Parts
 	for i := range req.Messages {
-		converted, err := p.convertMessageToOllama(&req.Messages[i])
+		converted, err := p.convertMessageToOllama(ctx, &req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
@@ -167,7 +169,7 @@ func (p *Provider) Predict(
 	req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	// Convert messages to Ollama format
-	messages, err := p.prepareMessages(req)
+	messages, err := p.prepareMessages(ctx, req)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -192,7 +194,7 @@ func (p *Provider) PredictStream(
 	req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Ollama format
-	messages, err := p.prepareMessages(req)
+	messages, err := p.prepareMessages(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}

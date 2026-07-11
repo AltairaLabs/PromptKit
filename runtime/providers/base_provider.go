@@ -21,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/safe"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 )
 
 // Connection pooling defaults for HTTP transports shared across providers.
@@ -162,6 +163,7 @@ type BaseProvider struct {
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
 	customHeaders         map[string]string
+	mediaStorage          storage.MediaStorageService
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields. A companion
@@ -350,6 +352,20 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 // X-Title). Called by CreateProviderFromSpec after factory construction.
 func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 	b.customHeaders = headers
+}
+
+// SetMediaStorageService injects the media storage service used to resolve
+// MediaContent.StorageReference values at request-build time. Nil (the default)
+// preserves prior behavior. See MediaStorageConfigurable in registry.go.
+func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService) {
+	b.mediaStorage = store
+}
+
+// MediaLoader returns a per-call MediaLoader configured with this provider's
+// injected storage service (if any). Providers use it to resolve media parts
+// (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
+func (b *BaseProvider) MediaLoader() *MediaLoader {
+	return NewMediaLoader(MediaLoaderConfig{StorageService: b.mediaStorage})
 }
 
 // ApplyCustomHeaders applies stored custom headers to the HTTP request.

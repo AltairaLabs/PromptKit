@@ -76,8 +76,15 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 }
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format
-// Handles both legacy text-only and new multimodal messages
-func convertMessagesToGemini(messages []types.Message, systemPrompt string) (contents []geminiContent, systemInstruction *geminiContent, err error) {
+// Handles both legacy text-only and new multimodal messages.
+//
+// Exercised only by tests (the live path uses convertMessagesToGeminiContents);
+// the unused linter runs with tests:false so it cannot see those callers.
+//
+//nolint:unused // covered by unit tests; linter is configured with tests:false
+func (p *Provider) convertMessagesToGemini(
+	ctx context.Context, messages []types.Message, systemPrompt string,
+) (contents []geminiContent, systemInstruction *geminiContent, err error) {
 	// Handle system message
 	if systemPrompt != "" {
 		systemInstruction = &geminiContent{
@@ -86,7 +93,7 @@ func convertMessagesToGemini(messages []types.Message, systemPrompt string) (con
 	}
 
 	for i := range messages {
-		content, err := convertMessageToGemini(messages[i])
+		content, err := p.convertMessageToGemini(ctx, messages[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -96,8 +103,10 @@ func convertMessagesToGemini(messages []types.Message, systemPrompt string) (con
 	return contents, systemInstruction, nil
 }
 
-// convertMessageToGemini converts a single PromptKit message to Gemini format
-func convertMessageToGemini(msg types.Message) (geminiContent, error) {
+// convertMessageToGemini converts a single PromptKit message to Gemini format.
+//
+//nolint:unused // covered by unit tests; linter is configured with tests:false
+func (p *Provider) convertMessageToGemini(ctx context.Context, msg types.Message) (geminiContent, error) {
 	// Handle legacy text-only messages
 	if !msg.IsMultimodal() {
 		role := msg.Role
@@ -119,7 +128,7 @@ func convertMessageToGemini(msg types.Message) (geminiContent, error) {
 
 	var parts []geminiPart
 	for _, part := range msg.Parts {
-		gPart, err := convertPartToGemini(part)
+		gPart, err := p.convertPartToGemini(ctx, part)
 		if err != nil {
 			return geminiContent{}, err
 		}
@@ -133,7 +142,7 @@ func convertMessageToGemini(msg types.Message) (geminiContent, error) {
 }
 
 // convertPartToGemini converts a ContentPart to Gemini's format
-func convertPartToGemini(part types.ContentPart) (geminiPart, error) {
+func (p *Provider) convertPartToGemini(ctx context.Context, part types.ContentPart) (geminiPart, error) {
 	switch part.Type {
 	case types.ContentTypeText:
 		if part.Text == nil || *part.Text == "" {
@@ -142,7 +151,7 @@ func convertPartToGemini(part types.ContentPart) (geminiPart, error) {
 		return geminiPart{Text: *part.Text}, nil
 
 	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
-		return convertMediaPartToGemini(part)
+		return p.convertMediaPartToGemini(ctx, part)
 
 	default:
 		return geminiPart{}, fmt.Errorf("unsupported part type: %s", part.Type)
@@ -150,7 +159,7 @@ func convertPartToGemini(part types.ContentPart) (geminiPart, error) {
 }
 
 // convertMediaPartToGemini converts image/audio/video/document parts to Gemini format
-func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
+func (p *Provider) convertMediaPartToGemini(ctx context.Context, part types.ContentPart) (geminiPart, error) {
 	if part.Media == nil {
 		return geminiPart{}, fmt.Errorf("%s part missing media field", part.Type)
 	}
@@ -161,9 +170,9 @@ func convertMediaPartToGemini(part types.ContentPart) (geminiPart, error) {
 		return geminiPart{}, fmt.Errorf("%s part missing mime_type", part.Type)
 	}
 
-	// Use MediaLoader to get base64 data from any source (Data, FilePath, URL, StorageReference)
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-	base64Data, err := loader.GetBase64Data(context.Background(), part.Media)
+	// Use the provider's store-aware MediaLoader to get base64 data from any
+	// source (Data, FilePath, URL, StorageReference).
+	base64Data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
 	if err != nil {
 		return geminiPart{}, fmt.Errorf("failed to load %s data: %w", part.Type, err)
 	}

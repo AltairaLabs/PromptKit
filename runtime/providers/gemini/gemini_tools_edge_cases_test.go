@@ -16,7 +16,7 @@ func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 		Parts: []types.ContentPart{types.NewTextPart("Hello")},
 	}
 
-	parts := buildMessageParts(msg, []map[string]interface{}{})
+	parts := convProvider().buildMessageParts(context.Background(), msg, []map[string]interface{}{})
 	if len(parts) != 1 {
 		t.Errorf("Expected 1 part, got %d", len(parts))
 	}
@@ -37,7 +37,7 @@ func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 		},
 	}
 
-	parts := buildMessageParts(msg, toolResults)
+	parts := convProvider().buildMessageParts(context.Background(), msg, toolResults)
 	// Should have tool result + text
 	if len(parts) != 2 {
 		t.Errorf("Expected 2 parts (tool result + text), got %d", len(parts))
@@ -58,7 +58,7 @@ func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 		},
 	}
 
-	parts := buildMessageParts(msg, []map[string]interface{}{})
+	parts := convProvider().buildMessageParts(context.Background(), msg, []map[string]interface{}{})
 	// Should have text + function call
 	if len(parts) < 2 {
 		t.Errorf("Expected at least 2 parts (text + function call), got %d", len(parts))
@@ -77,7 +77,7 @@ func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 
 	// Should still return a valid structure even with empty name
 	if result == nil {
@@ -106,7 +106,7 @@ func TestToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp := result["functionResponse"].(map[string]interface{})
 	response := funcResp["response"].(map[string]interface{})
 
@@ -127,7 +127,7 @@ func TestToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
 		},
 	}
 
-	result := processToolMessage(msg)
+	result := convProvider().processToolMessage(context.Background(), msg)
 	funcResp := result["functionResponse"].(map[string]interface{})
 	response := funcResp["response"].(map[string]interface{})
 

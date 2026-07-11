@@ -34,15 +34,19 @@ import "github.com/AltairaLabs/PromptKit/runtime/types"
   - [func MetadataOnlyParts\(parts \[\]ContentPart\) \[\]ContentPart](<#MetadataOnlyParts>)
   - [func NewAudioPart\(filePath string\) \(ContentPart, error\)](<#NewAudioPart>)
   - [func NewAudioPartFromData\(base64Data, mimeType string\) ContentPart](<#NewAudioPartFromData>)
+  - [func NewAudioPartFromStorageRef\(ref, mimeType string\) ContentPart](<#NewAudioPartFromStorageRef>)
   - [func NewDocumentPart\(filePath string\) \(ContentPart, error\)](<#NewDocumentPart>)
   - [func NewDocumentPartFromData\(base64Data, mimeType string\) ContentPart](<#NewDocumentPartFromData>)
+  - [func NewDocumentPartFromStorageRef\(ref, mimeType string\) ContentPart](<#NewDocumentPartFromStorageRef>)
   - [func NewImagePart\(filePath string, detail \*string\) \(ContentPart, error\)](<#NewImagePart>)
   - [func NewImagePartFromData\(base64Data, mimeType string, detail \*string\) ContentPart](<#NewImagePartFromData>)
+  - [func NewImagePartFromStorageRef\(ref, mimeType string, detail \*string\) ContentPart](<#NewImagePartFromStorageRef>)
   - [func NewImagePartFromURL\(url string, detail \*string\) ContentPart](<#NewImagePartFromURL>)
   - [func NewTextPart\(text string\) ContentPart](<#NewTextPart>)
   - [func NewThinkingPart\(text string\) ContentPart](<#NewThinkingPart>)
   - [func NewVideoPart\(filePath string\) \(ContentPart, error\)](<#NewVideoPart>)
   - [func NewVideoPartFromData\(base64Data, mimeType string\) ContentPart](<#NewVideoPartFromData>)
+  - [func NewVideoPartFromStorageRef\(ref, mimeType string\) ContentPart](<#NewVideoPartFromStorageRef>)
   - [func SplitMultimodalMessage\(msg Message\) \(text string, mediaParts \[\]ContentPart\)](<#SplitMultimodalMessage>)
   - [func \(cp \*ContentPart\) Validate\(\) error](<#ContentPart.Validate>)
 - [type CostInfo](<#CostInfo>)
@@ -376,6 +380,15 @@ func NewAudioPartFromData(base64Data, mimeType string) ContentPart
 
 NewAudioPartFromData creates a ContentPart with base64\-encoded audio data
 
+<a name="NewAudioPartFromStorageRef"></a>
+### func NewAudioPartFromStorageRef
+
+```go
+func NewAudioPartFromStorageRef(ref, mimeType string) ContentPart
+```
+
+NewAudioPartFromStorageRef creates an audio ContentPart backed by a storage reference.
+
 <a name="NewDocumentPart"></a>
 ### func NewDocumentPart
 
@@ -394,6 +407,15 @@ func NewDocumentPartFromData(base64Data, mimeType string) ContentPart
 
 NewDocumentPartFromData creates a ContentPart with base64\-encoded document data
 
+<a name="NewDocumentPartFromStorageRef"></a>
+### func NewDocumentPartFromStorageRef
+
+```go
+func NewDocumentPartFromStorageRef(ref, mimeType string) ContentPart
+```
+
+NewDocumentPartFromStorageRef creates a document ContentPart backed by a storage reference.
+
 <a name="NewImagePart"></a>
 ### func NewImagePart
 
@@ -411,6 +433,15 @@ func NewImagePartFromData(base64Data, mimeType string, detail *string) ContentPa
 ```
 
 NewImagePartFromData creates a ContentPart with base64\-encoded image data
+
+<a name="NewImagePartFromStorageRef"></a>
+### func NewImagePartFromStorageRef
+
+```go
+func NewImagePartFromStorageRef(ref, mimeType string, detail *string) ContentPart
+```
+
+NewImagePartFromStorageRef creates an image ContentPart backed by a durable storage reference. The reference is resolved to a URL or bytes at provider\-call time \(see providers.MediaLoader\).
 
 <a name="NewImagePartFromURL"></a>
 ### func NewImagePartFromURL
@@ -487,6 +518,15 @@ func NewVideoPartFromData(base64Data, mimeType string) ContentPart
 ```
 
 NewVideoPartFromData creates a ContentPart with base64\-encoded video data
+
+<a name="NewVideoPartFromStorageRef"></a>
+### func NewVideoPartFromStorageRef
+
+```go
+func NewVideoPartFromStorageRef(ref, mimeType string) ContentPart
+```
+
+NewVideoPartFromStorageRef creates a video ContentPart backed by a storage reference.
 
 <a name="SplitMultimodalMessage"></a>
 ### func SplitMultimodalMessage

@@ -124,7 +124,7 @@ func TestUnsupportedParams_TemperatureOmitted(t *testing.T) {
 			t.Fatalf("expected *ToolProvider, got %T", provider)
 		}
 
-		request := tp.buildToolRequest(providers.PredictionRequest{
+		request := tp.buildToolRequest(context.Background(), providers.PredictionRequest{
 			Messages:    []types.Message{{Role: "user", Content: "hi"}},
 			Temperature: 0.1,
 			MaxTokens:   100,
