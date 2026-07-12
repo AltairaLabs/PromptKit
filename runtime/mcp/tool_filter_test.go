@@ -43,4 +43,19 @@ func TestToolFilter_Includes(t *testing.T) {
 		// not in either list — excluded by allowlist logic
 		assert.False(t, f.Includes("other"))
 	})
+
+	t.Run("allowlist supports trailing-* prefix wildcards", func(t *testing.T) {
+		f := ToolFilter{Allowlist: []string{"read_*"}}
+		assert.True(t, f.Includes("read_file"))
+		assert.True(t, f.Includes("read_dir"))
+		assert.False(t, f.Includes("write_file"))
+		assert.False(t, f.Includes("read")) // no trailing text, not the "read_" prefix
+	})
+
+	t.Run("blocklist supports trailing-* prefix wildcards", func(t *testing.T) {
+		f := ToolFilter{Blocklist: []string{"admin_*"}}
+		assert.True(t, f.Includes("read"))
+		assert.False(t, f.Includes("admin_delete"))
+		assert.False(t, f.Includes("admin_reset"))
+	})
 }

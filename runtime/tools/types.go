@@ -68,6 +68,27 @@ func IsSystemTool(name string) bool {
 	return knownNamespaces[ns]
 }
 
+// MatchToolPattern reports whether a tool name matches an allowed_tools entry.
+// An entry ending in "*" is a prefix match (the text before "*" is treated as a
+// literal prefix), so "mcp__memory__*" matches every tool from the "memory" MCP
+// server and "mcp__*" matches every MCP tool. Any other entry is an exact match.
+func MatchToolPattern(pattern, name string) bool {
+	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(name, prefix)
+	}
+	return pattern == name
+}
+
+// IsImplicitTool reports whether a system tool is auto-surfaced to every prompt
+// without an allowed_tools entry. Capability tools (a2a, workflow, memory,
+// skill, image/video mediagen) are implicitly available. MCP tools are
+// system-namespaced but must be listed explicitly in allowed_tools (or matched
+// by an mcp__<server>__* wildcard), so they are excluded here.
+func IsImplicitTool(name string) bool {
+	ns, _ := ParseToolName(name)
+	return knownNamespaces[ns] && ns != modeMCP
+}
+
 // ToolConfig represents a K8s-style tool configuration manifest
 type ToolConfig struct {
 	APIVersion string            `json:"apiVersion" yaml:"apiVersion"`

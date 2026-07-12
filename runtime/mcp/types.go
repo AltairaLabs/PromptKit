@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // ProtocolVersion defines the MCP protocol version (as of 2025-06-18).
@@ -148,18 +149,29 @@ type ToolFilter struct {
 	Blocklist []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
 }
 
-// Includes returns true if the given tool name passes the filter.
+// matchToolPattern reports whether a tool name matches a filter entry. An entry
+// ending in "*" is a prefix match (e.g. "read_*" matches "read_file"); any other
+// entry is an exact match.
+func matchToolPattern(pattern, name string) bool {
+	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(name, prefix)
+	}
+	return pattern == name
+}
+
+// Includes returns true if the given tool name passes the filter. Allowlist and
+// blocklist entries may use a trailing-"*" prefix wildcard.
 func (f ToolFilter) Includes(name string) bool {
 	if len(f.Allowlist) > 0 {
 		for _, a := range f.Allowlist {
-			if a == name {
+			if matchToolPattern(a, name) {
 				return true
 			}
 		}
 		return false
 	}
 	for _, b := range f.Blocklist {
-		if b == name {
+		if matchToolPattern(b, name) {
 			return false
 		}
 	}
