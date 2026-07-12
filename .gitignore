@@ -107,6 +107,8 @@ sdk/examples/**/*
 !sdk/examples/**/*.yaml
 !sdk/examples/**/*.py
 !sdk/examples/**/*.sh
+!sdk/examples/**/*.wav
+!sdk/examples/**/Makefile
 !sdk/examples/**/go.mod
 !sdk/examples/**/go.sum
 !sdk/examples/**/
