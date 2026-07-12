@@ -10,7 +10,10 @@ replace github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
 
 replace github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
 
-require github.com/AltairaLabs/PromptKit/runtime v0.0.0-00010101000000-000000000000
+require (
+	github.com/AltairaLabs/PromptKit/runtime v0.0.0-00010101000000-000000000000
+	github.com/yalue/onnxruntime_go v1.31.0
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
