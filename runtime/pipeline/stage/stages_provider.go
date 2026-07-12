@@ -2059,17 +2059,7 @@ func (s *ProviderStage) collectProviderDescriptors(
 ) []*providers.ToolDescriptor {
 	seen := make(map[string]bool)
 	var descriptors []*providers.ToolDescriptor
-
-	// 1. Pack-declared tools from the prompt's allowed list (slice order).
-	for _, toolName := range allowedTools {
-		if excluded[toolName] {
-			continue
-		}
-		tool, err := s.toolRegistry.GetTool(toolName)
-		if err != nil {
-			logger.Warn("Tool not found in registry", "tool", toolName, "error", err)
-			continue
-		}
+	add := func(tool *tools.ToolDescriptor) {
 		seen[tool.Name] = true
 		descriptors = append(descriptors, &providers.ToolDescriptor{
 			Name:        tool.Name,
@@ -2078,17 +2068,40 @@ func (s *ProviderStage) collectProviderDescriptors(
 		})
 	}
 
-	// 2. Capability tools (skill__, a2a__, workflow__, mcp__, memory__), gathered
-	//    in randomized map order — sorted below to make the whole set stable.
+	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
+	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
+	//    the registry: MCP servers reveal their tool sets only at connection time,
+	//    so authors can't enumerate exact names (issue #1578).
+	for _, entry := range allowedTools {
+		if strings.HasSuffix(entry, "*") {
+			s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+				if seen[name] || excluded[name] || !tools.MatchToolPattern(entry, name) {
+					return
+				}
+				add(tool)
+			})
+			continue
+		}
+		if excluded[entry] {
+			continue
+		}
+		tool, err := s.toolRegistry.GetTool(entry)
+		if err != nil {
+			logger.Warn("Tool not found in registry", "tool", entry, "error", err)
+			continue
+		}
+		add(tool)
+	}
+
+	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
+	//    gathered in randomized map order — sorted below to make the whole set
+	//    stable. MCP tools are NOT implicit: they surface only via an explicit
+	//    allowed_tools entry in loop 1 above (issue #1578).
 	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if seen[name] || excluded[name] || !tools.IsSystemTool(name) {
+		if seen[name] || excluded[name] || !tools.IsImplicitTool(name) {
 			return
 		}
-		descriptors = append(descriptors, &providers.ToolDescriptor{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
+		add(tool)
 	})
 
 	sort.Slice(descriptors, func(i, j int) bool {

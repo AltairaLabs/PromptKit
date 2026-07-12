@@ -27,9 +27,13 @@ func descriptorNames(ds []*providers.ToolDescriptor) []string {
 // sort.
 func TestCollectProviderDescriptors_DeterministicSortedOrder(t *testing.T) {
 	reg := tools.NewRegistry()
+	// a2a__ tools are implicitly surfaced (no allowed_tools entry needed), so this
+	// exercises the auto-surface loop's map-iteration order. MCP tools are no
+	// longer implicit (issue #1578) — see the wildcard determinism test for that
+	// path.
 	for _, n := range []string{
-		"mcp__zebra", "mcp__alpha", "mcp__mike", "mcp__bravo",
-		"mcp__yankee", "mcp__delta", "mcp__oscar", "mcp__charlie",
+		"a2a__zebra", "a2a__alpha", "a2a__mike", "a2a__bravo",
+		"a2a__yankee", "a2a__delta", "a2a__oscar", "a2a__charlie",
 	} {
 		if err := reg.Register(&tools.ToolDescriptor{
 			Name: n, Description: "d", InputSchema: json.RawMessage(`{"type":"object"}`),

@@ -207,6 +207,54 @@ func TestIsSystemTool(t *testing.T) {
 	}
 }
 
+func TestIsImplicitTool(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		want bool
+	}{
+		{"a2a auto-surfaced", "a2a__weather__forecast", true},
+		{"workflow auto-surfaced", "workflow__transition", true},
+		{"memory auto-surfaced", "memory__recall", true},
+		{"skill auto-surfaced", "skill__do_thing", true},
+		{"image auto-surfaced", "image__generate", true},
+		{"video auto-surfaced", "video__generate", true},
+		{"mcp NOT auto-surfaced", "mcp__fs__read_file", false},
+		{"user tool", "get_weather", false},
+		{"empty string", "", false},
+		{"unknown namespace", "custom__tool", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsImplicitTool(tt.tool))
+		})
+	}
+}
+
+func TestMatchToolPattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		tool    string
+		want    bool
+	}{
+		{"exact match", "get_weather", "get_weather", true},
+		{"exact mismatch", "get_weather", "get_forecast", false},
+		{"server wildcard matches", "mcp__memory__*", "mcp__memory__create_entities", true},
+		{"server wildcard other server", "mcp__memory__*", "mcp__fs__read_file", false},
+		{"namespace wildcard matches", "mcp__*", "mcp__memory__create_entities", true},
+		{"namespace wildcard other namespace", "mcp__*", "a2a__agent__do", false},
+		{"bare star matches anything", "*", "literally__anything", true},
+		{"server prefix does not match a different server", "mcp__memory__*", "mcp__memory_other__x", false},
+		{"exact name is not a prefix of longer", "mcp__memory__create", "mcp__memory__create_entities", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, MatchToolPattern(tt.pattern, tt.tool))
+		})
+	}
+}
+
 func TestParseToolName_RoundTrip(t *testing.T) {
 	// Verify that QualifyToolName(ParseToolName(name)) == name for namespaced names
 	names := []string{
