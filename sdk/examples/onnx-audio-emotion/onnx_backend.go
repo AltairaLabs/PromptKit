@@ -10,9 +10,10 @@ import (
 )
 
 // defaultEmotionLabels is the output-index label order for the default
-// wav2vec2 SER model (superb/wav2vec2-base-superb-er). VERIFY against the
-// model's config.json id2label when swapping models.
-var defaultEmotionLabels = []string{"neu", "hap", "ang", "sad"}
+// model, onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX,
+// taken from its config.json id2label. Swapping models means updating
+// this slice (and the tensor I/O names below) to match the new model.
+var defaultEmotionLabels = []string{"sad", "angry", "disgust", "fear", "happy", "neutral"}
 
 // onnxConfig configures the ONNX audio-emotion backend.
 type onnxConfig struct {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -67,6 +69,23 @@ func TestDecodeWAV_RejectsWrongRate(t *testing.T) {
 	wav := makeWAV(t, 44100, 1, 16, []int16{0, 0})
 	if _, _, err := decodeWAV(wav); err == nil {
 		t.Fatal("expected error for 44100 Hz input, got nil")
+	}
+}
+
+func TestDecodeWAV_SampleFixture(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "sample-16k-mono.wav"))
+	if err != nil {
+		t.Fatalf("read sample fixture: %v", err)
+	}
+	samples, rate, err := decodeWAV(b)
+	if err != nil {
+		t.Fatalf("decode sample fixture: %v", err)
+	}
+	if rate != wantSampleRate {
+		t.Errorf("fixture rate = %d, want %d", rate, wantSampleRate)
+	}
+	if len(samples) == 0 {
+		t.Error("fixture decoded to zero samples")
 	}
 }
 
