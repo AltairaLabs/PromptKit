@@ -1,0 +1,41 @@
+{
+  "$schema": "https://promptpack.org/schema/v1.2/promptpack.schema.json",
+  "id": "onnx-audio-emotion-caller",
+  "name": "ONNX Audio Emotion Caller",
+  "version": "1.0.0",
+  "description": "Scores the caller's speech emotion via a plugged-in ONNX classifier",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a support agent. Acknowledge the caller briefly."
+    }
+  },
+  "evals": [
+    {
+      "id": "caller_anger",
+      "type": "audio_emotion",
+      "trigger": "every_turn",
+      "description": "Emit the caller's anger score from the ONNX SER backend",
+      "params": {
+        "model": "wav2vec2-ser",
+        "expected_label": "angry",
+        "message_role": "user",
+        "classifier_id": "onnx-ser"
+      },
+      "metric": {
+        "name": "caller_anger_score",
+        "type": "gauge",
+        "labels": {
+          "eval_type": "audio_emotion",
+          "category": "emotion"
+        }
+      }
+    }
+  ]
+}

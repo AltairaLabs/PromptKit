@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -1159,4 +1160,96 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for eval event")
 	}
+}
+
+// classifyProbeEval is a custom eval handler that records the classify
+// registry visible in its Eval context. It lets a test assert that
+// classify-backed evals can resolve their backend via classify.FromContext
+// when run through the eval middleware.
+type classifyProbeEval struct {
+	mu   sync.Mutex
+	ran  bool
+	seen *classify.Registry
+}
+
+func (*classifyProbeEval) Type() string { return "classify_probe" }
+
+func (e *classifyProbeEval) Eval(
+	ctx context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ran = true
+	e.seen = classify.FromContext(ctx)
+	return &evals.EvalResult{Type: "classify_probe"}, nil
+}
+
+// TestEvalMiddleware_AttachesClassifyRegistry is the regression test for the
+// SDK wiring gap the ONNX example surfaced: the eval middleware runs turn
+// evals on a background-derived context that never passed through the
+// pipeline's classify.WithRegistry attach, so classify-backed evals
+// (audio_emotion, text_toxicity, …) skipped with "no classify registry
+// configured". The middleware must attach conv.config.classifyRegistry itself.
+func TestEvalMiddleware_AttachesClassifyRegistry(t *testing.T) {
+	probe := &classifyProbeEval{}
+	registry := evals.NewEmptyEvalTypeRegistry()
+	registry.Register(probe)
+	runner := evals.NewEvalRunner(registry)
+
+	cfg := &config{evalRunner: runner}
+	require.NoError(t, WithClassifier("stub", stubText{})(cfg))
+
+	conv := &Conversation{
+		config: cfg,
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	require.NotNil(t, mw, "middleware should be created when a valid eval def exists")
+
+	mw.dispatchTurnEvals(context.Background())
+	mw.wait()
+
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	require.True(t, probe.ran, "eval handler should have run")
+	require.NotNil(t, probe.seen, "classify registry must be visible via classify.FromContext in the eval context")
+	_, err := probe.seen.TextClassifier("stub")
+	require.NoError(t, err, "the backend registered via WithClassifier should resolve")
+}
+
+// TestEvalMiddleware_NoRegistryLeavesContextClean asserts the attach is a
+// no-op when no inference provider was configured — evals still run, and
+// FromContext stays nil rather than panicking or attaching a zero registry.
+func TestEvalMiddleware_NoRegistryLeavesContextClean(t *testing.T) {
+	probe := &classifyProbeEval{}
+	registry := evals.NewEmptyEvalTypeRegistry()
+	registry.Register(probe)
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{evalRunner: runner},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	require.NotNil(t, mw)
+
+	mw.dispatchTurnEvals(context.Background())
+	mw.wait()
+
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	require.True(t, probe.ran)
+	require.Nil(t, probe.seen, "no registry configured → FromContext should stay nil")
 }

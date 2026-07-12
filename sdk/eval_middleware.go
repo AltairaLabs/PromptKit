@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -242,7 +243,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
-		results := em.runner.RunTurnEvals(em.ctx, em.defs, evalCtx)
+		results := em.runner.RunTurnEvals(em.evalContextWithRegistry(em.ctx), em.defs, evalCtx)
 		em.recordMetrics(results)
 	}()
 }
@@ -256,7 +257,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
-	results := em.runner.RunSessionEvals(ctx, em.defs, evalCtx)
+	results := em.runner.RunSessionEvals(em.evalContextWithRegistry(ctx), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 
@@ -293,6 +294,20 @@ func (em *evalMiddleware) recordMetrics(results []evals.EvalResult) {
 
 // buildEvalContext creates an EvalContext from the conversation state.
 // It caches messages and only reloads when the turn count changes.
+// evalContextWithRegistry attaches the conversation's classify registry to
+// base so classify-backed eval handlers (audio_emotion, text_toxicity, …)
+// can resolve their backend via classify.FromContext. Turn evals run on the
+// middleware's background-derived lifecycle context and session evals on the
+// Close() context; neither passes through the pipeline's execCtx where the
+// registry is otherwise attached, so the wiring has to happen here too.
+// No-op (returns base) when no inference provider was configured.
+func (em *evalMiddleware) evalContextWithRegistry(base context.Context) context.Context {
+	if em.conv == nil || em.conv.config == nil || em.conv.config.classifyRegistry == nil {
+		return base
+	}
+	return classify.WithRegistry(base, em.conv.config.classifyRegistry)
+}
+
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
