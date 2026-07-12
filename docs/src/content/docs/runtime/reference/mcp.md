@@ -873,7 +873,7 @@ type ToolFilter struct {
 func (f ToolFilter) Includes(name string) bool
 ```
 
-Includes returns true if the given tool name passes the filter.
+Includes returns true if the given tool name passes the filter. Allowlist and blocklist entries may use a trailing\-"\*" prefix wildcard.
 
 <a name="ToolsCapability"></a>
 ## type ToolsCapability

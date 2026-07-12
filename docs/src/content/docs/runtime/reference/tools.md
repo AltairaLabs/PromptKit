@@ -31,7 +31,9 @@ Tools can be loaded from YAML/JSON files and executed with argument validation, 
 - [func ContentTypeToMediaType\(contentType string\) string](<#ContentTypeToMediaType>)
 - [func DecodeArgsExtras\(args json.RawMessage, typed any, knownKeys ...string\) \(map\[string\]any, error\)](<#DecodeArgsExtras>)
 - [func IsBinaryContentType\(contentType string, acceptTypes \[\]string\) bool](<#IsBinaryContentType>)
+- [func IsImplicitTool\(name string\) bool](<#IsImplicitTool>)
 - [func IsSystemTool\(name string\) bool](<#IsSystemTool>)
+- [func MatchToolPattern\(pattern, name string\) bool](<#MatchToolPattern>)
 - [func MergeExtrasIntoMetadata\(target, extras map\[string\]any\) map\[string\]any](<#MergeExtrasIntoMetadata>)
 - [func ParseToolName\(name string\) \(namespace, localName string\)](<#ParseToolName>)
 - [func QualifyToolName\(namespace, localName string\) string](<#QualifyToolName>)
@@ -300,6 +302,15 @@ func IsBinaryContentType(contentType string, acceptTypes []string) bool
 
 IsBinaryContentType returns true if the Content\-Type indicates a binary response that should be handled as multimodal content rather than JSON. If acceptTypes is non\-empty, only those specific types match. Otherwise, common image/audio/video prefixes are checked.
 
+<a name="IsImplicitTool"></a>
+## func IsImplicitTool
+
+```go
+func IsImplicitTool(name string) bool
+```
+
+IsImplicitTool reports whether a system tool is auto\-surfaced to every prompt without an allowed\_tools entry. Capability tools \(a2a, workflow, memory, skill, image/video mediagen\) are implicitly available. MCP tools are system\-namespaced but must be listed explicitly in allowed\_tools \(or matched by an mcp\_\_\<server\>\_\_\* wildcard\), so they are excluded here.
+
 <a name="IsSystemTool"></a>
 ## func IsSystemTool
 
@@ -308,6 +319,15 @@ func IsSystemTool(name string) bool
 ```
 
 IsSystemTool returns true if name belongs to a known system namespace.
+
+<a name="MatchToolPattern"></a>
+## func MatchToolPattern
+
+```go
+func MatchToolPattern(pattern, name string) bool
+```
+
+MatchToolPattern reports whether a tool name matches an allowed\_tools entry. An entry ending in "\*" is a prefix match \(the text before "\*" is treated as a literal prefix\), so "mcp\_\_memory\_\_\*" matches every tool from the "memory" MCP server and "mcp\_\_\*" matches every MCP tool. Any other entry is an exact match.
 
 <a name="MergeExtrasIntoMetadata"></a>
 ## func MergeExtrasIntoMetadata
