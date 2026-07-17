@@ -176,3 +176,49 @@ func TestBuildVADPipelineStages(t *testing.T) {
 		})
 	})
 }
+
+// TestBuildAudioTrackStages exercises the non-empty-prefix path directly — the
+// actual new capability added for ingestion sub-graphs — including the
+// prefixedStage.Name() override and its Type() delegation to the wrapped stage.
+func TestBuildAudioTrackStages(t *testing.T) {
+	sttService := &mockSTTService{}
+	vadAnalyzer := &mockVADAnalyzer{}
+	turnDetector := &mockTurnDetector{}
+	vadConfig := stage.AudioTurnConfig{
+		VAD:          vadAnalyzer,
+		TurnDetector: turnDetector,
+	}
+	sttConfig := stage.DefaultSTTStageConfig()
+
+	t.Run("includeResample=true returns 3 prefixed stages", func(t *testing.T) {
+		unprefixed, err := BuildAudioTrackStages("", true, vadConfig, sttConfig, sttService)
+		require.NoError(t, err)
+		require.Len(t, unprefixed, 3) // Resample, AudioTurn, STT
+
+		prefixed, err := BuildAudioTrackStages("caller", true, vadConfig, sttConfig, sttService)
+		require.NoError(t, err)
+		require.Len(t, prefixed, 3)
+
+		for i, s := range prefixed {
+			assert.Equal(t, "caller_"+unprefixed[i].Name(), s.Name())
+			// Type() must still delegate to the wrapped stage's Type() even
+			// though Name() is overridden by prefixedStage.
+			assert.Equal(t, unprefixed[i].Type(), s.Type())
+		}
+	})
+
+	t.Run("includeResample=false returns 2 prefixed stages", func(t *testing.T) {
+		unprefixed, err := BuildAudioTrackStages("", false, vadConfig, sttConfig, sttService)
+		require.NoError(t, err)
+		require.Len(t, unprefixed, 2) // AudioTurn, STT
+
+		prefixed, err := BuildAudioTrackStages("caller", false, vadConfig, sttConfig, sttService)
+		require.NoError(t, err)
+		require.Len(t, prefixed, 2)
+
+		for i, s := range prefixed {
+			assert.Equal(t, "caller_"+unprefixed[i].Name(), s.Name())
+			assert.Equal(t, unprefixed[i].Type(), s.Type())
+		}
+	})
+}

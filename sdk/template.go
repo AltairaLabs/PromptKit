@@ -230,14 +230,16 @@ func (t *PackTemplate) initSession(
 	duplex bool,
 ) error {
 	if duplex {
-		streamProvider, ok := prov.(providers.StreamInputSupport)
-		if !ok {
+		// A custom ingestion sub-graph drives the standard agent chain rather
+		// than the ASM DuplexProviderStage, so it does not require the provider
+		// to implement StreamInputSupport (see OpenDuplex for the full rationale).
+		if _, ok := prov.(providers.StreamInputSupport); !ok && cfg.ingestion == nil {
 			return fmt.Errorf(
 				"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
 				prov,
 			)
 		}
-		return initDuplexSession(conv, cfg, streamProvider)
+		return initDuplexSession(conv, cfg)
 	}
 	return initInternalStateStore(conv, cfg)
 }

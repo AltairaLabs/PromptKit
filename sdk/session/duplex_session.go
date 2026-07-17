@@ -209,6 +209,9 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 
 	// Convert StreamChunk to StreamElement at the boundary
 	elem := streamChunkToStreamElement(chunk)
+	if chunk.Source != "" {
+		elem.WithSource(chunk.Source)
+	}
 
 	// Send converted element to Pipeline
 	select {

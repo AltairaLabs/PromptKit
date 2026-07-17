@@ -60,6 +60,14 @@ var (
 
 	// ErrVideoDataRequired is returned when video data is required but missing.
 	ErrVideoDataRequired = errors.New("video data required but not available")
+
+	// ErrFanInNotSupported is returned when a stage has multiple upstream edges but
+	// does not implement MultiInputStage.
+	ErrFanInNotSupported = errors.New("stage has multiple upstreams but does not implement MultiInputStage")
+
+	// ErrDuplicateFanInEdge is returned when a stage receives multiple edges from
+	// the same upstream stage, creating a duplicate input source.
+	ErrDuplicateFanInEdge = errors.New("duplicate upstream edge detected")
 )
 
 // StageError wraps an error with stage information.

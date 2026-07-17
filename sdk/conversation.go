@@ -630,6 +630,18 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		pipelineCfg.InterruptionHandler = interruptionHandler
 	}
 
+	// Custom ingestion sub-graph configuration (duplex-only), mutually
+	// exclusive with VAD mode: both author the input side of the pipeline.
+	if c.config.ingestion != nil {
+		if c.config.vadModeConfig != nil {
+			return nil, fmt.Errorf("WithIngestion and WithVADMode are mutually exclusive")
+		}
+		pipelineCfg.Ingestion = c.config.ingestion
+		if c.config.sttService != nil {
+			pipelineCfg.STTService = c.config.sttService
+		}
+	}
+
 	return intpipeline.Build(pipelineCfg)
 }
 

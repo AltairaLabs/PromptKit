@@ -168,8 +168,8 @@ func TestWaitForStageErrors(t *testing.T) {
 	})
 }
 
-// TestFindUpstreamStage_ReverseEdges verifies O(1) lookup via precomputed reverseEdges.
-func TestFindUpstreamStage_ReverseEdges(t *testing.T) {
+// TestFindUpstreamStages_ReverseEdges verifies O(1) lookup via precomputed reverseEdges.
+func TestFindUpstreamStages_ReverseEdges(t *testing.T) {
 	stageA := &testPassthroughStage{name: "stageA"}
 	stageB := &testPassthroughStage{name: "stageB"}
 	stageC := &testPassthroughStage{name: "stageC"}
@@ -186,23 +186,23 @@ func TestFindUpstreamStage_ReverseEdges(t *testing.T) {
 		t.Fatal("reverseEdges should not be nil")
 	}
 
-	if upstream := pipeline.findUpstreamStage("stageB"); upstream != "stageA" {
-		t.Errorf("expected stageA upstream of stageB, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("stageB"); len(upstream) != 1 || upstream[0] != "stageA" {
+		t.Errorf("expected [stageA] upstream of stageB, got %v", upstream)
 	}
-	if upstream := pipeline.findUpstreamStage("stageC"); upstream != "stageB" {
-		t.Errorf("expected stageB upstream of stageC, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("stageC"); len(upstream) != 1 || upstream[0] != "stageB" {
+		t.Errorf("expected [stageB] upstream of stageC, got %v", upstream)
 	}
-	if upstream := pipeline.findUpstreamStage("stageA"); upstream != "" {
-		t.Errorf("expected empty upstream for root stageA, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("stageA"); len(upstream) != 0 {
+		t.Errorf("expected empty upstream for root stageA, got %v", upstream)
 	}
-	if upstream := pipeline.findUpstreamStage("nonexistent"); upstream != "" {
-		t.Errorf("expected empty upstream for nonexistent, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("nonexistent"); len(upstream) != 0 {
+		t.Errorf("expected empty upstream for nonexistent, got %v", upstream)
 	}
 }
 
-// TestFindUpstreamStage_FallbackNilReverseEdges tests the fallback linear scan
+// TestFindUpstreamStages_FallbackNilReverseEdges tests the fallback linear scan
 // when reverseEdges is nil (should not happen in practice).
-func TestFindUpstreamStage_FallbackNilReverseEdges(t *testing.T) {
+func TestFindUpstreamStages_FallbackNilReverseEdges(t *testing.T) {
 	pipeline := &StreamPipeline{
 		edges: map[string][]string{
 			"A": {"B"},
@@ -211,11 +211,11 @@ func TestFindUpstreamStage_FallbackNilReverseEdges(t *testing.T) {
 		reverseEdges: nil, // force fallback
 	}
 
-	if upstream := pipeline.findUpstreamStage("B"); upstream != "A" {
-		t.Errorf("fallback: expected A upstream of B, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("B"); len(upstream) != 1 || upstream[0] != "A" {
+		t.Errorf("fallback: expected [A] upstream of B, got %v", upstream)
 	}
-	if upstream := pipeline.findUpstreamStage("X"); upstream != "" {
-		t.Errorf("fallback: expected empty for X, got %q", upstream)
+	if upstream := pipeline.findUpstreamStages("X"); len(upstream) != 0 {
+		t.Errorf("fallback: expected empty for X, got %v", upstream)
 	}
 }
 

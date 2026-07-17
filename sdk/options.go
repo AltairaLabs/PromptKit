@@ -188,6 +188,10 @@ type config struct {
 	// STT service for VAD mode
 	sttService stt.Service
 
+	// Custom ingestion sub-graph (duplex-only). Mutually exclusive with
+	// vadModeConfig. See IngestionFunc / WithIngestion.
+	ingestion IngestionFunc
+
 	// Image preprocessing configuration
 	// When set, images are preprocessed (resized, optimized) before sending to provider
 	imagePreprocessConfig *stage.ImagePreprocessConfig
@@ -2298,6 +2302,21 @@ func WithVADMode(sttService stt.Service, ttsService tts.Service, cfg *VADModeCon
 		c.vadModeConfig = cfg
 		c.sttService = sttService
 		c.ttsService = ttsService
+		return nil
+	}
+}
+
+// IngestionFunc authors a custom upstream stage sub-graph. It adds stages and edges
+// to the shared builder and returns the name of the node whose output feeds the agent
+// chain. Mutually exclusive with WithVADMode.
+type IngestionFunc func(b *stage.PipelineBuilder) (outputNode string, err error)
+
+// WithIngestion installs a custom ingestion sub-graph in front of the agent chain
+// (fan-out/fan-in supported). Use with OpenDuplex for streaming harnesses that map
+// multiple input sources onto one agent without a TTS return path.
+func WithIngestion(fn IngestionFunc) Option {
+	return func(c *config) error {
+		c.ingestion = fn
 		return nil
 	}
 }

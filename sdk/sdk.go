@@ -158,9 +158,14 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
-	// Verify provider supports streaming input
-	streamProvider, ok := prov.(providers.StreamInputSupport)
-	if !ok {
+	// Verify provider supports streaming input. A custom ingestion sub-graph
+	// (WithIngestion) drives the standard agent chain — the streaming text
+	// ProviderStage, not the ASM DuplexProviderStage — and never calls
+	// CreateStreamSession, so it does not need StreamInputSupport. When it is
+	// absent, only ASM mode requires the interface. NewDuplexSession re-derives
+	// the streaming provider from the base provider itself for ASM mode, so the
+	// gate here is purely a fail-fast check.
+	if _, ok := prov.(providers.StreamInputSupport); !ok && conv.config.ingestion == nil {
 		return nil, fmt.Errorf(
 			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
 			prov,
@@ -168,7 +173,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	}
 
 	// Initialize duplex session
-	if err := initDuplexSession(conv, conv.config, streamProvider); err != nil {
+	if err := initDuplexSession(conv, conv.config); err != nil {
 		return nil, err
 	}
 
@@ -668,7 +673,7 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 // and DuplexProviderStage reads it from TurnState when creating the session.
 
 // initDuplexSession initializes a duplex streaming session.
-func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
+func initDuplexSession(conv *Conversation, cfg *config) error {
 	var store statestore.Store
 	if cfg.stateStore != nil {
 		store = cfg.stateStore
@@ -711,9 +716,33 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	// publishes it to TurnState and DuplexProviderStage reads from there.
 	streamConfig := cfg.streamingConfig
 
-	// Build HITL checker closure — reads asyncHandlers dynamically under lock
-	// so handlers registered after OpenDuplex() are still consulted.
-	asyncChecker := session.AsyncToolChecker(func(callID, name string, args map[string]any) *session.AsyncToolCheckResult {
+	// Create duplex session with builder
+	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
+		ConversationID:   conversationID,
+		UserID:           cfg.userID,
+		StateStore:       store,
+		PipelineBuilder:  pipelineBuilder,
+		Provider:         cfg.getAgentProvider(),
+		Config:           streamConfig, // nil for VAD mode, set for ASM mode
+		ToolRegistry:     conv.toolRegistry,
+		AsyncToolChecker: conv.newAsyncToolChecker(),
+		Metadata:         cfg.sessionMetadata,
+		Variables:        initialVars,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create duplex session: %w", err)
+	}
+
+	conv.mode = DuplexMode
+	conv.duplexSession = duplexSession
+	return nil
+}
+
+// newAsyncToolChecker builds the HITL checker for a duplex session. It reads
+// asyncHandlers dynamically under lock so handlers registered after
+// OpenDuplex() (via OnToolAsync) are still consulted.
+func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
+	return session.AsyncToolChecker(func(callID, name string, args map[string]any) *session.AsyncToolCheckResult {
 		conv.asyncHandlersMu.RLock()
 		checkFunc, isAsync := conv.asyncHandlers[name]
 		conv.asyncHandlersMu.RUnlock()
@@ -724,23 +753,7 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 
 		checkResult := checkFunc(args)
 		if !checkResult.IsPending() {
-			// Check passed — execute the handler directly (it may not be in the registry
-			// since OnToolAsync is often called after OpenDuplex builds the pipeline).
-			conv.handlersMu.RLock()
-			handler := conv.handlers[name]
-			conv.handlersMu.RUnlock()
-			if handler == nil {
-				return nil // No handler — fall through to registry
-			}
-			result, execErr := handler(args)
-			if execErr != nil {
-				return &session.AsyncToolCheckResult{Handled: true, HandlerError: execErr}
-			}
-			resultJSON, marshalErr := json.Marshal(result)
-			if marshalErr != nil {
-				return &session.AsyncToolCheckResult{Handled: true, HandlerError: marshalErr}
-			}
-			return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
+			return conv.executeAsyncToolNow(name, args)
 		}
 
 		// Tool requires human approval — create pending call using the provider's
@@ -753,7 +766,6 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 			Message:   checkResult.Message,
 		}
 
-		// Set the handler for execution on resolve
 		conv.handlersMu.RLock()
 		handler := conv.handlers[name]
 		conv.handlersMu.RUnlock()
@@ -774,27 +786,29 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 			},
 		}
 	})
+}
 
-	// Create duplex session with builder
-	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
-		ConversationID:   conversationID,
-		UserID:           cfg.userID,
-		StateStore:       store,
-		PipelineBuilder:  pipelineBuilder,
-		Provider:         streamProvider,
-		Config:           streamConfig, // nil for VAD mode, set for ASM mode
-		ToolRegistry:     conv.toolRegistry,
-		AsyncToolChecker: asyncChecker,
-		Metadata:         cfg.sessionMetadata,
-		Variables:        initialVars,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create duplex session: %w", err)
+// executeAsyncToolNow runs an async tool's handler inline when its HITL check
+// passed without needing approval. The handler may not be in the registry
+// (OnToolAsync is often called after OpenDuplex builds the pipeline), so it is
+// looked up and invoked directly. Returns nil to fall through to the registry
+// when there is no handler.
+func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) *session.AsyncToolCheckResult {
+	conv.handlersMu.RLock()
+	handler := conv.handlers[name]
+	conv.handlersMu.RUnlock()
+	if handler == nil {
+		return nil
 	}
-
-	conv.mode = DuplexMode
-	conv.duplexSession = duplexSession
-	return nil
+	result, execErr := handler(args)
+	if execErr != nil {
+		return &session.AsyncToolCheckResult{Handled: true, HandlerError: execErr}
+	}
+	resultJSON, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return &session.AsyncToolCheckResult{Handled: true, HandlerError: marshalErr}
+	}
+	return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
 }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.

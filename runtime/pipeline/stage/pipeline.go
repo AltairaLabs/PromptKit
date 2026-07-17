@@ -21,8 +21,22 @@ import (
 type StreamPipeline struct {
 	stages       []Stage
 	edges        map[string][]string // stage name -> downstream stage names
-	reverseEdges map[string]string   // stage name -> upstream stage name (O(1) lookup)
+	reverseEdges map[string][]string // stage name -> upstream stage names (fan-in aware)
 	rootStages   map[string]struct{} // precomputed set of stages with no incoming edges
+
+	// multiOutputStages is the precomputed set of stages implementing
+	// MultiOutputStage (selective fan-out / 1:N routing, e.g. RouterStage),
+	// keyed by name. Computed once at Build() time and read-only thereafter —
+	// safe to share across concurrent Execute() calls. The per-Execute edge
+	// channels themselves (edgeChannels[upstreamName][downstreamName]) are
+	// NOT stored on the pipeline; they are built fresh per Execute() in
+	// createChannels and threaded as a local through startStages /
+	// getStageInputs / upstreamChannel. Storing them on *StreamPipeline would
+	// make them a shared field mutated on every Execute(), racing across
+	// concurrent Execute() calls on the same pipeline (see the doc comment on
+	// MultiOutputStage in stage.go for the resulting single-Execute caveat).
+	multiOutputStages map[string]MultiOutputStage
+
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
@@ -108,14 +122,16 @@ func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan Str
 
 	p.monitorExecutionTimeout(ctx, start)
 
-	// Create channels between stages
-	channels := p.createChannels()
+	// Create channels between stages. Both channels and edgeChannels are local
+	// to this Execute() call — see the doc comment on the multiOutputStages
+	// field for why edgeChannels must not be stored on *StreamPipeline.
+	channels, edgeChannels := p.createChannels()
 
 	// Start stages and collect output. totals accumulates the message/token/cost
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
-	stageErrors := p.startStages(ctx, input, channels)
+	stageErrors := p.startStages(ctx, input, channels, edgeChannels)
 	outputDone := p.startOutputCollection(channels, output, totals)
 
 	// Wait for errors and output collection
@@ -146,18 +162,26 @@ func (p *StreamPipeline) monitorExecutionTimeout(ctx context.Context, start time
 }
 
 // startStages starts all pipeline stages as goroutines and returns the error channel.
+// edgeChannels is the per-Execute() map of dedicated MultiOutputStage edge
+// channels built by createChannels; it is threaded through as a local
+// parameter (like channels) rather than stored on the pipeline.
 //
 //nolint:lll // Channel signature cannot be shortened
-func (p *StreamPipeline) startStages(ctx context.Context, input <-chan StreamElement, channels map[string]chan StreamElement) <-chan error {
+func (p *StreamPipeline) startStages(
+	ctx context.Context,
+	input <-chan StreamElement,
+	channels map[string]chan StreamElement,
+	edgeChannels map[string]map[string]chan StreamElement,
+) <-chan error {
 	stageWg := sync.WaitGroup{}
 	stageErrors := make(chan error, len(p.stages))
 
 	for _, stage := range p.stages {
-		stageInput := p.getStageInput(stage, input, channels)
+		stageInputs := p.getStageInputs(stage, input, channels, edgeChannels)
 		stageOutput := p.getStageOutput(stage, channels)
 
 		stageWg.Add(1)
-		go p.runStage(ctx, stage, stageInput, stageOutput, &stageWg, stageErrors)
+		go p.runStage(ctx, stage, stageInputs, stageOutput, &stageWg, stageErrors)
 	}
 
 	// Close error channel when all stages complete
@@ -250,7 +274,14 @@ func (p *StreamPipeline) emitCompletionEvent(err error, duration time.Duration, 
 }
 
 // createChannels creates all inter-stage channels based on the DAG topology.
-func (p *StreamPipeline) createChannels() map[string]chan StreamElement {
+// It also builds and registers per-edge channels for any MultiOutputStage
+// (selective fan-out) BEFORE stages start, since RegisterOutput must be
+// called before Process runs. Both returned maps are local to this Execute()
+// call — see the doc comment on the multiOutputStages field.
+func (p *StreamPipeline) createChannels() (
+	map[string]chan StreamElement,
+	map[string]map[string]chan StreamElement,
+) {
 	channels := make(map[string]chan StreamElement)
 
 	// Create a channel for each stage's output
@@ -258,25 +289,86 @@ func (p *StreamPipeline) createChannels() map[string]chan StreamElement {
 		channels[stage.Name()] = make(chan StreamElement, p.config.ChannelBufferSize)
 	}
 
-	return channels
+	edgeChannels := p.registerMultiOutputEdges()
+
+	return channels, edgeChannels
 }
 
-// getStageInput returns the input channel for a stage.
-// For root stages, it's the pipeline input. For others, it's determined by the DAG.
+// registerMultiOutputEdges creates one dedicated channel per downstream edge
+// for each stage implementing MultiOutputStage (selective fan-out / 1:N
+// routing) and registers it with the stage via RegisterOutput. It iterates
+// p.multiOutputStages — the single source of truth for "which stages are
+// multi-output", computed once at Build() — rather than re-type-asserting
+// p.stages on every Execute(). Downstream stages read these dedicated
+// channels instead of the upstream's shared channels[upstream] entry (see
+// getStageInputs / upstreamChannel) — that shared entry becomes an orphan the
+// stage still closes via Process's `defer close(output)`, but nothing reads
+// it (the stage is not a leaf, so collectOutput does not collect it either).
+//
+// RegisterOutput call-site caveat: this registers fresh channels onto the
+// MultiOutputStage instance itself (e.g. RouterStage.outputs) on every
+// Execute(), not onto anything owned by this per-Execute call. A pipeline
+// containing a MultiOutputStage is therefore only safe for a single (or
+// strictly sequential, non-concurrent) Execute() — concurrent Execute() calls
+// on the same pipeline would race on the stage's own output registry. This
+// matches the only real usage today: the long-running duplex streaming
+// session, Execute'd once. See the MultiOutputStage doc comment in stage.go.
+func (p *StreamPipeline) registerMultiOutputEdges() map[string]map[string]chan StreamElement {
+	edgeChannels := make(map[string]map[string]chan StreamElement, len(p.multiOutputStages))
+	for name, mo := range p.multiOutputStages {
+		downstreams := p.edges[name]
+		perEdge := make(map[string]chan StreamElement, len(downstreams))
+		for _, d := range downstreams {
+			ch := make(chan StreamElement, p.config.ChannelBufferSize)
+			perEdge[d] = ch
+			mo.RegisterOutput(d, ch)
+		}
+		edgeChannels[name] = perEdge
+	}
+	return edgeChannels
+}
+
+// getStageInputs returns the input channel(s) for a stage.
+// For root stages, it's the pipeline input (single channel). For others, it's
+// determined by the DAG — one channel per upstream stage, in reverseEdges order.
 //
 //nolint:lll // Channel signature cannot be shortened
-func (p *StreamPipeline) getStageInput(stage Stage, pipelineInput <-chan StreamElement, channels map[string]chan StreamElement) <-chan StreamElement {
+func (p *StreamPipeline) getStageInputs(
+	stage Stage,
+	pipelineInput <-chan StreamElement,
+	channels map[string]chan StreamElement,
+	edgeChannels map[string]map[string]chan StreamElement,
+) []<-chan StreamElement {
 	if p.isRootStage(stage.Name()) {
-		return pipelineInput
+		return []<-chan StreamElement{pipelineInput}
 	}
 
-	// For non-root stages, find the upstream stage
-	if upstream := p.findUpstreamStage(stage.Name()); upstream != "" {
-		return channels[upstream]
+	ups := p.findUpstreamStages(stage.Name())
+	inputs := make([]<-chan StreamElement, 0, len(ups))
+	for _, u := range ups {
+		inputs = append(inputs, p.upstreamChannel(u, stage.Name(), channels, edgeChannels))
 	}
+	return inputs
+}
 
-	// Should never reach here if validation worked
-	return nil
+// upstreamChannel resolves the channel a downstream stage should read from for
+// a given upstream. If the upstream implements MultiOutputStage (selective
+// fan-out), the downstream reads its dedicated per-edge channel from
+// edgeChannels (built fresh per Execute() by createChannels and threaded in
+// as a local parameter); otherwise it reads the upstream's shared output
+// channel, preserving existing linear and competitive-Branch fan-out
+// behavior unchanged for every stage that is not a MultiOutputStage.
+func (p *StreamPipeline) upstreamChannel(
+	upstream, downstream string,
+	channels map[string]chan StreamElement,
+	edgeChannels map[string]map[string]chan StreamElement,
+) <-chan StreamElement {
+	if _, ok := p.multiOutputStages[upstream]; ok {
+		if ch, ok := edgeChannels[upstream][downstream]; ok {
+			return ch
+		}
+	}
+	return channels[upstream]
 }
 
 // isRootStage checks if a stage has no incoming edges (O(1) lookup).
@@ -285,24 +377,24 @@ func (p *StreamPipeline) isRootStage(stageName string) bool {
 	return ok
 }
 
-// findUpstreamStage finds the stage that feeds into the given stage using a
-// precomputed reverse-edge map for O(1) lookup.
-// Note: Fan-in (multiple stages feeding into one) is a Phase 5 enhancement.
-// Current implementation supports single upstream stage per stage (sufficient for linear chains and fan-out).
-// For fan-in/merge patterns, a dedicated MergeStage will be implemented in Phase 5.
-func (p *StreamPipeline) findUpstreamStage(stageName string) string {
+// findUpstreamStages returns all stages that feed into the given stage, using a
+// precomputed reverse-edge map for O(1) lookup. A stage with more than one
+// upstream is a fan-in node (see MultiInputStage); single-upstream is the
+// common linear/fan-out case.
+func (p *StreamPipeline) findUpstreamStages(stageName string) []string {
 	if p.reverseEdges != nil {
 		return p.reverseEdges[stageName]
 	}
 	// Fallback to linear scan (should not happen with properly built pipelines).
+	var ups []string
 	for fromStage, toStages := range p.edges {
 		for _, toStage := range toStages {
 			if toStage == stageName {
-				return fromStage
+				ups = append(ups, fromStage)
 			}
 		}
 	}
-	return ""
+	return ups
 }
 
 // getStageOutput returns the output channel for a stage.
@@ -311,10 +403,13 @@ func (p *StreamPipeline) getStageOutput(stage Stage, channels map[string]chan St
 }
 
 // runStage executes a single stage, wrapping it with events and error handling.
+// It dispatches to Stage.Process for the common single-upstream case, and to
+// MultiInputStage.ProcessMultiple when the stage has more than one upstream
+// channel and implements that interface (fan-in).
 func (p *StreamPipeline) runStage(
 	ctx context.Context,
 	stage Stage,
-	input <-chan StreamElement,
+	inputs []<-chan StreamElement,
 	output chan<- StreamElement,
 	wg *sync.WaitGroup,
 	errors chan<- error,
@@ -323,19 +418,29 @@ func (p *StreamPipeline) runStage(
 	// Note: We don't close output here because the stage's Process() method
 	// is responsible for closing it according to the Stage interface contract.
 
-	// Wrap input with Prometheus metrics so operators can see element and
-	// audio-byte flow per stage. The wrapper is a zero-overhead passthrough
-	// when DefaultStreamMetrics() returns nil (no host has registered).
-	instrumentedInput := instrumentStageInput(stage.Name(), input)
-
 	// Emit stage started event
 	start := time.Now()
 	if p.eventEmitter != nil {
 		p.eventEmitter.StageStarted(stage.Name(), 0, stage.Type())
 	}
 
-	// Run the stage
-	err := stage.Process(ctx, instrumentedInput, output)
+	// Run the stage. Wrap input(s) with Prometheus metrics so operators can see
+	// element and audio-byte flow per stage. The wrapper is a zero-overhead
+	// passthrough when DefaultStreamMetrics() returns nil (no host has registered).
+	var err error
+	if mi, ok := stage.(MultiInputStage); ok && len(inputs) > 1 {
+		instrumented := make([]<-chan StreamElement, len(inputs))
+		for i, in := range inputs {
+			instrumented[i] = instrumentStageInput(stage.Name(), in)
+		}
+		err = mi.ProcessMultiple(ctx, instrumented, output)
+	} else {
+		var in <-chan StreamElement
+		if len(inputs) > 0 {
+			in = inputs[0]
+		}
+		err = stage.Process(ctx, instrumentStageInput(stage.Name(), in), output)
+	}
 	duration := time.Since(start)
 
 	// Emit stage completed/failed event
