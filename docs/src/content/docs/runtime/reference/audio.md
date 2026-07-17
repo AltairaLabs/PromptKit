@@ -18,6 +18,7 @@ The package follows industry\-standard patterns for voice AI:
 - VAD \(Voice Activity Detection\): Detects when someone is speaking vs. silent
 - Turn Detection: Determines when a speaker has finished their turn
 - Interruption Handling: Manages user interrupting bot output
+- G.711 Codec: mu\-law/a\-law companding \<\-\> PCM16 \(telephony/SIP/PSTN\)
 
 ### Architecture
 
@@ -45,6 +46,10 @@ Package audio provides audio processing utilities.
 ## Index
 
 - [Constants](<#constants>)
+- [func DecodeALaw\(alaw \[\]byte\) \[\]byte](<#DecodeALaw>)
+- [func DecodeMuLaw\(mulaw \[\]byte\) \[\]byte](<#DecodeMuLaw>)
+- [func EncodeALaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeALaw>)
+- [func EncodeMuLaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeMuLaw>)
 - [func Resample24kTo16k\(input \[\]byte\) \(\[\]byte, error\)](<#Resample24kTo16k>)
 - [func ResamplePCM16\(input \[\]byte, fromRate, toRate int\) \(\[\]byte, error\)](<#ResamplePCM16>)
 - [type AccumulatingTurnDetector](<#AccumulatingTurnDetector>)
@@ -159,6 +164,42 @@ const (
 ```go
 const DefaultMaxAudioBufferSize = 10 * 1024 * 1024
 ```
+
+<a name="DecodeALaw"></a>
+## func DecodeALaw
+
+```go
+func DecodeALaw(alaw []byte) []byte
+```
+
+DecodeALaw converts G.711 a\-law bytes to little\-endian PCM16 \(2 bytes/sample\).
+
+<a name="DecodeMuLaw"></a>
+## func DecodeMuLaw
+
+```go
+func DecodeMuLaw(mulaw []byte) []byte
+```
+
+DecodeMuLaw converts G.711 mu\-law bytes to little\-endian PCM16 \(2 bytes/sample\).
+
+<a name="EncodeALaw"></a>
+## func EncodeALaw
+
+```go
+func EncodeALaw(pcm16le []byte) []byte
+```
+
+EncodeALaw converts little\-endian PCM16 to G.711 a\-law bytes \(1 byte/sample\).
+
+<a name="EncodeMuLaw"></a>
+## func EncodeMuLaw
+
+```go
+func EncodeMuLaw(pcm16le []byte) []byte
+```
+
+EncodeMuLaw converts little\-endian PCM16 to G.711 mu\-law bytes \(1 byte/sample\).
 
 <a name="Resample24kTo16k"></a>
 ## func Resample24kTo16k

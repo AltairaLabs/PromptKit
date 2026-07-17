@@ -227,6 +227,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
 - [type EndpointResolver](<#EndpointResolver>)
 - [type EvaluateOpts](<#EvaluateOpts>)
 - [type InMemoryA2ATaskStore](<#InMemoryA2ATaskStore>)
+- [type IngestionFunc](<#IngestionFunc>)
 - [type LocalAgentExecutor](<#LocalAgentExecutor>)
   - [func NewLocalAgentExecutor\(members map\[string\]Agent\) \*LocalAgentExecutor](<#NewLocalAgentExecutor>)
   - [func \(e \*LocalAgentExecutor\) Execute\(ctx context.Context, descriptor \*tools.ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#LocalAgentExecutor.Execute>)
@@ -297,6 +298,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithImagePreprocessing\(cfg \*stage.ImagePreprocessConfig\) Option](<#WithImagePreprocessing>)
   - [func WithImageProvider\(spec ProviderSpec\) Option](<#WithImageProvider>)
   - [func WithInferenceProvider\(spec ProviderSpec\) Option](<#WithInferenceProvider>)
+  - [func WithIngestion\(fn IngestionFunc\) Option](<#WithIngestion>)
   - [func WithJSONMode\(\) Option](<#WithJSONMode>)
   - [func WithJudgeProvider\(jp handlers.JudgeProvider\) Option](<#WithJudgeProvider>)
   - [func WithLLMProvider\(spec ProviderSpec\) Option](<#WithLLMProvider>)
@@ -2216,6 +2218,15 @@ InMemoryA2ATaskStore is a concurrency\-safe in\-memory TaskStore.
 type InMemoryA2ATaskStore = a2aserver.InMemoryTaskStore
 ```
 
+<a name="IngestionFunc"></a>
+## type IngestionFunc
+
+IngestionFunc authors a custom upstream stage sub\-graph. It adds stages and edges to the shared builder and returns the name of the node whose output feeds the agent chain. Mutually exclusive with WithVADMode.
+
+```go
+type IngestionFunc func(b *stage.PipelineBuilder) (outputNode string, err error)
+```
+
 <a name="LocalAgentExecutor"></a>
 ## type LocalAgentExecutor
 
@@ -3184,6 +3195,15 @@ func WithInferenceProvider(spec ProviderSpec) Option
 ```
 
 WithInferenceProvider registers an inference \(classify\) provider that the SDK constructs and credential\-resolves. The backend is registered against every classify task interface it implements \(AudioClassifier, TextClassifier, etc.\). The HuggingFace factory is available via the backends/all blank import in runtime\_config.go \(same package\).
+
+<a name="WithIngestion"></a>
+### func WithIngestion
+
+```go
+func WithIngestion(fn IngestionFunc) Option
+```
+
+WithIngestion installs a custom ingestion sub\-graph in front of the agent chain \(fan\-out/fan\-in supported\). Use with OpenDuplex for streaming harnesses that map multiple input sources onto one agent without a TTS return path.
 
 <a name="WithJSONMode"></a>
 ### func WithJSONMode
