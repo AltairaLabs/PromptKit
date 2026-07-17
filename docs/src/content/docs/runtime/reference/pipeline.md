@@ -251,6 +251,8 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewMetricsStage\(wrappedStage Stage\) \*MetricsStage](<#NewMetricsStage>)
   - [func \(s \*MetricsStage\) GetMetrics\(\) StageMetrics](<#MetricsStage.GetMetrics>)
   - [func \(s \*MetricsStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MetricsStage.Process>)
+- [type MultiInputStage](<#MultiInputStage>)
+- [type MultiOutputStage](<#MultiOutputStage>)
 - [type PassthroughStage](<#PassthroughStage>)
   - [func NewPassthroughStage\(name string\) \*PassthroughStage](<#NewPassthroughStage>)
   - [func \(ps \*PassthroughStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#PassthroughStage.Process>)
@@ -263,6 +265,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(b \*PipelineBuilder\) Chain\(stages ...Stage\) \*PipelineBuilder](<#PipelineBuilder.Chain>)
   - [func \(b \*PipelineBuilder\) Clone\(\) \*PipelineBuilder](<#PipelineBuilder.Clone>)
   - [func \(b \*PipelineBuilder\) Connect\(fromStage, toStage string\) \*PipelineBuilder](<#PipelineBuilder.Connect>)
+  - [func \(b \*PipelineBuilder\) Merge\(into string, from ...string\) \*PipelineBuilder](<#PipelineBuilder.Merge>)
   - [func \(b \*PipelineBuilder\) WithConfig\(config \*PipelineConfig\) \*PipelineBuilder](<#PipelineBuilder.WithConfig>)
   - [func \(b \*PipelineBuilder\) WithEventEmitter\(emitter \*events.Emitter\) \*PipelineBuilder](<#PipelineBuilder.WithEventEmitter>)
 - [type PipelineConfig](<#PipelineConfig>)
@@ -598,6 +601,14 @@ var (
 
     // ErrVideoDataRequired is returned when video data is required but missing.
     ErrVideoDataRequired = errors.New("video data required but not available")
+
+    // ErrFanInNotSupported is returned when a stage has multiple upstream edges but
+    // does not implement MultiInputStage.
+    ErrFanInNotSupported = errors.New("stage has multiple upstreams but does not implement MultiInputStage")
+
+    // ErrDuplicateFanInEdge is returned when a stage receives multiple edges from
+    // the same upstream stage, creating a duplicate input source.
+    ErrDuplicateFanInEdge = errors.New("duplicate upstream edge detected")
 )
 ```
 
@@ -3189,6 +3200,32 @@ func (s *MetricsStage) Process(ctx context.Context, input <-chan StreamElement, 
 
 Process implements the Stage interface with metrics collection.
 
+<a name="MultiInputStage"></a>
+## type MultiInputStage
+
+MultiInputStage is a Stage that consumes multiple upstream input channels \(fan\-in / N:1 merge\). The pipeline calls ProcessMultiple instead of Process when the stage has more than one upstream edge. Like Process, the stage MUST close output when all inputs are drained.
+
+```go
+type MultiInputStage interface {
+    Stage
+    ProcessMultiple(ctx context.Context, inputs []<-chan StreamElement, output chan<- StreamElement) error
+}
+```
+
+<a name="MultiOutputStage"></a>
+## type MultiOutputStage
+
+MultiOutputStage is a Stage that routes elements to named downstream outputs \(selective fan\-out / 1:N routing\). The pipeline registers one channel per downstream edge via RegisterOutput before Process runs; the stage routes each element to the appropriate registered output\(s\) and MUST close them when done.
+
+Single\-Execute caveat: RegisterOutput is called on the stage INSTANCE \(e.g. RouterStage.outputs\) fresh on every StreamPipeline.Execute\(\) call, since the per\-Execute edge channels live for the duration of that Execute\(\) only. A pipeline containing a MultiOutputStage is therefore only safe for a single \(or strictly sequential, non\-concurrent\) Execute\(\) call — concurrent Execute\(\) calls on the same pipeline would race registering/routing through the stage's shared output registry. This matches the only real usage today: the long\-running duplex streaming session, Execute'd once. Callers that reuse one \*StreamPipeline across concurrent Execute\(\) calls \(e.g. the unary Send\(\) path\) must not include a MultiOutputStage in that pipeline.
+
+```go
+type MultiOutputStage interface {
+    Stage
+    RegisterOutput(name string, output chan<- StreamElement)
+}
+```
+
 <a name="PassthroughStage"></a>
 ## type PassthroughStage
 
@@ -3433,6 +3470,15 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder
 ```
 
 Connect creates a directed edge from one stage to another. The output of fromStage will be connected to the input of toStage.
+
+<a name="PipelineBuilder.Merge"></a>
+### func \(\*PipelineBuilder\) Merge
+
+```go
+func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder
+```
+
+Merge wires multiple upstream stages into a single downstream fan\-in node. The target stage must implement MultiInputStage \(e.g. MergeStage\).
 
 <a name="PipelineBuilder.WithConfig"></a>
 ### func \(\*PipelineBuilder\) WithConfig
