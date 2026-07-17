@@ -280,3 +280,11 @@ func TestPriorityChannel_Len(t *testing.T) {
 
 	assert.Equal(t, 2, pc.Len())
 }
+
+func TestMergeStageSatisfiesMultiInputStage(t *testing.T) {
+	var _ MultiInputStage = NewMergeStage("merge", 2)
+}
+
+func TestRouterStageSatisfiesMultiOutputStage(t *testing.T) {
+	var _ MultiOutputStage = NewRouterStage("router", nil)
+}

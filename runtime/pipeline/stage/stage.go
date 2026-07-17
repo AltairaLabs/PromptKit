@@ -62,6 +62,35 @@ type Stage interface {
 	Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 
+// MultiInputStage is a Stage that consumes multiple upstream input channels
+// (fan-in / N:1 merge). The pipeline calls ProcessMultiple instead of Process
+// when the stage has more than one upstream edge. Like Process, the stage MUST
+// close output when all inputs are drained.
+type MultiInputStage interface {
+	Stage
+	ProcessMultiple(ctx context.Context, inputs []<-chan StreamElement, output chan<- StreamElement) error
+}
+
+// MultiOutputStage is a Stage that routes elements to named downstream outputs
+// (selective fan-out / 1:N routing). The pipeline registers one channel per
+// downstream edge via RegisterOutput before Process runs; the stage routes each
+// element to the appropriate registered output(s) and MUST close them when done.
+//
+// Single-Execute caveat: RegisterOutput is called on the stage INSTANCE (e.g.
+// RouterStage.outputs) fresh on every StreamPipeline.Execute() call, since the
+// per-Execute edge channels live for the duration of that Execute() only. A
+// pipeline containing a MultiOutputStage is therefore only safe for a single
+// (or strictly sequential, non-concurrent) Execute() call — concurrent
+// Execute() calls on the same pipeline would race registering/routing through
+// the stage's shared output registry. This matches the only real usage today:
+// the long-running duplex streaming session, Execute'd once. Callers that
+// reuse one *StreamPipeline across concurrent Execute() calls (e.g. the
+// unary Send() path) must not include a MultiOutputStage in that pipeline.
+type MultiOutputStage interface {
+	Stage
+	RegisterOutput(name string, output chan<- StreamElement)
+}
+
 // StageType defines the processing model of a stage.
 //
 //nolint:revive // Intentionally named StageType for clarity; stage.Type would be too generic

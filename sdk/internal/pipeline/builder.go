@@ -135,6 +135,12 @@ type Config struct {
 	// VADConfig configures the AudioTurnStage for VAD mode
 	VADConfig *stage.AudioTurnConfig
 
+	// Ingestion, when non-nil, authors a custom upstream stage sub-graph whose
+	// output node feeds the standard agent chain. Mutually exclusive with the
+	// VAD/ASM front. The callback adds stages/edges to the shared builder and
+	// returns the name of the node whose output feeds the agent chain.
+	Ingestion func(b *stage.PipelineBuilder) (outputNode string, err error)
+
 	// STTService for speech-to-text in VAD mode
 	STTService base.STTProvider
 
@@ -260,6 +266,25 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	// Wire event emitter so the pipeline emits PipelineStarted/Completed events.
 	if cfg.EventEmitter != nil {
 		builder.WithEventEmitter(cfg.EventEmitter)
+	}
+
+	// Custom ingestion sub-graph: author it onto the same builder, then feed the
+	// agent chain's head from its output node instead of chaining from the root.
+	if cfg.Ingestion != nil {
+		if len(stages) == 0 {
+			return nil, fmt.Errorf("ingestion sub-graph: %w", stage.ErrNoStages)
+		}
+		outputNode, ierr := cfg.Ingestion(builder)
+		if ierr != nil {
+			return nil, fmt.Errorf("ingestion sub-graph: %w", ierr)
+		}
+		builder.Chain(stages...)
+		builder.Connect(outputNode, stages[0].Name())
+		streamPipeline, buildErr := builder.Build()
+		if buildErr != nil {
+			return nil, fmt.Errorf("failed to build ingestion pipeline: %w", buildErr)
+		}
+		return streamPipeline, nil
 	}
 
 	// Build and return the StreamPipeline directly
@@ -455,7 +480,15 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		return buildVADPipelineStages(cfg)
 	}
 	if cfg.Provider != nil {
-		// Text mode: standard LLM call
+		// Text mode: standard LLM call.
+		//
+		// A custom ingestion sub-graph (WithIngestion) turns this into a
+		// continuous multi-turn duplex session: the ingestion side emits an
+		// EndOfTurn control element per completed turn, so the ProviderStage
+		// must run in streaming mode (fire the tool loop per EndOfTurn, thread
+		// history across turns, stay open) rather than the unary default that
+		// drains the whole input channel and fires once at close. Without this,
+		// the agent would only run when the session ends.
 		providerConfig := &stage.ProviderConfig{
 			MaxTokens:        cfg.MaxTokens,
 			Temperature:      cfg.Temperature,
@@ -463,6 +496,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
 			ToolSelector:     cfg.ToolSelector,
+			Streaming:        cfg.Ingestion != nil,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

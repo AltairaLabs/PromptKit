@@ -110,6 +110,10 @@ type StreamChunk struct {
 	// PendingTools contains client-mode tools awaiting caller fulfillment.
 	// Only set when FinishReason is "pending_tools".
 	PendingTools []tools.PendingToolExecution `json:"pending_tools,omitempty"`
+
+	// Source labels the input track/speaker for fan-out routing (e.g. "caller",
+	// "agent"). Copied onto StreamElement.Source at the session boundary.
+	Source string `json:"source,omitempty"`
 }
 
 // StreamEvent is sent to observers for monitoring

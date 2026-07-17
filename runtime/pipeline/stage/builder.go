@@ -110,6 +110,15 @@ func (b *PipelineBuilder) Branch(fromStage string, toStages ...string) *Pipeline
 	return b
 }
 
+// Merge wires multiple upstream stages into a single downstream fan-in node.
+// The target stage must implement MultiInputStage (e.g. MergeStage).
+func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder {
+	for _, f := range from {
+		b.Connect(f, into)
+	}
+	return b
+}
+
 // Build constructs the pipeline from the builder's configuration.
 // It validates the pipeline structure and returns an error if invalid.
 func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
@@ -119,13 +128,14 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 	}
 
 	// Precompute root stages (stages with no incoming edges) and
-	// reverse-edge adjacency map for O(1) upstream lookup.
-	reverseEdges := make(map[string]string)
+	// reverse-edge adjacency map for O(1) upstream lookup. Fan-in aware:
+	// a stage may have multiple upstreams (see MultiInputStage).
+	reverseEdges := make(map[string][]string)
 	hasIncoming := make(map[string]struct{})
 	for fromStage, toStages := range b.edges {
 		for _, toStage := range toStages {
 			hasIncoming[toStage] = struct{}{}
-			reverseEdges[toStage] = fromStage
+			reverseEdges[toStage] = append(reverseEdges[toStage], fromStage)
 		}
 	}
 	rootStages := make(map[string]struct{})
@@ -135,15 +145,30 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 		}
 	}
 
+	// Precompute the set of stages implementing MultiOutputStage (selective
+	// fan-out / 1:N routing, e.g. RouterStage), keyed by name and holding the
+	// asserted MultiOutputStage reference, so getStageInputs can decide, per
+	// upstream, whether a downstream reads a dedicated per-edge channel or the
+	// upstream's shared output channel (linear / competitive Branch fan-out).
+	// This is the single source of truth for "which stages are multi-output" —
+	// registerMultiOutputEdges reuses it instead of re-asserting per Execute().
+	multiOutputStages := make(map[string]MultiOutputStage)
+	for _, s := range b.stages {
+		if mo, ok := s.(MultiOutputStage); ok {
+			multiOutputStages[s.Name()] = mo
+		}
+	}
+
 	// Build the pipeline
 	return &StreamPipeline{
-		stages:       b.stages,
-		edges:        b.edges,
-		reverseEdges: reverseEdges,
-		rootStages:   rootStages,
-		config:       b.config,
-		eventEmitter: b.eventEmitter,
-		shutdown:     make(chan struct{}),
+		stages:            b.stages,
+		edges:             b.edges,
+		reverseEdges:      reverseEdges,
+		rootStages:        rootStages,
+		multiOutputStages: multiOutputStages,
+		config:            b.config,
+		eventEmitter:      b.eventEmitter,
+		shutdown:          make(chan struct{}),
 	}, nil
 }
 
@@ -185,9 +210,77 @@ func (b *PipelineBuilder) validate() error {
 		return err
 	}
 
+	// Reject fan-in into a stage that cannot handle multiple upstreams.
+	if err := b.validateFanIn(stageNames); err != nil {
+		return err
+	}
+
 	// Validate format capabilities between connected stages (logs warnings)
 	ValidateCapabilities(b.stages, b.edges)
 
+	return nil
+}
+
+// validateFanIn rejects a stage with more than one upstream edge unless it
+// implements MultiInputStage (e.g. MergeStage). stageNames is passed in from
+// validate() since it has already confirmed all stage names are unique.
+// It also detects and rejects duplicate upstream edges into any stage.
+func (b *PipelineBuilder) validateFanIn(stageNames map[string]bool) error {
+	upstreamCount, upstreamPairs := b.buildUpstreamMaps()
+	if err := checkDuplicateFanInEdges(upstreamPairs); err != nil {
+		return err
+	}
+	return b.checkFanInSupport(upstreamCount, stageNames)
+}
+
+// buildUpstreamMaps tallies, per destination stage, the number of incoming
+// edges (upstreamCount) and the count of edges from each source
+// (upstreamPairs), the latter used to detect duplicate edges.
+func (b *PipelineBuilder) buildUpstreamMaps() (upstreamCount map[string]int, upstreamPairs map[string]map[string]int) {
+	upstreamCount = make(map[string]int)
+	upstreamPairs = make(map[string]map[string]int)
+	for fromStage, toStages := range b.edges {
+		for _, toStage := range toStages {
+			upstreamCount[toStage]++
+			if upstreamPairs[toStage] == nil {
+				upstreamPairs[toStage] = make(map[string]int)
+			}
+			upstreamPairs[toStage][fromStage]++
+		}
+	}
+	return upstreamCount, upstreamPairs
+}
+
+// checkDuplicateFanInEdges rejects more than one edge between the same
+// (source, destination) stage pair.
+func checkDuplicateFanInEdges(upstreamPairs map[string]map[string]int) error {
+	for toStage, upstreams := range upstreamPairs {
+		for fromStage, count := range upstreams {
+			if count > 1 {
+				return fmt.Errorf("%w: stage %s has %d edges from %s",
+					ErrDuplicateFanInEdge, toStage, count, fromStage)
+			}
+		}
+	}
+	return nil
+}
+
+// checkFanInSupport rejects a stage that receives multiple inputs unless it
+// implements MultiInputStage. Unknown stage names are ignored here — the
+// edge-reference check reports them.
+func (b *PipelineBuilder) checkFanInSupport(upstreamCount map[string]int, stageNames map[string]bool) error {
+	stageByName := make(map[string]Stage, len(b.stages))
+	for _, s := range b.stages {
+		stageByName[s.Name()] = s
+	}
+	for name, n := range upstreamCount {
+		if !stageNames[name] || n <= 1 {
+			continue
+		}
+		if _, ok := stageByName[name].(MultiInputStage); !ok {
+			return fmt.Errorf("%w: %s", ErrFanInNotSupported, name)
+		}
+	}
 	return nil
 }
 

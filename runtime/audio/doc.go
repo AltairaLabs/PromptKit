@@ -5,6 +5,7 @@
 //   - VAD (Voice Activity Detection): Detects when someone is speaking vs. silent
 //   - Turn Detection: Determines when a speaker has finished their turn
 //   - Interruption Handling: Manages user interrupting bot output
+//   - G.711 Codec: mu-law/a-law companding <-> PCM16 (telephony/SIP/PSTN)
 //
 // # Architecture
 //
