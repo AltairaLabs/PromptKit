@@ -16,6 +16,31 @@ import (
 type localExecutor struct {
 	handlers    map[string]ToolHandler
 	ctxHandlers map[string]ToolHandlerCtx
+	live        *localHandlersAccessor
+}
+
+// localHandlersAccessor provides live read access to the conversation's local
+// tool handlers under its mutex. It lets the executor dispatch handlers
+// registered AFTER the pipeline was built — e.g. OnTool/OnToolCtx called after
+// OpenDuplex, whose duplex pipeline is built once (mirrors the client-tool
+// accessor). Without it, a duplex session's local tools use only the empty
+// build-time snapshot and fail with "no handler registered".
+type localHandlersAccessor struct {
+	conv *Conversation
+}
+
+func (a *localHandlersAccessor) getCtxHandler(name string) (ToolHandlerCtx, bool) {
+	a.conv.handlersMu.RLock()
+	defer a.conv.handlersMu.RUnlock()
+	h, ok := a.conv.ctxHandlers[name]
+	return h, ok
+}
+
+func (a *localHandlersAccessor) getHandler(name string) (ToolHandler, bool) {
+	a.conv.handlersMu.RLock()
+	defer a.conv.handlersMu.RUnlock()
+	h, ok := a.conv.handlers[name]
+	return h, ok
 }
 
 // Name returns "local" to match the Mode on tools in the pack.
@@ -34,15 +59,28 @@ func (e *localExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
-	// Prefer context-aware handler
+	// Prefer context-aware handler; for each kind look at the build-time
+	// snapshot first, then live handlers via the accessor (handlers registered
+	// after the pipeline was built, e.g. after OpenDuplex).
+	ctxHandler, ok := e.ctxHandlers[descriptor.Name]
+	if !ok && e.live != nil {
+		ctxHandler, ok = e.live.getCtxHandler(descriptor.Name)
+	}
+
 	var result any
 	var err error
-	if ctxHandler, ok := e.ctxHandlers[descriptor.Name]; ok {
+	switch {
+	case ok:
 		result, err = ctxHandler(ctx, argsMap)
-	} else if handler, ok := e.handlers[descriptor.Name]; ok {
+	default:
+		handler, hok := e.handlers[descriptor.Name]
+		if !hok && e.live != nil {
+			handler, hok = e.live.getHandler(descriptor.Name)
+		}
+		if !hok {
+			return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
+		}
 		result, err = handler(argsMap)
-	} else {
-		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
 	}
 	if err != nil {
 		return nil, err
