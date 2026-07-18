@@ -434,7 +434,11 @@ func (c *Conversation) buildPipelineConfig(
 		ctxHandlersCopy[k] = v
 	}
 
-	localExec := &localExecutor{handlers: handlersCopy, ctxHandlers: ctxHandlersCopy}
+	localExec := &localExecutor{
+		handlers:    handlersCopy,
+		ctxHandlers: ctxHandlersCopy,
+		live:        &localHandlersAccessor{conv: c},
+	}
 	c.toolRegistry.RegisterExecutor(localExec)
 
 	clientExec := &clientExecutor{
