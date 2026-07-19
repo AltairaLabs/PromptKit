@@ -58,10 +58,20 @@ const (
 	defaultAudioTurnMinSpeech   = 200 * time.Millisecond
 	defaultAudioTurnMaxDuration = 30 * time.Second
 	defaultAudioTurnSampleRate  = 16000
-	bytesPerSample16Bit         = 2     // 16-bit audio = 2 bytes per sample
-	defaultMinAudioBytes        = 1600  // 50ms at 16kHz 16-bit mono
-	defaultTTSOutputSampleRate  = 24000 // OpenAI TTS output sample rate
-	msPerSecond                 = 1000
+	// defaultAudioTurnPreRoll is the audio kept ahead of VAD's speech-onset marker.
+	// VAD reports speech only once it has accumulated enough confident frames
+	// (DefaultVADStartSecs is 0.2s, and chunk granularity pushes the marker later
+	// still), so trimming flush at the marker cuts into the utterance.
+	//
+	// Deliberately generous. The costs are asymmetric: an extra second of retained
+	// silence is a rounding error against the many seconds of dead air removed,
+	// whereas too small a pre-roll corrupts the transcript by clipping the
+	// caller's first word. Bias toward keeping audio.
+	defaultAudioTurnPreRoll    = time.Second
+	bytesPerSample16Bit        = 2     // 16-bit audio = 2 bytes per sample
+	defaultMinAudioBytes       = 1600  // 50ms at 16kHz 16-bit mono
+	defaultTTSOutputSampleRate = 24000 // OpenAI TTS output sample rate
+	msPerSecond                = 1000
 
 	// ResponseVAD default params - tuned for TTS audio detection
 	defaultResponseVADConfidence = 0.3   // Lower threshold for TTS audio
@@ -140,6 +150,15 @@ type audioTurnState struct {
 	speechSamples  int // samples since speech first detected (~ time since speech start)
 	silenceSamples int // consecutive silence samples since the last speech (0 while speaking)
 	turnSamples    int // total samples accumulated this turn
+	// speechStartOffset is the byte offset in audioBuffer of the chunk where VAD
+	// first reported speech, or -1 while no speech has been detected. Leading
+	// silence before this point (less a pre-roll) is trimmed at emit time.
+	speechStartOffset int
+}
+
+// newAudioTurnState returns turn state with no speech onset recorded yet.
+func newAudioTurnState() *audioTurnState {
+	return &audioTurnState{speechStartOffset: -1}
 }
 
 // samplesToDuration converts a PCM16-mono sample count to a wall-clock-equivalent
@@ -160,7 +179,7 @@ func (s *AudioTurnStage) Process(
 ) error {
 	defer close(output)
 
-	state := &audioTurnState{}
+	state := newAudioTurnState()
 
 	for elem := range input {
 		// Handle EndOfStream specially - emit any accumulated audio first
@@ -349,6 +368,8 @@ func (s *AudioTurnStage) processAudio(
 	case audio.VADStateSpeaking, audio.VADStateStarting:
 		if !state.speechDetected {
 			state.speechDetected = true
+			// Record where this chunk starts so the dead air before it can be trimmed.
+			state.speechStartOffset = len(state.audioBuffer) - len(elem.Audio.Samples)
 			logger.Debug("AudioTurnStage: speech started")
 		}
 		state.silenceSamples = 0 // speech resumed; reset the silence run
@@ -422,13 +443,16 @@ func (s *AudioTurnStage) emitTurnAudio(
 		return nil
 	}
 
+	samples := s.trimLeadingSilence(state)
+
 	logger.Debug("AudioTurnStage: emitting turn audio",
-		"bytes", len(state.audioBuffer),
-		"duration_ms", len(state.audioBuffer)*msPerSecond/(s.config.SampleRate*bytesPerSample16Bit))
+		"bytes", len(samples),
+		"trimmed_bytes", len(state.audioBuffer)-len(samples),
+		"duration_ms", len(samples)*msPerSecond/(s.config.SampleRate*bytesPerSample16Bit))
 
 	elem := StreamElement{
 		Audio: &AudioData{
-			Samples:    state.audioBuffer,
+			Samples:    samples,
 			SampleRate: s.config.SampleRate,
 			Channels:   1,
 			Format:     AudioFormatPCM16,
@@ -444,6 +468,29 @@ func (s *AudioTurnStage) emitTurnAudio(
 	}
 }
 
+// trimLeadingSilence drops the dead air preceding speech onset, keeping a
+// pre-roll margin. STT is billed per second and Whisper is prone to emitting
+// hallucinated text over long near-silent input, so shipping a caller's several
+// seconds of pause with their utterance costs money and invites phantom
+// transcripts.
+//
+// When VAD never reported speech the buffer is returned whole. That is
+// deliberate: the stage buffers unconditionally so a VAD misread mis-cuts a turn
+// instead of deleting audio, and trimming must not turn a misread into silent
+// data loss.
+func (s *AudioTurnStage) trimLeadingSilence(state *audioTurnState) []byte {
+	if !state.speechDetected || state.speechStartOffset <= 0 {
+		return state.audioBuffer
+	}
+
+	preRoll := int(defaultAudioTurnPreRoll.Seconds() * float64(s.config.SampleRate) * bytesPerSample16Bit)
+	start := state.speechStartOffset - preRoll
+	if start <= 0 {
+		return state.audioBuffer
+	}
+	return state.audioBuffer[start:]
+}
+
 // resetState resets the turn state for a new turn.
 func (s *AudioTurnStage) resetState(state *audioTurnState) {
 	state.audioBuffer = nil
@@ -451,6 +498,7 @@ func (s *AudioTurnStage) resetState(state *audioTurnState) {
 	state.speechSamples = 0
 	state.silenceSamples = 0
 	state.turnSamples = 0
+	state.speechStartOffset = -1
 	s.vad.Reset()
 	if s.turnDetector != nil {
 		s.turnDetector.Reset()
