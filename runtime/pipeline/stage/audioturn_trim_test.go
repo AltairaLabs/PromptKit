@@ -127,8 +127,9 @@ func TestAudioTurnStage_PreservesPreRollBeforeSpeechOnset(t *testing.T) {
 // The stage buffers unconditionally so that a VAD misread mis-cuts a turn rather
 // than deleting audio — that is why a SimpleVAD misclassification was a
 // segmentation bug and not silent data loss. Trimming must not weaken it: when
-// VAD never reports speech at all, the buffer has to be forwarded whole, because
-// the audio may well contain speech the VAD failed to see.
+// VAD never reports speech at all, the buffer is forwarded whole, up to the
+// retention cap in TestAudioTurnStage_CapsBufferedSilenceWhenNoSpeechDetected,
+// because the audio may well contain speech the VAD failed to see.
 func TestAudioTurnStage_ForwardsUntrimmedWhenNoSpeechDetected(t *testing.T) {
 	const chunkSamples = 1600 // 100 ms @ 16 kHz
 	const chunks = 20         // 2.0 s
