@@ -117,11 +117,19 @@ func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
 		config.SampleRate = defaultAudioTurnSampleRate
 	}
 
-	// Create default VAD if not provided
+	// Create default VAD if not provided.
+	//
+	// The VAD's params must carry the configured sample rate, not the default.
+	// VAD state transitions are scaled by it — it is how a chunk's byte count
+	// becomes a duration — so leaving it at 16kHz makes the VAD and this stage
+	// disagree about how long a chunk lasts at any other rate: 8kHz telephony
+	// would see every threshold at twice its intended length, 48kHz at a third.
 	vad := config.VAD
 	if vad == nil {
+		params := audio.DefaultVADParams()
+		params.SampleRate = config.SampleRate
 		var err error
-		vad, err = audio.NewSimpleVAD(audio.DefaultVADParams())
+		vad, err = audio.NewSimpleVAD(params)
 		if err != nil {
 			return nil, err
 		}

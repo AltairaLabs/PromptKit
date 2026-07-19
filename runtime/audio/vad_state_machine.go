@@ -21,6 +21,13 @@ type vadStateMachine struct {
 	// different things: a file replayed faster than real time, a batch
 	// ingestion, or a stalled pipeline all diverge, and timing transitions by
 	// the clock then either stalls them or fires them early.
+	//
+	// The contract this places on callers: transitions only advance when audio
+	// is analyzed, so a discontinuous transport must inject silence for any
+	// interval it suppresses. On a line using silence suppression — where the
+	// far end sends no packets at all while quiet — the machine holds its state
+	// across the gap rather than aging out of it. Feed comfort noise or
+	// explicit silence for suppressed intervals.
 	stateDuration time.Duration
 }
 
@@ -71,6 +78,11 @@ func (m *vadStateMachine) update(probability float64, audioDuration time.Duratio
 
 // pcm16Duration returns the duration represented by a PCM16-mono byte count at
 // the given sample rate. Returns 0 for a non-positive rate.
+//
+// Assumes single-channel PCM16. Interleaved stereo reports twice its true
+// duration, and non-PCM16 payloads (G.711, for instance) are meaningless when
+// reinterpreted as int16 — VADParams carries no channel count, and no stage on
+// the VAD path normalizes one. Callers must feed mono PCM16 at params.SampleRate.
 func pcm16Duration(byteLen, sampleRate int) time.Duration {
 	if sampleRate <= 0 {
 		return 0
