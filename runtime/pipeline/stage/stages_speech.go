@@ -165,6 +165,12 @@ type audioTurnState struct {
 	// bufStart is the offset at which live audio begins. Bounding retention
 	// advances this rather than moving bytes; see capSilenceRetention.
 	bufStart int
+	// emittedTurn records whether any turn has been emitted for this stream.
+	// Deliberately NOT cleared by resetState: it is a property of the stream,
+	// not of the current turn, and it is what distinguishes "the VAD has never
+	// fired, so forward everything" from "the VAD is working and this is just
+	// trailing silence".
+	emittedTurn bool
 }
 
 // liveAudio returns the audio currently retained, excluding any dead prefix
@@ -343,14 +349,28 @@ func (s *AudioTurnStage) emitRemainingAudio(
 	if len(live) == 0 {
 		return nil
 	}
-	// Emit buffered audio if speech was detected OR if we have significant audio data
-	// For pre-recorded files, VAD may not detect speech, but we still want to forward the audio
-	if state.speechDetected || len(live) > defaultMinAudioBytes {
+	// Emit if this turn contains speech.
+	//
+	// Failing that, emit on size alone only when no turn has been emitted for
+	// this stream at all. That is the degrade-open case: a pre-recorded file
+	// whose VAD never fires must still be forwarded rather than silently
+	// dropped, since the audio may well contain speech the VAD misread.
+	//
+	// Once a turn HAS been emitted, the VAD has demonstrably been working, so a
+	// speechless remainder is just the tail of silence that completed the last
+	// turn. Forwarding it costs an STT call on pure silence — billed, slow, and
+	// a standing invitation for Whisper to hallucinate text that then flows
+	// downstream as if it had been spoken. It produced a phantom duplicate
+	// transcript in the voice-sales-assist example.
+	if state.speechDetected || (!state.emittedTurn && len(live) > defaultMinAudioBytes) {
 		logger.Debug("AudioTurnStage: emitting remaining audio",
 			"speechDetected", state.speechDetected,
 			"bufferSize", len(live))
 		return s.emitTurnAudio(ctx, state, output)
 	}
+
+	logger.Debug("AudioTurnStage: dropping speechless remainder",
+		"bufferSize", len(live))
 	return nil
 }
 
@@ -492,6 +512,10 @@ func (s *AudioTurnStage) emitTurnAudio(
 
 	select {
 	case output <- elem:
+		// Records that the VAD has demonstrably produced a turn on this stream,
+		// which is what lets emitRemainingAudio drop a speechless tail without
+		// weakening the degrade-open path.
+		state.emittedTurn = true
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
