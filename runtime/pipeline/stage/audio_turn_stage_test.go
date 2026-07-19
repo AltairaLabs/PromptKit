@@ -419,11 +419,15 @@ func TestAudioTurnStage_EmitsEndOfTurnAfterTurn(t *testing.T) {
 	config.SilenceDuration = 30 * time.Millisecond
 	config.MinSpeechDuration = 10 * time.Millisecond
 
+	// 160 samples/chunk = 10 ms @ 16 kHz. Turn completion is timed in AUDIO time,
+	// so the turn closes after 30 ms (3 chunks) of silence audio — no wall-clock
+	// sleeps required.
 	mockVAD := &mockVADAnalyzer{
 		states: []audio.VADState{
-			audio.VADStateSpeaking, // chunk1
-			audio.VADStateStopping, // chunk2 — silenceStart set
-			audio.VADStateQuiet,    // chunk3 — turn completes
+			audio.VADStateSpeaking, // chunk1: speech (>= MinSpeechDuration)
+			audio.VADStateQuiet,    // chunk2: 10 ms silence
+			audio.VADStateQuiet,    // chunk3: 20 ms silence
+			audio.VADStateQuiet,    // chunk4: 30 ms silence -> turn completes
 		},
 	}
 	config.VAD = mockVAD
@@ -437,11 +441,9 @@ func TestAudioTurnStage_EmitsEndOfTurnAfterTurn(t *testing.T) {
 	output := make(chan stage.StreamElement, 10)
 	go func() { _ = s.Process(ctx, input, output) }()
 
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
-	time.Sleep(20 * time.Millisecond)
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
-	time.Sleep(35 * time.Millisecond) // let SilenceDuration elapse
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
 	close(input)
 
 	var sawAudio, sawEndOfTurn, audioBeforeEOT bool
@@ -517,23 +519,19 @@ loop:
 
 func TestAudioTurnStage_MultipleTurns(t *testing.T) {
 	config := stage.DefaultAudioTurnConfig()
-	// SilenceDuration=30ms. Turn completion fires when a new chunk arrives after
-	// the silence timer has run for ≥30ms. We send the Stopping chunk then wait
-	// 35ms before sending the next chunk so shouldCompleteTurn fires on that chunk.
+	// 160 samples/chunk = 10 ms @ 16 kHz. Each turn closes on 30 ms (3 chunks) of
+	// silence AUDIO — no wall-clock sleeps. resetState calls vad.Reset(), which
+	// rewinds the mock's state index, so both turns replay this same 4-state
+	// pattern.
 	config.SilenceDuration = 30 * time.Millisecond
 	config.MinSpeechDuration = 10 * time.Millisecond
 
-	// VAD sequence: turn1 = [Speaking, Stopping, Quiet], turn2 = [Speaking, Stopping, Quiet]
-	// State reset between turns does not reset the mock VAD index.
-	// Turn 1 consumes indices 0-2; turn 2 consumes indices 3-5.
 	mockVAD := &mockVADAnalyzer{
 		states: []audio.VADState{
-			audio.VADStateSpeaking, // T1 chunk1
-			audio.VADStateStopping, // T1 chunk2 — silenceStart set here
-			audio.VADStateQuiet,    // T1 chunk3 — shouldCompleteTurn fires (silence ≥ 30ms after wait)
-			audio.VADStateSpeaking, // T2 chunk4 — speechDetected=true for turn 2
-			audio.VADStateStopping, // T2 chunk5 — silenceStart set for turn 2
-			audio.VADStateQuiet,    // T2 chunk6 — shouldCompleteTurn fires for turn 2
+			audio.VADStateSpeaking, // speech (>= MinSpeechDuration)
+			audio.VADStateQuiet,    // 10 ms silence
+			audio.VADStateQuiet,    // 20 ms silence
+			audio.VADStateQuiet,    // 30 ms silence -> turn completes
 		},
 	}
 	config.VAD = mockVAD
@@ -551,12 +549,10 @@ func TestAudioTurnStage_MultipleTurns(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	// Turn 1:
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk1: Speaking
-	time.Sleep(20 * time.Millisecond)
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk2: Stopping, silenceStart set
-	time.Sleep(35 * time.Millisecond)                           // wait for SilenceDuration to expire
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk3: Quiet, shouldCompleteTurn=true
+	// Turn 1: speech + 30 ms silence audio.
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
 
 	// Wait for first turn output
 	var turn1 *stage.StreamElement
@@ -568,12 +564,10 @@ func TestAudioTurnStage_MultipleTurns(t *testing.T) {
 	}
 	require.NotNil(t, turn1.Audio, "Turn 1 should produce audio")
 
-	// Turn 2 (same timing pattern):
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk4: Speaking
-	time.Sleep(20 * time.Millisecond)
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk5: Stopping, silenceStart set
-	time.Sleep(35 * time.Millisecond)                           // wait for SilenceDuration to expire
-	input <- makeAudioElement(generateTestPCMAudio(160), 16000) // chunk6: Quiet, shouldCompleteTurn=true
+	// Turn 2 (same pattern):
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
 	close(input)
 
 	// Wait for second turn output

@@ -100,6 +100,13 @@ type AudioTurnStage struct {
 
 // NewAudioTurnStage creates a new audio turn stage.
 func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
+	// Turn boundaries are measured in audio time (sample counts), so a zero
+	// sample rate would collapse every duration to 0 and no turn would ever
+	// complete. Fall back to the default rather than stalling silently.
+	if config.SampleRate <= 0 {
+		config.SampleRate = defaultAudioTurnSampleRate
+	}
+
 	// Create default VAD if not provided
 	vad := config.VAD
 	if vad == nil {
@@ -120,12 +127,28 @@ func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
 }
 
 // audioTurnState holds the state for turn processing.
+//
+// Turn boundaries are timed in AUDIO time (accumulated PCM sample counts), not
+// wall-clock: a live pipeline stalls (a blocking STT call on the previous turn,
+// a GC pause) or delivers a burst after a stall, so wall-clock diverges from the
+// audio's own duration. Timing silence by wall-clock mis-cut turns and dropped
+// the tail of an utterance. Sample counts make segmentation independent of how
+// fast audio arrives.
 type audioTurnState struct {
 	audioBuffer    []byte
 	speechDetected bool
-	speechStart    time.Time
-	silenceStart   time.Time
-	turnStart      time.Time
+	speechSamples  int // samples since speech first detected (~ time since speech start)
+	silenceSamples int // consecutive silence samples since the last speech (0 while speaking)
+	turnSamples    int // total samples accumulated this turn
+}
+
+// samplesToDuration converts a PCM16-mono sample count to a wall-clock-equivalent
+// duration at the given sample rate. Returns 0 for a non-positive rate.
+func samplesToDuration(samples, sampleRate int) time.Duration {
+	if sampleRate <= 0 {
+		return 0
+	}
+	return time.Duration(samples) * time.Second / time.Duration(sampleRate)
 }
 
 // Process implements the Stage interface.
@@ -137,9 +160,7 @@ func (s *AudioTurnStage) Process(
 ) error {
 	defer close(output)
 
-	state := &audioTurnState{
-		turnStart: time.Now(),
-	}
+	state := &audioTurnState{}
 
 	for elem := range input {
 		// Handle EndOfStream specially - emit any accumulated audio first
@@ -311,6 +332,10 @@ func (s *AudioTurnStage) processAudio(
 	// This is important for pre-recorded audio files where VAD may not detect speech
 	state.audioBuffer = append(state.audioBuffer, elem.Audio.Samples...)
 
+	// Account for this chunk in AUDIO time (sample count), never wall-clock.
+	n := len(elem.Audio.Samples) / bytesPerSample16Bit
+	state.turnSamples += n
+
 	// Run VAD analysis for turn detection
 	_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
 	if err != nil {
@@ -319,21 +344,27 @@ func (s *AudioTurnStage) processAudio(
 
 	vadState := s.vad.State()
 
-	// Update speech detection state based on VAD
+	// Update speech/silence sample tallies based on VAD.
 	switch vadState {
 	case audio.VADStateSpeaking, audio.VADStateStarting:
 		if !state.speechDetected {
 			state.speechDetected = true
-			state.speechStart = time.Now()
 			logger.Debug("AudioTurnStage: speech started")
 		}
-		state.silenceStart = time.Time{} // Reset silence timer
+		state.silenceSamples = 0 // speech resumed; reset the silence run
 
 	case audio.VADStateStopping, audio.VADStateQuiet:
-		if state.speechDetected && state.silenceStart.IsZero() {
-			state.silenceStart = time.Now()
-			logger.Debug("AudioTurnStage: silence started")
+		if state.speechDetected {
+			if state.silenceSamples == 0 {
+				logger.Debug("AudioTurnStage: silence started")
+			}
+			state.silenceSamples += n
 		}
+	}
+
+	// Time-since-speech-start (incl. intra-utterance pauses), for MinSpeechDuration.
+	if state.speechDetected {
+		state.speechSamples += n
 	}
 
 	// Also use TurnDetector if available
@@ -353,19 +384,21 @@ func (s *AudioTurnStage) shouldCompleteTurn(state *audioTurnState) bool {
 		return false
 	}
 
+	sr := s.config.SampleRate
+
 	// Check minimum speech duration
-	if time.Since(state.speechStart) < s.config.MinSpeechDuration {
+	if samplesToDuration(state.speechSamples, sr) < s.config.MinSpeechDuration {
 		return false
 	}
 
-	// Check silence duration
-	if !state.silenceStart.IsZero() && time.Since(state.silenceStart) >= s.config.SilenceDuration {
+	// Check silence duration (audio time, not wall-clock)
+	if state.silenceSamples > 0 && samplesToDuration(state.silenceSamples, sr) >= s.config.SilenceDuration {
 		logger.Debug("AudioTurnStage: turn complete - silence duration exceeded")
 		return true
 	}
 
 	// Check max turn duration
-	if time.Since(state.turnStart) >= s.config.MaxTurnDuration {
+	if samplesToDuration(state.turnSamples, sr) >= s.config.MaxTurnDuration {
 		logger.Debug("AudioTurnStage: turn complete - max duration exceeded")
 		return true
 	}
@@ -415,9 +448,9 @@ func (s *AudioTurnStage) emitTurnAudio(
 func (s *AudioTurnStage) resetState(state *audioTurnState) {
 	state.audioBuffer = nil
 	state.speechDetected = false
-	state.speechStart = time.Time{}
-	state.silenceStart = time.Time{}
-	state.turnStart = time.Now()
+	state.speechSamples = 0
+	state.silenceSamples = 0
+	state.turnSamples = 0
 	s.vad.Reset()
 	if s.turnDetector != nil {
 		s.turnDetector.Reset()
