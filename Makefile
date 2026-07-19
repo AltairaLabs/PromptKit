@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy
+.PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy bench-audio-memory
 
 # Route unknown targets to help
 .DEFAULT:
@@ -38,6 +38,15 @@ test: ## Run all tests
 	@cd sdk && go test -v ./...
 	@echo "Testing pkg..."
 	@cd pkg && go test -v ./... || echo "No pkg tests yet"
+
+bench-audio-memory: ## Report audio-path memory: retention per session + allocation churn per chunk
+	@echo "Audio path memory benchmarks (no -race: it perturbs allocation)"
+	@echo ""
+	@echo "== Retention: heap held per session length =="
+	@cd runtime && go test ./pipeline/stage/ -run '^$$' -bench BenchmarkAudioTurnStageRetention -benchtime 1x
+	@echo ""
+	@echo "== Churn: cost per audio chunk =="
+	@cd runtime && go test ./audio/ -run '^$$' -bench 'BenchmarkSilenceDetectorProcessAudio|BenchmarkResamplePCM16' -benchtime 2000x
 
 # =============================================================================
 # SDK E2E Tests
