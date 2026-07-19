@@ -154,6 +154,15 @@ type audioTurnState struct {
 	// first reported speech, or -1 while no speech has been detected. Leading
 	// silence before this point (less a pre-roll) is trimmed at emit time.
 	speechStartOffset int
+	// bufStart is the offset at which live audio begins. Bounding retention
+	// advances this rather than moving bytes; see capSilenceRetention.
+	bufStart int
+}
+
+// liveAudio returns the audio currently retained, excluding any dead prefix
+// dropped by the retention bound.
+func (s *audioTurnState) liveAudio() []byte {
+	return s.audioBuffer[s.bufStart:]
 }
 
 // newAudioTurnState returns turn state with no speech onset recorded yet.
@@ -322,15 +331,16 @@ func (s *AudioTurnStage) emitRemainingAudio(
 	state *audioTurnState,
 	output chan<- StreamElement,
 ) error {
-	if len(state.audioBuffer) == 0 {
+	live := state.liveAudio()
+	if len(live) == 0 {
 		return nil
 	}
 	// Emit buffered audio if speech was detected OR if we have significant audio data
 	// For pre-recorded files, VAD may not detect speech, but we still want to forward the audio
-	if state.speechDetected || len(state.audioBuffer) > defaultMinAudioBytes {
+	if state.speechDetected || len(live) > defaultMinAudioBytes {
 		logger.Debug("AudioTurnStage: emitting remaining audio",
 			"speechDetected", state.speechDetected,
-			"bufferSize", len(state.audioBuffer))
+			"bufferSize", len(live))
 		return s.emitTurnAudio(ctx, state, output)
 	}
 	return nil
@@ -354,6 +364,8 @@ func (s *AudioTurnStage) processAudio(
 	// Account for this chunk in AUDIO time (sample count), never wall-clock.
 	n := len(elem.Audio.Samples) / bytesPerSample16Bit
 	state.turnSamples += n
+
+	s.capSilenceRetention(state)
 
 	// Run VAD analysis for turn detection
 	_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
@@ -439,7 +451,7 @@ func (s *AudioTurnStage) emitTurnAudio(
 	state *audioTurnState,
 	output chan<- StreamElement,
 ) error {
-	if len(state.audioBuffer) == 0 {
+	if len(state.liveAudio()) == 0 {
 		return nil
 	}
 
@@ -447,7 +459,7 @@ func (s *AudioTurnStage) emitTurnAudio(
 
 	logger.Debug("AudioTurnStage: emitting turn audio",
 		"bytes", len(samples),
-		"trimmed_bytes", len(state.audioBuffer)-len(samples),
+		"trimmed_bytes", len(state.liveAudio())-len(samples),
 		"duration_ms", len(samples)*msPerSecond/(s.config.SampleRate*bytesPerSample16Bit))
 
 	elem := StreamElement{
@@ -468,6 +480,75 @@ func (s *AudioTurnStage) emitTurnAudio(
 	}
 }
 
+// capSilenceRetention bounds audio retained before any speech is detected.
+//
+// shouldCompleteTurn returns early while speechDetected is false, so the
+// MaxTurnDuration bound never applies on that path and the buffer grows for as
+// long as a participant stays quiet — measured at ~2.2 MB/min with a flat
+// per-minute rate across a 60x range, i.e. linear with no ceiling. A listener on
+// a long call, a hot mic below the VAD threshold, or a VAD misconfigured for the
+// sample rate all hit this.
+//
+// The bound is MaxTurnDuration because that is already the stage's declared
+// maximum extent for any turn: retaining more than one turn's worth of audio
+// that no turn will ever contain cannot help. Once speech is detected this stops
+// applying and the normal turn machinery takes over.
+//
+// Like SilenceDetector, this advances an offset rather than moving bytes, so
+// bounding costs O(1) amortized per byte instead of a memmove per chunk.
+//
+// Ordering matters: this must run BEFORE the VAD analysis that sets
+// speechStartOffset. That offset is an absolute index into audioBuffer, and a
+// compaction here rewrites those indices. Running before means the offset is
+// always computed against the post-compaction buffer, and this function returns
+// early once speech is detected, so it can never invalidate one already set.
+//
+// This narrows the degrade-open guarantee: when VAD never fires, the stage
+// forwards the most recent MaxTurnDuration rather than everything. It keeps the
+// newest audio, which is the audio a late-firing or broken VAD is most likely to
+// have been wrong about.
+func (s *AudioTurnStage) capSilenceRetention(state *audioTurnState) {
+	if state.speechDetected {
+		return
+	}
+
+	// Compute in nanosecond space, not float seconds. int(Duration.Seconds())
+	// truncates: any MaxTurnDuration below 1s would yield zero and read as "no
+	// bound", silently disabling the cap, and 1.5s would bound at 1s.
+	maxSamples := int(s.config.MaxTurnDuration * time.Duration(s.config.SampleRate) / time.Second)
+	maxBytes := maxSamples * bytesPerSample16Bit
+	if maxBytes <= 0 {
+		return
+	}
+
+	live := len(state.audioBuffer) - state.bufStart
+	if live <= maxBytes {
+		return
+	}
+
+	state.bufStart += live - maxBytes
+
+	// Silence before anyone speaks must not consume the turn's duration budget.
+	// shouldCompleteTurn measures turnSamples against MaxTurnDuration, so a pause
+	// longer than the bound would spend the entire budget before the utterance
+	// began and force-complete the turn the moment MinSpeechDuration was met,
+	// splitting it into a short fragment plus the remainder.
+	//
+	// Zero, not maxSamples: the retained window is exactly the bound, so carrying
+	// it forward would still read as "budget exhausted". While no speech has been
+	// detected the turn has not started, so it has spent nothing. Once speech is
+	// detected this function returns early and the budget accrues normally from
+	// there.
+	state.turnSamples = 0
+
+	// Reclaim the dead prefix only once it is worth a copy.
+	if state.bufStart >= maxBytes {
+		copy(state.audioBuffer, state.liveAudio())
+		state.audioBuffer = state.audioBuffer[:maxBytes]
+		state.bufStart = 0
+	}
+}
+
 // trimLeadingSilence drops the dead air preceding speech onset, keeping a
 // pre-roll margin. STT is billed per second and Whisper is prone to emitting
 // hallucinated text over long near-silent input, so shipping a caller's several
@@ -479,21 +560,26 @@ func (s *AudioTurnStage) emitTurnAudio(
 // instead of deleting audio, and trimming must not turn a misread into silent
 // data loss.
 func (s *AudioTurnStage) trimLeadingSilence(state *audioTurnState) []byte {
+	live := state.liveAudio()
 	if !state.speechDetected || state.speechStartOffset <= 0 {
-		return state.audioBuffer
+		return live
 	}
 
 	preRoll := int(defaultAudioTurnPreRoll.Seconds() * float64(s.config.SampleRate) * bytesPerSample16Bit)
 	start := state.speechStartOffset - preRoll
+	// speechStartOffset indexes audioBuffer, so rebase it onto the live window.
+	// The retention bound may already have dropped audio ahead of the onset.
+	start -= state.bufStart
 	if start <= 0 {
-		return state.audioBuffer
+		return live
 	}
-	return state.audioBuffer[start:]
+	return live[start:]
 }
 
 // resetState resets the turn state for a new turn.
 func (s *AudioTurnStage) resetState(state *audioTurnState) {
 	state.audioBuffer = nil
+	state.bufStart = 0
 	state.speechDetected = false
 	state.speechSamples = 0
 	state.silenceSamples = 0
