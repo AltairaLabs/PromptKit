@@ -237,7 +237,11 @@ func (s *DuplexProviderStage) Process(
 		// We buffer until we see EndOfStream (which marks end of first turn input),
 		// or until session creation completes (for fast providers like mocks).
 		// Subsequent turn elements will be read directly by forwardInputElements.
-		bufferedElements := []StreamElement{firstElem}
+		// Bounded: the drain goroutine below reads the input channel directly,
+		// which removes the pipeline's backpressure, so an unpaced producer would
+		// otherwise accumulate without limit for as long as session creation takes.
+		buffer := newPreSessionBuffer(defaultPreSessionBufferBytes)
+		buffer.add(firstElem)
 		bufferMu := &sync.Mutex{}
 		drainDone := make(chan struct{})
 		sessionCreated := make(chan struct{})
@@ -260,24 +264,25 @@ func (s *DuplexProviderStage) Process(
 						// Session is ready - stop buffering and let forwardInputElements handle the rest
 						bufferMu.Lock()
 						logger.Debug("DuplexProviderStage: session created, stopping buffer",
-							"bufferedCount", len(bufferedElements))
+							"bufferedCount", buffer.len())
 						bufferMu.Unlock()
 						return
 					case elem, ok := <-input:
 						if !ok {
 							bufferMu.Lock()
 							logger.Debug("DuplexProviderStage: input channel closed during buffering",
-								"bufferedCount", len(bufferedElements))
+								"bufferedCount", buffer.len())
 							bufferMu.Unlock()
 							return
 						}
 						bufferMu.Lock()
+						buffer.add(elem)
 						logger.Debug("DuplexProviderStage: buffered element",
 							"hasAudio", elem.Audio != nil,
 							"hasText", elem.Text != nil,
 							"endOfStream", elem.EndOfStream,
-							"bufferedCount", len(bufferedElements)+1)
-						bufferedElements = append(bufferedElements, elem)
+							"bufferedCount", buffer.len(),
+							"bufferedAudioBytes", buffer.bytes())
 						isEOS := elem.EndOfStream
 						bufferMu.Unlock()
 						// Stop buffering on EndOfStream - the first turn's input is complete
@@ -311,13 +316,13 @@ func (s *DuplexProviderStage) Process(
 		// Wait for buffering to complete (stops at EndOfStream or sessionCreated)
 		<-drainDone
 		bufferMu.Lock()
-		numBuffered := len(bufferedElements)
+		numBuffered := buffer.len()
 		bufferMu.Unlock()
 		logger.Debug("DuplexProviderStage: replaying buffered elements",
 			"count", numBuffered)
 
 		// Re-inject buffered elements followed by original input for subsequent turns
-		input = s.replayAndMerge(ctx, bufferedElements, input)
+		input = s.replayAndMerge(ctx, buffer.elements(), input)
 	} else {
 		// Session was pre-configured, ensure it's closed on exit
 		defer s.session.Close()
