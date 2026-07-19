@@ -400,9 +400,19 @@ func (s *AudioTurnStage) processAudio(
 		state.speechSamples += n
 	}
 
-	// Also use TurnDetector if available
+	// Also use TurnDetector if available.
+	//
+	// Both calls are required. Detectors split the work: ProcessAudio accumulates
+	// the turn's audio, while speaking/silence tracking — and therefore
+	// IsUserSpeaking, which shouldCompleteTurn votes on — is driven entirely by
+	// ProcessVADState. Feeding only the audio leaves a detector permanently
+	// reporting not-speaking, so its vote ends the turn on every evaluation and
+	// continuous speech is shattered into MinSpeechDuration fragments.
 	if s.turnDetector != nil {
 		if _, err := s.turnDetector.ProcessAudio(ctx, elem.Audio.Samples); err != nil {
+			return err
+		}
+		if _, err := s.turnDetector.ProcessVADState(ctx, vadState); err != nil {
 			return err
 		}
 	}

@@ -142,7 +142,14 @@ func (d *SilenceDetector) ProcessVADState(ctx context.Context, state VADState) (
 	d.lastVADState = state
 
 	switch state {
-	case VADStateSpeaking:
+	// Starting counts as speaking. It means voice has been detected but the VAD
+	// has not yet held it long enough to promote to Speaking, and reaching
+	// Speaking takes several chunks (smoothing to cross the threshold, then
+	// StartSecs in Starting). Treating that window as silence disagrees with
+	// every consumer — AudioTurnStage groups the two states as speech — so a
+	// turn detector would report not-speaking over audio the pipeline has
+	// already accepted as speech, and end the turn part way through a word.
+	case VADStateSpeaking, VADStateStarting:
 		d.userSpeaking = true
 		d.hadSpeech = true
 		d.inSilence = false
@@ -168,10 +175,6 @@ func (d *SilenceDetector) ProcessVADState(ctx context.Context, state VADState) (
 			d.inSilence = true
 		}
 		d.userSpeaking = false
-
-	case VADStateStarting:
-		// User might be starting to speak again
-		d.inSilence = false
 	}
 
 	return false, nil
