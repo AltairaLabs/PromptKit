@@ -117,11 +117,19 @@ func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
 		config.SampleRate = defaultAudioTurnSampleRate
 	}
 
-	// Create default VAD if not provided
+	// Create default VAD if not provided.
+	//
+	// The VAD's params must carry the configured sample rate, not the default.
+	// VAD state transitions are scaled by it — it is how a chunk's byte count
+	// becomes a duration — so leaving it at 16kHz makes the VAD and this stage
+	// disagree about how long a chunk lasts at any other rate: 8kHz telephony
+	// would see every threshold at twice its intended length, 48kHz at a third.
 	vad := config.VAD
 	if vad == nil {
+		params := audio.DefaultVADParams()
+		params.SampleRate = config.SampleRate
 		var err error
-		vad, err = audio.NewSimpleVAD(audio.DefaultVADParams())
+		vad, err = audio.NewSimpleVAD(params)
 		if err != nil {
 			return nil, err
 		}
@@ -400,9 +408,19 @@ func (s *AudioTurnStage) processAudio(
 		state.speechSamples += n
 	}
 
-	// Also use TurnDetector if available
+	// Also use TurnDetector if available.
+	//
+	// Both calls are required. Detectors split the work: ProcessAudio accumulates
+	// the turn's audio, while speaking/silence tracking — and therefore
+	// IsUserSpeaking, which shouldCompleteTurn votes on — is driven entirely by
+	// ProcessVADState. Feeding only the audio leaves a detector permanently
+	// reporting not-speaking, so its vote ends the turn on every evaluation and
+	// continuous speech is shattered into MinSpeechDuration fragments.
 	if s.turnDetector != nil {
 		if _, err := s.turnDetector.ProcessAudio(ctx, elem.Audio.Samples); err != nil {
+			return err
+		}
+		if _, err := s.turnDetector.ProcessVADState(ctx, vadState); err != nil {
 			return err
 		}
 	}

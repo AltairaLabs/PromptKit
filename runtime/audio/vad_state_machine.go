@@ -16,7 +16,19 @@ type vadStateMachine struct {
 	state       VADState
 	prevState   VADState
 	stateChange chan VADEvent
-	stateStart  time.Time
+	// stateDuration is how much AUDIO has been analyzed in the current state,
+	// not how much wall-clock has passed. Delivery rate and audio duration are
+	// different things: a file replayed faster than real time, a batch
+	// ingestion, or a stalled pipeline all diverge, and timing transitions by
+	// the clock then either stalls them or fires them early.
+	//
+	// The contract this places on callers: transitions only advance when audio
+	// is analyzed, so a discontinuous transport must inject silence for any
+	// interval it suppresses. On a line using silence suppression — where the
+	// far end sends no packets at all while quiet — the machine holds its state
+	// across the gap rather than aging out of it. Feed comfort noise or
+	// explicit silence for suppressed intervals.
+	stateDuration time.Duration
 }
 
 // newVADStateMachine creates a vadStateMachine with the given params.
@@ -25,19 +37,21 @@ func newVADStateMachine(params VADParams) *vadStateMachine {
 		params:      params,
 		state:       VADStateQuiet,
 		stateChange: make(chan VADEvent, stateChangeBufferSize),
-		stateStart:  time.Now(),
 	}
 }
 
 // update advances the state machine with the given voice probability and emits
 // a VADEvent on state change. The send is non-blocking; events are dropped when
 // the channel is full.
-func (m *vadStateMachine) update(probability float64) {
+// audioDuration is the duration of the audio this probability was derived from,
+// which is what advances the state machine's sense of time.
+func (m *vadStateMachine) update(probability float64, audioDuration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now()
-	stateDuration := now.Sub(m.stateStart)
+	m.stateDuration += audioDuration
+	stateDuration := m.stateDuration
 
 	newState := m.computeNextState(m.state, probability, stateDuration.Seconds())
 
@@ -52,7 +66,7 @@ func (m *vadStateMachine) update(probability float64) {
 
 		m.prevState = m.state
 		m.state = newState
-		m.stateStart = now
+		m.stateDuration = 0
 
 		// Non-blocking send — drop the event if the channel is full.
 		select {
@@ -60,6 +74,22 @@ func (m *vadStateMachine) update(probability float64) {
 		default:
 		}
 	}
+}
+
+// pcm16Duration returns the duration represented by a PCM16-mono byte count at
+// the given sample rate. Returns 0 for a non-positive rate.
+//
+// Assumes single-channel PCM16. Interleaved stereo reports twice its true
+// duration, and non-PCM16 payloads (G.711, for instance) are meaningless when
+// reinterpreted as int16 — VADParams carries no channel count, and no stage on
+// the VAD path normalizes one. Callers must feed mono PCM16 at params.SampleRate.
+func pcm16Duration(byteLen, sampleRate int) time.Duration {
+	if sampleRate <= 0 {
+		return 0
+	}
+	const bytesPerSample16Bit = 2
+	samples := byteLen / bytesPerSample16Bit
+	return time.Duration(samples) * time.Second / time.Duration(sampleRate)
 }
 
 // computeNextState is a pure function that determines the next VAD state given
@@ -117,7 +147,7 @@ func (m *vadStateMachine) Reset() {
 
 	m.state = VADStateQuiet
 	m.prevState = VADStateQuiet
-	m.stateStart = time.Now()
+	m.stateDuration = 0
 
 	for len(m.stateChange) > 0 {
 		<-m.stateChange

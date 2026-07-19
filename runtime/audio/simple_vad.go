@@ -74,8 +74,9 @@ func (v *SimpleVAD) Analyze(_ context.Context, audioData []byte) (float64, error
 	// Convert RMS to probability (0.0-1.0).
 	probability := v.rmsToProbability(smoothed)
 
-	// Advance the shared state machine.
-	v.update(probability)
+	// Advance the shared state machine by this chunk's AUDIO duration, so
+	// transitions do not depend on how fast audio is delivered.
+	v.update(probability, pcm16Duration(len(audioData), v.params.SampleRate))
 
 	return probability, nil
 }

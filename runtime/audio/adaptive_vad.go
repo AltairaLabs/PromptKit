@@ -122,8 +122,9 @@ func (v *AdaptiveVAD) Analyze(_ context.Context, audioData []byte) (float64, err
 	// Map smoothed RMS to probability.
 	probability := adaptiveProbability(smoothed, floor, speechThreshold)
 
-	// Advance the shared state machine.
-	v.update(probability)
+	// Advance the shared state machine by this chunk's AUDIO duration, so
+	// transitions do not depend on how fast audio is delivered.
+	v.update(probability, pcm16Duration(len(audioData), v.params.SampleRate))
 
 	return probability, nil
 }
