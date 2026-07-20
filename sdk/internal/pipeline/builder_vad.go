@@ -8,26 +8,14 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
-// prefixedStage wraps a Stage to override its Name(), so the same constructor
-// (audio-resample/audio_turn/stt) can be instantiated more than once in a single
-// pipeline graph — e.g. one call to BuildAudioTrackStages per audio track — without
-// colliding on stage name. An empty prefix is a no-op passthrough wrapper so the
-// single-track VAD front keeps its original, unprefixed stage names.
-type prefixedStage struct {
-	stage.Stage
-	name string
-}
-
-// Name reports the prefixed stage name, overriding the embedded stage's Name.
-func (p *prefixedStage) Name() string { return p.name }
-
-// withNamePrefix returns s unchanged when prefix is empty, otherwise wraps it so
-// Name() reports "<prefix>_<original name>".
+// withNamePrefix delegates to stage.WithNamePrefix.
+//
+// The wrapper used to be defined here, which put it behind Go's internal-package
+// rule: examples and downstream consumers building multi-track graphs could not
+// import it and re-derived the same ~15 lines. It now lives in
+// runtime/pipeline/stage alongside the Stage interface it wraps.
 func withNamePrefix(prefix string, s stage.Stage) stage.Stage {
-	if prefix == "" {
-		return s
-	}
-	return &prefixedStage{Stage: s, name: prefix + "_" + s.Name()}
+	return stage.WithNamePrefix(prefix, s)
 }
 
 // BuildAudioTrackStages returns the ordered stages for one named audio track:

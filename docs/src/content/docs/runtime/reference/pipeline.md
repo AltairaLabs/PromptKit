@@ -339,6 +339,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(s ScoredMessages\) Less\(i, j int\) bool](<#ScoredMessages.Less>)
   - [func \(s ScoredMessages\) Swap\(i, j int\)](<#ScoredMessages.Swap>)
 - [type Stage](<#Stage>)
+  - [func WithNamePrefix\(prefix string, s Stage\) Stage](<#WithNamePrefix>)
 - [type StageError](<#StageError>)
   - [func NewStageError\(stageName string, stageType StageType, err error\) \*StageError](<#NewStageError>)
   - [func \(e \*StageError\) Error\(\) string](<#StageError.Error>)
@@ -4451,6 +4452,21 @@ type Stage interface {
     Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 ```
+
+<a name="WithNamePrefix"></a>
+### func WithNamePrefix
+
+```go
+func WithNamePrefix(prefix string, s Stage) Stage
+```
+
+WithNamePrefix returns s renamed to "\<prefix\>\_\<name\>", so the same stage constructors can be instantiated once per branch in a single pipeline.
+
+PipelineBuilder.Build rejects duplicate stage names, so a fan\-out that runs identical sub\-chains — one audio track per speaker on a two\-party call, one per camera, one per tenant — must give each branch's stages distinct names. Without a shared helper, every consumer re\-derives the same wrapper by embedding Stage and overriding Name\(\).
+
+An empty prefix returns s unchanged, which is the single\-branch case: the constructors' natural names are already unique and no wrapper is warranted.
+
+The original stage is not mutated, so the same instance can be wrapped more than once — though note that wrapping shares the underlying stage, including any state it holds. Branches needing independent state must construct separate stages.
 
 <a name="StageError"></a>
 ## type StageError
