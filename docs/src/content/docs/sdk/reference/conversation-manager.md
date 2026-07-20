@@ -1279,7 +1279,10 @@ for chunk := range respCh {
 }
 ```
 
-The provider must support streaming input \(implement providers.StreamInputSupport\). Currently supported providers: Gemini with certain models.
+Provider requirements depend on how the input side is driven:
+
+- ASM mode \(default\): audio is sent to the model itself, so the provider must implement providers.StreamInputSupport. Currently that means Gemini with certain models.
+- WithVADMode / WithIngestion: the pipeline owns the input side and the model only ever sees text, so any text provider works — including Claude and OpenAI Chat Completions.
 
 <a name="Resume"></a>
 ### func Resume
