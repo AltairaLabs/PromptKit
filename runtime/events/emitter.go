@@ -88,6 +88,21 @@ func (e *Emitter) PipelineStarted(middlewareCount int) {
 	})
 }
 
+// AudioTranscription emits the audio.transcription event for a completed
+// speech-to-text result.
+//
+// isFinal distinguishes a settled transcription from an interim one; a
+// completed STT turn is final. provider names the STT service, language the
+// hint or detected code, both optional.
+func (e *Emitter) AudioTranscription(text, language, provider string, isFinal bool) {
+	e.emit(EventAudioTranscription, &AudioTranscriptionData{
+		Text:     text,
+		Language: language,
+		Provider: provider,
+		IsFinal:  isFinal,
+	})
+}
+
 // PipelineCompleted emits the pipeline.completed event.
 func (e *Emitter) PipelineCompleted(
 	duration time.Duration,

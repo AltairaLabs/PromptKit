@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
@@ -687,6 +688,9 @@ type STTStage struct {
 	BaseStage
 	service base.STTProvider
 	config  STTStageConfig
+	// emitter is optional. When set, each completed transcription publishes an
+	// EventAudioTranscription so subscribers and session export can see it.
+	emitter *events.Emitter
 }
 
 // NewSTTStage creates a new STT stage.
@@ -699,6 +703,27 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage {
 		service:   service,
 		config:    config,
 	}
+}
+
+// NewSTTStageWithEmitter creates an STT stage that publishes an
+// EventAudioTranscription for each completed transcription.
+//
+// The event type and its payload (events.AudioTranscriptionData) were declared
+// and already consumed — session export writes transcriptions out as subtitles,
+// and annotated sessions query them by type — but nothing produced them, so
+// subscribers waited forever and both consumers saw an empty set. Applications
+// wanting a live transcript had to thread their own callback through the stage
+// graph instead.
+//
+// The emitter is optional; NewSTTStage remains the no-events constructor.
+func NewSTTStageWithEmitter(
+	service base.STTProvider,
+	config STTStageConfig,
+	emitter *events.Emitter,
+) *STTStage {
+	s := NewSTTStage(service, config)
+	s.emitter = emitter
+	return s
 }
 
 // Process implements the Stage interface.
@@ -759,6 +784,12 @@ func (s *STTStage) Process(
 		}
 
 		logger.Debug("STTStage: transcribed", "textLength", len(text))
+
+		// Publish the transcription so subscribers and session export can see it.
+		// Optional: a stage built without an emitter behaves exactly as before.
+		if s.emitter != nil {
+			s.emitter.AudioTranscription(text, s.config.Language, s.service.Name(), true)
+		}
 
 		// Create text element, preserving metadata.
 		//
