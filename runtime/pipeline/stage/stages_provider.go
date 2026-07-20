@@ -221,6 +221,14 @@ func (s *ProviderStage) Process(
 
 // accumulateInput collects messages from the input channel and seeds
 // per-Turn provider request metadata from TurnState.
+//
+// Input ends on either a closed channel (the unary "pipeline per turn" shape)
+// or an EndOfStream control element. Honoring EndOfStream is what lets a duplex
+// session shut down gracefully: duplexSession.Drain signals end-of-input with
+// that element and then waits for the pipeline to finish *before* closing the
+// channel, so waiting on channel close alone deadlocks the drain until its
+// timeout expires. EndOfStream is the same session-over signal AudioTurnStage,
+// ResponseVAD and processStreaming already honor. See #1638.
 func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInput {
 	acc := &providerInput{
 		metadata: make(map[string]interface{}),
@@ -229,6 +237,9 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 	for elem := range input {
 		if elem.Message != nil {
 			acc.messages = append(acc.messages, *elem.Message)
+		}
+		if elem.EndOfStream {
+			break
 		}
 	}
 
