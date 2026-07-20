@@ -142,8 +142,14 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 //	    fmt.Print(chunk.Content)
 //	}
 //
-// The provider must support streaming input (implement providers.StreamInputSupport).
-// Currently supported providers: Gemini with certain models.
+// Provider requirements depend on how the input side is driven:
+//
+//   - ASM mode (default): audio is sent to the model itself, so the provider
+//     must implement providers.StreamInputSupport. Currently that means Gemini
+//     with certain models.
+//   - WithVADMode / WithIngestion: the pipeline owns the input side and the
+//     model only ever sees text, so any text provider works — including Claude
+//     and OpenAI Chat Completions.
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	conv, prov, err := initConversation(packPath, promptName, opts)
 	if err != nil {
@@ -158,14 +164,21 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
-	// Verify provider supports streaming input. A custom ingestion sub-graph
-	// (WithIngestion) drives the standard agent chain — the streaming text
-	// ProviderStage, not the ASM DuplexProviderStage — and never calls
-	// CreateStreamSession, so it does not need StreamInputSupport. When it is
-	// absent, only ASM mode requires the interface. NewDuplexSession re-derives
-	// the streaming provider from the base provider itself for ASM mode, so the
-	// gate here is purely a fail-fast check.
-	if _, ok := prov.(providers.StreamInputSupport); !ok && conv.config.ingestion == nil {
+	// Verify provider supports streaming input. Only ASM mode — where audio
+	// goes to the model itself — needs StreamInputSupport. Two duplex modes
+	// author the input side themselves and drive the standard agent chain (the
+	// streaming text ProviderStage, not the ASM DuplexProviderStage), never
+	// calling CreateStreamSession, so neither needs the interface:
+	//
+	//   - WithIngestion: a custom upstream sub-graph.
+	//   - WithVADMode:   AudioTurn → STT → LLM → TTS, where the model only ever
+	//     sees text. Requiring the ASM interface here would exclude exactly the
+	//     text-only providers VAD mode exists to serve (#1637).
+	//
+	// NewDuplexSession re-derives the streaming provider from the base provider
+	// itself for ASM mode, so the gate here is purely a fail-fast check.
+	if _, ok := prov.(providers.StreamInputSupport); !ok &&
+		conv.config.ingestion == nil && conv.config.vadModeConfig == nil {
 		return nil, fmt.Errorf(
 			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
 			prov,
