@@ -4,7 +4,7 @@ This example demonstrates Voice Activity Detection using PromptKit's audio packa
 
 ## Features
 
-- **SimpleVAD**: Basic voice activity detection using RMS energy analysis
+- **AdaptiveVAD**: Voice activity detection that tracks the ambient noise floor, so it follows a speaker through the quiet parts of an utterance
 - **State Tracking**: Monitor transitions between quiet/starting/speaking/stopping
 - **Configurable Parameters**: Tune sensitivity for different environments
 - **Event Notifications**: React to state changes in real-time
@@ -67,7 +67,7 @@ params := audio.VADParams{
 ## State Change Events
 
 ```go
-vad, _ := audio.NewSimpleVAD(audio.DefaultVADParams())
+vad, _ := audio.NewAdaptiveVAD(audio.DefaultVADParams())
 stateChanges := vad.OnStateChange()
 
 go func() {
@@ -83,15 +83,13 @@ go func() {
 VAD is typically used with audio sessions:
 
 ```go
-conv, _ := sdk.Open("./pack.json", "assistant")
+// A voice session uses AdaptiveVAD by default; pass WithVAD only to override it.
+myVAD, _ := audio.NewAdaptiveVAD(audio.DefaultVADParams())
 
-// Create audio session with VAD
-session, _ := conv.OpenAudioSession(ctx,
-    sdk.WithSessionVAD(audio.NewSimpleVAD(audio.DefaultVADParams())),
+conv, _ := sdk.Open("./pack.json", "assistant",
+    sdk.WithVADMode(sttService, ttsService, nil),
+    sdk.WithVAD(myVAD),
 )
-
-// VAD automatically processes audio chunks
-session.SendChunk(ctx, audioChunk)
 ```
 
 ## Notes

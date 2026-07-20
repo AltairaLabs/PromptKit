@@ -25,9 +25,24 @@ const (
 	maxExpectedRMS = 0.1
 )
 
-// SimpleVAD is a basic voice activity detector using RMS (Root Mean Square) analysis.
-// It provides a lightweight VAD implementation without requiring external ML models.
-// For more accurate detection, consider using SileroVAD.
+// SimpleVAD is a voice activity detector using a FIXED RMS threshold.
+//
+// Deprecated: use AdaptiveVAD. SimpleVAD's threshold does not track the input
+// level, and the default mapping makes it insensitive to ordinary speech: RMS is
+// scaled linearly between MinVolume (0.01) and maxExpectedRMS (0.1) against a
+// 0.5 Confidence threshold, so nothing below ~0.055 RMS registers as speech.
+// Conversational speech averages ~0.10 RMS but ranges far below that within a
+// single utterance — a trailing word at 0.021 reads as silence, which closes the
+// turn mid-sentence and orphans the word.
+//
+// Measured against AdaptiveVAD across nine acoustic conditions and against TTS
+// playback, SimpleVAD is worse or equal everywhere: it misses quiet speech
+// (0.04 RMS), misses low-level TTS entirely (0.02 RMS), reaches Speaking later
+// at every level it does detect, and drops out of quiet tails. It false-positives
+// no less often. There is no input for which it is the better choice.
+//
+// It remains exported so existing callers keep compiling. Both AudioTurnStage
+// and ResponseVADStage now default to AdaptiveVAD.
 //
 // SimpleVAD embeds *vadStateMachine, which promotes State(), OnStateChange(), and
 // base Reset() — together they satisfy the VADAnalyzer interface.

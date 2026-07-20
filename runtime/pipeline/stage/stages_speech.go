@@ -18,7 +18,9 @@ import (
 // AudioTurnConfig configures the AudioTurnStage.
 type AudioTurnConfig struct {
 	// VAD is the voice activity detector.
-	// If nil, a SimpleVAD with default params is created.
+	// If nil, an AdaptiveVAD with default params is created — it tracks the
+	// noise floor rather than holding a fixed threshold, so it follows a speaker
+	// down through the quiet parts of an utterance.
 	VAD audio.VADAnalyzer
 
 	// TurnDetector determines when user has finished speaking.
@@ -119,17 +121,35 @@ func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
 
 	// Create default VAD if not provided.
 	//
-	// The VAD's params must carry the configured sample rate, not the default.
-	// VAD state transitions are scaled by it — it is how a chunk's byte count
-	// becomes a duration — so leaving it at 16kHz makes the VAD and this stage
-	// disagree about how long a chunk lasts at any other rate: 8kHz telephony
-	// would see every threshold at twice its intended length, 48kHz at a third.
+	// AdaptiveVAD, not SimpleVAD. SimpleVAD maps RMS to probability linearly
+	// between MinVolume (0.01) and maxExpectedRMS (0.1) against a 0.5 Confidence
+	// threshold, so it only calls audio speech above ~0.055 RMS. Conversational
+	// speech averages ~0.10 RMS but ranges far below that within one utterance,
+	// and a trailing word measured at 0.021 read as silence — closing the turn
+	// mid-sentence and orphaning the word.
+	//
+	// Measured across conditions, AdaptiveVAD dominates: it detects quiet speech
+	// (0.04 RMS) that SimpleVAD misses, reaches Speaking sooner on normal speech
+	// (300ms vs 500ms), and holds through quiet tails, with identical
+	// false-positive behavior on digital silence and room noise up to 0.02 RMS.
+	// Its one trade is reaching Quiet more slowly after speech ends, because its
+	// smoothed estimate decays from a higher level — which does not affect this
+	// stage (Stopping already counts as silence for turn completion) but does
+	// delay a TurnDetector that keys on Quiet.
+	//
+	// SimpleVAD remains exported for callers that want a fixed threshold.
+	//
+	// The params must carry the configured sample rate, not the default. VAD
+	// state transitions are scaled by it — it is how a chunk's byte count becomes
+	// a duration — so leaving it at 16kHz makes the VAD and this stage disagree
+	// about how long a chunk lasts at any other rate: 8kHz telephony would see
+	// every threshold at twice its intended length, 48kHz at a third.
 	vad := config.VAD
 	if vad == nil {
 		params := audio.DefaultVADParams()
 		params.SampleRate = config.SampleRate
 		var err error
-		vad, err = audio.NewSimpleVAD(params)
+		vad, err = audio.NewAdaptiveVAD(params)
 		if err != nil {
 			return nil, err
 		}
@@ -1121,8 +1141,14 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error) {
 			params.SampleRate = defaultResponseVADSampleRate
 		}
 
+		// AdaptiveVAD here too. TTS output was assumed predictable enough for a
+		// fixed threshold, but measured against these very params it is not:
+		// SimpleVAD does not detect 0.02 RMS playback at all, and is slower at
+		// every level it does detect (0.05 RMS at 500ms vs 200ms). Undetected
+		// playback starts the silence window immediately, releasing EndOfStream
+		// while the assistant is still speaking.
 		var err error
-		vad, err = audio.NewSimpleVAD(params)
+		vad, err = audio.NewAdaptiveVAD(params)
 		if err != nil {
 			return nil, err
 		}

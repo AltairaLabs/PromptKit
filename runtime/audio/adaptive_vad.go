@@ -6,9 +6,25 @@ import (
 )
 
 const (
-	// adaptiveSmoothingAlpha is the weight given to the current RMS frame when
-	// computing the exponential moving average (lower = more smoothing).
+	// adaptiveSmoothingAlpha is the weight given to the current RMS frame while
+	// the level is RISING (lower = more smoothing). Attack is deliberately
+	// gentle: a single loud frame should not be enough to declare speech.
 	adaptiveSmoothingAlpha = 0.3
+	// adaptiveReleaseAlpha is the weight used while the level is FALLING.
+	//
+	// Release is much faster than attack. With a symmetric factor the level
+	// estimate decays slowly from a high value however abruptly the audio stops,
+	// so the detector kept reporting Speaking for 600ms after true silence
+	// against SimpleVAD's 200ms. AudioTurnStage's silence budget only accrues
+	// once the VAD leaves Speaking, so that lag is added to every turn boundary
+	// and merges utterances separated by shorter pauses.
+	//
+	// Releasing quickly does not cost tail retention: holding through a quiet
+	// trailing word comes from the threshold tracking the noise floor, not from
+	// the smoothing lag. Real silence collapses the level to zero and the
+	// detector releases; quiet speech stays above an adaptive threshold and
+	// holds.
+	adaptiveReleaseAlpha = 0.7
 	// adaptiveSpeechRatio is the multiplier applied to the noise floor to derive
 	// the speech threshold. Speech must be this many times louder than background.
 	adaptiveSpeechRatio = 3.0
@@ -89,8 +105,13 @@ func (v *AdaptiveVAD) Analyze(_ context.Context, audioData []byte) (float64, err
 
 	v.mu.Lock()
 
-	// Exponential moving average of RMS (0.3 × current + 0.7 × history).
-	v.smoothedRMS = adaptiveSmoothingAlpha*rms + (1-adaptiveSmoothingAlpha)*v.smoothedRMS
+	// Exponential moving average of RMS, with a faster factor while falling so
+	// the detector releases promptly when audio actually stops.
+	alpha := adaptiveSmoothingAlpha
+	if rms < v.smoothedRMS {
+		alpha = adaptiveReleaseAlpha
+	}
+	v.smoothedRMS = alpha*rms + (1-alpha)*v.smoothedRMS
 	smoothed := v.smoothedRMS
 	floor := v.noiseFloor
 

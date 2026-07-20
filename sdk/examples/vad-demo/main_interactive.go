@@ -1,7 +1,7 @@
 // Package main demonstrates Voice Activity Detection (VAD) in PromptKit.
 //
 // This example shows:
-//   - Creating a SimpleVAD analyzer
+//   - Creating an AdaptiveVAD analyzer
 //   - Processing audio frames and detecting speech
 //   - Handling VAD state transitions
 //   - Configuring VAD parameters
@@ -42,7 +42,7 @@ func basicVADDemo() {
 
 	// Create VAD with default parameters
 	params := audio.DefaultVADParams()
-	vad, err := audio.NewSimpleVAD(params)
+	vad, err := audio.NewAdaptiveVAD(params)
 	if err != nil {
 		fmt.Printf("Failed to create VAD: %v\n", err)
 		return
@@ -160,7 +160,7 @@ func stateChangeDemo() {
 	fmt.Println("🔔 VAD State Change Demo")
 	fmt.Println("------------------------")
 
-	vad, _ := audio.NewSimpleVAD(audio.DefaultVADParams())
+	vad, _ := audio.NewAdaptiveVAD(audio.DefaultVADParams())
 
 	// Get the state change channel
 	stateChanges := vad.OnStateChange()

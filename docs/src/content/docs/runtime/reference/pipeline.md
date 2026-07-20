@@ -937,7 +937,9 @@ AudioTurnConfig configures the AudioTurnStage.
 ```go
 type AudioTurnConfig struct {
     // VAD is the voice activity detector.
-    // If nil, a SimpleVAD with default params is created.
+    // If nil, an AdaptiveVAD with default params is created — it tracks the
+    // noise floor rather than holding a fixed threshold, so it follows a speaker
+    // down through the quiet parts of an utterance.
     VAD audio.VADAnalyzer
 
     // TurnDetector determines when user has finished speaking.
