@@ -1530,3 +1530,47 @@ func TestEmitter_ReasoningDelta(t *testing.T) {
 		t.Fatalf("Text = %q, want %q", data.Text, "thinking...")
 	}
 }
+
+// TestEmitterAudioTranscription pins the transcription event's payload.
+//
+// The event type and AudioTranscriptionData were declared and consumed (session
+// export renders them as subtitles, annotated sessions query them by type)
+// without any producer, so nothing verified the shape a consumer would receive.
+func TestEmitterAudioTranscription(t *testing.T) {
+	bus := NewEventBus()
+	defer bus.Close()
+
+	emitter := NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventAudioTranscription, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.AudioTranscription("the transcribed text", "en", "whisper", true)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for audio transcription event")
+	}
+
+	data, ok := got.Data.(*AudioTranscriptionData)
+	if !ok {
+		t.Fatalf("unexpected payload type %T; consumers type-assert *AudioTranscriptionData", got.Data)
+	}
+	if data.Text != "the transcribed text" {
+		t.Errorf("Text = %q, want the transcribed text", data.Text)
+	}
+	if data.Language != "en" {
+		t.Errorf("Language = %q, want en", data.Language)
+	}
+	if data.Provider != "whisper" {
+		t.Errorf("Provider = %q, want whisper", data.Provider)
+	}
+	if !data.IsFinal {
+		t.Error("IsFinal = false; a completed STT turn is a final transcription")
+	}
+}
