@@ -432,6 +432,16 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 	}
 	s.closeMu.Unlock()
 
+	// A session that never received a chunk never started executePipeline, so
+	// pipelineDone will never be closed and there is nothing to drain. Waiting
+	// would block for the full timeout and then report a spurious failure.
+	s.executionMu.Lock()
+	started := s.executionStarted
+	s.executionMu.Unlock()
+	if !started {
+		return s.Close()
+	}
+
 	// Send EndOfStream signal so the pipeline knows input is done.
 	select {
 	case s.stageInput <- stage.StreamElement{EndOfStream: true}:
