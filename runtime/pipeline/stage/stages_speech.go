@@ -1141,8 +1141,14 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error) {
 			params.SampleRate = defaultResponseVADSampleRate
 		}
 
+		// AdaptiveVAD here too. TTS output was assumed predictable enough for a
+		// fixed threshold, but measured against these very params it is not:
+		// SimpleVAD does not detect 0.02 RMS playback at all, and is slower at
+		// every level it does detect (0.05 RMS at 500ms vs 200ms). Undetected
+		// playback starts the silence window immediately, releasing EndOfStream
+		// while the assistant is still speaking.
 		var err error
-		vad, err = audio.NewSimpleVAD(params)
+		vad, err = audio.NewAdaptiveVAD(params)
 		if err != nil {
 			return nil, err
 		}

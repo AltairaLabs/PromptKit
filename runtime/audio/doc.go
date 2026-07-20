@@ -16,7 +16,7 @@
 //
 // # Usage Example
 //
-//	vad := audio.NewSimpleVAD(audio.DefaultVADParams())
+//	vad := audio.NewAdaptiveVAD(audio.DefaultVADParams())
 //	detector := audio.NewSilenceDetector(500 * time.Millisecond)
 //
 //	for chunk := range audioStream {
