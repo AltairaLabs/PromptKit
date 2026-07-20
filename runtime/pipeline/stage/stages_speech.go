@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // AudioTurnConfig configures the AudioTurnStage.
@@ -759,9 +760,26 @@ func (s *STTStage) Process(
 
 		logger.Debug("STTStage: transcribed", "textLength", len(text))
 
-		// Create text element, preserving metadata
+		// Create text element, preserving metadata.
+		//
+		// Message is populated as well as Text. ProviderStage's accumulateInput
+		// collects only elem.Message, so a Text-only element reaches the model as
+		// nothing at all — and the shipped VAD topology wires this stage straight
+		// into it (sdk/internal/pipeline/builder_vad.go: Audio -> VAD -> STT ->
+		// LLM -> TTS, no stage between). A transcribed turn was therefore asking
+		// the model to answer an empty conversation, silently.
+		//
+		// Text is kept alongside it: consumers that read the raw transcript
+		// (UI mirrors, logging) continue to work unchanged.
+		//
+		// The role is "user" because this stage transcribes inbound speech. A
+		// pipeline transcribing something else should map the role downstream.
+		msg := types.Message{Role: roleUser}
+		msg.AddTextPart(text)
+
 		outElem := StreamElement{
 			Text:      &text,
+			Message:   &msg,
 			Timestamp: time.Now(),
 			Meta:      elem.Meta,
 		}
