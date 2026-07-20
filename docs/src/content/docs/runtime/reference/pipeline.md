@@ -330,6 +330,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func RouteWhen\(output string, predicate func\(StreamElement\) bool\) RoutingRule](<#RouteWhen>)
 - [type STTStage](<#STTStage>)
   - [func NewSTTStage\(service base.STTProvider, config STTStageConfig\) \*STTStage](<#NewSTTStage>)
+  - [func NewSTTStageWithEmitter\(service base.STTProvider, config STTStageConfig, emitter \*events.Emitter\) \*STTStage](<#NewSTTStageWithEmitter>)
   - [func \(s \*STTStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#STTStage.Process>)
 - [type STTStageConfig](<#STTStageConfig>)
   - [func DefaultSTTStageConfig\(\) STTStageConfig](<#DefaultSTTStageConfig>)
@@ -4292,6 +4293,19 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
 ```
 
 NewSTTStage creates a new STT stage. The service parameter accepts any base.STTProvider implementation. The legacy stt.Service interface embeds base.STTProvider, so existing callers that pass an stt.Service remain compatible without changes.
+
+<a name="NewSTTStageWithEmitter"></a>
+### func NewSTTStageWithEmitter
+
+```go
+func NewSTTStageWithEmitter(service base.STTProvider, config STTStageConfig, emitter *events.Emitter) *STTStage
+```
+
+NewSTTStageWithEmitter creates an STT stage that publishes an EventAudioTranscription for each completed transcription.
+
+The event type and its payload \(events.AudioTranscriptionData\) were declared and already consumed — session export writes transcriptions out as subtitles, and annotated sessions query them by type — but nothing produced them, so subscribers waited forever and both consumers saw an empty set. Applications wanting a live transcript had to thread their own callback through the stage graph instead.
+
+The emitter is optional; NewSTTStage remains the no\-events constructor.
 
 <a name="STTStage.Process"></a>
 ### func \(\*STTStage\) Process
