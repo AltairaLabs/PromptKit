@@ -346,6 +346,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithTruncation\(strategy string\) Option](<#WithTruncation>)
   - [func WithTurnDetector\(detector audio.TurnDetector\) Option](<#WithTurnDetector>)
   - [func WithUserID\(id string\) Option](<#WithUserID>)
+  - [func WithVAD\(vad audio.VADAnalyzer\) Option](<#WithVAD>)
   - [func WithVADMode\(sttService stt.Service, ttsService tts.Service, cfg \*VADModeConfig\) Option](<#WithVADMode>)
   - [func WithVariableProvider\(p variables.Provider\) Option](<#WithVariableProvider>)
   - [func WithVariables\(vars map\[string\]string\) Option](<#WithVariables>)
@@ -4130,6 +4131,25 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 )
 ```
 
+<a name="WithVAD"></a>
+### func WithVAD
+
+```go
+func WithVAD(vad audio.VADAnalyzer) Option
+```
+
+WithVAD supplies the voice activity detector used for audio sessions.
+
+The detector decides what counts as speech, which governs where turns begin and end. The default \(AdaptiveVAD\) tracks the ambient noise floor and suits general microphone input; supply your own when you have a better model or acoustics it does not handle — telephony codecs, a far\-field array, or an ML detector.
+
+Implement audio.VADAnalyzer; the interface depends on no runtime internals.
+
+```
+conv, _ := sdk.Open("./assistant.pack.json", "voice",
+    sdk.WithVAD(myDetector),
+)
+```
+
 <a name="WithVADMode"></a>
 ### func WithVADMode
 
@@ -5579,6 +5599,12 @@ type VADModeConfig struct {
     // Speed is the TTS speech rate (0.5-2.0).
     // Default: 1.0
     Speed float64
+
+    // VAD is the voice activity detector deciding what counts as speech, and so
+    // where turns begin and end.
+    // If nil, an AdaptiveVAD tuned for general microphone input is used.
+    // Also settable via the WithVAD option.
+    VAD audio.VADAnalyzer
 }
 ```
 

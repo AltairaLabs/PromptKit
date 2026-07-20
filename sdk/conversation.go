@@ -623,6 +623,13 @@ func (c *Conversation) buildStreamPipelineWithParams(
 			audioTurnCfg.TurnDetector = c.config.turnDetector
 		}
 
+		// Wire custom VAD from WithVAD option. Takes precedence over any VAD set
+		// directly on VADModeConfig, since the option is the more specific
+		// expression of intent.
+		if c.config.vad != nil {
+			audioTurnCfg.VAD = c.config.vad
+		}
+
 		sttCfg := vadCfg.toSTTStageConfig()
 		ttsCfg := vadCfg.toTTSStageConfig(interruptionHandler)
 

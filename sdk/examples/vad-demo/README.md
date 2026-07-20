@@ -83,15 +83,13 @@ go func() {
 VAD is typically used with audio sessions:
 
 ```go
-conv, _ := sdk.Open("./pack.json", "assistant")
+// A voice session uses AdaptiveVAD by default; pass WithVAD only to override it.
+myVAD, _ := audio.NewAdaptiveVAD(audio.DefaultVADParams())
 
-// Create audio session with VAD
-session, _ := conv.OpenAudioSession(ctx,
-    sdk.WithSessionVAD(audio.NewAdaptiveVAD(audio.DefaultVADParams())),
+conv, _ := sdk.Open("./pack.json", "assistant",
+    sdk.WithVADMode(sttService, ttsService, nil),
+    sdk.WithVAD(myVAD),
 )
-
-// VAD automatically processes audio chunks
-session.SendChunk(ctx, audioChunk)
 ```
 
 ## Notes

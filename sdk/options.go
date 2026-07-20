@@ -175,6 +175,7 @@ type config struct {
 
 	// Audio session configuration for Pipeline middleware
 	turnDetector audio.TurnDetector
+	vad          audio.VADAnalyzer
 
 	// Streaming configuration for duplex mode
 	// If set: ASM mode (audio streaming model with continuous bidirectional streaming)
@@ -1978,6 +1979,26 @@ func WithTurnDetector(detector audio.TurnDetector) Option {
 	}
 }
 
+// WithVAD supplies the voice activity detector used for audio sessions.
+//
+// The detector decides what counts as speech, which governs where turns begin
+// and end. The default (AdaptiveVAD) tracks the ambient noise floor and suits
+// general microphone input; supply your own when you have a better model or
+// acoustics it does not handle — telephony codecs, a far-field array, or an ML
+// detector.
+//
+// Implement audio.VADAnalyzer; the interface depends on no runtime internals.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithVAD(myDetector),
+//	)
+func WithVAD(vad audio.VADAnalyzer) Option {
+	return func(c *config) error {
+		c.vad = vad
+		return nil
+	}
+}
+
 // ProviderSpec is the uniform, SDK-facing declaration for any capability
 // provider, used by WithInferenceProvider and the WithXProvider option family.
 // Fields mirror runtime base.CapabilitySpec; Credential is an unresolved
@@ -2254,6 +2275,12 @@ type VADModeConfig struct {
 	// Speed is the TTS speech rate (0.5-2.0).
 	// Default: 1.0
 	Speed float64
+
+	// VAD is the voice activity detector deciding what counts as speech, and so
+	// where turns begin and end.
+	// If nil, an AdaptiveVAD tuned for general microphone input is used.
+	// Also settable via the WithVAD option.
+	VAD audio.VADAnalyzer
 }
 
 // DefaultVADModeConfig returns sensible defaults for VAD mode.
@@ -2335,6 +2362,9 @@ func (v *VADModeConfig) toAudioTurnConfig(ih *audio.InterruptionHandler) stage.A
 	}
 	if v.SampleRate > 0 {
 		cfg.SampleRate = v.SampleRate
+	}
+	if v.VAD != nil {
+		cfg.VAD = v.VAD
 	}
 	cfg.InterruptionHandler = ih
 	return cfg
