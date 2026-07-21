@@ -228,6 +228,8 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
 - [type EvaluateOpts](<#EvaluateOpts>)
 - [type InMemoryA2ATaskStore](<#InMemoryA2ATaskStore>)
 - [type IngestionFunc](<#IngestionFunc>)
+  - [func MultiTrackIngestion\(cfg MultiTrackIngestionConfig\) IngestionFunc](<#MultiTrackIngestion>)
+- [type IngestionTrack](<#IngestionTrack>)
 - [type LocalAgentExecutor](<#LocalAgentExecutor>)
   - [func NewLocalAgentExecutor\(members map\[string\]Agent\) \*LocalAgentExecutor](<#NewLocalAgentExecutor>)
   - [func \(e \*LocalAgentExecutor\) Execute\(ctx context.Context, descriptor \*tools.ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#LocalAgentExecutor.Execute>)
@@ -266,6 +268,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(s \*MultiAgentSession\) Entry\(\) Agent](<#MultiAgentSession.Entry>)
   - [func \(s \*MultiAgentSession\) Members\(\) map\[string\]Agent](<#MultiAgentSession.Members>)
   - [func \(s \*MultiAgentSession\) Send\(ctx context.Context, message any, opts ...SendOption\) \(\*Response, error\)](<#MultiAgentSession.Send>)
+- [type MultiTrackIngestionConfig](<#MultiTrackIngestionConfig>)
 - [type Option](<#Option>)
   - [func WithA2AAgent\(builder \*A2AAgentBuilder\) Option](<#WithA2AAgent>)
   - [func WithA2ATools\(bridge \*a2a.ToolBridge\) Option](<#WithA2ATools>)
@@ -2231,6 +2234,55 @@ IngestionFunc authors a custom upstream stage sub\-graph. It adds stages and edg
 type IngestionFunc func(b *stage.PipelineBuilder) (outputNode string, err error)
 ```
 
+<a name="MultiTrackIngestion"></a>
+### func MultiTrackIngestion
+
+```go
+func MultiTrackIngestion(cfg MultiTrackIngestionConfig) IngestionFunc
+```
+
+MultiTrackIngestion returns an IngestionFunc \(for WithIngestion\) that fans inbound audio out to one independent per\-track pipeline each — resample → VAD turn detection → STT → speaker\-labeled Message — keyed on StreamChunk.Source, then merges the labeled transcripts back into the single stream the standard agent chain consumes.
+
+It exists so a two\-party / multi\-party voice application does not have to re\-derive the routing topology by hand, which hides two footguns:
+
+- Control signals \(EndOfStream/EndOfTurn/Interrupt\) carry no Source, so the router broadcasts them to every track. Routing only on Source would drop them, the merge would never complete, and a duplex session's Drain/Close would deadlock waiting on it.
+- PipelineBuilder.Chain already registers the stages it wires, so each track's stages are added exactly once \(via Chain\), never AddStage'd first, which would trip Build's duplicate\-name check.
+
+The returned function forces EmitEndOfTurn on every track so the streaming ProviderStage installed by the WithIngestion duplex path fires the agent once per turn \(per track\) rather than only at session close.
+
+<a name="IngestionTrack"></a>
+## type IngestionTrack
+
+IngestionTrack describes one named audio track fed into the multi\-track ingestion graph built by MultiTrackIngestion. Each track gets its own independent resample→VAD\-turn→STT→label pipeline, keyed on the audio's StreamChunk.Source.
+
+```go
+type IngestionTrack struct {
+    // Source matches StreamChunk.Source on inbound audio destined for this
+    // track — the value passed to Conversation.SendChunk. It also uniquifies
+    // this track's stage names, so it must be distinct across tracks.
+    Source string
+
+    // Speaker prefixes each transcribed Message from this track, e.g.
+    // "CUSTOMER" yields "CUSTOMER: <transcript>", so a multi-party agent chain
+    // can attribute turns to a speaker. Empty means no prefix.
+    Speaker string
+
+    // STT transcribes this track's audio. Required.
+    STT base.STTProvider
+
+    // TurnConfig optionally overrides turn-detection/VAD config for this track.
+    // Nil uses stage.DefaultAudioTurnConfig(), which lets each track's
+    // AudioTurnStage construct its own VAD. MultiTrackIngestion always forces
+    // EmitEndOfTurn on the effective config so the agent fires once per turn.
+    //
+    // If you set an explicit VAD (TurnConfig.VAD), give each track its own
+    // instance — the detector is stateful, so sharing one across tracks
+    // interleaves their audio into a single VAD state and corrupts turn
+    // detection on both.
+    TurnConfig *stage.AudioTurnConfig
+}
+```
+
 <a name="LocalAgentExecutor"></a>
 ## type LocalAgentExecutor
 
@@ -2641,6 +2693,24 @@ func (s *MultiAgentSession) Send(ctx context.Context, message any, opts ...SendO
 ```
 
 Send sends a message through the entry agent.
+
+<a name="MultiTrackIngestionConfig"></a>
+## type MultiTrackIngestionConfig
+
+MultiTrackIngestionConfig configures MultiTrackIngestion.
+
+```go
+type MultiTrackIngestionConfig struct {
+    // Tracks are the audio tracks to ingest. At least one is required.
+    Tracks []IngestionTrack
+
+    // OnTranscript, if set, is called with the speaker label and raw
+    // transcribed text for every completed turn on any track — a convenient
+    // hook for mirroring the live transcript to a UI without subscribing to
+    // EventAudioTranscription.
+    OnTranscript func(speaker, text string)
+}
+```
 
 <a name="Option"></a>
 ## type Option
