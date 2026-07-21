@@ -14,7 +14,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"sync"
@@ -24,6 +23,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
+
+// fatal prints to stderr and exits non-zero. It deliberately does not use the
+// stdlib log package: runtime/logger routes stdlib log through slog, so once we
+// quiet the pipeline to WARN a log.Fatal message would be filtered out and the
+// program would exit silently.
+func fatal(args ...any) {
+	fmt.Fprintln(os.Stderr, args...)
+	os.Exit(1)
+}
 
 func main() {
 	live := flag.Bool("live", false, "use real Claude for the assistant (needs ANTHROPIC_API_KEY)")
@@ -42,7 +50,7 @@ func main() {
 	if *live {
 		key := os.Getenv("ANTHROPIC_API_KEY")
 		if key == "" {
-			log.Fatal("--live needs ANTHROPIC_API_KEY")
+			fatal("--live needs ANTHROPIC_API_KEY")
 		}
 		opts = []sdk.Option{sdk.WithModel("claude-haiku-4-5"), sdk.WithAPIKey(key)}
 	} else {
@@ -52,7 +60,7 @@ func main() {
 	}
 
 	if err := run(*live, opts); err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 }
 
@@ -79,9 +87,7 @@ func run(live bool, providerOpts []sdk.Option) error {
 		return err
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// On this path each turn's reply arrives as one non-empty chunk, so
 		// printing every non-empty chunk shows one assistant line per turn.
 		for chunk := range respCh {
@@ -89,7 +95,7 @@ func run(live bool, providerOpts []sdk.Option) error {
 				fmt.Printf("  %-11s %s\n", "assistant:", chunk.Content)
 			}
 		}
-	}()
+	})
 
 	if err := feed(context.Background(), conv); err != nil {
 		return err
