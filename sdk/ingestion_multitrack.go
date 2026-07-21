@@ -31,8 +31,14 @@ type IngestionTrack struct {
 	STT base.STTProvider
 
 	// TurnConfig optionally overrides turn-detection/VAD config for this track.
-	// Nil uses stage.DefaultAudioTurnConfig(). MultiTrackIngestion always forces
+	// Nil uses stage.DefaultAudioTurnConfig(), which lets each track's
+	// AudioTurnStage construct its own VAD. MultiTrackIngestion always forces
 	// EmitEndOfTurn on the effective config so the agent fires once per turn.
+	//
+	// If you set an explicit VAD (TurnConfig.VAD), give each track its own
+	// instance — the detector is stateful, so sharing one across tracks
+	// interleaves their audio into a single VAD state and corrupts turn
+	// detection on both.
 	TurnConfig *stage.AudioTurnConfig
 }
 
