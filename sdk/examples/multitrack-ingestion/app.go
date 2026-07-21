@@ -15,7 +15,7 @@ import (
 //
 // TurnConfig is left nil, so each track's AudioTurnStage builds its own VAD — a
 // stateful detector must not be shared across tracks.
-func newConversation(provider providers.Provider, onTranscript func(speaker, text string)) (*sdk.Conversation, error) {
+func newConversationWithOpts(onTranscript func(speaker, text string), providerOpts []sdk.Option) (*sdk.Conversation, error) {
 	ingest := sdk.MultiTrackIngestion(sdk.MultiTrackIngestionConfig{
 		Tracks: []sdk.IngestionTrack{
 			{Source: "speaker-a", Speaker: "SPEAKER-A", STT: newScriptedSTT("speaker-a")},
@@ -24,14 +24,17 @@ func newConversation(provider providers.Provider, onTranscript func(speaker, tex
 		OnTranscript: onTranscript,
 	})
 
-	conv, err := sdk.OpenDuplex("./assistant.pack.json", "assist",
-		sdk.WithProvider(provider),
-		sdk.WithIngestion(ingest),
-	)
+	opts := append([]sdk.Option{sdk.WithIngestion(ingest)}, providerOpts...)
+	conv, err := sdk.OpenDuplex("./assistant.pack.json", "assist", opts...)
 	if err != nil {
 		return nil, fmt.Errorf("open duplex: %w", err)
 	}
 	return conv, nil
+}
+
+// newConversation is the mock-provider convenience used by the test.
+func newConversation(provider providers.Provider, onTranscript func(speaker, text string)) (*sdk.Conversation, error) {
+	return newConversationWithOpts(onTranscript, []sdk.Option{sdk.WithProvider(provider)})
 }
 
 // feed streams the built-in script through the ingestion graph: one synthetic
