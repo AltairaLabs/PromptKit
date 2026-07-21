@@ -2479,3 +2479,89 @@ func TestRedisStore_MessageLog_AppendThenSaveNoDup(t *testing.T) {
 	// Save also fills in the user-id; the LogAppend meta stub had none.
 	assert.Equal(t, "user-1", loaded.UserID)
 }
+
+// A conversation's TTL is a sliding window measured from last use, where use
+// means a read as well as a write. The memory store has always behaved this
+// way; before this the Redis store ran a fixed window from the last write, so
+// the same configured TTL meant two different things depending on the backend
+// and a conversation being actively read could expire underneath its owner.
+func TestRedisStore_TTLSlidesOnRead(t *testing.T) {
+	store, mr := setupRedisStore(t, WithTTL(time.Hour))
+	ctx := context.Background()
+
+	require.NoError(t, store.Save(ctx, &ConversationState{ID: "conv-slide", UserID: "user-alice"}))
+
+	// Read repeatedly, each time advancing most of the way to expiry. Under a
+	// write-based window this conversation is gone after the first jump.
+	for i := range 3 {
+		mr.FastForward(50 * time.Minute)
+		_, err := store.Load(ctx, "conv-slide")
+		require.NoErrorf(t, err, "conversation expired while being read (iteration %d)", i)
+	}
+
+	// Left alone for longer than the TTL, it still expires.
+	mr.FastForward(2 * time.Hour)
+	_, err := store.Load(ctx, "conv-slide")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// The other two reads that refresh in the memory store must refresh here too,
+// so the backends agree on exactly which operations count as use.
+func TestRedisStore_TTLSlidesOnMessageAndMetadataReads(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		read func(*RedisStore, context.Context, string) error
+	}{
+		{
+			name: "LoadRecentMessages",
+			read: func(s *RedisStore, ctx context.Context, id string) error {
+				_, err := s.LoadRecentMessages(ctx, id, 10)
+				return err
+			},
+		},
+		{
+			name: "LoadMetadata",
+			read: func(s *RedisStore, ctx context.Context, id string) error {
+				_, err := s.LoadMetadata(ctx, id)
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, mr := setupRedisStore(t, WithTTL(time.Hour))
+			ctx := context.Background()
+
+			require.NoError(t, store.Save(ctx, &ConversationState{ID: "conv-x", UserID: "u"}))
+			require.NoError(t, store.AppendMessages(ctx, "conv-x",
+				[]types.Message{{Role: "user", Content: "hello"}}))
+			require.NoError(t, store.MergeMetadata(ctx, "conv-x",
+				map[string]interface{}{"k": "v"}))
+
+			mr.FastForward(50 * time.Minute)
+			require.NoError(t, tc.read(store, ctx, "conv-x"))
+
+			// The read slid the window, so the conversation survives a second
+			// jump that would otherwise have taken it past the TTL.
+			mr.FastForward(50 * time.Minute)
+			_, err := store.Load(ctx, "conv-x")
+			require.NoError(t, err, "read did not slide the expiry window")
+		})
+	}
+}
+
+// A sub-second TTL must not be silently rounded up: EXPIRE has one-second
+// granularity, so the refresh has to use PEXPIRE.
+func TestRedisStore_TTLSlideKeepsSubSecondPrecision(t *testing.T) {
+	store, mr := setupRedisStore(t, WithTTL(100*time.Millisecond))
+	ctx := context.Background()
+
+	require.NoError(t, store.Save(ctx, &ConversationState{ID: "conv-ms", UserID: "u"}))
+	_, err := store.Load(ctx, "conv-ms")
+	require.NoError(t, err)
+
+	// Well past 100ms but well under the 1s that EXPIRE would have rounded to.
+	mr.FastForward(300 * time.Millisecond)
+
+	_, err = store.Load(ctx, "conv-ms")
+	assert.ErrorIs(t, err, ErrNotFound, "sub-second TTL was rounded up by the refresh")
+}
