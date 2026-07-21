@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -88,13 +89,26 @@ func run(live bool, providerOpts []sdk.Option) error {
 	}
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		// On this path each turn's reply arrives as one non-empty chunk, so
-		// printing every non-empty chunk shows one assistant line per turn.
-		for chunk := range respCh {
-			if chunk.Content != "" {
-				fmt.Printf("  %-11s %s\n", "assistant:", chunk.Content)
+		// A turn's reply may arrive as one chunk (mock) or as streamed deltas
+		// (Claude). Accumulate the deltas and print one line per turn: flush on
+		// FinishReason (Claude marks the end of a response) or on a trailing
+		// empty chunk (the mock's per-turn separator).
+		var buf strings.Builder
+		flush := func() {
+			if buf.Len() > 0 {
+				fmt.Printf("  %-11s %s\n", "assistant:", buf.String())
+				buf.Reset()
 			}
 		}
+		for chunk := range respCh {
+			if chunk.Delta != "" {
+				buf.WriteString(chunk.Delta)
+			}
+			if chunk.FinishReason != nil || (chunk.Delta == "" && chunk.Content == "") {
+				flush()
+			}
+		}
+		flush()
 	})
 
 	if err := feed(context.Background(), conv); err != nil {
