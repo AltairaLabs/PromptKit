@@ -69,8 +69,18 @@ const (
 // MemoryStoreOption configures optional behavior for MemoryStore.
 type MemoryStoreOption func(*MemoryStore)
 
-// WithMemoryTTL sets the time-to-live for conversation states. Entries that have not
-// been accessed within the TTL are considered expired and eligible for eviction.
+// WithMemoryTTL sets the time-to-live for conversation states.
+//
+// The TTL is a sliding window measured from last use: a conversation expires
+// once it has gone this long without being read or written. Reading a
+// conversation (Load, LoadRecentMessages, LoadMetadata) extends it, so a
+// conversation in active use is never collected underneath its owner. Bulk or
+// diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List —
+// deliberately do not extend it, so inspecting a store cannot keep it alive.
+//
+// RedisStore applies the same rule to the same set of operations, so a given
+// TTL means the same thing whichever backend is configured.
+//
 // A zero or negative TTL disables expiration. By default, DefaultTTL is applied.
 // Use WithNoTTL() as an explicit, self-documenting way to disable TTL expiration.
 func WithMemoryTTL(ttl time.Duration) MemoryStoreOption {

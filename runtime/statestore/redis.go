@@ -39,7 +39,17 @@ type RedisStore struct {
 type RedisOption func(*RedisStore)
 
 // WithTTL sets the time-to-live for conversation states.
-// After this duration, conversations will be automatically deleted.
+//
+// The TTL is a sliding window measured from last use: a conversation expires
+// once it has gone this long without being read or written. Reading a
+// conversation (Load, LoadRecentMessages, LoadMetadata) extends it, so a
+// conversation in active use is never collected underneath its owner. Bulk or
+// diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List —
+// deliberately do not extend it, so inspecting a store cannot keep it alive.
+//
+// MemoryStore applies the same rule to the same set of operations, so a given
+// TTL means the same thing whichever backend is configured.
+//
 // Default is 24 hours. Set to 0 for no expiration.
 func WithTTL(ttl time.Duration) RedisOption {
 	return func(s *RedisStore) {
@@ -102,6 +112,7 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 	// Try decomposed format first
 	state, err := s.loadDecomposed(ctx, id)
 	if err == nil {
+		s.slideTTLOnRead(ctx, id)
 		return state, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -109,7 +120,60 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 	}
 
 	// Fall back to legacy monolithic format
-	return s.loadMonolithic(ctx, id)
+	state, err = s.loadMonolithic(ctx, id)
+	if err == nil {
+		s.slideTTLOnRead(ctx, id)
+	}
+	return state, err
+}
+
+// slideTTLOnRead pushes a conversation's expiry window forward after a
+// successful read, so a conversation in active use does not expire underneath
+// its owner.
+//
+// The TTL is a sliding window measured from last use, where use means a read or
+// a write. The memory store has always behaved this way; this makes the Redis
+// store agree, so the same configured TTL means the same thing on both.
+//
+// Best-effort: a conversation that was successfully read is returned to the
+// caller whether or not the expiry window could be extended. Failing the read
+// because a follow-up EXPIRE failed would turn a cosmetic problem into a
+// user-visible one.
+//
+// Every key for the conversation is refreshed together, including append-only
+// lists enumerated via the per-conversation index, so no part of a live
+// conversation expires ahead of the rest.
+func (s *RedisStore) slideTTLOnRead(ctx context.Context, id string) {
+	if s.ttl <= 0 {
+		return
+	}
+
+	keys := []string{
+		s.conversationKey(id), // legacy monolithic key
+		s.metaKey(id),         // decomposed meta
+		s.messagesKey(id),     // decomposed messages list
+		s.summariesKey(id),    // decomposed summaries list
+		s.metadataKey(id),     // decomposed user metadata hash
+		s.listsIndexKey(id),   // per-conversation list-name index set
+	}
+
+	// EXPIRE on a missing key is a no-op, so the keys a given conversation does
+	// not use cost nothing beyond pipeline space.
+	if listNames, err := s.client.SMembers(ctx, s.listsIndexKey(id)).Result(); err == nil {
+		for _, name := range listNames {
+			keys = append(keys, s.listKey(id, name))
+		}
+	}
+
+	// PExpire, not Expire: EXPIRE has one-second granularity and silently
+	// rounds, which would quietly lengthen any TTL that is not a whole number
+	// of seconds. The write path avoids this by setting the TTL through SET,
+	// which takes milliseconds.
+	pipe := s.client.Pipeline()
+	for _, key := range keys {
+		pipe.PExpire(ctx, key, s.ttl)
+	}
+	_, _ = pipe.Exec(ctx)
 }
 
 // loadDecomposed loads a conversation state from decomposed keys
@@ -698,9 +762,15 @@ func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]in
 		if existsCmd.Val() == 0 {
 			return nil, ErrNotFound
 		}
+		s.slideTTLOnRead(ctx, id)
 		return nil, nil
 	}
-	return decodeMetadataHash(fields)
+	decoded, err := decodeMetadataHash(fields)
+	if err != nil {
+		return nil, err
+	}
+	s.slideTTLOnRead(ctx, id)
+	return decoded, nil
 }
 
 // loadMetadataHash reads the metadata hash and JSON-decodes each value.
@@ -907,7 +977,12 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 		return nil, fmt.Errorf("redis lrange failed: %w", err)
 	}
 
-	return unmarshalMessages(vals)
+	msgs, err := unmarshalMessages(vals)
+	if err != nil {
+		return nil, err
+	}
+	s.slideTTLOnRead(ctx, id)
+	return msgs, nil
 }
 
 // MessageCount returns the total number of messages.
