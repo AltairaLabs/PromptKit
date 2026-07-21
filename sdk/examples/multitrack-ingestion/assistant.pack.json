@@ -1,0 +1,23 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "multitrack-ingestion-example",
+  "name": "Multi-track Ingestion Example",
+  "version": "1.0.0",
+  "description": "Two-speaker live transcript with a per-turn assistant",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assist": {
+      "id": "assist",
+      "name": "Turn Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a note-taking assistant on a two-person call. Each user message is one speaker's turn, prefixed with their label (for example 'SPEAKER-A: ...'). Reply in one short sentence that acknowledges the turn and names the speaker. Do not ask questions.",
+      "parameters": {
+        "temperature": 0.3,
+        "max_tokens": 120
+      }
+    }
+  }
+}
