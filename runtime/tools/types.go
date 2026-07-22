@@ -326,7 +326,9 @@ type ToolExecutionResult struct {
 // approval (human-in-the-loop) before execution. It returns a non-nil
 // PendingToolInfo to hold the call pending, or nil to let it execute normally.
 // It is consulted per tool call before execution; a nil checker is a no-op.
-type ApprovalChecker func(callID, name string, args map[string]any) *PendingToolInfo
+// The context is the tool-execution context, so a checker that persists the
+// held call (e.g. to a durable store) honors cancellation and deadlines.
+type ApprovalChecker func(ctx context.Context, callID, name string, args map[string]any) *PendingToolInfo
 
 // PendingToolInfo describes a tool call awaiting external input or approval.
 type PendingToolInfo struct {

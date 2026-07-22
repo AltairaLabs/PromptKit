@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,19 +15,23 @@ import (
 
 const (
 	// DefaultPendingTTL is the default time-to-live for pending tool calls.
-	// Entries older than this are automatically removed by the cleanup goroutine.
+	// Entries older than this are automatically removed (by the in-memory
+	// cleanup goroutine, or by the backend's native expiry for durable stores).
 	DefaultPendingTTL = 5 * time.Minute
 
-	// DefaultMaxPending is the default maximum number of pending tool calls
-	// that can be stored simultaneously. New adds are rejected when full.
+	// DefaultMaxPending is the default maximum number of pending tool calls a
+	// MemoryPendingStore holds simultaneously. New adds are rejected when full.
 	DefaultMaxPending = 1000
-
-	// pendingCleanupInterval is the interval between TTL cleanup sweeps.
-	pendingCleanupInterval = 30 * time.Second
 )
 
 // ErrPendingStoreFull is returned when the store has reached its maximum capacity.
 var ErrPendingStoreFull = errors.New("pending store is full")
+
+// ErrPendingAlreadyResolved is returned by a resolve/reject when the pending
+// call is no longer present — it was already claimed by another caller (e.g. a
+// second instance of the same agent) or expired. It is the signal that this
+// caller lost the single-winner race and must not act on the call.
+var ErrPendingAlreadyResolved = errors.New("pending tool call already resolved or expired")
 
 // PendingResult is returned by async tool handlers to indicate
 // that the tool execution requires external approval.
@@ -64,177 +69,72 @@ func (p PendingResult) IsPending() bool {
 // Return an empty PendingResult{} to proceed immediately.
 type AsyncToolHandler func(args map[string]any) PendingResult
 
-// PendingToolCall represents a tool call awaiting approval.
+// ExecFunc is a registered tool execution handler. On resolve, the Conversation
+// recovers the ExecFunc for a pending call by tool name (a persisted call cannot
+// carry the closure) and runs it with the approved arguments.
+type ExecFunc func(args map[string]any) (any, error)
+
+// PendingToolCall represents a tool call awaiting approval. It is pure data: it
+// carries no execution closure, so it can be serialized into a durable store and
+// resolved by a different process. The execution handler is recovered by Name at
+// resolve time (see Conversation.ResolveTool).
 type PendingToolCall struct {
-	// Unique identifier for this pending call
+	// Unique identifier for this pending call (the provider tool call ID).
 	ID string `json:"id"`
 
-	// Tool name
+	// ConversationID scopes the call so a store shared across conversations can
+	// isolate queues and list one conversation's pending calls.
+	ConversationID string `json:"conversation_id"`
+
+	// Tool name — also the key used to recover the execution handler on resolve.
 	Name string `json:"name"`
 
-	// Arguments passed to the tool
+	// Arguments the model proposed for the call.
 	Arguments map[string]any `json:"arguments"`
 
-	// Reason the tool requires approval (from PendingResult)
+	// Reason the tool requires approval (from PendingResult).
 	Reason string `json:"reason"`
 
-	// Human-readable message (from PendingResult)
+	// Human-readable message (from PendingResult).
 	Message string `json:"message"`
 
-	// The underlying handler to execute if approved
-	handler func(args map[string]any) (any, error)
-
-	// createdAt tracks when this entry was added for TTL expiration.
-	createdAt time.Time
+	// CreatedAt tracks when this entry was added, for TTL expiration.
+	CreatedAt time.Time `json:"created_at"`
 }
 
-// SetHandler sets the execution handler for this pending call.
-// This is called by the SDK when creating a pending tool call.
-func (p *PendingToolCall) SetHandler(h func(args map[string]any) (any, error)) {
-	p.handler = h
+// PendingStore persists tool calls awaiting human approval.
+//
+// It mirrors statestore.Store: read-shaped for inspection, with a single
+// atomic take primitive for resolution. Implementations MUST make Claim atomic
+// — at most one caller may successfully claim a given id — so that concurrent
+// instances of the same agent cannot double-resolve a call. Get and List are
+// read-only and carry no such guarantee.
+//
+// The store never executes tool handlers; resolution (running the recovered
+// handler) happens in the Conversation. This keeps memory and durable backends
+// on one identical resolution path.
+type PendingStore interface {
+	// Add persists a pending call. Returns ErrPendingStoreFull if a bounded
+	// store is at capacity.
+	Add(ctx context.Context, call *PendingToolCall) error
+
+	// Get returns a read-only view of a pending call, or ok=false if absent.
+	Get(ctx context.Context, convID, id string) (*PendingToolCall, bool, error)
+
+	// List returns all pending calls for a conversation.
+	List(ctx context.Context, convID string) ([]*PendingToolCall, error)
+
+	// Claim atomically removes and returns a pending call. ok=false means the
+	// call was already claimed by another caller or never existed. This is the
+	// single-winner resolution gate for both approve and reject.
+	Claim(ctx context.Context, convID, id string) (*PendingToolCall, bool, error)
 }
 
-// PendingStoreOption configures a PendingStore during construction.
-type PendingStoreOption func(*PendingStore)
-
-// WithPendingTTL sets the time-to-live for pending tool calls.
-// Entries older than this are removed during periodic cleanup.
-func WithPendingTTL(ttl time.Duration) PendingStoreOption {
-	return func(s *PendingStore) {
-		s.ttl = ttl
-	}
-}
-
-// WithMaxPending sets the maximum number of pending tool calls allowed.
-func WithMaxPending(limit int) PendingStoreOption {
-	return func(s *PendingStore) {
-		s.maxPending = limit
-	}
-}
-
-// PendingStore manages pending tool calls for a conversation.
-type PendingStore struct {
-	pending    map[string]*PendingToolCall
-	mu         sync.RWMutex
-	ttl        time.Duration
-	maxPending int
-	stopCh     chan struct{}
-	stopped    chan struct{}
-	nowFunc    func() time.Time // for testing
-}
-
-// NewPendingStore creates a new pending tool store with TTL-based cleanup.
-// Call Close() when the store is no longer needed to stop the cleanup goroutine.
-func NewPendingStore(opts ...PendingStoreOption) *PendingStore {
-	s := &PendingStore{
-		pending:    make(map[string]*PendingToolCall),
-		ttl:        DefaultPendingTTL,
-		maxPending: DefaultMaxPending,
-		stopCh:     make(chan struct{}),
-		stopped:    make(chan struct{}),
-		nowFunc:    time.Now,
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	go s.cleanupLoop()
-	return s
-}
-
-// cleanupLoop periodically removes expired entries.
-func (s *PendingStore) cleanupLoop() {
-	defer close(s.stopped)
-	ticker := time.NewTicker(pendingCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.removeExpired()
-		}
-	}
-}
-
-// removeExpired removes all entries that have exceeded the TTL.
-func (s *PendingStore) removeExpired() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.nowFunc()
-	for id, call := range s.pending {
-		if now.Sub(call.createdAt) > s.ttl {
-			delete(s.pending, id)
-		}
-	}
-}
-
-// Close stops the background cleanup goroutine and waits for it to finish.
-func (s *PendingStore) Close() {
-	select {
-	case <-s.stopCh:
-		// Already closed
-		return
-	default:
-		close(s.stopCh)
-	}
-	<-s.stopped
-}
-
-// Add stores a pending tool call. Returns ErrPendingStoreFull if the store
-// has reached its maximum capacity.
-func (s *PendingStore) Add(call *PendingToolCall) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if len(s.pending) >= s.maxPending {
-		return ErrPendingStoreFull
-	}
-
-	call.createdAt = s.nowFunc()
-	s.pending[call.ID] = call
-	return nil
-}
-
-// Get retrieves a pending tool call by ID.
-func (s *PendingStore) Get(id string) (*PendingToolCall, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	call, ok := s.pending[id]
-	return call, ok
-}
-
-// Remove deletes a pending tool call.
-func (s *PendingStore) Remove(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.pending, id)
-}
-
-// List returns all pending tool calls.
-func (s *PendingStore) List() []*PendingToolCall {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]*PendingToolCall, 0, len(s.pending))
-	for _, call := range s.pending {
-		result = append(result, call)
-	}
-	return result
-}
-
-// Clear removes all pending tool calls.
-func (s *PendingStore) Clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pending = make(map[string]*PendingToolCall)
-}
-
-// Len returns the number of pending calls.
-func (s *PendingStore) Len() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.pending)
+// Closer is an optional PendingStore capability. In-memory stores expose it to
+// stop their cleanup goroutine; the SDK type-asserts for it on Close. Durable
+// stores that hold no local resources need not implement it.
+type Closer interface {
+	Close() error
 }
 
 // ToolResolution represents the result of resolving a pending tool.
@@ -268,94 +168,59 @@ type ToolResolution struct {
 	Arguments map[string]any
 
 	// Edited is true when the call was approved with reviewer-supplied argument
-	// overrides (see ResolveWithArgs). Provides an audit trail distinguishing an
+	// overrides (see ResolveApproved). Provides an audit trail distinguishing an
 	// as-proposed approval from an edited one.
 	Edited bool
 }
 
-// Resolve executes an approved pending tool call with its original arguments.
-// It is equivalent to ResolveWithArgs(id, nil).
-func (s *PendingStore) Resolve(id string) (*ToolResolution, error) {
-	return s.ResolveWithArgs(id, nil)
-}
-
-// ResolveWithArgs executes an approved pending tool call, applying the given
-// argument overrides (approve-with-edits). Overrides are shallow-merged over
-// the original arguments: keys present in overrides replace the originals, keys
-// absent are preserved. A nil or empty overrides map executes the call exactly
-// as proposed (equivalent to Resolve).
+// ResolveApproved runs handler with the call's arguments (shallow-merged with
+// overrides) and returns the ToolResolution. It is pure — it touches no store —
+// so the Conversation calls it after atomically claiming the call and recovering
+// the handler by name.
 //
-// The original PendingToolCall.Arguments are not mutated; the merged arguments
-// are recorded on the returned ToolResolution (with Edited set when overrides
-// were applied).
-func (s *PendingStore) ResolveWithArgs(id string, overrides map[string]any) (*ToolResolution, error) {
-	s.mu.Lock()
-	call, ok := s.pending[id]
-	if !ok {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("no pending tool call with ID %q", id)
-	}
-	delete(s.pending, id)
-	s.mu.Unlock()
-
-	// Shallow-merge overrides over a copy of the original args so the pending
-	// call is never mutated.
+// Overrides are shallow-merged over a copy of the original arguments: keys in
+// overrides replace the originals, absent keys are preserved. A nil or empty
+// overrides map executes the call exactly as proposed. The original call is
+// never mutated.
+func ResolveApproved(call *PendingToolCall, handler ExecFunc, overrides map[string]any) *ToolResolution {
 	args := make(map[string]any, len(call.Arguments)+len(overrides))
 	maps.Copy(args, call.Arguments)
 	maps.Copy(args, overrides)
 	edited := len(overrides) > 0
 
-	// Execute the handler with the (possibly edited) arguments.
-	result, err := call.handler(args)
+	result, err := handler(args)
 	if err != nil {
-		return &ToolResolution{
-			ID:        id,
-			Arguments: args,
-			Edited:    edited,
-			Error:     err,
-		}, nil
+		return &ToolResolution{ID: call.ID, Arguments: args, Edited: edited, Error: err}
 	}
 
-	// Serialize result
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return &ToolResolution{
-			ID:        id,
+			ID:        call.ID,
 			Arguments: args,
 			Edited:    edited,
 			Error:     fmt.Errorf("failed to serialize result: %w", err),
-		}, nil
+		}
 	}
 
 	return &ToolResolution{
-		ID:         id,
+		ID:         call.ID,
 		Result:     result,
 		ResultJSON: resultJSON,
 		Arguments:  args,
 		Edited:     edited,
-	}, nil
+	}
 }
 
-// Reject marks a pending tool call as rejected.
-func (s *PendingStore) Reject(id, reason string) (*ToolResolution, error) {
-	s.mu.Lock()
-	_, ok := s.pending[id]
-	if !ok {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("no pending tool call with ID %q", id)
-	}
-	delete(s.pending, id)
-	s.mu.Unlock()
-
-	return &ToolResolution{
-		ID:              id,
-		Rejected:        true,
-		RejectionReason: reason,
-	}, nil
+// ResolveRejected builds a rejected ToolResolution for a claimed call.
+func ResolveRejected(id, reason string) *ToolResolution {
+	return &ToolResolution{ID: id, Rejected: true, RejectionReason: reason}
 }
 
 // ResolvedStore tracks tool call resolutions that haven't been processed by Continue().
 // This allows the Continue() method to send proper tool result messages to the LLM.
+// It is transient and per-conversation — resolutions are consumed immediately by
+// Continue/ContinueDuplex and never persisted.
 type ResolvedStore struct {
 	resolutions []*ToolResolution
 	mu          sync.Mutex

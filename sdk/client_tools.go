@@ -272,7 +272,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 		return nil, fmt.Errorf("resume failed: %w", err)
 	}
 
-	resp := c.buildResponse(result, startTime)
+	resp := c.buildResponse(ctx, result, startTime)
 
 	// Skip lifecycle hooks when the resumed pipeline returns more pending tools.
 	if !resp.HasPendingClientTools() {

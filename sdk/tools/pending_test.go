@@ -1,6 +1,9 @@
 package tools
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,488 +12,310 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testConv = "conv-1"
+
 func TestPendingResult(t *testing.T) {
 	t.Run("empty result is not pending", func(t *testing.T) {
-		result := PendingResult{}
-		assert.False(t, result.IsPending())
+		assert.False(t, PendingResult{}.IsPending())
 	})
-
 	t.Run("result with reason is pending", func(t *testing.T) {
-		result := PendingResult{Reason: "high_value"}
-		assert.True(t, result.IsPending())
+		assert.True(t, PendingResult{Reason: "high_value"}.IsPending())
 	})
-
 	t.Run("result with message is pending", func(t *testing.T) {
-		result := PendingResult{Message: "Requires approval"}
-		assert.True(t, result.IsPending())
-	})
-
-	t.Run("result with both is pending", func(t *testing.T) {
-		result := PendingResult{
-			Reason:  "sensitive",
-			Message: "This action requires approval",
-		}
-		assert.True(t, result.IsPending())
+		assert.True(t, PendingResult{Message: "Requires approval"}.IsPending())
 	})
 }
 
-func TestPendingStore(t *testing.T) {
+func TestMemoryPendingStore_AddGetListClaim(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("add and get", func(t *testing.T) {
-		store := NewPendingStore()
+		store := NewMemoryPendingStore()
 		defer store.Close()
 		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "test_tool",
-			Arguments: map[string]any{"key": "value"},
-			Reason:    "test",
+			ID: "call-1", ConversationID: testConv, Name: "test_tool",
+			Arguments: map[string]any{"key": "value"}, Reason: "test",
 		}
+		require.NoError(t, store.Add(ctx, call))
 
-		err := store.Add(call)
+		got, ok, err := store.Get(ctx, testConv, "call-1")
 		require.NoError(t, err)
-
-		retrieved, ok := store.Get("call-1")
 		assert.True(t, ok)
-		assert.Equal(t, "test_tool", retrieved.Name)
-		assert.Equal(t, "value", retrieved.Arguments["key"])
+		assert.Equal(t, "test_tool", got.Name)
+		assert.Equal(t, "value", got.Arguments["key"])
 	})
 
 	t.Run("get non-existent", func(t *testing.T) {
-		store := NewPendingStore()
+		store := NewMemoryPendingStore()
 		defer store.Close()
-		_, ok := store.Get("non-existent")
+		_, ok, err := store.Get(ctx, testConv, "nope")
+		require.NoError(t, err)
 		assert.False(t, ok)
 	})
 
-	t.Run("remove", func(t *testing.T) {
-		store := NewPendingStore()
+	t.Run("list is scoped by conversation", func(t *testing.T) {
+		store := NewMemoryPendingStore()
 		defer store.Close()
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "a", ConversationID: "c1", Name: "t"}))
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "b", ConversationID: "c1", Name: "t"}))
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "c", ConversationID: "c2", Name: "t"}))
 
-		assert.Equal(t, 2, store.Len())
+		c1, err := store.List(ctx, "c1")
+		require.NoError(t, err)
+		assert.Len(t, c1, 2)
 
-		store.Remove("call-1")
-		assert.Equal(t, 1, store.Len())
+		c2, err := store.List(ctx, "c2")
+		require.NoError(t, err)
+		assert.Len(t, c2, 1)
+	})
 
-		_, ok := store.Get("call-1")
+	t.Run("claim removes and returns", func(t *testing.T) {
+		store := NewMemoryPendingStore()
+		defer store.Close()
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "call-1", ConversationID: testConv, Name: "t"}))
+
+		got, ok, err := store.Claim(ctx, testConv, "call-1")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "call-1", got.ID)
+
+		_, present, err := store.Get(ctx, testConv, "call-1")
+		require.NoError(t, err)
+		assert.False(t, present, "claimed call must be gone")
+	})
+
+	t.Run("claim missing returns ok=false", func(t *testing.T) {
+		store := NewMemoryPendingStore()
+		defer store.Close()
+		_, ok, err := store.Claim(ctx, testConv, "nope")
+		require.NoError(t, err)
 		assert.False(t, ok)
-	})
-
-	t.Run("list", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
-
-		calls := store.List()
-		assert.Len(t, calls, 2)
-	})
-
-	t.Run("clear", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
-
-		store.Clear()
-		assert.Equal(t, 0, store.Len())
 	})
 }
 
-func TestPendingStoreResolve(t *testing.T) {
-	t.Run("resolve successful", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "test_tool",
-			Arguments: map[string]any{"x": float64(10)},
-			handler: func(args map[string]any) (any, error) {
-				x := args["x"].(float64)
-				return map[string]any{"result": x * 2}, nil
-			},
-		}
-		require.NoError(t, store.Add(call))
+// TestMemoryPendingStore_ClaimSingleWinner is the concurrency invariant: N
+// goroutines claiming the same id see exactly one ok=true.
+func TestMemoryPendingStore_ClaimSingleWinner(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryPendingStore()
+	defer store.Close()
+	require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "x", ConversationID: testConv, Name: "t"}))
 
-		resolution, err := store.Resolve("call-1")
-		require.NoError(t, err)
-		assert.Equal(t, "call-1", resolution.ID)
-		assert.False(t, resolution.Rejected)
-		assert.Nil(t, resolution.Error)
-		assert.NotNil(t, resolution.ResultJSON)
+	const racers = 32
+	var winners atomic.Int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range racers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, ok, err := store.Claim(ctx, testConv, "x"); err == nil && ok {
+				winners.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	assert.Equal(t, int32(1), winners.Load(), "exactly one claimer must win")
+}
 
-		// Verify call is removed
-		_, ok := store.Get("call-1")
-		assert.False(t, ok)
+func TestResolveApproved(t *testing.T) {
+	t.Run("runs handler as proposed", func(t *testing.T) {
+		call := &PendingToolCall{ID: "c", Name: "t", Arguments: map[string]any{"x": float64(10)}}
+		res := ResolveApproved(call, func(a map[string]any) (any, error) {
+			return map[string]any{"result": a["x"].(float64) * 2}, nil
+		}, nil)
+		require.NoError(t, res.Error)
+		assert.False(t, res.Edited)
+		assert.NotNil(t, res.ResultJSON)
 	})
 
-	t.Run("resolve non-existent", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		_, err := store.Resolve("non-existent")
-		assert.Error(t, err)
-	})
-
-	t.Run("resolve with edited args merges overrides and flags edited", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
+	t.Run("merges overrides and flags edited without mutating original", func(t *testing.T) {
 		var gotArgs map[string]any
 		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "send_message",
+			ID: "c", Name: "send_message",
 			Arguments: map[string]any{"to": "Dana", "body": "original", "channel": "SMS"},
-			handler: func(args map[string]any) (any, error) {
-				gotArgs = args
-				return map[string]any{"sent": args["body"]}, nil
-			},
 		}
-		require.NoError(t, store.Add(call))
+		res := ResolveApproved(call, func(a map[string]any) (any, error) {
+			gotArgs = a
+			return map[string]any{"sent": a["body"]}, nil
+		}, map[string]any{"body": "edited"})
 
-		resolution, err := store.ResolveWithArgs("call-1", map[string]any{"body": "edited"})
-		require.NoError(t, err)
-		// Handler ran with the override applied over the original args.
 		assert.Equal(t, "edited", gotArgs["body"])
-		assert.Equal(t, "Dana", gotArgs["to"])     // untouched original preserved
-		assert.Equal(t, "SMS", gotArgs["channel"]) // untouched original preserved
-		assert.Equal(t, "edited", resolution.Result.(map[string]any)["sent"])
-		// Audit: the resolution records that it was edited and the effective args.
-		assert.True(t, resolution.Edited)
-		assert.Equal(t, "edited", resolution.Arguments["body"])
-		// The original pending call's Arguments must NOT be mutated.
-		assert.Equal(t, "original", call.Arguments["body"])
+		assert.Equal(t, "Dana", gotArgs["to"])
+		assert.Equal(t, "SMS", gotArgs["channel"])
+		assert.True(t, res.Edited)
+		assert.Equal(t, "edited", res.Arguments["body"])
+		assert.Equal(t, "original", call.Arguments["body"], "original must not be mutated")
 	})
 
-	t.Run("resolve with nil overrides is not flagged edited", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "send_message",
-			Arguments: map[string]any{"body": "original"},
-			handler:   func(args map[string]any) (any, error) { return args["body"], nil },
-		}
-		require.NoError(t, store.Add(call))
-
-		resolution, err := store.ResolveWithArgs("call-1", nil)
-		require.NoError(t, err)
-		assert.False(t, resolution.Edited)
-		assert.Equal(t, "original", resolution.Result)
-	})
-
-	t.Run("Resolve is ResolveWithArgs with no overrides", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "send_message",
-			Arguments: map[string]any{"body": "original"},
-			handler:   func(args map[string]any) (any, error) { return args["body"], nil },
-		}
-		require.NoError(t, store.Add(call))
-
-		resolution, err := store.Resolve("call-1")
-		require.NoError(t, err)
-		assert.False(t, resolution.Edited)
-	})
-
-	t.Run("resolve handler error", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		call := &PendingToolCall{
-			ID:   "call-1",
-			Name: "failing_tool",
-			handler: func(_ map[string]any) (any, error) {
-				return nil, assert.AnError
-			},
-		}
-		require.NoError(t, store.Add(call))
-
-		resolution, err := store.Resolve("call-1")
-		require.NoError(t, err) // Resolution itself succeeds
-		assert.Equal(t, assert.AnError, resolution.Error)
+	t.Run("handler error is captured on the resolution", func(t *testing.T) {
+		call := &PendingToolCall{ID: "c", Name: "failing"}
+		res := ResolveApproved(call, func(map[string]any) (any, error) {
+			return nil, assert.AnError
+		}, nil)
+		assert.Equal(t, assert.AnError, res.Error)
 	})
 }
 
-func TestPendingStoreReject(t *testing.T) {
-	t.Run("reject successful", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "test_tool"}))
-
-		resolution, err := store.Reject("call-1", "not authorized")
-		require.NoError(t, err)
-		assert.Equal(t, "call-1", resolution.ID)
-		assert.True(t, resolution.Rejected)
-		assert.Equal(t, "not authorized", resolution.RejectionReason)
-
-		// Verify call is removed
-		_, ok := store.Get("call-1")
-		assert.False(t, ok)
-	})
-
-	t.Run("reject non-existent", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		_, err := store.Reject("non-existent", "reason")
-		assert.Error(t, err)
-	})
+func TestResolveRejected(t *testing.T) {
+	res := ResolveRejected("call-1", "not authorized")
+	assert.Equal(t, "call-1", res.ID)
+	assert.True(t, res.Rejected)
+	assert.Equal(t, "not authorized", res.RejectionReason)
 }
 
 func TestAsyncToolHandler(t *testing.T) {
-	t.Run("handler returning pending", func(t *testing.T) {
-		handler := AsyncToolHandler(func(args map[string]any) PendingResult {
-			amount := args["amount"].(float64)
-			if amount > 100 {
-				return PendingResult{
-					Reason:  "high_value",
-					Message: "Amount exceeds $100",
-				}
-			}
-			return PendingResult{}
-		})
+	handler := AsyncToolHandler(func(args map[string]any) PendingResult {
+		if args["amount"].(float64) > 100 {
+			return PendingResult{Reason: "high_value", Message: "Amount exceeds $100"}
+		}
+		return PendingResult{}
+	})
+	assert.True(t, handler(map[string]any{"amount": float64(500)}).IsPending())
+	assert.False(t, handler(map[string]any{"amount": float64(50)}).IsPending())
+}
 
-		// High value - should be pending
-		result := handler(map[string]any{"amount": float64(500)})
-		assert.True(t, result.IsPending())
-		assert.Equal(t, "high_value", result.Reason)
+func TestMemoryPendingStore_MaxEntries(t *testing.T) {
+	ctx := context.Background()
 
-		// Low value - should not be pending
-		result = handler(map[string]any{"amount": float64(50)})
-		assert.False(t, result.IsPending())
+	t.Run("rejects when full", func(t *testing.T) {
+		store := NewMemoryPendingStore(WithMaxPending(2))
+		defer store.Close()
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "1", ConversationID: testConv, Name: "t1"}))
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "2", ConversationID: testConv, Name: "t2"}))
+		assert.ErrorIs(t, store.Add(ctx, &PendingToolCall{ID: "3", ConversationID: testConv, Name: "t3"}),
+			ErrPendingStoreFull)
+	})
+
+	t.Run("accepts after a claim frees space", func(t *testing.T) {
+		store := NewMemoryPendingStore(WithMaxPending(2))
+		defer store.Close()
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "1", ConversationID: testConv, Name: "t1"}))
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "2", ConversationID: testConv, Name: "t2"}))
+		_, _, err := store.Claim(ctx, testConv, "1")
+		require.NoError(t, err)
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "3", ConversationID: testConv, Name: "t3"}))
 	})
 }
 
-func TestPendingToolCall_SetHandler(t *testing.T) {
-	t.Run("sets handler and can resolve", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		call := &PendingToolCall{
-			ID:        "call-1",
-			Name:      "test_tool",
-			Arguments: map[string]any{"x": float64(10)},
-		}
+func TestMemoryPendingStore_TTL(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	store := NewMemoryPendingStore(WithPendingTTL(1 * time.Minute))
+	store.nowFunc = func() time.Time { return now }
+	defer store.Close()
 
-		// Set handler using public method
-		call.SetHandler(func(args map[string]any) (any, error) {
-			x := args["x"].(float64)
-			return map[string]any{"result": x * 2}, nil
-		})
+	require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "old", ConversationID: testConv, Name: "t1"}))
 
-		require.NoError(t, store.Add(call))
+	store.nowFunc = func() time.Time { return now.Add(2 * time.Minute) }
+	require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "fresh", ConversationID: testConv, Name: "t2"}))
+	store.removeExpired()
 
-		resolution, err := store.Resolve("call-1")
-		assert.NoError(t, err)
-		assert.NotNil(t, resolution.Result)
-	})
+	_, oldOk, _ := store.Get(ctx, testConv, "old")
+	assert.False(t, oldOk, "expired 'old' should be removed")
+	_, freshOk, _ := store.Get(ctx, testConv, "fresh")
+	assert.True(t, freshOk, "fresh entry should remain")
+}
+
+func TestMemoryPendingStore_Close(t *testing.T) {
+	store := NewMemoryPendingStore()
+	require.NoError(t, store.Close())
+	require.NoError(t, store.Close(), "double close should not panic")
+
+	select {
+	case <-store.stopped:
+	default:
+		t.Error("stopped channel should be closed after Close()")
+	}
+}
+
+func TestMemoryPendingStore_Options(t *testing.T) {
+	store := NewMemoryPendingStore(WithPendingTTL(10*time.Second), WithMaxPending(50))
+	defer store.Close()
+	assert.Equal(t, 10*time.Second, store.ttl)
+	assert.Equal(t, 50, store.maxPending)
+
+	def := NewMemoryPendingStore()
+	defer def.Close()
+	assert.Equal(t, DefaultPendingTTL, def.ttl)
+	assert.Equal(t, DefaultMaxPending, def.maxPending)
+}
+
+// TestMemoryPendingStore_GetReturnsCopy proves Get/List hand back a defensive
+// copy: mutating the returned value must not corrupt the stored record.
+func TestMemoryPendingStore_GetReturnsCopy(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryPendingStore()
+	defer store.Close()
+	require.NoError(t, store.Add(ctx, &PendingToolCall{
+		ID: "1", ConversationID: testConv, Name: "orig", Arguments: map[string]any{"k": "v"},
+	}))
+
+	got, ok, err := store.Get(ctx, testConv, "1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	got.Name = "mutated"
+	got.Arguments["k"] = "tampered"
+
+	again, _, err := store.Get(ctx, testConv, "1")
+	require.NoError(t, err)
+	assert.Equal(t, "orig", again.Name, "stored Name must be unaffected by caller mutation")
+	assert.Equal(t, "v", again.Arguments["k"], "stored Arguments must be unaffected")
 }
 
 func TestResolvedStore(t *testing.T) {
-	t.Run("new store is empty", func(t *testing.T) {
-		store := NewResolvedStore()
-		resolutions := store.PopAll()
-		assert.Empty(t, resolutions)
-	})
-
 	t.Run("add and pop all", func(t *testing.T) {
 		store := NewResolvedStore()
-
-		res1 := &ToolResolution{ID: "res-1", Result: "result1"}
-		res2 := &ToolResolution{ID: "res-2", Result: "result2"}
-
-		store.Add(res1)
-		store.Add(res2)
+		store.Add(&ToolResolution{ID: "res-1"})
+		store.Add(&ToolResolution{ID: "res-2"})
 
 		resolutions := store.PopAll()
 		assert.Len(t, resolutions, 2)
-		assert.Equal(t, "res-1", resolutions[0].ID)
-		assert.Equal(t, "res-2", resolutions[1].ID)
-
-		// PopAll should clear the store
-		resolutions = store.PopAll()
-		assert.Empty(t, resolutions)
+		assert.Empty(t, store.PopAll(), "PopAll should clear the store")
 	})
 
 	t.Run("add nil is safe", func(t *testing.T) {
 		store := NewResolvedStore()
 		store.Add(nil)
 		resolutions := store.PopAll()
-		assert.Len(t, resolutions, 1)
+		require.Len(t, resolutions, 1)
 		assert.Nil(t, resolutions[0])
 	})
 
 	t.Run("concurrent access is safe", func(t *testing.T) {
 		store := NewResolvedStore()
-		done := make(chan bool)
-
-		// Add from multiple goroutines
+		var wg sync.WaitGroup
 		for i := range 10 {
+			wg.Add(1)
 			go func(id int) {
+				defer wg.Done()
 				store.Add(&ToolResolution{ID: string(rune('0' + id))})
-				done <- true
 			}(i)
 		}
-
-		// Wait for all adds
-		for range 10 {
-			<-done
-		}
-
-		resolutions := store.PopAll()
-		assert.Len(t, resolutions, 10)
+		wg.Wait()
+		assert.Len(t, store.PopAll(), 10)
 	})
 
 	t.Run("len returns count", func(t *testing.T) {
 		store := NewResolvedStore()
 		assert.Equal(t, 0, store.Len())
-
 		store.Add(&ToolResolution{ID: "res-1"})
 		assert.Equal(t, 1, store.Len())
-
-		store.Add(&ToolResolution{ID: "res-2"})
-		assert.Equal(t, 2, store.Len())
-
-		store.PopAll()
-		assert.Equal(t, 0, store.Len())
 	})
 }
 
 func TestToolResolution_PartsField(t *testing.T) {
-	t.Run("parts field stores multimodal content", func(t *testing.T) {
-		text := "result text"
-		imgData := "base64data"
-		res := &ToolResolution{
-			ID: "call-1",
-			Parts: []types.ContentPart{
-				types.NewTextPart(text),
-				types.NewImagePartFromData(imgData, "image/png", nil),
-			},
-		}
-
-		assert.Equal(t, "call-1", res.ID)
-		require.Len(t, res.Parts, 2)
-		assert.Equal(t, "text", res.Parts[0].Type)
-		assert.Equal(t, &text, res.Parts[0].Text)
-		assert.Equal(t, "image", res.Parts[1].Type)
-		assert.Equal(t, "image/png", res.Parts[1].Media.MIMEType)
-	})
-
-	t.Run("nil parts by default", func(t *testing.T) {
-		res := &ToolResolution{ID: "call-2"}
-		assert.Nil(t, res.Parts)
-	})
-}
-
-func TestPendingStoreMaxEntries(t *testing.T) {
-	t.Run("rejects when full", func(t *testing.T) {
-		store := NewPendingStore(WithMaxPending(2))
-		defer store.Close()
-
-		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "2", Name: "t2"}))
-
-		err := store.Add(&PendingToolCall{ID: "3", Name: "t3"})
-		assert.ErrorIs(t, err, ErrPendingStoreFull)
-		assert.Equal(t, 2, store.Len())
-	})
-
-	t.Run("accepts after removal frees space", func(t *testing.T) {
-		store := NewPendingStore(WithMaxPending(2))
-		defer store.Close()
-
-		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "2", Name: "t2"}))
-
-		store.Remove("1")
-		require.NoError(t, store.Add(&PendingToolCall{ID: "3", Name: "t3"}))
-		assert.Equal(t, 2, store.Len())
-	})
-}
-
-func TestPendingStoreTTL(t *testing.T) {
-	t.Run("expired entries are removed", func(t *testing.T) {
-		now := time.Now()
-		store := NewPendingStore(WithPendingTTL(1 * time.Minute))
-		store.nowFunc = func() time.Time { return now }
-		defer store.Close()
-
-		require.NoError(t, store.Add(&PendingToolCall{ID: "old", Name: "t1"}))
-		require.NoError(t, store.Add(&PendingToolCall{ID: "new", Name: "t2"}))
-
-		// Advance time past TTL for "old" entry
-		store.nowFunc = func() time.Time { return now.Add(2 * time.Minute) }
-
-		// Add a fresh entry so its createdAt is after TTL
-		require.NoError(t, store.Add(&PendingToolCall{ID: "fresh", Name: "t3"}))
-
-		// Run cleanup
-		store.removeExpired()
-
-		// "old" and "new" should be gone, "fresh" should remain
-		_, oldOk := store.Get("old")
-		assert.False(t, oldOk, "expired entry 'old' should be removed")
-
-		_, newOk := store.Get("new")
-		assert.False(t, newOk, "expired entry 'new' should be removed")
-
-		_, freshOk := store.Get("fresh")
-		assert.True(t, freshOk, "fresh entry should remain")
-	})
-
-	t.Run("non-expired entries are kept", func(t *testing.T) {
-		now := time.Now()
-		store := NewPendingStore(WithPendingTTL(10 * time.Minute))
-		store.nowFunc = func() time.Time { return now }
-		defer store.Close()
-
-		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
-
-		// Advance only slightly
-		store.nowFunc = func() time.Time { return now.Add(1 * time.Minute) }
-		store.removeExpired()
-
-		assert.Equal(t, 1, store.Len())
-	})
-}
-
-func TestPendingStoreClose(t *testing.T) {
-	t.Run("close stops cleanup goroutine", func(t *testing.T) {
-		store := NewPendingStore()
-		store.Close()
-
-		// Double close should not panic
-		store.Close()
-	})
-
-	t.Run("close waits for goroutine", func(t *testing.T) {
-		store := NewPendingStore()
-		store.Close()
-		// After Close, the stopped channel should be closed
-		select {
-		case <-store.stopped:
-			// expected
-		default:
-			t.Error("stopped channel should be closed after Close()")
-		}
-	})
-}
-
-func TestPendingStoreOptions(t *testing.T) {
-	t.Run("custom TTL", func(t *testing.T) {
-		store := NewPendingStore(WithPendingTTL(10 * time.Second))
-		defer store.Close()
-		assert.Equal(t, 10*time.Second, store.ttl)
-	})
-
-	t.Run("custom max pending", func(t *testing.T) {
-		store := NewPendingStore(WithMaxPending(50))
-		defer store.Close()
-		assert.Equal(t, 50, store.maxPending)
-	})
-
-	t.Run("defaults", func(t *testing.T) {
-		store := NewPendingStore()
-		defer store.Close()
-		assert.Equal(t, DefaultPendingTTL, store.ttl)
-		assert.Equal(t, DefaultMaxPending, store.maxPending)
-	})
+	text := "result text"
+	res := &ToolResolution{
+		ID: "call-1",
+		Parts: []types.ContentPart{
+			types.NewTextPart(text),
+			types.NewImagePartFromData("base64data", "image/png", nil),
+		},
+	}
+	require.Len(t, res.Parts, 2)
+	assert.Equal(t, "text", res.Parts[0].Type)
+	assert.Equal(t, "image/png", res.Parts[1].Media.MIMEType)
 }

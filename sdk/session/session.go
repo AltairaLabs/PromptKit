@@ -147,8 +147,10 @@ type AsyncToolCheckResult struct {
 
 // AsyncToolChecker is called before executing a tool to determine if it
 // requires human approval. Returns nil if the tool is not an async tool
-// (falls through to normal registry execution).
-type AsyncToolChecker func(callID, name string, args map[string]any) *AsyncToolCheckResult
+// (falls through to normal registry execution). The context is the
+// tool-execution context so a checker persisting the held call honors
+// cancellation and deadlines.
+type AsyncToolChecker func(ctx context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult
 
 // DuplexSessionConfig configures a DuplexSession.
 //

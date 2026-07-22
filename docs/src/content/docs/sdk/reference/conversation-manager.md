@@ -177,7 +177,6 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func OpenDuplex\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenDuplex>)
   - [func Resume\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#Resume>)
   - [func ResumeDuplex\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#ResumeDuplex>)
-  - [func \(c \*Conversation\) CheckPending\(name string, args map\[string\]any\) \(\*sdktools.PendingToolCall, bool\)](<#Conversation.CheckPending>)
   - [func \(c \*Conversation\) Clear\(\) error](<#Conversation.Clear>)
   - [func \(c \*Conversation\) Close\(\) error](<#Conversation.Close>)
   - [func \(c \*Conversation\) Continue\(ctx context.Context\) \(\*Response, error\)](<#Conversation.Continue>)
@@ -197,11 +196,11 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(c \*Conversation\) OnToolExecutor\(name string, executor tools.Executor\)](<#Conversation.OnToolExecutor>)
   - [func \(c \*Conversation\) OnToolHTTP\(name string, config \*sdktools.HTTPToolConfig\)](<#Conversation.OnToolHTTP>)
   - [func \(c \*Conversation\) OnTools\(handlers map\[string\]ToolHandler\)](<#Conversation.OnTools>)
-  - [func \(c \*Conversation\) PendingTools\(\) \[\]\*sdktools.PendingToolCall](<#Conversation.PendingTools>)
+  - [func \(c \*Conversation\) PendingTools\(ctx context.Context\) \(\[\]\*sdktools.PendingToolCall, error\)](<#Conversation.PendingTools>)
   - [func \(c \*Conversation\) RejectClientTool\(\_ context.Context, callID, reason string\)](<#Conversation.RejectClientTool>)
-  - [func \(c \*Conversation\) RejectTool\(id, reason string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.RejectTool>)
-  - [func \(c \*Conversation\) ResolveTool\(id string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveTool>)
-  - [func \(c \*Conversation\) ResolveToolWithArgs\(id string, overrides map\[string\]any\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveToolWithArgs>)
+  - [func \(c \*Conversation\) RejectTool\(ctx context.Context, id, reason string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.RejectTool>)
+  - [func \(c \*Conversation\) ResolveTool\(ctx context.Context, id string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveTool>)
+  - [func \(c \*Conversation\) ResolveToolWithArgs\(ctx context.Context, id string, overrides map\[string\]any\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveToolWithArgs>)
   - [func \(c \*Conversation\) Response\(\) \(\<\-chan providers.StreamChunk, error\)](<#Conversation.Response>)
   - [func \(c \*Conversation\) Resume\(ctx context.Context\) \(\*Response, error\)](<#Conversation.Resume>)
   - [func \(c \*Conversation\) ResumeStream\(ctx context.Context\) \<\-chan StreamChunk](<#Conversation.ResumeStream>)
@@ -319,6 +318,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithMetricRecorder\(r evals.MetricRecorder\) Option](<#WithMetricRecorder>)
   - [func WithMetrics\(collector \*metrics.Collector, instanceLabels map\[string\]string\) Option](<#WithMetrics>)
   - [func WithModel\(model string\) Option](<#WithModel>)
+  - [func WithPendingStore\(store sdktools.PendingStore\) Option](<#WithPendingStore>)
   - [func WithProvider\(p providers.Provider\) Option](<#WithProvider>)
   - [func WithProviderFile\(path string\) Option](<#WithProviderFile>)
   - [func WithProviderHook\(h hooks.ProviderHook\) Option](<#WithProviderHook>)
@@ -1346,24 +1346,6 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 
 The persisted message history is seeded into the duplex pipeline by the same StateStore load stage that the unary path uses; no separate replay is needed.
 
-<a name="Conversation.CheckPending"></a>
-### func \(\*Conversation\) CheckPending
-
-```go
-func (c *Conversation) CheckPending(name string, args map[string]any) (*sdktools.PendingToolCall, bool)
-```
-
-CheckPending checks if a tool call should be pending and creates it if so. Returns \(pending call, should wait\) \- if should wait is true, the tool shouldn't execute yet.
-
-This method is used internally when processing tool calls from the LLM. It can also be useful for testing HITL workflows:
-
-```
-pending, shouldWait := conv.CheckPending("risky_tool", args)
-if shouldWait {
-    // Tool requires approval
-}
-```
-
 <a name="Conversation.Clear"></a>
 ### func \(\*Conversation\) Clear
 
@@ -1700,10 +1682,10 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ### func \(\*Conversation\) PendingTools
 
 ```go
-func (c *Conversation) PendingTools() []*sdktools.PendingToolCall
+func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
 ```
 
-PendingTools returns all pending tool calls awaiting approval.
+PendingTools returns all pending tool calls awaiting approval for this conversation. With a durable store this reflects calls held by any instance, including ones that survived a restart. Returns nil \(no error\) when no store is configured.
 
 <a name="Conversation.RejectClientTool"></a>
 ### func \(\*Conversation\) RejectClientTool
@@ -1720,22 +1702,22 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 ### func \(\*Conversation\) RejectTool
 
 ```go
-func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, error)
+func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error)
 ```
 
 RejectTool rejects a pending tool call.
 
-Use this when the human reviewer decides not to approve the tool:
+The call is claimed atomically, so a reject races safely against a concurrent approve — the loser gets \[sdktools.ErrPendingAlreadyResolved\].
 
 ```
-resp, _ := conv.RejectTool(pending.ID, "Not authorized for this amount")
+resp, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
 ```
 
 <a name="Conversation.ResolveTool"></a>
 ### func \(\*Conversation\) ResolveTool
 
 ```go
-func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error)
+func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.ToolResolution, error)
 ```
 
 ResolveTool approves and executes a pending tool call.
@@ -1747,7 +1729,7 @@ resp, _ := conv.Send(ctx, "Process refund for order #12345")
 if len(resp.PendingTools()) > 0 {
     pending := resp.PendingTools()[0]
     // ... get approval ...
-    result, _ := conv.ResolveTool(pending.ID)
+    result, _ := conv.ResolveTool(ctx, pending.ID)
     // Continue the conversation with the result
     resp, _ = conv.Continue(ctx)
 }
@@ -1757,10 +1739,12 @@ if len(resp.PendingTools()) > 0 {
 ### func \(\*Conversation\) ResolveToolWithArgs
 
 ```go
-func (c *Conversation) ResolveToolWithArgs(id string, overrides map[string]any) (*sdktools.ToolResolution, error)
+func (c *Conversation) ResolveToolWithArgs(ctx context.Context, id string, overrides map[string]any) (*sdktools.ToolResolution, error)
 ```
 
 ResolveToolWithArgs approves a pending tool call with reviewer\-supplied argument overrides \(approve\-with\-edits\), then executes it.
+
+The call is claimed atomically from the store, so concurrent instances of the same agent cannot double\-resolve it — a losing caller gets \[sdktools.ErrPendingAlreadyResolved\]. The execution handler is recovered by tool name, so the resolving process must have registered the matching OnToolAsync handler \(see WithPendingStore\).
 
 Overrides are shallow\-merged over the arguments the model proposed: keys in overrides replace the originals, absent keys are preserved. A nil or empty map is identical to ResolveTool \(approve as\-proposed\). The resulting ToolResolution reports Edited=true and carries the effective Arguments.
 
@@ -1769,7 +1753,7 @@ Works on both paths: after Send\(\) follow with Continue\(\), and after a duplex
 ```
 pending := resp.PendingTools()[0]
 // reviewer tweaks the draft before it sends:
-conv.ResolveToolWithArgs(pending.ID, map[string]any{"body": editedText})
+conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"body": editedText})
 resp, _ = conv.Continue(ctx)
 ```
 
@@ -3583,6 +3567,26 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithModel("gpt-4o"),
 )
 ```
+
+<a name="WithPendingStore"></a>
+### func WithPendingStore
+
+```go
+func WithPendingStore(store sdktools.PendingStore) Option
+```
+
+WithPendingStore configures durable storage for HITL pending\-approval tool calls. When set, held tool calls survive process restarts and can be resolved by a different instance of the same agent; the store's Claim guarantees a single winner across instances.
+
+When unset, an in\-process \[sdktools.MemoryPendingStore\] is used \(approvals do not survive a restart\). A durable store is created by the caller:
+
+```
+store := sdktools.NewRedisPendingStore(redis.NewClient(&redis.Options{Addr: addr}))
+conv, _ := sdk.Open("./assist.pack.json", "assist",
+    sdk.WithPendingStore(store),
+)
+```
+
+A process resolving calls it did not create must re\-register the same [Conversation.OnToolAsync](<#Conversation.OnToolAsync>) handlers, since a persisted call carries no execution closure — the handler is recovered by tool name at resolve time.
 
 <a name="WithProvider"></a>
 ### func WithProvider

@@ -1018,12 +1018,13 @@ func TestDuplexTools_HITLGateBlocksExecution(t *testing.T) {
 	assert.Equal(t, "high_value_refund", pendingChunk.PendingTools[0].PendingInfo.Reason)
 
 	// Verify the pending call is stored in the conversation's pending store
-	pendingList := conv.PendingTools()
+	pendingList, err := conv.PendingTools(ctx)
+	require.NoError(t, err)
 	require.Len(t, pendingList, 1)
 	assert.Equal(t, "process_refund", pendingList[0].Name)
 
 	// Resolve the pending tool — this should execute the handler
-	resolution, err := conv.ResolveTool("call_1")
+	resolution, err := conv.ResolveTool(ctx, "call_1")
 	require.NoError(t, err)
 	assert.NotNil(t, resolution)
 	assert.True(t, execCalled.Load(), "exec handler should be called after approval")
@@ -1168,7 +1169,7 @@ func TestDuplexTools_HITLRejection(t *testing.T) {
 	require.NotNil(t, pendingChunk, "expected pending tools")
 
 	// Reject the tool
-	resolution, err := conv.RejectTool("call_1", "not authorized for this amount")
+	resolution, err := conv.RejectTool(ctx, "call_1", "not authorized for this amount")
 	require.NoError(t, err)
 	assert.True(t, resolution.Rejected)
 	assert.Equal(t, "not authorized for this amount", resolution.RejectionReason)

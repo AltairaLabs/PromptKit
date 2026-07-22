@@ -1434,7 +1434,7 @@ func TestSendWithMockProvider(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	// Build pipeline and create session
@@ -1487,7 +1487,7 @@ func TestBuildContextSummary_WithHistory(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "summary-conv", nil, nil)
@@ -1535,7 +1535,7 @@ func TestSendWithImageOptions(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1599,7 +1599,7 @@ func TestSendWithProviderError(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	// Build pipeline and create session
@@ -1700,7 +1700,7 @@ func TestBuildResponse(t *testing.T) {
 			},
 		}
 
-		resp := conv.buildResponse(result, time.Now())
+		resp := conv.buildResponse(context.Background(), result, time.Now())
 		assert.NotNil(t, resp)
 		assert.Equal(t, "Test response", resp.Text())
 		assert.NotNil(t, resp.message.CostInfo)
@@ -1718,7 +1718,7 @@ func TestBuildResponse(t *testing.T) {
 			},
 		}
 
-		resp := conv.buildResponse(result, time.Now())
+		resp := conv.buildResponse(context.Background(), result, time.Now())
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.toolCalls, 1)
 		assert.Equal(t, "get_weather", resp.toolCalls[0].Name)
@@ -1741,7 +1741,7 @@ func TestBuildResponse(t *testing.T) {
 			},
 		}
 
-		resp := conv.buildResponse(result, time.Now())
+		resp := conv.buildResponse(context.Background(), result, time.Now())
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.validations, 1)
 		assert.True(t, resp.validations[0].Passed)
@@ -1760,7 +1760,7 @@ func TestBuildResponse(t *testing.T) {
 			},
 		}
 
-		resp := conv.buildResponse(result, time.Now())
+		resp := conv.buildResponse(context.Background(), result, time.Now())
 		assert.NotNil(t, resp)
 		assert.NotNil(t, resp.message)
 		assert.Len(t, resp.message.Parts, 2)
@@ -1773,7 +1773,7 @@ func TestBuildResponse(t *testing.T) {
 			Response: nil,
 		}
 
-		resp := conv.buildResponse(result, time.Now())
+		resp := conv.buildResponse(context.Background(), result, time.Now())
 		assert.NotNil(t, resp)
 		assert.Nil(t, resp.message)
 	})
@@ -1802,7 +1802,7 @@ func TestSendWithOptions(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)

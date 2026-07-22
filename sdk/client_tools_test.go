@@ -330,7 +330,7 @@ func TestBuildResponse_PopulatesPendingClientTools(t *testing.T) {
 		},
 	}
 
-	resp := conv.buildResponse(result, time.Now())
+	resp := conv.buildResponse(context.Background(), result, time.Now())
 	require.True(t, resp.HasPendingClientTools())
 	require.Len(t, resp.ClientTools(), 1)
 

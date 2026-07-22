@@ -1774,7 +1774,7 @@ func (s *ProviderStage) executeSingleToolCall(
 		if len(toolCall.Args) > 0 {
 			_ = json.Unmarshal(toolCall.Args, &argsMap)
 		}
-		if info := s.config.ApprovalChecker(toolCall.ID, toolCall.Name, argsMap); info != nil {
+		if info := s.config.ApprovalChecker(ctx, toolCall.ID, toolCall.Name, argsMap); info != nil {
 			if info.ToolName == "" {
 				info.ToolName = toolCall.Name
 			}

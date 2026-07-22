@@ -32,13 +32,13 @@ const (
 // checkHITLGate consults the checker for a single tool call and returns
 // the action to take plus the check result (if any).
 func checkHITLGate(
-	checker AsyncToolChecker, tc types.MessageToolCall,
+	ctx context.Context, checker AsyncToolChecker, tc types.MessageToolCall,
 ) (hitlAction, map[string]any, *AsyncToolCheckResult) {
 	var argsMap map[string]any
 	if tc.Args != nil {
 		_ = json.Unmarshal(tc.Args, &argsMap)
 	}
-	checkResult := checker(tc.ID, tc.Name, argsMap)
+	checkResult := checker(ctx, tc.ID, tc.Name, argsMap)
 	if checkResult == nil {
 		return hitlNone, argsMap, nil
 	}
@@ -56,6 +56,7 @@ func checkHITLGate(
 // and deferred client tools (ToolStatusPending).
 // If checker is non-nil, it is consulted before execution to support HITL gating.
 func executeDuplexToolCalls(
+	ctx context.Context,
 	registry *tools.Registry,
 	toolCalls []types.MessageToolCall,
 	checker AsyncToolChecker,
@@ -72,7 +73,7 @@ func executeDuplexToolCalls(
 			"name", tc.Name, "id", tc.ID)
 
 		if checker != nil {
-			action, argsMap, checkResult := checkHITLGate(checker, tc)
+			action, argsMap, checkResult := checkHITLGate(ctx, checker, tc)
 			switch action { //nolint:exhaustive // hitlNone falls through to registry below
 			case hitlGated:
 				logger.Debug("duplexToolExecutor: tool gated by HITL",
@@ -92,7 +93,7 @@ func executeDuplexToolCalls(
 			}
 		}
 
-		callCtx := tools.WithCallID(context.Background(), tc.ID)
+		callCtx := tools.WithCallID(ctx, tc.ID)
 		asyncResult, err := registry.ExecuteAsync(callCtx, tc.Name, tc.Args)
 		if err != nil {
 			addToolError(result, tc, err)

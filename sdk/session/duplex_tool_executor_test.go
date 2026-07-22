@@ -85,7 +85,7 @@ func TestExecuteDuplexToolCalls_AllCompleted(t *testing.T) {
 		{ID: "c2", Name: "tool_b", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
 
 	assert.Len(t, result.Completed.ProviderResponses, 2)
 	assert.Len(t, result.Completed.ResultMessages, 2)
@@ -105,7 +105,7 @@ func TestExecuteDuplexToolCalls_AllPending(t *testing.T) {
 		{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
 
 	assert.Empty(t, result.Completed.ProviderResponses)
 	assert.Empty(t, result.Completed.ResultMessages)
@@ -129,7 +129,7 @@ func TestExecuteDuplexToolCalls_Mixed(t *testing.T) {
 		{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Equal(t, "c1", result.Completed.ProviderResponses[0].ToolCallID)
@@ -145,7 +145,7 @@ func TestExecuteDuplexToolCalls_Error(t *testing.T) {
 		{ID: "c1", Name: "bad_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, nil) // Individual tool errors don't fail the batch
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil) // Individual tool errors don't fail the batch
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.True(t, result.Completed.ProviderResponses[0].IsError)
@@ -159,7 +159,7 @@ func TestExecuteDuplexToolCalls_UnknownTool(t *testing.T) {
 		{ID: "c1", Name: "nonexistent", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.True(t, result.Completed.ProviderResponses[0].IsError)
@@ -169,7 +169,7 @@ func TestExecuteDuplexToolCalls_HITLGate(t *testing.T) {
 	reg := makeRegistry(&syncTestExecutor{result: json.RawMessage(`{"ok":true}`)})
 	registerTool(t, reg, "gated_tool", "test")
 
-	checker := func(callID, name string, args map[string]any) *AsyncToolCheckResult {
+	checker := func(_ context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult {
 		if name == "gated_tool" {
 			return &AsyncToolCheckResult{
 				ShouldWait: true,
@@ -187,7 +187,7 @@ func TestExecuteDuplexToolCalls_HITLGate(t *testing.T) {
 		{ID: "c1", Name: "gated_tool", Args: json.RawMessage(`{"key":"val"}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
 
 	// Should be pending, not completed
 	assert.Empty(t, result.Completed.ProviderResponses, "gated tool should not be completed")
@@ -205,7 +205,7 @@ func TestExecuteDuplexToolCalls_HITLPassthrough(t *testing.T) {
 	registerTool(t, reg, "safe_tool", "test")
 
 	// Checker returns nil — not an async tool, falls through to registry
-	checker := func(callID, name string, args map[string]any) *AsyncToolCheckResult {
+	checker := func(_ context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult {
 		return nil
 	}
 
@@ -213,7 +213,7 @@ func TestExecuteDuplexToolCalls_HITLPassthrough(t *testing.T) {
 		{ID: "c1", Name: "safe_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Empty(t, result.Pending)
@@ -225,7 +225,7 @@ func TestExecuteDuplexToolCalls_HITLHandled(t *testing.T) {
 	registerTool(t, reg, "async_tool", "test")
 
 	// Checker handles execution directly (check passed)
-	checker := func(callID, name string, args map[string]any) *AsyncToolCheckResult {
+	checker := func(_ context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult {
 		if name == "async_tool" {
 			return &AsyncToolCheckResult{
 				Handled:       true,
@@ -239,7 +239,7 @@ func TestExecuteDuplexToolCalls_HITLHandled(t *testing.T) {
 		{ID: "c1", Name: "async_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Empty(t, result.Pending)
@@ -253,7 +253,7 @@ func TestExecuteDuplexToolCalls_HITLMixedWithSync(t *testing.T) {
 	registerTool(t, reg, "safe_tool", "test")
 
 	// Only gate gated_tool, let safe_tool through (return nil)
-	checker := func(callID, name string, args map[string]any) *AsyncToolCheckResult {
+	checker := func(_ context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult {
 		if name == "gated_tool" {
 			return &AsyncToolCheckResult{
 				ShouldWait: true,
@@ -271,7 +271,7 @@ func TestExecuteDuplexToolCalls_HITLMixedWithSync(t *testing.T) {
 		{ID: "c2", Name: "gated_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
 
 	// safe_tool should complete, gated_tool should be pending
 	assert.Len(t, result.Completed.ProviderResponses, 1)

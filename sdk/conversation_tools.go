@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -179,7 +177,7 @@ func (c *Conversation) OnToolAsync(
 		c.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
 	}
 	if c.pendingStore == nil {
-		c.pendingStore = sdktools.NewPendingStore()
+		c.pendingStore, c.ownsPendingStore = newPendingStore(c.config)
 	}
 	if c.resolvedStore == nil {
 		c.resolvedStore = sdktools.NewResolvedStore()
@@ -193,6 +191,30 @@ func (c *Conversation) OnToolAsync(
 	c.handlersMu.Unlock()
 }
 
+// newPendingStore returns the durable pending store configured via
+// WithPendingStore (owned=false — the caller manages its lifecycle), or a
+// default in-memory store (owned=true — the SDK closes it on Conversation.Close).
+func newPendingStore(cfg *config) (store sdktools.PendingStore, owned bool) {
+	if cfg != nil && cfg.pendingStore != nil {
+		return cfg.pendingStore, false
+	}
+	return sdktools.NewMemoryPendingStore(), true
+}
+
+// lookupExecHandler recovers the registered execution handler for a tool by
+// name. A persisted pending call carries no closure, so the handler is
+// re-attached here at resolve time — which is why the resolving process must
+// have registered the same OnToolAsync handler.
+func (c *Conversation) lookupExecHandler(name string) sdktools.ExecFunc {
+	c.handlersMu.RLock()
+	handler := c.handlers[name]
+	c.handlersMu.RUnlock()
+	if handler == nil {
+		return nil
+	}
+	return sdktools.ExecFunc(handler)
+}
+
 // ResolveTool approves and executes a pending tool call.
 //
 // After calling Send() and receiving pending tools in the response,
@@ -202,16 +224,22 @@ func (c *Conversation) OnToolAsync(
 //	if len(resp.PendingTools()) > 0 {
 //	    pending := resp.PendingTools()[0]
 //	    // ... get approval ...
-//	    result, _ := conv.ResolveTool(pending.ID)
+//	    result, _ := conv.ResolveTool(ctx, pending.ID)
 //	    // Continue the conversation with the result
 //	    resp, _ = conv.Continue(ctx)
 //	}
-func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) {
-	return c.ResolveToolWithArgs(id, nil)
+func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.ToolResolution, error) {
+	return c.ResolveToolWithArgs(ctx, id, nil)
 }
 
 // ResolveToolWithArgs approves a pending tool call with reviewer-supplied
 // argument overrides (approve-with-edits), then executes it.
+//
+// The call is claimed atomically from the store, so concurrent instances of the
+// same agent cannot double-resolve it — a losing caller gets
+// [sdktools.ErrPendingAlreadyResolved]. The execution handler is recovered by
+// tool name, so the resolving process must have registered the matching
+// OnToolAsync handler (see WithPendingStore).
 //
 // Overrides are shallow-merged over the arguments the model proposed: keys in
 // overrides replace the originals, absent keys are preserved. A nil or empty
@@ -224,16 +252,39 @@ func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) 
 //
 //	pending := resp.PendingTools()[0]
 //	// reviewer tweaks the draft before it sends:
-//	conv.ResolveToolWithArgs(pending.ID, map[string]any{"body": editedText})
+//	conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"body": editedText})
 //	resp, _ = conv.Continue(ctx)
-func (c *Conversation) ResolveToolWithArgs(id string, overrides map[string]any) (*sdktools.ToolResolution, error) {
+func (c *Conversation) ResolveToolWithArgs(
+	ctx context.Context, id string, overrides map[string]any,
+) (*sdktools.ToolResolution, error) {
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	resolution, err := c.pendingStore.ResolveWithArgs(id, overrides)
+	// Recover the handler BEFORE claiming. Claim deletes the record, so if we
+	// claimed first and then found no handler, the held call would be lost with
+	// no way to retry — the exact failure mode when a resolving process forgot
+	// to re-register its OnToolAsync handlers. Peeking first leaves the record
+	// intact so the caller can register the handler and retry.
+	peek, ok, err := c.pendingStore.Get(ctx, c.ID(), id)
 	if err != nil {
 		return nil, err
 	}
+	if !ok {
+		return nil, sdktools.ErrPendingAlreadyResolved
+	}
+	handler := c.lookupExecHandler(peek.Name)
+	if handler == nil {
+		return nil, fmt.Errorf("no handler registered for tool %q", peek.Name)
+	}
+	// Claim atomically (single-winner across instances) now that we can execute.
+	call, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sdktools.ErrPendingAlreadyResolved
+	}
+	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	// Store for Continue()/ContinueDuplex() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
@@ -243,17 +294,22 @@ func (c *Conversation) ResolveToolWithArgs(id string, overrides map[string]any) 
 
 // RejectTool rejects a pending tool call.
 //
-// Use this when the human reviewer decides not to approve the tool:
+// The call is claimed atomically, so a reject races safely against a concurrent
+// approve — the loser gets [sdktools.ErrPendingAlreadyResolved].
 //
-//	resp, _ := conv.RejectTool(pending.ID, "Not authorized for this amount")
-func (c *Conversation) RejectTool(id, reason string) (*sdktools.ToolResolution, error) {
+//	resp, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
+func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error) {
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	resolution, err := c.pendingStore.Reject(id, reason)
+	_, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
 	if err != nil {
 		return nil, err
 	}
+	if !ok {
+		return nil, sdktools.ErrPendingAlreadyResolved
+	}
+	resolution := sdktools.ResolveRejected(id, reason)
 	// Store for Continue() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
@@ -326,7 +382,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 		}
 	}
 
-	return c.buildResponse(result, startTime), nil
+	return c.buildResponse(ctx, result, startTime), nil
 }
 
 // ContinueDuplex sends resolved/rejected HITL tool results back into the
@@ -382,64 +438,15 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
-// PendingTools returns all pending tool calls awaiting approval.
-func (c *Conversation) PendingTools() []*sdktools.PendingToolCall {
+// PendingTools returns all pending tool calls awaiting approval for this
+// conversation. With a durable store this reflects calls held by any instance,
+// including ones that survived a restart. Returns nil (no error) when no store
+// is configured.
+func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error) {
 	if c.pendingStore == nil {
-		return nil
+		return nil, nil
 	}
-	return c.pendingStore.List()
-}
-
-// CheckPending checks if a tool call should be pending and creates it if so.
-// Returns (pending call, should wait) - if should wait is true, the tool shouldn't execute yet.
-//
-// This method is used internally when processing tool calls from the LLM.
-// It can also be useful for testing HITL workflows:
-//
-//	pending, shouldWait := conv.CheckPending("risky_tool", args)
-//	if shouldWait {
-//	    // Tool requires approval
-//	}
-func (c *Conversation) CheckPending(
-	name string,
-	args map[string]any,
-) (*sdktools.PendingToolCall, bool) {
-	c.asyncHandlersMu.RLock()
-	checkFunc, isAsync := c.asyncHandlers[name]
-	c.asyncHandlersMu.RUnlock()
-
-	if !isAsync {
-		return nil, false
-	}
-
-	result := checkFunc(args)
-	if !result.IsPending() {
-		return nil, false
-	}
-
-	// Create pending call
-	pending := &sdktools.PendingToolCall{
-		ID:        uuid.New().String(),
-		Name:      name,
-		Arguments: args,
-		Reason:    result.Reason,
-		Message:   result.Message,
-	}
-
-	// Set the handler from the registered handlers
-	c.handlersMu.RLock()
-	handler := c.handlers[name]
-	c.handlersMu.RUnlock()
-	if handler != nil {
-		pending.SetHandler(handler)
-	}
-
-	// Store it
-	if err := c.pendingStore.Add(pending); err != nil {
-		return nil, false
-	}
-
-	return pending, true
+	return c.pendingStore.List(ctx, c.ID())
 }
 
 // ToolRegistry returns the underlying tool registry.

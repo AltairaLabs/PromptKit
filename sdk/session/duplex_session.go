@@ -390,7 +390,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 	logger.Debug("duplexSession: intercepting tool calls",
 		"count", len(toolCalls))
 
-	duplexResult := executeDuplexToolCalls(s.toolRegistry, toolCalls, s.asyncToolChecker)
+	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker)
 
 	// Send completed tool results back to the pipeline
 	if len(duplexResult.Completed.ProviderResponses) > 0 {

@@ -475,10 +475,10 @@ IncludesSkill returns true if the given skill ID passes the filter.
 <a name="ApprovalChecker"></a>
 ## type ApprovalChecker
 
-ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op.
+ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op. The context is the tool\-execution context, so a checker that persists the held call \(e.g. to a durable store\) honors cancellation and deadlines.
 
 ```go
-type ApprovalChecker func(callID, name string, args map[string]any) *PendingToolInfo
+type ApprovalChecker func(ctx context.Context, callID, name string, args map[string]any) *PendingToolInfo
 ```
 
 <a name="AsyncToolExecutor"></a>

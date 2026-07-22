@@ -137,7 +137,11 @@ type Conversation struct {
 	asyncHandlersMu sync.RWMutex
 
 	// Pending tool calls awaiting approval
-	pendingStore *sdktools.PendingStore
+	pendingStore sdktools.PendingStore
+	// ownsPendingStore is true when the SDK created pendingStore (the default
+	// in-memory store) and is therefore responsible for closing it. A store
+	// injected via WithPendingStore is owned by the caller and never closed here.
+	ownsPendingStore bool
 
 	// Resolved tool calls awaiting processing by Continue()
 	resolvedStore *sdktools.ResolvedStore
@@ -253,7 +257,7 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, err
 	}
 
-	resp := c.buildResponse(result, startTime)
+	resp := c.buildResponse(ctx, result, startTime)
 
 	// Skip lifecycle hooks when pipeline is suspended for pending client tools.
 	// The hooks will fire when Resume() completes the turn instead.
@@ -667,7 +671,9 @@ func (c *Conversation) executePipeline(
 }
 
 // buildResponse creates a Response from the pipeline result.
-func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTime time.Time) *Response {
+func (c *Conversation) buildResponse(
+	ctx context.Context, result *rtpipeline.ExecutionResult, startTime time.Time,
+) *Response {
 	var assistantMsg *types.Message
 	if result.Response != nil {
 		assistantMsg = &types.Message{
@@ -704,28 +710,50 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 		}
 	}
 
-	// Split suspended tool calls. A call the OnToolAsync approval gate registered
-	// in the pending store is a HITL approval hold — surface it via PendingTools()
-	// for ResolveTool/RejectTool. Everything else is a client-mode tool awaiting
-	// external fulfillment — surface it via ClientTools() for SendToolResult.
-	for i := range result.PendingTools {
-		pt := &result.PendingTools[i]
-		if c.pendingStore != nil {
-			if held, ok := c.pendingStore.Get(pt.CallID); ok {
-				resp.pendingTools = append(resp.pendingTools, PendingTool{
-					ID:        held.ID,
-					Name:      held.Name,
-					Arguments: held.Arguments,
-					Reason:    held.Reason,
-					Message:   held.Message,
-				})
-				continue
-			}
+	c.splitSuspendedTools(ctx, resp, result.PendingTools)
+
+	return resp
+}
+
+// splitSuspendedTools routes each suspended tool call to the right response
+// bucket. A call the OnToolAsync approval gate registered in the pending store
+// is a HITL approval hold — surfaced via PendingTools() for ResolveTool/
+// RejectTool. Everything else is a client-mode tool awaiting external
+// fulfillment — surfaced via ClientTools() for SendToolResult.
+func (c *Conversation) splitSuspendedTools(
+	ctx context.Context, resp *Response, pending []tools.PendingToolExecution,
+) {
+	for i := range pending {
+		pt := &pending[i]
+		if held, ok := c.heldApproval(ctx, pt.CallID); ok {
+			resp.pendingTools = append(resp.pendingTools, PendingTool{
+				ID:        held.ID,
+				Name:      held.Name,
+				Arguments: held.Arguments,
+				Reason:    held.Reason,
+				Message:   held.Message,
+			})
+			continue
 		}
 		resp.clientTools = append(resp.clientTools, buildPendingClientToolFromExecution(pt))
 	}
+}
 
-	return resp
+// heldApproval reports whether callID is a HITL approval hold in the pending
+// store. A durable-store error is logged (not swallowed) and treated as
+// "not a hold" — the call is still in the store, so conv.PendingTools(ctx)
+// surfaces it — rather than silently reclassifying it as a client tool.
+func (c *Conversation) heldApproval(ctx context.Context, callID string) (*sdktools.PendingToolCall, bool) {
+	if c.pendingStore == nil {
+		return nil, false
+	}
+	held, ok, err := c.pendingStore.Get(ctx, c.ID(), callID)
+	if err != nil {
+		logger.Warn("pending store lookup failed; suspended tool not classified as HITL hold",
+			"call_id", callID, "error", err)
+		return nil, false
+	}
+	return held, ok
 }
 
 // getBaseSession returns the active session as BaseSession.
@@ -1081,21 +1109,23 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	}
 
 	// Create the forked conversation
+	forkPendingStore, forkOwnsPending := newPendingStore(c.config)
 	fork := &Conversation{
-		pack:           c.pack,
-		prompt:         c.prompt,
-		promptName:     c.promptName,
-		promptRegistry: c.promptRegistry,
-		toolRegistry:   forkRegistry,
-		config:         c.config,
-		mode:           c.mode,
-		handlers:       handlers,
-		clientHandlers: clientHandlers,
-		asyncHandlers:  asyncHandlers,
-		pendingStore:   sdktools.NewPendingStore(),
-		resolvedStore:  sdktools.NewResolvedStore(),
-		mcpRegistry:    c.mcpRegistry,  // Share MCP registry
-		hookRegistry:   c.hookRegistry, // Share hook registry
+		pack:             c.pack,
+		prompt:           c.prompt,
+		promptName:       c.promptName,
+		promptRegistry:   c.promptRegistry,
+		toolRegistry:     forkRegistry,
+		config:           c.config,
+		mode:             c.mode,
+		handlers:         handlers,
+		clientHandlers:   clientHandlers,
+		asyncHandlers:    asyncHandlers,
+		pendingStore:     forkPendingStore,
+		ownsPendingStore: forkOwnsPending,
+		resolvedStore:    sdktools.NewResolvedStore(),
+		mcpRegistry:      c.mcpRegistry,  // Share MCP registry
+		hookRegistry:     c.hookRegistry, // Share hook registry
 	}
 	fork.sessionHooks = newSessionHookDispatcher(fork.hookRegistry, fork.sessionInfo)
 
@@ -1224,9 +1254,13 @@ func (c *Conversation) Close() error {
 		}
 	}
 
-	// Stop the pending store cleanup goroutine
-	if c.pendingStore != nil {
-		c.pendingStore.Close()
+	// Stop the pending store cleanup goroutine — but only for a store the SDK
+	// created. A store injected via WithPendingStore is owned by the caller
+	// (it may be shared across conversations), so we must not close it.
+	if c.ownsPendingStore {
+		if closer, ok := c.pendingStore.(sdktools.Closer); ok {
+			_ = closer.Close()
+		}
 	}
 
 	// State is automatically persisted by the StateStore middleware in the pipeline
