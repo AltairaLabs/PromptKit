@@ -322,7 +322,6 @@ type ToolExecutionResult struct {
 	PendingInfo *PendingToolInfo `json:"pending_info,omitempty"`
 }
 
-// PendingToolInfo provides context for middleware (email templates, notifications)
 // ApprovalChecker decides whether a tool call must be held for external
 // approval (human-in-the-loop) before execution. It returns a non-nil
 // PendingToolInfo to hold the call pending, or nil to let it execute normally.

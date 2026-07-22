@@ -520,6 +520,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
+		ApprovalChecker:       c.newApprovalChecker(),
 		ClassifyRegistry:      c.config.classifyRegistry,
 	}
 
@@ -703,9 +704,25 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 		}
 	}
 
-	// Populate pending client tools from pipeline result
+	// Split suspended tool calls. A call the OnToolAsync approval gate registered
+	// in the pending store is a HITL approval hold — surface it via PendingTools()
+	// for ResolveTool/RejectTool. Everything else is a client-mode tool awaiting
+	// external fulfillment — surface it via ClientTools() for SendToolResult.
 	for i := range result.PendingTools {
-		resp.clientTools = append(resp.clientTools, buildPendingClientToolFromExecution(&result.PendingTools[i]))
+		pt := &result.PendingTools[i]
+		if c.pendingStore != nil {
+			if held, ok := c.pendingStore.Get(pt.CallID); ok {
+				resp.pendingTools = append(resp.pendingTools, PendingTool{
+					ID:        held.ID,
+					Name:      held.Name,
+					Arguments: held.Arguments,
+					Reason:    held.Reason,
+					Message:   held.Message,
+				})
+				continue
+			}
+		}
+		resp.clientTools = append(resp.clientTools, buildPendingClientToolFromExecution(pt))
 	}
 
 	return resp

@@ -87,6 +87,11 @@ type Config struct {
 	// provider sees the full allowedTools list (existing behavior).
 	ToolSelector selection.Selector
 
+	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
+	// approval on the standard ProviderStage: a tool the checker holds is
+	// surfaced as pending instead of executing. Optional; nil executes normally.
+	ApprovalChecker tools.ApprovalChecker
+
 	// CompactionStrategy replaces the default compactor entirely.
 	// Mutually exclusive with CompactionRules.
 	CompactionStrategy stage.CompactionStrategy
@@ -496,6 +501,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
 			ToolSelector:     cfg.ToolSelector,
+			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
 		}
 		// Configure compaction strategy

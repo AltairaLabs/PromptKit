@@ -34,8 +34,9 @@ const (
 // ProviderStage implementation notes:
 // - ✅ Multi-round tool execution with automatic tool result handling
 // - ✅ Synchronous tool execution via toolRegistry.ExecuteAsync()
-// - ⚠️ Limited async/pending tool support (no ExecutionContext for tracking)
-// - TODO: Implement full async tool support with approval workflows
+// - ✅ Human-in-the-loop approval gate via ProviderConfig.ApprovalChecker: a
+//      held call is surfaced pending (ErrToolsPending / PendingTools metadata)
+//      and the pipeline suspends until the caller resolves it
 
 // ProviderStage executes LLM calls and handles tool execution.
 // This is the request/response mode implementation.
@@ -1934,18 +1935,15 @@ func (s *ProviderStage) handleToolResult(
 ) types.MessageToolResult {
 	switch asyncResult.Status {
 	case tools.ToolStatusPending:
-		// Tool requires approval - for stages we don't have ExecutionContext for tracking pending tools
-		// Return a message indicating approval is needed
+		// Tool is held pending external resolution (HITL approval or a client-mode
+		// tool awaiting fulfillment). The call is surfaced via ErrToolsPending /
+		// PendingTools metadata and the pipeline suspends; this placeholder result
+		// is only used if the pending execution is inspected before it resolves.
 		pendingMsg := asyncResult.PendingInfo.Message
 		if pendingMsg == "" {
-			pendingMsg = fmt.Sprintf("Tool %s requires approval", call.Name)
+			pendingMsg = fmt.Sprintf("Tool %s is awaiting approval", call.Name)
 		}
-		logger.Warn("Tool requires approval in ProviderStage - pending tool support not yet implemented",
-			"tool", call.Name, "call_id", call.ID)
-		return types.NewTextToolResult(
-			call.ID, call.Name,
-			pendingMsg+" (Note: Async tool approval workflows not yet implemented in stages)",
-		)
+		return types.NewTextToolResult(call.ID, call.Name, pendingMsg)
 
 	case tools.ToolStatusFailed:
 		failResult := types.NewTextToolResult(

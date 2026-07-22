@@ -47,6 +47,7 @@ Tools can be loaded from YAML/JSON files and executed with argument validation, 
 - [type A2ARetryConfig](<#A2ARetryConfig>)
 - [type A2ASkillFilter](<#A2ASkillFilter>)
   - [func \(f \*A2ASkillFilter\) IncludesSkill\(skillID string\) bool](<#A2ASkillFilter.IncludesSkill>)
+- [type ApprovalChecker](<#ApprovalChecker>)
 - [type AsyncToolExecutor](<#AsyncToolExecutor>)
 - [type ClientConfig](<#ClientConfig>)
 - [type Coercion](<#Coercion>)
@@ -470,6 +471,15 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
 ```
 
 IncludesSkill returns true if the given skill ID passes the filter.
+
+<a name="ApprovalChecker"></a>
+## type ApprovalChecker
+
+ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op.
+
+```go
+type ApprovalChecker func(callID, name string, args map[string]any) *PendingToolInfo
+```
 
 <a name="AsyncToolExecutor"></a>
 ## type AsyncToolExecutor
@@ -1083,7 +1093,7 @@ type PendingToolExecution struct {
 <a name="PendingToolInfo"></a>
 ## type PendingToolInfo
 
-PendingToolInfo provides context for middleware \(email templates, notifications\)
+PendingToolInfo describes a tool call awaiting external input or approval.
 
 ```go
 type PendingToolInfo struct {

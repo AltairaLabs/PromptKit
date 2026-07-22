@@ -824,6 +824,59 @@ func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) 
 	return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
 }
 
+// newApprovalChecker builds the HITL approval gate consulted by the standard
+// ProviderStage before each tool executes. Like newAsyncToolChecker (the ASM
+// duplex equivalent), it reads asyncHandlers dynamically so handlers registered
+// after the pipeline is built (e.g. OnToolAsync called after Open) are honored.
+//
+// When a tool's check returns pending, it records a PendingToolCall in the
+// pendingStore — keyed by the provider call ID, with the execution handler set
+// — so ResolveTool / ResolveToolWithArgs / RejectTool can resolve it, and
+// returns the PendingToolInfo that holds the call. Otherwise it returns nil and
+// the tool executes normally.
+func (conv *Conversation) newApprovalChecker() tools.ApprovalChecker {
+	return func(callID, name string, args map[string]any) *tools.PendingToolInfo {
+		conv.asyncHandlersMu.RLock()
+		checkFunc, isAsync := conv.asyncHandlers[name]
+		conv.asyncHandlersMu.RUnlock()
+		if !isAsync {
+			return nil // not an async tool — execute normally
+		}
+
+		result := checkFunc(args)
+		if !result.IsPending() {
+			return nil // approval not required — execute normally
+		}
+
+		if conv.pendingStore == nil {
+			return nil // no store to resolve against; don't strand the call
+		}
+
+		pending := &sdktools.PendingToolCall{
+			ID:        callID,
+			Name:      name,
+			Arguments: args,
+			Reason:    result.Reason,
+			Message:   result.Message,
+		}
+		conv.handlersMu.RLock()
+		handler := conv.handlers[name]
+		conv.handlersMu.RUnlock()
+		if handler != nil {
+			pending.SetHandler(handler)
+		}
+		if err := conv.pendingStore.Add(pending); err != nil {
+			return nil
+		}
+
+		return &tools.PendingToolInfo{
+			Reason:   result.Reason,
+			Message:  result.Message,
+			ToolName: name,
+		}
+	}
+}
+
 // initMCPRegistry initializes the MCP registry if servers are configured.
 //
 // Each server configured by name only (no URL, no Command) gets its
