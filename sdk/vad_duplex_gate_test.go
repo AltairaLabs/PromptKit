@@ -155,14 +155,10 @@ func pcmSilence(d time.Duration, sampleRate int) []byte {
 // through the real AudioTurn → STT → LLM path and asserts the model received
 // the STT transcript as a user message.
 //
-// The assertion is made after Close because VAD mode currently builds a
-// non-streaming ProviderStage (sdk/internal/pipeline/builder.go sets
-// Streaming only for the ingestion path) and never sets
-// AudioTurnConfig.EmitEndOfTurn, so the model fires once when the input
-// channel closes rather than per turn. That per-turn gap is a separate,
-// pre-existing VAD-mode defect — it affects Gemini callers too — and is
-// deliberately not fixed here; this test asserts only what the gate change
-// itself makes possible, so it does not encode the gap as intended behavior.
+// The assertion is made after Close only because that is the weakest claim
+// that proves the gate: the transcript reached the model at all. Whether it
+// arrives per turn *during* the session — it does, since #1644 — is covered by
+// TestVADModeFiresLLMDuringSessionNotAtClose in vad_mode_per_turn_test.go.
 func TestOpenDuplexVADModeDeliversTranscriptToTextProvider(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives a real VAD turn in wall-clock time and closes a duplex session")
