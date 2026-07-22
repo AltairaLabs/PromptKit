@@ -3771,6 +3771,14 @@ type ProviderConfig struct {
     // set is used (the provider stage never crashes a turn because
     // selection broke).
     ToolSelector selection.Selector
+
+    // ApprovalChecker, when set, is consulted before each tool executes. If it
+    // returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
+    // ErrToolsPending / PendingTools metadata) instead of executing — the
+    // human-in-the-loop approval gate. Nil (default) executes every tool
+    // normally. This is what makes HITL approval work on the standard
+    // ProviderStage, not only the ASM duplex session.
+    ApprovalChecker tools.ApprovalChecker
 }
 ```
 

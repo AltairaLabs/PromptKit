@@ -86,8 +86,9 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 	// 5d. ProviderStage - LLM call
 	if cfg.Provider != nil {
 		providerConfig := &stage.ProviderConfig{
-			MaxTokens:   cfg.MaxTokens,
-			Temperature: cfg.Temperature,
+			MaxTokens:       cfg.MaxTokens,
+			Temperature:     cfg.Temperature,
+			ApprovalChecker: cfg.ApprovalChecker,
 		}
 		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,

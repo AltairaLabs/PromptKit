@@ -1488,7 +1488,7 @@ func TestProviderStage_HandleToolResult_AllStatuses(t *testing.T) {
 			name:           "pending status without message",
 			status:         tools.ToolStatusPending,
 			pendingMsg:     "",
-			contentContain: "requires approval",
+			contentContain: "awaiting approval",
 		},
 		{
 			name:           "unknown status",
