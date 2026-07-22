@@ -323,6 +323,13 @@ type ToolExecutionResult struct {
 }
 
 // PendingToolInfo provides context for middleware (email templates, notifications)
+// ApprovalChecker decides whether a tool call must be held for external
+// approval (human-in-the-loop) before execution. It returns a non-nil
+// PendingToolInfo to hold the call pending, or nil to let it execute normally.
+// It is consulted per tool call before execution; a nil checker is a no-op.
+type ApprovalChecker func(callID, name string, args map[string]any) *PendingToolInfo
+
+// PendingToolInfo describes a tool call awaiting external input or approval.
 type PendingToolInfo struct {
 	// Reason for pending (e.g., "requires_approval", "waiting_external_api")
 	Reason string `json:"reason"`

@@ -95,6 +95,14 @@ type ProviderConfig struct {
 	// set is used (the provider stage never crashes a turn because
 	// selection broke).
 	ToolSelector selection.Selector
+
+	// ApprovalChecker, when set, is consulted before each tool executes. If it
+	// returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
+	// ErrToolsPending / PendingTools metadata) instead of executing — the
+	// human-in-the-loop approval gate. Nil (default) executes every tool
+	// normally. This is what makes HITL approval work on the standard
+	// ProviderStage, not only the ASM duplex session.
+	ApprovalChecker tools.ApprovalChecker
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -1754,6 +1762,26 @@ func (s *ProviderStage) executeSingleToolCall(
 	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall)
 	if skip {
 		return blocked
+	}
+
+	// Human-in-the-loop approval gate: if a checker holds this call, surface it
+	// as pending (via ErrToolsPending / PendingTools metadata) instead of
+	// executing. The caller resolves it (approve / approve-with-edits / reject)
+	// and resumes.
+	if s.config != nil && s.config.ApprovalChecker != nil {
+		var argsMap map[string]any
+		if len(toolCall.Args) > 0 {
+			_ = json.Unmarshal(toolCall.Args, &argsMap)
+		}
+		if info := s.config.ApprovalChecker(toolCall.ID, toolCall.Name, argsMap); info != nil {
+			if info.ToolName == "" {
+				info.ToolName = toolCall.Name
+			}
+			return s.buildPendingResult(ctx, toolCall, &tools.ToolExecutionResult{
+				Status:      tools.ToolStatusPending,
+				PendingInfo: info,
+			})
+		}
 	}
 
 	labels := s.toolLabels(toolCall.Name)
