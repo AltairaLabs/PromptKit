@@ -47,92 +47,40 @@ func TestOnToolAsync(t *testing.T) {
 	})
 }
 
-func TestCheckPending(t *testing.T) {
-	t.Run("returns nil for non-async tool", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.OnTool("normal_tool", func(args map[string]any) (any, error) {
-			return "result", nil
-		})
-
-		pending, shouldWait := conv.CheckPending("normal_tool", map[string]any{})
-		assert.Nil(t, pending)
-		assert.False(t, shouldWait)
-	})
-
-	t.Run("returns nil when check passes", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.OnToolAsync(
-			"conditional_tool",
-			func(args map[string]any) sdktools.PendingResult {
-				// Low value - no pending needed
-				if args["amount"].(float64) < 100 {
-					return sdktools.PendingResult{}
-				}
-				return sdktools.PendingResult{Reason: "high_value"}
-			},
-			func(args map[string]any) (any, error) {
-				return "executed", nil
-			},
-		)
-
-		pending, shouldWait := conv.CheckPending(
-			"conditional_tool",
-			map[string]any{"amount": float64(50)},
-		)
-		assert.Nil(t, pending)
-		assert.False(t, shouldWait)
-	})
-
-	t.Run("creates pending when check requires approval", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.OnToolAsync(
-			"risky_tool",
-			func(args map[string]any) sdktools.PendingResult {
-				return sdktools.PendingResult{
-					Reason:  "always_pending",
-					Message: "This tool always requires approval",
-				}
-			},
-			func(args map[string]any) (any, error) {
-				return "executed", nil
-			},
-		)
-
-		pending, shouldWait := conv.CheckPending(
-			"risky_tool",
-			map[string]any{"key": "value"},
-		)
-		require.NotNil(t, pending)
-		assert.True(t, shouldWait)
-		assert.Equal(t, "risky_tool", pending.Name)
-		assert.Equal(t, "always_pending", pending.Reason)
-		assert.Equal(t, "This tool always requires approval", pending.Message)
-		assert.NotEmpty(t, pending.ID)
-
-		// Verify it's stored in pending store
-		stored, ok := conv.pendingStore.Get(pending.ID)
-		assert.True(t, ok)
-		assert.Equal(t, pending.ID, stored.ID)
-	})
+// addPending stores a pending call scoped to the conversation and registers its
+// execution handler by name, mirroring how the approval gate persists a held
+// call plus how the handler is recovered by name at resolve time.
+func addPending(t *testing.T, conv *Conversation, id, name string, args map[string]any, handler sdktools.ExecFunc) {
+	t.Helper()
+	if handler != nil {
+		conv.handlersMu.Lock()
+		conv.handlers[name] = ToolHandler(handler)
+		conv.handlersMu.Unlock()
+	}
+	require.NoError(t, conv.pendingStore.Add(context.Background(), &sdktools.PendingToolCall{
+		ID:             id,
+		ConversationID: conv.ID(),
+		Name:           name,
+		Arguments:      args,
+	}))
 }
 
 func TestResolveTool(t *testing.T) {
 	t.Run("returns error when no pending store", func(t *testing.T) {
 		conv := newTestConversation()
-		// Don't initialize pending store
 		conv.pendingStore = nil
 
-		_, err := conv.ResolveTool("some-id")
+		_, err := conv.ResolveTool(context.Background(), "some-id")
 		assert.Error(t, err)
 	})
 
-	t.Run("returns error for non-existent id", func(t *testing.T) {
+	t.Run("returns already-resolved for non-existent id", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
 
-		_, err := conv.ResolveTool("non-existent")
-		assert.Error(t, err)
+		_, err := conv.ResolveTool(context.Background(), "non-existent")
+		assert.ErrorIs(t, err, sdktools.ErrPendingAlreadyResolved)
 	})
 }
 
@@ -141,29 +89,25 @@ func TestResolveToolWithArgs(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = nil
 
-		_, err := conv.ResolveToolWithArgs("some-id", map[string]any{"x": 1})
+		_, err := conv.ResolveToolWithArgs(context.Background(), "some-id", map[string]any{"x": 1})
 		assert.Error(t, err)
 	})
 
 	t.Run("approves with edited args and records resolution", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
 		conv.resolvedStore = sdktools.NewResolvedStore()
 
 		var gotArgs map[string]any
-		call := &sdktools.PendingToolCall{
-			ID:        "test-id",
-			Name:      "send_message",
-			Arguments: map[string]any{"to": "Dana", "body": "original"},
-		}
-		call.SetHandler(func(args map[string]any) (any, error) {
-			gotArgs = args
-			return map[string]any{"sent": args["body"]}, nil
-		})
-		require.NoError(t, conv.pendingStore.Add(call))
+		addPending(t, conv, "test-id", "send_message",
+			map[string]any{"to": "Dana", "body": "original"},
+			func(args map[string]any) (any, error) {
+				gotArgs = args
+				return map[string]any{"sent": args["body"]}, nil
+			})
 
-		resolution, err := conv.ResolveToolWithArgs("test-id", map[string]any{"body": "edited"})
+		resolution, err := conv.ResolveToolWithArgs(context.Background(), "test-id", map[string]any{"body": "edited"})
 		require.NoError(t, err)
 		assert.Equal(t, "edited", gotArgs["body"])
 		assert.Equal(t, "Dana", gotArgs["to"]) // untouched original preserved
@@ -174,17 +118,44 @@ func TestResolveToolWithArgs(t *testing.T) {
 
 	t.Run("ResolveTool delegates with no edits", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
 		conv.resolvedStore = sdktools.NewResolvedStore()
 
-		call := &sdktools.PendingToolCall{ID: "test-id", Name: "t", Arguments: map[string]any{"body": "original"}}
-		call.SetHandler(func(args map[string]any) (any, error) { return args["body"], nil })
-		require.NoError(t, conv.pendingStore.Add(call))
+		addPending(t, conv, "test-id", "t", map[string]any{"body": "original"},
+			func(args map[string]any) (any, error) { return args["body"], nil })
 
-		resolution, err := conv.ResolveTool("test-id")
+		resolution, err := conv.ResolveTool(context.Background(), "test-id")
 		require.NoError(t, err)
 		assert.False(t, resolution.Edited)
+	})
+
+	t.Run("missing handler errors but preserves the held call for retry", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		// Persist a held call but do NOT register a handler for it yet.
+		addPending(t, conv, "test-id", "later_tool", map[string]any{"x": 1}, nil)
+
+		_, err := conv.ResolveTool(context.Background(), "test-id")
+		require.ErrorContains(t, err, "no handler registered")
+
+		// The record must NOT have been claimed/destroyed — it is still there.
+		still, err := conv.PendingTools(context.Background())
+		require.NoError(t, err)
+		require.Len(t, still, 1, "a missing handler must not consume the held call")
+
+		// Registering the handler and retrying now succeeds.
+		var ran bool
+		conv.handlersMu.Lock()
+		conv.handlers["later_tool"] = func(map[string]any) (any, error) { ran = true; return "ok", nil }
+		conv.handlersMu.Unlock()
+
+		_, err = conv.ResolveTool(context.Background(), "test-id")
+		require.NoError(t, err)
+		assert.True(t, ran, "retry after registering the handler must execute it")
 	})
 }
 
@@ -193,27 +164,43 @@ func TestRejectTool(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = nil
 
-		_, err := conv.RejectTool("some-id", "reason")
+		_, err := conv.RejectTool(context.Background(), "some-id", "reason")
 		assert.Error(t, err)
 	})
 
 	t.Run("rejects pending tool", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
-		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{
-			ID:   "test-id",
-			Name: "test_tool",
-		}))
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		addPending(t, conv, "test-id", "test_tool", nil, nil)
 
-		resolution, err := conv.RejectTool("test-id", "not authorized")
+		resolution, err := conv.RejectTool(context.Background(), "test-id", "not authorized")
 		require.NoError(t, err)
 		assert.True(t, resolution.Rejected)
 		assert.Equal(t, "not authorized", resolution.RejectionReason)
 
-		// Verify it's removed from store
-		_, ok := conv.pendingStore.Get("test-id")
+		// Verify it's removed from store.
+		_, ok, err := conv.pendingStore.Get(context.Background(), conv.ID(), "test-id")
+		require.NoError(t, err)
 		assert.False(t, ok)
+	})
+}
+
+func TestPendingStoreOwnership(t *testing.T) {
+	t.Run("default store is owned by the SDK", func(t *testing.T) {
+		store, owned := newPendingStore(&config{})
+		require.NotNil(t, store)
+		assert.True(t, owned, "an SDK-created store is closed on Conversation.Close")
+	})
+
+	t.Run("injected store is caller-owned and returned as-is", func(t *testing.T) {
+		injected := sdktools.NewMemoryPendingStore()
+		defer func() { _ = injected.Close() }()
+
+		store, owned := newPendingStore(&config{pendingStore: injected})
+		assert.Same(t, injected, store)
+		assert.False(t, owned, "an injected store must not be closed by the SDK")
 	})
 }
 
@@ -222,18 +209,20 @@ func TestPendingTools(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = nil
 
-		pending := conv.PendingTools()
+		pending, err := conv.PendingTools(context.Background())
+		require.NoError(t, err)
 		assert.Nil(t, pending)
 	})
 
 	t.Run("returns pending tools", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
-		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "1", Name: "tool1"}))
-		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "2", Name: "tool2"}))
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
+		addPending(t, conv, "1", "tool1", nil, nil)
+		addPending(t, conv, "2", "tool2", nil, nil)
 
-		pending := conv.PendingTools()
+		pending, err := conv.PendingTools(context.Background())
+		require.NoError(t, err)
 		assert.Len(t, pending, 2)
 	})
 }
@@ -340,13 +329,11 @@ func TestResolveToolStoresResolution(t *testing.T) {
 			},
 		)
 
-		// Create a pending call through the proper API
-		pending, shouldWait := conv.CheckPending("test_tool", map[string]any{"key": "value"})
-		require.NotNil(t, pending)
-		require.True(t, shouldWait)
+		// Persist a held call for that tool (as the approval gate would).
+		addPending(t, conv, "call-1", "test_tool", map[string]any{"key": "value"}, nil)
 
-		// Resolve it
-		resolution, err := conv.ResolveTool(pending.ID)
+		// Resolve it — the handler is recovered by name from OnToolAsync.
+		resolution, err := conv.ResolveTool(context.Background(), "call-1")
 		require.NoError(t, err)
 
 		// Verify resolution was stored
@@ -359,18 +346,14 @@ func TestResolveToolStoresResolution(t *testing.T) {
 func TestRejectToolStoresResolution(t *testing.T) {
 	t.Run("stores rejection for continue", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.pendingStore = sdktools.NewPendingStore()
-		defer conv.pendingStore.Close()
+		conv.pendingStore = sdktools.NewMemoryPendingStore()
+		defer func() { _ = conv.pendingStore.(sdktools.Closer).Close() }()
 		conv.resolvedStore = sdktools.NewResolvedStore()
 
-		// Add a pending tool
-		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{
-			ID:   "test-id",
-			Name: "test_tool",
-		}))
+		addPending(t, conv, "test-id", "test_tool", nil, nil)
 
 		// Reject it
-		resolution, err := conv.RejectTool("test-id", "not allowed")
+		resolution, err := conv.RejectTool(context.Background(), "test-id", "not allowed")
 		require.NoError(t, err)
 		assert.True(t, resolution.Rejected)
 
@@ -508,7 +491,7 @@ func TestForkWithAsyncHandlers(t *testing.T) {
 	)
 
 	// Add a pending call
-	conv.CheckPending("async_tool", map[string]any{})
+	addPending(t, conv, "call-1", "async_tool", map[string]any{}, nil)
 
 	// Fork
 	forked, err := conv.Fork()
@@ -520,10 +503,14 @@ func TestForkWithAsyncHandlers(t *testing.T) {
 	forked.asyncHandlersMu.RUnlock()
 	assert.True(t, hasHandler)
 
-	// Verify fork has fresh pending store (no pending calls)
-	assert.NotNil(t, forked.pendingStore)
-	assert.Equal(t, 0, forked.pendingStore.Len())
+	// Verify fork has a fresh pending store (no pending calls)
+	require.NotNil(t, forked.pendingStore)
+	forkedPending, err := forked.PendingTools(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, forkedPending)
 
 	// Original still has the pending call
-	assert.Equal(t, 1, conv.pendingStore.Len())
+	origPending, err := conv.PendingTools(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, origPending, 1)
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
 // VAD mode default configuration constants.
@@ -87,6 +88,9 @@ type config struct {
 	// State management
 	stateStore     statestore.Store
 	conversationID string
+
+	// HITL pending-approval storage. When nil, a MemoryPendingStore is used.
+	pendingStore sdktools.PendingStore
 
 	// Session identity
 	userID          string
@@ -754,6 +758,29 @@ func WithAzure(endpoint, providerType, model string, opts ...PlatformOption) Opt
 func WithStateStore(store statestore.Store) Option {
 	return func(c *config) error {
 		c.stateStore = store
+		return nil
+	}
+}
+
+// WithPendingStore configures durable storage for HITL pending-approval tool
+// calls. When set, held tool calls survive process restarts and can be resolved
+// by a different instance of the same agent; the store's Claim guarantees a
+// single winner across instances.
+//
+// When unset, an in-process [sdktools.MemoryPendingStore] is used (approvals do
+// not survive a restart). A durable store is created by the caller:
+//
+//	store := sdktools.NewRedisPendingStore(redis.NewClient(&redis.Options{Addr: addr}))
+//	conv, _ := sdk.Open("./assist.pack.json", "assist",
+//	    sdk.WithPendingStore(store),
+//	)
+//
+// A process resolving calls it did not create must re-register the same
+// [Conversation.OnToolAsync] handlers, since a persisted call carries no
+// execution closure — the handler is recovered by tool name at resolve time.
+func WithPendingStore(store sdktools.PendingStore) Option {
+	return func(c *config) error {
+		c.pendingStore = store
 		return nil
 	}
 }

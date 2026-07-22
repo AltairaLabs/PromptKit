@@ -32,7 +32,7 @@ func TestProviderStage_ApprovalCheckerHoldsToolPending(t *testing.T) {
 
 	var checkedName string
 	var checkedArgs map[string]any
-	stage := setupApprovalStage(t, exec, func(callID, name string, args map[string]any) *tools.PendingToolInfo {
+	stage := setupApprovalStage(t, exec, func(_ context.Context, callID, name string, args map[string]any) *tools.PendingToolInfo {
 		checkedName, checkedArgs = name, args
 		return &tools.PendingToolInfo{Reason: "requires_approval", Message: "Approve?", ToolName: name}
 	})
@@ -59,7 +59,7 @@ func TestProviderStage_ApprovalCheckerNilExecutesNormally(t *testing.T) {
 	exec := &delayedExecutor{name: "local-exec", status: tools.ToolStatusComplete, content: []byte(`{"ok":true}`)}
 
 	// Checker returns nil → no approval needed → executes.
-	stage := setupApprovalStage(t, exec, func(_, _ string, _ map[string]any) *tools.PendingToolInfo {
+	stage := setupApprovalStage(t, exec, func(_ context.Context, _, _ string, _ map[string]any) *tools.PendingToolInfo {
 		return nil
 	})
 

@@ -165,7 +165,10 @@ The executor must implement `runtime/tools.Executor`.
 
 ## Async Tools (HITL)
 
-Register tools that require human approval before execution:
+Register tools that require human approval before execution. When the check
+returns a non-empty `PendingResult`, the standard pipeline **holds the call
+pending** instead of executing it — on the unary `Send` path, the WithIngestion
+streaming-duplex path, and the realtime duplex path alike.
 
 ```go
 conv.OnToolAsync("process_refund",
@@ -186,10 +189,49 @@ conv.OnToolAsync("process_refund",
 
 resp, _ := conv.Send(ctx, "Process refund for order #123")
 for _, pending := range resp.PendingTools() {
-    conv.ResolveTool(pending.ID)  // or conv.RejectTool(pending.ID, "reason")
+    conv.ResolveTool(ctx, pending.ID) // or conv.RejectTool(ctx, pending.ID, "reason")
 }
 resp, _ = conv.Continue(ctx)
 ```
+
+Approve with edits — the reviewer corrects an argument before it runs. Overrides
+shallow-merge over the arguments the model proposed:
+
+```go
+conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"amount": 500})
+```
+
+### Durable approvals across restarts and instances
+
+By default, held calls live in an in-process store — they do not survive a
+restart, and only the process that held them can resolve them. For production
+HITL (a reviewer approving from another service, or approvals that must outlive a
+redeploy), inject a durable store with `WithPendingStore`:
+
+```go
+import (
+    "github.com/redis/go-redis/v9"
+    sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+)
+
+store := sdktools.NewRedisPendingStore(
+    redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+)
+conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
+```
+
+Two things follow from durability:
+
+- **Recover the handler by name.** A persisted call cannot carry the Go execution
+  closure, so a process resolving a call it did not create must register the same
+  `OnToolAsync` handlers first — the handler is looked up by tool name at resolve
+  time.
+- **Resolution is single-winner.** `ResolveTool` / `RejectTool` claim the call
+  atomically (Redis `GETDEL`), so two instances of the same agent cannot
+  double-resolve one call. The loser gets `sdktools.ErrPendingAlreadyResolved`.
+
+`PendingTools(ctx)` lists a conversation's held calls from the store, including
+ones that survived a restart.
 
 ## Error Handling
 

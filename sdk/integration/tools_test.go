@@ -300,14 +300,17 @@ func TestTools_MultipleToolCallsInSingleTurn(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTools_HITLApproval(t *testing.T) {
-	// HITL flow is tested at the Conversation API level using CheckPending,
-	// ResolveTool, and Continue. The pipeline does not automatically gate
-	// tool execution via async handlers; the gating is a caller-side concern.
+	// The standard pipeline gates OnToolAsync tool calls automatically: the LLM
+	// emits get_weather, the approval gate holds it pending, and it only runs
+	// after ResolveTool.
+	ctx := context.Background()
 	repo := newTestTurnRepository()
 	repo.addTurn("default", 1, mock.Turn{
-		Type:    "text",
-		Content: "I will process that for you.",
+		Type:      "tool_calls",
+		Content:   "Looking that up.",
+		ToolCalls: []mock.ToolCall{{Name: "get_weather", Arguments: map[string]any{"city": "London"}}},
 	})
+	repo.addTurn("default", 2, mock.Turn{Type: "text", Content: "It is 22 degrees in London."})
 
 	provider := mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)
 
@@ -331,30 +334,24 @@ func TestTools_HITLApproval(t *testing.T) {
 		},
 	)
 
-	// Manually create a pending check (simulating what a caller would do
-	// when intercepting a tool call before execution).
-	pending, shouldWait := conv.CheckPending("get_weather", map[string]any{"city": "London"})
-	require.True(t, shouldWait, "should indicate pending")
-	require.NotNil(t, pending)
-	assert.Equal(t, "requires_approval", pending.Reason)
-	assert.Equal(t, "Weather lookup needs approval", pending.Message)
+	// Send drives the LLM, which calls get_weather; the gate holds it.
+	resp, err := conv.Send(ctx, "What's the weather in London?")
+	require.NoError(t, err)
 
-	// Verify the pending call is stored
-	pendingList := conv.PendingTools()
+	pendingList := resp.PendingTools()
 	require.Len(t, pendingList, 1)
 	assert.Equal(t, "get_weather", pendingList[0].Name)
+	assert.Equal(t, "requires_approval", pendingList[0].Reason)
+	assert.False(t, executed.Load(), "held tool must not run before approval")
 
-	// Resolve the pending tool
-	resolution, err := conv.ResolveTool(pending.ID)
+	// Resolve the pending tool — the handler runs now.
+	resolution, err := conv.ResolveTool(ctx, pendingList[0].ID)
 	require.NoError(t, err)
 	assert.NotNil(t, resolution)
-
-	// The exec handler should have been called during resolve
 	assert.True(t, executed.Load(), "exec handler should have been called after resolve")
 
-	// Continue to send the tool result to the LLM
-	ctx := context.Background()
-	resp, err := conv.Continue(ctx)
+	// Continue to send the tool result to the LLM.
+	resp, err = conv.Continue(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Text(), "response after continue should have text")
 }
@@ -364,11 +361,14 @@ func TestTools_HITLApproval(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTools_HITLRejection(t *testing.T) {
+	ctx := context.Background()
 	repo := newTestTurnRepository()
 	repo.addTurn("default", 1, mock.Turn{
-		Type:    "text",
-		Content: "Understood, the action was rejected.",
+		Type:      "tool_calls",
+		Content:   "Looking that up.",
+		ToolCalls: []mock.ToolCall{{Name: "get_weather", Arguments: map[string]any{"city": "London"}}},
 	})
+	repo.addTurn("default", 2, mock.Turn{Type: "text", Content: "Understood, the action was rejected."})
 
 	provider := mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)
 
@@ -392,23 +392,20 @@ func TestTools_HITLRejection(t *testing.T) {
 		},
 	)
 
-	// Create a pending check
-	pending, shouldWait := conv.CheckPending("get_weather", map[string]any{"city": "London"})
-	require.True(t, shouldWait)
-	require.NotNil(t, pending)
+	resp, err := conv.Send(ctx, "What's the weather in London?")
+	require.NoError(t, err)
+	pending := resp.PendingTools()
+	require.Len(t, pending, 1)
 
-	// Reject the pending tool
-	resolution, err := conv.RejectTool(pending.ID, "not authorized")
+	// Reject the pending tool.
+	resolution, err := conv.RejectTool(ctx, pending[0].ID, "not authorized")
 	require.NoError(t, err)
 	assert.True(t, resolution.Rejected)
 	assert.Equal(t, "not authorized", resolution.RejectionReason)
-
-	// Verify the exec handler was NOT called
 	assert.False(t, executed.Load(), "exec handler should NOT be called when rejected")
 
-	// Continue to send the rejection message to the LLM
-	ctx := context.Background()
-	resp, err := conv.Continue(ctx)
+	// Continue to send the rejection message to the LLM.
+	resp, err = conv.Continue(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Text(), "response after rejected continue should have text")
 }

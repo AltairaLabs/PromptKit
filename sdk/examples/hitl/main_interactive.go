@@ -92,7 +92,7 @@ func main() {
 			switch input {
 			case "yes", "y":
 				// Approve and execute the tool as proposed.
-				result, err := conv.ResolveTool(p.ID)
+				result, err := conv.ResolveTool(ctx, p.ID)
 				if err != nil {
 					log.Printf("Failed to resolve tool: %v", err)
 					continue
@@ -108,7 +108,7 @@ func main() {
 					log.Printf("Invalid amount: %v", err)
 					continue
 				}
-				result, err := conv.ResolveToolWithArgs(p.ID, map[string]any{"amount": amount})
+				result, err := conv.ResolveToolWithArgs(ctx, p.ID, map[string]any{"amount": amount})
 				if err != nil {
 					log.Printf("Failed to resolve tool: %v", err)
 					continue
@@ -116,7 +116,7 @@ func main() {
 				fmt.Printf("\nTool executed with edited amount (edited=%v):\n%v\n", result.Edited, result.Result)
 			default:
 				// Reject the tool
-				result, err := conv.RejectTool(p.ID, "Not authorized by supervisor")
+				result, err := conv.RejectTool(ctx, p.ID, "Not authorized by supervisor")
 				if err != nil {
 					log.Printf("Failed to reject tool: %v", err)
 					continue

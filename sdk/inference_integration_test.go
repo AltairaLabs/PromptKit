@@ -88,7 +88,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	// ---- 2. Register the "probe" tool descriptor (mode: local → localExecutor) ----

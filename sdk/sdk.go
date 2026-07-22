@@ -249,18 +249,20 @@ func initConversation(
 	}
 
 	// Create conversation
+	pendingStore, ownsPending := newPendingStore(cfg)
 	conv := &Conversation{
-		pack:           p,
-		prompt:         prompt,
-		promptName:     promptName,
-		promptRegistry: pack.ToPromptRegistry(p), // Create registry for PromptAssemblyMiddleware
-		toolRegistry:   toolReg,
-		config:         cfg,
-		handlers:       make(map[string]ToolHandler),
-		ctxHandlers:    make(map[string]ToolHandlerCtx),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
-		resolvedStore:  sdktools.NewResolvedStore(),
+		pack:             p,
+		prompt:           prompt,
+		promptName:       promptName,
+		promptRegistry:   pack.ToPromptRegistry(p), // Create registry for PromptAssemblyMiddleware
+		toolRegistry:     toolReg,
+		config:           cfg,
+		handlers:         make(map[string]ToolHandler),
+		ctxHandlers:      make(map[string]ToolHandlerCtx),
+		asyncHandlers:    make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:     pendingStore,
+		ownsPendingStore: ownsPending,
+		resolvedStore:    sdktools.NewResolvedStore(),
 	}
 
 	// Apply default variables from prompt BEFORE initializing session
@@ -755,7 +757,9 @@ func initDuplexSession(conv *Conversation, cfg *config) error {
 // asyncHandlers dynamically under lock so handlers registered after
 // OpenDuplex() (via OnToolAsync) are still consulted.
 func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
-	return session.AsyncToolChecker(func(callID, name string, args map[string]any) *session.AsyncToolCheckResult {
+	return session.AsyncToolChecker(func(
+		ctx context.Context, callID, name string, args map[string]any,
+	) *session.AsyncToolCheckResult {
 		conv.asyncHandlersMu.RLock()
 		checkFunc, isAsync := conv.asyncHandlers[name]
 		conv.asyncHandlersMu.RUnlock()
@@ -769,24 +773,19 @@ func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
 			return conv.executeAsyncToolNow(name, args)
 		}
 
-		// Tool requires human approval — create pending call using the provider's
-		// callID so ResolveTool maps directly.
+		// Tool requires human approval — persist a pending call using the
+		// provider's callID so ResolveTool maps directly. The record is pure
+		// data; the execution handler is recovered by name at resolve time.
 		pending := &sdktools.PendingToolCall{
-			ID:        callID,
-			Name:      name,
-			Arguments: args,
-			Reason:    checkResult.Reason,
-			Message:   checkResult.Message,
+			ID:             callID,
+			ConversationID: conv.ID(),
+			Name:           name,
+			Arguments:      args,
+			Reason:         checkResult.Reason,
+			Message:        checkResult.Message,
 		}
 
-		conv.handlersMu.RLock()
-		handler := conv.handlers[name]
-		conv.handlersMu.RUnlock()
-		if handler != nil {
-			pending.SetHandler(handler)
-		}
-
-		if err := conv.pendingStore.Add(pending); err != nil {
+		if err := conv.pendingStore.Add(ctx, pending); err != nil {
 			return nil
 		}
 
@@ -829,13 +828,14 @@ func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) 
 // duplex equivalent), it reads asyncHandlers dynamically so handlers registered
 // after the pipeline is built (e.g. OnToolAsync called after Open) are honored.
 //
-// When a tool's check returns pending, it records a PendingToolCall in the
-// pendingStore — keyed by the provider call ID, with the execution handler set
-// — so ResolveTool / ResolveToolWithArgs / RejectTool can resolve it, and
-// returns the PendingToolInfo that holds the call. Otherwise it returns nil and
-// the tool executes normally.
+// When a tool's check returns pending, it persists a PendingToolCall in the
+// pendingStore — keyed by the provider call ID — so ResolveTool /
+// ResolveToolWithArgs / RejectTool can resolve it, and returns the
+// PendingToolInfo that holds the call. The record is pure data; the execution
+// handler is recovered by name at resolve time. Otherwise it returns nil and the
+// tool executes normally.
 func (conv *Conversation) newApprovalChecker() tools.ApprovalChecker {
-	return func(callID, name string, args map[string]any) *tools.PendingToolInfo {
+	return func(ctx context.Context, callID, name string, args map[string]any) *tools.PendingToolInfo {
 		conv.asyncHandlersMu.RLock()
 		checkFunc, isAsync := conv.asyncHandlers[name]
 		conv.asyncHandlersMu.RUnlock()
@@ -853,19 +853,14 @@ func (conv *Conversation) newApprovalChecker() tools.ApprovalChecker {
 		}
 
 		pending := &sdktools.PendingToolCall{
-			ID:        callID,
-			Name:      name,
-			Arguments: args,
-			Reason:    result.Reason,
-			Message:   result.Message,
+			ID:             callID,
+			ConversationID: conv.ID(),
+			Name:           name,
+			Arguments:      args,
+			Reason:         result.Reason,
+			Message:        result.Message,
 		}
-		conv.handlersMu.RLock()
-		handler := conv.handlers[name]
-		conv.handlersMu.RUnlock()
-		if handler != nil {
-			pending.SetHandler(handler)
-		}
-		if err := conv.pendingStore.Add(pending); err != nil {
+		if err := conv.pendingStore.Add(ctx, pending); err != nil {
 			return nil
 		}
 

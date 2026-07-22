@@ -99,7 +99,7 @@ func TestStream(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -269,7 +269,7 @@ func TestStreamRaw(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -406,7 +406,7 @@ func TestStreamingWithMultipleChunks(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -787,7 +787,7 @@ func TestStreamingError(t *testing.T) {
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
+		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
 	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)

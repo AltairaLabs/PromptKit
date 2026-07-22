@@ -107,10 +107,12 @@ func TestOnToolAsync_GatesOnStandardPipeline(t *testing.T) {
 	assert.Empty(t, executedWith, "held tool must not execute before approval")
 
 	// Also resolvable via the conversation store.
-	require.Len(t, conv.PendingTools(), 1)
+	stored, err := conv.PendingTools(context.Background())
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
 
 	// APPROVE → the handler runs.
-	_, err = conv.ResolveTool(pending[0].ID)
+	_, err = conv.ResolveTool(context.Background(), pending[0].ID)
 	require.NoError(t, err)
 	assert.Equal(t, "hi", executedWith, "approval must execute the held tool")
 }
@@ -148,7 +150,7 @@ func TestOnToolAsync_ApproveWithEditsOnStandardPipeline(t *testing.T) {
 	require.Len(t, pending, 1)
 
 	// Reviewer edits the body before approving.
-	res, err := conv.ResolveToolWithArgs(pending[0].ID, map[string]any{"body": "edited"})
+	res, err := conv.ResolveToolWithArgs(context.Background(), pending[0].ID, map[string]any{"body": "edited"})
 	require.NoError(t, err)
 	assert.True(t, res.Edited)
 	assert.Equal(t, "edited", executedWith, "approve-with-edits must run the handler with the override")
@@ -208,20 +210,23 @@ func TestOnToolAsync_GatesOnWithIngestionDuplexPipeline(t *testing.T) {
 
 	// HELD: the streaming ProviderStage surfaces the call in the pending store and
 	// the handler does not run while the session stays open.
-	require.Eventually(t, func() bool { return len(conv.PendingTools()) == 1 },
-		5*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool {
+		held, _ := conv.PendingTools(ctx)
+		return len(held) == 1
+	}, 5*time.Second, 10*time.Millisecond,
 		"WithIngestion streaming ProviderStage must hold the tool pending")
 	mu.Lock()
 	assert.Empty(t, executedWith, "held tool must not execute before approval")
 	mu.Unlock()
 
-	pending := conv.PendingTools()
+	pending, err := conv.PendingTools(ctx)
+	require.NoError(t, err)
 	require.Len(t, pending, 1)
 	assert.Equal(t, "send_message", pending[0].Name)
 	assert.Equal(t, "requires_approval", pending[0].Reason)
 
 	// APPROVE → the handler runs with the model's proposed args.
-	_, err = conv.ResolveTool(pending[0].ID)
+	_, err = conv.ResolveTool(ctx, pending[0].ID)
 	require.NoError(t, err)
 	mu.Lock()
 	assert.Equal(t, "hi", executedWith, "approval must execute the held tool")

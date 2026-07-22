@@ -183,18 +183,20 @@ func (t *PackTemplate) newConversation(
 	packPrompt *pack.Prompt,
 	cfg *config,
 ) *Conversation {
+	pendingStore, ownsPending := newPendingStore(cfg)
 	return &Conversation{
-		pack:           t.pack,
-		prompt:         packPrompt,
-		promptName:     promptName,
-		promptRegistry: t.promptRegistry,
-		toolRegistry:   tools.NewRegistryWithRepository(t.toolRepository),
-		config:         cfg,
-		handlers:       make(map[string]ToolHandler),
-		ctxHandlers:    make(map[string]ToolHandlerCtx),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
-		resolvedStore:  sdktools.NewResolvedStore(),
+		pack:             t.pack,
+		prompt:           packPrompt,
+		promptName:       promptName,
+		promptRegistry:   t.promptRegistry,
+		toolRegistry:     tools.NewRegistryWithRepository(t.toolRepository),
+		config:           cfg,
+		handlers:         make(map[string]ToolHandler),
+		ctxHandlers:      make(map[string]ToolHandlerCtx),
+		asyncHandlers:    make(map[string]sdktools.AsyncToolHandler),
+		pendingStore:     pendingStore,
+		ownsPendingStore: ownsPending,
+		resolvedStore:    sdktools.NewResolvedStore(),
 	}
 }
 
