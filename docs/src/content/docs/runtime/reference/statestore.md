@@ -625,7 +625,13 @@ WithMemoryMaxEntries sets the maximum number of entries the store will hold. Whe
 func WithMemoryTTL(ttl time.Duration) MemoryStoreOption
 ```
 
-WithMemoryTTL sets the time\-to\-live for conversation states. Entries that have not been accessed within the TTL are considered expired and eligible for eviction. A zero or negative TTL disables expiration. By default, DefaultTTL is applied. Use WithNoTTL\(\) as an explicit, self\-documenting way to disable TTL expiration.
+WithMemoryTTL sets the time\-to\-live for conversation states.
+
+The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List — deliberately do not extend it, so inspecting a store cannot keep it alive.
+
+RedisStore applies the same rule to the same set of operations, so a given TTL means the same thing whichever backend is configured.
+
+A zero or negative TTL disables expiration. By default, DefaultTTL is applied. Use WithNoTTL\(\) as an explicit, self\-documenting way to disable TTL expiration.
 
 <a name="WithNoMaxEntries"></a>
 ### func WithNoMaxEntries
@@ -768,7 +774,13 @@ WithPrefix sets the key prefix for Redis keys. Default is "promptkit".
 func WithTTL(ttl time.Duration) RedisOption
 ```
 
-WithTTL sets the time\-to\-live for conversation states. After this duration, conversations will be automatically deleted. Default is 24 hours. Set to 0 for no expiration.
+WithTTL sets the time\-to\-live for conversation states.
+
+The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List — deliberately do not extend it, so inspecting a store cannot keep it alive.
+
+MemoryStore applies the same rule to the same set of operations, so a given TTL means the same thing whichever backend is configured.
+
+Default is 24 hours. Set to 0 for no expiration.
 
 <a name="RedisStore"></a>
 ## type RedisStore

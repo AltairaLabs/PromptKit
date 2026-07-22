@@ -201,6 +201,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(c \*Conversation\) RejectClientTool\(\_ context.Context, callID, reason string\)](<#Conversation.RejectClientTool>)
   - [func \(c \*Conversation\) RejectTool\(id, reason string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.RejectTool>)
   - [func \(c \*Conversation\) ResolveTool\(id string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveTool>)
+  - [func \(c \*Conversation\) ResolveToolWithArgs\(id string, overrides map\[string\]any\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveToolWithArgs>)
   - [func \(c \*Conversation\) Response\(\) \(\<\-chan providers.StreamChunk, error\)](<#Conversation.Response>)
   - [func \(c \*Conversation\) Resume\(ctx context.Context\) \(\*Response, error\)](<#Conversation.Resume>)
   - [func \(c \*Conversation\) ResumeStream\(ctx context.Context\) \<\-chan StreamChunk](<#Conversation.ResumeStream>)
@@ -1750,6 +1751,26 @@ if len(resp.PendingTools()) > 0 {
     // Continue the conversation with the result
     resp, _ = conv.Continue(ctx)
 }
+```
+
+<a name="Conversation.ResolveToolWithArgs"></a>
+### func \(\*Conversation\) ResolveToolWithArgs
+
+```go
+func (c *Conversation) ResolveToolWithArgs(id string, overrides map[string]any) (*sdktools.ToolResolution, error)
+```
+
+ResolveToolWithArgs approves a pending tool call with reviewer\-supplied argument overrides \(approve\-with\-edits\), then executes it.
+
+Overrides are shallow\-merged over the arguments the model proposed: keys in overrides replace the originals, absent keys are preserved. A nil or empty map is identical to ResolveTool \(approve as\-proposed\). The resulting ToolResolution reports Edited=true and carries the effective Arguments.
+
+Works on both paths: after Send\(\) follow with Continue\(\), and after a duplex pending surfaces follow with ContinueDuplex\(\) — both consume the resolution this produces.
+
+```
+pending := resp.PendingTools()[0]
+// reviewer tweaks the draft before it sends:
+conv.ResolveToolWithArgs(pending.ID, map[string]any{"body": editedText})
+resp, _ = conv.Continue(ctx)
 ```
 
 <a name="Conversation.Response"></a>

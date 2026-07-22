@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -260,10 +261,34 @@ type ToolResolution struct {
 
 	// RejectionReason explains why the tool was rejected
 	RejectionReason string
+
+	// Arguments are the effective arguments the handler executed with. When the
+	// call was approved with edits, this is the original arguments with the
+	// reviewer's overrides merged in.
+	Arguments map[string]any
+
+	// Edited is true when the call was approved with reviewer-supplied argument
+	// overrides (see ResolveWithArgs). Provides an audit trail distinguishing an
+	// as-proposed approval from an edited one.
+	Edited bool
 }
 
-// Resolve executes an approved pending tool call.
+// Resolve executes an approved pending tool call with its original arguments.
+// It is equivalent to ResolveWithArgs(id, nil).
 func (s *PendingStore) Resolve(id string) (*ToolResolution, error) {
+	return s.ResolveWithArgs(id, nil)
+}
+
+// ResolveWithArgs executes an approved pending tool call, applying the given
+// argument overrides (approve-with-edits). Overrides are shallow-merged over
+// the original arguments: keys present in overrides replace the originals, keys
+// absent are preserved. A nil or empty overrides map executes the call exactly
+// as proposed (equivalent to Resolve).
+//
+// The original PendingToolCall.Arguments are not mutated; the merged arguments
+// are recorded on the returned ToolResolution (with Edited set when overrides
+// were applied).
+func (s *PendingStore) ResolveWithArgs(id string, overrides map[string]any) (*ToolResolution, error) {
 	s.mu.Lock()
 	call, ok := s.pending[id]
 	if !ok {
@@ -273,12 +298,21 @@ func (s *PendingStore) Resolve(id string) (*ToolResolution, error) {
 	delete(s.pending, id)
 	s.mu.Unlock()
 
-	// Execute the handler
-	result, err := call.handler(call.Arguments)
+	// Shallow-merge overrides over a copy of the original args so the pending
+	// call is never mutated.
+	args := make(map[string]any, len(call.Arguments)+len(overrides))
+	maps.Copy(args, call.Arguments)
+	maps.Copy(args, overrides)
+	edited := len(overrides) > 0
+
+	// Execute the handler with the (possibly edited) arguments.
+	result, err := call.handler(args)
 	if err != nil {
 		return &ToolResolution{
-			ID:    id,
-			Error: err,
+			ID:        id,
+			Arguments: args,
+			Edited:    edited,
+			Error:     err,
 		}, nil
 	}
 
@@ -286,8 +320,10 @@ func (s *PendingStore) Resolve(id string) (*ToolResolution, error) {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return &ToolResolution{
-			ID:    id,
-			Error: fmt.Errorf("failed to serialize result: %w", err),
+			ID:        id,
+			Arguments: args,
+			Edited:    edited,
+			Error:     fmt.Errorf("failed to serialize result: %w", err),
 		}, nil
 	}
 
@@ -295,6 +331,8 @@ func (s *PendingStore) Resolve(id string) (*ToolResolution, error) {
 		ID:         id,
 		Result:     result,
 		ResultJSON: resultJSON,
+		Arguments:  args,
+		Edited:     edited,
 	}, nil
 }
 

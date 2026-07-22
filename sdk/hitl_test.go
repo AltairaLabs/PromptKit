@@ -136,6 +136,58 @@ func TestResolveTool(t *testing.T) {
 	})
 }
 
+func TestResolveToolWithArgs(t *testing.T) {
+	t.Run("returns error when no pending store", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = nil
+
+		_, err := conv.ResolveToolWithArgs("some-id", map[string]any{"x": 1})
+		assert.Error(t, err)
+	})
+
+	t.Run("approves with edited args and records resolution", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = sdktools.NewPendingStore()
+		defer conv.pendingStore.Close()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		var gotArgs map[string]any
+		call := &sdktools.PendingToolCall{
+			ID:        "test-id",
+			Name:      "send_message",
+			Arguments: map[string]any{"to": "Dana", "body": "original"},
+		}
+		call.SetHandler(func(args map[string]any) (any, error) {
+			gotArgs = args
+			return map[string]any{"sent": args["body"]}, nil
+		})
+		require.NoError(t, conv.pendingStore.Add(call))
+
+		resolution, err := conv.ResolveToolWithArgs("test-id", map[string]any{"body": "edited"})
+		require.NoError(t, err)
+		assert.Equal(t, "edited", gotArgs["body"])
+		assert.Equal(t, "Dana", gotArgs["to"]) // untouched original preserved
+		assert.True(t, resolution.Edited)
+		// The resolution is recorded for Continue()/ContinueDuplex() to consume.
+		assert.Equal(t, 1, conv.resolvedStore.Len())
+	})
+
+	t.Run("ResolveTool delegates with no edits", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.pendingStore = sdktools.NewPendingStore()
+		defer conv.pendingStore.Close()
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		call := &sdktools.PendingToolCall{ID: "test-id", Name: "t", Arguments: map[string]any{"body": "original"}}
+		call.SetHandler(func(args map[string]any) (any, error) { return args["body"], nil })
+		require.NoError(t, conv.pendingStore.Add(call))
+
+		resolution, err := conv.ResolveTool("test-id")
+		require.NoError(t, err)
+		assert.False(t, resolution.Edited)
+	})
+}
+
 func TestRejectTool(t *testing.T) {
 	t.Run("returns error when no pending store", func(t *testing.T) {
 		conv := newTestConversation()
