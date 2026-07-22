@@ -207,14 +207,34 @@ func (c *Conversation) OnToolAsync(
 //	    resp, _ = conv.Continue(ctx)
 //	}
 func (c *Conversation) ResolveTool(id string) (*sdktools.ToolResolution, error) {
+	return c.ResolveToolWithArgs(id, nil)
+}
+
+// ResolveToolWithArgs approves a pending tool call with reviewer-supplied
+// argument overrides (approve-with-edits), then executes it.
+//
+// Overrides are shallow-merged over the arguments the model proposed: keys in
+// overrides replace the originals, absent keys are preserved. A nil or empty
+// map is identical to ResolveTool (approve as-proposed). The resulting
+// ToolResolution reports Edited=true and carries the effective Arguments.
+//
+// Works on both paths: after Send() follow with Continue(), and after a duplex
+// pending surfaces follow with ContinueDuplex() — both consume the resolution
+// this produces.
+//
+//	pending := resp.PendingTools()[0]
+//	// reviewer tweaks the draft before it sends:
+//	conv.ResolveToolWithArgs(pending.ID, map[string]any{"body": editedText})
+//	resp, _ = conv.Continue(ctx)
+func (c *Conversation) ResolveToolWithArgs(id string, overrides map[string]any) (*sdktools.ToolResolution, error) {
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	resolution, err := c.pendingStore.Resolve(id)
+	resolution, err := c.pendingStore.ResolveWithArgs(id, overrides)
 	if err != nil {
 		return nil, err
 	}
-	// Store for Continue() to use
+	// Store for Continue()/ContinueDuplex() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
 	}

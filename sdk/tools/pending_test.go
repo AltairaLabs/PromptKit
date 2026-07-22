@@ -131,6 +131,68 @@ func TestPendingStoreResolve(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("resolve with edited args merges overrides and flags edited", func(t *testing.T) {
+		store := NewPendingStore()
+		defer store.Close()
+		var gotArgs map[string]any
+		call := &PendingToolCall{
+			ID:        "call-1",
+			Name:      "send_message",
+			Arguments: map[string]any{"to": "Dana", "body": "original", "channel": "SMS"},
+			handler: func(args map[string]any) (any, error) {
+				gotArgs = args
+				return map[string]any{"sent": args["body"]}, nil
+			},
+		}
+		require.NoError(t, store.Add(call))
+
+		resolution, err := store.ResolveWithArgs("call-1", map[string]any{"body": "edited"})
+		require.NoError(t, err)
+		// Handler ran with the override applied over the original args.
+		assert.Equal(t, "edited", gotArgs["body"])
+		assert.Equal(t, "Dana", gotArgs["to"])     // untouched original preserved
+		assert.Equal(t, "SMS", gotArgs["channel"]) // untouched original preserved
+		assert.Equal(t, "edited", resolution.Result.(map[string]any)["sent"])
+		// Audit: the resolution records that it was edited and the effective args.
+		assert.True(t, resolution.Edited)
+		assert.Equal(t, "edited", resolution.Arguments["body"])
+		// The original pending call's Arguments must NOT be mutated.
+		assert.Equal(t, "original", call.Arguments["body"])
+	})
+
+	t.Run("resolve with nil overrides is not flagged edited", func(t *testing.T) {
+		store := NewPendingStore()
+		defer store.Close()
+		call := &PendingToolCall{
+			ID:        "call-1",
+			Name:      "send_message",
+			Arguments: map[string]any{"body": "original"},
+			handler:   func(args map[string]any) (any, error) { return args["body"], nil },
+		}
+		require.NoError(t, store.Add(call))
+
+		resolution, err := store.ResolveWithArgs("call-1", nil)
+		require.NoError(t, err)
+		assert.False(t, resolution.Edited)
+		assert.Equal(t, "original", resolution.Result)
+	})
+
+	t.Run("Resolve is ResolveWithArgs with no overrides", func(t *testing.T) {
+		store := NewPendingStore()
+		defer store.Close()
+		call := &PendingToolCall{
+			ID:        "call-1",
+			Name:      "send_message",
+			Arguments: map[string]any{"body": "original"},
+			handler:   func(args map[string]any) (any, error) { return args["body"], nil },
+		}
+		require.NoError(t, store.Add(call))
+
+		resolution, err := store.Resolve("call-1")
+		require.NoError(t, err)
+		assert.False(t, resolution.Edited)
+	})
+
 	t.Run("resolve handler error", func(t *testing.T) {
 		store := NewPendingStore()
 		defer store.Close()

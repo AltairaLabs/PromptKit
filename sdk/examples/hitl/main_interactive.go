@@ -84,20 +84,37 @@ func main() {
 			fmt.Printf("Reason: %s\n", p.Reason)
 			fmt.Printf("Message: %s\n", p.Message)
 			fmt.Printf("Arguments: %v\n", p.Arguments)
-			fmt.Print("\nApprove this action? (yes/no): ")
+			fmt.Print("\nApprove (yes), edit the amount then approve (edit), or reject (no)? ")
 
 			input, _ := reader.ReadString('\n')
 			input = strings.TrimSpace(strings.ToLower(input))
 
-			if input == "yes" || input == "y" {
-				// Approve and execute the tool
+			switch input {
+			case "yes", "y":
+				// Approve and execute the tool as proposed.
 				result, err := conv.ResolveTool(p.ID)
 				if err != nil {
 					log.Printf("Failed to resolve tool: %v", err)
 					continue
 				}
 				fmt.Printf("\nTool executed successfully:\n%v\n", result.Result)
-			} else {
+			case "edit":
+				// Approve WITH edits: the reviewer corrects an argument before it
+				// executes. Overrides shallow-merge over the proposed args.
+				fmt.Print("New amount to approve: ")
+				amtStr, _ := reader.ReadString('\n')
+				var amount float64
+				if _, err := fmt.Sscanf(strings.TrimSpace(amtStr), "%f", &amount); err != nil {
+					log.Printf("Invalid amount: %v", err)
+					continue
+				}
+				result, err := conv.ResolveToolWithArgs(p.ID, map[string]any{"amount": amount})
+				if err != nil {
+					log.Printf("Failed to resolve tool: %v", err)
+					continue
+				}
+				fmt.Printf("\nTool executed with edited amount (edited=%v):\n%v\n", result.Edited, result.Result)
+			default:
 				// Reject the tool
 				result, err := conv.RejectTool(p.ID, "Not authorized by supervisor")
 				if err != nil {
