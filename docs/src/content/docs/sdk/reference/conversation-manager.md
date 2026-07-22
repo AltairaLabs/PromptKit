@@ -4259,6 +4259,8 @@ WithVADMode configures VAD mode for voice conversations with standard text\-base
 
 This is an alternative to ASM mode \(WithStreamingConfig\) for providers without native audio streaming support.
 
+The model runs once per detected turn — when the speaker falls silent for SilenceDuration — and conversation history threads across turns for the life of the session, so a caller hears a reply without the session having to end.
+
 Example:
 
 ```
