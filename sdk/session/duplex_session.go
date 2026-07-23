@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,19 @@ type duplexSession struct {
 
 	// External API channel (providers.StreamChunk)
 	streamOutput chan providers.StreamChunk // Consumer receives chunks here
+
+	// responseTaken records whether Response() has been called. Until it is, no
+	// one can read streamOutput, so the forwarding loop must not block on it —
+	// otherwise a caller that reacts only through OnClientTool handlers (and never
+	// reads Response()) silently stalls the whole pipeline once the buffer fills.
+	// See forwardChunk and issue #1638.
+	responseTaken atomic.Bool
+	// droppedChunks counts output chunks discarded because Response() was never
+	// taken. Its first increment emits a one-time warning.
+	droppedChunks atomic.Int64
+	// warnedSlowConsumer guards the one-time "consumer is not draining" warning
+	// for a taken-but-stalled Response().
+	warnedSlowConsumer atomic.Bool
 
 	// Pipeline execution control
 	executionStarted bool
@@ -359,9 +373,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 
 			case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
 				chunk := streamElementToStreamChunk(&elem)
-				select {
-				case s.streamOutput <- chunk:
-				case <-ctx.Done():
+				if !s.forwardChunk(ctx, chunk) {
 					return
 				}
 			}
@@ -378,9 +390,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 	// No registry — forward the element as-is (caller must handle tool calls)
 	if s.toolRegistry == nil {
 		chunk := streamElementToStreamChunk(elem)
-		select {
-		case s.streamOutput <- chunk:
-		case <-ctx.Done():
+		if !s.forwardChunk(ctx, chunk) {
 			return ctx.Err()
 		}
 		return nil
@@ -403,9 +413,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 	if len(duplexResult.Pending) > 0 {
 		elem.Meta.PendingTools = duplexResult.Pending
 		chunk := streamElementToStreamChunk(elem)
-		select {
-		case s.streamOutput <- chunk:
-		case <-ctx.Done():
+		if !s.forwardChunk(ctx, chunk) {
 			return ctx.Err()
 		}
 	}
@@ -413,9 +421,78 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 	return nil
 }
 
-// Response returns the response channel from the Pipeline.
+// Response returns the channel of streamed output chunks.
+//
+// The caller MUST drain this channel for the lifetime of the session, even if it
+// consumes results by other means (e.g. OnClientTool handlers) and discards the
+// streamed content — spin up a goroutine that ranges over it. The pipeline's
+// output stage sends here; if the channel is never read it fills and back-pressures
+// the whole pipeline to a silent halt.
+//
+// As a safety net, a session whose Response() is never called does NOT stall: the
+// forwarding loop drops output chunks once the buffer fills (logging a one-time
+// warning) rather than blocking. Because of that, call Response() before the
+// session produces output — chunks emitted before the first call may be dropped.
 func (s *duplexSession) Response() <-chan providers.StreamChunk {
+	s.responseTaken.Store(true)
 	return s.streamOutput
+}
+
+// outputBlockWarnThreshold is how long a taken Response() consumer may stall the
+// output send before forwardChunk warns that it is not draining fast enough. A
+// var (not const) so tests can lower it; not meant to change at runtime.
+var outputBlockWarnThreshold = 3 * time.Second
+
+// forwardChunk delivers one chunk to the response channel and reports whether the
+// forwarding loop should keep running (false means the session context is done).
+//
+// If Response() has been taken, the send blocks (bounded by ctx) so no output is
+// lost, but a consumer that stalls past outputBlockWarnThreshold is warned once.
+// If Response() has NOT been taken, nothing will ever read the channel, so the
+// send must never block: it buffers while there is room and then drops, keeping
+// the pipeline alive instead of deadlocking it (issue #1638). Dropping warns once.
+func (s *duplexSession) forwardChunk(ctx context.Context, chunk providers.StreamChunk) bool {
+	if !s.responseTaken.Load() {
+		select {
+		case <-ctx.Done():
+			return false
+		case s.streamOutput <- chunk:
+			return true
+		default:
+			if s.droppedChunks.Add(1) == 1 {
+				logger.Warn("duplexSession: Response() was never read; dropping streamed output. " +
+					"Call Response() and drain the channel (even a discard goroutine) to receive output.")
+			}
+			return true
+		}
+	}
+
+	// Fast path: room in the buffer, or the session is already done.
+	select {
+	case <-ctx.Done():
+		return false
+	case s.streamOutput <- chunk:
+		return true
+	default:
+	}
+
+	// The consumer is behind. Wait for room, but warn once past the threshold so a
+	// stalled reader is a diagnostic rather than a silent hang.
+	timer := time.NewTimer(outputBlockWarnThreshold)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case s.streamOutput <- chunk:
+			return true
+		case <-timer.C:
+			if !s.warnedSlowConsumer.Swap(true) {
+				logger.Warn("duplexSession: Response() consumer is not draining fast enough; " +
+					"the output stage is blocked. Read Response() promptly to avoid stalling the pipeline.")
+			}
+		}
+	}
 }
 
 // DefaultDrainTimeout is the maximum time to wait for pipeline completion during Drain.
