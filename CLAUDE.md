@@ -16,6 +16,7 @@ Install hooks once after cloning: `./scripts/install-hooks.sh` (sources are trac
 - Lint changed files (`golangci-lint --new-from-rev=HEAD`)
 - Build changed modules
 - Run tests with coverage on changed packages (80% threshold on non-test files)
+- Check generated API reference drift when staged source feeds it (runtime `types/providers/tools/...` or the `sdk` root / `sdk/agui` / `server/a2a` packages) — mirrors CI's Reference Drift check; fix with `make docs-reference` / `make docs-sdk-reference`
 
 **Commit-msg hook** (`scripts/commit-msg.sh` → `.git/hooks/commit-msg`) enforces DCO:
 - Rejects any commit lacking a `Signed-off-by:` trailer matching the author. Commit with `git commit -s`.

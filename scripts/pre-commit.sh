@@ -126,6 +126,24 @@ is_empty_module_output() {
     echo "$1" | grep -qE "no go files to analyze|matched no packages|build constraints exclude all Go files|no test files"
 }
 
+# Runtime packages whose exported symbols feed the generated runtime reference
+# pages. MUST stay in sync with the MAP in docs/scripts/gen-reference.sh — a stale
+# list here just means CI's Reference Drift check (rather than this hook) catches
+# the drift, never a false pass.
+RUNTIME_REF_DIRS="types providers tools mcp hooks statestore storage a2a metrics telemetry logger pipeline/stage streaming tts audio variables"
+
+# is_runtime_ref_file reports whether a staged path sits under a runtime package
+# that feeds the generated reference.
+is_runtime_ref_file() {
+    local f="$1" d
+    for d in $RUNTIME_REF_DIRS; do
+        case "$f" in
+            "runtime/$d/"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # Unique list of modules touched by this commit.
 CHANGED_MODULES=()
 for file in $STAGED_GO_FILES; do
@@ -216,6 +234,80 @@ else
     if [ $BUILD_FAILED -eq 1 ]; then
         echo ""
         print_error "Build failed. Fix the compilation errors above."
+        CHECKS_FAILED=1
+    fi
+fi
+
+echo ""
+
+#
+# 2.5. Reference drift — generated API docs vs Go source
+#
+# docs/src/content/docs/{runtime,sdk}/reference are generated from exported Go
+# symbols; CI's "Reference Drift" check fails when they are stale. That is a
+# common, easily-missed late failure — a new exported field or an edited doc
+# comment is enough. Catch it here, but only regenerate the reference set(s) that
+# staged non-test source could actually affect (see gen-reference.sh /
+# gen-sdk-reference.sh for the package maps).
+NEED_RUNTIME_REF=0
+NEED_SDK_REF=0
+for file in $STAGED_GO_FILES; do
+    case "$file" in
+        *_test.go) continue ;;
+    esac
+    if is_runtime_ref_file "$file"; then
+        NEED_RUNTIME_REF=1
+    fi
+    # SDK reference draws from the sdk root package, sdk/agui, and server/a2a —
+    # each the package directly in that dir, not its subpackages.
+    if [[ "$file" == sdk/*.go && "$file" != sdk/*/*.go ]] ||
+        [[ "$file" == sdk/agui/*.go && "$file" != sdk/agui/*/*.go ]] ||
+        [[ "$file" == server/a2a/*.go && "$file" != server/a2a/*/*.go ]]; then
+        NEED_SDK_REF=1
+    fi
+done
+
+if [ $NEED_RUNTIME_REF -eq 1 ] || [ $NEED_SDK_REF -eq 1 ]; then
+    print_header "Reference Drift"
+    REF_FAILED=0
+    REF_FIX=""
+
+    if [ $NEED_RUNTIME_REF -eq 1 ]; then
+        print_info "Checking runtime reference..."
+        set +e
+        ref_out=$(make -C "$REPO_ROOT" docs-reference-check 2>&1)
+        ref_rc=$?
+        set -e
+        if [ $ref_rc -eq 0 ]; then
+            print_success "Runtime reference is up to date"
+        else
+            echo "$ref_out" | grep -vE '^make(\[|:)' | head -40
+            print_error "Runtime reference is stale"
+            REF_FIX="make docs-reference"
+            REF_FAILED=1
+        fi
+    fi
+
+    if [ $NEED_SDK_REF -eq 1 ]; then
+        print_info "Checking SDK reference..."
+        set +e
+        sref_out=$(make -C "$REPO_ROOT" docs-sdk-reference-check 2>&1)
+        sref_rc=$?
+        set -e
+        if [ $sref_rc -eq 0 ]; then
+            print_success "SDK reference is up to date"
+        else
+            echo "$sref_out" | grep -vE '^make(\[|:)' | head -40
+            print_error "SDK reference is stale"
+            REF_FIX="${REF_FIX:+$REF_FIX && }make docs-sdk-reference"
+            REF_FAILED=1
+        fi
+    fi
+
+    if [ $REF_FAILED -eq 1 ]; then
+        echo ""
+        print_error "Generated API reference is stale. Regenerate and stage it:"
+        echo "  $REF_FIX && git add docs/src/content/docs"
         CHECKS_FAILED=1
     fi
 fi
