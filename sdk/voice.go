@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -114,13 +115,17 @@ func (c *Conversation) Start(ctx context.Context) error {
 	errCh := make(chan error, 1) // only the first error is surfaced
 
 	// A pump finishing (mic source closed, response stream ended) ends the whole
-	// session; cancel unwinds the rest.
-	launch := func(fn func() error) {
+	// session; cancel unwinds the rest. The name+exit log identifies which pump
+	// ended a session and why — the first pump to exit is the cause; the others
+	// then see the canceled context. Invaluable for diagnosing premature closes.
+	launch := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer cancel()
-			trySendErr(errCh, fn())
+			pumpErr := fn()
+			logger.Info("voice pump exited", "pump", name, "err", pumpErr)
+			trySendErr(errCh, pumpErr)
 		}()
 	}
 
@@ -131,16 +136,21 @@ func (c *Conversation) Start(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if e := sess.Start(ctx); e != nil && !errors.Is(e, context.Canceled) {
+		e := sess.Start(ctx)
+		logger.Info("voice device session.Start returned", "err", e)
+		if e != nil && !errors.Is(e, context.Canceled) {
 			trySendErr(errCh, e)
 			cancel()
 		}
 	}()
 
-	for _, src := range audioSources(sess.Sources()) {
-		launch(func() error { return pumpAudioInput(ctx, src, c) })
+	for i, src := range audioSources(sess.Sources()) {
+		launch(fmt.Sprintf("mic-input-%d", i), func() error { return pumpAudioInput(ctx, src, c) })
 	}
-	launch(func() error { return pumpAudioOutput(ctx, respCh, audioSinks(sess.Sinks()), c.config.voiceObserver) })
+	sinks := audioSinks(sess.Sinks())
+	launch("speaker-output", func() error {
+		return pumpAudioOutput(ctx, respCh, sinks, c.config.voiceObserver)
+	})
 
 	wg.Wait()
 	_ = sess.Close()
