@@ -24,7 +24,7 @@ func TestForwardResponseElements_LongAudioBurstAllForwarded(t *testing.T) {
 
 	// Producer: burst audio chunks, then a turn-complete FinishReason, then close.
 	go func() {
-		for i := 0; i < burst; i++ {
+		for i := range burst {
 			sess.respCh <- providers.StreamChunk{
 				MediaData: &providers.StreamMediaData{
 					Data: []byte{byte(i), byte(i >> 8)}, SampleRate: 24000, Channels: 1,
@@ -54,4 +54,42 @@ func TestForwardResponseElements_LongAudioBurstAllForwarded(t *testing.T) {
 	}
 	assert.Equal(t, burst, audioElems,
 		"every audio chunk of the reply must be forwarded; got %d of %d", audioElems, burst)
+}
+
+// TestForwardInputElements_DrainSignalEndsInputPromptly covers the drain fix: a
+// graceful Close sends an EndOfStream element marked AllResponsesReceived. The
+// input loop must end input and signal an immediate session close (so the
+// response loop skips its 30s final-response wait), rather than treating it as an
+// ordinary end-of-turn.
+func TestForwardInputElements_DrainSignalEndsInputPromptly(t *testing.T) {
+	sess := newRecordingSession()
+	s := stageWithSession(sess)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	done := make(chan error, 1)
+
+	input <- StreamElement{EndOfStream: true, Meta: ElementMetadata{AllResponsesReceived: true}}
+
+	go s.forwardInputElements(context.Background(), input, output, done)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardInputElements did not end on the drain signal")
+	}
+
+	// Both the input-done and skip-final-timeout channels must be closed, so the
+	// response loop closes the session immediately instead of waiting.
+	select {
+	case <-s.inputDoneCh:
+	default:
+		t.Error("inputDoneCh not closed on drain signal")
+	}
+	select {
+	case <-s.allResponsesReceivedCh:
+	default:
+		t.Error("allResponsesReceivedCh not closed on drain signal")
+	}
 }
