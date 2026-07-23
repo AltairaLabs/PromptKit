@@ -1974,6 +1974,22 @@ type ElementMetadata struct {
     // must be surfaced to the caller for out-of-band completion.
     PendingTools []tools.PendingToolExecution
 
+    // SynthesizedSpeech marks an element produced by a TTS stage: it carries the
+    // spoken audio plus, for reference, the text that was submitted for synthesis.
+    // That text is the same reply already delivered as streaming Text deltas, so a
+    // consumer converting elements to output chunks must NOT re-present it as new
+    // model output (Delta) — the audio is the payload. It is also not necessarily
+    // the true spoken text, since providers strip or rewrite markup at synthesis.
+    SynthesizedSpeech bool
+
+    // StreamingDelta marks an incremental content Text element emitted by a
+    // streaming provider mid-generation (see ProviderStage.emitChunkElement).
+    // These are the live-text feed for UI consumers; the same reply also arrives
+    // as a complete assistant Message. A speech-out stage must skip the deltas —
+    // the TTS provider takes a complete string, so synthesizing per-fragment
+    // would be one request per token and choppy audio — and speak the Message.
+    StreamingDelta bool
+
     // TokenCount is the per-chunk token count emitted by streaming providers.
     // Zero when the chunk did not include a token count.
     TokenCount int

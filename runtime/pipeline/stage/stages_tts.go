@@ -133,11 +133,19 @@ const ttsCostMetaKey = "tts_cost"
 
 // extractText extracts text content from an element.
 func (s *TTSStage) extractText(elem *StreamElement) string {
+	// Skip incremental streaming deltas — see TTSStageWithInterruption.extractText.
+	if elem.Meta.StreamingDelta {
+		return ""
+	}
+
 	if elem.Text != nil && *elem.Text != "" {
 		return *elem.Text
 	}
 
-	if elem.Message != nil {
+	// Only the assistant is spoken — a user transcript or tool result reaching a
+	// speech-out stage is data for later stages, not a line to read aloud. See
+	// TTSStageWithInterruption.extractText for the topology that proved this.
+	if elem.Message != nil && elem.Message.Role == roleAssistant {
 		// Extract text from message content
 		if elem.Message.Content != "" {
 			return elem.Message.Content

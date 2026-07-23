@@ -729,8 +729,12 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		}
 	}
 
-	// Convert text content
-	if elem.Text != nil && *elem.Text != "" {
+	// Convert text content. A synthesized-speech element carries a reference copy
+	// of the text it spoke, but that text already reached the caller as streaming
+	// deltas — presenting it again as Delta/Content would deliver the reply twice
+	// (and the submitted text is not the true spoken text once a provider strips
+	// markup). Its audio is delivered via MediaData above; the text is dropped.
+	if elem.Text != nil && *elem.Text != "" && !elem.Meta.SynthesizedSpeech {
 		chunk.Delta = *elem.Text
 		chunk.Content = *elem.Text
 	}

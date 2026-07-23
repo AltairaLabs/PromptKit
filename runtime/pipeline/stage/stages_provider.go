@@ -1569,6 +1569,10 @@ func (s *ProviderStage) emitChunkElement(
 		elem.Timestamp = timeNow()
 		elem.Priority = PriorityNormal
 
+		// Mark as an incremental delta so a downstream speech-out stage speaks
+		// the complete assistant Message instead of each fragment (see
+		// ElementMetadata.StreamingDelta).
+		elem.Meta.StreamingDelta = true
 		elem.Meta.TokenCount = chunk.TokenCount
 		if chunk.FinishReason != nil {
 			fr := *chunk.FinishReason

@@ -77,7 +77,17 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 	if cfg.STTConfig != nil {
 		sttConfig = *cfg.STTConfig
 	}
-	trackStages, err := BuildAudioTrackStages("", false, *cfg.VADConfig, sttConfig, cfg.STTService)
+
+	// VAD mode is turn-based by construction — the AudioTurnStage closes a turn
+	// on silence — so it must emit that boundary for the ProviderStage's
+	// continuous multi-turn loop to fire on (see the Streaming flag below). The
+	// two are a pair: with neither, the model runs only when the input channel
+	// closes, so a caller hears nothing until they hang up (#1644). This is the
+	// same coupling the WithIngestion path got in #1612.
+	vadConfig := *cfg.VADConfig
+	vadConfig.EmitEndOfTurn = true
+
+	trackStages, err := BuildAudioTrackStages("", false, vadConfig, sttConfig, cfg.STTService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AudioTurnStage: %w", err)
 	}
@@ -89,6 +99,11 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 			MaxTokens:       cfg.MaxTokens,
 			Temperature:     cfg.Temperature,
 			ApprovalChecker: cfg.ApprovalChecker,
+			// Run the continuous multi-turn loop: fire the tool loop per
+			// EndOfTurn, thread history across turns, and stay open for the next
+			// utterance — rather than the unary default that drains the whole
+			// input channel and fires once at session close (#1644).
+			Streaming: true,
 		}
 		stages = append(stages, stage.NewProviderStageWithEmitter(
 			cfg.Provider,
