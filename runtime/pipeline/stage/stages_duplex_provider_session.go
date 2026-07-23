@@ -421,6 +421,11 @@ func (s *DuplexProviderStage) forwardInputElements(
 				return
 			}
 
+			// Inbound audio is activity: reset the pipeline idle timer so a live
+			// conversation is not killed by the 30s idle timeout while the user is
+			// speaking. Without this every streaming voice session dies at ~30s.
+			ResetIdleFromContext(ctx)
+
 			// Check for "all responses received" signal from executor.
 			// This tells us that all expected responses have been received synchronously
 			// and we can skip the finalResponseTimeout when input closes.
@@ -883,6 +888,10 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 				return nil
 			}
+
+			// Outbound audio/text is activity: reset the pipeline idle timer so a
+			// long reply is not cut off by the 30s idle timeout mid-stream.
+			ResetIdleFromContext(ctx)
 
 			if err := s.handleResponseChunk(ctx, &chunk, output); err != nil {
 				return err
