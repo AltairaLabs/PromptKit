@@ -251,7 +251,7 @@ func TestLLMJudgeSessionHandler_Type(t *testing.T) {
 	}
 }
 
-func TestLLMJudgeSessionHandler_ConcatenatesAssistant(t *testing.T) {
+func TestLLMJudgeSessionHandler_RendersFullTranscript(t *testing.T) {
 	t.Parallel()
 	mock := &llmJudgeMock{
 		result: &JudgeResult{
@@ -293,8 +293,14 @@ func TestLLMJudgeSessionHandler_ConcatenatesAssistant(t *testing.T) {
 		t.Errorf("unexpected type: %s", result.Type)
 	}
 
-	// Verify content is concatenated assistant messages
-	want := "Hi there!\nI'm doing great.\nGoodbye!"
+	// The judge sees a full role-labeled transcript — both sides of the
+	// conversation — not just the assistant's lines (#1615).
+	want := "User: Hello\n" +
+		"Assistant: Hi there!\n" +
+		"User: How are you?\n" +
+		"Assistant: I'm doing great.\n" +
+		"User: Bye\n" +
+		"Assistant: Goodbye!"
 	if mock.opts.Content != want {
 		t.Errorf(
 			"content mismatch:\ngot:  %q\nwant: %q",
@@ -402,7 +408,7 @@ func TestLLMJudgeSessionHandler_RejectsThresholdParams(t *testing.T) {
 		map[string]any{"criteria": "test"})
 }
 
-func TestLLMJudgeSessionHandler_NoAssistantMessages(t *testing.T) {
+func TestLLMJudgeSessionHandler_UserOnlyStillRendersTranscript(t *testing.T) {
 	t.Parallel()
 	mock := &llmJudgeMock{
 		result: &JudgeResult{
@@ -428,12 +434,12 @@ func TestLLMJudgeSessionHandler_NoAssistantMessages(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Empty content is sent to the judge
-	if mock.opts.Content != "" {
-		t.Errorf(
-			"expected empty content, got: %q",
-			mock.opts.Content,
-		)
+	// A user turn with no assistant reply is still content the judge must see —
+	// e.g. to decide whether the agent's silence was appropriate. The old
+	// assistant-text-only view sent an empty string here, the exact blind spot
+	// #1615 fixes.
+	if mock.opts.Content != "User: Hello" {
+		t.Errorf("expected the user turn in the transcript, got: %q", mock.opts.Content)
 	}
 	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected passed=false")
