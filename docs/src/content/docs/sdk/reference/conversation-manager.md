@@ -1766,6 +1766,10 @@ func (c *Conversation) Response() (<-chan providers.StreamChunk, error)
 
 Response returns the response channel for duplex streaming. Only available when the conversation was opened with OpenDuplex\(\).
 
+The caller MUST drain the returned channel for the lifetime of the session, even when it consumes results by other means \(e.g. OnClientTool handlers\) and discards the streamed content — run a goroutine that ranges over it. The pipeline's output stage sends here; an unread channel fills and back\-pressures the whole pipeline to a halt.
+
+A session whose Response\(\) is never called does not stall — the SDK drops output once the buffer fills, logging a one\-time warning — so call Response\(\) before the session produces output, or early chunks may be dropped.
+
 <a name="Conversation.Resume"></a>
 ### func \(\*Conversation\) Resume
 
