@@ -17,7 +17,7 @@
     "@astrojs/starlight": "~0.41.3",
     "@fontsource/space-grotesk": "^5.2.10",
     "@fontsource/spline-sans-mono": "^5.2.8",
-    "astro": "^7.0.6",
+    "astro": "^7.1.1",
     "astro-d2": "^0.13.0",
     "mermaid": "^11.16.0",
     "starlight-theme-galaxy": "^0.8.0"
