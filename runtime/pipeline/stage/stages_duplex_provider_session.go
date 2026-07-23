@@ -755,7 +755,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("Session closure: context canceled")
+			// Log the cancellation CAUSE, not just "canceled": context.Cause
+			// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
+			// parent cancel (a pump/caller returned) — the difference between
+			// "the 30s idle timer fired" and "something upstream tore us down".
+			logger.Info("Session closure: context canceled",
+				"cause", context.Cause(ctx), "err", ctx.Err())
 			// Emit any accumulated content as partial response before returning
 			accumulatedText := s.accumulatedText.String()
 			hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
