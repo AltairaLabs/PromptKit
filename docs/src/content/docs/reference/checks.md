@@ -582,7 +582,10 @@ Turn-level LLM evaluation. The judge sees the current assistant response and eva
 
 ### `llm_judge_session`
 
-Session-level LLM evaluation. The judge sees the full conversation. Alias: `llm_judge_conversation`.
+Session-level LLM evaluation. The judge sees a full role-labeled transcript of the
+conversation — every turn (user, assistant, and any other role), plus every tool
+call with its arguments and result — so tool-using and observer agents are judged
+on what they actually did, not only on their prose. Alias: `llm_judge_conversation`.
 
 Same params as `llm_judge`. **Surfaces:** A E
 
