@@ -1100,11 +1100,25 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 
 // extractText extracts text content from an element.
 func (s *TTSStageWithInterruption) extractText(elem *StreamElement) string {
+	// Skip incremental streaming deltas: the same reply arrives as a complete
+	// assistant Message below, and the TTS provider needs the whole utterance in
+	// one call (see ElementMetadata.StreamingDelta).
+	if elem.Meta.StreamingDelta {
+		return ""
+	}
+
 	if elem.Text != nil && *elem.Text != "" {
 		return *elem.Text
 	}
 
-	if elem.Message != nil {
+	// Only the assistant is spoken. The continuous multi-turn ProviderStage
+	// re-emits each turn's user transcript downstream before generating (so the
+	// UI and save stages see it immediately), and in the VAD voice topology this
+	// stage sits directly downstream of it — without the role check the caller
+	// hears their own question read back before it is answered. Tool results are
+	// likewise data for later stages, not lines to read aloud. A bare Text
+	// element carries no role and stays an explicit "speak this" instruction.
+	if elem.Message != nil && elem.Message.Role == roleAssistant {
 		if elem.Message.Content != "" {
 			return elem.Message.Content
 		}

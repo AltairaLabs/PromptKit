@@ -153,6 +153,14 @@ type ElementMetadata struct {
 	// must be surfaced to the caller for out-of-band completion.
 	PendingTools []tools.PendingToolExecution
 
+	// StreamingDelta marks an incremental content Text element emitted by a
+	// streaming provider mid-generation (see ProviderStage.emitChunkElement).
+	// These are the live-text feed for UI consumers; the same reply also arrives
+	// as a complete assistant Message. A speech-out stage must skip the deltas —
+	// the TTS provider takes a complete string, so synthesizing per-fragment
+	// would be one request per token and choppy audio — and speak the Message.
+	StreamingDelta bool
+
 	// TokenCount is the per-chunk token count emitted by streaming providers.
 	// Zero when the chunk did not include a token count.
 	TokenCount int
