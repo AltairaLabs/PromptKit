@@ -175,6 +175,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func Open\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#Open>)
   - [func OpenComposition\(packPath, name string, opts ...Option\) \(\*Conversation, error\)](<#OpenComposition>)
   - [func OpenDuplex\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenDuplex>)
+  - [func OpenVoice\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenVoice>)
   - [func Resume\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#Resume>)
   - [func ResumeDuplex\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#ResumeDuplex>)
   - [func \(c \*Conversation\) Clear\(\) error](<#Conversation.Clear>)
@@ -215,6 +216,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(c \*Conversation\) SetVar\(name, value string\)](<#Conversation.SetVar>)
   - [func \(c \*Conversation\) SetVars\(vars map\[string\]any\)](<#Conversation.SetVars>)
   - [func \(c \*Conversation\) SetVarsFromEnv\(prefix string\)](<#Conversation.SetVarsFromEnv>)
+  - [func \(c \*Conversation\) Start\(ctx context.Context\) error](<#Conversation.Start>)
   - [func \(c \*Conversation\) Stream\(ctx context.Context, message any, opts ...SendOption\) \<\-chan StreamChunk](<#Conversation.Stream>)
   - [func \(c \*Conversation\) StreamRaw\(ctx context.Context, message any\) \(\<\-chan streamPkg.Chunk, error\)](<#Conversation.StreamRaw>)
   - [func \(c \*Conversation\) StreamWithCallback\(ctx context.Context, message any, opts ...SendOption\) \(\*Response, error\)](<#Conversation.StreamWithCallback>)
@@ -275,6 +277,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithAPIKey\(key string\) Option](<#WithAPIKey>)
   - [func WithAgentEndpoints\(resolver EndpointResolver\) Option](<#WithAgentEndpoints>)
   - [func WithAudioMonitor\(opts AudioMonitorOptions\) Option](<#WithAudioMonitor>)
+  - [func WithAudioSession\(sess audio.Session\) Option](<#WithAudioSession>)
   - [func WithAutoResize\(maxWidth, maxHeight int\) Option](<#WithAutoResize>)
   - [func WithAutoSummarize\(provider providers.Provider, threshold, batchSize int\) Option](<#WithAutoSummarize>)
   - [func WithAzure\(endpoint, providerType, model string, opts ...PlatformOption\) Option](<#WithAzure>)
@@ -355,6 +358,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithVariableProvider\(p variables.Provider\) Option](<#WithVariableProvider>)
   - [func WithVariables\(vars map\[string\]string\) Option](<#WithVariables>)
   - [func WithVertex\(region, project, providerType, model string, opts ...PlatformOption\) Option](<#WithVertex>)
+  - [func WithVoiceObserver\(fn func\(providers.StreamChunk\)\) Option](<#WithVoiceObserver>)
 - [type PackError](<#PackError>)
   - [func \(e \*PackError\) Error\(\) string](<#PackError.Error>)
   - [func \(e \*PackError\) Unwrap\(\) error](<#PackError.Unwrap>)
@@ -1288,6 +1292,27 @@ Provider requirements depend on how the input side is driven:
 - ASM mode \(default\): audio is sent to the model itself, so the provider must implement providers.StreamInputSupport. Currently that means Gemini with certain models.
 - WithVADMode / WithIngestion: the pipeline owns the input side and the model only ever sees text, so any text provider works — including Claude and OpenAI Chat Completions.
 
+<a name="OpenVoice"></a>
+### func OpenVoice
+
+```go
+func OpenVoice(packPath, promptName string, opts ...Option) (*Conversation, error)
+```
+
+OpenVoice opens a duplex voice conversation bound to an audio.Session and returns it ready for Conversation.Start, which pumps the microphone into the pipeline and plays replies back to the speaker.
+
+It is OpenDuplex plus a required WithAudioSession — the same provider / VAD / ingestion options apply \(WithProvider \+ WithVADMode for STT→LLM→TTS, or a streaming provider for ASM\). For manual chunk I/O without a bound session, use OpenDuplex directly.
+
+```
+sess, _ := audiohelper.NewSession(audiohelper.WithCaptureRate(16000))
+conv, _ := sdk.OpenVoice("./assistant.pack.json", "assist",
+    sdk.WithProvider(llm),
+    sdk.WithVADMode(stt, tts, nil),
+    sdk.WithAudioSession(sess),
+)
+_ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
+```
+
 <a name="Resume"></a>
 ### func Resume
 
@@ -1982,6 +2007,17 @@ Environment variables matching the prefix are added as template variables with t
 conv.SetVarsFromEnv("PROMPTKIT_")
 // Sets variable "customer_name" = "Alice"
 ```
+
+<a name="Conversation.Start"></a>
+### func \(\*Conversation\) Start
+
+```go
+func (c *Conversation) Start(ctx context.Context) error
+```
+
+Start runs the bound audio session: it feeds every microphone source into the pipeline and plays the pipeline's audio replies back to the speaker sinks, flushing them on barge\-in. It blocks until ctx is canceled or the session ends \(a source closes or the response stream finishes\), then tears the session down. A context\-cancel shutdown returns nil.
+
+Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
 ### func \(\*Conversation\) Stream
@@ -2841,6 +2877,17 @@ conv, err := sdk.Open(ctx, pack,
     }),
 )
 ```
+
+<a name="WithAudioSession"></a>
+### func WithAudioSession
+
+```go
+func WithAudioSession(sess audio.Session) Option
+```
+
+WithAudioSession binds a duplex voice conversation to an audio.Session — the caller's microphone source\(s\) and speaker sink\(s\). The SDK runs the capture→pipeline→playback pump in Conversation.Start, so applications get voice I/O without touching hardware from the pipeline.
+
+The device implementation stays outside the pure\-Go SDK \(e.g. the PortAudio helper in sdk/examples/audiohelper, or audio.MemSource/MemSink for tests\), so the SDK itself never links a sound\-card binding. Use with OpenVoice, or with OpenDuplex when you drive Start yourself.
 
 <a name="WithAutoResize"></a>
 ### func WithAutoResize
@@ -4342,6 +4389,24 @@ WithVertex configures Google Cloud Vertex AI as the hosting platform. The provid
 conv, _ := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash"),
 )
+```
+
+<a name="WithVoiceObserver"></a>
+### func WithVoiceObserver
+
+```go
+func WithVoiceObserver(fn func(providers.StreamChunk)) Option
+```
+
+WithVoiceObserver registers a callback invoked with every response chunk during Conversation.Start — text deltas, input\-transcription metadata, tool events, and audio chunks alike — so an application can display or log the conversation while Start manages microphone and speaker.
+
+The callback runs on Start's output\-pump goroutine; keep it quick and do not call back into the conversation from it.
+
+```
+sdk.WithVoiceObserver(func(c providers.StreamChunk) {
+    if c.Delta != "" { fmt.Print(c.Delta) }
+    if t, ok := c.Metadata["input_transcription"].(string); ok { fmt.Println("you:", t) }
+})
 ```
 
 <a name="PackError"></a>
