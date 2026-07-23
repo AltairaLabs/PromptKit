@@ -3,23 +3,24 @@
 // Package main demonstrates OpenAI Realtime API with bidirectional audio streaming.
 //
 // This example shows:
-//   - Using OpenDuplex() with OpenAI Realtime API
-//   - Real-time bidirectional audio streaming at 24kHz
-//   - Interactive audio input via microphone with server-side VAD
-//   - Sending audio chunks in real-time to OpenAI
-//   - Receiving streaming audio responses
-//   - Function/tool calling during streaming sessions
+//   - Using OpenVoice() with the OpenAI Realtime API
+//   - Real-time bidirectional audio at 24kHz over a bound audio.Session
+//   - Conversation.Start driving mic → LLM → speaker with no hand-rolled pump
+//   - Observing assistant text, input transcription, and tool calls via
+//     WithVoiceObserver while Start manages the audio
 //
 // Requirements:
 //   - OpenAI API key with Realtime API access
 //   - Model: gpt-realtime
-//   - Microphone input (for interactive mode)
+//   - Microphone input
 //   - PortAudio library (brew install portaudio on macOS)
 //
 // Run with:
 //
 //	export OPENAI_API_KEY=your-key
-//	go run -tags portaudio .
+//	go run -tags portaudio .            # interactive (default)
+//	go run -tags portaudio . tools      # function-calling demo
+//	go run -tags portaudio . translator # live translation
 //
 // Note: The OpenAI Realtime API is in preview and requires special access.
 // Visit https://platform.openai.com/docs/guides/realtime to learn more.
@@ -33,9 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
-	"time"
 
 	rtaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -45,7 +44,7 @@ import (
 )
 
 const (
-	// OpenAI Realtime uses 24kHz for both input and output
+	// OpenAI Realtime uses 24kHz for both input and output.
 	sampleRate = 24000
 	channels   = 1
 )
@@ -55,13 +54,11 @@ func main() {
 	fmt.Println("=================================")
 	fmt.Println()
 
-	// Check for API key
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		log.Fatal("OPENAI_API_KEY environment variable is required")
 	}
 
-	// Determine mode from args
 	mode := "interactive"
 	if len(os.Args) > 1 {
 		mode = strings.ToLower(os.Args[1])
@@ -92,528 +89,202 @@ func main() {
 	}
 }
 
-// runInteractiveMode runs the main voice chat mode
+// realtimeStreamingConfig is the shared OpenAI Realtime streaming setup. voice is
+// the output voice; withTools adds the weather tool the tools demo exercises.
+func realtimeStreamingConfig(voice string, withTools bool) *providers.StreamingInputConfig {
+	cfg := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			SampleRate: sampleRate,
+			Channels:   channels,
+			Encoding:   "pcm16",
+			BitDepth:   16,
+			ChunkSize:  4800, // 100ms at 24kHz
+		},
+		Metadata: map[string]interface{}{
+			"voice":               voice,
+			"modalities":          []string{"text", "audio"},
+			"input_transcription": true,
+		},
+	}
+	if withTools {
+		cfg.Tools = []providers.StreamingToolDefinition{
+			{
+				Name:        "get_weather",
+				Description: "Get the current weather for a location",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"location": map[string]interface{}{
+							"type":        "string",
+							"description": "The city and state, e.g. San Francisco, CA",
+						},
+						"unit": map[string]interface{}{
+							"type": "string",
+							"enum": []string{"celsius", "fahrenheit"},
+						},
+					},
+					"required": []string{"location"},
+				},
+			},
+		}
+	}
+	return cfg
+}
+
+// newAudioSession opens the shared pure-Go PortAudio session (24kHz mic + 24kHz
+// speaker). Conversation.Start starts and stops it — callers only Close it.
+func newAudioSession() (rtaudio.Session, error) {
+	return audiohelper.NewSession(
+		audiohelper.WithCaptureRate(sampleRate),
+		audiohelper.WithPlaybackRate(sampleRate),
+	)
+}
+
+// runInteractiveMode runs the main voice chat mode.
 func runInteractiveMode(ctx context.Context, apiKey string) error {
-	// Open duplex conversation with OpenAI Realtime
-	conv, err := sdk.OpenDuplex(
-		"./openai-realtime.pack.json",
-		"assistant",
+	session, err := newAudioSession()
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+
+	conv, err := sdk.OpenVoice(
+		"./openai-realtime.pack.json", "assistant",
 		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
-		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{
-				Type:       types.ContentTypeAudio,
-				SampleRate: sampleRate,
-				Channels:   channels,
-				Encoding:   "pcm16",
-				BitDepth:   16,
-				ChunkSize:  4800, // 100ms at 24kHz
-			},
-			Metadata: map[string]interface{}{
-				"voice":               "alloy",
-				"modalities":          []string{"text", "audio"},
-				"input_transcription": true,
-			},
-		}),
+		sdk.WithStreamingConfig(realtimeStreamingConfig("alloy", false)),
+		sdk.WithAudioSession(session),
+		sdk.WithVoiceObserver(newDisplayObserver(false)),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to open duplex conversation: %w", err)
+		return fmt.Errorf("failed to open voice conversation: %w", err)
 	}
 	defer conv.Close()
 
 	fmt.Println("Connected to OpenAI Realtime API!")
-	fmt.Println()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Open the shared pure-Go audio session (24 kHz mic + 24 kHz speaker).
-	session, err := audiohelper.NewSession(
-		audiohelper.WithCaptureRate(sampleRate),
-		audiohelper.WithPlaybackRate(sampleRate),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to open audio session: %w", err)
-	}
-	defer session.Close()
-	if err := session.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start audio session: %w", err)
-	}
-
-	// Create audio handler
-	handler := &AudioHandler{
-		conv:       conv,
-		session:    session,
-		audioQueue: make(chan []byte, 100),
-	}
-
-	// Set up signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	// Start goroutines
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		handler.processResponses(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.playAudioOutput(ctx); err != nil {
-			log.Printf("Audio playback error: %v", err)
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.captureAndStreamAudio(ctx); err != nil {
-			log.Printf("Audio capture error: %v", err)
-		}
-	}()
-
 	fmt.Println("Listening... Speak into your microphone.")
 	fmt.Println("OpenAI's server-side VAD will detect when you're done speaking.")
 	fmt.Println("Press Ctrl+C to exit.")
 	fmt.Println()
-
-	// Wait for interrupt
-	<-sigChan
-	fmt.Println("\n\nShutting down...")
-	cancel()
-	close(handler.audioQueue)
-	wg.Wait()
-
-	return nil
+	return runUntilSignal(ctx, conv)
 }
 
-// runToolsDemo demonstrates function calling during realtime streaming
+// runToolsDemo demonstrates function calling during realtime streaming. The tool
+// call is surfaced to the observer, which runs the (simulated) tool and prints
+// the result.
 func runToolsDemo(ctx context.Context, apiKey string) error {
-	// Open with tools configuration
-	conv, err := sdk.OpenDuplex(
-		"./openai-realtime.pack.json",
-		"assistant",
-		sdk.WithModel("gpt-realtime"),
-		sdk.WithAPIKey(apiKey),
-		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{
-				Type:       types.ContentTypeAudio,
-				SampleRate: sampleRate,
-				Channels:   channels,
-				Encoding:   "pcm16",
-				BitDepth:   16,
-				ChunkSize:  4800,
-			},
-			Tools: []providers.StreamingToolDefinition{
-				{
-					Name:        "get_weather",
-					Description: "Get the current weather for a location",
-					Parameters: map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"location": map[string]interface{}{
-								"type":        "string",
-								"description": "The city and state, e.g. San Francisco, CA",
-							},
-							"unit": map[string]interface{}{
-								"type":        "string",
-								"enum":        []string{"celsius", "fahrenheit"},
-								"description": "The temperature unit",
-							},
-						},
-						"required": []string{"location"},
-					},
-				},
-			},
-			Metadata: map[string]interface{}{
-				"voice":               "echo",
-				"modalities":          []string{"text", "audio"},
-				"input_transcription": true,
-			},
-		}),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to open duplex conversation: %w", err)
-	}
-	defer conv.Close()
-
-	fmt.Println("Connected to OpenAI Realtime API with Tools!")
-	fmt.Println("Try asking: 'What's the weather in San Francisco?'")
-	fmt.Println()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	session, err := audiohelper.NewSession(
-		audiohelper.WithCaptureRate(sampleRate),
-		audiohelper.WithPlaybackRate(sampleRate),
-	)
+	session, err := newAudioSession()
 	if err != nil {
 		return fmt.Errorf("failed to open audio session: %w", err)
 	}
 	defer session.Close()
-	if err := session.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start audio session: %w", err)
-	}
 
-	handler := &AudioHandler{
-		conv:       conv,
-		session:    session,
-		audioQueue: make(chan []byte, 100),
-	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		handler.processResponsesWithTools(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.playAudioOutput(ctx); err != nil {
-			log.Printf("Audio playback error: %v", err)
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.captureAndStreamAudio(ctx); err != nil {
-			log.Printf("Audio capture error: %v", err)
-		}
-	}()
-
-	fmt.Println("Listening... Ask about the weather!")
-	fmt.Println("Press Ctrl+C to exit.")
-	fmt.Println()
-
-	<-sigChan
-	fmt.Println("\n\nShutting down...")
-	cancel()
-	close(handler.audioQueue)
-	wg.Wait()
-
-	return nil
-}
-
-// runTranslatorMode demonstrates real-time translation
-func runTranslatorMode(ctx context.Context, apiKey string) error {
-	conv, err := sdk.OpenDuplex(
-		"./openai-realtime.pack.json",
-		"translator",
+	conv, err := sdk.OpenVoice(
+		"./openai-realtime.pack.json", "assistant",
 		sdk.WithModel("gpt-realtime"),
 		sdk.WithAPIKey(apiKey),
-		sdk.WithVariables(map[string]string{
-			"target_language": "Spanish",
-		}),
-		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{
-				Type:       types.ContentTypeAudio,
-				SampleRate: sampleRate,
-				Channels:   channels,
-				Encoding:   "pcm16",
-				BitDepth:   16,
-				ChunkSize:  4800,
-			},
-			Metadata: map[string]interface{}{
-				"voice":               "shimmer",
-				"modalities":          []string{"text", "audio"},
-				"input_transcription": true,
-			},
-		}),
+		sdk.WithStreamingConfig(realtimeStreamingConfig("alloy", true)),
+		sdk.WithAudioSession(session),
+		sdk.WithVoiceObserver(newDisplayObserver(true)),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to open duplex conversation: %w", err)
+		return fmt.Errorf("failed to open voice conversation: %w", err)
+	}
+	defer conv.Close()
+
+	fmt.Println("Connected! Ask about the weather to trigger a tool call.")
+	fmt.Println("Press Ctrl+C to exit.")
+	fmt.Println()
+	return runUntilSignal(ctx, conv)
+}
+
+// runTranslatorMode runs a real-time English→Spanish translator.
+func runTranslatorMode(ctx context.Context, apiKey string) error {
+	session, err := newAudioSession()
+	if err != nil {
+		return fmt.Errorf("failed to open audio session: %w", err)
+	}
+	defer session.Close()
+
+	conv, err := sdk.OpenVoice(
+		"./openai-realtime.pack.json", "translator",
+		sdk.WithModel("gpt-realtime"),
+		sdk.WithAPIKey(apiKey),
+		sdk.WithVariables(map[string]string{"target_language": "Spanish"}),
+		sdk.WithStreamingConfig(realtimeStreamingConfig("shimmer", false)),
+		sdk.WithAudioSession(session),
+		sdk.WithVoiceObserver(newDisplayObserver(false)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open voice conversation: %w", err)
 	}
 	defer conv.Close()
 
 	fmt.Println("Connected to OpenAI Realtime Translator!")
 	fmt.Println("Speak in English and hear the Spanish translation.")
+	fmt.Println("Press Ctrl+C to exit.")
 	fmt.Println()
+	return runUntilSignal(ctx, conv)
+}
 
+// runUntilSignal drives the voice session with Conversation.Start (mic → LLM →
+// speaker) and returns cleanly on Ctrl+C.
+func runUntilSignal(ctx context.Context, conv *sdk.Conversation) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	session, err := audiohelper.NewSession(
-		audiohelper.WithCaptureRate(sampleRate),
-		audiohelper.WithPlaybackRate(sampleRate),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to open audio session: %w", err)
-	}
-	defer session.Close()
-	if err := session.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start audio session: %w", err)
-	}
-
-	handler := &AudioHandler{
-		conv:       conv,
-		session:    session,
-		audioQueue: make(chan []byte, 100),
-	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
+	go func() { errCh <- conv.Start(ctx) }()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		handler.processResponses(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.playAudioOutput(ctx); err != nil {
-			log.Printf("Audio playback error: %v", err)
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := handler.captureAndStreamAudio(ctx); err != nil {
-			log.Printf("Audio capture error: %v", err)
-		}
-	}()
-
-	fmt.Println("Listening... Speak and hear the translation!")
-	fmt.Println("Press Ctrl+C to exit.")
-	fmt.Println()
-
-	<-sigChan
-	fmt.Println("\n\nShutting down...")
-	cancel()
-	close(handler.audioQueue)
-	wg.Wait()
-
-	return nil
+	select {
+	case <-sigChan:
+		fmt.Println("\n\nShutting down...")
+		cancel()
+		<-errCh // let Start unwind
+		return nil
+	case err := <-errCh:
+		return err
+	}
 }
 
-// AudioHandler manages audio capture, streaming, and playback
-type AudioHandler struct {
-	conv       *sdk.Conversation
-	session    rtaudio.Session
-	audioQueue chan []byte
-	mu         sync.Mutex
-	speaking   bool
-}
-
-// captureAndStreamAudio captures microphone input and streams to OpenAI
-func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
-	fmt.Println("Audio capture started...")
-
-	frames := ah.session.Sources()[0].Frames()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case frame, ok := <-frames:
-			if !ok {
-				return nil
+// newDisplayObserver returns a WithVoiceObserver callback that prints the
+// conversation as it streams — the caller's transcribed speech, the assistant's
+// text, and (when withTools) any tool calls, which it runs and reports. Start
+// plays the audio; this only displays. The returned closure is called from a
+// single goroutine, so its running state needs no locking.
+func newDisplayObserver(withTools bool) func(providers.StreamChunk) {
+	assistantOpen := false
+	return func(c providers.StreamChunk) {
+		if t, ok := c.Metadata["input_transcription"].(string); ok && t != "" {
+			fmt.Printf("\n\033[33m[You said: %s]\033[0m\n", t)
+		}
+		if c.Delta != "" {
+			if !assistantOpen {
+				fmt.Print("\n\033[34mAssistant:\033[0m ")
+				assistantOpen = true
 			}
-
-			// frame.Data is already PCM16 little-endian bytes.
-			chunk := &providers.StreamChunk{
-				MediaData: &providers.StreamMediaData{
-					MIMEType: "audio/pcm",
-					Data:     frame.Data,
-				},
+			fmt.Print(c.Delta)
+		}
+		if withTools {
+			for _, tc := range c.ToolCalls {
+				args := string(tc.Args)
+				fmt.Printf("\n\033[35m[Tool call: %s(%s)]\033[0m\n", tc.Name, args)
+				fmt.Printf("\033[35m[Tool result: %s]\033[0m\n", executeToolCall(tc.Name, args))
 			}
-
-			// Send to OpenAI Realtime
-			if err := ah.conv.SendChunk(ctx, chunk); err != nil {
-				log.Printf("Failed to send audio chunk: %v", err)
-				continue
-			}
-
-			// Visual feedback for audio level
-			if hasAudioEnergy(bytesToInt16(frame.Data)) {
-				fmt.Print("\033[32m|\033[0m") // Green bar for speech
-			}
+		}
+		if c.FinishReason != nil && assistantOpen {
+			fmt.Println()
+			assistantOpen = false
 		}
 	}
 }
 
-// processResponses handles streaming responses from OpenAI Realtime
-func (ah *AudioHandler) processResponses(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		respCh, err := ah.conv.Response()
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			log.Printf("Response error: %v", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		hasText := false
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case chunk, ok := <-respCh:
-				if !ok {
-					goto nextResponse
-				}
-
-				if chunk.Error != nil {
-					log.Printf("Chunk error: %v", chunk.Error)
-					goto nextResponse
-				}
-
-				// Handle audio response
-				if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
-					audioData := chunk.MediaData.Data
-					select {
-					case ah.audioQueue <- audioData:
-					case <-ctx.Done():
-						return
-					}
-				}
-
-				// Handle text response (transcript)
-				if chunk.Delta != "" {
-					if !hasText {
-						fmt.Print("\n\033[34mAssistant:\033[0m ")
-						hasText = true
-					}
-					fmt.Print(chunk.Delta)
-				}
-
-				// Handle input transcription
-				if chunk.Metadata != nil {
-					if transcript, ok := chunk.Metadata["input_transcription"].(string); ok && transcript != "" {
-						fmt.Printf("\n\033[33m[You said: %s]\033[0m\n", transcript)
-					}
-				}
-
-				if chunk.FinishReason != nil {
-					if hasText {
-						fmt.Println()
-					}
-					goto nextResponse
-				}
-			}
-		}
-
-	nextResponse:
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-}
-
-// processResponsesWithTools handles responses including tool calls
-func (ah *AudioHandler) processResponsesWithTools(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		respCh, err := ah.conv.Response()
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		hasText := false
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case chunk, ok := <-respCh:
-				if !ok {
-					goto nextResponse
-				}
-
-				if chunk.Error != nil {
-					goto nextResponse
-				}
-
-				// Handle audio
-				if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
-					audioData := chunk.MediaData.Data
-					select {
-					case ah.audioQueue <- audioData:
-					case <-ctx.Done():
-						return
-					}
-				}
-
-				// Handle text
-				if chunk.Delta != "" {
-					if !hasText {
-						fmt.Print("\n\033[34mAssistant:\033[0m ")
-						hasText = true
-					}
-					fmt.Print(chunk.Delta)
-				}
-
-				// Handle tool calls
-				if chunk.ToolCalls != nil {
-					for _, tc := range chunk.ToolCalls {
-						argsStr := string(tc.Args)
-						fmt.Printf("\n\033[35m[Tool call: %s(%s)]\033[0m\n", tc.Name, argsStr)
-
-						// Simulate tool execution
-						result := ah.executeToolCall(tc.Name, argsStr)
-						fmt.Printf("\033[35m[Tool result: %s]\033[0m\n", result)
-
-						// Note: In a real implementation, you would send the tool result back
-						// to the streaming session. This requires the session to implement
-						// ToolResponseSupport interface. For now, we just log it.
-						// TODO: Add conv.SendToolResult() when SDK supports streaming tool responses
-						log.Printf("Tool result for %s: %s", tc.ID, result)
-					}
-				}
-
-				if chunk.FinishReason != nil {
-					if hasText {
-						fmt.Println()
-					}
-					goto nextResponse
-				}
-			}
-		}
-
-	nextResponse:
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-}
-
-// executeToolCall simulates executing a tool call
-func (ah *AudioHandler) executeToolCall(name, arguments string) string {
+// executeToolCall simulates executing a tool call for the tools demo.
+func executeToolCall(name, arguments string) string {
 	switch name {
 	case "get_weather":
 		var args struct {
@@ -623,8 +294,6 @@ func (ah *AudioHandler) executeToolCall(name, arguments string) string {
 		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 			return fmt.Sprintf("Error parsing arguments: %v", err)
 		}
-
-		// Simulated weather response
 		unit := args.Unit
 		if unit == "" {
 			unit = "fahrenheit"
@@ -635,56 +304,7 @@ func (ah *AudioHandler) executeToolCall(name, arguments string) string {
 		}
 		return fmt.Sprintf("The weather in %s is currently sunny with a temperature of %d degrees %s.",
 			args.Location, temp, unit)
-
 	default:
 		return fmt.Sprintf("Unknown tool: %s", name)
 	}
-}
-
-// playAudioOutput plays audio responses through speakers
-func (ah *AudioHandler) playAudioOutput(ctx context.Context) error {
-	sink := ah.session.Sinks()[0]
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case audioData, ok := <-ah.audioQueue:
-			if !ok {
-				return nil
-			}
-
-			sink.Write(rtaudio.MediaFrame{
-				Kind:   rtaudio.KindAudio,
-				Data:   audioData,
-				Format: rtaudio.Format{SampleRate: sampleRate, Channels: channels},
-			})
-		}
-	}
-}
-
-// hasAudioEnergy checks if audio frame has significant energy
-func hasAudioEnergy(samples []int16) bool {
-	if len(samples) == 0 {
-		return false
-	}
-	const threshold = 500
-	var sum int64
-	for _, s := range samples {
-		if s < 0 {
-			sum -= int64(s)
-		} else {
-			sum += int64(s)
-		}
-	}
-	avg := sum / int64(len(samples))
-	return avg > threshold
-}
-
-// bytesToInt16 converts little-endian PCM16 bytes to int16 audio samples.
-func bytesToInt16(data []byte) []int16 {
-	samples := make([]int16, len(data)/2)
-	for i := range samples {
-		samples[i] = int16(data[i*2]) | int16(data[i*2+1])<<8
-	}
-	return samples
 }
