@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -162,6 +164,48 @@ func userTextsIn(msgs []types.Message) []string {
 	return out
 }
 
+// recordingConvTTS records every text the pipeline chose to speak, so a test can
+// assert on the words the caller would hear. convMockTTSService discards them.
+type recordingConvTTS struct {
+	convMockTTSService
+
+	mu     sync.Mutex
+	spoken []string
+}
+
+func newRecordingConvTTS() *recordingConvTTS {
+	return &recordingConvTTS{convMockTTSService: *newConvMockTTSService()}
+}
+
+func (r *recordingConvTTS) Synthesize(
+	ctx context.Context, text string, cfg tts.SynthesisConfig,
+) (io.ReadCloser, error) {
+	r.mu.Lock()
+	r.spoken = append(r.spoken, text)
+	r.mu.Unlock()
+	return r.convMockTTSService.Synthesize(ctx, text, cfg)
+}
+
+func (r *recordingConvTTS) texts() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.spoken))
+	copy(out, r.spoken)
+	return out
+}
+
+// waitForSpoken polls until the pipeline has spoken at least n texts.
+func (r *recordingConvTTS) waitForSpoken(n int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(r.texts()) >= n {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
+}
+
 const perTurnTestSampleRate = 16000
 
 // openVADModeConv opens a duplex VAD-mode conversation wired to the given STT
@@ -170,10 +214,19 @@ func openVADModeConv(
 	t *testing.T, sttSvc *scriptedSTTService, provider *turnRecordingProvider,
 ) *Conversation {
 	t.Helper()
+	return openVADModeConvWithTTS(t, sttSvc, provider, newConvMockTTSService())
+}
+
+// openVADModeConvWithTTS is openVADModeConv with the TTS service under the
+// caller's control, for tests that assert on what the pipeline speaks.
+func openVADModeConvWithTTS(
+	t *testing.T, sttSvc *scriptedSTTService, provider *turnRecordingProvider, ttsSvc tts.Service,
+) *Conversation {
+	t.Helper()
 	conv, err := OpenDuplex(writeIngestionTestPack(t), "main",
 		WithProvider(provider),
 		WithSkipSchemaValidation(),
-		WithVADMode(sttSvc, newConvMockTTSService(), &VADModeConfig{
+		WithVADMode(sttSvc, ttsSvc, &VADModeConfig{
 			SilenceDuration:   300 * time.Millisecond,
 			MinSpeechDuration: 100 * time.Millisecond,
 			MaxTurnDuration:   5 * time.Second,
@@ -236,6 +289,34 @@ func TestVADModeFiresLLMDuringSessionNotAtClose(t *testing.T) {
 		"model must fire during the session, before Close; fired %d times", provider.turnCount())
 	assert.Contains(t, userTextsIn(provider.turnAt(0)), "what is the capital of france",
 		"the turn the model fired on must carry that turn's transcript")
+}
+
+// TestVADModeSpeaksTheReplyNotTheCallersOwnWords guards the composition that
+// the per-turn fix created. The continuous multi-turn ProviderStage re-emits
+// each turn's user transcript downstream before generating, and in VAD mode TTS
+// is what sits downstream — so an unfiltered speech stage reads the caller's
+// own question back to them before answering it. Caught against real providers,
+// pinned here because CI has no API keys.
+func TestVADModeSpeaksTheReplyNotTheCallersOwnWords(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn in wall-clock time")
+	}
+	const transcript = "what is the capital of france"
+	sttSvc := newScriptedSTT(transcript)
+	provider := &turnRecordingProvider{}
+	ttsSvc := newRecordingConvTTS()
+	conv := openVADModeConvWithTTS(t, sttSvc, provider, ttsSvc)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	speakOneUtterance(t, conv)
+	require.True(t, ttsSvc.waitForSpoken(1, 8*time.Second),
+		"the assistant must speak something during the session")
+
+	spoken := ttsSvc.texts()
+	assert.NotContains(t, spoken, transcript,
+		"the caller's own transcript must never be spoken back at them")
+	assert.Equal(t, []string{"ack"}, spoken,
+		"exactly the assistant's reply is spoken, once — not the streamed deltas as well")
 }
 
 // TestVADModeThreadsHistoryAcrossTurns proves the fix is the continuous

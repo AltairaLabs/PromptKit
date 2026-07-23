@@ -86,6 +86,32 @@ func synthesizeSpeech(t *testing.T, svc tts.Service, text string) []byte {
 	return pcm
 }
 
+// countingTTS wraps a real TTS service and counts synthesis calls, so the live
+// test can prove the reply is spoken exactly once per turn rather than once per
+// streamed representation (the double-speak fixed alongside #1644).
+type countingTTS struct {
+	inner tts.Service
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *countingTTS) Name() string                        { return c.inner.Name() }
+func (c *countingTTS) SupportedVoices() []tts.Voice        { return c.inner.SupportedVoices() }
+func (c *countingTTS) SupportedFormats() []tts.AudioFormat { return c.inner.SupportedFormats() }
+func (c *countingTTS) Synthesize(
+	ctx context.Context, text string, cfg tts.SynthesisConfig,
+) (io.ReadCloser, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return c.inner.Synthesize(ctx, text, cfg)
+}
+func (c *countingTTS) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
 // replyCollector accumulates the audio the pipeline speaks back, so a test can
 // tell whether a reply arrived *while the session was still open*.
 type replyCollector struct {
@@ -212,10 +238,14 @@ func TestVADModeLiveRepliesMidSessionEndToEnd(t *testing.T) {
 	francePCM := synthesizeSpeech(t, ttsSvc, "What is the capital of France?")
 	germanyPCM := synthesizeSpeech(t, ttsSvc, "And what is the capital of Germany?")
 
+	// Count synthesis calls through the live pipeline (pre-rendering above uses
+	// the raw service, so it is not counted).
+	countTTS := &countingTTS{inner: ttsSvc}
+
 	conv, err := OpenDuplex(writeVADLivePack(t), "main",
 		WithProvider(llm),
 		WithSkipSchemaValidation(),
-		WithVADMode(sttSvc, ttsSvc, &VADModeConfig{
+		WithVADMode(sttSvc, countTTS, &VADModeConfig{
 			SilenceDuration:   500 * time.Millisecond,
 			MinSpeechDuration: 200 * time.Millisecond,
 			MaxTurnDuration:   15 * time.Second,
@@ -247,6 +277,8 @@ func TestVADModeLiveRepliesMidSessionEndToEnd(t *testing.T) {
 	t.Logf("turn 1 reply: transcript=%q streamed_text=%q audio_bytes=%d",
 		firstSpoken, firstText, len(firstAudio))
 	assert.Contains(t, firstSpoken, "paris", "the mid-session reply must answer the question asked")
+	assert.Equal(t, 1, countTTS.count(),
+		"the reply must be synthesized once, not once per streamed representation")
 
 	// Turn two, on the same open session.
 	replies.reset()
@@ -259,4 +291,6 @@ func TestVADModeLiveRepliesMidSessionEndToEnd(t *testing.T) {
 	t.Logf("turn 2 reply: transcript=%q streamed_text=%q audio_bytes=%d",
 		secondSpoken, secondText, len(secondAudio))
 	assert.Contains(t, secondSpoken, "berlin", "the second turn must be answered on its own merits")
+	assert.Equal(t, 2, countTTS.count(),
+		"two turns must produce two syntheses total, one per reply")
 }
