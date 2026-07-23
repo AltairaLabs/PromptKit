@@ -197,6 +197,11 @@ type config struct {
 	// vadModeConfig. See IngestionFunc / WithIngestion.
 	ingestion IngestionFunc
 
+	// Audio session bound to the duplex pipeline by OpenVoice / WithAudioSession.
+	// The caller supplies the device (or in-memory) implementation; the SDK runs
+	// the capture→pipeline→playback pump in Conversation.Start.
+	audioSession audio.Session
+
 	// Image preprocessing configuration
 	// When set, images are preprocessed (resized, optimized) before sending to provider
 	imagePreprocessConfig *stage.ImagePreprocessConfig
