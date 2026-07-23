@@ -1093,6 +1093,12 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	if meta != nil {
 		outElem.Meta = *meta
 	}
+	// The reply text already streamed as deltas; this element's Text is a
+	// reference copy of what was submitted for synthesis. Mark it so a consumer
+	// does not re-present that text as new model output (see
+	// ElementMetadata.SynthesizedSpeech). Set after the meta copy so it wins.
+	outElem.Meta.SynthesizedSpeech = true
+	outElem.Meta.StreamingDelta = false
 
 	s.setBotSpeaking(false)
 	return s.forwardElement(ctx, outElem, output)

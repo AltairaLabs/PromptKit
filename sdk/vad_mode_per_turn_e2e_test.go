@@ -279,6 +279,8 @@ func TestVADModeLiveRepliesMidSessionEndToEnd(t *testing.T) {
 	assert.Contains(t, firstSpoken, "paris", "the mid-session reply must answer the question asked")
 	assert.Equal(t, 1, countTTS.count(),
 		"the reply must be synthesized once, not once per streamed representation")
+	assert.LessOrEqual(t, strings.Count(strings.ToLower(firstText), "paris"), 1,
+		"the reply text must reach the caller once — the audio chunk must not re-deliver it on Delta")
 
 	// Turn two, on the same open session.
 	replies.reset()
