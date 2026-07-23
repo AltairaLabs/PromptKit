@@ -130,6 +130,16 @@ type Config struct {
 	// The system prompt is sourced from TurnState by the duplex stage.
 	StreamInputConfig *providers.StreamingInputConfig
 
+	// PaceOutputAudio inserts an output-direction AudioPacingStage after the
+	// provider/TTS stage so response audio is forwarded at real-time cadence.
+	// Set when the pipeline drives a realtime speaker (OpenVoice / a bound
+	// audio.Session): a streaming provider delivers a whole reply faster than
+	// realtime, and an unpaced burst overruns the sink's ~200ms jitter buffer,
+	// dropping the oldest audio (audible stutter/corruption). Leave false for
+	// headless/manual consumers (OpenDuplex reading Response() directly) — pacing
+	// would only slow them down with no realtime sink to protect.
+	PaceOutputAudio bool
+
 	// UseStages is deprecated and ignored - stages are always used.
 	// This field is kept for backward compatibility but has no effect.
 	UseStages bool
@@ -409,6 +419,16 @@ func collectPipelineStages(
 
 	// 6. State store save stage - saves conversation state LAST
 	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
+
+	// 7. Output audio pacing (realtime playback only). Placed last so the emitted
+	// response stream reaches a realtime sink at real-time cadence while the
+	// upstream bookkeeping stages (recording, memory, save) still run at full
+	// speed. Without this, a streaming provider's whole-reply burst overruns the
+	// speaker's jitter buffer and the oldest audio is dropped (audible stutter).
+	// The "-output" suffix routes its health metrics to the output direction.
+	if cfg.PaceOutputAudio {
+		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output"))
+	}
 
 	return stages, nil
 }

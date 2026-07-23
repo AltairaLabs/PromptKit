@@ -1398,3 +1398,55 @@ func (f *fakePipelineEventStore) Stream(_ context.Context, _ string) (<-chan *ev
 	return nil, nil
 }
 func (f *fakePipelineEventStore) Close() error { return nil }
+
+// TestCollectPipelineStages_PacesOutputAudioForVoice is the fix for the reported
+// audio jitter/corruption on long realtime replies. A streaming provider (OpenAI
+// Realtime) delivers a whole assistant reply faster than realtime; without an
+// output-direction pacing stage the burst overruns the realtime speaker's
+// ~200ms jitter buffer and the oldest audio is dropped — audible stutter. When
+// the pipeline drives a realtime sink (OpenVoice, PaceOutputAudio) an
+// "audio-pacing-output" stage must sit AFTER the provider stage so response
+// audio reaches the sink at real-time cadence. Headless/manual duplex consumers
+// (OpenDuplex reading Response() directly) must NOT be paced — it would only
+// slow them down.
+func TestCollectPipelineStages_PacesOutputAudioForVoice(t *testing.T) {
+	registry := createTestRegistry("chat")
+	newCfg := func(pace bool) *Config {
+		return &Config{
+			PromptRegistry:      registry,
+			TaskType:            "chat",
+			StreamInputProvider: mock.NewStreamingProvider("test", "test-model", false),
+			StreamInputConfig:   &providers.StreamingInputConfig{},
+			PaceOutputAudio:     pace,
+		}
+	}
+
+	t.Run("output pacing stage present after provider when PaceOutputAudio", func(t *testing.T) {
+		stages, err := collectPipelineStages(newCfg(true), nil, false)
+		require.NoError(t, err)
+
+		provIdx, paceIdx := -1, -1
+		for i, s := range stages {
+			switch s.Name() {
+			case "duplex_provider":
+				provIdx = i
+			case "audio-pacing-output":
+				paceIdx = i
+			}
+		}
+		require.GreaterOrEqual(t, provIdx, 0, "duplex provider stage must be present")
+		require.GreaterOrEqual(t, paceIdx, 0,
+			"output audio pacing stage must be wired for realtime voice playback, or long replies overrun the sink")
+		assert.Greater(t, paceIdx, provIdx,
+			"output pacing must come AFTER the provider stage so response audio is paced toward the sink")
+	})
+
+	t.Run("no output pacing stage without PaceOutputAudio (headless/manual)", func(t *testing.T) {
+		stages, err := collectPipelineStages(newCfg(false), nil, false)
+		require.NoError(t, err)
+		for _, s := range stages {
+			assert.NotEqual(t, "audio-pacing-output", s.Name(),
+				"headless/manual duplex consumers must not be slowed by realtime output pacing")
+		}
+	})
+}

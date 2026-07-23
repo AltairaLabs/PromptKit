@@ -526,6 +526,10 @@ func (c *Conversation) buildPipelineConfig(
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
 		ApprovalChecker:       c.newApprovalChecker(),
 		ClassifyRegistry:      c.config.classifyRegistry,
+		// A bound audio session (OpenVoice) plays response audio to a realtime
+		// speaker; pace the output so a streaming provider's whole-reply burst
+		// doesn't overrun the sink's jitter buffer and drop audio (stutter).
+		PaceOutputAudio: c.config.audioSession != nil,
 	}
 
 	// Wire memory stages from MemoryCapability if present
