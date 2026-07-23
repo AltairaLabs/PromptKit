@@ -519,9 +519,15 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 		return s.Close()
 	}
 
-	// Send EndOfStream signal so the pipeline knows input is done.
+	// Send EndOfStream so the pipeline knows input is done. AllResponsesReceived
+	// marks this as a graceful drain (not an end-of-turn boundary), so a streaming
+	// provider stage closes its session immediately instead of waiting out its
+	// final-response timeout — otherwise draining a live voice session blocks ~30s.
 	select {
-	case s.stageInput <- stage.StreamElement{EndOfStream: true}:
+	case s.stageInput <- stage.StreamElement{
+		EndOfStream: true,
+		Meta:        stage.ElementMetadata{AllResponsesReceived: true},
+	}:
 	case <-ctx.Done():
 		// Context expired before we could send — fall back to hard close.
 		return s.Close()

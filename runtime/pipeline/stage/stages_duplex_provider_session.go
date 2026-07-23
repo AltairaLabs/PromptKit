@@ -429,7 +429,21 @@ func (s *DuplexProviderStage) forwardInputElements(
 				s.allResponsesReceivedOnce.Do(func() {
 					close(s.allResponsesReceivedCh)
 				})
-				continue // Don't forward this signal element
+				// A graceful drain (Close) sends this on an EndOfStream element to
+				// end input AND close the session immediately — otherwise draining a
+				// live streaming session blocks the full finalResponseTimeout (~30s),
+				// because the provider's response channel never closes on its own. A
+				// plain end-of-turn EndOfStream (with input payload) does NOT set this
+				// flag, so it still waits briefly for the turn's response.
+				if elem.EndOfStream {
+					logger.Debug("DuplexProviderStage: drain signal; ending input for prompt close")
+					s.inputDoneOnce.Do(func() {
+						close(s.inputDoneCh)
+					})
+					done <- nil
+					return
+				}
+				continue // executor mid-stream signal; keep forwarding
 			}
 
 			// Check for tool result messages to forward to output for state store capture.
