@@ -967,7 +967,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.Metadata != nil {
 		if metaType, ok := chunk.Metadata["type"].(string); ok {
 			switch metaType {
-			case "output_transcription":
+			case metaTypeOutputTranscription:
 				isOutputTranscription = true
 			case "input_transcription":
 				isInputTranscription = true

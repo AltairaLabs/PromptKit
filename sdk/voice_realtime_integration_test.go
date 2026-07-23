@@ -180,6 +180,12 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 		"expected a long spoken reply through the paced OpenVoice pipeline; got %d speaker frames "+
 			"(observer audio=%d text=%d) — the real provider reply did not reach the speaker",
 		len(speaker.Written()), obsAudio.Load(), obsText.Load())
+	// The assistant's spoken words must also reach the observer as live transcript
+	// text (StreamChunk.Delta), not just audio — otherwise a voice UI plays sound
+	// but shows nothing. Regression guard for the "no assistant transcript" bug.
+	require.Positivef(t, obsText.Load(),
+		"assistant transcript did not reach the observer (audio frames=%d) — the spoken reply "+
+			"produced no live text deltas", obsAudio.Load())
 	t.Logf("reply reached the speaker: %d frames (observer audio=%d text=%d)",
 		len(speaker.Written()), obsAudio.Load(), obsText.Load())
 

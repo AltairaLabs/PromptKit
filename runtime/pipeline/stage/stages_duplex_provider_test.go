@@ -36,6 +36,33 @@ func TestDuplexChunkToElement_TextForwarded(t *testing.T) {
 	assert.Equal(t, "live text", *elem.Text)
 }
 
+// TestDuplexChunkToElement_OutputTranscriptionForwarded proves the assistant's
+// spoken-audio transcript streams to the display live. Realtime providers (OpenAI
+// Realtime) send that transcript as an incremental Delta marked
+// output_transcription with NO Content; it must forward as live element Text so
+// a display observer (which renders StreamChunk.Delta) shows the assistant's
+// words. Without it, a realtime voice assistant plays audio but shows no
+// transcript at all — the reported bug.
+func TestDuplexChunkToElement_OutputTranscriptionForwarded(t *testing.T) {
+	s := newDuplexStageForUnit()
+	elem := s.chunkToElement(&providers.StreamChunk{
+		Delta:    "hello there",
+		Metadata: map[string]any{"type": "output_transcription"},
+	})
+	require.NotNil(t, elem.Text, "assistant audio-transcript delta must forward as live element text")
+	assert.Equal(t, "hello there", *elem.Text)
+}
+
+// TestDuplexChunkToElement_ModelTurnDeltaNotDoubled guards the dedup: a ModelTurn
+// chunk sets Content and Delta to the same value; only Content must be forwarded
+// so the text isn't emitted twice.
+func TestDuplexChunkToElement_ModelTurnDeltaNotDoubled(t *testing.T) {
+	s := newDuplexStageForUnit()
+	elem := s.chunkToElement(&providers.StreamChunk{Content: "once", Delta: "once"})
+	require.NotNil(t, elem.Text)
+	assert.Equal(t, "once", *elem.Text)
+}
+
 // TestDuplexChunkToElement_FinishWithToolCalls covers turn completion creating a
 // message from chunk tool calls, the latency branch, and the long-content
 // preview truncation branch.
