@@ -74,7 +74,7 @@ func TestPumpAudioOutput_WritesAudioToSink(t *testing.T) {
 	ch <- providers.StreamChunk{MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: []byte{7, 8}, SampleRate: 24000, Channels: 1}}
 	close(ch)
 
-	require.NoError(t, pumpAudioOutput(context.Background(), ch, []audio.Sink{sink}))
+	require.NoError(t, pumpAudioOutput(context.Background(), ch, []audio.Sink{sink}, nil))
 
 	written := sink.Written()
 	require.Len(t, written, 2)
@@ -92,8 +92,34 @@ func TestPumpAudioOutput_FlushesOnBargeIn(t *testing.T) {
 	ch <- providers.StreamChunk{Interrupted: true}
 	close(ch)
 
-	require.NoError(t, pumpAudioOutput(context.Background(), ch, []audio.Sink{sink}))
+	require.NoError(t, pumpAudioOutput(context.Background(), ch, []audio.Sink{sink}, nil))
 	assert.Empty(t, sink.Written(), "queued audio must be flushed on barge-in")
+}
+
+// TestPumpAudioOutput_InvokesObserverPerChunk: when a voice observer is set, it
+// sees every response chunk (text, transcription, audio) so the app can display
+// what's happening while Start manages the speaker.
+func TestPumpAudioOutput_InvokesObserverPerChunk(t *testing.T) {
+	sink := audio.NewMemSink(audio.KindAudio)
+	ch := make(chan providers.StreamChunk, 4)
+	ch <- providers.StreamChunk{Delta: "Hello"}                                                                // text only
+	ch <- providers.StreamChunk{MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: []byte{9}}} // audio only
+	close(ch)
+
+	var seen []providers.StreamChunk
+	require.NoError(t, pumpAudioOutput(context.Background(), ch, []audio.Sink{sink},
+		func(c providers.StreamChunk) { seen = append(seen, c) }))
+
+	require.Len(t, seen, 2, "observer must see every chunk")
+	assert.Equal(t, "Hello", seen[0].Delta)
+	require.Len(t, sink.Written(), 1, "audio still reaches the sink")
+}
+
+// TestWithVoiceObserver_SetsConfig: the option installs the observer.
+func TestWithVoiceObserver_SetsConfig(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithVoiceObserver(func(providers.StreamChunk) {})(c))
+	assert.NotNil(t, c.voiceObserver)
 }
 
 // TestOpenVoice_RequiresAudioSession: OpenVoice without a session is a

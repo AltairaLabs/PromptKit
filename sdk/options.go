@@ -202,6 +202,12 @@ type config struct {
 	// the capture→pipeline→playback pump in Conversation.Start.
 	audioSession audio.Session
 
+	// voiceObserver, if set, is called with every response chunk during
+	// Conversation.Start — text deltas, transcription metadata, tool events —
+	// so an app can display the conversation while Start manages the audio.
+	// See WithVoiceObserver.
+	voiceObserver func(providers.StreamChunk)
+
 	// Image preprocessing configuration
 	// When set, images are preprocessed (resized, optimized) before sending to provider
 	imagePreprocessConfig *stage.ImagePreprocessConfig

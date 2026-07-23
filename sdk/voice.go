@@ -56,6 +56,25 @@ func OpenVoice(packPath, promptName string, opts ...Option) (*Conversation, erro
 	return conv, nil
 }
 
+// WithVoiceObserver registers a callback invoked with every response chunk
+// during Conversation.Start — text deltas, input-transcription metadata, tool
+// events, and audio chunks alike — so an application can display or log the
+// conversation while Start manages microphone and speaker.
+//
+// The callback runs on Start's output-pump goroutine; keep it quick and do not
+// call back into the conversation from it.
+//
+//	sdk.WithVoiceObserver(func(c providers.StreamChunk) {
+//	    if c.Delta != "" { fmt.Print(c.Delta) }
+//	    if t, ok := c.Metadata["input_transcription"].(string); ok { fmt.Println("you:", t) }
+//	})
+func WithVoiceObserver(fn func(providers.StreamChunk)) Option {
+	return func(c *config) error {
+		c.voiceObserver = fn
+		return nil
+	}
+}
+
 // audioChunkSender is the slice of Conversation the input pump needs; narrow so
 // the pump is unit-testable without a full conversation.
 type audioChunkSender interface {
@@ -108,7 +127,7 @@ func (c *Conversation) Start(ctx context.Context) error {
 	for _, src := range audioSources(sess.Sources()) {
 		launch(func() error { return pumpAudioInput(ctx, src, c) })
 	}
-	launch(func() error { return pumpAudioOutput(ctx, respCh, audioSinks(sess.Sinks())) })
+	launch(func() error { return pumpAudioOutput(ctx, respCh, audioSinks(sess.Sinks()), c.config.voiceObserver) })
 
 	wg.Wait()
 	_ = sess.Close()
@@ -163,8 +182,15 @@ func pumpAudioInput(ctx context.Context, src audio.Source, sender audioChunkSend
 
 // pumpAudioOutput plays the pipeline's audio replies to the sinks, flushing them
 // when a chunk reports a barge-in interruption so the caller stops hearing a
-// reply they talked over. Runs until the response stream closes or ctx ends.
-func pumpAudioOutput(ctx context.Context, resp <-chan providers.StreamChunk, sinks []audio.Sink) error {
+// reply they talked over. Every chunk is also handed to observe (when non-nil)
+// so the app can display text/transcription while Start manages the speaker.
+// Runs until the response stream closes or ctx ends.
+func pumpAudioOutput(
+	ctx context.Context,
+	resp <-chan providers.StreamChunk,
+	sinks []audio.Sink,
+	observe func(providers.StreamChunk),
+) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -172,6 +198,9 @@ func pumpAudioOutput(ctx context.Context, resp <-chan providers.StreamChunk, sin
 		case chunk, ok := <-resp:
 			if !ok {
 				return nil
+			}
+			if observe != nil {
+				observe(chunk)
 			}
 			playChunkToSinks(&chunk, sinks)
 		}

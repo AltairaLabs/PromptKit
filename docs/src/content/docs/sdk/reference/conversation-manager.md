@@ -358,6 +358,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithVariableProvider\(p variables.Provider\) Option](<#WithVariableProvider>)
   - [func WithVariables\(vars map\[string\]string\) Option](<#WithVariables>)
   - [func WithVertex\(region, project, providerType, model string, opts ...PlatformOption\) Option](<#WithVertex>)
+  - [func WithVoiceObserver\(fn func\(providers.StreamChunk\)\) Option](<#WithVoiceObserver>)
 - [type PackError](<#PackError>)
   - [func \(e \*PackError\) Error\(\) string](<#PackError.Error>)
   - [func \(e \*PackError\) Unwrap\(\) error](<#PackError.Unwrap>)
@@ -4388,6 +4389,24 @@ WithVertex configures Google Cloud Vertex AI as the hosting platform. The provid
 conv, _ := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash"),
 )
+```
+
+<a name="WithVoiceObserver"></a>
+### func WithVoiceObserver
+
+```go
+func WithVoiceObserver(fn func(providers.StreamChunk)) Option
+```
+
+WithVoiceObserver registers a callback invoked with every response chunk during Conversation.Start — text deltas, input\-transcription metadata, tool events, and audio chunks alike — so an application can display or log the conversation while Start manages microphone and speaker.
+
+The callback runs on Start's output\-pump goroutine; keep it quick and do not call back into the conversation from it.
+
+```
+sdk.WithVoiceObserver(func(c providers.StreamChunk) {
+    if c.Delta != "" { fmt.Print(c.Delta) }
+    if t, ok := c.Metadata["input_transcription"].(string); ok { fmt.Println("you:", t) }
+})
 ```
 
 <a name="PackError"></a>
