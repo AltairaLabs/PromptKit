@@ -112,8 +112,9 @@ func (c *Conversation) Start(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 1) // only the first error is surfaced
-	// Any component finishing (mic closed, response stream ended, session
-	// stopped, or ctx canceled) ends the whole session; cancel unwinds the rest.
+
+	// A pump finishing (mic source closed, response stream ended) ends the whole
+	// session; cancel unwinds the rest.
 	launch := func(fn func() error) {
 		wg.Add(1)
 		go func() {
@@ -123,7 +124,19 @@ func (c *Conversation) Start(ctx context.Context) error {
 		}()
 	}
 
-	launch(func() error { return sess.Start(ctx) })
+	// Starting the device is NOT a pump: many sessions (e.g. the PortAudio
+	// helper) launch capture/playback in the background and return from Start
+	// immediately. A nil return means "running", not "session over", so it must
+	// not cancel the pumps — only a real start error tears the session down.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if e := sess.Start(ctx); e != nil && !errors.Is(e, context.Canceled) {
+			trySendErr(errCh, e)
+			cancel()
+		}
+	}()
+
 	for _, src := range audioSources(sess.Sources()) {
 		launch(func() error { return pumpAudioInput(ctx, src, c) })
 	}
