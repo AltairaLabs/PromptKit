@@ -10,6 +10,15 @@ import (
 	"time"
 )
 
+// testExecHookTimeoutMs is a deliberately generous per-invocation budget for
+// tests that assert on a subprocess side effect (a file the script writes). The
+// scripts do microseconds of work, but the 5s default (DefaultExecEvalHookTimeout)
+// starves to death under a busy runner — e.g. `runtime/...` and `sdk/...` sweeps
+// running concurrently — killing the process before it writes and surfacing as a
+// confusing missing-file read error rather than a timeout (#1645). This margin
+// absorbs scheduling contention; it is not exercising a real timeout.
+const testExecHookTimeoutMs = 60_000
+
 func writeTempScript(t *testing.T, body string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -29,8 +38,9 @@ func TestExecEvalHook_PipesResultJSONOnStdin(t *testing.T) {
 	script := writeTempScript(t, `cat > "`+out+`"`)
 
 	hook := NewExecEvalHook(&ExecEvalHookConfig{
-		Name:    "capture",
-		Command: script,
+		Name:      "capture",
+		Command:   script,
+		TimeoutMs: testExecHookTimeoutMs,
 	})
 
 	score := 0.75
@@ -39,7 +49,7 @@ func TestExecEvalHook_PipesResultJSONOnStdin(t *testing.T) {
 
 	payload, err := os.ReadFile(out)
 	if err != nil {
-		t.Fatalf("read captured stdin: %v", err)
+		t.Fatalf("read captured stdin (subprocess may have failed — see WARN log above): %v", err)
 	}
 
 	var got EvalResult
@@ -115,10 +125,11 @@ func TestExecEvalHook_PassesArgsAndEnv(t *testing.T) {
 	t.Cleanup(func() { _ = os.Unsetenv("EVAL_HOOK_TEST_VAR") })
 
 	hook := NewExecEvalHook(&ExecEvalHookConfig{
-		Name:    "with-args-env",
-		Command: script,
-		Args:    []string{"hello-arg"},
-		Env:     []string{"EVAL_HOOK_TEST_VAR"},
+		Name:      "with-args-env",
+		Command:   script,
+		Args:      []string{"hello-arg"},
+		Env:       []string{"EVAL_HOOK_TEST_VAR"},
+		TimeoutMs: testExecHookTimeoutMs,
 	})
 
 	score := 1.0
@@ -126,7 +137,7 @@ func TestExecEvalHook_PassesArgsAndEnv(t *testing.T) {
 
 	got, err := os.ReadFile(out)
 	if err != nil {
-		t.Fatalf("read captured output: %v", err)
+		t.Fatalf("read captured output (subprocess may have failed — see WARN log above): %v", err)
 	}
 	want := "arg=hello-arg env=from-env\n"
 	if string(got) != want {
