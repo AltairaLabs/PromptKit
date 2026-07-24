@@ -787,6 +787,30 @@ func TestError_StreamedThroughResponse(t *testing.T) {
 // "input_transcription" metadata key — both when it arrives as a materialized
 // user Message (continuous streaming) and as typed transcription metadata
 // (scenario path).
+func TestStreamElementToStreamChunk_AssistantTurnComplete(t *testing.T) {
+	t.Run("assistant turn-end signals a turn boundary via metadata, not FinishReason", func(t *testing.T) {
+		elem := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "done"})
+		elem.EndOfStream = true
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		done, _ := chunk.Metadata["assistant_turn_complete"].(bool)
+		assert.True(t, done, "assistant turn-end must signal assistant_turn_complete for turn delimiting")
+		assert.Nil(t, chunk.FinishReason,
+			"must NOT surface FinishReason on a per-turn boundary — continuous Response() callers stop reading on it")
+	})
+
+	t.Run("user turn-end is not an assistant turn boundary", func(t *testing.T) {
+		elem := stage.NewMessageElement(&types.Message{Role: "user", Content: "hi"})
+		elem.EndOfStream = true
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		_, ok := chunk.Metadata["assistant_turn_complete"]
+		assert.False(t, ok, "a user message must not signal an assistant turn boundary")
+	})
+}
+
 func TestStreamElementToStreamChunk_InputTranscription(t *testing.T) {
 	t.Run("materialized user message (streaming)", func(t *testing.T) {
 		const transcript = "hello from the user"

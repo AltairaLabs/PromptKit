@@ -49,6 +49,22 @@ func (s *DuplexProviderStage) takeReasoning() *types.ReasoningTrace {
 	return &types.ReasoningTrace{Text: text, Opaque: s.accumulatedOpaqueReasoning}
 }
 
+// metaTypeOutputTranscription is the chunk Metadata["type"] value a provider uses
+// to mark an incremental transcript of the assistant's spoken (audio) reply.
+const metaTypeOutputTranscription = "output_transcription"
+
+// isOutputTranscriptionChunk reports whether a chunk carries the assistant's
+// audio-transcript text (an incremental Delta marked output_transcription by the
+// provider) rather than model text (Content). Realtime providers send the spoken
+// reply's transcript this way.
+func isOutputTranscriptionChunk(chunk *providers.StreamChunk) bool {
+	if chunk.Metadata == nil {
+		return false
+	}
+	t, _ := chunk.Metadata["type"].(string)
+	return t == metaTypeOutputTranscription
+}
+
 // chunkToElement converts a StreamChunk to a StreamElement.
 // Creates a Message with role="assistant" for text and/or media responses.
 // On the final chunk (with FinishReason), uses accumulated content from the entire turn.
@@ -57,6 +73,7 @@ func (s *DuplexProviderStage) takeReasoning() *types.ReasoningTrace {
 // - Interruptions: Captured as partial responses with finish_reason="interrupted"
 // - Turn completion: Creates Message with accumulated content
 // - Streaming content: Passes through text/audio for real-time display/playback
+//
 // turn-complete / streaming passthrough); splitting fragments the turn-handling
 // logic. Relocated here unchanged from the integration file and now 98.7% covered.
 //
@@ -114,9 +131,16 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		return elem
 	}
 
-	// Add text if present (for real-time streaming display)
+	// Add text if present (for real-time streaming display).
+	//   - ModelTurn text arrives on Content (Delta duplicates it) → use Content.
+	//   - A realtime audio transcript arrives incrementally on Delta, marked
+	//     output_transcription with no Content → forward that Delta as live text
+	//     so the assistant's spoken words stream to the display, instead of only
+	//     landing in the end-of-turn Message that display observers don't render.
 	if chunk.Content != "" {
 		elem.Text = &chunk.Content
+	} else if chunk.Delta != "" && isOutputTranscriptionChunk(chunk) {
+		elem.Text = &chunk.Delta
 	}
 
 	// Add audio if present (for real-time playback)

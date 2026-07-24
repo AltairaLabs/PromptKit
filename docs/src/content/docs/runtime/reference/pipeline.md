@@ -410,6 +410,10 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewTokenBudgetStage\(config \*TokenBudgetConfig\) \*TokenBudgetStage](<#NewTokenBudgetStage>)
   - [func NewTokenBudgetStageWithTurnState\(config \*TokenBudgetConfig, turnState \*TurnState\) \*TokenBudgetStage](<#NewTokenBudgetStageWithTurnState>)
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
+- [type TranscriptReorderStage](<#TranscriptReorderStage>)
+  - [func NewTranscriptReorderStage\(placeholder string\) \*TranscriptReorderStage](<#NewTranscriptReorderStage>)
+  - [func NewTranscriptReorderStageWithTimeout\(placeholder string, holdTimeout time.Duration\) \*TranscriptReorderStage](<#NewTranscriptReorderStageWithTimeout>)
+  - [func \(s \*TranscriptReorderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TranscriptReorderStage.Process>)
 - [type Transcription](<#Transcription>)
 - [type TruncationStrategy](<#TruncationStrategy>)
 - [type TurnState](<#TurnState>)
@@ -5331,6 +5335,49 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 ```
 
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
+
+<a name="TranscriptReorderStage"></a>
+## type TranscriptReorderStage
+
+TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text — even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
+
+It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime — only the transcript log is reordered. Crucially the turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
+
+The mechanism is provider\-agnostic; whether it is wired is decided upstream. It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
+
+```go
+type TranscriptReorderStage struct {
+    BaseStage
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewTranscriptReorderStage"></a>
+### func NewTranscriptReorderStage
+
+```go
+func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
+```
+
+NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn\) and the default hold timeout.
+
+<a name="NewTranscriptReorderStageWithTimeout"></a>
+### func NewTranscriptReorderStageWithTimeout
+
+```go
+func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.Duration) *TranscriptReorderStage
+```
+
+NewTranscriptReorderStageWithTimeout is like NewTranscriptReorderStage but with an explicit hold timeout \(tests use a short value\).
+
+<a name="TranscriptReorderStage.Process"></a>
+### func \(\*TranscriptReorderStage\) Process
+
+```go
+func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+```
+
+Process implements the Stage interface.
 
 <a name="Transcription"></a>
 ## type Transcription

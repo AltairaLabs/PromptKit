@@ -498,6 +498,12 @@ func (s *duplexSession) forwardChunk(ctx context.Context, chunk providers.Stream
 // DefaultDrainTimeout is the maximum time to wait for pipeline completion during Drain.
 const DefaultDrainTimeout = 30 * time.Second
 
+// drainPlayoutGrace bounds how long Drain waits for a graceful finish before
+// cutting off output-audio playout on close. Turn state is flushed by the drain
+// signal well within this window; the remainder is just the pacing stage playing
+// buffered audio at realtime, which a closing session should not wait on.
+const drainPlayoutGrace = 750 * time.Millisecond
+
 // Drain gracefully stops the session by sending an EndOfStream signal to the
 // pipeline and waiting for it to finish processing. If the context expires
 // before the pipeline completes, Drain falls back to a hard Close.
@@ -519,21 +525,37 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 		return s.Close()
 	}
 
-	// Send EndOfStream signal so the pipeline knows input is done.
+	// Send EndOfStream so the pipeline knows input is done. AllResponsesReceived
+	// marks this as a graceful drain (not an end-of-turn boundary), so a streaming
+	// provider stage closes its session immediately instead of waiting out its
+	// final-response timeout — otherwise draining a live voice session blocks ~30s.
 	select {
-	case s.stageInput <- stage.StreamElement{EndOfStream: true}:
+	case s.stageInput <- stage.StreamElement{
+		EndOfStream: true,
+		Meta:        stage.ElementMetadata{AllResponsesReceived: true},
+	}:
 	case <-ctx.Done():
 		// Context expired before we could send — fall back to hard close.
 		return s.Close()
 	}
 
-	// Wait for pipeline to complete or context to expire.
+	// Wait for the pipeline to complete, but not for the output pacing stage to
+	// play out its buffered audio at realtime — the drain signal already flushed
+	// turn state, and on close there is no point spending seconds playing audio
+	// nobody will hear. After a short grace, cut it off (Close cancels the session
+	// context, which stops pacing immediately). A genuine hang still errors at the
+	// caller's timeout.
+	graceTimer := time.NewTimer(drainPlayoutGrace)
+	defer graceTimer.Stop()
 	select {
 	case <-s.pipelineDone:
 		// Pipeline finished gracefully — now close.
 		return s.Close()
+	case <-graceTimer.C:
+		// Buffered audio still draining; state is flushed, so close promptly.
+		return s.Close()
 	case <-ctx.Done():
-		// Timeout — force close.
+		// Caller's outer timeout — force close.
 		_ = s.Close()
 		return fmt.Errorf("drain timed out: %w", ctx.Err())
 	}
@@ -840,6 +862,18 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	if len(elem.Meta.PendingTools) > 0 {
 		chunk.PendingTools = elem.Meta.PendingTools
 		chunk.FinishReason = strPtr("pending_tools")
+	}
+
+	// Signal an assistant turn boundary so callers can delimit turns (e.g. a
+	// display closing the assistant's line before the next turn). Deliberately NOT
+	// via FinishReason: continuous realtime callers loop over Response() and treat
+	// a FinishReason as end-of-response and stop reading, which would end the
+	// conversation after one turn. A dedicated metadata flag is additive and safe.
+	if elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant" {
+		if chunk.Metadata == nil {
+			chunk.Metadata = make(map[string]interface{})
+		}
+		chunk.Metadata["assistant_turn_complete"] = true
 	}
 
 	return chunk

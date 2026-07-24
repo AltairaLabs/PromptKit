@@ -168,6 +168,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(JSONArrayFrameDetector\) PeekFirstFrame\(r io.Reader\) \(\[\]byte, error\)](<#JSONArrayFrameDetector.PeekFirstFrame>)
 - [type JitterHealthReporter](<#JitterHealthReporter>)
   - [func \(r \*JitterHealthReporter\) Report\(m \*StreamMetrics, jb jitterHealthCounters, direction string\)](<#JitterHealthReporter.Report>)
+- [type LateInputTranscriber](<#LateInputTranscriber>)
 - [type MediaLoader](<#MediaLoader>)
   - [func NewMediaLoader\(config MediaLoaderConfig\) \*MediaLoader](<#NewMediaLoader>)
   - [func \(ml \*MediaLoader\) GetBase64Data\(ctx context.Context, media \*types.MediaContent\) \(string, error\)](<#MediaLoader.GetBase64Data>)
@@ -1904,6 +1905,21 @@ func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters,
 ```
 
 Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics / AltairaLabs/PromptKit\#853\).
+
+<a name="LateInputTranscriber"></a>
+## type LateInputTranscriber
+
+LateInputTranscriber is an optional interface a StreamInputSupport provider implements to declare that it delivers the user's input transcription AFTER the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper transcription arrives asynchronously, after the model has started replying.
+
+When a provider reports true \(and input transcription is enabled\), the streaming pipeline reorders the transcript so each turn's user text precedes its assistant text. Providers that emit the transcript before the reply \(or not at all\) need not implement this — reordering stays off by default.
+
+```go
+type LateInputTranscriber interface {
+    // EmitsLateInputTranscription reports whether the user transcript can arrive
+    // after the assistant reply has started for the same turn.
+    EmitsLateInputTranscription() bool
+}
+```
 
 <a name="MediaLoader"></a>
 ## type MediaLoader

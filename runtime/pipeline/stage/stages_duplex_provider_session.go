@@ -421,6 +421,11 @@ func (s *DuplexProviderStage) forwardInputElements(
 				return
 			}
 
+			// Inbound audio is activity: reset the pipeline idle timer so a live
+			// conversation is not killed by the 30s idle timeout while the user is
+			// speaking. Without this every streaming voice session dies at ~30s.
+			ResetIdleFromContext(ctx)
+
 			// Check for "all responses received" signal from executor.
 			// This tells us that all expected responses have been received synchronously
 			// and we can skip the finalResponseTimeout when input closes.
@@ -429,7 +434,21 @@ func (s *DuplexProviderStage) forwardInputElements(
 				s.allResponsesReceivedOnce.Do(func() {
 					close(s.allResponsesReceivedCh)
 				})
-				continue // Don't forward this signal element
+				// A graceful drain (Close) sends this on an EndOfStream element to
+				// end input AND close the session immediately — otherwise draining a
+				// live streaming session blocks the full finalResponseTimeout (~30s),
+				// because the provider's response channel never closes on its own. A
+				// plain end-of-turn EndOfStream (with input payload) does NOT set this
+				// flag, so it still waits briefly for the turn's response.
+				if elem.EndOfStream {
+					logger.Debug("DuplexProviderStage: drain signal; ending input for prompt close")
+					s.inputDoneOnce.Do(func() {
+						close(s.inputDoneCh)
+					})
+					done <- nil
+					return
+				}
+				continue // executor mid-stream signal; keep forwarding
 			}
 
 			// Check for tool result messages to forward to output for state store capture.
@@ -736,7 +755,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("Session closure: context canceled")
+			// Log the cancellation CAUSE, not just "canceled": context.Cause
+			// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
+			// parent cancel (a pump/caller returned) — the difference between
+			// "the 30s idle timer fired" and "something upstream tore us down".
+			logger.Info("Session closure: context canceled",
+				"cause", context.Cause(ctx), "err", ctx.Err())
 			// Emit any accumulated content as partial response before returning
 			accumulatedText := s.accumulatedText.String()
 			hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
@@ -870,6 +894,10 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				return nil
 			}
 
+			// Outbound audio/text is activity: reset the pipeline idle timer so a
+			// long reply is not cut off by the 30s idle timeout mid-stream.
+			ResetIdleFromContext(ctx)
+
 			if err := s.handleResponseChunk(ctx, &chunk, output); err != nil {
 				return err
 			}
@@ -939,7 +967,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.Metadata != nil {
 		if metaType, ok := chunk.Metadata["type"].(string); ok {
 			switch metaType {
-			case "output_transcription":
+			case metaTypeOutputTranscription:
 				isOutputTranscription = true
 			case "input_transcription":
 				isInputTranscription = true
