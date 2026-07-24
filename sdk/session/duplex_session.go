@@ -848,6 +848,18 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		chunk.FinishReason = strPtr("pending_tools")
 	}
 
+	// Signal an assistant turn boundary so callers can delimit turns (e.g. a
+	// display closing the assistant's line before the next turn). Deliberately NOT
+	// via FinishReason: continuous realtime callers loop over Response() and treat
+	// a FinishReason as end-of-response and stop reading, which would end the
+	// conversation after one turn. A dedicated metadata flag is additive and safe.
+	if elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant" {
+		if chunk.Metadata == nil {
+			chunk.Metadata = make(map[string]interface{})
+		}
+		chunk.Metadata["assistant_turn_complete"] = true
+	}
+
 	return chunk
 }
 

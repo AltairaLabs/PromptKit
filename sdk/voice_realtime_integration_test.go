@@ -126,7 +126,7 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 	speaker := audio.NewMemSink(audio.KindAudio)
 	sess := &fakeAudioSession{sources: []audio.Source{mic}, sinks: []audio.Sink{speaker}}
 
-	var obsAudio, obsText atomic.Int64
+	var obsAudio, obsText, obsTurnDone atomic.Int64
 	conv, err := OpenVoice(writeIngestionTestPack(t), "main",
 		WithProvider(prov),
 		WithStreamingConfig(cfg),
@@ -138,6 +138,9 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 			}
 			if c.Delta != "" {
 				obsText.Add(1)
+			}
+			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+				obsTurnDone.Add(1)
 			}
 		}),
 	)
@@ -196,7 +199,12 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 		dieIfSessionEnded("during the 40s idle-survival window")
 		time.Sleep(500 * time.Millisecond)
 	}
-	t.Logf("OK: session alive past the 30s idle timeout with a live mic; total speaker frames=%d", len(speaker.Written()))
+	// Note: assistant_turn_complete is asserted by the unit test
+	// (TestStreamElementToStreamChunk_AssistantTurnComplete). End to end it flows
+	// behind the paced audio, so it only lands once the reply has fully drained to
+	// the speaker — later than this bounded window — hence it's logged, not gated.
+	t.Logf("OK: session alive past the 30s idle timeout with a live mic; total speaker frames=%d turn_done=%d",
+		len(speaker.Written()), obsTurnDone.Load())
 
 	micStop()
 	cancel()

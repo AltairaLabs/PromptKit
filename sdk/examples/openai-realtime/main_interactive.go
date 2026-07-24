@@ -258,27 +258,46 @@ func runUntilSignal(ctx context.Context, conv *sdk.Conversation) error {
 // single goroutine, so its running state needs no locking.
 func newDisplayObserver(withTools bool) func(providers.StreamChunk) {
 	assistantOpen := false
+	// closeAssistantLine ends the current "Assistant: ..." line (if any) so an
+	// interleaved event prints on its own line; the assistant re-prefixes when its
+	// next delta arrives.
+	closeAssistantLine := func() {
+		if assistantOpen {
+			fmt.Println()
+			assistantOpen = false
+		}
+	}
 	return func(c providers.StreamChunk) {
+		// User transcripts (Whisper) arrive asynchronously — often mid-reply, in the
+		// middle of the assistant's line. Break the line first so the turn is legible
+		// instead of spliced into the assistant's words.
 		if t, ok := c.Metadata["input_transcription"].(string); ok && t != "" {
-			fmt.Printf("\n\033[33m[You said: %s]\033[0m\n", t)
+			closeAssistantLine()
+			fmt.Printf("\033[33m[You said: %s]\033[0m\n", t)
 		}
 		if c.Delta != "" {
 			if !assistantOpen {
-				fmt.Print("\n\033[34mAssistant:\033[0m ")
+				fmt.Print("\033[34mAssistant:\033[0m ")
 				assistantOpen = true
 			}
 			fmt.Print(c.Delta)
 		}
 		if withTools {
 			for _, tc := range c.ToolCalls {
+				closeAssistantLine()
 				args := string(tc.Args)
-				fmt.Printf("\n\033[35m[Tool call: %s(%s)]\033[0m\n", tc.Name, args)
+				fmt.Printf("\033[35m[Tool call: %s(%s)]\033[0m\n", tc.Name, args)
 				fmt.Printf("\033[35m[Tool result: %s]\033[0m\n", executeToolCall(tc.Name, args))
 			}
 		}
-		if c.FinishReason != nil && assistantOpen {
-			fmt.Println()
-			assistantOpen = false
+		// Close the line at each assistant turn boundary so consecutive replies don't
+		// run together. assistant_turn_complete is emitted per turn; FinishReason is
+		// the terminal (e.g. pending_tools) case.
+		if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+			closeAssistantLine()
+		}
+		if c.FinishReason != nil {
+			closeAssistantLine()
 		}
 	}
 }
