@@ -66,6 +66,12 @@ type Provider struct {
 	// summaries. Both come from additional_config — see gemini_thinking.go.
 	thinkingBudget  *int
 	includeThoughts bool
+	// responseModalities is the Live-API response modality declared once at the
+	// provider level via additional_config.response_modalities (e.g. ["AUDIO"]).
+	// Empty means "not set"; a per-request Metadata["response_modalities"] still
+	// overrides it, and the session falls back to ["TEXT"] when neither is set.
+	// See gemini_streaming.go / streaming_support.go (#1667).
+	responseModalities []string
 }
 
 // enableExplicitCaching turns on explicit context caching (#1404) with the given

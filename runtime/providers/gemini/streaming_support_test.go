@@ -324,6 +324,63 @@ func TestGeminiProvider_CreateStreamSession_ResponseModalities(t *testing.T) {
 	}
 }
 
+// TestGeminiProvider_CreateStreamSession_ProviderConfigModalities: a provider can
+// declare its response modality once via additional_config (response_modalities),
+// and per-request metadata still overrides it. Native-audio Live models require
+// AUDIO, so provider-level config is the declarative home for it. (#1667)
+func TestGeminiProvider_CreateStreamSession_ProviderConfigModalities(t *testing.T) {
+	baseConfig := types.StreamingMediaConfig{
+		Type:       types.ContentTypeAudio,
+		ChunkSize:  3200,
+		SampleRate: 16000,
+		Channels:   1,
+		BitDepth:   16,
+		Encoding:   "pcm_linear16",
+	}
+
+	// run builds a provider (optionally seeded from additional_config), captures the
+	// StreamSessionConfig the factory receives, and returns its ResponseModalities.
+	run := func(t *testing.T, providerMod interface{}, reqMeta map[string]interface{}) []string {
+		t.Helper()
+		p := NewProvider("test", "gemini-3.1-flash-live-preview", "https://api.test.com", providers.ProviderDefaults{}, false)
+		if providerMod != nil {
+			applyStreamingModalitiesConfig(p, providers.ProviderSpec{
+				AdditionalConfig: map[string]interface{}{"response_modalities": providerMod},
+			})
+		}
+		var got []string
+		p.newStreamSessionFn = func(ctx context.Context, _, _ string, cfg *StreamSessionConfig) (*StreamSession, error) {
+			got = cfg.ResponseModalities
+			sctx, cancel := context.WithCancel(ctx)
+			return &StreamSession{ctx: sctx, cancel: cancel, errCh: make(chan error, 1)}, nil
+		}
+		if _, err := p.CreateStreamSession(context.Background(), &providers.StreamingInputConfig{Config: baseConfig, Metadata: reqMeta}); err != nil {
+			t.Fatalf("CreateStreamSession: %v", err)
+		}
+		return got
+	}
+
+	cases := []struct {
+		name        string
+		providerMod interface{}
+		reqMeta     map[string]interface{}
+		want        string
+	}{
+		{"provider config sets AUDIO (no metadata)", []interface{}{"AUDIO"}, nil, "AUDIO"},
+		{"provider config accepts []string", []string{"AUDIO"}, nil, "AUDIO"},
+		{"per-request metadata overrides provider config", []interface{}{"AUDIO"},
+			map[string]interface{}{"response_modalities": []string{"TEXT"}}, "TEXT"},
+		{"defaults to TEXT when neither is set", nil, nil, "TEXT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strings.Join(run(t, tc.providerMod, tc.reqMeta), ","); got != tc.want {
+				t.Errorf("ResponseModalities = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGeminiProvider_CreateStreamSession_EmptyConfig(t *testing.T) {
 	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 	ctx := context.Background()

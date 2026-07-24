@@ -106,6 +106,13 @@ func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig)
 		MaxReconnectTries: defaultMaxReconnectTries,
 	}
 
+	// Seed the provider-level default modality (from additional_config); per-request
+	// metadata overrides it in applyMetadataConfig, and it falls back to TEXT when
+	// neither is set (#1667).
+	if len(p.responseModalities) > 0 {
+		config.ResponseModalities = append([]string(nil), p.responseModalities...)
+	}
+
 	p.applyPricingConfig(&config)
 	return config
 }
@@ -130,18 +137,46 @@ func (p *Provider) applyMetadataConfig(metadata map[string]interface{}, config *
 	p.applyVADDisabled(metadata, config)
 }
 
-// applyResponseModalities extracts response modalities from metadata
+// applyResponseModalities extracts response modalities from metadata, overriding
+// any provider-level default seeded in buildStreamSessionConfig.
 func (p *Provider) applyResponseModalities(metadata map[string]interface{}, config *StreamSessionConfig) {
-	switch modalities := metadata["response_modalities"].(type) {
+	if mods := parseModalities(metadata["response_modalities"]); mods != nil {
+		config.ResponseModalities = mods
+	}
+}
+
+// parseModalities normalizes a response_modalities value (from request metadata or
+// provider additional_config) into a []string. It accepts a []string or a
+// []interface{} of strings (the shape YAML/JSON config decodes to). Returns nil
+// when the value is absent or the wrong type, so callers can tell "not set" from
+// "set to empty".
+func parseModalities(v interface{}) []string {
+	switch mods := v.(type) {
 	case []string:
-		config.ResponseModalities = modalities
+		return mods
 	case []interface{}:
-		config.ResponseModalities = make([]string, 0, len(modalities))
-		for _, m := range modalities {
+		out := make([]string, 0, len(mods))
+		for _, m := range mods {
 			if s, ok := m.(string); ok {
-				config.ResponseModalities = append(config.ResponseModalities, s)
+				out = append(out, s)
 			}
 		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// applyStreamingModalitiesConfig seeds the provider's default Live-API response
+// modality from additional_config.response_modalities, so a voice provider can be
+// declared once (e.g. additional_config: {response_modalities: ["AUDIO"]}) rather
+// than configured per request. Per-request metadata still overrides it. (#1667)
+func applyStreamingModalitiesConfig(p *Provider, spec providers.ProviderSpec) {
+	if spec.AdditionalConfig == nil {
+		return
+	}
+	if mods := parseModalities(spec.AdditionalConfig["response_modalities"]); len(mods) > 0 {
+		p.responseModalities = mods
 	}
 }
 

@@ -742,6 +742,7 @@ func init() {
 				tp.setCapabilities(spec.Capabilities)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
+				applyStreamingModalitiesConfig(tp.Provider, spec)
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -751,6 +752,7 @@ func init() {
 				tp.setCapabilities(spec.Capabilities)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
+				applyStreamingModalitiesConfig(tp.Provider, spec)
 				return tp, nil
 			},
 		),
