@@ -76,8 +76,8 @@ func TestGeminiStreamSession_SendChunk(t *testing.T) {
 			return
 		}
 
-		// Check for realtime_input format (new format for audio chunks)
-		if msg["realtime_input"] != nil {
+		// Audio chunks use the current realtimeInput.audio wire format (#1666).
+		if msg["realtimeInput"] != nil {
 			receivedMsg.Store(true)
 		}
 
@@ -777,22 +777,23 @@ func TestBuildClientMessage(t *testing.T) {
 		t.Fatal("Expected message to be built")
 	}
 
-	// New format uses realtime_input instead of client_content
-	realtimeInput, ok := msg["realtime_input"].(map[string]interface{})
+	// Audio uses the current realtimeInput.audio format (not the deprecated
+	// realtime_input.media_chunks, which closes current Gemini Live models 1007).
+	realtimeInput, ok := msg["realtimeInput"].(map[string]interface{})
 	if !ok {
-		t.Fatal("Expected realtime_input field")
+		t.Fatal("Expected realtimeInput field")
 	}
 
-	mediaChunks, ok := realtimeInput["media_chunks"].([]map[string]interface{})
-	if !ok || len(mediaChunks) == 0 {
-		t.Fatal("Expected media_chunks array")
+	audio, ok := realtimeInput["audio"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected realtimeInput.audio object")
 	}
 
-	if mimeType, ok := mediaChunks[0]["mime_type"].(string); !ok || mimeType != "audio/pcm" {
-		t.Error("Expected mime_type to be 'audio/pcm'")
+	if mimeType, ok := audio["mimeType"].(string); !ok || mimeType != "audio/pcm;rate=16000" {
+		t.Error("Expected mimeType to be 'audio/pcm;rate=16000'")
 	}
 
-	if data, ok := mediaChunks[0]["data"].(string); !ok || data == "" {
+	if data, ok := audio["data"].(string); !ok || data == "" {
 		t.Error("Expected base64 encoded data")
 	}
 }
