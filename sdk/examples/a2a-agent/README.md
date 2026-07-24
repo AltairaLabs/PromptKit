@@ -14,13 +14,13 @@ Connect to remote A2A (Agent-to-Agent) agents with authentication via the Prompt
 
 - Go 1.21+
 - OpenAI API key
-- A running A2A agent (this example uses the echo server from `examples/a2a-auth-test`)
+- A running A2A agent (this example uses the echo server from `server/a2a/examples/a2a-auth-test`)
 
 ## Running the Example
 
 ```bash
 # Terminal 1: Start the echo server
-go run ./examples/a2a-auth-test/server
+go run ./server/a2a/examples/a2a-auth-test/server
 
 # Terminal 2: Run this example
 export OPENAI_API_KEY=your-key

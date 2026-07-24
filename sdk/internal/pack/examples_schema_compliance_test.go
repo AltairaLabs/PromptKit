@@ -30,10 +30,10 @@ func TestExamplePacksAreSchemaCompliant(t *testing.T) {
 	// schema validation only (no cross-module compilation), so walking sibling
 	// module trees from here is safe. Paths are relative to this package dir.
 	roots := []string{
-		filepath.Join("..", "..", "examples"),          // sdk/examples
-		filepath.Join("..", "..", "testdata", "packs"), // sdk/testdata/packs
-		filepath.Join("..", "..", "..", "examples"),    // repo-root examples/
-		filepath.Join("..", "..", "..", "benchmarks"),  // benchmarks/
+		filepath.Join("..", "..", "examples"),                        // sdk/examples
+		filepath.Join("..", "..", "testdata", "packs"),               // sdk/testdata/packs
+		filepath.Join("..", "..", "..", "server", "a2a", "examples"), // A2A examples
+		filepath.Join("..", "..", "..", "benchmarks"),                // benchmarks/
 	}
 
 	var files []string

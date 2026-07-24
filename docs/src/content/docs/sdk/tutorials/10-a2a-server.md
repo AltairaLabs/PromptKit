@@ -207,4 +207,4 @@ http.ListenAndServe(":8080", mux)
 ## See Also
 
 - [SDK A2A Reference](/sdk/reference/a2a-server/) — complete server API documentation
-- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/examples/a2a-demo) — full working examples
+- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo) — full working examples

@@ -1,10 +1,10 @@
-module github.com/AltairaLabs/PromptKit/examples/a2a-auth-test
+module github.com/AltairaLabs/PromptKit/server/a2a/examples/a2a-auth-test
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime => ../../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../../server/a2a
+replace github.com/AltairaLabs/PromptKit/server/a2a => ../../
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.2.0
