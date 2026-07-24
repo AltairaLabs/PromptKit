@@ -95,4 +95,23 @@ EOF
 echo "Processing SDK examples..."
 process_examples "sdk/examples" "$SDK_OUTPUT"
 
+# Drift gate: every RUNNABLE example (a directory with a `package main` .go file)
+# must ship a README so it gets a documentation page. Without this an example can
+# be added and silently never appear in the docs. Helper libraries (package <name>,
+# e.g. audiohelper) and grouping directories (examples nested in subdirs) have no
+# top-level `package main` and are correctly exempt.
+missing=""
+for example_dir in sdk/examples/*/; do
+    if grep -lE '^package main' "${example_dir}"*.go >/dev/null 2>&1; then
+        if [ ! -f "${example_dir}README.md" ]; then
+            missing="$missing $(basename "$example_dir")"
+        fi
+    fi
+done
+if [ -n "$missing" ]; then
+    echo "❌ SDK examples missing a README (no docs page would be generated):$missing" >&2
+    echo "   Add a README.md to each so it is documented, or make it a non-main helper." >&2
+    exit 1
+fi
+
 echo "✅ Example READMEs prepared for Starlight in sdk/examples/"

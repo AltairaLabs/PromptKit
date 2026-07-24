@@ -7,8 +7,8 @@
 //
 // Run with:
 //
-//	# First start the echo server (from examples/a2a-auth-test):
-//	go run ./examples/a2a-auth-test/server
+//	# First start the echo server (from server/a2a/examples/a2a-auth-test):
+//	go run ./server/a2a/examples/a2a-auth-test/server
 //
 //	# Then run this example:
 //	export OPENAI_API_KEY=your-key

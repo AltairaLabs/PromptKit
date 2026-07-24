@@ -1,10 +1,10 @@
-module github.com/AltairaLabs/PromptKit/examples/a2a-demo
+module github.com/AltairaLabs/PromptKit/server/a2a/examples/a2a-demo
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime => ../../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/sdk => ../../sdk
+replace github.com/AltairaLabs/PromptKit/sdk => ../../../../sdk
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5

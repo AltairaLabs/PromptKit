@@ -13,7 +13,7 @@ export OPENAI_API_KEY=sk-...
 ### 1. Server — Expose an agent via A2A
 
 ```bash
-go run ./examples/a2a-demo/server
+go run ./server/a2a/examples/a2a-demo/server
 ```
 
 The server listens on `http://localhost:9999` and serves:
@@ -24,7 +24,7 @@ The server listens on `http://localhost:9999` and serves:
 
 ```bash
 # In a second terminal:
-go run ./examples/a2a-demo/client
+go run ./server/a2a/examples/a2a-demo/client
 ```
 
 Discovers the agent card, sends a message, and prints the response.
@@ -33,7 +33,7 @@ Discovers the agent card, sends a message, and prints the response.
 
 ```bash
 # In a second terminal (server must be running):
-go run ./examples/a2a-demo/tools
+go run ./server/a2a/examples/a2a-demo/tools
 ```
 
 Bridges the remote agent's skills into tool descriptors and uses them in an SDK conversation.
@@ -43,7 +43,7 @@ Bridges the remote agent's skills into tool descriptors and uses them in an SDK 
 The `arena/` directory contains an Arena configuration that uses mock A2A agents for automated testing.
 
 ```bash
-cd examples/a2a-demo/arena
+cd server/a2a/examples/a2a-demo/arena
 promptarena run
 ```
 

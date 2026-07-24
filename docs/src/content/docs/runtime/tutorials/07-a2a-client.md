@@ -188,4 +188,4 @@ tasks, err := client.ListTasks(ctx, &a2a.ListTasksRequest{
 ## See Also
 
 - [Runtime A2A Reference](/runtime/reference/a2a/) — complete client API documentation
-- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/examples/a2a-demo) — full working examples
+- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo) — full working examples

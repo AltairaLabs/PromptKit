@@ -6,7 +6,7 @@ metadata:
   annotations:
     description: >
       Test A2A integration with a real A2A server using Bearer token authentication.
-      The echo server must be running: go run ./examples/a2a-auth-test/server
+      The echo server must be running: go run ./server/a2a/examples/a2a-auth-test/server
 
 spec:
   # Remote A2A agent — connects to the real echo server
