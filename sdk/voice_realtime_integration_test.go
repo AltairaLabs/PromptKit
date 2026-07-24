@@ -237,3 +237,88 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 	// only need the feature assertions above.
 	_ = conv.Close()
 }
+
+// TestVoiceRealtime_ShortReplySurvives reproduces the reported termination on a
+// SHORT exchange: with a brief reply, OpenAI's Whisper transcript arrives AFTER
+// the assistant turn ends. The long-reply test never hits this. The session must
+// stay alive after the short turn while the mic keeps streaming (it must not tear
+// down). Runs with reordering auto-enabled (input_transcription on).
+func TestVoiceRealtime_ShortReplySurvives(t *testing.T) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	speech := synthesizePromptPCM24k(t, apiKey, "Say hi back in one very short sentence.")
+
+	prov := openai.NewProvider(
+		"openai-realtime", "gpt-realtime", "https://api.openai.com",
+		providers.ProviderDefaults{}, false,
+	)
+	cfg := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type: types.ContentTypeAudio, ChunkSize: 3200,
+			SampleRate: realtimeSampleRate, Channels: 1, BitDepth: 16, Encoding: "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities":          []string{"text", "audio"},
+			"input_transcription": true, // reorder auto-on
+		},
+	}
+
+	mic := audio.NewMemSource(audio.KindAudio, 512)
+	speaker := audio.NewMemSink(audio.KindAudio)
+	sess := &fakeAudioSession{sources: []audio.Source{mic}, sinks: []audio.Sink{speaker}}
+
+	var obsText atomic.Int64
+	conv, err := OpenVoice(writeIngestionTestPack(t), "main",
+		WithProvider(prov),
+		WithStreamingConfig(cfg),
+		WithSkipSchemaValidation(),
+		WithAudioSession(sess),
+		WithVoiceObserver(func(c providers.StreamChunk) {
+			if c.Delta != "" {
+				obsText.Add(1)
+			}
+		}),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- conv.Start(ctx) }()
+
+	micCtx, micStop := context.WithCancel(ctx)
+	defer micStop()
+	go pushMicUntilDone(micCtx, mic, speech)
+
+	// Wait for the short reply to arrive (some assistant text or audio).
+	replyBy := time.Now().Add(45 * time.Second)
+	for time.Now().Before(replyBy) && obsText.Load() == 0 && len(speaker.Written()) == 0 {
+		select {
+		case e := <-done:
+			t.Fatalf("session ended before any reply (%v)", e)
+		default:
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// The reply happened. Now hold: the session must NOT tear down after this short
+	// turn while the mic keeps streaming (the reported termination).
+	holdUntil := time.Now().Add(25 * time.Second)
+	for time.Now().Before(holdUntil) {
+		select {
+		case e := <-done:
+			t.Fatalf("session terminated after the short turn (%v) — text=%d frames=%d",
+				e, obsText.Load(), len(speaker.Written()))
+		default:
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Logf("OK: survived the short turn; text=%d frames=%d", obsText.Load(), len(speaker.Written()))
+
+	micStop()
+	cancel()
+	_ = conv.Close()
+}
