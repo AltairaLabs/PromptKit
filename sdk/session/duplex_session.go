@@ -498,6 +498,12 @@ func (s *duplexSession) forwardChunk(ctx context.Context, chunk providers.Stream
 // DefaultDrainTimeout is the maximum time to wait for pipeline completion during Drain.
 const DefaultDrainTimeout = 30 * time.Second
 
+// drainPlayoutGrace bounds how long Drain waits for a graceful finish before
+// cutting off output-audio playout on close. Turn state is flushed by the drain
+// signal well within this window; the remainder is just the pacing stage playing
+// buffered audio at realtime, which a closing session should not wait on.
+const drainPlayoutGrace = 750 * time.Millisecond
+
 // Drain gracefully stops the session by sending an EndOfStream signal to the
 // pipeline and waiting for it to finish processing. If the context expires
 // before the pipeline completes, Drain falls back to a hard Close.
@@ -533,13 +539,23 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 		return s.Close()
 	}
 
-	// Wait for pipeline to complete or context to expire.
+	// Wait for the pipeline to complete, but not for the output pacing stage to
+	// play out its buffered audio at realtime — the drain signal already flushed
+	// turn state, and on close there is no point spending seconds playing audio
+	// nobody will hear. After a short grace, cut it off (Close cancels the session
+	// context, which stops pacing immediately). A genuine hang still errors at the
+	// caller's timeout.
+	graceTimer := time.NewTimer(drainPlayoutGrace)
+	defer graceTimer.Stop()
 	select {
 	case <-s.pipelineDone:
 		// Pipeline finished gracefully — now close.
 		return s.Close()
+	case <-graceTimer.C:
+		// Buffered audio still draining; state is flushed, so close promptly.
+		return s.Close()
 	case <-ctx.Done():
-		// Timeout — force close.
+		// Caller's outer timeout — force close.
 		_ = s.Close()
 		return fmt.Errorf("drain timed out: %w", ctx.Err())
 	}

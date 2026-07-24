@@ -452,16 +452,16 @@ func (p *StreamPipeline) runStage(
 		}
 	}
 
-	// Report error. In a continuous duplex session a stage returning at all ends
-	// the whole pipeline (stages are meant to run for the session's lifetime), so
-	// log the first stage to return at INFO — it names what tore the session down.
+	// Report error. A stage returning with an error is abnormal (in a continuous
+	// duplex session a stage returning at all ends the whole pipeline), so surface
+	// it at INFO; a clean return stays at Debug to avoid noise on every unary Send.
 	if err != nil {
 		logger.Info("pipeline stage returned with error",
 			"stage", stage.Name(), "type", stage.Type(),
 			"duration", duration, "error", err)
 		errors <- NewStageError(stage.Name(), stage.Type(), err)
 	} else {
-		logger.Info("pipeline stage returned",
+		logger.Debug("pipeline stage completed",
 			"stage", stage.Name(), "type", stage.Type(),
 			"duration", duration)
 	}
