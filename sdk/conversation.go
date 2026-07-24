@@ -402,6 +402,45 @@ func isEmptyMessage(message any) bool {
 	}
 }
 
+// defaultTranscriptPlaceholder is the user-turn text shown when a turn ends with
+// no transcription and reordering is active.
+const defaultTranscriptPlaceholder = "[no transcription available]"
+
+// resolveTranscriptReorder decides whether the pipeline should reorder a late
+// input transcript (so each turn's user text precedes its assistant text) and
+// what placeholder to use for a turn with no transcript. Inputs come from the
+// provider's LateInputTranscriber capability and the streaming config's
+// additional properties (Metadata):
+//   - input_transcript_ordering: "reorder" | "passthrough" — explicit override.
+//   - input_transcription: bool — auto mode requires transcription to be on.
+//   - input_transcript_placeholder: string — overrides the default placeholder.
+//
+// Default (no override): on when the provider emits the transcript late AND input
+// transcription is enabled — so it stays off for providers that don't need it.
+func resolveTranscriptReorder(
+	prov providers.StreamInputSupport, cfg *providers.StreamingInputConfig,
+) (enabled bool, placeholder string) {
+	placeholder = defaultTranscriptPlaceholder
+	if cfg == nil {
+		return false, placeholder
+	}
+	if v, ok := cfg.Metadata["input_transcript_placeholder"].(string); ok {
+		placeholder = v
+	}
+	switch ordering, _ := cfg.Metadata["input_transcript_ordering"].(string); ordering {
+	case "reorder":
+		return true, placeholder
+	case "passthrough":
+		return false, placeholder
+	}
+	late := false
+	if lt, ok := prov.(providers.LateInputTranscriber); ok {
+		late = lt.EmitsLateInputTranscription()
+	}
+	transcriptionOn, _ := cfg.Metadata["input_transcription"].(bool)
+	return late && transcriptionOn, placeholder
+}
+
 // buildPipelineConfig assembles the shared intpipeline.Config used by both unary
 // and duplex pipeline builders.  Callers may further mutate the returned config
 // (e.g. to add VAD settings) before passing it to intpipeline.Build.
@@ -492,6 +531,10 @@ func (c *Conversation) buildPipelineConfig(
 			WithUserID(c.config.userID)
 	}
 
+	// Resolve input-transcript reordering from the provider capability + streaming
+	// config additional properties (see resolveTranscriptReorder).
+	reorderTranscript, transcriptPlaceholder := resolveTranscriptReorder(streamProvider, streamConfig)
+
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
 		Provider:              c.config.getAgentProvider(),
@@ -530,6 +573,10 @@ func (c *Conversation) buildPipelineConfig(
 		// speaker; pace the output so a streaming provider's whole-reply burst
 		// doesn't overrun the sink's jitter buffer and drop audio (stutter).
 		PaceOutputAudio: c.config.audioSession != nil,
+		// Reorder late-arriving input transcripts (OpenAI Realtime) so each turn's
+		// user text precedes its assistant text.
+		ReorderInputTranscript:     reorderTranscript,
+		InputTranscriptPlaceholder: transcriptPlaceholder,
 	}
 
 	// Wire memory stages from MemoryCapability if present

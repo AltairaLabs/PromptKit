@@ -42,6 +42,13 @@ import (
 //	    },
 //	    SystemInstruction: "You are a helpful assistant.",
 //	})
+//
+// EmitsLateInputTranscription reports that OpenAI Realtime delivers the user's
+// input transcription asynchronously (Whisper), after the assistant reply has
+// begun — so the pipeline should reorder the transcript when transcription is
+// enabled. Implements providers.LateInputTranscriber.
+func (p *Provider) EmitsLateInputTranscription() bool { return true }
+
 func (p *Provider) CreateStreamSession(
 	ctx context.Context,
 	req *providers.StreamingInputConfig,

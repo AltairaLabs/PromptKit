@@ -130,6 +130,17 @@ type Config struct {
 	// The system prompt is sourced from TurnState by the duplex stage.
 	StreamInputConfig *providers.StreamingInputConfig
 
+	// ReorderInputTranscript inserts a TranscriptReorderStage after the provider
+	// stage so each turn's user transcript is emitted before that turn's assistant
+	// text — needed for providers that deliver the transcript late (OpenAI
+	// Realtime). Resolved by the SDK from the provider's LateInputTranscriber
+	// capability + the streaming config's additional properties.
+	ReorderInputTranscript bool
+
+	// InputTranscriptPlaceholder is the user-turn text synthesized by the reorder
+	// stage when a turn ends with no transcription (empty omits the user turn).
+	InputTranscriptPlaceholder string
+
 	// PaceOutputAudio inserts an output-direction AudioPacingStage after the
 	// provider/TTS stage so response audio is forwarded at real-time cadence.
 	// Set when the pipeline drives a realtime speaker (OpenVoice / a bound
@@ -403,6 +414,14 @@ func collectPipelineStages(
 		return nil, err
 	}
 	stages = append(stages, providerStages...)
+
+	// 5.4 Transcript reorder - for providers that deliver the user transcript late
+	// (OpenAI Realtime), emit each turn's user text before its assistant text.
+	// Placed right after the provider so every downstream consumer (recording,
+	// state save, output) sees the corrected order.
+	if cfg.ReorderInputTranscript {
+		stages = append(stages, stage.NewTranscriptReorderStage(cfg.InputTranscriptPlaceholder))
+	}
 
 	// 5.5 Output recording stage - captures assistant output with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {

@@ -410,6 +410,9 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewTokenBudgetStage\(config \*TokenBudgetConfig\) \*TokenBudgetStage](<#NewTokenBudgetStage>)
   - [func NewTokenBudgetStageWithTurnState\(config \*TokenBudgetConfig, turnState \*TurnState\) \*TokenBudgetStage](<#NewTokenBudgetStageWithTurnState>)
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
+- [type TranscriptReorderStage](<#TranscriptReorderStage>)
+  - [func NewTranscriptReorderStage\(placeholder string\) \*TranscriptReorderStage](<#NewTranscriptReorderStage>)
+  - [func \(s \*TranscriptReorderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TranscriptReorderStage.Process>)
 - [type Transcription](<#Transcription>)
 - [type TruncationStrategy](<#TruncationStrategy>)
 - [type TurnState](<#TurnState>)
@@ -5331,6 +5334,40 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 ```
 
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
+
+<a name="TranscriptReorderStage"></a>
+## type TranscriptReorderStage
+
+TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text — even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription lands after the assistant response has already started\).
+
+It buffers assistant TEXT elements until the user turn element for that turn appears, then flushes them in order and streams the rest live. AUDIO elements pass through immediately, so playback stays realtime — only the transcript log is reordered. If a turn ends with no transcript, a configurable placeholder user turn is emitted so the reply is never shown with no prompt.
+
+The mechanism is provider\-agnostic; whether it is wired is decided upstream \(providers that emit the transcript first don't need it\). It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
+
+```go
+type TranscriptReorderStage struct {
+    BaseStage
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewTranscriptReorderStage"></a>
+### func NewTranscriptReorderStage
+
+```go
+func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
+```
+
+NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn when a transcript never arrives\).
+
+<a name="TranscriptReorderStage.Process"></a>
+### func \(\*TranscriptReorderStage\) Process
+
+```go
+func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+```
+
+Process implements the Stage interface.
 
 <a name="Transcription"></a>
 ## type Transcription

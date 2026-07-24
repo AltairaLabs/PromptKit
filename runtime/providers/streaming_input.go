@@ -175,6 +175,21 @@ type StreamInputSupport interface {
 	GetStreamingCapabilities() StreamingCapabilities
 }
 
+// LateInputTranscriber is an optional interface a StreamInputSupport provider
+// implements to declare that it delivers the user's input transcription AFTER
+// the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper
+// transcription arrives asynchronously, after the model has started replying.
+//
+// When a provider reports true (and input transcription is enabled), the
+// streaming pipeline reorders the transcript so each turn's user text precedes
+// its assistant text. Providers that emit the transcript before the reply (or
+// not at all) need not implement this — reordering stays off by default.
+type LateInputTranscriber interface {
+	// EmitsLateInputTranscription reports whether the user transcript can arrive
+	// after the assistant reply has started for the same turn.
+	EmitsLateInputTranscription() bool
+}
+
 // StreamingCapabilities describes what streaming features a provider supports.
 type StreamingCapabilities struct {
 	// SupportedMediaTypes lists the media types that can be streamed

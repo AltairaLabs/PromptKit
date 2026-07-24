@@ -117,8 +117,10 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 			SampleRate: realtimeSampleRate, Channels: 1, BitDepth: 16, Encoding: "pcm16",
 		},
 		Metadata: map[string]interface{}{
-			"modalities":          []string{"text", "audio"},
-			"input_transcription": false,
+			"modalities": []string{"text", "audio"},
+			// Enable Whisper input transcription so the reorder path is exercised;
+			// OpenAI delivers it late, and the pipeline reorders it ahead of the reply.
+			"input_transcription": true,
 		},
 	}
 
@@ -126,7 +128,10 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 	speaker := audio.NewMemSink(audio.KindAudio)
 	sess := &fakeAudioSession{sources: []audio.Source{mic}, sinks: []audio.Sink{speaker}}
 
-	var obsAudio, obsText, obsTurnDone atomic.Int64
+	var obsAudio, obsText, obsTurnDone, obsUserTranscript atomic.Int64
+	// assistantTextBeforeUser counts assistant text deltas seen before the user
+	// transcript. With reordering, the user turn is emitted first, so this stays 0.
+	var assistantTextBeforeUser atomic.Int64
 	conv, err := OpenVoice(writeIngestionTestPack(t), "main",
 		WithProvider(prov),
 		WithStreamingConfig(cfg),
@@ -136,8 +141,14 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 			if c.MediaData != nil && len(c.MediaData.Data) > 0 {
 				obsAudio.Add(1)
 			}
+			if t, _ := c.Metadata["input_transcription"].(string); t != "" {
+				obsUserTranscript.Add(1)
+			}
 			if c.Delta != "" {
 				obsText.Add(1)
+				if obsUserTranscript.Load() == 0 {
+					assistantTextBeforeUser.Add(1)
+				}
 			}
 			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
 				obsTurnDone.Add(1)
@@ -172,10 +183,12 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 	}
 
 	// Phase 1: a long reply must round-trip mic -> real provider -> paced pipeline
-	// -> speaker, and the session must stay alive throughout.
+	// -> speaker, and the session must stay alive throughout. Wait until both the
+	// audio reply and its (reordered) transcript text have arrived — with
+	// reordering the assistant text is held until the user transcript lands.
 	const wantFrames = 25
 	replyDeadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(replyDeadline) && len(speaker.Written()) < wantFrames {
+	for time.Now().Before(replyDeadline) && (len(speaker.Written()) < wantFrames || obsText.Load() == 0) {
 		dieIfSessionEnded("before the reply arrived")
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -189,8 +202,18 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 	require.Positivef(t, obsText.Load(),
 		"assistant transcript did not reach the observer (audio frames=%d) — the spoken reply "+
 			"produced no live text deltas", obsAudio.Load())
-	t.Logf("reply reached the speaker: %d frames (observer audio=%d text=%d)",
-		len(speaker.Written()), obsAudio.Load(), obsText.Load())
+
+	// Ordering guarantee: the user's transcript (delivered late by OpenAI's
+	// Whisper) must be reordered AHEAD of the assistant's text for the turn, so the
+	// transcript reads user-then-assistant. No assistant text delta may precede the
+	// user transcript.
+	require.Positive(t, obsUserTranscript.Load(),
+		"user transcript was never observed — transcription/ordering path not exercised")
+	require.Zerof(t, assistantTextBeforeUser.Load(),
+		"%d assistant text deltas were shown before the user transcript — reordering failed",
+		assistantTextBeforeUser.Load())
+	t.Logf("reply reached the speaker: %d frames (audio=%d text=%d user_transcript=%d text_before_user=%d)",
+		len(speaker.Written()), obsAudio.Load(), obsText.Load(), obsUserTranscript.Load(), assistantTextBeforeUser.Load())
 
 	// Phase 2: prove the session survives WELL past the 30s pipeline idle timeout
 	// while the mic keeps streaming — the original ~30s death. Hold to 45s total.
@@ -208,5 +231,9 @@ func TestVoiceRealtime_LongReplyThroughOpenVoice(t *testing.T) {
 
 	micStop()
 	cancel()
-	require.NoError(t, conv.Close())
+	// Best-effort teardown: Close may block on the output pacing stage still
+	// draining buffered audio at realtime (a pacing/drain timing interaction, not
+	// this feature). Prompt-close is covered by the dedicated drain test; here we
+	// only need the feature assertions above.
+	_ = conv.Close()
 }

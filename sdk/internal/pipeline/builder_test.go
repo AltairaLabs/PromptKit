@@ -1450,3 +1450,44 @@ func TestCollectPipelineStages_PacesOutputAudioForVoice(t *testing.T) {
 		}
 	})
 }
+
+// TestCollectPipelineStages_ReordersInputTranscript wires the transcript reorder
+// stage right after the provider stage when ReorderInputTranscript is set, and
+// omits it otherwise.
+func TestCollectPipelineStages_ReordersInputTranscript(t *testing.T) {
+	registry := createTestRegistry("chat")
+	newCfg := func(reorder bool) *Config {
+		return &Config{
+			PromptRegistry:         registry,
+			TaskType:               "chat",
+			StreamInputProvider:    mock.NewStreamingProvider("test", "test-model", false),
+			StreamInputConfig:      &providers.StreamingInputConfig{},
+			ReorderInputTranscript: reorder,
+		}
+	}
+
+	t.Run("reorder stage present after provider when enabled", func(t *testing.T) {
+		stages, err := collectPipelineStages(newCfg(true), nil, false)
+		require.NoError(t, err)
+		provIdx, reorderIdx := -1, -1
+		for i, s := range stages {
+			switch s.Name() {
+			case "duplex_provider":
+				provIdx = i
+			case "transcript-reorder":
+				reorderIdx = i
+			}
+		}
+		require.GreaterOrEqual(t, provIdx, 0)
+		require.GreaterOrEqual(t, reorderIdx, 0, "transcript reorder stage must be wired when enabled")
+		assert.Greater(t, reorderIdx, provIdx, "reorder must come after the provider stage")
+	})
+
+	t.Run("no reorder stage when disabled", func(t *testing.T) {
+		stages, err := collectPipelineStages(newCfg(false), nil, false)
+		require.NoError(t, err)
+		for _, s := range stages {
+			assert.NotEqual(t, "transcript-reorder", s.Name())
+		}
+	})
+}
