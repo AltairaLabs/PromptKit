@@ -270,15 +270,25 @@ func TestVoiceRealtime_ShortReplySurvives(t *testing.T) {
 	speaker := audio.NewMemSink(audio.KindAudio)
 	sess := &fakeAudioSession{sources: []audio.Source{mic}, sinks: []audio.Sink{speaker}}
 
-	var obsText atomic.Int64
+	var obsText, obsRealUser, sawPlaceholder, assistantTextBeforeUser atomic.Int64
 	conv, err := OpenVoice(writeIngestionTestPack(t), "main",
 		WithProvider(prov),
 		WithStreamingConfig(cfg),
 		WithSkipSchemaValidation(),
 		WithAudioSession(sess),
 		WithVoiceObserver(func(c providers.StreamChunk) {
+			if tr, _ := c.Metadata["input_transcription"].(string); tr != "" {
+				if tr == defaultTranscriptPlaceholder {
+					sawPlaceholder.Add(1)
+				} else {
+					obsRealUser.Add(1)
+				}
+			}
 			if c.Delta != "" {
 				obsText.Add(1)
+				if obsRealUser.Load() == 0 {
+					assistantTextBeforeUser.Add(1)
+				}
 			}
 		}),
 	)
@@ -316,7 +326,20 @@ func TestVoiceRealtime_ShortReplySurvives(t *testing.T) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	t.Logf("OK: survived the short turn; text=%d frames=%d", obsText.Load(), len(speaker.Written()))
+	t.Logf("survived the short turn; text=%d frames=%d real_user=%d placeholder=%d text_before_user=%d",
+		obsText.Load(), len(speaker.Written()), obsRealUser.Load(), sawPlaceholder.Load(), assistantTextBeforeUser.Load())
+
+	// Correct-order guarantee for a SHORT reply, where the transcript arrives after
+	// the reply ends. The reorder stage must hold for the late transcript and emit
+	// it ahead of the assistant text — NOT fall back to the "[no transcription
+	// available]" placeholder while the real transcript is still coming.
+	require.Zerof(t, sawPlaceholder.Load(),
+		"placeholder fired for a turn whose real transcript did arrive (%d real transcripts) — "+
+			"reorder gave up before the late transcript landed", obsRealUser.Load())
+	require.Positive(t, obsRealUser.Load(), "the user's real transcript was never surfaced")
+	require.Zerof(t, assistantTextBeforeUser.Load(),
+		"%d assistant text deltas were shown before the user transcript — short-reply ordering failed",
+		assistantTextBeforeUser.Load())
 
 	micStop()
 	cancel()
