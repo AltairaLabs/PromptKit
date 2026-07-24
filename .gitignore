@@ -99,6 +99,14 @@ packs/
 /evaluate
 commit-msg.txt
 
+# Built benchmark binaries (rebuilt from source with `go build`/`go run`; never commit)
+/benchmarks/harness/harness
+/benchmarks/frameworks/promptkit/round1/round1
+/benchmarks/frameworks/promptkit/round2/round2
+
+# Stray SDK build output (e.g. `go build .` from the sdk module dir)
+/sdk/openai-realtime
+
 # SDK examples: ignore everything except .go, .md, and go.mod/go.sum files
 sdk/examples/**/*
 !sdk/examples/**/*.go
