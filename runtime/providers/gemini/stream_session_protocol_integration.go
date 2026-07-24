@@ -17,6 +17,10 @@ const finishReasonComplete = "complete"
 // audioPCMMime is the MIME type for PCM audio used by Gemini Live API.
 const audioPCMMime = "audio/pcm"
 
+// audioPCMMimeRate is the audio input MIME type for the current Gemini Live wire
+// format, which requires the sample rate. Gemini Live input is 16 kHz mono PCM16.
+const audioPCMMimeRate = "audio/pcm;rate=16000"
+
 // defaultOutputSampleRate is the default output sample rate for Gemini native audio models (24kHz).
 const defaultOutputSampleRate = 24000
 
@@ -345,7 +349,9 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 //	session.sendRealtimeInput({ media: { data: base64Data, mimeType: 'image/jpeg' } })
 //
 // Which translates to wire format: { "realtimeInput": { "media": { "data": "...", "mimeType": "..." } } }
-// For audio, uses the legacy format with media_chunks array.
+// For audio, uses the current realtimeInput.audio field. The legacy
+// realtime_input.media_chunks form is deprecated and closes current Gemini Live
+// models (e.g. gemini-*-live) with websocket close 1007 (#1666).
 func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 	// Determine MIME type from metadata or default to audio/pcm
 	mimeType := audioPCMMime
@@ -374,7 +380,9 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 		}
 	}
 
-	// For audio, use PCM encoder with legacy format
+	// For audio, use the current realtimeInput.audio field (camelCase, matching
+	// the image/video branch and the protobuf JSON encoding). Gemini Live requires
+	// the sample rate in the mimeType.
 	encoder := NewAudioEncoder()
 	var err error
 	base64Data, err = encoder.EncodePCM(chunk.Data)
@@ -384,12 +392,10 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"realtime_input": map[string]interface{}{
-			"media_chunks": []map[string]interface{}{
-				{
-					"mime_type": audioPCMMime,
-					"data":      base64Data,
-				},
+		"realtimeInput": map[string]interface{}{
+			"audio": map[string]interface{}{
+				"data":     base64Data,
+				"mimeType": audioPCMMimeRate,
 			},
 		},
 	}

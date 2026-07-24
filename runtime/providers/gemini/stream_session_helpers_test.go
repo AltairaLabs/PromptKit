@@ -84,24 +84,29 @@ func TestBuildClientMessage_AudioPCM(t *testing.T) {
 		t.Fatal("Expected non-nil message")
 	}
 
-	realtimeInput, ok := msg["realtime_input"].(map[string]interface{})
+	// Audio must use the CURRENT realtimeInput.audio wire format. The legacy
+	// realtime_input.media_chunks form is deprecated and closes current Gemini
+	// Live models (e.g. gemini-*-live) with websocket close 1007. (#1666)
+	if _, legacy := msg["realtime_input"]; legacy {
+		t.Fatal("audio must not use the deprecated realtime_input.media_chunks form")
+	}
+
+	realtimeInput, ok := msg["realtimeInput"].(map[string]interface{})
 	if !ok {
-		t.Fatal("Expected realtime_input in message")
+		t.Fatal("Expected realtimeInput in message")
 	}
 
-	mediaChunks, ok := realtimeInput["media_chunks"].([]map[string]interface{})
-	if !ok || len(mediaChunks) == 0 {
-		t.Fatal("Expected media_chunks array")
+	audio, ok := realtimeInput["audio"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected realtimeInput.audio object")
 	}
 
-	firstChunk := mediaChunks[0]
-	mimeType, ok := firstChunk["mime_type"].(string)
-	if !ok || mimeType != "audio/pcm" {
-		t.Errorf("Expected mime_type 'audio/pcm', got %v", mimeType)
+	// Gemini Live requires the sample rate in the audio mimeType.
+	if mimeType, _ := audio["mimeType"].(string); mimeType != "audio/pcm;rate=16000" {
+		t.Errorf("Expected mimeType 'audio/pcm;rate=16000', got %v", mimeType)
 	}
 
-	data, ok := firstChunk["data"].(string)
-	if !ok || data == "" {
+	if data, _ := audio["data"].(string); data == "" {
 		t.Error("Expected base64 encoded data")
 	}
 }
