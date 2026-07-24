@@ -90,6 +90,7 @@ The package includes implementations for:
   - [func \(s \*CartesiaService\) Init\(\_ context.Context\) error](<#CartesiaService.Init>)
   - [func \(s \*CartesiaService\) ModelName\(\) string](<#CartesiaService.ModelName>)
   - [func \(s \*CartesiaService\) PersonaRubric\(\) string](<#CartesiaService.PersonaRubric>)
+  - [func \(s \*CartesiaService\) SpokenText\(text string, \_ SynthesisConfig\) string](<#CartesiaService.SpokenText>)
   - [func \(s \*CartesiaService\) SupportedFormats\(\) \[\]AudioFormat](<#CartesiaService.SupportedFormats>)
   - [func \(s \*CartesiaService\) SupportedVoices\(\) \[\]Voice](<#CartesiaService.SupportedVoices>)
   - [func \(s \*CartesiaService\) Synthesize\(ctx context.Context, text string, config SynthesisConfig\) \(io.ReadCloser, error\)](<#CartesiaService.Synthesize>)
@@ -106,6 +107,7 @@ The package includes implementations for:
   - [func \(s \*ElevenLabsService\) Init\(\_ context.Context\) error](<#ElevenLabsService.Init>)
   - [func \(s \*ElevenLabsService\) ModelName\(\) string](<#ElevenLabsService.ModelName>)
   - [func \(s \*ElevenLabsService\) PersonaRubric\(\) string](<#ElevenLabsService.PersonaRubric>)
+  - [func \(s \*ElevenLabsService\) SpokenText\(text string, config SynthesisConfig\) string](<#ElevenLabsService.SpokenText>)
   - [func \(s \*ElevenLabsService\) SupportedFormats\(\) \[\]AudioFormat](<#ElevenLabsService.SupportedFormats>)
   - [func \(s \*ElevenLabsService\) SupportedVoices\(\) \[\]Voice](<#ElevenLabsService.SupportedVoices>)
   - [func \(s \*ElevenLabsService\) Synthesize\(ctx context.Context, text string, config SynthesisConfig\) \(io.ReadCloser, error\)](<#ElevenLabsService.Synthesize>)
@@ -122,6 +124,7 @@ The package includes implementations for:
   - [func \(s \*OpenAIService\) Init\(\_ context.Context\) error](<#OpenAIService.Init>)
   - [func \(s \*OpenAIService\) ModelName\(\) string](<#OpenAIService.ModelName>)
   - [func \(s \*OpenAIService\) PersonaRubric\(\) string](<#OpenAIService.PersonaRubric>)
+  - [func \(s \*OpenAIService\) SpokenText\(text string, config SynthesisConfig\) string](<#OpenAIService.SpokenText>)
   - [func \(s \*OpenAIService\) SupportedFormats\(\) \[\]AudioFormat](<#OpenAIService.SupportedFormats>)
   - [func \(s \*OpenAIService\) SupportedVoices\(\) \[\]Voice](<#OpenAIService.SupportedVoices>)
   - [func \(s \*OpenAIService\) Synthesize\(ctx context.Context, text string, config SynthesisConfig\) \(io.ReadCloser, error\)](<#OpenAIService.Synthesize>)
@@ -134,6 +137,7 @@ The package includes implementations for:
   - [func DefaultRetryConfig\(\) RetryConfig](<#DefaultRetryConfig>)
 - [type Service](<#Service>)
   - [func CreateFromSpec\(spec ProviderSpec\) \(Service, error\)](<#CreateFromSpec>)
+- [type SpokenTextReporter](<#SpokenTextReporter>)
 - [type StreamingService](<#StreamingService>)
 - [type SynthesisConfig](<#SynthesisConfig>)
   - [func DefaultSynthesisConfig\(\) SynthesisConfig](<#DefaultSynthesisConfig>)
@@ -503,6 +507,15 @@ func (s *CartesiaService) PersonaRubric() string
 
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the emotion\-only rubric: Cartesia's experimental controls accept a narrow vocabulary \(positivity / sadness / anger\), so we advertise only the tags the adapter actually maps. Other tags \(e.g. whispers, pause\) would be dropped by lowerCartesiaMarkup, so we omit them from the rubric to keep persona tokens focused on directives that move audio.
 
+<a name="CartesiaService.SpokenText"></a>
+### func \(\*CartesiaService\) SpokenText
+
+```go
+func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
+```
+
+SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter \(\#1657\).
+
 <a name="CartesiaService.SupportedFormats"></a>
 ### func \(\*CartesiaService\) SupportedFormats
 
@@ -649,6 +662,15 @@ func (s *ElevenLabsService) PersonaRubric() string
 ```
 
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on v3\-class models \(they consume bracket tags natively\); older models \(v1, v2, turbo\) speak the brackets literally, so we return the empty string and the persona prompt is left untouched.
+
+<a name="ElevenLabsService.SpokenText"></a>
+### func \(\*ElevenLabsService\) SpokenText
+
+```go
+func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
+```
+
+SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: eleven\_v3 keeps inline tags \(the model interprets them\), other models strip tags. Implements tts.SpokenTextReporter \(\#1657\).
 
 <a name="ElevenLabsService.SupportedFormats"></a>
 ### func \(\*ElevenLabsService\) SupportedFormats
@@ -797,6 +819,15 @@ func (s *OpenAIService) PersonaRubric() string
 
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would just waste persona tokens.
 
+<a name="OpenAIService.SpokenText"></a>
+### func \(\*OpenAIService\) SpokenText
+
+```go
+func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
+```
+
+SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter \(\#1657\).
+
 <a name="OpenAIService.SupportedFormats"></a>
 ### func \(\*OpenAIService\) SupportedFormats
 
@@ -931,6 +962,19 @@ func CreateFromSpec(spec ProviderSpec) (Service, error)
 ```
 
 CreateFromSpec returns a Service implementation for the given spec.
+
+<a name="SpokenTextReporter"></a>
+## type SpokenTextReporter
+
+SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered — provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text. \(\#1657\)
+
+```go
+type SpokenTextReporter interface {
+    // SpokenText returns the text that would actually be spoken for the given
+    // input and config, after markup lowering.
+    SpokenText(text string, config SynthesisConfig) string
+}
+```
 
 <a name="StreamingService"></a>
 ## type StreamingService

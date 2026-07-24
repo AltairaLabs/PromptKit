@@ -161,6 +161,13 @@ type ElementMetadata struct {
 	// the true spoken text, since providers strip or rewrite markup at synthesis.
 	SynthesizedSpeech bool
 
+	// SpokenText is the text the TTS provider actually spoke, after markup
+	// lowering — the faithful, provider- and model-specific value the reference
+	// Text (above) only approximates. Populated on SynthesizedSpeech elements when
+	// the provider implements tts.SpokenTextReporter; empty otherwise (consumers
+	// then fall back to the reference/LLM text). See #1657.
+	SpokenText string
+
 	// StreamingDelta marks an incremental content Text element emitted by a
 	// streaming provider mid-generation (see ProviderStage.emitChunkElement).
 	// These are the live-text feed for UI consumers; the same reply also arrives

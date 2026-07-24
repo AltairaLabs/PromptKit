@@ -35,6 +35,19 @@ type Service interface {
 	SupportedFormats() []AudioFormat
 }
 
+// SpokenTextReporter is an optional Service extension: given the input text and
+// config, it returns the exact text that will be submitted to the synthesis
+// engine after PromptKit's bracket-tag markup is lowered — provider- and
+// model-specific (e.g. OpenAI gpt-4o-mini-tts moves tags to `instructions`, so
+// the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags).
+// The lowering is pure, so this reports the value without synthesizing. Returns
+// "" when unknown, letting consumers fall back to the LLM text. (#1657)
+type SpokenTextReporter interface {
+	// SpokenText returns the text that would actually be spoken for the given
+	// input and config, after markup lowering.
+	SpokenText(text string, config SynthesisConfig) string
+}
+
 // StreamingService extends Service with streaming synthesis capabilities.
 // Streaming TTS provides lower latency by returning audio chunks as they're generated.
 type StreamingService interface {
