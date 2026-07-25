@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
@@ -76,13 +77,14 @@ func TestVoiceConversation_RealOpenAI(t *testing.T) {
 	// Step 2: Transcribe the user's audio.
 	t.Log("Step 2: STT — transcribing user audio...")
 	start = time.Now()
-	userTranscription, err := stt.TranscribeWithRetry(ctx, sttSvc, userAudio, stt.TranscriptionConfig{
-		Format: stt.FormatWAV, Language: "en",
+	userResp, err := stt.TranscribeWithRetry(ctx, sttSvc, base.STTRequest{
+		Audio: userAudio, MIMEType: "audio/wav", Hints: map[string]string{"language": "en"},
 	}, retrySTT)
 	step2 := time.Since(start)
 	if err != nil {
 		t.Fatalf("STT (user audio): %v", err)
 	}
+	userTranscription := userResp.Text
 	t.Logf("  → %q, %v", userTranscription, step2)
 
 	// Step 3: LLM responds.
@@ -116,13 +118,14 @@ func TestVoiceConversation_RealOpenAI(t *testing.T) {
 	// Step 5: Transcribe the response audio.
 	t.Log("Step 5: STT — transcribing response audio...")
 	start = time.Now()
-	responseTranscription, err := stt.TranscribeWithRetry(ctx, sttSvc, responseAudio, stt.TranscriptionConfig{
-		Format: stt.FormatWAV, Language: "en",
+	responseResp, err := stt.TranscribeWithRetry(ctx, sttSvc, base.STTRequest{
+		Audio: responseAudio, MIMEType: "audio/wav", Hints: map[string]string{"language": "en"},
 	}, retrySTT)
 	step5 := time.Since(start)
 	if err != nil {
 		t.Fatalf("STT (response audio): %v", err)
 	}
+	responseTranscription := responseResp.Text
 	t.Logf("  → %q, %v", responseTranscription, step5)
 
 	// Write combined conversation WAV (user + 0.5s silence + response).
