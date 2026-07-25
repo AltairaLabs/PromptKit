@@ -10,8 +10,11 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
@@ -19,6 +22,34 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// hfLiveTimeout is generous: HuggingFace serverless cold-starts a model on
+// first hit and can take well over the client's 60s default before returning
+// headers. A longer bound turns those cold starts into a real result instead
+// of a client timeout.
+const hfLiveTimeout = 180 * time.Second
+
+// isTransientHFError reports whether err is a transient network / serverless
+// hiccup (cold-start timeout, dropped connection) rather than a bug in our
+// pipeline. The free HF Inference tier is inherently flaky, so the live test
+// skips on these instead of going red on infrastructure it doesn't control.
+func isTransientHFError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"context deadline exceeded", "timeout", "connection refused",
+		"connection reset", "eof", "no such host", "temporarily",
+		"status 502", "status 503", "status 504", "gateway", "bad gateway",
+		"service unavailable",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // TestVideoModeration_RealHFModel drives the whole decomposing pipeline against a
 // live HuggingFace image-classification model:
@@ -40,17 +71,29 @@ func TestVideoModeration_RealHFModel(t *testing.T) {
 		t.Skip("HF_TOKEN not set; skipping live HuggingFace video-moderation test")
 	}
 
-	const nsfwModel = "Falconsai/nsfw_image_detection"
+	// Default to the NSFW moderation model; allow an override for when HF's
+	// free serverless tier isn't currently serving it (a general image
+	// classifier still proves the decompose pipeline end to end).
+	nsfwModel := "Falconsai/nsfw_image_detection"
+	if m := os.Getenv("HF_VIDEO_TEST_MODEL"); m != "" {
+		nsfwModel = m
+	}
 
-	client, err := classifyhf.NewClient(classifyhf.Config{APIKey: token})
+	client, err := classifyhf.NewClient(classifyhf.Config{
+		APIKey:     token,
+		HTTPClient: &http.Client{Timeout: hfLiveTimeout},
+	})
 	if err != nil {
 		t.Fatalf("hf client: %v", err)
 	}
 
-	// Compose the real decomposing video classifier over the live HF image model.
+	// Compose the real decomposing video classifier over the live HF image
+	// model. One frame is enough to prove the pipeline end to end (GIF decode →
+	// real HF classification → aggregation) while keeping the flaky free-tier
+	// network surface to a single call.
 	vc, err := classify.NewDecomposingVideoClassifier(
 		framesample.NewGIFMJPEGSampler(), client, nil,
-		classify.DecomposeConfig{ImageModel: nsfwModel, Aggregation: classify.AggregationMax},
+		classify.DecomposeConfig{ImageModel: nsfwModel, Aggregation: classify.AggregationMax, MaxFrames: 1},
 	)
 	if err != nil {
 		t.Fatalf("NewDecomposingVideoClassifier: %v", err)
@@ -74,12 +117,22 @@ func TestVideoModeration_RealHFModel(t *testing.T) {
 
 	// Cross-check against the classifier directly first so we can distinguish
 	// "model unavailable" (skip) from a genuine handler bug (fail).
-	if _, cerr := vc.ClassifyVideo(ctx, realAnimatedGIF(t), classify.VideoOptions{Model: nsfwModel}); cerr != nil {
+	directScores, cerr := vc.ClassifyVideo(ctx, realAnimatedGIF(t), classify.VideoOptions{Model: nsfwModel})
+	if cerr != nil {
 		if errors.Is(cerr, classifyhf.ErrModelLoading) || errors.Is(cerr, classifyhf.ErrModelNotSupported) {
 			t.Skipf("HF model %q not servable on the configured path: %v", nsfwModel, cerr)
 		}
+		if isTransientHFError(cerr) {
+			t.Skipf("HF serverless transient error (not a pipeline bug): %v", cerr)
+		}
 		t.Fatalf("ClassifyVideo against real model failed: %v", cerr)
 	}
+	// The core proof: real frames went through a real model and came back with
+	// real, ranked labels that aggregation collapsed into a result.
+	if len(directScores) == 0 {
+		t.Fatal("live model returned no labels for the sampled frames")
+	}
+	t.Logf("live %q returned %d aggregated labels; top: %+v", nsfwModel, len(directScores), directScores[0])
 
 	h := &VideoModerationHandler{}
 	res, err := h.Eval(ctx, &evals.EvalContext{Messages: []types.Message{msg}}, map[string]any{
@@ -93,6 +146,9 @@ func TestVideoModeration_RealHFModel(t *testing.T) {
 		t.Skipf("handler skipped (model unavailable): %s", res.SkipReason)
 	}
 	if res.Error != "" {
+		if isTransientHFError(errors.New(res.Error)) {
+			t.Skipf("HF serverless transient error via handler: %s", res.Error)
+		}
 		t.Fatalf("handler errored against real model: %s", res.Error)
 	}
 	// The benign clip should score low for nsfw; the assertion here is that we got
