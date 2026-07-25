@@ -48,10 +48,13 @@ it implements:
 - `embedding` — vector embeddings via `Embed()`.
 - `image` — image generation; Predict-compatible, so eligible for the
   arena matrix alongside `llm`.
-- `inference` — non-LLM inference (audio/text/image classifiers,
+- `inference` — non-LLM inference (audio/text/image/video classifiers,
   embedders) via the `runtime/classify` task interfaces. Powers
-  assertion handlers like `audio_emotion`. Today the only shipped
-  backend is HuggingFace; see
+  assertion handlers like `audio_emotion`, `image_moderation`, and
+  `video_moderation`. The shipped leaf backend is HuggingFace; a
+  `decompose` provider composes an image (and optional audio) classifier
+  into a video classifier, sampling frames in pure Go (GIF/MJPEG) so it
+  runs anywhere with no external codec. See
   [Inference Providers](https://promptarena.altairalabs.ai/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
   in the configure-providers how-to.
 
