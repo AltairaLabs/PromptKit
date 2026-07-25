@@ -37,6 +37,54 @@ func TestStreamElementToStreamChunk_SynthesizedSpeechCarriesAudioNotDelta(t *tes
 	}
 }
 
+// TestStreamElementToStreamChunk_SpokenTextSurfacedInMetadata verifies that when
+// the TTS provider reported the real spoken text (post markup-lowering) on the
+// element, the converter surfaces it on the chunk under a stable "spoken_text"
+// metadata key so a voice UI can caption exactly what was said. See #1657.
+func TestStreamElementToStreamChunk_SpokenTextSurfacedInMetadata(t *testing.T) {
+	reference := "[whispers]The capital of France is Paris."
+	spoken := "The capital of France is Paris."
+	elem := stage.StreamElement{
+		Text: &reference,
+		Audio: &stage.AudioData{
+			Samples:    []byte{0x01, 0x02},
+			SampleRate: 24000,
+			Channels:   1,
+			Format:     stage.AudioFormatPCM16,
+		},
+	}
+	elem.Meta.SynthesizedSpeech = true
+	elem.Meta.SpokenText = spoken
+
+	chunk := streamElementToStreamChunk(&elem)
+
+	assert.Equal(t, spoken, chunk.Metadata["spoken_text"],
+		"the real spoken text must be surfaced under the spoken_text metadata key")
+}
+
+// TestStreamElementToStreamChunk_NoSpokenTextNoKey guards the degrade path: a
+// provider that cannot report spoken text leaves SpokenText empty, and the
+// converter must not emit an empty spoken_text key (consumers fall back to the
+// reference/LLM text). See #1657.
+func TestStreamElementToStreamChunk_NoSpokenTextNoKey(t *testing.T) {
+	reference := "The capital of France is Paris."
+	elem := stage.StreamElement{
+		Text: &reference,
+		Audio: &stage.AudioData{
+			Samples:    []byte{0x01, 0x02},
+			SampleRate: 24000,
+			Channels:   1,
+			Format:     stage.AudioFormatPCM16,
+		},
+	}
+	elem.Meta.SynthesizedSpeech = true
+
+	chunk := streamElementToStreamChunk(&elem)
+
+	_, ok := chunk.Metadata["spoken_text"]
+	assert.False(t, ok, "no spoken_text key when the provider did not report spoken text")
+}
+
 // TestStreamElementToStreamChunk_PlainTextStillDeltas is the regression guard:
 // an ordinary streamed Text element (an LLM delta, no synthesized-speech marker)
 // must still map to Delta and Content.

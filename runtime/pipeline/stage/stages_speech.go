@@ -1099,6 +1099,16 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	// ElementMetadata.SynthesizedSpeech). Set after the meta copy so it wins.
 	outElem.Meta.SynthesizedSpeech = true
 	outElem.Meta.StreamingDelta = false
+	// Attach the faithful spoken text (post markup-lowering) when the provider can
+	// report it, so a consumer can caption exactly what was said (#1657). Uses the
+	// same config as synthesis; empty when the provider doesn't implement it.
+	if reporter, ok := s.service.(tts.SpokenTextReporter); ok {
+		outElem.Meta.SpokenText = reporter.SpokenText(text, tts.SynthesisConfig{
+			Voice:  s.config.Voice,
+			Speed:  s.config.Speed,
+			Format: tts.FormatPCM16,
+		})
+	}
 
 	s.setBotSpeaking(false)
 	return s.forwardElement(ctx, outElem, output)

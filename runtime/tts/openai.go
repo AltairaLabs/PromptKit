@@ -217,6 +217,19 @@ func (s *OpenAIService) Synthesize(
 	return resp.Body, nil
 }
 
+// SpokenText reports the text OpenAI will actually speak for the given input,
+// after markup lowering: on gpt-4o-mini-tts the bracket tags become the
+// `instructions` field so the spoken text is the stripped remainder; other
+// models strip tags entirely. Implements tts.SpokenTextReporter (#1657).
+func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string {
+	model := config.Model
+	if model == "" {
+		model = s.Model
+	}
+	input, _ := lowerOpenAIMarkup(text, model)
+	return input
+}
+
 // lowerOpenAIMarkup translates characterization tags in the input text into
 // the OpenAI request shape. For gpt-4o-mini-tts (expressive), tags become
 // the `instructions` field and the spoken text is stripped. For tts-1 and

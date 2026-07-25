@@ -184,6 +184,17 @@ func (s *ElevenLabsService) Synthesize(
 	return postJSONForAudio(ctx, s.Client, "elevenlabs", endpoint, reqBody, headers, s.handleError)
 }
 
+// SpokenText reports the text ElevenLabs will actually speak for the given input,
+// after markup lowering: eleven_v3 keeps inline tags (the model interprets them),
+// other models strip tags. Implements tts.SpokenTextReporter (#1657).
+func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string {
+	model := config.Model
+	if model == "" {
+		model = s.Model
+	}
+	return lowerElevenLabsMarkup(text, model)
+}
+
 // lowerElevenLabsMarkup returns the spoken-text body to send to ElevenLabs:
 // pass-through verbatim for v3-class models (they consume inline tags
 // natively), strip tags for older models so they don't literally speak

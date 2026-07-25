@@ -838,6 +838,17 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		chunk.Content = *elem.Text
 	}
 
+	// Surface the faithful spoken text of a synthesized-speech element (post
+	// markup-lowering) under a stable key, so a voice UI can caption exactly what
+	// was said. Kept OFF Delta/Content (which mean new model output) — mirrors the
+	// input_transcription key. Empty when the provider can't report it. (#1657)
+	if elem.Meta.SpokenText != "" {
+		if chunk.Metadata == nil {
+			chunk.Metadata = make(map[string]interface{})
+		}
+		chunk.Metadata["spoken_text"] = elem.Meta.SpokenText
+	}
+
 	// Handle errors
 	if elem.Error != nil {
 		chunk.Error = elem.Error
