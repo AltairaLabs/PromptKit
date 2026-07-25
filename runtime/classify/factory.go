@@ -107,10 +107,19 @@ func BuildRegistry(specs []ProviderSpec, defaults RegistryDefaults) (*Registry, 
 	}
 	reg := NewRegistry()
 	first := make(map[string]string)
+
+	// First pass: build every leaf backend. Composite `decompose` specs
+	// are deferred — they reference sibling classifiers that must exist
+	// first — and collected for the second pass.
+	var decomposeSpecs []ProviderSpec
 	for i := range specs {
 		spec := specs[i]
 		if spec.ID == "" {
 			return nil, fmt.Errorf("classify: inference provider at index %d has empty id", i)
+		}
+		if spec.Type == DecomposeProviderType {
+			decomposeSpecs = append(decomposeSpecs, spec)
+			continue
 		}
 		b, err := CreateFromSpec(spec)
 		if err != nil {
@@ -122,6 +131,21 @@ func BuildRegistry(specs []ProviderSpec, defaults RegistryDefaults) (*Registry, 
 			}
 		}
 	}
+
+	// Second pass: composite video classifiers, now that their referenced
+	// image/audio leaves are registered.
+	for i := range decomposeSpecs {
+		spec := decomposeSpecs[i]
+		vc, err := buildDecomposeFromSpec(reg, spec)
+		if err != nil {
+			return nil, err
+		}
+		reg.RegisterVideo(spec.ID, vc)
+		if _, ok := first["video"]; !ok {
+			first["video"] = spec.ID
+		}
+	}
+
 	if err := applyDefaults(reg, defaults, first); err != nil {
 		return nil, err
 	}

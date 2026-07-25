@@ -498,6 +498,70 @@ the raw score and rejects `min_score`/`max_score` on `eval_params`; the threshol
 lives on the `assertion`/`guardrail` wrapper. With no classify registry configured
 (keyless CI) it skips cleanly.
 
+### `video_moderation`
+
+Video content-moderation gate. Picks a video part from the chosen role's messages
+and runs it through a `VideoClassifier`, emitting the model's score for
+`expected_label` (e.g. `nsfw`). By default it scores the agent's output
+(`message_role: assistant`), covering video a tool produced during the turn.
+
+The shipped `VideoClassifier` is the **decomposing** backend: it samples frames from
+the clip, classifies each still with an `ImageClassifier`, optionally classifies the
+audio track with an `AudioClassifier`, and aggregates the per-frame scores
+(`max` / `mean` / `vote`; default `max`). Frame sampling is **pure Go** — it decodes
+animated **GIF** and **MJPEG** without any external tooling, so it runs on a
+`scratch` container. Containers that need a real codec (`mp4`/H.264, WebM) are
+reported as undecodable and the check **skips** cleanly.
+
+The backend is wired as an inference provider of `type: decompose` that references a
+sibling image (and optional audio) classifier:
+
+```yaml
+providers:
+  - id: nsfw-image
+    role: inference
+    type: huggingface
+    model: Falconsai/nsfw_image_detection
+  - id: video
+    role: inference
+    type: decompose
+    additional_config:
+      image_classifier_id: nsfw-image
+      aggregation: max          # max | mean | vote
+      frame_sample_rate: 1      # frames/sec (optional)
+```
+
+**Surfaces:** A E (conversation assertion / guardrail when wrapped; runtime eval when declared in `evals:`)
+
+**Example (assertion — "the generated clip must not be NSFW"):**
+
+```yaml
+conversation_assertions:
+  - type: assertion
+    params:
+      eval_type: video_moderation
+      eval_params:
+        model: Falconsai/nsfw_image_detection
+        expected_label: nsfw
+        # frame_sample_rate / extract_audio / aggregation are optional
+      max_score: 0.3
+```
+
+**Example (pack `evals:` — emit the raw score as a metric):**
+
+```yaml
+evals:
+  - type: video_moderation
+    params:
+      model: Falconsai/nsfw_image_detection
+      expected_label: nsfw
+```
+
+Like every classify-backed eval, `video_moderation` is a pure primitive — it emits
+the raw score and rejects `min_score`/`max_score` on `eval_params`; the threshold
+lives on the `assertion`/`guardrail` wrapper. With no classify registry configured
+(keyless CI), no video part present, or an undecodable container, it skips cleanly.
+
 ### `text_toxicity`
 
 Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Emits the model's score for `expected_label`; the `assertion` wrapper decides pass/fail based on `min_score` or `max_score`:

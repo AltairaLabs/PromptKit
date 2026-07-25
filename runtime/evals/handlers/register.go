@@ -78,6 +78,7 @@ func init() {
 	// text toxicity, ...) using the classify.Registry from context.
 	evals.RegisterDefault(&AudioEmotionHandler{})
 	evals.RegisterDefault(&ImageModerationHandler{})
+	evals.RegisterDefault(&VideoModerationHandler{})
 	evals.RegisterDefault(&TextToxicityHandler{})
 	evals.RegisterDefault(&TextSentimentHandler{})
 

@@ -103,6 +103,12 @@ type VideoOptions struct {
 	// audio track through their AudioClassifier as well as their
 	// ImageClassifier. Default false.
 	ExtractAudio bool
+
+	// Aggregation names how a decomposing backend collapses per-frame
+	// (and audio-window) label scores into a single result: "max",
+	// "mean", or "vote". Empty selects the backend default (max).
+	// Whole-clip backends ignore it.
+	Aggregation string
 }
 
 // EmbedOptions carries per-call knobs for text embedding.
