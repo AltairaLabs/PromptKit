@@ -144,9 +144,17 @@ func TestEvents_ProviderCallCompletedHasDetails(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Check provider details")
 	require.NoError(t, err)
 
-	// Wait for PipelineCompleted (the last event emitted) to avoid a race
-	// between bus.Close() in cleanup and the pipeline goroutine still publishing.
-	ec.waitForEvent(events.EventPipelineCompleted, 2*time.Second)
+	// Wait for the ProviderCallCompleted event specifically — NOT just
+	// PipelineCompleted. The event bus dispatches to listeners via a worker
+	// pool (DefaultWorkerPoolSize=10), so delivery order to the collector is
+	// not publish order: PipelineCompleted can be delivered before
+	// ProviderCallCompleted even though it is published later. Waiting on the
+	// event we actually assert on is what the sibling tests
+	// (TestEvents_SequenceOrder, TestEvents_DataPointerTypes) already do.
+	require.True(t, ec.waitForEvents([]events.EventType{
+		events.EventProviderCallCompleted,
+		events.EventPipelineCompleted,
+	}, 2*time.Second), "not all expected events arrived")
 
 	provCompleted := ec.ofType(events.EventProviderCallCompleted)
 	require.NotEmpty(t, provCompleted)

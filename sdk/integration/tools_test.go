@@ -445,9 +445,16 @@ func TestTools_EventsEmitted(t *testing.T) {
 	_, err := conv.Send(ctx, "Weather in Tokyo?")
 	require.NoError(t, err)
 
-	// Wait for PipelineCompleted to avoid race with bus.Close()
-	require.True(t, ec.waitForEvent(events.EventPipelineCompleted, 5*time.Second),
-		"should receive pipeline.completed event")
+	// Wait for the tool-call events we assert on specifically — NOT just
+	// PipelineCompleted. The event bus dispatches to listeners via a worker
+	// pool (DefaultWorkerPoolSize=10), so delivery order to the collector is
+	// not publish order: PipelineCompleted can be delivered before the
+	// tool-call events even though they are published earlier.
+	require.True(t, ec.waitForEvents([]events.EventType{
+		events.EventToolCallStarted,
+		events.EventToolCallCompleted,
+		events.EventPipelineCompleted,
+	}, 5*time.Second), "should receive tool-call and pipeline.completed events")
 
 	// Verify tool call events
 	assert.True(t, ec.hasType(events.EventToolCallStarted),
