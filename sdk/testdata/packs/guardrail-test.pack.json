@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "guardrail-test",
+  "name": "Guardrail Test Pack",
+  "version": "1.0.0",
+  "description": "Minimal pack for end-to-end guardrail behavior tests",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant."
+    }
+  }
+}
