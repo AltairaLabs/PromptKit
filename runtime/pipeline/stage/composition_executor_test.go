@@ -661,9 +661,12 @@ func (h *selectiveInputGuardrail) count() int {
 // TestCompositionExecutor_GuardrailBlocksStepWithoutAbortingComposition proves
 // enforcement is scoped to the firing step's ProviderStage: the blocked step
 // yields the canned text as its output and returns no error, so the caller can
-// run the next step. It also proves the input gate re-arms per step — round
-// numbering restarts in each sub-pipeline, so a Round==1 gate would have been
-// correct here but wrong; a content gate is right in both places.
+// run the next step. It also proves the input gate re-arms per step: the
+// guardrail independently evaluates each step's input (count()==2), and step 2
+// is not enforced even though its sub-pipeline's round numbering restarts at 1
+// like step 1's did. A Round==1 gate would have fired on both steps (round
+// numbering is per-ProviderStage, so it is 1 in every step, not just the
+// first) and blocked step 2 too, which assert.NotContains below would catch.
 func TestCompositionExecutor_GuardrailBlocksStepWithoutAbortingComposition(t *testing.T) {
 	prov := mock.NewProvider("test-id", "test-model", false)
 	repo := newMockRepo()

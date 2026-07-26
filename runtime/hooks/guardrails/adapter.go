@@ -52,9 +52,10 @@ func (a *GuardrailHookAdapter) Name() string { return a.evalType }
 // once per round inside the tool loop, where later rounds end in a tool-result
 // message rather than user input — evaluating those would score the wrong
 // content and rebill LLM-judged checks every round. The gate is deliberately
-// content-based rather than round-based: round numbering restarts for each
-// composition sub-pipeline, so a Round==1 test would skip every step but the
-// first.
+// content-based rather than round-based: a round check would also misfire on a
+// round whose last message is an assistant message, and round numbering is
+// per-ProviderStage (it restarts in each composition sub-pipeline), so it is
+// not a reliable proxy for "there is new user input".
 func (a *GuardrailHookAdapter) BeforeCall(
 	ctx context.Context, req *hooks.ProviderRequest,
 ) hooks.Decision {
