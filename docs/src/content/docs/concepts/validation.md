@@ -46,22 +46,25 @@ This means you write a check once and deploy it wherever you need it. A `content
 
 ## Enforcement Behavior (Guardrails)
 
-When a guardrail triggers, the pipeline does not return an error — behavior depends on
-`direction`. Output guardrails continue with modified content; input guardrails skip the
-provider call and stop the round loop before one is ever made. Either way, only the
-provider work inside that turn's `ProviderStage` is affected — every downstream pipeline
-stage still runs. The specific behavior also depends on the check type:
+When a guardrail triggers, the pipeline does not return an error. What the message ends up
+containing depends on `direction` and on the check type; **the round loop stops either
+way**. Only the provider work inside that turn's `ProviderStage` is affected — every
+downstream pipeline stage still runs.
 
 - **Content blockers** (`content_excludes`, `banned_words`): Replace the entire response with a configurable policy message.
-- **Length checks** (`max_length`): Truncate the response to the configured limit.
-- **Other check types**: Log the violation without modifying content.
+- **Length checks** (`max_length`, or any check carrying a `max_characters` / `max` /
+  `max_chars` param): Truncate the response to that character limit, when it is what the
+  response exceeded.
+- **Every other case**: Replace the response with the policy message, the same as a content
+  blocker. Guardrails always act — there is no log-only mode. If you want to record a
+  violation without changing the response, declare an eval and assert on it instead.
 - **Input guardrails** (`direction: input`): evaluated before the provider call. On a hit
   the call is never made — no tokens are spent — and the conversation returns a canned
   assistant turn (`message`, falling back to the default blocked message). Evaluated once
   per user turn, not once per tool round.
-- **Round termination**: when a guardrail enforces, the round loop stops — no further
-  provider/tool rounds run for that turn. Any tool calls requested by an enforced output
-  response are dropped rather than executed.
+- **Round termination**: when a guardrail enforces — input or output — the round loop stops,
+  so no further provider/tool rounds run for that turn. Any tool calls requested by an
+  enforced output response are dropped rather than executed.
 
 All violations are recorded in `message.Validations` and emitted as `validation.failed` events, regardless of enforcement mode. This gives you full visibility into what triggered and why.
 

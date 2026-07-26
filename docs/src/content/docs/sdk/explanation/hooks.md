@@ -12,7 +12,7 @@ Different parts of the runtime have different contracts with the caller. A singl
 
 | Hook | Contract | Can deny? | Can mutate? | Fires per |
 |---|---|---|---|---|
-| **ProviderHook** | Request/response around an LLM call | Yes | Yes (via enforcement) | Each provider call |
+| **ProviderHook** | Request/response around an LLM call | Yes | Yes — the request before the call, the response after (via enforcement) | Each round, before and after the call |
 | **ChunkInterceptor** | Each streaming chunk | Yes (abort stream) | Yes (enforcement) | Each chunk |
 | **ToolHook** | Request/response around a tool call | Yes | Yes (enforcement) | Each tool call |
 | **SessionHook** | Session lifecycle | No (error is logged and discarded) | No | Session start, each turn, session end |
@@ -24,7 +24,16 @@ Pick the hook whose contract matches your intent. A PII redactor gates content �
 
 All hooks that can modify behavior fall into one of two shapes.
 
-**Decision-based** (Provider, Chunk, Tool). The hook returns a `Decision` struct. To "mutate," the hook modifies the request/response in place **before** returning `hooks.Enforced(...)`. The pipeline then continues with the modified content. The alternative is `hooks.Deny(...)`, which produces a `HookDeniedError` and aborts. Built-in guardrails always use `Enforced`; denial is reserved for hooks that want to be fatal.
+**Decision-based** (Provider, Chunk, Tool). The hook returns a `Decision` struct. To "mutate," the hook modifies the request/response in place **before** returning `hooks.Enforced(...)`. The alternative is `hooks.Deny(...)`, which produces a `HookDeniedError` and aborts the pipeline. Built-in guardrails always use `Enforced`; denial is reserved for hooks that want to be fatal.
+
+`Enforced` means something different at each of the two `ProviderHook` seams:
+
+- **`AfterCall`** — the hook has already rewritten `resp.Message` (truncated or replaced it). The runtime picks up the modified content as the round's response.
+- **`BeforeCall`** — the provider call is **skipped entirely**: no request is built, no tokens are spent. Write the assistant text you want returned in its place to `req.Replacement` (`hooks.ProviderRequest.Replacement`; an exec hook returns it as `metadata.replacement`), or leave it empty to get the default blocked message. The runtime substitutes a canned assistant turn carrying `FinishReason: "safety"`, the decision metadata on `Message.Meta`, and a `ValidationResult` on `Message.Validations`.
+
+**Enforcing stops the round loop, and pending tool calls are dropped.** This is the consequence most likely to surprise you. If an `AfterCall` hook enforces on a response that also requested tool calls, those calls are **not executed**, and they are stripped from the message before it lands in history — an assistant message carrying tool calls with no matching tool results is a protocol error on the next provider call. Earlier releases executed the tools and rolled on to another round.
+
+What enforcement does **not** do is abort the pipeline. A hook belongs to one stage: the provider call is skipped and that `ProviderStage`'s round loop stops, but the message is emitted and every downstream stage — saving, TTS, recording, evals — still runs, exactly as it would for a real response. Only `Deny` aborts.
 
 **Direct-mutation** (Eval). The hook is handed a pointer to the result and mutates it in place. There's no decision struct — the hook is observational by contract, but it's allowed to edit the observation before it propagates (redact explanations, enrich details, add tracing metadata). No pipeline gating happens either way.
 
@@ -45,8 +54,8 @@ pipeline.started                              event
   │  │  ProviderHook.BeforeCall                                  │ │
   │  │  provider.call.started      event                         │ │
   │  │  → provider request → (1..N HTTP attempts on retry)       │ │
-  │  │  provider.call.completed    event                         │ │
   │  │  ChunkInterceptor.OnChunk   per chunk (streaming only)    │ │
+  │  │  provider.call.completed    event                         │ │
   │  │  ProviderHook.AfterCall                                   │ │
   │  │  ToolHook.BeforeExecution   per tool call                 │ │
   │  │  tool.call.started          event                         │ │
@@ -58,7 +67,7 @@ SessionHook.OnSessionUpdate                   once per turn, AFTER it completes
 EvalHook.OnEvalResult                         per eval result, from the eval runner
 ```
 
-Three consequences that a flat list hides:
+Four consequences that a flat list hides:
 
 - **`BeforeCall`/`AfterCall` fire once per round, not once per turn.** A turn that
   uses tools runs several rounds, so a hook doing expensive or billable work must
@@ -70,6 +79,11 @@ Three consequences that a flat list hides:
 - **Retries happen below the hook boundary.** One round is exactly one
   `BeforeCall`/`AfterCall` pair even if the transport retried the HTTP request
   several times. Hooks never see retries.
+- **On the streaming path, `OnChunk` fires before `provider.call.completed`.**
+  Chunks are consumed as they arrive; the completion event carries the totals
+  (tokens, cost, finish reason) that are only known once the stream closes. So a
+  chunk interceptor that aborts a stream runs *before* any completion event for
+  that call.
 
 Within a single phase, multiple hooks run in **registration order**. For decision-based
 hooks the first non-`Allow` short-circuits. For eval hooks every registered hook always
