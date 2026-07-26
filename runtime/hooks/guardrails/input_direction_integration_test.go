@@ -99,21 +99,40 @@ func TestOutputGuardrail_BannedWordsStillScansAssistantOnly(t *testing.T) {
 // so when it cannot see the user's message it reports "not found" and fires
 // spuriously — the same root cause surfacing as a false positive instead of a
 // false negative.
+//
+// Both cases are asserted together: allowing when the pattern is present is on
+// its own indistinguishable from the guardrail never running at all, which is
+// precisely the fail-open mode under test.
 func TestInputGuardrail_ContentIncludesAnySeesUserInput(t *testing.T) {
-	hook, err := NewGuardrailHook("content_includes_any", map[string]any{
-		"patterns":  []any{"hello"},
-		"direction": "input",
-	})
-	require.NoError(t, err)
-
-	req := &hooks.ProviderRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "hello there"},
-		},
+	newHook := func(t *testing.T) hooks.ProviderHook {
+		t.Helper()
+		h, err := NewGuardrailHook("content_includes_any", map[string]any{
+			"patterns":  []any{"hello"},
+			"direction": "input",
+		})
+		require.NoError(t, err)
+		return h
 	}
 
-	d := hook.BeforeCall(context.Background(), req)
+	t.Run("allows when the required pattern is present", func(t *testing.T) {
+		req := &hooks.ProviderRequest{
+			Messages: []types.Message{{Role: "user", Content: "hello there"}},
+		}
 
-	assert.True(t, d.Allow,
-		"contains_any must see the user's message and find the required pattern")
+		d := newHook(t).BeforeCall(context.Background(), req)
+
+		assert.True(t, d.Allow,
+			"contains_any must see the user's message and find the required pattern")
+	})
+
+	t.Run("fires when the required pattern is absent", func(t *testing.T) {
+		req := &hooks.ProviderRequest{
+			Messages: []types.Message{{Role: "user", Content: "good evening"}},
+		}
+
+		d := newHook(t).BeforeCall(context.Background(), req)
+
+		assert.False(t, d.Allow,
+			"the guardrail must actually run — a hook that never fires would also pass the case above")
+	})
 }

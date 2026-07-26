@@ -721,7 +721,6 @@ func (c *Conversation) executePipeline(
 	return c.unarySession.ExecuteWithMessage(ctx, *userMsg)
 }
 
-// buildResponse creates a Response from the pipeline result.
 // lastAssistantFinishReason returns the FinishReason of the most recent
 // assistant message, or "" when there is none. Used to recover the field the
 // pipeline's narrower Response type drops.
@@ -734,6 +733,7 @@ func lastAssistantFinishReason(msgs []types.Message) string {
 	return ""
 }
 
+// buildResponse creates a Response from the pipeline result.
 func (c *Conversation) buildResponse(
 	ctx context.Context, result *rtpipeline.ExecutionResult, startTime time.Time,
 ) *Response {

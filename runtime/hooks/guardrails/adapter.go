@@ -96,6 +96,10 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	evalCtx := &evals.EvalContext{
 		CurrentOutput: lastMsg.GetContent(),
 		Messages:      req.Messages,
+		// A guardrail judges one message. For the input direction that
+		// message is the user's, which a transcript scan filtered to
+		// assistant role would never see.
+		ContentScope: evals.ContentScopeCurrent,
 	}
 
 	d := a.evaluate(ctx, evalCtx)
@@ -133,6 +137,9 @@ func (a *GuardrailHookAdapter) AfterCall(
 	evalCtx := &evals.EvalContext{
 		CurrentOutput: resp.Message.GetContent(),
 		Messages:      msgs,
+		// Judge this response only. Scanning the whole transcript would make
+		// one tripped turn re-block every later turn in the conversation.
+		ContentScope: evals.ContentScopeCurrent,
 	}
 
 	// Apply defaults for aliased eval types, then normalize legacy param names

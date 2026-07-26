@@ -52,9 +52,12 @@ func TestOpen_UnusableValidatorParamsAreSkipped(t *testing.T) {
 }
 
 // TestOpen_ValidValidatorsSucceed guards against the unknown-type check
-// rejecting legitimate packs.
+// rejecting legitimate packs. It uses the bad-params pack's sibling with a
+// genuinely valid validator so CompileValidators is actually reached — a pack
+// declaring no validators would short-circuit before the check and the test
+// could not fail.
 func TestOpen_ValidValidatorsSucceed(t *testing.T) {
-	conv, err := Open(guardrailTestPack, "chat",
+	conv, err := Open("./testdata/packs/guardrail-valid-validator.pack.json", "chat",
 		WithProvider(mock.NewProvider("mock", "mock-model", false)),
 		WithSkipSchemaValidation(),
 	)

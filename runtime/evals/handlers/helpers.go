@@ -19,23 +19,28 @@ type scanTarget struct {
 	content string
 }
 
-// contentUnderTest returns the content a content-matching handler should scan.
+// contentUnderTest returns the content a content-matching handler should scan,
+// honoring the caller's declared EvalContext.ContentScope.
 //
-// EvalContext.CurrentOutput, when set, is authoritative: it is the specific
-// content the caller is evaluating — the assistant's reply for an output
-// guardrail, the *user's* message for an input guardrail. Handlers that ignore
-// it and instead scan messages filtered to assistant role cannot see user input
-// at all, which made `direction: input` guardrails silent no-ops (#1679).
+// ContentScopeCurrent (set by the guardrail adapter) means examine only
+// CurrentOutput — the one message being judged. That is required for an input
+// guardrail, whose content under test is the *user's* message: a scan filtered
+// to assistant role would never see it, which made `direction: input`
+// guardrails silent no-ops (#1679).
 //
-// When CurrentOutput is empty — bare eval or assertion usage over a whole
-// transcript — fall back to every assistant message, which is the long-standing
-// behavior those callers rely on.
+// The default, ContentScopeTranscript, scans every assistant message. Evals and
+// assertions rely on this to answer "was this ever said" across the whole
+// conversation.
+//
+// Scope is deliberately explicit rather than inferred from CurrentOutput being
+// set: BuildEvalContext always populates that field, so inferring would
+// silently narrow every eval and assertion to the last assistant turn.
 func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
 	if evalCtx == nil {
 		return nil
 	}
 
-	if evalCtx.CurrentOutput != "" {
+	if evalCtx.ContentScope == evals.ContentScopeCurrent && evalCtx.CurrentOutput != "" {
 		// Attribute it to the last message, which is the turn the caller is
 		// evaluating in both the input and output directions.
 		turn := len(evalCtx.Messages) - 1
