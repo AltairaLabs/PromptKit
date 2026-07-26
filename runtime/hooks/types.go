@@ -45,6 +45,13 @@ type ProviderRequest struct {
 	SystemPrompt string
 	Round        int
 	Metadata     map[string]any
+
+	// Replacement is written by a BeforeCall hook that returns Enforced, to
+	// supply the assistant text returned in place of the blocked provider
+	// call. Mirrors how output guardrails mutate resp.Message in AfterCall.
+	// Empty falls back to Decision.Metadata["replacement"], then to
+	// prompt.DefaultBlockedMessage.
+	Replacement string
 }
 
 // ProviderResponse describes a completed LLM call.

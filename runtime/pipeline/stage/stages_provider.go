@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -1033,6 +1034,13 @@ func (s *ProviderStage) executeRound(
 			Metadata:     metadata,
 		}
 		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			if d.Enforced {
+				// Guardrail skipped the provider call: no request, no tokens.
+				// Returning hasToolCalls=false stops the round loop (afterRound
+				// returns done on !hasToolCalls). The pipeline is NOT aborted —
+				// this message is emitted and downstream stages still run.
+				return s.blockedMessage(hookReq, d), false, nil
+			}
 			return types.Message{}, false, &hooks.HookDeniedError{
 				HookName: providerHookName,
 				HookType: providerHookTypeBefore,
@@ -1240,6 +1248,13 @@ func (s *ProviderStage) executeStreamingRound(
 			Metadata:     params.metadata,
 		}
 		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			if d.Enforced {
+				// Guardrail skipped the provider call: no request, no tokens.
+				// Returning hasToolCalls=false stops the round loop (afterRound
+				// returns done on !hasToolCalls). The pipeline is NOT aborted —
+				// this message is emitted and downstream stages still run.
+				return s.blockedMessage(hookReq, d), false, nil
+			}
 			return types.Message{}, false, &hooks.HookDeniedError{
 				HookName: providerHookName,
 				HookType: providerHookTypeBefore,
@@ -1872,6 +1887,51 @@ func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Durat
 		data.Violations = []string{d.Reason}
 	}
 	s.emitter.GuardrailResult(data)
+}
+
+// blockedMessage builds the assistant turn substituted for a provider call that
+// an enforcing BeforeCall hook skipped.
+//
+// This mirrors preExecCheck's handling of a blocked tool call: substitute a
+// well-formed result of the same shape, mark it with a typed indicator, attach
+// the decision metadata, and let the caller return normally so the pipeline
+// continues. Only the provider work is skipped — downstream stages still run.
+//
+// Text resolution order: the hook's req.Replacement, then
+// Decision.Metadata["replacement"] (the only channel an exec hook has), then
+// the default blocked message.
+func (s *ProviderStage) blockedMessage(
+	req *hooks.ProviderRequest, d hooks.Decision,
+) types.Message {
+	content := ""
+	if req != nil {
+		content = req.Replacement
+	}
+	if content == "" {
+		if m, ok := d.Metadata["replacement"].(string); ok {
+			content = m
+		}
+	}
+	if content == "" {
+		content = prompt.DefaultBlockedMessage
+	}
+
+	msg := types.Message{
+		Role:         roleAssistant,
+		Content:      content,
+		Timestamp:    timeNow(),
+		FinishReason: types.FinishReasonSafety,
+	}
+	if len(d.Metadata) > 0 {
+		// Meta is map[string]interface{} (types/message.go:39). Copy rather
+		// than alias the decision's map so a hook cannot mutate the recorded
+		// message afterwards.
+		msg.Meta = make(map[string]interface{}, len(d.Metadata))
+		for k, v := range d.Metadata {
+			msg.Meta[k] = v
+		}
+	}
+	return msg
 }
 
 // buildPendingResult creates a toolCallResult for a pending tool execution.

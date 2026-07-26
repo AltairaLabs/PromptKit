@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -742,4 +743,209 @@ func TestProviderStage_GuardrailEmitsValidationEvent(t *testing.T) {
 	assert.Equal(t, "banned_words", data.ValidatorName)
 	assert.True(t, data.Enforced)
 	assert.Len(t, data.Violations, 1)
+}
+
+// =============================================================================
+// BeforeCall Enforced tests — canned turn, no provider call
+// =============================================================================
+
+// enforceBeforeCallHook enforces on BeforeCall, supplying canned text.
+type enforceBeforeCallHook struct {
+	reason      string
+	replacement string
+	metadata    map[string]any
+}
+
+func (h *enforceBeforeCallHook) Name() string { return "enforce_before" }
+
+func (h *enforceBeforeCallHook) BeforeCall(
+	_ context.Context, req *hooks.ProviderRequest,
+) hooks.Decision {
+	req.Replacement = h.replacement
+	return hooks.Enforced(h.reason, h.metadata)
+}
+
+func (h *enforceBeforeCallHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+// assistantMessages extracts assistant messages from emitted stream elements.
+func assistantMessages(elems []StreamElement) []types.Message {
+	var out []types.Message
+	for _, e := range elems {
+		if e.Message != nil && e.Message.Role == "assistant" {
+			out = append(out, *e.Message)
+		}
+	}
+	return out
+}
+
+func TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnNonStreaming(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason:      "input blocked",
+		replacement: "I can't help with that.",
+		metadata:    map[string]any{"validator_type": "test_input"},
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "something disallowed")
+
+	require.NoError(t, err, "enforced pre-call must not error")
+	assert.Equal(t, 0, provider.callCount(), "provider must not be called")
+
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "I can't help with that.", msgs[0].Content)
+}
+
+func TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnStreaming(t *testing.T) {
+	provider := mock.NewProvider("p", "m", false) // SupportsStreaming() == true
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason:      "input blocked",
+		replacement: "I can't help with that.",
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "something disallowed")
+
+	require.NoError(t, err)
+	msgs := assistantMessages(elems)
+	require.NotEmpty(t, msgs)
+	assert.Equal(t, "I can't help with that.", msgs[len(msgs)-1].Content)
+}
+
+// TestProviderStage_BeforeCallHook_EnforcedFallsBackToDefaultMessage proves the
+// canned text falls back to prompt.DefaultBlockedMessage when the hook sets no
+// Replacement and no metadata replacement.
+func TestProviderStage_BeforeCallHook_EnforcedFallsBackToDefaultMessage(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason: "blocked, no text supplied",
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "hi")
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, provider.callCount())
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, prompt.DefaultBlockedMessage, msgs[0].Content)
+}
+
+// TestProviderStage_BeforeCallHook_EnforcedViaMetadataReplacement covers exec
+// hooks, which can only return JSON metadata — no Go field to write.
+func TestProviderStage_BeforeCallHook_EnforcedViaMetadataReplacement(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason:   "blocked by subprocess",
+		metadata: map[string]any{"replacement": "Blocked by policy."},
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "hi")
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, provider.callCount())
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Blocked by policy.", msgs[0].Content)
+}
+
+// passthroughRecorderStage records every element it sees and forwards it, so a
+// test can prove a stage downstream of ProviderStage still ran.
+type passthroughRecorderStage struct {
+	mu   sync.Mutex
+	seen []types.Message
+}
+
+func (s *passthroughRecorderStage) Name() string { return "recorder" }
+
+// Type is required by the Stage interface (stage.go:49-56) alongside Name and
+// Process. Transform is the 1:1 forwarding shape.
+func (s *passthroughRecorderStage) Type() StageType { return StageTypeTransform }
+
+func (s *passthroughRecorderStage) Process(
+	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
+) error {
+	defer close(output)
+	for elem := range input {
+		if elem.Message != nil {
+			s.mu.Lock()
+			s.seen = append(s.seen, *elem.Message)
+			s.mu.Unlock()
+		}
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func (s *passthroughRecorderStage) messages() []types.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]types.Message(nil), s.seen...)
+}
+
+// TestProviderStage_EnforcedPreCall_DownstreamStagesStillRun proves that an
+// enforcing input guardrail skips only the provider work inside ProviderStage:
+// the canned turn is emitted, the stage returns normally, and the next stage in
+// the pipeline receives it. Guardrails belong to one stage — they must not
+// abort the pipeline.
+func TestProviderStage_EnforcedPreCall_DownstreamStagesStillRun(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason:      "input blocked",
+		replacement: "I can't help with that.",
+		metadata:    map[string]any{"validator_type": "test_input"},
+	}))
+
+	provStage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+	recorder := &passthroughRecorderStage{}
+
+	pipe, err := NewPipelineBuilder().Chain(provStage, recorder).Build()
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user", Content: "something disallowed"}
+	_, err = pipe.ExecuteSync(context.Background(), NewMessageElement(&userMsg))
+	require.NoError(t, err, "enforcement must not fail the pipeline")
+
+	assert.Equal(t, 0, provider.callCount(), "provider must not be called")
+
+	seen := recorder.messages()
+	var blocked *types.Message
+	for i := range seen {
+		if seen[i].Role == "assistant" {
+			blocked = &seen[i]
+		}
+	}
+	require.NotNil(t, blocked, "downstream stage must receive the canned assistant turn")
+	assert.Equal(t, "I can't help with that.", blocked.Content)
+	assert.Equal(t, types.FinishReasonSafety, blocked.FinishReason,
+		"blocked turn must be marked so downstream stages can detect the skip")
 }
