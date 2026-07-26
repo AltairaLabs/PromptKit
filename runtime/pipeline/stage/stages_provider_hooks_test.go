@@ -210,6 +210,99 @@ func TestProviderStage_BeforeCallHook_DeniesStreaming(t *testing.T) {
 	assert.Equal(t, "streaming blocked", denied.Reason)
 }
 
+// redactingProviderHook rewrites the last message's content in place and allows.
+type redactingProviderHook struct {
+	replacement string
+}
+
+func (h *redactingProviderHook) Name() string { return "redactor" }
+
+func (h *redactingProviderHook) BeforeCall(
+	_ context.Context, req *hooks.ProviderRequest,
+) hooks.Decision {
+	if len(req.Messages) > 0 {
+		req.Messages[len(req.Messages)-1].Content = h.replacement
+	}
+	return hooks.Allow
+}
+
+func (h *redactingProviderHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+// redactionRecordingProvider captures the PredictionRequest the provider
+// actually received. Named distinctly from the package's other
+// recordingProvider (composition_executor_test.go), which records only
+// metadata and isn't a providers.Provider wrapper.
+type redactionRecordingProvider struct {
+	providers.Provider
+	mu       sync.Mutex
+	requests []providers.PredictionRequest
+	calls    int
+}
+
+func (p *redactionRecordingProvider) SupportsStreaming() bool { return false }
+
+func (p *redactionRecordingProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	p.calls++
+	p.mu.Unlock()
+	return p.Provider.Predict(ctx, req)
+}
+
+func (p *redactionRecordingProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func (p *redactionRecordingProvider) lastRequest() providers.PredictionRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.requests[len(p.requests)-1]
+}
+
+// TestProviderStage_BeforeCallHook_RedactionSurvivesNormalize proves a BeforeCall
+// hook's mutation of req.Messages reaches the provider even when a system message
+// is present — NormalizeMessages copies the slice, so the hook must run first.
+func TestProviderStage_BeforeCallHook_RedactionSurvivesNormalize(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&redactingProviderHook{
+		replacement: "[REDACTED]",
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	// A system-role message in the slice forces NormalizeMessages to rebuild
+	// req.Messages as a copy — the exact condition that used to drop mutations.
+	input := make(chan StreamElement, 2)
+	sysMsg := types.Message{Role: "system", Content: "be terse"}
+	userMsg := types.Message{Role: "user", Content: "my SSN is 123-45-6789"}
+	input <- NewMessageElement(&sysMsg)
+	input <- NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan StreamElement, 50)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+	for range output { //nolint:revive // drain
+	}
+
+	require.Equal(t, 1, provider.callCount())
+	got := provider.lastRequest()
+	require.NotEmpty(t, got.Messages)
+	assert.Equal(t, "[REDACTED]", got.Messages[len(got.Messages)-1].Content,
+		"BeforeCall mutation must reach the provider")
+	assert.NotContains(t, got.Messages[len(got.Messages)-1].Content, "123-45-6789")
+}
+
 // =============================================================================
 // AfterCall hook tests
 // =============================================================================

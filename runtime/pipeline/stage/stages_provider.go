@@ -29,6 +29,11 @@ const (
 	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
 	toolChoiceNone              = "none"
+
+	// HookDeniedError fields for provider hook denials (BeforeCall/AfterCall).
+	providerHookName       = "provider_hook"
+	providerHookTypeBefore = "provider_before"
+	providerHookTypeAfter  = "provider_after"
 )
 
 // ProviderStage implementation notes:
@@ -1014,6 +1019,29 @@ func (s *ProviderStage) executeRound(
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
 
+	// Run BeforeCall hooks BEFORE building the request. Hooks may mutate
+	// `messages` in place (e.g. redaction); NormalizeMessages copies the
+	// slice when a system message is present, so a hook running after the
+	// build would have its mutations silently discarded.
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     messages,
+			SystemPrompt: systemPrompt,
+			Round:        round,
+			Metadata:     metadata,
+		}
+		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			return types.Message{}, false, &hooks.HookDeniedError{
+				HookName: providerHookName,
+				HookType: providerHookTypeBefore,
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
+	}
+
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
@@ -1045,26 +1073,6 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount, s.config.Labels)
-	}
-
-	// Run BeforeCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     messages,
-			SystemPrompt: systemPrompt,
-			Round:        round,
-			Metadata:     metadata,
-		}
-		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
-			return types.Message{}, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_before",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
-			}
-		}
 	}
 
 	// Call provider (with or without tools)
@@ -1190,8 +1198,8 @@ func (s *ProviderStage) executeRound(
 				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: "provider_hook",
-					HookType: "provider_after",
+					HookName: providerHookName,
+					HookType: providerHookTypeAfter,
 					Reason:   d.Reason,
 					Metadata: d.Metadata,
 				}
@@ -1217,6 +1225,29 @@ func (s *ProviderStage) executeStreamingRound(
 	output chan<- StreamElement,
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
+
+	// Run BeforeCall hooks BEFORE building the request. Hooks may mutate
+	// `params.messages` in place (e.g. redaction); NormalizeMessages copies
+	// the slice when a system message is present, so a hook running after
+	// the build would have its mutations silently discarded.
+	if s.hookRegistry != nil {
+		hookReq := &hooks.ProviderRequest{
+			ProviderID:   s.provider.ID(),
+			Model:        s.provider.Model(),
+			Messages:     params.messages,
+			SystemPrompt: params.systemPrompt,
+			Round:        params.round,
+			Metadata:     params.metadata,
+		}
+		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
+			return types.Message{}, false, &hooks.HookDeniedError{
+				HookName: providerHookName,
+				HookType: providerHookTypeBefore,
+				Reason:   d.Reason,
+				Metadata: d.Metadata,
+			}
+		}
+	}
 
 	// Build provider request
 	req := providers.PredictionRequest{
@@ -1245,26 +1276,6 @@ func (s *ProviderStage) executeStreamingRound(
 		"round", params.round,
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
-
-	// Run BeforeCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     params.messages,
-			SystemPrompt: params.systemPrompt,
-			Round:        params.round,
-			Metadata:     params.metadata,
-		}
-		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
-			return types.Message{}, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_before",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
-			}
-		}
-	}
 
 	// Emit provider call started event
 	if s.emitter != nil {
@@ -1399,8 +1410,8 @@ func (s *ProviderStage) executeStreamingRound(
 				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: "provider_hook",
-					HookType: "provider_after",
+					HookName: providerHookName,
+					HookType: providerHookTypeAfter,
 					Reason:   d.Reason,
 					Metadata: d.Metadata,
 				}
