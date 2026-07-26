@@ -949,3 +949,160 @@ func TestProviderStage_EnforcedPreCall_DownstreamStagesStillRun(t *testing.T) {
 	assert.Equal(t, types.FinishReasonSafety, blocked.FinishReason,
 		"blocked turn must be marked so downstream stages can detect the skip")
 }
+
+// =============================================================================
+// AfterCall Enforced tests — enforcement must drop tool calls and stop the loop
+// =============================================================================
+
+// enforceAfterCallHook enforces on AfterCall, replacing the response content.
+type enforceAfterCallHook struct {
+	replacement string
+}
+
+func (h *enforceAfterCallHook) Name() string { return "enforce_after" }
+
+func (h *enforceAfterCallHook) BeforeCall(
+	_ context.Context, _ *hooks.ProviderRequest,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *enforceAfterCallHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse,
+) hooks.Decision {
+	resp.Message.Content = h.replacement
+	return hooks.Enforced("output blocked", map[string]any{
+		"validator_type": "test_output",
+	})
+}
+
+// toolCallingProvider always returns one tool call plus content, so we can
+// prove an enforced guardrail drops the call instead of executing it.
+type toolCallingProvider struct {
+	providers.Provider
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *toolCallingProvider) SupportsStreaming() bool { return false }
+
+func (p *toolCallingProvider) Predict(
+	_ context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	return providers.PredictionResponse{
+		Content: "let me look that up",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "call_1", Name: "search", Args: json.RawMessage(`{"q":"x"}`)},
+		},
+	}, nil
+}
+
+func (p *toolCallingProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+// TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops proves an
+// enforced output guardrail stops the round loop: the tool is not executed, the loop
+// does not run a second round, and the recorded message carries no tool calls
+// (an assistant message with tool calls but no tool results is a provider
+// protocol error on the following turn).
+func TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops(t *testing.T) {
+	provider := &toolCallingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(
+		&enforceAfterCallHook{replacement: "I can't help with that."},
+	))
+
+	// Deliberately no tool registry. executeToolCalls errors with "tool
+	// registry not configured but tool calls present" if the loop tries to
+	// run the dropped calls, so a leak shows up as a hard error.
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "search for x")
+
+	require.NoError(t, err, "enforced response must not attempt tool execution")
+	assert.Equal(t, 1, provider.callCount(), "loop must not run a second round")
+
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "I can't help with that.", msgs[0].Content)
+	assert.Empty(t, msgs[0].ToolCalls, "enforced response must not retain tool calls")
+}
+
+// toolCallingStreamProvider is the streaming counterpart of
+// toolCallingProvider: SupportsStreaming reports true so the stage takes the
+// executeStreamingRound path, and PredictStream always emits one tool call
+// plus content, so the same enforcement-drops-tool-calls proof can run
+// against the streaming round loop.
+type toolCallingStreamProvider struct {
+	providers.Provider
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *toolCallingStreamProvider) SupportsStreaming() bool { return true }
+
+func (p *toolCallingStreamProvider) PredictStream(
+	_ context.Context, _ providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+
+	finish := "tool_calls"
+	ch := make(chan providers.StreamChunk, 1)
+	ch <- providers.StreamChunk{
+		Content: "let me look that up",
+		Delta:   "let me look that up",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "call_1", Name: "search", Args: json.RawMessage(`{"q":"x"}`)},
+		},
+		FinishReason: &finish,
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (p *toolCallingStreamProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+// TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops_Streaming is
+// the streaming counterpart of the test above: it proves the identical fix
+// applied to executeStreamingRound also drops tool calls and stops the loop,
+// and stamps the same skip indicators (FinishReasonSafety) that
+// blockedMessage uses on the BeforeCall path.
+func TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops_Streaming(t *testing.T) {
+	provider := &toolCallingStreamProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(
+		&enforceAfterCallHook{replacement: "I can't help with that."},
+	))
+
+	// Deliberately no tool registry — a dropped-call leak surfaces as a hard
+	// error the same way it does on the non-streaming path.
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "search for x")
+
+	require.NoError(t, err, "enforced response must not attempt tool execution")
+	assert.Equal(t, 1, provider.callCount(), "loop must not run a second round")
+
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "I can't help with that.", msgs[0].Content)
+	assert.Empty(t, msgs[0].ToolCalls, "enforced response must not retain tool calls")
+	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason,
+		"enforced response must be marked like a policy-dropped tool call")
+}

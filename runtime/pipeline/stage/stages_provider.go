@@ -1201,9 +1201,23 @@ func (s *ProviderStage) executeRound(
 			}
 			if d.Enforced {
 				// Hook already enforced (truncated/replaced content) — pick up
-				// the modified message and continue the pipeline.
+				// the modified message and stop the round loop. The pipeline
+				// itself continues: this response is still emitted and every
+				// downstream stage runs.
+				//
+				// Tool calls are dropped deliberately: the message goes into
+				// history, and an assistant message carrying tool calls with no
+				// matching tool results is a protocol error on the next call.
+				// Marked like a blocked tool call (preExecCheck) so consumers
+				// can tell the calls were dropped by policy.
 				responseMsg.Content = hookResp.Message.Content
 				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+				responseMsg.ToolCalls = nil
+				toolCalls = nil
+				responseMsg.FinishReason = types.FinishReasonSafety
+				if len(d.Metadata) > 0 {
+					responseMsg.Meta = d.Metadata
+				}
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
 					HookName: providerHookName,
@@ -1420,9 +1434,24 @@ func (s *ProviderStage) executeStreamingRound(
 				)
 			}
 			if d.Enforced {
-				// Hook already enforced — pick up modified content and continue.
+				// Hook already enforced (truncated/replaced content) — pick up
+				// the modified message and stop the round loop. The pipeline
+				// itself continues: this response is still emitted and every
+				// downstream stage runs.
+				//
+				// Tool calls are dropped deliberately: the message goes into
+				// history, and an assistant message carrying tool calls with no
+				// matching tool results is a protocol error on the next call.
+				// Marked like a blocked tool call (preExecCheck) so consumers
+				// can tell the calls were dropped by policy.
 				responseMsg.Content = hookResp.Message.Content
 				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+				responseMsg.ToolCalls = nil
+				toolCalls = nil
+				responseMsg.FinishReason = types.FinishReasonSafety
+				if len(d.Metadata) > 0 {
+					responseMsg.Meta = d.Metadata
+				}
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
 					HookName: providerHookName,
