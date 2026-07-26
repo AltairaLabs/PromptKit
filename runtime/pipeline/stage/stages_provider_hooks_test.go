@@ -1206,3 +1206,49 @@ func TestProviderStage_AfterCallHook_EnforcedTaggedOutput(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "output", got[0].Direction)
 }
+
+// TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop proves the real
+// input guardrail inspects user input on the first round only. Round 2 of a
+// tool loop ends in a tool-result message, so the guardrail must not re-fire —
+// it would score the wrong content and rebill an LLM-judged check every round.
+func TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop(t *testing.T) {
+	guard, err := guardrails.NewGuardrailHook("length", map[string]any{
+		"max_characters": 5,
+		"direction":      "input",
+	})
+	require.NoError(t, err)
+
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+	reg := hooks.NewRegistry(hooks.WithProviderHook(guard))
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, reg)
+
+	// Round 1: the turn's user message is last and exceeds max_characters, so
+	// the guardrail fires — the provider is never called.
+	round1 := []types.Message{
+		{Role: "user", Content: "search for x"},
+	}
+	msg1, hasTools1, err := stage.executeRound(
+		context.Background(), round1, "sys", nil, "", 1, nil)
+	require.NoError(t, err)
+	assert.False(t, hasTools1)
+	assert.Equal(t, types.FinishReasonSafety, msg1.FinishReason,
+		"round 1 must be blocked by the input guardrail")
+	assert.Equal(t, 0, provider.callCount(), "blocked round must not call the provider")
+
+	// Round 2: the assistant asked for a tool and the result came back, so the
+	// tail is a tool message — not new user input. The guardrail must stand down
+	// even though the tool result is also longer than max_characters.
+	round2 := []types.Message{
+		{Role: "user", Content: "search for x"},
+		{Role: "assistant", Content: "looking that up"},
+		{Role: "tool", Content: `{"result":"a much longer tool payload"}`},
+	}
+	msg2, _, err := stage.executeRound(
+		context.Background(), round2, "sys", nil, "", 2, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, types.FinishReasonSafety, msg2.FinishReason,
+		"round 2 must not be blocked — its tail is a tool result, not user input")
+	assert.Equal(t, 1, provider.callCount(), "round 2 must reach the provider")
+}

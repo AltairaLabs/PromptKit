@@ -18,6 +18,9 @@ const (
 	directionBoth   = "both"
 )
 
+// roleUser is the message role an input guardrail gates on.
+const roleUser = "user"
+
 // GuardrailHookAdapter wraps an evals.EvalTypeHandler as a hooks.ProviderHook.
 // This bridges the unified eval system to the pipeline's hook infrastructure,
 // allowing any registered eval handler to be used as a guardrail.
@@ -43,8 +46,15 @@ var (
 // Name returns the eval type identifier for this guardrail.
 func (a *GuardrailHookAdapter) Name() string { return a.evalType }
 
-// BeforeCall checks input messages when direction is "input" or "both".
-// For input direction, it evaluates the last user message.
+// BeforeCall checks input when direction is "input" or "both".
+//
+// It evaluates only when the last message is a user message. BeforeCall runs
+// once per round inside the tool loop, where later rounds end in a tool-result
+// message rather than user input — evaluating those would score the wrong
+// content and rebill LLM-judged checks every round. The gate is deliberately
+// content-based rather than round-based: round numbering restarts for each
+// composition sub-pipeline, so a Round==1 test would skip every step but the
+// first.
 func (a *GuardrailHookAdapter) BeforeCall(
 	ctx context.Context, req *hooks.ProviderRequest,
 ) hooks.Decision {
@@ -55,14 +65,26 @@ func (a *GuardrailHookAdapter) BeforeCall(
 		return hooks.Allow
 	}
 
-	// Evaluate the last message content
 	lastMsg := req.Messages[len(req.Messages)-1]
+	if lastMsg.Role != roleUser {
+		return hooks.Allow
+	}
+
 	evalCtx := &evals.EvalContext{
 		CurrentOutput: lastMsg.GetContent(),
 		Messages:      req.Messages,
 	}
 
-	return a.evaluate(ctx, evalCtx)
+	d := a.evaluate(ctx, evalCtx)
+	if !d.Allow {
+		// Supply the user-facing text for the canned assistant turn the
+		// pipeline returns in place of the blocked call.
+		req.Replacement = a.message
+		if req.Replacement == "" {
+			req.Replacement = prompt.DefaultBlockedMessage
+		}
+	}
+	return d
 }
 
 // AfterCall checks provider output when direction is "output" or "both".

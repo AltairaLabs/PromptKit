@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -134,9 +137,10 @@ func TestGuardrailHookAdapter_InputDirection(t *testing.T) {
 		t.Error("expected Allow for AfterCall with input direction")
 	}
 
-	// BeforeCall should evaluate when direction is "input"
+	// BeforeCall should evaluate when direction is "input" and the last
+	// message is a user message (the gate this test now also exercises).
 	req := &hooks.ProviderRequest{
-		Messages: []types.Message{{Content: "user input"}},
+		Messages: []types.Message{{Role: "user", Content: "user input"}},
 	}
 	decision = adapter.BeforeCall(context.Background(), req)
 	if decision.Allow {
@@ -162,8 +166,10 @@ func TestGuardrailHookAdapter_BothDirection(t *testing.T) {
 		direction: "both",
 	}
 
+	// The last message must be a user message for BeforeCall to evaluate
+	// under the content-based gate.
 	req := &hooks.ProviderRequest{
-		Messages: []types.Message{{Content: "hello"}},
+		Messages: []types.Message{{Role: "user", Content: "hello"}},
 	}
 	resp := &hooks.ProviderResponse{
 		Message: types.Message{Content: "world"},
@@ -334,6 +340,88 @@ func (c *capturingHandler) Eval(
 
 func TestGuardrailHookAdapter_ImplementsProviderHook(t *testing.T) {
 	var _ hooks.ProviderHook = (*GuardrailHookAdapter)(nil)
+}
+
+// newCountingFailHandler returns a handler that always scores 0 (fail) and
+// increments *n each time it is invoked.
+func newCountingFailHandler(n *int) evals.EvalTypeHandler {
+	return &countingFailHandler{n: n}
+}
+
+type countingFailHandler struct{ n *int }
+
+func (h *countingFailHandler) Type() string { return "test_fail" }
+
+func (h *countingFailHandler) Eval(
+	_ context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	*h.n++
+	zero := 0.0
+	return &evals.EvalResult{Score: &zero, Explanation: "always fails"}, nil
+}
+
+// TestGuardrailAdapter_BeforeCall_SkipsWhenLastMessageNotUser proves an input
+// guardrail does not re-evaluate on tool-loop rounds, where the last message is
+// a tool result rather than user input.
+func TestGuardrailAdapter_BeforeCall_SkipsWhenLastMessageNotUser(t *testing.T) {
+	callCount := 0
+	adapter := &GuardrailHookAdapter{
+		handler:   newCountingFailHandler(&callCount),
+		evalType:  "test_fail",
+		direction: "input",
+	}
+
+	req := &hooks.ProviderRequest{Messages: []types.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "calling a tool"},
+		{Role: "tool", Content: "tool output"},
+	}}
+
+	d := adapter.BeforeCall(context.Background(), req)
+
+	assert.True(t, d.Allow, "must not evaluate when last message is a tool result")
+	assert.Equal(t, 0, callCount, "handler must not be invoked")
+}
+
+func TestGuardrailAdapter_BeforeCall_EvaluatesWhenLastMessageIsUser(t *testing.T) {
+	callCount := 0
+	adapter := &GuardrailHookAdapter{
+		handler:   newCountingFailHandler(&callCount),
+		evalType:  "test_fail",
+		direction: "input",
+	}
+
+	req := &hooks.ProviderRequest{Messages: []types.Message{
+		{Role: "assistant", Content: "how can I help?"},
+		{Role: "user", Content: "something disallowed"},
+	}}
+
+	d := adapter.BeforeCall(context.Background(), req)
+
+	assert.False(t, d.Allow)
+	assert.True(t, d.Enforced, "guardrails enforce rather than deny")
+	assert.Equal(t, 1, callCount)
+}
+
+// TestGuardrailAdapter_BeforeCall_SetsReplacement proves the adapter supplies
+// its user-facing message as the canned assistant text.
+func TestGuardrailAdapter_BeforeCall_SetsReplacement(t *testing.T) {
+	callCount := 0
+	adapter := &GuardrailHookAdapter{
+		handler:   newCountingFailHandler(&callCount),
+		evalType:  "test_fail",
+		direction: "input",
+		message:   "That request isn't allowed.",
+	}
+
+	req := &hooks.ProviderRequest{Messages: []types.Message{
+		{Role: "user", Content: "something disallowed"},
+	}}
+
+	d := adapter.BeforeCall(context.Background(), req)
+
+	require.False(t, d.Allow)
+	assert.Equal(t, "That request isn't allowed.", req.Replacement)
 }
 
 // streamableStubHandler implements both EvalTypeHandler and StreamableEvalHandler.

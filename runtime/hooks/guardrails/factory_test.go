@@ -288,6 +288,28 @@ func TestWithMessage(t *testing.T) {
 	}
 }
 
+func TestNewGuardrailHook_RejectsInvalidDirection(t *testing.T) {
+	_, err := NewGuardrailHook("length", map[string]any{
+		"max_characters": 100,
+		"direction":      "inputs", // typo
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "direction")
+}
+
+func TestNewGuardrailHook_AcceptsValidDirections(t *testing.T) {
+	for _, dir := range []string{"input", "output", "both"} {
+		t.Run(dir, func(t *testing.T) {
+			_, err := NewGuardrailHook("length", map[string]any{
+				"max_characters": 100,
+				"direction":      dir,
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestNewGuardrailHook_MaxLength_WithTokens(t *testing.T) {
 	h, err := NewGuardrailHook("length", map[string]any{
 		"max_characters": 1000,
