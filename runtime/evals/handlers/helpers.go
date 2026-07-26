@@ -3,12 +3,58 @@ package handlers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
 const (
 	roleAssistant = "assistant"
 	roleTool      = "tool"
 )
+
+// scanTarget is one piece of content a content-matching handler should examine,
+// paired with the turn index used in explanations.
+type scanTarget struct {
+	turn    int
+	content string
+}
+
+// contentUnderTest returns the content a content-matching handler should scan.
+//
+// EvalContext.CurrentOutput, when set, is authoritative: it is the specific
+// content the caller is evaluating — the assistant's reply for an output
+// guardrail, the *user's* message for an input guardrail. Handlers that ignore
+// it and instead scan messages filtered to assistant role cannot see user input
+// at all, which made `direction: input` guardrails silent no-ops (#1679).
+//
+// When CurrentOutput is empty — bare eval or assertion usage over a whole
+// transcript — fall back to every assistant message, which is the long-standing
+// behavior those callers rely on.
+func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
+	if evalCtx == nil {
+		return nil
+	}
+
+	if evalCtx.CurrentOutput != "" {
+		// Attribute it to the last message, which is the turn the caller is
+		// evaluating in both the input and output directions.
+		turn := len(evalCtx.Messages) - 1
+		if turn < 0 {
+			turn = 0
+		}
+		return []scanTarget{{turn: turn, content: evalCtx.CurrentOutput}}
+	}
+
+	targets := make([]scanTarget, 0, len(evalCtx.Messages))
+	for i := range evalCtx.Messages {
+		msg := &evalCtx.Messages[i]
+		if !strings.EqualFold(msg.Role, roleAssistant) {
+			continue
+		}
+		targets = append(targets, scanTarget{turn: i, content: msg.GetContent()})
+	}
+	return targets
+}
 
 // extractStringSlice safely extracts a string slice from params.
 func extractStringSlice(params map[string]any, key string) []string {

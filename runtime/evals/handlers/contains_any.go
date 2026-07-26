@@ -34,14 +34,9 @@ func (h *ContainsAnyHandler) Eval(
 	}
 
 	var matchedPatterns []string
-	for i := range evalCtx.Messages {
-		msg := &evalCtx.Messages[i]
-		if !strings.EqualFold(msg.Role, roleAssistant) {
-			continue
-		}
-		content := msg.GetContent()
+	for _, target := range contentUnderTest(evalCtx) {
 		for _, p := range patterns {
-			if containsInsensitive(content, p) {
+			if containsInsensitive(target.content, p) {
 				matchedPatterns = append(matchedPatterns, p)
 			}
 		}
