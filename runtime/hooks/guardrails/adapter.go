@@ -11,15 +11,37 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Direction constants for guardrail hook evaluation.
+// Direction values for guardrail hook evaluation, as accepted in a validator's
+// params["direction"]. Exported so the pipeline can tag a firing with the same
+// vocabulary the adapter gates on — a second, private copy in another package
+// could diverge without breaking the build.
 const (
-	directionInput  = "input"
-	directionOutput = "output"
-	directionBoth   = "both"
+	// DirectionInput gates the user's input in BeforeCall.
+	DirectionInput = "input"
+	// DirectionOutput gates the assistant's response in AfterCall.
+	DirectionOutput = "output"
+	// DirectionBoth gates input and output.
+	DirectionBoth = "both"
 )
 
 // roleUser is the message role an input guardrail gates on.
 const roleUser = "user"
+
+// lastUserTurn returns the trailing user message an input guardrail gates on.
+// ok is false when there is no trailing user message: BeforeCall runs once per
+// round inside the tool loop, and rounds after the first end in a tool-result
+// (or assistant) message rather than new user input. Single-sourced so the
+// eval-backed adapter and the func-backed guardrail cannot drift apart.
+func lastUserTurn(msgs []types.Message) (types.Message, bool) {
+	if len(msgs) == 0 {
+		return types.Message{}, false
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != roleUser {
+		return types.Message{}, false
+	}
+	return last, true
+}
 
 // GuardrailHookAdapter wraps an evals.EvalTypeHandler as a hooks.ProviderHook.
 // This bridges the unified eval system to the pipeline's hook infrastructure,
@@ -48,26 +70,26 @@ func (a *GuardrailHookAdapter) Name() string { return a.evalType }
 
 // BeforeCall checks input when direction is "input" or "both".
 //
-// It evaluates only when the last message is a user message. BeforeCall runs
-// once per round inside the tool loop, where later rounds end in a tool-result
-// message rather than user input — evaluating those would score the wrong
-// content and rebill LLM-judged checks every round. The gate is deliberately
-// content-based rather than round-based: a round check would also misfire on a
-// round whose last message is an assistant message, and round numbering is
-// per-ProviderStage (it restarts in each composition sub-pipeline), so it is
-// not a reliable proxy for "there is new user input".
+// It evaluates only when the last message is a user message (see lastUserTurn).
+// BeforeCall runs once per round inside the tool loop, where later rounds end in
+// a tool-result message rather than user input — evaluating those would score the
+// wrong content and rebill LLM-judged checks every round. The gate is
+// deliberately content-based rather than round-based: a round check would also
+// misfire on a round whose last message is an assistant message, and round
+// numbering is per-ProviderStage (it restarts in each composition sub-pipeline),
+// so it is not a reliable proxy for "there is new user input".
 func (a *GuardrailHookAdapter) BeforeCall(
 	ctx context.Context, req *hooks.ProviderRequest,
 ) hooks.Decision {
-	if a.direction != directionInput && a.direction != directionBoth {
+	if a.direction != DirectionInput && a.direction != DirectionBoth {
 		return hooks.Allow
 	}
-	if req == nil || len(req.Messages) == 0 {
+	if req == nil {
 		return hooks.Allow
 	}
 
-	lastMsg := req.Messages[len(req.Messages)-1]
-	if lastMsg.Role != roleUser {
+	lastMsg, ok := lastUserTurn(req.Messages)
+	if !ok {
 		return hooks.Allow
 	}
 
@@ -94,7 +116,7 @@ func (a *GuardrailHookAdapter) BeforeCall(
 func (a *GuardrailHookAdapter) AfterCall(
 	ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse,
 ) hooks.Decision {
-	if a.direction == directionInput {
+	if a.direction == DirectionInput {
 		return hooks.Allow
 	}
 

@@ -63,6 +63,22 @@ func TestWithGuardrail_ValidThenInvalidRegistersNothing(t *testing.T) {
 	assert.Empty(t, c.providerHooks, "a valid spec preceding a failing one must not be partially registered")
 }
 
+// TestWithGuardrail_ZeroValueSpecErrors pins the reachable path for an
+// unassigned Spec: a caller pre-sizing a slice — make([]guardrails.Spec, n) —
+// and forgetting to fill an entry. That config mistake must surface as an Open()
+// error, not a nil-deref panic inside the SDK.
+func TestWithGuardrail_ZeroValueSpecErrors(t *testing.T) {
+	c := &config{}
+	specs := make([]guardrails.Spec, 2)
+	specs[0] = guardrails.Input("length", map[string]any{"max_characters": 100})
+	// specs[1] left unassigned
+
+	err := WithGuardrail(specs...)(c)
+
+	require.ErrorIs(t, err, guardrails.ErrEmptySpec)
+	assert.Empty(t, c.providerHooks, "a failed spec must register nothing")
+}
+
 // TestWithGuardrail_ConstructorOverridesParamsDirection pins that the
 // directional constructor is authoritative: a stray params["direction"] cannot
 // silently flip an Output guardrail into an input one.

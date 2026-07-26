@@ -313,7 +313,7 @@ func TestNewGuardrailHook_InvalidDirection_FallsBackToOutput(t *testing.T) {
 				"an invalid direction must not error — construction must still succeed")
 
 			adapter := h.(*GuardrailHookAdapter)
-			require.Equal(t, directionOutput, adapter.direction,
+			require.Equal(t, DirectionOutput, adapter.direction,
 				"an invalid direction must fall back to output")
 
 			longContent := "this is way too long for the five-character limit"
@@ -339,14 +339,51 @@ func TestNewGuardrailHook_InvalidDirection_FallsBackToOutput(t *testing.T) {
 	}
 }
 
+// TestNewGuardrailHook_AcceptsValidDirections pins the accepted direction
+// vocabulary behaviorally. Asserting only that construction succeeds would be
+// unconditionally true — since the fail-open fix the factory never errors on a
+// direction at all — so dropping a case from the switch would silently degrade
+// that direction to output-only (for "both", the input-side check vanishes
+// entirely) with the whole suite still green.
 func TestNewGuardrailHook_AcceptsValidDirections(t *testing.T) {
-	for _, dir := range []string{"input", "output", "both"} {
-		t.Run(dir, func(t *testing.T) {
-			_, err := NewGuardrailHook("length", map[string]any{
-				"max_characters": 100,
-				"direction":      dir,
+	// Longer than max_characters below, so any gating direction must fire.
+	const longContent = "this is way too long for the five-character limit"
+
+	cases := []struct {
+		direction   string
+		gatesInput  bool
+		gatesOutput bool
+	}{
+		{direction: DirectionInput, gatesInput: true, gatesOutput: false},
+		{direction: DirectionOutput, gatesInput: false, gatesOutput: true},
+		{direction: DirectionBoth, gatesInput: true, gatesOutput: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.direction, func(t *testing.T) {
+			h, err := NewGuardrailHook("length", map[string]any{
+				"max_characters": 5,
+				"direction":      tc.direction,
 			})
 			require.NoError(t, err)
+
+			adapter := h.(*GuardrailHookAdapter)
+			require.Equal(t, tc.direction, adapter.direction,
+				"the accepted direction must be the one the adapter gates on")
+
+			req := &hooks.ProviderRequest{
+				Messages: []types.Message{{Role: roleUser, Content: longContent}},
+			}
+			before := adapter.BeforeCall(context.Background(), req)
+			assert.Equal(t, tc.gatesInput, !before.Allow,
+				"BeforeCall gating must match the declared direction")
+
+			resp := &hooks.ProviderResponse{
+				Message: types.Message{Role: "assistant", Content: longContent},
+			}
+			after := adapter.AfterCall(context.Background(), req, resp)
+			assert.Equal(t, tc.gatesOutput, !after.Allow,
+				"AfterCall gating must match the declared direction")
 		})
 	}
 }

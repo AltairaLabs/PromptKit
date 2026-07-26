@@ -48,7 +48,7 @@ func NewGuardrailHookFromRegistry(
 		}
 	}
 
-	direction := directionOutput
+	direction := DirectionOutput
 	if raw, present := params["direction"]; present {
 		d, ok := raw.(string)
 		if !ok {
@@ -57,13 +57,13 @@ func NewGuardrailHookFromRegistry(
 				"type", typeName, "direction", raw)
 		} else {
 			switch d {
-			case directionInput, directionOutput, directionBoth:
+			case DirectionInput, DirectionOutput, DirectionBoth:
 				direction = d
 			default:
 				logger.Warn(
 					"Guardrail has unrecognized direction; falling back to output",
 					"type", typeName, "direction", d,
-					"want", fmt.Sprintf("%q, %q or %q", directionInput, directionOutput, directionBoth))
+					"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
 			}
 		}
 	}

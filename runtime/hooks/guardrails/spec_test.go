@@ -35,6 +35,19 @@ func TestOutput_SetsOutputDirection(t *testing.T) {
 	assert.True(t, d.Allow, "output guardrail must not evaluate input")
 }
 
+// TestSpec_ZeroValueReturnsError pins that a Spec which never went through a
+// constructor reports an error instead of nil-dereferencing its build func.
+// Reachable from a pre-sized slice — make([]guardrails.Spec, n) — whose entries
+// a branch failed to assign, so a config mistake must not panic inside Open().
+func TestSpec_ZeroValueReturnsError(t *testing.T) {
+	specs := make([]Spec, 1) // caller forgot to assign specs[0]
+
+	h, err := specs[0].Hook()
+
+	require.ErrorIs(t, err, ErrEmptySpec)
+	assert.Nil(t, h)
+}
+
 func TestInput_PropagatesConstructionError(t *testing.T) {
 	_, err := Input("no_such_eval_type_anywhere", nil).Hook()
 	require.Error(t, err)

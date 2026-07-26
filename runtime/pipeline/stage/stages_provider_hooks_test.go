@@ -234,26 +234,43 @@ func (h *redactingProviderHook) AfterCall(
 }
 
 // redactionRecordingProvider captures the PredictionRequest the provider
-// actually received. Named distinctly from the package's other
-// recordingProvider (composition_executor_test.go), which records only
-// metadata and isn't a providers.Provider wrapper.
+// actually received, on whichever path the stage takes. Named distinctly from
+// the package's other recordingProvider (composition_executor_test.go), which
+// records only metadata and isn't a providers.Provider wrapper.
+//
+// streaming selects the path: false (the zero value) routes the stage through
+// executeRound, true through executeStreamingRound. Both Predict and
+// PredictStream record, so the same "provider never called" / "provider saw the
+// mutated request" proofs hold on either path.
 type redactionRecordingProvider struct {
 	providers.Provider
-	mu       sync.Mutex
-	requests []providers.PredictionRequest
-	calls    int
+	streaming bool
+	mu        sync.Mutex
+	requests  []providers.PredictionRequest
+	calls     int
 }
 
-func (p *redactionRecordingProvider) SupportsStreaming() bool { return false }
+func (p *redactionRecordingProvider) SupportsStreaming() bool { return p.streaming }
 
 func (p *redactionRecordingProvider) Predict(
 	ctx context.Context, req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
+	p.record(req)
+	return p.Provider.Predict(ctx, req)
+}
+
+func (p *redactionRecordingProvider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	p.record(req)
+	return p.Provider.PredictStream(ctx, req)
+}
+
+func (p *redactionRecordingProvider) record(req providers.PredictionRequest) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.requests = append(p.requests, req)
 	p.calls++
-	p.mu.Unlock()
-	return p.Provider.Predict(ctx, req)
 }
 
 func (p *redactionRecordingProvider) callCount() int {
@@ -271,37 +288,58 @@ func (p *redactionRecordingProvider) lastRequest() providers.PredictionRequest {
 // TestProviderStage_BeforeCallHook_RedactionSurvivesNormalize proves a BeforeCall
 // hook's mutation of req.Messages reaches the provider even when a system message
 // is present — NormalizeMessages copies the slice, so the hook must run first.
+//
+// Run on both round paths: the reorder had to be applied to executeRound AND
+// executeStreamingRound, and streaming is the path most real providers take, so
+// a unary-only test would leave the streaming half of the fix unpinned.
 func TestProviderStage_BeforeCallHook_RedactionSurvivesNormalize(t *testing.T) {
-	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+	for _, streaming := range []bool{false, true} {
+		t.Run(roundPathName(streaming), func(t *testing.T) {
+			provider := &redactionRecordingProvider{
+				Provider:  mock.NewProvider("p", "m", false),
+				streaming: streaming,
+			}
 
-	reg := hooks.NewRegistry(hooks.WithProviderHook(&redactingProviderHook{
-		replacement: "[REDACTED]",
-	}))
+			reg := hooks.NewRegistry(hooks.WithProviderHook(&redactingProviderHook{
+				replacement: "[REDACTED]",
+			}))
 
-	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
-		MaxTokens: 100,
-	}, nil, reg)
+			stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+				MaxTokens: 100,
+			}, nil, reg)
 
-	// A system-role message in the slice forces NormalizeMessages to rebuild
-	// req.Messages as a copy — the exact condition that used to drop mutations.
-	input := make(chan StreamElement, 2)
-	sysMsg := types.Message{Role: "system", Content: "be terse"}
-	userMsg := types.Message{Role: "user", Content: "my SSN is 123-45-6789"}
-	input <- NewMessageElement(&sysMsg)
-	input <- NewMessageElement(&userMsg)
-	close(input)
+			// A system-role message in the slice forces NormalizeMessages to
+			// rebuild req.Messages as a copy — the exact condition that used to
+			// drop mutations.
+			input := make(chan StreamElement, 2)
+			sysMsg := types.Message{Role: "system", Content: "be terse"}
+			userMsg := types.Message{Role: "user", Content: "my SSN is 123-45-6789"}
+			input <- NewMessageElement(&sysMsg)
+			input <- NewMessageElement(&userMsg)
+			close(input)
 
-	output := make(chan StreamElement, 50)
-	require.NoError(t, stage.Process(context.Background(), input, output))
-	for range output { //nolint:revive // drain
+			output := make(chan StreamElement, 50)
+			require.NoError(t, stage.Process(context.Background(), input, output))
+			for range output { //nolint:revive // drain
+			}
+
+			require.Equal(t, 1, provider.callCount())
+			got := provider.lastRequest()
+			require.NotEmpty(t, got.Messages)
+			assert.Equal(t, "[REDACTED]", got.Messages[len(got.Messages)-1].Content,
+				"BeforeCall mutation must reach the provider")
+			assert.NotContains(t, got.Messages[len(got.Messages)-1].Content, "123-45-6789")
+		})
 	}
+}
 
-	require.Equal(t, 1, provider.callCount())
-	got := provider.lastRequest()
-	require.NotEmpty(t, got.Messages)
-	assert.Equal(t, "[REDACTED]", got.Messages[len(got.Messages)-1].Content,
-		"BeforeCall mutation must reach the provider")
-	assert.NotContains(t, got.Messages[len(got.Messages)-1].Content, "123-45-6789")
+// roundPathName labels a subtest by the ProviderStage round path a provider's
+// SupportsStreaming() selects.
+func roundPathName(streaming bool) string {
+	if streaming {
+		return "streaming"
+	}
+	return "unary"
 }
 
 // =============================================================================
@@ -805,8 +843,17 @@ func TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnNonStreaming(t *t
 	assert.Equal(t, "I can't help with that.", msgs[0].Content)
 }
 
+// TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnStreaming is the
+// streaming counterpart of the test above. The call counter is the load-bearing
+// assertion: without it, moving the d.Enforced branch below
+// startStreamingRequest would still return the canned text while spending real
+// tokens on every blocked turn. Streaming is the default path — mock.NewProvider
+// reports SupportsStreaming() == true, as most real providers do.
 func TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnStreaming(t *testing.T) {
-	provider := mock.NewProvider("p", "m", false) // SupportsStreaming() == true
+	provider := &redactionRecordingProvider{
+		Provider:  mock.NewProvider("p", "m", false),
+		streaming: true,
+	}
 
 	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
 		reason:      "input blocked",
@@ -819,10 +866,14 @@ func TestProviderStage_BeforeCallHook_EnforcedReturnsCannedTurnStreaming(t *test
 
 	elems, err := runProviderStage(t, stage, "something disallowed")
 
-	require.NoError(t, err)
+	require.NoError(t, err, "enforced pre-call must not error")
+	assert.Equal(t, 0, provider.callCount(),
+		"provider must not be called on the streaming path either — zero tokens")
+
 	msgs := assistantMessages(elems)
-	require.NotEmpty(t, msgs)
-	assert.Equal(t, "I can't help with that.", msgs[len(msgs)-1].Content)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "I can't help with that.", msgs[0].Content)
+	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason)
 }
 
 // TestProviderStage_BeforeCallHook_EnforcedFallsBackToDefaultMessage proves the
@@ -1248,7 +1299,11 @@ func TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop(t *testing.T) {
 	msg2, _, err := stage.executeRound(
 		context.Background(), round2, "sys", nil, "", 2, nil)
 	require.NoError(t, err)
-	assert.NotEqual(t, types.FinishReasonSafety, msg2.FinishReason,
+	// Asserting on FinishReason here would be vacuous — mock.Provider never sets
+	// one, so NotEqual(FinishReasonSafety) holds however the round went. A
+	// re-fire would record a validation, so an empty Validations slice is the
+	// assertion that can actually fail.
+	assert.Empty(t, msg2.Validations,
 		"round 2 must not be blocked — its tail is a tool result, not user input")
 	assert.Equal(t, 1, provider.callCount(), "round 2 must reach the provider")
 }

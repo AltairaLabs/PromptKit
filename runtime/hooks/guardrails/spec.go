@@ -2,10 +2,18 @@ package guardrails
 
 import (
 	"context"
+	"errors"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
+
+// ErrEmptySpec is returned by Spec.Hook for a zero-value Spec — one that never
+// went through Input, Output, InputFunc or OutputFunc. Reachable from a
+// pre-sized slice (make([]guardrails.Spec, n)) whose entries a branch failed to
+// assign; returning an error keeps that config mistake out of the panic path.
+var ErrEmptySpec = errors.New(
+	"uninitialized Spec — build it with Input, Output, InputFunc or OutputFunc")
 
 // Spec is a declared guardrail, not yet built into a hook. Construction errors
 // (unknown eval type, invalid params) surface from Hook() so callers can
@@ -15,20 +23,26 @@ type Spec struct {
 	build func() (hooks.ProviderHook, error)
 }
 
-// Hook builds the ProviderHook this Spec describes.
-func (s Spec) Hook() (hooks.ProviderHook, error) { return s.build() }
+// Hook builds the ProviderHook this Spec describes. A zero-value Spec returns
+// ErrEmptySpec rather than panicking.
+func (s Spec) Hook() (hooks.ProviderHook, error) {
+	if s.build == nil {
+		return nil, ErrEmptySpec
+	}
+	return s.build()
+}
 
 // Input declares an eval-backed guardrail that gates the user's input before
 // the provider call. Any registered eval handler may be named.
 //
 //	guardrails.Input("pii_leakage", nil)
 func Input(evalType string, params map[string]any, opts ...GuardrailOption) Spec {
-	return evalSpec(evalType, params, directionInput, opts...)
+	return evalSpec(evalType, params, DirectionInput, opts...)
 }
 
 // Output declares an eval-backed guardrail that gates the assistant's response.
 func Output(evalType string, params map[string]any, opts ...GuardrailOption) Spec {
-	return evalSpec(evalType, params, directionOutput, opts...)
+	return evalSpec(evalType, params, DirectionOutput, opts...)
 }
 
 // evalSpec builds a Spec for an eval-backed guardrail, forcing the direction
@@ -92,15 +106,16 @@ func (g *funcGuardrail) Name() string { return g.name }
 
 // BeforeCall runs the input func, if any, when the last message is from the
 // user. Tool-loop rounds — where the last message is a tool result — are
-// skipped, matching GuardrailHookAdapter.BeforeCall's gate.
+// skipped: the gate is lastUserTurn, the same helper
+// GuardrailHookAdapter.BeforeCall uses, so the two cannot drift.
 func (g *funcGuardrail) BeforeCall(
 	ctx context.Context, req *hooks.ProviderRequest,
 ) hooks.Decision {
-	if g.input == nil || req == nil || len(req.Messages) == 0 {
+	if g.input == nil || req == nil {
 		return hooks.Allow
 	}
-	last := req.Messages[len(req.Messages)-1]
-	if last.Role != roleUser {
+	last, ok := lastUserTurn(req.Messages)
+	if !ok {
 		return hooks.Allow
 	}
 
