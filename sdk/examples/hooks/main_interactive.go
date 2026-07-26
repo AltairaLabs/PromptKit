@@ -83,14 +83,6 @@ func (h *PIIHook) check(content string) hooks.Decision {
 // Helper: create guardrail hooks
 // ---------------------------------------------------------------------------
 
-func mustGuardrail(typeName string, params map[string]any) hooks.ProviderHook {
-	h, err := guardrails.NewGuardrailHook(typeName, params)
-	if err != nil {
-		log.Fatalf("failed to create guardrail %q: %v", typeName, err)
-	}
-	return h
-}
-
 // ---------------------------------------------------------------------------
 // Helper: detect hook denial errors
 // ---------------------------------------------------------------------------
@@ -117,14 +109,16 @@ func main() {
 	// Open a conversation with multiple hooks registered.
 	// Hooks execute in order; the first denial short-circuits.
 	conv, err := sdk.Open("./hooks.pack.json", "chat",
-		// Built-in: reject responses containing "password" or "secret"
-		sdk.WithProviderHook(mustGuardrail("banned_words", map[string]any{
-			"words": []any{"password", "secret"},
-		})),
-		// Built-in: reject responses longer than 500 characters
-		sdk.WithProviderHook(mustGuardrail("length", map[string]any{
-			"max_characters": 500,
-		})),
+		sdk.WithGuardrail(
+			// Reject responses containing "password" or "secret"
+			guardrails.Output("banned_words", map[string]any{
+				"words": []any{"password", "secret"},
+			}),
+			// Reject responses longer than 500 characters
+			guardrails.Output("length", map[string]any{
+				"max_characters": 500,
+			}),
+		),
 		// Custom: reject responses containing email/phone patterns
 		sdk.WithProviderHook(NewPIIHook()),
 	)

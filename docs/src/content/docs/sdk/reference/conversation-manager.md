@@ -301,6 +301,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithEventBus\(bus events.Bus\) Option](<#WithEventBus>)
   - [func WithEventStore\(store events.EventStore\) Option](<#WithEventStore>)
   - [func WithExecutionTimeout\(d time.Duration\) Option](<#WithExecutionTimeout>)
+  - [func WithGuardrail\(specs ...guardrails.Spec\) Option](<#WithGuardrail>)
   - [func WithImagePreprocessing\(cfg \*stage.ImagePreprocessConfig\) Option](<#WithImagePreprocessing>)
   - [func WithImageProvider\(spec ProviderSpec\) Option](<#WithImageProvider>)
   - [func WithInferenceProvider\(spec ProviderSpec\) Option](<#WithInferenceProvider>)
@@ -3273,6 +3274,28 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithExecutionTimeout(120 * time.Second),
 )
 ```
+
+<a name="WithGuardrail"></a>
+### func WithGuardrail
+
+```go
+func WithGuardrail(specs ...guardrails.Spec) Option
+```
+
+WithGuardrail registers one or more guardrails. Guardrails are eval\-backed or func\-backed provider hooks with an explicit direction: input guardrails gate the user's message before the LLM call, output guardrails gate the response. An input guardrail that enforces blocks the call entirely — no tokens are spent — and the conversation returns a canned assistant turn.
+
+```
+conv, _ := sdk.Open("./chat.pack.json", "assistant",
+    sdk.WithGuardrail(
+        guardrails.Input("pii_leakage", nil),
+        guardrails.Input("banned_words", map[string]any{"words": []any{"wire transfer"}},
+            guardrails.WithMessage("I can't help with that.")),
+        guardrails.OutputFunc("no-secrets", myCheck),
+    ),
+)
+```
+
+Construction errors \(unknown eval type, invalid params\) are returned from Open rather than at the call site. For a hook implementing the full hooks.ProviderHook interface, use WithProviderHook.
 
 <a name="WithImagePreprocessing"></a>
 ### func WithImagePreprocessing
