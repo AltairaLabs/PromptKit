@@ -63,6 +63,31 @@ type ProviderResponse struct {
 	LatencyMs  int64
 }
 
+// InputRequest is the narrow view of an about-to-be-sent call handed to a
+// func-based input guardrail. Use guardrails.InputFunc to build one.
+type InputRequest struct {
+	// UserInput is the text of the user message being gated.
+	UserInput string
+	// Messages is the full conversation history including that message.
+	Messages []types.Message
+	// Round is the provider round this call belongs to (1-based).
+	Round int
+	// Replacement supplies the canned assistant text when the check
+	// returns Enforced. Empty falls back to the default blocked message.
+	Replacement string
+}
+
+// OutputRequest is the narrow view of a completed call handed to a func-based
+// output guardrail. Use guardrails.OutputFunc to build one.
+type OutputRequest struct {
+	// Content is the assistant text being gated.
+	Content string
+	// Message is the response message; mutate it in place to enforce.
+	Message *types.Message
+	// Round is the provider round this response belongs to (1-based).
+	Round int
+}
+
 // ToolRequest describes a tool call about to be executed.
 type ToolRequest struct {
 	Name   string

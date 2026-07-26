@@ -43,10 +43,12 @@ Package hooks provides synchronous interception points for provider calls, tool 
   - [func \(h \*ExecToolHook\) Name\(\) string](<#ExecToolHook.Name>)
 - [type HookDeniedError](<#HookDeniedError>)
   - [func \(e \*HookDeniedError\) Error\(\) string](<#HookDeniedError.Error>)
+- [type InputRequest](<#InputRequest>)
 - [type Option](<#Option>)
   - [func WithProviderHook\(h ProviderHook\) Option](<#WithProviderHook>)
   - [func WithSessionHook\(h SessionHook\) Option](<#WithSessionHook>)
   - [func WithToolHook\(h ToolHook\) Option](<#WithToolHook>)
+- [type OutputRequest](<#OutputRequest>)
 - [type ProviderHook](<#ProviderHook>)
 - [type ProviderRequest](<#ProviderRequest>)
 - [type ProviderResponse](<#ProviderResponse>)
@@ -357,6 +359,25 @@ func (e *HookDeniedError) Error() string
 
 
 
+<a name="InputRequest"></a>
+## type InputRequest
+
+InputRequest is the narrow view of an about\-to\-be\-sent call handed to a func\-based input guardrail. Use guardrails.InputFunc to build one.
+
+```go
+type InputRequest struct {
+    // UserInput is the text of the user message being gated.
+    UserInput string
+    // Messages is the full conversation history including that message.
+    Messages []types.Message
+    // Round is the provider round this call belongs to (1-based).
+    Round int
+    // Replacement supplies the canned assistant text when the check
+    // returns Enforced. Empty falls back to the default blocked message.
+    Replacement string
+}
+```
+
 <a name="Option"></a>
 ## type Option
 
@@ -392,6 +413,22 @@ func WithToolHook(h ToolHook) Option
 ```
 
 WithToolHook registers a tool hook.
+
+<a name="OutputRequest"></a>
+## type OutputRequest
+
+OutputRequest is the narrow view of a completed call handed to a func\-based output guardrail. Use guardrails.OutputFunc to build one.
+
+```go
+type OutputRequest struct {
+    // Content is the assistant text being gated.
+    Content string
+    // Message is the response message; mutate it in place to enforce.
+    Message *types.Message
+    // Round is the provider round this response belongs to (1-based).
+    Round int
+}
+```
 
 <a name="ProviderHook"></a>
 ## type ProviderHook
