@@ -131,8 +131,8 @@ For synchronous client tools (handler registered via `OnClientTool`), only `tool
 
 Guardrail hooks in the provider stage emit `validation.passed` or `validation.failed` events automatically. The `ValidationEventData` payload includes:
 
-- `Enforced` — whether content was modified (truncated or replaced)
-- `MonitorOnly` — whether the guardrail ran in monitor-only mode
+- `Direction` — `"input"` (pre-call) or `"output"` (post-call)
+- `Enforced` — whether content was modified (truncated or replaced) or the call was blocked
 - `Score` — evaluation score (0.0–1.0)
 
 #### Prompt Template
@@ -195,6 +195,13 @@ emitter.EmitCustom("middleware.cache.hit", events.CustomEventData{
     Message: "Response retrieved from cache",
 })
 ```
+
+### Ordering and nesting
+
+This page lists event *types*; it deliberately does not restate their order. Provider and
+tool events are emitted inside a round loop that can repeat many times per turn, and a
+turn can run several provider stages. See [The Hook System](/sdk/explanation/hooks/#execution-ordering)
+for the canonical timeline showing where each event sits relative to the hooks.
 
 ## Integration Points
 

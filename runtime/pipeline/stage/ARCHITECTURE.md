@@ -43,6 +43,10 @@ A Turn owns:
 - **`TurnState`** (post-PR 3). The shared per-Turn coordinator: rendered system prompt, allowed tools, validators, variables, conversation/user identifiers. Populated by the pipeline builder or by producer stages once at the start of the Turn. Read (and where appropriate, mutated) by consumer stages by reference. **This is not in `StreamElement.Metadata`** — see §4.
 - **Event emitter.** An `*events.Emitter` (`runtime/events/emitter.go`) — a thin facade over the Run's `*events.EventBus`, holding per-Turn context (`executionID`, `sessionID`, `conversationID`, `userID`) and exposing typed publish methods. The Bus dispatches; the Emitter ergonomically constructs and stamps. Same mechanism, different audience: stages publish through the Emitter, listeners subscribe to the Bus.
 - **Resolved provider references.** The Turn-level pipeline build looks up which provider to use from the Run's `*providers.Registry` and injects it directly into the stages that need it. Stages do not navigate the Registry.
+  Note: a Turn is not limited to one provider. A composition executes each step as its
+  own sub-pipeline with its own `ProviderStage`, its own `TurnState`, and its own round
+  budget (`composition_executor.go`), all inside the outer Turn — so in that path
+  "Turn-level" state is per sub-pipeline. Hooks are shared across them via one registry.
 
 ### 1.3 Stage-level concerns
 

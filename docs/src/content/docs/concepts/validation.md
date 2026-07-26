@@ -38,7 +38,7 @@ This means you write a check once and deploy it wherever you need it. A `content
 
 **"I want to test LLM behavior in CI"** -- use an **Assertion**. Define checks in your scenario YAML under `assertions:`. They run only in Arena. Use `when:` for conditional checks and `pass_threshold` for statistical testing across multiple runs.
 
-**"I want to enforce policies at runtime"** -- use a **Guardrail**. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Set `fail_on_violation: false` for monitor-only mode.
+**"I want to enforce policies at runtime"** -- use a **Guardrail**. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Guardrails always enforce. `fail_on_violation` is accepted for spec compatibility but **ignored** by this runtime — for observe-only behavior, declare an eval and assert on it instead. Guardrails run before the LLM call, after it, or both, via `direction`.
 
 **"I want to monitor quality in production"** -- use an **Eval**. Define checks in your pack file under `evals:`. They travel with the pack and run based on configurable triggers. Results are exported as Prometheus metrics and trace events.
 
@@ -46,12 +46,22 @@ This means you write a check once and deploy it wherever you need it. A `content
 
 ## Enforcement Behavior (Guardrails)
 
-When a guardrail triggers, the pipeline continues with modified content rather than returning an error. The specific behavior depends on the check type:
+When a guardrail triggers, the pipeline does not return an error — behavior depends on
+`direction`. Output guardrails continue with modified content; input guardrails skip the
+provider call and stop the round loop before one is ever made. Either way, only the
+provider work inside that turn's `ProviderStage` is affected — every downstream pipeline
+stage still runs. The specific behavior also depends on the check type:
 
 - **Content blockers** (`content_excludes`, `banned_words`): Replace the entire response with a configurable policy message.
 - **Length checks** (`max_length`): Truncate the response to the configured limit.
 - **Other check types**: Log the violation without modifying content.
-- **Monitor-only mode**: Evaluate and record results, but never modify the response. Useful for gradual rollout and observability.
+- **Input guardrails** (`direction: input`): evaluated before the provider call. On a hit
+  the call is never made — no tokens are spent — and the conversation returns a canned
+  assistant turn (`message`, falling back to the default blocked message). Evaluated once
+  per user turn, not once per tool round.
+- **Round termination**: when a guardrail enforces, the round loop stops — no further
+  provider/tool rounds run for that turn. Any tool calls requested by an enforced output
+  response are dropped rather than executed.
 
 All violations are recorded in `message.Validations` and emitted as `validation.failed` events, regardless of enforcement mode. This gives you full visibility into what triggered and why.
 

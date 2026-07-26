@@ -15,7 +15,7 @@ Different parts of the runtime have different contracts with the caller. A singl
 | **ProviderHook** | Request/response around an LLM call | Yes | Yes (via enforcement) | Each provider call |
 | **ChunkInterceptor** | Each streaming chunk | Yes (abort stream) | Yes (enforcement) | Each chunk |
 | **ToolHook** | Request/response around a tool call | Yes | Yes (enforcement) | Each tool call |
-| **SessionHook** | Session lifecycle | Yes (via error return) | No | Session start, each turn, session end |
+| **SessionHook** | Session lifecycle | No (error is logged and discarded) | No | Session start, each turn, session end |
 | **EvalHook** | Eval result | No (observational) | Yes (direct result mutation) | Each eval result |
 
 Pick the hook whose contract matches your intent. A PII redactor gates content → `ProviderHook`. An audit log observes turns → `SessionHook`. A metrics exporter watches eval scores → `EvalHook`. A kill-switch that aborts mid-stream → `ChunkInterceptor`.
@@ -28,23 +28,52 @@ All hooks that can modify behavior fall into one of two shapes.
 
 **Direct-mutation** (Eval). The hook is handed a pointer to the result and mutates it in place. There's no decision struct — the hook is observational by contract, but it's allowed to edit the observation before it propagates (redact explanations, enrich details, add tracing metadata). No pipeline gating happens either way.
 
-Session hooks are unusual: they return a plain Go `error`. Non-nil errors propagate to the caller but there's no enforcement/denial distinction. Use session hooks for pure observation or for "abort the session" errors, not for content modification.
+Session hooks are unusual: they return a plain Go `error`, and on the SDK path that
+error is **logged and discarded** (`sdk/session_hooks.go`) so a failing lifecycle hook
+can never block a conversation. Use session hooks for pure observation, not for
+gating or content modification — they cannot deny anything.
 
 ## Execution ordering
 
-Within a registered conversation, hooks execute in a fixed order relative to pipeline stages:
+Hooks do not fire in a flat sequence. The nesting is **turn ⊃ provider ⊃ round ⊃ call**:
 
-1. `SessionHook.OnSessionStart` — at session creation.
-2. `ProviderHook.BeforeCall` — before each LLM call.
-3. `ChunkInterceptor.OnChunk` — for each streaming chunk.
-4. `ProviderHook.AfterCall` — after each LLM call.
-5. `ToolHook.BeforeExecution` — before each tool call.
-6. `ToolHook.AfterExecution` — after each tool call.
-7. `SessionHook.OnSessionUpdate` — after each turn completes.
-8. `SessionHook.OnSessionEnd` — at session teardown.
-9. `EvalHook.OnEvalResult` — each time an eval produces a result (independent of the session loop — fires from the eval runner).
+```
+SessionHook.OnSessionStart                    once per conversation
+pipeline.started                              event
+  ┌─ per ProviderStage (a composition runs one per step) ──────────┐
+  │  ┌─ ROUND 1..MaxRounds ──────────────────────────────────────┐ │
+  │  │  ProviderHook.BeforeCall                                  │ │
+  │  │  provider.call.started      event                         │ │
+  │  │  → provider request → (1..N HTTP attempts on retry)       │ │
+  │  │  provider.call.completed    event                         │ │
+  │  │  ChunkInterceptor.OnChunk   per chunk (streaming only)    │ │
+  │  │  ProviderHook.AfterCall                                   │ │
+  │  │  ToolHook.BeforeExecution   per tool call                 │ │
+  │  │  tool.call.started          event                         │ │
+  │  │  ToolHook.AfterExecution    per tool call                 │ │
+  │  │  ─── if the response requested tools, loop to BeforeCall ─┘ │
+  └─────────────────────────────────────────────────────────────────┘
+pipeline.completed                            event
+SessionHook.OnSessionUpdate                   once per turn, AFTER it completes
+EvalHook.OnEvalResult                         per eval result, from the eval runner
+```
 
-Within a single phase, multiple hooks run in **registration order**. For decision-based hooks, the first `Deny` short-circuits. For eval hooks, every registered hook always runs — a panic in one doesn't block the others.
+Three consequences that a flat list hides:
+
+- **`BeforeCall`/`AfterCall` fire once per round, not once per turn.** A turn that
+  uses tools runs several rounds, so a hook doing expensive or billable work must
+  decide whether it wants per-round or per-turn semantics. Built-in input guardrails
+  handle this by evaluating only when the last message is a user message — later
+  rounds end in a tool result.
+- **A turn can involve more than one provider.** Each composition step builds its own
+  provider stage with its own round loop, and shares the same hook registry.
+- **Retries happen below the hook boundary.** One round is exactly one
+  `BeforeCall`/`AfterCall` pair even if the transport retried the HTTP request
+  several times. Hooks never see retries.
+
+Within a single phase, multiple hooks run in **registration order**. For decision-based
+hooks the first non-`Allow` short-circuits. For eval hooks every registered hook always
+runs — a panic in one doesn't block the others.
 
 ## Error handling and safety
 

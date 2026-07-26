@@ -739,6 +739,45 @@ assertions:
       should_trigger: true
 ```
 
+### Guardrail `direction`
+
+Any check used as a guardrail accepts a `direction` param:
+
+| Value | Evaluates | On a hit |
+|---|---|---|
+| `output` (default) | the assistant response | rewrites the response (truncate/replace) and stops the provider round loop |
+| `input` | the user's message, before the LLM call | blocks the call entirely — no tokens spent — and returns a canned assistant turn |
+| `both` | input, then output | whichever fires first |
+
+`direction` lives inside `params` (the PromptPack spec allows arbitrary keys there):
+
+```yaml
+validators:
+  - type: pii_leakage
+    params:
+      direction: input
+    message: "Please don't share personal details."
+```
+
+An invalid value is rejected at load time rather than silently treated as `output`.
+
+Subprocess (exec) hooks reach the same behavior through the existing `before_call` phase:
+returning `{"allow": false, "enforced": true, "reason": "...", "metadata": {"replacement": "..."}}`
+blocks the call and uses `metadata.replacement` as the canned assistant text.
+
+Input guardrails are evaluated **once per user turn**, not once per provider round: the
+check runs only when the last message is a user message, so a tool-using turn does not
+re-run (and re-bill) an LLM-judged check on every round.
+
+Programmatically, use the directional constructors instead of raw params:
+
+```go
+sdk.WithGuardrail(
+    guardrails.Input("pii_leakage", nil),
+    guardrails.Output("banned_words", map[string]any{"words": []any{"secret"}}),
+)
+```
+
 For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
 
 LLM-judged safety checks (`bias`, `toxicity`, `role_violation`, and the LLM-judged path of `pii_leakage`) carry a known false-positive rate. Tune the wrapper's `min_score` for your scenarios and prefer the regex pre-pass (`pii_leakage`) for high-confidence patterns.
