@@ -45,6 +45,24 @@ func TestWithGuardrail_SurfacesConstructionError(t *testing.T) {
 	assert.Empty(t, c.providerHooks, "a failed spec must register nothing")
 }
 
+// TestWithGuardrail_ValidThenInvalidRegistersNothing pins the "build all specs
+// before appending any" guarantee. A single failing spec can't distinguish a
+// correct implementation from a buggy append-as-you-go one, since there is
+// nothing to have appended before the failure either way — this test puts a
+// valid spec first so a partial-registration bug would leave one hook behind.
+func TestWithGuardrail_ValidThenInvalidRegistersNothing(t *testing.T) {
+	c := &config{}
+
+	err := WithGuardrail(
+		guardrails.Input("length", map[string]any{"max_characters": 100}),
+		guardrails.Input("no_such_eval_type_anywhere", nil),
+	)(c)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no_such_eval_type_anywhere")
+	assert.Empty(t, c.providerHooks, "a valid spec preceding a failing one must not be partially registered")
+}
+
 // TestWithGuardrail_ConstructorOverridesParamsDirection pins that the
 // directional constructor is authoritative: a stray params["direction"] cannot
 // silently flip an Output guardrail into an input one.
