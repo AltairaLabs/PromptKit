@@ -3,6 +3,7 @@
 package guardrails
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -10,6 +11,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
+
+// ErrUnknownGuardrailType is returned when a validator names an eval type that
+// is not registered. It is distinguishable from other construction failures
+// because it is treated as fatal: an unknown type has no legitimate use, so
+// dropping it would leave a conversation silently unprotected. See
+// CompileValidators.
+var ErrUnknownGuardrailType = errors.New("unknown guardrail type")
 
 // GuardrailOption configures a GuardrailHookAdapter.
 type GuardrailOption func(*GuardrailHookAdapter)
@@ -34,7 +42,7 @@ func NewGuardrailHookFromRegistry(
 ) (hooks.ProviderHook, error) {
 	handler, err := registry.Get(typeName)
 	if err != nil {
-		return nil, fmt.Errorf("unknown guardrail type: %q", typeName)
+		return nil, fmt.Errorf("%w: %q", ErrUnknownGuardrailType, typeName)
 	}
 
 	// Normalise params the same way adapter.AfterCall does before passing
@@ -85,7 +93,7 @@ func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailO
 	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry(), opts...)
 }
 
-// ValidatorsToHooks turns pack-declared validators into ProviderHooks suitable
+// CompileValidators turns pack-declared validators into ProviderHooks suitable
 // for prepending to a hook registry. Both SDK.Open and Arena's per-turn
 // pipeline use this so guardrails run identically in production and in tests.
 //
@@ -97,11 +105,44 @@ func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailO
 //     behavior, declare an eval and assert on it; guardrails always act.
 //   - "message" set on the validator becomes the user-facing blocked text,
 //     falling back to Params["message"].
-//   - Unusable validators (unknown type, ValidateParams failure) are logged
-//     and skipped; one bad entry does not break the others.
+//
+// Failure policy, split by how ambiguous the mistake is:
+//   - An **unknown eval type** is FATAL and returns ErrUnknownGuardrailType.
+//     A type that is not registered has no legitimate use — it is a typo — and
+//     silently dropping it leaves the conversation with no protection while
+//     load appears to succeed. That is fail-open on a safety control.
+//   - A validator whose **params** are unusable is logged and skipped, so one
+//     bad entry does not break the others. A pack authored against a newer
+//     runtime can legitimately carry params this build does not understand;
+//     refusing to load would make packs forward-incompatible.
+//
+// On a fatal error no hooks are returned, so a caller cannot accidentally
+// proceed with a partial guardrail set.
+func CompileValidators(validators []prompt.ValidatorConfig) ([]hooks.ProviderHook, error) {
+	return compileValidators(validators, true)
+}
+
+// ValidatorsToHooks is the lenient form: every unusable validator — including
+// an unknown eval type — is logged and skipped, and the usable ones are still
+// returned.
+//
+// Deprecated: use CompileValidators. This form cannot report an unknown eval
+// type, so a typo'd validator is silently dropped and the caller proceeds
+// unprotected. Retained unchanged so existing callers keep their behavior.
 func ValidatorsToHooks(validators []prompt.ValidatorConfig) []hooks.ProviderHook {
+	// The lenient path never returns an error.
+	out, _ := compileValidators(validators, false)
+	return out
+}
+
+// compileValidators builds hooks from validator specs. When fatalUnknownType is
+// true an unregistered eval type aborts the whole set (no partial guardrails);
+// when false it is logged and skipped like any other unusable entry.
+func compileValidators(
+	validators []prompt.ValidatorConfig, fatalUnknownType bool,
+) ([]hooks.ProviderHook, error) {
 	if len(validators) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]hooks.ProviderHook, 0, len(validators))
 	for _, v := range validators {
@@ -119,10 +160,13 @@ func ValidatorsToHooks(validators []prompt.ValidatorConfig) []hooks.ProviderHook
 
 		hook, err := NewGuardrailHook(v.Type, v.Params, opts...)
 		if err != nil {
+			if fatalUnknownType && errors.Is(err, ErrUnknownGuardrailType) {
+				return nil, fmt.Errorf("pack validator: %w", err)
+			}
 			logger.Warn("Skipping unusable pack validator", "type", v.Type, "error", err)
 			continue
 		}
 		out = append(out, hook)
 	}
-	return out
+	return out, nil
 }

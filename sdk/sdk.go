@@ -270,7 +270,9 @@ func initConversation(
 	applyDefaultVariables(conv, prompt)
 
 	// Auto-convert pack validators to provider hooks (before building hook registry)
-	convertPackValidatorsToHooks(prompt, cfg)
+	if err := convertPackValidatorsToHooks(prompt, cfg); err != nil {
+		return nil, nil, err
+	}
 
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
@@ -1223,9 +1225,9 @@ func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
 // per-validator translation lives in guardrails.ValidatorsToHooks so SDK and
 // Arena exercise identical conversion semantics — same defaults, same
 // skip-and-warn behavior, same enforcement.
-func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) {
+func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	if len(p.Validators) == 0 {
-		return
+		return nil
 	}
 	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
 	for _, v := range p.Validators {
@@ -1236,10 +1238,17 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) {
 			Enabled: &enabled,
 		})
 	}
-	packHooks := guardrails.ValidatorsToHooks(specs)
+	packHooks, err := guardrails.CompileValidators(specs)
+	if err != nil {
+		// An unknown eval type is fatal: dropping it would leave the
+		// conversation silently unprotected. Unusable params are still
+		// warned about and skipped inside CompileValidators.
+		return err
+	}
 	if len(packHooks) > 0 {
 		cfg.providerHooks = append(packHooks, cfg.providerHooks...)
 	}
+	return nil
 }
 
 // resolvePackPath converts a pack path to an absolute path.

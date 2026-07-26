@@ -773,21 +773,37 @@ Input guardrails are evaluated **once per user turn**, not once per provider rou
 check runs only when the last message is a user message, so a tool-using turn does not
 re-run (and re-bill) an LLM-judged check on every round.
 
-A check used with `direction: input` must actually evaluate the content under test —
-`CurrentOutput` — rather than only assistant-role messages. `banned_words` /
-`content_excludes` and `content_includes_any` / `contains_any` currently scan
-assistant-role messages only, so they silently never fire as input guardrails (they
-compile, register, and always pass). Prefer a content-agnostic check for input —
-`regex`, `pii_leakage`, `contains`, `length` — instead.
+Content checks evaluate whichever side `direction` selects — the content under test — so
+`banned_words`, `content_excludes`, `contains_any` and the rest work in either direction.
+As an output guardrail a content check still judges the assistant's reply, never the
+user's message.
 
 Programmatically, use the directional constructors instead of raw params:
 
 ```go
 sdk.WithGuardrail(
-    guardrails.Input("pii_leakage", nil),
+    guardrails.Input("banned_words", map[string]any{"words": []any{"wire transfer"}}),
     guardrails.Output("banned_words", map[string]any{"words": []any{"secret"}}),
 )
 ```
+
+#### When a validator cannot be built
+
+The failure policy differs by how ambiguous the mistake is:
+
+| Problem | Behavior |
+|---|---|
+| Unknown eval `type` | **Fatal** — `Open()` returns an error naming the type |
+| Params fail validation | Logged as a warning and that validator is skipped; the rest still load |
+| Unrecognized `direction` value | Logged as a warning and treated as `output` |
+
+An unregistered `type` is always a typo, and silently dropping it would leave the
+conversation with no protection while load appeared to succeed — fail-open on a safety
+control. Unusable *params* keep the warn-and-skip behavior so that one bad entry does not
+break the others, and so a pack authored against a newer runtime stays loadable.
+
+To surface every problem at once without opening a conversation, use `sdk.ValidatePack`,
+which dry-run constructs each validator and reports all issues together.
 
 For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
 
