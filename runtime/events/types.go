@@ -323,6 +323,7 @@ type ValidationEventData struct {
 	baseEventData
 	ValidatorName string
 	ValidatorType string        // e.g. "input", "output", "semantic"
+	Direction     string        // "input" (pre-call) or "output" (post-call)
 	Duration      time.Duration // Set on passed/failed
 	Error         error         // Set on failed
 	Violations    []string      // Set on failed

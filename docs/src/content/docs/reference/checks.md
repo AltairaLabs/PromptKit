@@ -713,7 +713,7 @@ assertions:
 ```
 
 :::note[Three-role model]
-RAG checks are eval primitives invoked as assertions. They can also be wired as monitor-only guardrails via `runtime/hooks/guardrails/factory.go` — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
+RAG checks are eval primitives invoked as assertions. They can also be wired as guardrails via `runtime/hooks/guardrails/factory.go` — guardrails always enforce (there is no monitor-only mode) — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
 :::
 
 ---
@@ -737,6 +737,56 @@ assertions:
     params:
       validator: pii_leakage
       should_trigger: true
+```
+
+### Guardrail `direction`
+
+Any check used as a guardrail accepts a `direction` param:
+
+| Value | Evaluates | On a hit |
+|---|---|---|
+| `output` (default) | the assistant response | rewrites the response (truncate/replace) and stops the provider round loop |
+| `input` | the user's message, before the LLM call | blocks the call entirely — no tokens spent — and returns a canned assistant turn |
+| `both` | input, then output | whichever fires first |
+
+`direction` lives inside `params` (the PromptPack spec allows arbitrary keys there):
+
+```yaml
+validators:
+  - type: pii_leakage
+    params:
+      direction: input
+    message: "Please don't share personal details."
+```
+
+On the pack YAML path, an unrecognized `direction` (or a non-string value) does not fail
+to load — it logs a warning and falls back to `output`, so a typo degrades which side gets
+checked rather than silently dropping the guardrail altogether. The programmatic
+`guardrails.Input`/`Output` constructors set `direction` themselves, so an invalid value
+cannot arise on that path.
+
+Subprocess (exec) hooks reach the same behavior through the existing `before_call` phase:
+returning `{"allow": false, "enforced": true, "reason": "...", "metadata": {"replacement": "..."}}`
+blocks the call and uses `metadata.replacement` as the canned assistant text.
+
+Input guardrails are evaluated **once per user turn**, not once per provider round: the
+check runs only when the last message is a user message, so a tool-using turn does not
+re-run (and re-bill) an LLM-judged check on every round.
+
+A check used with `direction: input` must actually evaluate the content under test —
+`CurrentOutput` — rather than only assistant-role messages. `banned_words` /
+`content_excludes` and `content_includes_any` / `contains_any` currently scan
+assistant-role messages only, so they silently never fire as input guardrails (they
+compile, register, and always pass). Prefer a content-agnostic check for input —
+`regex`, `pii_leakage`, `contains`, `length` — instead.
+
+Programmatically, use the directional constructors instead of raw params:
+
+```go
+sdk.WithGuardrail(
+    guardrails.Input("pii_leakage", nil),
+    guardrails.Output("banned_words", map[string]any{"words": []any{"secret"}}),
+)
 ```
 
 For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.

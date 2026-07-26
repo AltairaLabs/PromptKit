@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
@@ -608,6 +613,93 @@ func TestCompositionExecutor_BaseMetadataThreaded(t *testing.T) {
 	if got["extra_key"] != "extra_val" {
 		t.Errorf("extra_key = %v, want %q", got["extra_key"], "extra_val")
 	}
+}
+
+// selectiveInputGuardrail enforces on any step input containing "blocked",
+// and counts how many step inputs it was allowed to inspect.
+type selectiveInputGuardrail struct {
+	mu   sync.Mutex
+	seen int
+}
+
+func (h *selectiveInputGuardrail) Name() string { return "selective_input" }
+
+func (h *selectiveInputGuardrail) BeforeCall(
+	_ context.Context, req *hooks.ProviderRequest,
+) hooks.Decision {
+	if req == nil || len(req.Messages) == 0 {
+		return hooks.Allow
+	}
+	last := req.Messages[len(req.Messages)-1]
+	if last.Role != "user" {
+		return hooks.Allow
+	}
+	h.mu.Lock()
+	h.seen++
+	h.mu.Unlock()
+	if strings.Contains(last.GetContent(), "blocked") {
+		req.Replacement = "Step blocked by policy."
+		return hooks.Enforced("input blocked", map[string]any{
+			"validator_type": "test_input",
+		})
+	}
+	return hooks.Allow
+}
+
+func (h *selectiveInputGuardrail) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *selectiveInputGuardrail) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.seen
+}
+
+// TestCompositionExecutor_GuardrailBlocksStepWithoutAbortingComposition proves
+// enforcement is scoped to the firing step's ProviderStage: the blocked step
+// yields the canned text as its output and returns no error, so the caller can
+// run the next step. It also proves the input gate re-arms per step: the
+// guardrail independently evaluates each step's input (count()==2), and step 2
+// is not enforced even though its sub-pipeline's round numbering restarts at 1
+// like step 1's did. A Round==1 gate would have fired on both steps (round
+// numbering is per-ProviderStage, so it is 1 in every step, not just the
+// first) and blocked step 2 too, which assert.NotContains below would catch.
+func TestCompositionExecutor_GuardrailBlocksStepWithoutAbortingComposition(t *testing.T) {
+	prov := mock.NewProvider("test-id", "test-model", false)
+	repo := newMockRepo()
+	reg := prompt.NewRegistryWithRepository(repo)
+	registerSimplePrompt(t, reg, "p")
+
+	guard := &selectiveInputGuardrail{}
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       prov,
+		ToolRegistry:   tools.NewRegistry(),
+		HookRegistry:   hooks.NewRegistry(hooks.WithProviderHook(guard)),
+	})
+
+	// Step 1: input trips the guardrail.
+	step1 := &composition.Step{ID: "s1", Kind: composition.KindPrompt, PromptTask: "p"}
+	out1, err := exec(context.Background(), step1, json.RawMessage(`"this is blocked"`))
+	require.NoError(t, err, "enforcement must not fail the step")
+	require.True(t, json.Valid(out1), "blocked step must still produce valid JSON output")
+	assert.Contains(t, string(out1), "Step blocked by policy.",
+		"blocked step's output must be the canned text")
+
+	// Step 2: clean input — proves the composition can carry on, and that the
+	// guardrail evaluates this step's input too (round numbering restarted).
+	step2 := &composition.Step{ID: "s2", Kind: composition.KindPrompt, PromptTask: "p"}
+	out2, err := exec(context.Background(), step2, json.RawMessage(`"this is fine"`))
+	require.NoError(t, err)
+	require.True(t, json.Valid(out2))
+	assert.NotContains(t, string(out2), "Step blocked by policy.",
+		"clean step must get the provider's real response")
+
+	assert.Equal(t, 2, guard.count(),
+		"input guardrail must evaluate once per step, not once for the whole composition")
 }
 
 func TestCompositionExecutor_ToolScopeIntersection(t *testing.T) {

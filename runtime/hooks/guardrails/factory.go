@@ -48,9 +48,24 @@ func NewGuardrailHookFromRegistry(
 		}
 	}
 
-	direction := directionOutput
-	if d, ok := params["direction"].(string); ok {
-		direction = d
+	direction := DirectionOutput
+	if raw, present := params["direction"]; present {
+		d, ok := raw.(string)
+		if !ok {
+			logger.Warn(
+				"Guardrail direction must be a string; falling back to output",
+				"type", typeName, "direction", raw)
+		} else {
+			switch d {
+			case DirectionInput, DirectionOutput, DirectionBoth:
+				direction = d
+			default:
+				logger.Warn(
+					"Guardrail has unrecognized direction; falling back to output",
+					"type", typeName, "direction", d,
+					"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
+			}
+		}
 	}
 
 	adapter := &GuardrailHookAdapter{

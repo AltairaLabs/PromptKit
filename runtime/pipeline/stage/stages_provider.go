@@ -14,8 +14,10 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -29,6 +31,11 @@ const (
 	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
 	toolChoiceNone              = "none"
+
+	// HookDeniedError fields for provider hook denials (BeforeCall/AfterCall).
+	providerHookName       = "provider_hook"
+	providerHookTypeBefore = "provider_before"
+	providerHookTypeAfter  = "provider_after"
 )
 
 // ProviderStage implementation notes:
@@ -1014,6 +1021,12 @@ func (s *ProviderStage) executeRound(
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
 
+	if blocked, handled, err := s.runBeforeCallHooks(
+		ctx, messages, systemPrompt, round, metadata,
+	); handled {
+		return blocked, false, err
+	}
+
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
@@ -1045,26 +1058,6 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount, s.config.Labels)
-	}
-
-	// Run BeforeCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     messages,
-			SystemPrompt: systemPrompt,
-			Round:        round,
-			Metadata:     metadata,
-		}
-		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
-			return types.Message{}, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_before",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
-			}
-		}
 	}
 
 	// Call provider (with or without tools)
@@ -1174,28 +1167,16 @@ func (s *ProviderStage) executeRound(
 		}
 		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.emitGuardrailEvent(d, time.Since(hookStart))
-			// Populate msg.Validations for guardrail_triggered compat
-			if vType, ok := d.Metadata["validator_type"].(string); ok {
-				responseMsg.Validations = append(responseMsg.Validations, types.ValidationResult{
-					ValidatorType: vType,
-					Passed:        false,
-					Details:       d.Metadata,
-				})
-			}
-			if d.Enforced {
-				// Hook already enforced (truncated/replaced content) — pick up
-				// the modified message and continue the pipeline.
-				responseMsg.Content = hookResp.Message.Content
-				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
-			} else {
+			s.recordGuardrailFiring(&responseMsg, d, guardrails.DirectionOutput, time.Since(hookStart))
+			if !d.Enforced {
 				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: "provider_hook",
-					HookType: "provider_after",
+					HookName: providerHookName,
+					HookType: providerHookTypeAfter,
 					Reason:   d.Reason,
 					Metadata: d.Metadata,
 				}
 			}
+			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
 		}
 	}
 
@@ -1217,6 +1198,12 @@ func (s *ProviderStage) executeStreamingRound(
 	output chan<- StreamElement,
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
+
+	if blocked, handled, err := s.runBeforeCallHooks(
+		ctx, params.messages, params.systemPrompt, params.round, params.metadata,
+	); handled {
+		return blocked, false, err
+	}
 
 	// Build provider request
 	req := providers.PredictionRequest{
@@ -1245,26 +1232,6 @@ func (s *ProviderStage) executeStreamingRound(
 		"round", params.round,
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
-
-	// Run BeforeCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     params.messages,
-			SystemPrompt: params.systemPrompt,
-			Round:        params.round,
-			Metadata:     params.metadata,
-		}
-		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
-			return types.Message{}, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_before",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
-			}
-		}
-	}
 
 	// Emit provider call started event
 	if s.emitter != nil {
@@ -1382,29 +1349,16 @@ func (s *ProviderStage) executeStreamingRound(
 		}
 		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.emitGuardrailEvent(d, time.Since(hookStart))
-			if vType, ok := d.Metadata["validator_type"].(string); ok {
-				responseMsg.Validations = append(
-					responseMsg.Validations,
-					types.ValidationResult{
-						ValidatorType: vType,
-						Passed:        false,
-						Details:       d.Metadata,
-					},
-				)
-			}
-			if d.Enforced {
-				// Hook already enforced — pick up modified content and continue.
-				responseMsg.Content = hookResp.Message.Content
-				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
-			} else {
+			s.recordGuardrailFiring(&responseMsg, d, guardrails.DirectionOutput, time.Since(hookStart))
+			if !d.Enforced {
 				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: "provider_hook",
-					HookType: "provider_after",
+					HookName: providerHookName,
+					HookType: providerHookTypeAfter,
 					Reason:   d.Reason,
 					Metadata: d.Metadata,
 				}
 			}
+			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
 		}
 	}
 
@@ -1508,13 +1462,13 @@ func (s *ProviderStage) processStreamChunks(
 		// Run chunk interceptor hooks
 		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
 			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
-				s.emitGuardrailEvent(d, 0)
+				s.recordGuardrailFiring(nil, d, guardrails.DirectionOutput, 0)
 				// Stamp the firing on a sentinel pending-validation slot so
 				// the AfterCall path below can fold it into responseMsg.
 				// Without this, streaming-only guardrails produce no
 				// observable Validations entry and the guardrail_triggered
 				// assertion would silently miss them.
-				if vType, ok := d.Metadata["validator_type"].(string); ok {
+				if vType, _ := d.Metadata["validator_type"].(string); vType != "" {
 					pendingValidations = append(pendingValidations, types.ValidationResult{
 						ValidatorType: vType,
 						Passed:        false,
@@ -1843,16 +1797,120 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels m
 	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
 }
 
-// emitGuardrailEvent emits a validation event from a hook decision.
-func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Duration) {
+// runBeforeCallHooks runs the BeforeCall hook chain. It is called BEFORE the
+// provider request is built, because hooks may mutate the message slice in
+// place (e.g. redaction) and NormalizeMessages copies that slice when a system
+// message is present — a hook running after the build would have its mutations
+// silently discarded.
+//
+// handled is true when the round must not call the provider:
+//   - a guardrail enforced: blocked is the canned assistant turn, err is nil,
+//     and the caller returns hasToolCalls=false so the round loop stops
+//     (afterRound returns done on !hasToolCalls). The pipeline is NOT aborted —
+//     the message is emitted and every downstream stage still runs.
+//   - a hook denied: err is a HookDeniedError, which does abort the pipeline.
+func (s *ProviderStage) runBeforeCallHooks(
+	ctx context.Context,
+	messages []types.Message,
+	systemPrompt string,
+	round int,
+	metadata map[string]interface{},
+) (types.Message, bool, error) {
+	if s.hookRegistry == nil {
+		return types.Message{}, false, nil
+	}
+	hookReq := &hooks.ProviderRequest{
+		ProviderID:   s.provider.ID(),
+		Model:        s.provider.Model(),
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Round:        round,
+		Metadata:     metadata,
+	}
+	hookStart := time.Now()
+	d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq)
+	if d.Allow {
+		return types.Message{}, false, nil
+	}
+	if !d.Enforced {
+		return types.Message{}, true, &hooks.HookDeniedError{
+			HookName: providerHookName,
+			HookType: providerHookTypeBefore,
+			Reason:   d.Reason,
+			Metadata: d.Metadata,
+		}
+	}
+	// Guardrail skipped the provider call: no request, no tokens.
+	blocked := s.blockedMessage(hookReq, d)
+	s.recordGuardrailFiring(&blocked, d, guardrails.DirectionInput, time.Since(hookStart))
+	return blocked, true, nil
+}
+
+// applyEnforcedResponse folds an enforcing AfterCall decision into the round's
+// response: the hook already rewrote the message (truncate or replace), so pick
+// that up and stop the round loop. The pipeline itself continues — this
+// response is still emitted and every downstream stage runs.
+//
+// Tool calls are dropped deliberately: the message goes into history, and an
+// assistant message carrying tool calls with no matching tool results is a
+// protocol error on the next call. Clearing the caller's toolCalls makes the
+// round report hasToolCalls=false, which terminates the loop. The response is
+// marked like a blocked tool call (preExecCheck) so consumers can tell the
+// calls were dropped by policy.
+func applyEnforcedResponse(
+	responseMsg *types.Message,
+	toolCalls *[]types.MessageToolCall,
+	hookResp *hooks.ProviderResponse,
+	d hooks.Decision,
+) {
+	responseMsg.Content = hookResp.Message.Content
+	responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+	responseMsg.ToolCalls = nil
+	*toolCalls = nil
+	responseMsg.FinishReason = types.FinishReasonSafety
+	if len(d.Metadata) > 0 {
+		// Meta is map[string]interface{} (types/message.go:39). Copy rather than
+		// alias the decision's map so a hook cannot mutate an already-recorded
+		// message afterwards (mirrors blockedMessage).
+		responseMsg.Meta = make(map[string]interface{}, len(d.Metadata))
+		for k, v := range d.Metadata {
+			responseMsg.Meta[k] = v
+		}
+	}
+}
+
+// recordGuardrailFiring stamps a guardrail firing onto msg.Validations and
+// emits the validation event. Shared by the before-call and after-call phases
+// so an input firing is exactly as observable as an output firing — the
+// guardrail_triggered assertion reads msg.Validations via
+// EvalContext.PriorResults.
+func (s *ProviderStage) recordGuardrailFiring(
+	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
+) {
+	vType, _ := d.Metadata["validator_type"].(string)
+
+	if msg != nil && vType != "" {
+		details := make(map[string]any, len(d.Metadata)+1)
+		for k, v := range d.Metadata {
+			details[k] = v
+		}
+		details["direction"] = direction
+		msg.Validations = append(msg.Validations, types.ValidationResult{
+			ValidatorType: vType,
+			Passed:        false,
+			Details:       details,
+			Timestamp:     timeNow(),
+		})
+	}
+
 	if s.emitter == nil {
 		return
 	}
-	vType, _ := d.Metadata["validator_type"].(string)
 	score, _ := d.Metadata["score"].(float64)
 	data := &events.ValidationEventData{
 		ValidatorName: vType,
 		ValidatorType: vType,
+		Direction:     direction,
 		Duration:      duration,
 		Enforced:      d.Enforced,
 		Score:         score,
@@ -1861,6 +1919,51 @@ func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Durat
 		data.Violations = []string{d.Reason}
 	}
 	s.emitter.GuardrailResult(data)
+}
+
+// blockedMessage builds the assistant turn substituted for a provider call that
+// an enforcing BeforeCall hook skipped.
+//
+// This mirrors preExecCheck's handling of a blocked tool call: substitute a
+// well-formed result of the same shape, mark it with a typed indicator, attach
+// the decision metadata, and let the caller return normally so the pipeline
+// continues. Only the provider work is skipped — downstream stages still run.
+//
+// Text resolution order: the hook's req.Replacement, then
+// Decision.Metadata["replacement"] (the only channel an exec hook has), then
+// the default blocked message.
+func (s *ProviderStage) blockedMessage(
+	req *hooks.ProviderRequest, d hooks.Decision,
+) types.Message {
+	content := ""
+	if req != nil {
+		content = req.Replacement
+	}
+	if content == "" {
+		if m, ok := d.Metadata["replacement"].(string); ok {
+			content = m
+		}
+	}
+	if content == "" {
+		content = prompt.DefaultBlockedMessage
+	}
+
+	msg := types.Message{
+		Role:         roleAssistant,
+		Content:      content,
+		Timestamp:    timeNow(),
+		FinishReason: types.FinishReasonSafety,
+	}
+	if len(d.Metadata) > 0 {
+		// Meta is map[string]interface{} (types/message.go:39). Copy rather
+		// than alias the decision's map so a hook cannot mutate the recorded
+		// message afterwards.
+		msg.Meta = make(map[string]interface{}, len(d.Metadata))
+		for k, v := range d.Metadata {
+			msg.Meta[k] = v
+		}
+	}
+	return msg
 }
 
 // buildPendingResult creates a toolCallResult for a pending tool execution.

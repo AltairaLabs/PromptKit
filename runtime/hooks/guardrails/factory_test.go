@@ -288,6 +288,106 @@ func TestWithMessage(t *testing.T) {
 	}
 }
 
+// TestNewGuardrailHook_InvalidDirection_FallsBackToOutput proves that a bad
+// direction (unrecognized string, or non-string) degrades to the "output"
+// default with a warning rather than erroring. Erroring here would make
+// ValidatorsToHooks' warn-and-skip loop (factory.go) drop the guardrail
+// entirely on a typo — fail-open on a safety check, strictly worse than the
+// pre-Task-5 behavior of silently defaulting to "output".
+func TestNewGuardrailHook_InvalidDirection_FallsBackToOutput(t *testing.T) {
+	cases := []struct {
+		name      string
+		direction any
+	}{
+		{name: "unrecognized string", direction: "inpt"}, // typo for "input"
+		{name: "non-string", direction: 42},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := NewGuardrailHook("length", map[string]any{
+				"max_characters": 5,
+				"direction":      tc.direction,
+			})
+			require.NoError(t, err,
+				"an invalid direction must not error — construction must still succeed")
+
+			adapter := h.(*GuardrailHookAdapter)
+			require.Equal(t, DirectionOutput, adapter.direction,
+				"an invalid direction must fall back to output")
+
+			longContent := "this is way too long for the five-character limit"
+
+			// BeforeCall must NOT gate on the fallback direction: a guardrail
+			// that fell back to "output" must not start blocking user input.
+			req := &hooks.ProviderRequest{
+				Messages: []types.Message{{Role: roleUser, Content: longContent}},
+			}
+			before := adapter.BeforeCall(context.Background(), req)
+			assert.True(t, before.Allow,
+				"guardrail with fallback direction must not gate input")
+
+			// AfterCall must still gate output — the guardrail keeps protecting,
+			// just in the default direction.
+			resp := &hooks.ProviderResponse{
+				Message: types.Message{Role: "assistant", Content: longContent},
+			}
+			after := adapter.AfterCall(context.Background(), req, resp)
+			assert.False(t, after.Allow, "guardrail with fallback direction must still gate output")
+			assert.True(t, after.Enforced, "guardrail must enforce (truncate) on the output hit")
+		})
+	}
+}
+
+// TestNewGuardrailHook_AcceptsValidDirections pins the accepted direction
+// vocabulary behaviorally. Asserting only that construction succeeds would be
+// unconditionally true — since the fail-open fix the factory never errors on a
+// direction at all — so dropping a case from the switch would silently degrade
+// that direction to output-only (for "both", the input-side check vanishes
+// entirely) with the whole suite still green.
+func TestNewGuardrailHook_AcceptsValidDirections(t *testing.T) {
+	// Longer than max_characters below, so any gating direction must fire.
+	const longContent = "this is way too long for the five-character limit"
+
+	cases := []struct {
+		direction   string
+		gatesInput  bool
+		gatesOutput bool
+	}{
+		{direction: DirectionInput, gatesInput: true, gatesOutput: false},
+		{direction: DirectionOutput, gatesInput: false, gatesOutput: true},
+		{direction: DirectionBoth, gatesInput: true, gatesOutput: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.direction, func(t *testing.T) {
+			h, err := NewGuardrailHook("length", map[string]any{
+				"max_characters": 5,
+				"direction":      tc.direction,
+			})
+			require.NoError(t, err)
+
+			adapter := h.(*GuardrailHookAdapter)
+			require.Equal(t, tc.direction, adapter.direction,
+				"the accepted direction must be the one the adapter gates on")
+
+			req := &hooks.ProviderRequest{
+				Messages: []types.Message{{Role: roleUser, Content: longContent}},
+			}
+			before := adapter.BeforeCall(context.Background(), req)
+			assert.Equal(t, tc.gatesInput, !before.Allow,
+				"BeforeCall gating must match the declared direction")
+
+			resp := &hooks.ProviderResponse{
+				Message: types.Message{Role: "assistant", Content: longContent},
+			}
+			after := adapter.AfterCall(context.Background(), req, resp)
+			assert.Equal(t, tc.gatesOutput, !after.Allow,
+				"AfterCall gating must match the declared direction")
+		})
+	}
+}
+
 func TestNewGuardrailHook_MaxLength_WithTokens(t *testing.T) {
 	h, err := NewGuardrailHook("length", map[string]any{
 		"max_characters": 1000,

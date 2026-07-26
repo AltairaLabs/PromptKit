@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -1444,6 +1445,40 @@ func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Op
 func WithProviderHook(h hooks.ProviderHook) Option {
 	return func(c *config) error {
 		c.providerHooks = append(c.providerHooks, h)
+		return nil
+	}
+}
+
+// WithGuardrail registers one or more guardrails. Guardrails are eval-backed
+// or func-backed provider hooks with an explicit direction: input guardrails
+// gate the user's message before the LLM call, output guardrails gate the
+// response. An input guardrail that enforces blocks the call entirely — no
+// tokens are spent — and the conversation returns a canned assistant turn.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithGuardrail(
+//	        guardrails.Input("pii_leakage", nil),
+//	        guardrails.Input("regex", map[string]any{
+//	            "pattern": `(?i)\bwire transfer\b`, "expect_match": false,
+//	        }, guardrails.WithMessage("I can't help with that.")),
+//	        guardrails.OutputFunc("no-secrets", myCheck),
+//	    ),
+//	)
+//
+// Construction errors (unknown eval type, invalid params) are returned from
+// Open rather than at the call site. For a hook implementing the full
+// hooks.ProviderHook interface, use WithProviderHook.
+func WithGuardrail(specs ...guardrails.Spec) Option {
+	return func(c *config) error {
+		built := make([]hooks.ProviderHook, 0, len(specs))
+		for _, spec := range specs {
+			h, err := spec.Hook()
+			if err != nil {
+				return fmt.Errorf("guardrail: %w", err)
+			}
+			built = append(built, h)
+		}
+		c.providerHooks = append(c.providerHooks, built...)
 		return nil
 	}
 }
