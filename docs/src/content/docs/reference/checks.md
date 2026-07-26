@@ -713,7 +713,7 @@ assertions:
 ```
 
 :::note[Three-role model]
-RAG checks are eval primitives invoked as assertions. They can also be wired as monitor-only guardrails via `runtime/hooks/guardrails/factory.go` — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
+RAG checks are eval primitives invoked as assertions. They can also be wired as guardrails via `runtime/hooks/guardrails/factory.go` — guardrails always enforce (there is no monitor-only mode) — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
 :::
 
 ---
@@ -759,7 +759,11 @@ validators:
     message: "Please don't share personal details."
 ```
 
-An invalid value is rejected at load time rather than silently treated as `output`.
+On the pack YAML path, an unrecognized `direction` (or a non-string value) does not fail
+to load — it logs a warning and falls back to `output`, so a typo degrades which side gets
+checked rather than silently dropping the guardrail altogether. The programmatic
+`guardrails.Input`/`Output` constructors set `direction` themselves, so an invalid value
+cannot arise on that path.
 
 Subprocess (exec) hooks reach the same behavior through the existing `before_call` phase:
 returning `{"allow": false, "enforced": true, "reason": "...", "metadata": {"replacement": "..."}}`

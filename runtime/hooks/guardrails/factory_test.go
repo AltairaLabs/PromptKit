@@ -288,14 +288,55 @@ func TestWithMessage(t *testing.T) {
 	}
 }
 
-func TestNewGuardrailHook_RejectsInvalidDirection(t *testing.T) {
-	_, err := NewGuardrailHook("length", map[string]any{
-		"max_characters": 100,
-		"direction":      "inputs", // typo
-	})
+// TestNewGuardrailHook_InvalidDirection_FallsBackToOutput proves that a bad
+// direction (unrecognized string, or non-string) degrades to the "output"
+// default with a warning rather than erroring. Erroring here would make
+// ValidatorsToHooks' warn-and-skip loop (factory.go) drop the guardrail
+// entirely on a typo — fail-open on a safety check, strictly worse than the
+// pre-Task-5 behavior of silently defaulting to "output".
+func TestNewGuardrailHook_InvalidDirection_FallsBackToOutput(t *testing.T) {
+	cases := []struct {
+		name      string
+		direction any
+	}{
+		{name: "unrecognized string", direction: "inpt"}, // typo for "input"
+		{name: "non-string", direction: 42},
+	}
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "direction")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := NewGuardrailHook("length", map[string]any{
+				"max_characters": 5,
+				"direction":      tc.direction,
+			})
+			require.NoError(t, err,
+				"an invalid direction must not error — construction must still succeed")
+
+			adapter := h.(*GuardrailHookAdapter)
+			require.Equal(t, directionOutput, adapter.direction,
+				"an invalid direction must fall back to output")
+
+			longContent := "this is way too long for the five-character limit"
+
+			// BeforeCall must NOT gate on the fallback direction: a guardrail
+			// that fell back to "output" must not start blocking user input.
+			req := &hooks.ProviderRequest{
+				Messages: []types.Message{{Role: roleUser, Content: longContent}},
+			}
+			before := adapter.BeforeCall(context.Background(), req)
+			assert.True(t, before.Allow,
+				"guardrail with fallback direction must not gate input")
+
+			// AfterCall must still gate output — the guardrail keeps protecting,
+			// just in the default direction.
+			resp := &hooks.ProviderResponse{
+				Message: types.Message{Role: "assistant", Content: longContent},
+			}
+			after := adapter.AfterCall(context.Background(), req, resp)
+			assert.False(t, after.Allow, "guardrail with fallback direction must still gate output")
+			assert.True(t, after.Enforced, "guardrail must enforce (truncate) on the output hit")
+		})
+	}
 }
 
 func TestNewGuardrailHook_AcceptsValidDirections(t *testing.T) {
