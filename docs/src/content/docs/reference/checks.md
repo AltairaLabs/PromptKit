@@ -773,6 +773,13 @@ Input guardrails are evaluated **once per user turn**, not once per provider rou
 check runs only when the last message is a user message, so a tool-using turn does not
 re-run (and re-bill) an LLM-judged check on every round.
 
+A check used with `direction: input` must actually evaluate the content under test —
+`CurrentOutput` — rather than only assistant-role messages. `banned_words` /
+`content_excludes` and `content_includes_any` / `contains_any` currently scan
+assistant-role messages only, so they silently never fire as input guardrails (they
+compile, register, and always pass). Prefer a content-agnostic check for input —
+`regex`, `pii_leakage`, `contains`, `length` — instead.
+
 Programmatically, use the directional constructors instead of raw params:
 
 ```go

@@ -1458,8 +1458,9 @@ func WithProviderHook(h hooks.ProviderHook) Option {
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithGuardrail(
 //	        guardrails.Input("pii_leakage", nil),
-//	        guardrails.Input("banned_words", map[string]any{"words": []any{"wire transfer"}},
-//	            guardrails.WithMessage("I can't help with that.")),
+//	        guardrails.Input("regex", map[string]any{
+//	            "pattern": `(?i)\bwire transfer\b`, "expect_match": false,
+//	        }, guardrails.WithMessage("I can't help with that.")),
 //	        guardrails.OutputFunc("no-secrets", myCheck),
 //	    ),
 //	)
