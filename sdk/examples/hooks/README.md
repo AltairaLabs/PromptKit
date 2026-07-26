@@ -1,12 +1,25 @@
 # Hooks & Guardrails Example
 
-Demonstrates how to use SDK hooks to enforce guardrails on LLM responses.
+Demonstrates how to use SDK hooks and guardrails to enforce policy on both
+sides of an LLM call — the user's input before it's sent, and the assistant's
+response after it comes back.
 
 ## What You'll Learn
 
-- Registering built-in guardrails (`BannedWordsHook`, `LengthHook`) via `sdk.WithProviderHook()`
-- Writing a custom `ProviderHook` with `ChunkInterceptor` for streaming support
-- Detecting `HookDeniedError` with `errors.As` for graceful error handling
+- Registering input guardrails that gate the user's message **before** the
+  LLM call (`guardrails.Input`, `guardrails.InputFunc`) — a hit spends zero
+  tokens, no provider request is made
+- Registering output guardrails that gate the assistant's response **after**
+  the LLM call (`guardrails.Output`, built-in `banned_words`/`length`)
+- Declaring a guardrail entirely in the pack (`hooks.pack.json`'s
+  `validators` block) — no Go code at all
+- The two ways a guardrail can respond, and how to tell them apart:
+  - **Enforced** — a graceful block. `Send()` returns no error; the turn
+    carries a canned message and a validation record instead.
+  - **Deny** — a hard error. `Send()` returns an error you catch with
+    `errors.As`.
+- Writing a custom `ProviderHook` with `ChunkInterceptor` for streaming
+  support (the full-interface path, used here for a Deny example)
 - Streaming with chunk-level guardrail enforcement
 
 ## Prerequisites
@@ -23,20 +36,95 @@ go run .
 
 ## How It Works
 
-Hooks are registered as SDK options when opening a conversation:
+### Input guardrails — graceful blocking, before any LLM call
+
+Hooks are registered as SDK options when opening a conversation.
+`guardrails.Input` gates the user's message; a hit means the provider is
+never called:
 
 ```go
 conv, err := sdk.Open("./hooks.pack.json", "chat",
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"password", "secret"})),
-    sdk.WithProviderHook(guardrails.NewLengthHook(500, 0)),
-    sdk.WithProviderHook(NewPIIHook()),
+    sdk.WithGuardrail(
+        guardrails.Input("regex", map[string]any{
+            "pattern":      `(?i)\bwire transfer\b`,
+            "expect_match": false,
+        }, guardrails.WithMessage("I can't help with transfers.")),
+    ),
 )
+
+resp, err := conv.Send(ctx, "Can you help me set up a wire transfer?")
+// err is nil — an Enforced guardrail is not an error.
+// resp.Text() == "I can't help with transfers."
 ```
 
-Hooks execute in registration order. The first denial short-circuits — subsequent hooks are skipped. When a hook denies a response, `Send()` returns either a `*hooks.HookDeniedError` (non-streaming AfterCall) or a `*providers.ValidationAbortError` (streaming chunk interceptor):
+For a bespoke check with no interface to implement, use `guardrails.InputFunc`:
 
 ```go
-resp, err := conv.Send(ctx, "What is a good default password?")
+guardrails.InputFunc("no-ssn", func(ctx context.Context, in *hooks.InputRequest) hooks.Decision {
+    if strings.Contains(strings.ToLower(in.UserInput), "social security number") {
+        in.Replacement = "I can't help with that request."
+        return hooks.Enforced("ssn requested", map[string]any{"validator_type": "no-ssn"})
+    }
+    return hooks.Allow
+})
+```
+
+`hooks.InputRequest` gives you `UserInput`, the full `Messages` history,
+the current `Round`, and `Replacement` (the canned text to send back).
+There's a matching `guardrails.OutputFunc` for the response side, working
+against `hooks.OutputRequest` (`Content`, `Message` — mutate it in place to
+rewrite, `Round`).
+
+**A gotcha worth knowing:** not every built-in eval type works as an input
+guardrail. `banned_words` (aliased to `content_excludes`) and `contains_any`
+only scan assistant-role messages — as an input guardrail they compile,
+register, and silently never fire, because the trailing message they'd need
+to check is the user's. That's why this example uses `regex` (with
+`expect_match: false`) instead of `banned_words` for its input guardrail.
+Content-agnostic eval types — `regex`, `length`, `pii_leakage`, `contains`,
+`json_valid` — all read the input correctly.
+
+### Pack-declared validators — the same gating, zero Go code
+
+`hooks.pack.json`'s `chat` prompt declares an input guardrail directly:
+
+```json
+"validators": [
+  {
+    "type": "regex",
+    "enabled": true,
+    "params": {
+      "pattern": "(?i)\\brouting number\\b",
+      "expect_match": false,
+      "direction": "input",
+      "message": "I can't help with bank routing numbers."
+    }
+  }
+]
+```
+
+The promptpack schema's `Validator` object has no top-level `message` or
+`direction` property (`additionalProperties: false`) — both live inside
+`params`. `direction` accepts `"input"`, `"output"`, or `"both"`; it defaults
+to `"output"` if omitted. Pack-declared validators are wired in before any
+`WithGuardrail` hooks registered in code, so they always get first look at a
+call.
+
+### Enforced vs. Deny
+
+Every eval-backed and func-backed guardrail in this example (`Input`,
+`InputFunc`, `Output`, and the pack validator) answers with `hooks.Enforced`
+on a hit: `Send()` succeeds, the turn is replaced with a canned message, and
+it's marked internally with `types.FinishReasonSafety` plus a
+`types.ValidationResult` naming the guardrail. The pipeline is **not**
+aborted — downstream stages still run.
+
+The custom `PIIHook` in this example is different: it implements the full
+`hooks.ProviderHook` interface and answers with `hooks.Deny` — a genuine hard
+error:
+
+```go
+resp, err := conv.Send(ctx, "Make up a fake contact card...")
 if err != nil {
     var denied *hooks.HookDeniedError
     var aborted *providers.ValidationAbortError
@@ -48,7 +136,35 @@ if err != nil {
 }
 ```
 
-Hooks that implement `ChunkInterceptor` also enforce guardrails during streaming, checking each chunk as it arrives.
+Hooks execute in registration order; the first non-`Allow` decision (Deny or
+Enforced) short-circuits the rest for that call.
+
+### Detecting a graceful block without string-matching the text
+
+Because an `Enforced` block returns no error, you can't use `err != nil` to
+notice one. This example's `blockedByGuardrail` helper checks
+`resp.Validations()` instead:
+
+```go
+func blockedByGuardrail(resp *sdk.Response) (validatorType string, blocked bool) {
+    for _, v := range resp.Validations() {
+        if !v.Passed {
+            return v.ValidatorType, true
+        }
+    }
+    return "", false
+}
+```
+
+**A note on the SDK's public API surface:** the pipeline internally marks a
+blocked turn's message with `FinishReason == types.FinishReasonSafety`, but
+that doesn't reach the caller today — `sdk.Response` has no `FinishReason()`
+accessor, and `Response.Message()` returns a message rebuilt from a narrower
+internal struct that doesn't carry `FinishReason` either. `resp.Validations()`
+is the reliable signal, and only when the firing guardrail's
+`hooks.Enforced(...)` call includes a `"validator_type"` key in its metadata
+— `guardrails.Input`/`Output` always do; a bespoke `InputFunc`/`OutputFunc`
+only does if you add it yourself, same as the `no-ssn` example above.
 
 ## Next Steps
 

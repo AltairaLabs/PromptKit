@@ -13,7 +13,19 @@
       "id": "chat",
       "name": "Chat",
       "version": "1.0.0",
-      "system_template": "You are a helpful assistant. Answer the user's questions clearly and concisely."
+      "system_template": "You are a helpful assistant. Answer the user's questions clearly and concisely.",
+      "validators": [
+        {
+          "type": "regex",
+          "enabled": true,
+          "params": {
+            "pattern": "(?i)\\brouting number\\b",
+            "expect_match": false,
+            "direction": "input",
+            "message": "I can't help with bank routing numbers."
+          }
+        }
+      ]
     }
   }
 }
