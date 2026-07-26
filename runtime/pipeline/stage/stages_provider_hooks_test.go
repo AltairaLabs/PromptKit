@@ -1034,6 +1034,8 @@ func TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops(t *testing.T
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "I can't help with that.", msgs[0].Content)
 	assert.Empty(t, msgs[0].ToolCalls, "enforced response must not retain tool calls")
+	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason,
+		"enforced response must be marked like a policy-dropped tool call")
 }
 
 // toolCallingStreamProvider is the streaming counterpart of
@@ -1105,4 +1107,102 @@ func TestProviderStage_AfterCallHook_EnforcedDropsToolCallsAndStops_Streaming(t 
 	assert.Empty(t, msgs[0].ToolCalls, "enforced response must not retain tool calls")
 	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason,
 		"enforced response must be marked like a policy-dropped tool call")
+}
+
+// =============================================================================
+// Direction tagging — pre-call firing observability parity (Task 4)
+// =============================================================================
+
+// collectValidationFailures subscribes to validation.failed and returns a
+// getter that closes the bus (flushing async delivery) and returns the data.
+func collectValidationFailures(
+	t *testing.T, bus *events.EventBus,
+) func() []*events.ValidationEventData {
+	t.Helper()
+	var mu sync.Mutex
+	var received []*events.Event
+	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+	return func() []*events.ValidationEventData {
+		bus.Close() // flush: the bus dispatches on a worker pool
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]*events.ValidationEventData, 0, len(received))
+		for _, e := range received {
+			if d, ok := e.Data.(*events.ValidationEventData); ok {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
+}
+
+// TestProviderStage_BeforeCallHook_EnforcedRecordsFiring proves a pre-call
+// guardrail firing is observable: stamped on the canned message's Validations
+// (the record that seeds EvalContext.PriorResults for the guardrail_triggered
+// assertion) and emitted as a validation event tagged direction=input.
+func TestProviderStage_BeforeCallHook_EnforcedRecordsFiring(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	bus := events.NewEventBus()
+	getEvents := collectValidationFailures(t, bus)
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+		reason:      "pii detected",
+		replacement: "I can't help with that.",
+		metadata:    map[string]any{"validator_type": "pii_leakage"},
+	}))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	elems, err := runProviderStage(t, stage, "my SSN is 123-45-6789")
+	require.NoError(t, err)
+	assert.Equal(t, 0, provider.callCount())
+
+	// Validation record lands on the canned assistant message.
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	require.Len(t, msgs[0].Validations, 1)
+	assert.Equal(t, "pii_leakage", msgs[0].Validations[0].ValidatorType)
+	assert.False(t, msgs[0].Validations[0].Passed)
+	assert.Equal(t, "input", msgs[0].Validations[0].Details["direction"])
+
+	// Event emitted, tagged as an input firing.
+	got := getEvents()
+	require.Len(t, got, 1)
+	assert.Equal(t, "pii_leakage", got[0].ValidatorType)
+	assert.Equal(t, "input", got[0].Direction)
+	assert.True(t, got[0].Enforced)
+	assert.Contains(t, got[0].Violations, "pii detected")
+}
+
+// TestProviderStage_AfterCallHook_EnforcedTaggedOutput pins that the existing
+// output path reports direction=output through the shared helper.
+func TestProviderStage_AfterCallHook_EnforcedTaggedOutput(t *testing.T) {
+	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
+
+	bus := events.NewEventBus()
+	getEvents := collectValidationFailures(t, bus)
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	reg := hooks.NewRegistry(hooks.WithProviderHook(
+		&enforceAfterCallHook{replacement: "I can't help with that."},
+	))
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	_, err := runProviderStage(t, stage, "hi")
+	require.NoError(t, err)
+
+	got := getEvents()
+	require.Len(t, got, 1)
+	assert.Equal(t, "output", got[0].Direction)
 }

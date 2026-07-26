@@ -1033,13 +1033,17 @@ func (s *ProviderStage) executeRound(
 			Round:        round,
 			Metadata:     metadata,
 		}
+		hookStart := time.Now()
 		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
 			if d.Enforced {
 				// Guardrail skipped the provider call: no request, no tokens.
 				// Returning hasToolCalls=false stops the round loop (afterRound
 				// returns done on !hasToolCalls). The pipeline is NOT aborted —
 				// this message is emitted and downstream stages still run.
-				return s.blockedMessage(hookReq, d), false, nil
+				hookElapsed := time.Since(hookStart)
+				blocked := s.blockedMessage(hookReq, d)
+				s.recordGuardrailFiring(&blocked, d, guardrailDirectionInput, hookElapsed)
+				return blocked, false, nil
 			}
 			return types.Message{}, false, &hooks.HookDeniedError{
 				HookName: providerHookName,
@@ -1190,15 +1194,7 @@ func (s *ProviderStage) executeRound(
 		}
 		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.emitGuardrailEvent(d, time.Since(hookStart))
-			// Populate msg.Validations for guardrail_triggered compat
-			if vType, ok := d.Metadata["validator_type"].(string); ok {
-				responseMsg.Validations = append(responseMsg.Validations, types.ValidationResult{
-					ValidatorType: vType,
-					Passed:        false,
-					Details:       d.Metadata,
-				})
-			}
+			s.recordGuardrailFiring(&responseMsg, d, guardrailDirectionOutput, time.Since(hookStart))
 			if d.Enforced {
 				// Hook already enforced (truncated/replaced content) — pick up
 				// the modified message and stop the round loop. The pipeline
@@ -1216,7 +1212,14 @@ func (s *ProviderStage) executeRound(
 				toolCalls = nil
 				responseMsg.FinishReason = types.FinishReasonSafety
 				if len(d.Metadata) > 0 {
-					responseMsg.Meta = d.Metadata
+					// Meta is map[string]interface{} (types/message.go:39). Copy
+					// rather than alias the decision's map so a hook cannot
+					// mutate an already-recorded message afterwards (mirrors
+					// blockedMessage).
+					responseMsg.Meta = make(map[string]interface{}, len(d.Metadata))
+					for k, v := range d.Metadata {
+						responseMsg.Meta[k] = v
+					}
 				}
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
@@ -1261,13 +1264,17 @@ func (s *ProviderStage) executeStreamingRound(
 			Round:        params.round,
 			Metadata:     params.metadata,
 		}
+		hookStart := time.Now()
 		if d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq); !d.Allow {
 			if d.Enforced {
 				// Guardrail skipped the provider call: no request, no tokens.
 				// Returning hasToolCalls=false stops the round loop (afterRound
 				// returns done on !hasToolCalls). The pipeline is NOT aborted —
 				// this message is emitted and downstream stages still run.
-				return s.blockedMessage(hookReq, d), false, nil
+				hookElapsed := time.Since(hookStart)
+				blocked := s.blockedMessage(hookReq, d)
+				s.recordGuardrailFiring(&blocked, d, guardrailDirectionInput, hookElapsed)
+				return blocked, false, nil
 			}
 			return types.Message{}, false, &hooks.HookDeniedError{
 				HookName: providerHookName,
@@ -1422,17 +1429,7 @@ func (s *ProviderStage) executeStreamingRound(
 		}
 		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.emitGuardrailEvent(d, time.Since(hookStart))
-			if vType, ok := d.Metadata["validator_type"].(string); ok {
-				responseMsg.Validations = append(
-					responseMsg.Validations,
-					types.ValidationResult{
-						ValidatorType: vType,
-						Passed:        false,
-						Details:       d.Metadata,
-					},
-				)
-			}
+			s.recordGuardrailFiring(&responseMsg, d, guardrailDirectionOutput, time.Since(hookStart))
 			if d.Enforced {
 				// Hook already enforced (truncated/replaced content) — pick up
 				// the modified message and stop the round loop. The pipeline
@@ -1450,7 +1447,14 @@ func (s *ProviderStage) executeStreamingRound(
 				toolCalls = nil
 				responseMsg.FinishReason = types.FinishReasonSafety
 				if len(d.Metadata) > 0 {
-					responseMsg.Meta = d.Metadata
+					// Meta is map[string]interface{} (types/message.go:39). Copy
+					// rather than alias the decision's map so a hook cannot
+					// mutate an already-recorded message afterwards (mirrors
+					// blockedMessage).
+					responseMsg.Meta = make(map[string]interface{}, len(d.Metadata))
+					for k, v := range d.Metadata {
+						responseMsg.Meta[k] = v
+					}
 				}
 			} else {
 				return responseMsg, false, &hooks.HookDeniedError{
@@ -1563,7 +1567,7 @@ func (s *ProviderStage) processStreamChunks(
 		// Run chunk interceptor hooks
 		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
 			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
-				s.emitGuardrailEvent(d, 0)
+				s.recordGuardrailFiring(nil, d, guardrailDirectionOutput, 0)
 				// Stamp the firing on a sentinel pending-validation slot so
 				// the AfterCall path below can fold it into responseMsg.
 				// Without this, streaming-only guardrails produce no
@@ -1898,16 +1902,45 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels m
 	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
 }
 
-// emitGuardrailEvent emits a validation event from a hook decision.
-func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Duration) {
+// Guardrail firing directions, recorded on the validation event and record so
+// assertions can distinguish an input firing from an output firing.
+const (
+	guardrailDirectionInput  = "input"
+	guardrailDirectionOutput = "output"
+)
+
+// recordGuardrailFiring stamps a guardrail firing onto msg.Validations and
+// emits the validation event. Shared by the before-call and after-call phases
+// so an input firing is exactly as observable as an output firing — the
+// guardrail_triggered assertion reads msg.Validations via
+// EvalContext.PriorResults.
+func (s *ProviderStage) recordGuardrailFiring(
+	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
+) {
+	vType, _ := d.Metadata["validator_type"].(string)
+
+	if msg != nil && vType != "" {
+		details := make(map[string]any, len(d.Metadata)+1)
+		for k, v := range d.Metadata {
+			details[k] = v
+		}
+		details["direction"] = direction
+		msg.Validations = append(msg.Validations, types.ValidationResult{
+			ValidatorType: vType,
+			Passed:        false,
+			Details:       details,
+			Timestamp:     timeNow(),
+		})
+	}
+
 	if s.emitter == nil {
 		return
 	}
-	vType, _ := d.Metadata["validator_type"].(string)
 	score, _ := d.Metadata["score"].(float64)
 	data := &events.ValidationEventData{
 		ValidatorName: vType,
 		ValidatorType: vType,
+		Direction:     direction,
 		Duration:      duration,
 		Enforced:      d.Enforced,
 		Score:         score,
