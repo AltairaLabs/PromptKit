@@ -37,9 +37,8 @@ func TestInputGuardrailBlocksGracefully(t *testing.T) {
 		sdk.WithProvider(provider),
 		sdk.WithSkipSchemaValidation(),
 		sdk.WithGuardrail(
-			guardrails.Input("regex", map[string]any{
-				"pattern":      `(?i)\bwire transfer\b`,
-				"expect_match": false,
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
 			}, guardrails.WithMessage("I can't help with transfers.")),
 		),
 	)
@@ -53,13 +52,36 @@ func TestInputGuardrailBlocksGracefully(t *testing.T) {
 	require.NotEmpty(t, resp.Validations(), "blocked turn must carry a validation record")
 	found := false
 	for _, v := range resp.Validations() {
-		if v.ValidatorType == "regex" {
+		if v.ValidatorType == "banned_words" {
 			require.False(t, v.Passed)
 			require.Equal(t, "input", v.Details["direction"])
 			found = true
 		}
 	}
-	require.True(t, found, "expected a regex validation result")
+	require.True(t, found, "expected a banned_words validation result")
+}
+
+// TestInputGuardrailAllowsCleanInput is the discriminating half: the same
+// guardrail must let an unrelated message through to the provider. Without it,
+// a guardrail that blocked everything would satisfy the test above.
+func TestInputGuardrailAllowsCleanInput(t *testing.T) {
+	provider := mock.NewProvider("mock", "mock-model", false)
+	conv, err := sdk.Open("hooks.pack.json", "chat",
+		sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
+			}, guardrails.WithMessage("I can't help with transfers.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	resp, err := conv.Send(context.Background(), "What is the capital of France?")
+	require.NoError(t, err)
+	require.NotEqual(t, "I can't help with transfers.", resp.Text(),
+		"a clean message must reach the provider")
 }
 
 // TestPackDeclaredInputValidatorBlocksGracefully pins the pack-declared path:

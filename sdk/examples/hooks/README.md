@@ -45,9 +45,8 @@ never called:
 ```go
 conv, err := sdk.Open("./hooks.pack.json", "chat",
     sdk.WithGuardrail(
-        guardrails.Input("regex", map[string]any{
-            "pattern":      `(?i)\bwire transfer\b`,
-            "expect_match": false,
+        guardrails.Input("banned_words", map[string]any{
+            "words": []any{"wire transfer"},
         }, guardrails.WithMessage("I can't help with transfers.")),
     ),
 )
@@ -75,14 +74,12 @@ There's a matching `guardrails.OutputFunc` for the response side, working
 against `hooks.OutputRequest` (`Content`, `Message` — mutate it in place to
 rewrite, `Round`).
 
-**A gotcha worth knowing:** not every built-in eval type works as an input
-guardrail. `banned_words` (aliased to `content_excludes`) and `contains_any`
-only scan assistant-role messages — as an input guardrail they compile,
-register, and silently never fire, because the trailing message they'd need
-to check is the user's. That's why this example uses `regex` (with
-`expect_match: false`) instead of `banned_words` for its input guardrail.
-Content-agnostic eval types — `regex`, `length`, `pii_leakage`, `contains`,
-`json_valid` — all read the input correctly.
+**Direction is the only thing that changes.** A content check evaluates
+whichever side `direction` selects, so the same type works either way —
+`guardrails.Input("banned_words", …)` gates the user's message and
+`guardrails.Output("banned_words", …)` gates the reply. As an output
+guardrail a check judges that response alone; an earlier turn does not
+affect the verdict.
 
 ### Pack-declared validators — the same gating, zero Go code
 
