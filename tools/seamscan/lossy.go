@@ -44,8 +44,14 @@ import (
 // (string(src.A), src.A+"!", src.Items[0], Inner{X: src.A}) — plus any
 // slice/array/map index read, regardless of what it indexes.
 //
-// What it does not detect: any method call, including one that's really just
-// a field forwarded through a getter. A narrow rule counting calls to a
+// What it does not detect: a method call whose receiver and arguments contain
+// no field or index read anywhere — state.accumulatedContent() and f(x) are
+// invisible, even when the callee really is just forwarding a field through a
+// getter. Note the converse: because the walk covers the whole subtree
+// including a call's receiver chain, x.Field.Method() DOES qualify (the
+// receiver reads a field), so some findings are method-call values whose
+// result may be unrelated to the field read — resp.Message.GetContent() and
+// int(d.turns.Load()) both fire on that basis. A narrow rule counting calls to a
 // concrete (non-interface) receiver's method was tried specifically to
 // recover the streaming twin of #1681 at sdk/streaming.go:444
 // (state.accumulatedContent()), which is exactly that shape. It was reverted:
