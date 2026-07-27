@@ -175,18 +175,14 @@ func main() {
 		sdk.WithGuardrail(
 			// --- Input guardrails: gate the user's message, before any LLM call ---
 
-			// Eval-backed: "regex" with expect_match:false fails (blocks) when
-			// the pattern IS found — a "banned phrase" check. This example
-			// deliberately does NOT use "banned_words" here: that eval type
-			// (content_excludes) and "contains_any" only ever scan
-			// assistant-role messages, so as an input guardrail they'd compile
-			// and register but silently never fire against the user's
-			// message. Content-agnostic eval types — regex, length,
-			// pii_leakage, contains, json_valid — all read the input
-			// correctly instead.
-			guardrails.Input("regex", map[string]any{
-				"pattern":      `(?i)\bwire transfer\b`,
-				"expect_match": false,
+			// Eval-backed, gating the user's message: a hit means the provider
+			// is never called at all, so a blocked turn costs nothing. Send
+			// returns normally with WithMessage's text — see Example 2.
+			//
+			// The same check type works in either direction; `direction` (set
+			// here by the Input constructor) decides which side is examined.
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
 			}, guardrails.WithMessage("I can't help with transfers.")),
 
 			// --- Output guardrails: gate the assistant's response, after the LLM call ---
