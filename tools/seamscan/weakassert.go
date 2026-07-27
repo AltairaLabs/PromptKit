@@ -9,6 +9,20 @@ import (
 	"strings"
 )
 
+// Finding kinds produced by classify/classifyBody.
+const (
+	kindNoAssertion   = "no-assertion"
+	kindWeakAssertion = "weak-assertion"
+)
+
+// testifyPackageAlias/testifyRequireAlias are the conventional local names
+// testify assertion packages are imported under (assert.Equal,
+// require.NoError, ...).
+const (
+	testifyPackageAlias = "assert"
+	testifyRequireAlias = "require"
+)
+
 // assertionsProvingNothing are testify calls that establish only that a call
 // did not fail. A test whose every assertion is one of these passes regardless
 // of whether the code under test produced the right answer.
@@ -83,14 +97,30 @@ func goTestFiles(root string) ([]string, error) {
 	return files, err
 }
 
-// inspectTestFunc classifies a test function and each of its subtests.
+// inspectTestFunc classifies a test function and, recursively, every t.Run
+// subtest nested inside it.
 func inspectTestFunc(fset *token.FileSet, path string, fn *ast.FuncDecl) []Finding {
 	var out []Finding
+	classifyBody(fset, path, fn.Name.Name, fn.Pos(), fn.Body, &out)
+	return out
+}
 
-	// Subtests first, and record their bodies so the parent is judged on the
-	// statements that are actually its own.
-	subBodies := map[ast.Node]bool{}
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
+// subtestCall is one t.Run(name, func(t *testing.T) {...}) found directly
+// inside a body — "directly" meaning not itself nested inside some other
+// subtest's body discovered at this same level.
+type subtestCall struct {
+	name string
+	pos  token.Pos
+	body *ast.BlockStmt
+}
+
+// directSubtests finds every t.Run call that is a direct child of body. It
+// does not descend into a matched call's own FuncLit body, so a t.Run nested
+// two levels deep is reported only once, as a direct child of its immediate
+// parent — never double-counted as a child of body too.
+func directSubtests(body *ast.BlockStmt) []subtestCall {
+	var out []subtestCall
+	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || !isTRun(call) || len(call.Args) < 2 {
 			return true
@@ -99,35 +129,45 @@ func inspectTestFunc(fset *token.FileSet, path string, fn *ast.FuncDecl) []Findi
 		if !ok {
 			return true
 		}
-		subBodies[lit.Body] = true
-		name := fn.Name.Name + "/" + subtestName(call.Args[0])
-		if k := classify(lit.Body, subBodies); k != "" {
-			out = append(out, Finding{
-				Kind:    k,
-				File:    path,
-				Line:    fset.Position(call.Pos()).Line,
-				Subject: name,
-			})
-		}
-		return true
+		out = append(out, subtestCall{name: subtestName(call.Args[0]), pos: call.Pos(), body: lit.Body})
+		return false
 	})
-
-	// The parent is only reported when it has no subtests of its own; a parent
-	// that exists purely to host t.Run calls asserts nothing by design.
-	if len(subBodies) == 0 {
-		if k := classify(fn.Body, nil); k != "" {
-			out = append(out, Finding{
-				Kind:    k,
-				File:    path,
-				Line:    fset.Position(fn.Pos()).Line,
-				Subject: fn.Name.Name,
-			})
-		}
-	}
 	return out
 }
 
-// classify returns "no-assertion", "weak-assertion", or "" for a body,
+// classifyBody classifies one test/subtest body and recurses into its own
+// direct subtests, appending every finding to out. subject is the full
+// slash-joined nesting path (e.g. "TestParent/outer/inner") and pos is the
+// position to report the finding at (the t.Run call site, or the function
+// position for the top-level test).
+//
+// A body that hosts subtests of its own is reported only when its own scope
+// (excluding those subtest bodies) contains a weak assertion: a parent that
+// merely hosts t.Run calls, with no assertion of its own, asserts nothing by
+// design and must not be flagged as "no-assertion".
+func classifyBody(fset *token.FileSet, path, subject string, pos token.Pos, body *ast.BlockStmt, out *[]Finding) {
+	children := directSubtests(body)
+
+	skip := make(map[ast.Node]bool, len(children))
+	for _, c := range children {
+		skip[c.body] = true
+	}
+
+	k := classify(body, skip)
+	report := k != ""
+	if len(children) > 0 {
+		report = k == kindWeakAssertion
+	}
+	if report {
+		*out = append(*out, Finding{Kind: k, File: path, Line: fset.Position(pos).Line, Subject: subject})
+	}
+
+	for _, c := range children {
+		classifyBody(fset, path, subject+"/"+c.name, c.pos, c.body, out)
+	}
+}
+
+// classify returns kindNoAssertion, kindWeakAssertion, or "" for a body,
 // skipping any nested subtest bodies which are reported separately.
 func classify(body *ast.BlockStmt, skip map[ast.Node]bool) string {
 	testify, native := collectAssertionCalls(body, skip)
@@ -136,14 +176,14 @@ func classify(body *ast.BlockStmt, skip map[ast.Node]bool) string {
 		return ""
 	}
 	if len(testify) == 0 {
-		return "no-assertion"
+		return kindNoAssertion
 	}
 	for _, name := range testify {
 		if !assertionsProvingNothing[name] {
 			return ""
 		}
 	}
-	return "weak-assertion"
+	return kindWeakAssertion
 }
 
 // collectAssertionCalls walks body, skipping any nested subtest bodies, and
@@ -164,8 +204,9 @@ type assertionCollector struct {
 	native  bool
 }
 
-// visit is an ast.Inspect callback: it records testify assertion calls and
-// native t.Error/t.Fatal calls, stepping over any nested subtest body.
+// visit is an ast.Inspect callback: it records testify assertion calls,
+// native t.Error/t.Fatal calls, and calls to locally-defined assertion
+// helpers, stepping over any nested subtest body.
 func (c *assertionCollector) visit(n ast.Node) bool {
 	if n == nil {
 		return false
@@ -177,23 +218,52 @@ func (c *assertionCollector) visit(n ast.Node) bool {
 	if !ok {
 		return true
 	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return true
-	}
-	pkg, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return true
-	}
-	switch pkg.Name {
-	case "assert", "require":
-		c.testify = append(c.testify, sel.Sel.Name)
-	case "t":
-		if strings.HasPrefix(sel.Sel.Name, "Error") || strings.HasPrefix(sel.Sel.Name, "Fatal") {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		// A bare call like assertCard(t, got) or mustParse(...) verifies
+		// something internally (often via t.Fatalf) with no assert./require.
+		// call visible here. Treating it as a real assertion may miss a
+		// truly weak helper, but treating it as weak/no-assertion risks
+		// flagging a legitimate test — for a candidate-generating tool, the
+		// false positive is the worse failure mode.
+		if isAssertionHelperName(fn.Name) {
 			c.native = true
+		}
+	case *ast.SelectorExpr:
+		pkg, ok := fn.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		switch pkg.Name {
+		case testifyPackageAlias, testifyRequireAlias:
+			c.testify = append(c.testify, fn.Sel.Name)
+		case "t":
+			if strings.HasPrefix(fn.Sel.Name, "Error") || strings.HasPrefix(fn.Sel.Name, "Fatal") {
+				c.native = true
+			}
 		}
 	}
 	return true
+}
+
+// assertionHelperPrefixes are name prefixes (checked case-insensitively)
+// that mark a bare function call as a local assertion helper rather than
+// ordinary test logic.
+var assertionHelperPrefixes = []string{
+	testifyPackageAlias, testifyRequireAlias, "check", "verify", "must",
+}
+
+// isAssertionHelperName reports whether name looks like a locally-defined
+// assertion helper (assertCard, requireThing, checkThing, verifyThing,
+// mustThing, ...).
+func isAssertionHelperName(name string) bool {
+	lower := strings.ToLower(name)
+	for _, prefix := range assertionHelperPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isTRun(call *ast.CallExpr) bool {

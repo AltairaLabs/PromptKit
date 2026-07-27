@@ -127,3 +127,124 @@ func TestParent(t *testing.T) {
 	assert.Equal(t, "weak-assertion", got[0].Kind)
 	assert.Equal(t, "TestParent/weak", got[0].Subject)
 }
+
+// A parent's own assertions — the ones living outside any t.Run — must be
+// classified too, not just its subtests.
+func TestWeakAssertions_ReportsParentOwnAssertionOutsideSubtests(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	require.NoError(t, setup())
+	t.Run("strong", func(t *testing.T) {
+		require.Equal(t, 1, one())
+	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "weak-assertion", got[0].Kind)
+	assert.Equal(t, "TestParent", got[0].Subject)
+}
+
+// A parent that exists purely to host t.Run calls, with no assertion of its
+// own, asserts nothing by design and must never be reported — pinned
+// explicitly rather than left implied by another test's incidental shape.
+func TestWeakAssertions_IgnoresParentThatOnlyHostsSubtests(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	t.Run("strong", func(t *testing.T) {
+		require.Equal(t, 1, one())
+	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// Nested t.Run calls must be isolated from their ancestors (an inner
+// subtest's assertions must not leak into its parent's classification) and
+// named by their full path, since a shallow "parent/leaf" name collides
+// across siblings at different depths.
+func TestWeakAssertions_NestedSubtestsIsolatedAndFullyNamed(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	t.Run("outer", func(t *testing.T) {
+		t.Run("inner", func(t *testing.T) {
+			require.NoError(t, doThing())
+		})
+	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "weak-assertion", got[0].Kind)
+	assert.Equal(t, "TestParent/outer/inner", got[0].Subject)
+}
+
+// A locally-defined assertion helper (assertX/requireX/checkX/verifyX/mustX,
+// called as a bare identifier) verifies something internally, usually via
+// t.Fatalf, so a test that only calls one must not be reported. False
+// positives here would get the guard switched off, so this errs toward
+// under-reporting: any of these prefixes counts as a real assertion.
+func TestWeakAssertions_IgnoresLocalAssertionHelpers(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import "testing"
+
+func TestUsesAssertHelper(t *testing.T) {
+	assertCard(t, got())
+}
+
+func TestUsesRequireHelper(t *testing.T) {
+	requireThing(t, got())
+}
+
+func TestUsesCheckHelper(t *testing.T) {
+	checkThing(t, got())
+}
+
+func TestUsesVerifyHelper(t *testing.T) {
+	verifyThing(t, got())
+}
+
+func TestUsesMustHelper(t *testing.T) {
+	mustThing(t, got())
+}
+
+func TestUsesUpperCaseHelper(t *testing.T) {
+	AssertCard(t, got())
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
