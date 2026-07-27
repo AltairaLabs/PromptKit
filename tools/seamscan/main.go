@@ -12,6 +12,13 @@ import (
 	"os"
 )
 
+// defaultMinFields/defaultMinDropped tune the "seams" lossy-rebuild signature
+// for signal on this codebase; see LossyRebuilds for what they gate.
+const (
+	defaultMinFields  = 5
+	defaultMinDropped = 3
+)
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "seamscan:", err)
@@ -22,12 +29,15 @@ func main() {
 // run takes an io.Writer rather than *os.File so a test can capture output.
 func run(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: seamscan weak-assertions [--text] <path> [<path> ...]")
+		return fmt.Errorf(
+			"usage: seamscan <weak-assertions|seams> [--text] [--min-fields N] [--min-dropped N] <path> [<path> ...]")
 	}
 
 	cmd, rest := args[0], args[1:]
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	text := fs.Bool("text", false, "human-readable output instead of JSON")
+	minFields := fs.Int("min-fields", defaultMinFields, "ignore structs with fewer exported fields")
+	minDropped := fs.Int("min-dropped", defaultMinDropped, "ignore literals dropping fewer fields")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -43,6 +53,8 @@ func run(args []string, stdout io.Writer) error {
 	switch cmd {
 	case "weak-assertions":
 		found, err = WeakAssertions(paths)
+	case "seams":
+		found, err = LossyRebuilds(paths, *minFields, *minDropped)
 	default:
 		return fmt.Errorf("unknown subcommand %q", cmd)
 	}
