@@ -203,7 +203,9 @@ func (t *PackTemplate) newConversation(
 // initConversation sets up capabilities, hooks, and event bus on the conversation.
 func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Prompt, cfg *config) error {
 	applyDefaultVariables(conv, packPrompt)
-	convertPackValidatorsToHooks(packPrompt, cfg)
+	if err := convertPackValidatorsToHooks(packPrompt, cfg); err != nil {
+		return err
+	}
 
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(t.pack))
 	allCaps = ensureA2ACapability(allCaps, cfg)

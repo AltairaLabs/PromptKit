@@ -50,16 +50,11 @@ func (h *ContentExcludesHandler) Eval(
 	matcher := buildMatcher(mode, patterns)
 
 	var found []string
-	for i := range evalCtx.Messages {
-		msg := &evalCtx.Messages[i]
-		if !strings.EqualFold(msg.Role, roleAssistant) {
-			continue
-		}
-		content := msg.GetContent()
+	for _, target := range contentUnderTest(evalCtx) {
 		for _, p := range patterns {
-			if matcher(content, p) {
+			if matcher(target.content, p) {
 				found = append(found, fmt.Sprintf(
-					"turn %d contains %q", i, p,
+					"turn %d contains %q", target.turn, p,
 				))
 			}
 		}

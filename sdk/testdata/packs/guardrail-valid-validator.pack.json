@@ -1,0 +1,28 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "guardrail-valid-validator",
+  "name": "Guardrail Valid Validator Pack",
+  "version": "1.0.0",
+  "description": "Pack with a genuinely valid validator, so the unknown-type check is actually reached",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant.",
+      "validators": [
+        {
+          "type": "length",
+          "enabled": true,
+          "params": {
+            "max_characters": 500
+          }
+        }
+      ]
+    }
+  }
+}

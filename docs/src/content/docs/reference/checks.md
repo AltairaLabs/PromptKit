@@ -31,7 +31,7 @@ All check types are implemented as `EvalTypeHandler` instances registered in the
 | `contains` | `content_includes` | `patterns` (string[]) | A G E | No |
 | `regex` | `content_matches` | `pattern` (string) | A G E | No |
 | `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]) | A G E | Yes |
-| `contains_any` | `content_includes_any` | `patterns` (string[]) | A E | No |
+| `contains_any` | `content_includes_any` | `patterns` (string[]) | A G E | No |
 | `min_length` | -- | `min` or `min_characters` (int) | A E | No |
 | `max_length` | `length` | `max` or `max_characters` (int), `max_tokens` (int) | A G E | Yes |
 | `sentence_count` | `max_sentences` | `max` or `max_sentences` (int) | A G E | No |
@@ -773,21 +773,42 @@ Input guardrails are evaluated **once per user turn**, not once per provider rou
 check runs only when the last message is a user message, so a tool-using turn does not
 re-run (and re-bill) an LLM-judged check on every round.
 
-A check used with `direction: input` must actually evaluate the content under test —
-`CurrentOutput` — rather than only assistant-role messages. `banned_words` /
-`content_excludes` and `content_includes_any` / `contains_any` currently scan
-assistant-role messages only, so they silently never fire as input guardrails (they
-compile, register, and always pass). Prefer a content-agnostic check for input —
-`regex`, `pii_leakage`, `contains`, `length` — instead.
+A check marked `G` in the table above evaluates whichever side `direction` selects — the
+content under test — so the pattern-matching checks (`contains`, `regex`,
+`content_excludes` / `banned_words`, `contains_any`) work in either direction. As an output
+guardrail such a check judges that response only: neither the user's message nor an earlier
+assistant turn affects the verdict, so one tripped turn does not re-block the rest of the
+conversation.
+
+Used as an eval or assertion instead, the same checks scan the whole transcript — "was this
+ever said" — which is the behavior those surfaces rely on.
 
 Programmatically, use the directional constructors instead of raw params:
 
 ```go
 sdk.WithGuardrail(
-    guardrails.Input("pii_leakage", nil),
+    guardrails.Input("banned_words", map[string]any{"words": []any{"wire transfer"}}),
     guardrails.Output("banned_words", map[string]any{"words": []any{"secret"}}),
 )
 ```
+
+#### When a validator cannot be built
+
+The failure policy differs by how ambiguous the mistake is:
+
+| Problem | Behavior |
+|---|---|
+| Unknown eval `type` | **Fatal** — `Open()` returns an error naming the type |
+| Params fail validation | Logged as a warning and that validator is skipped; the rest still load |
+| Unrecognized `direction` value | Logged as a warning and treated as `output` |
+
+An unregistered `type` is always a typo, and silently dropping it would leave the
+conversation with no protection while load appeared to succeed — fail-open on a safety
+control. Unusable *params* keep the warn-and-skip behavior so that one bad entry does not
+break the others, and so a pack authored against a newer runtime stays loadable.
+
+To surface every problem at once without opening a conversation, use `sdk.ValidatePack`,
+which dry-run constructs each validator and reports all issues together.
 
 For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
 

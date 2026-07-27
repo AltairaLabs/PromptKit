@@ -3,12 +3,63 @@ package handlers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
 const (
 	roleAssistant = "assistant"
 	roleTool      = "tool"
 )
+
+// scanTarget is one piece of content a content-matching handler should examine,
+// paired with the turn index used in explanations.
+type scanTarget struct {
+	turn    int
+	content string
+}
+
+// contentUnderTest returns the content a content-matching handler should scan,
+// honoring the caller's declared EvalContext.ContentScope.
+//
+// ContentScopeCurrent (set by the guardrail adapter) means examine only
+// CurrentOutput — the one message being judged. That is required for an input
+// guardrail, whose content under test is the *user's* message: a scan filtered
+// to assistant role would never see it, which made `direction: input`
+// guardrails silent no-ops (#1679).
+//
+// The default, ContentScopeTranscript, scans every assistant message. Evals and
+// assertions rely on this to answer "was this ever said" across the whole
+// conversation.
+//
+// Scope is deliberately explicit rather than inferred from CurrentOutput being
+// set: BuildEvalContext always populates that field, so inferring would
+// silently narrow every eval and assertion to the last assistant turn.
+func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
+	if evalCtx == nil {
+		return nil
+	}
+
+	if evalCtx.ContentScope == evals.ContentScopeCurrent && evalCtx.CurrentOutput != "" {
+		// Attribute it to the last message, which is the turn the caller is
+		// evaluating in both the input and output directions.
+		turn := len(evalCtx.Messages) - 1
+		if turn < 0 {
+			turn = 0
+		}
+		return []scanTarget{{turn: turn, content: evalCtx.CurrentOutput}}
+	}
+
+	targets := make([]scanTarget, 0, len(evalCtx.Messages))
+	for i := range evalCtx.Messages {
+		msg := &evalCtx.Messages[i]
+		if !strings.EqualFold(msg.Role, roleAssistant) {
+			continue
+		}
+		targets = append(targets, scanTarget{turn: i, content: msg.GetContent()})
+	}
+	return targets
+}
 
 // extractStringSlice safely extracts a string slice from params.
 func extractStringSlice(params map[string]any, key string) []string {

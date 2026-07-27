@@ -721,6 +721,18 @@ func (c *Conversation) executePipeline(
 	return c.unarySession.ExecuteWithMessage(ctx, *userMsg)
 }
 
+// lastAssistantFinishReason returns the FinishReason of the most recent
+// assistant message, or "" when there is none. Used to recover the field the
+// pipeline's narrower Response type drops.
+func lastAssistantFinishReason(msgs []types.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == roleAssistant {
+			return msgs[i].FinishReason
+		}
+	}
+	return ""
+}
+
 // buildResponse creates a Response from the pipeline result.
 func (c *Conversation) buildResponse(
 	ctx context.Context, result *rtpipeline.ExecutionResult, startTime time.Time,
@@ -733,6 +745,13 @@ func (c *Conversation) buildResponse(
 			Parts:    result.Response.Parts,
 			CostInfo: &result.CostInfo,
 		}
+		// The pipeline's Response type is narrower than types.Message and does
+		// not carry FinishReason, but ExecutionResult.Messages holds the full
+		// assistant message — so recover it from there. Without this a caller
+		// cannot distinguish a guardrail-blocked turn (marked
+		// types.FinishReasonSafety) from a real model reply, nor see
+		// max_output_tokens or refusal.
+		assistantMsg.FinishReason = lastAssistantFinishReason(result.Messages)
 	}
 
 	resp := &Response{

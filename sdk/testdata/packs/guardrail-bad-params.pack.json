@@ -1,0 +1,28 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "guardrail-bad-params",
+  "name": "Guardrail Bad Params Pack",
+  "version": "1.0.0",
+  "description": "Pack whose validator names a real eval type but supplies unusable params",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant.",
+      "validators": [
+        {
+          "type": "length",
+          "enabled": true,
+          "params": {
+            "direction": "output"
+          }
+        }
+      ]
+    }
+  }
+}

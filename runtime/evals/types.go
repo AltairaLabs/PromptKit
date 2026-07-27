@@ -328,7 +328,31 @@ type EvalContext struct {
 	// batch. This allows evals like guardrail_triggered to inspect the
 	// outcomes of earlier evals without coupling to pipeline internals.
 	PriorResults []EvalResult `json:"prior_results,omitempty"`
+
+	// ContentScope tells content-matching handlers how much of the
+	// conversation to examine. Empty (the default) means the whole
+	// transcript, which is what evals and assertions want: "was this ever
+	// said". ContentScopeCurrent means CurrentOutput only, which is what a
+	// guardrail wants: it judges one specific message.
+	//
+	// This must be explicit. BuildEvalContext always populates CurrentOutput,
+	// so its presence cannot be used to infer scope — doing so silently
+	// collapses every eval and assertion to the last assistant turn.
+	ContentScope string `json:"content_scope,omitempty"`
 }
+
+// Content scopes for EvalContext.ContentScope.
+const (
+	// ContentScopeTranscript examines every assistant message. The zero value,
+	// and the behavior evals and assertions rely on.
+	ContentScopeTranscript = ""
+
+	// ContentScopeCurrent examines only EvalContext.CurrentOutput — the single
+	// message the caller is judging. Set by the guardrail adapter, for which
+	// the content under test may be a user message (input direction) that a
+	// transcript scan filtered to assistant role would never see.
+	ContentScopeCurrent = "current"
+)
 
 // ToolCallRecord is an alias for types.ToolCallRecord so existing code
 // referencing evals.ToolCallRecord continues to compile unchanged.
