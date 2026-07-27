@@ -27,7 +27,11 @@ ROOT="$(git rev-parse --show-toplevel)"
 SCAN="go -C ${ROOT}/tools/seamscan run ."
 
 # Findings on the merge base, then on the working tree; anything only in the
-# latter is new. Subject+kind identifies a finding stably across line moves.
+# latter is new. Subject+kind identifies a finding stably across line moves,
+# so that pair is what the diff runs on; file+line is kept alongside on the
+# head side only, purely to report where to look — a scan can carry the same
+# subject in several files (sdk/examples/*/smoke_test.go all define
+# TestSmoke), so the kind+subject tuple alone doesn't say which one to open.
 # Paths passed to seamscan are absolute so `go -C` (which changes the process
 # working directory, not just the module lookup) doesn't make them resolve
 # against tools/seamscan instead of the tree we mean to scan.
@@ -36,18 +40,30 @@ trap 'rm -rf "${tmp}"' EXIT
 
 git -C "${ROOT}" worktree add --quiet --detach "${tmp}/base" "$(git -C "${ROOT}" merge-base HEAD "${BASE}")"
 ${SCAN} weak-assertions "${tmp}/base/runtime" "${tmp}/base/sdk" "${tmp}/base/pkg" 2>/dev/null \
-  | grep -oE '"kind": "[^"]+"|"subject": "[^"]+"' | paste - - | sort > "${tmp}/base.txt" || true
+  | grep -oE '"kind": "[^"]+"|"subject": "[^"]+"' | paste - - | sort > "${tmp}/base_ks.txt" || true
 git -C "${ROOT}" worktree remove --force "${tmp}/base"
 
 ${SCAN} weak-assertions "${ROOT}/runtime" "${ROOT}/sdk" "${ROOT}/pkg" 2>/dev/null \
-  | grep -oE '"kind": "[^"]+"|"subject": "[^"]+"' | paste - - | sort > "${tmp}/head.txt"
+  | grep -oE '"kind": "[^"]+"|"file": "[^"]+"|"line": [0-9]+|"subject": "[^"]+"' \
+  | paste - - - - > "${tmp}/head_full.txt"
+cut -f1,4 "${tmp}/head_full.txt" | sort > "${tmp}/head_ks.txt"
 
 # Split from the `if` deliberately: with set -e, `if cmd && [ ... ]` would
 # swallow a genuine comm failure as "no findings", which would make the guard
 # silently useless — the exact failure mode this whole plan exists to prevent.
-new="$(comm -13 "${tmp}/base.txt" "${tmp}/head.txt" || true)"
+new="$(comm -13 "${tmp}/base_ks.txt" "${tmp}/head_ks.txt" || true)"
 if [ -n "${new}" ]; then
-  echo "${new}" | while read -r line; do echo "FAIL: ${line}"; done
+  while IFS= read -r ks; do
+    [ -z "${ks}" ] && continue
+    awk -F'\t' -v ks="${ks}" -v OFS='\t' '
+      $1"\t"$4 == ks {
+        file = $2; sub(/^"file": "/, "", file); sub(/"$/, "", file)
+        line = $3; sub(/^"line": /, "", line)
+        kind = $1; sub(/^"kind": "/, "", kind); sub(/"$/, "", kind)
+        subj = $4; sub(/^"subject": "/, "", subj); sub(/"$/, "", subj)
+        printf "FAIL: %s:%s\t%s\t%s\n", file, line, kind, subj
+      }' "${tmp}/head_full.txt"
+  done <<< "${new}"
   echo ""
   echo "These tests assert only that a call did not fail, so they pass whether or"
   echo "not the code produced the right answer. Name the mutation each assertion"

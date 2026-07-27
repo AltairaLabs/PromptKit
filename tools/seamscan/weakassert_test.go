@@ -209,6 +209,77 @@ func TestParent(t *testing.T) {
 	assert.Equal(t, "TestParent/outer/inner", got[0].Subject)
 }
 
+// Factoring a fixture closure out of two subtests (pure DRY, no behavior
+// change) must not flip the parent from unreported to reported. The parent's
+// only "own scope" assertion is the require.NoError inside the shared
+// newFixture closure — fixture setup, not the parent's assertion surface —
+// and both subtests carry real assertions of their own, so nothing here
+// should be flagged.
+func TestWeakAssertions_IgnoresFixtureClosureSharedBySubtests(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	newFixture := func(t *testing.T) int {
+		v, err := setup()
+		require.NoError(t, err)
+		return v
+	}
+
+	t.Run("one", func(t *testing.T) {
+		require.Equal(t, 1, newFixture(t))
+	})
+	t.Run("two", func(t *testing.T) {
+		require.Equal(t, 2, newFixture(t))
+	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// A weak assertion the parent makes directly, in its own statements outside
+// any nested func literal, must still be flagged even when the parent also
+// hosts a fixture closure — the fixture-closure suppression must not swallow
+// genuine direct assertions living alongside it.
+func TestWeakAssertions_StillFlagsDirectWeakAssertionBesideFixtureClosure(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	newFixture := func(t *testing.T) int {
+		v, err := setup()
+		require.NoError(t, err)
+		return v
+	}
+	require.NoError(t, teardown())
+
+	t.Run("one", func(t *testing.T) {
+		require.Equal(t, 1, newFixture(t))
+	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "weak-assertion", got[0].Kind)
+	assert.Equal(t, "TestParent", got[0].Subject)
+}
+
 // A locally-defined assertion helper (assertX/requireX/checkX/verifyX/mustX,
 // called as a bare identifier) verifies something internally, usually via
 // t.Fatalf, so a test that only calls one must not be reported. False

@@ -145,6 +145,18 @@ func directSubtests(body *ast.BlockStmt) []subtestCall {
 // (excluding those subtest bodies) contains a weak assertion: a parent that
 // merely hosts t.Run calls, with no assertion of its own, asserts nothing by
 // design and must not be flagged as "no-assertion".
+//
+// When a body delegates to subtests, any other nested function literal in its
+// own scope — a `newFixture := func(t *testing.T) {...}` helper shared by the
+// subtests, say — is fixture setup, not the parent's assertion surface: it
+// runs once per subtest that calls it, at a point the parent chose to
+// delegate away from. Without this, factoring identical fixture code out of
+// two subtests into one shared closure (pure DRY, no behavior change) could
+// flip the parent from unreported to reported, purely because its one weak
+// assertion (say, a `require.NoError` guarding construction) became visible
+// to the walk that used to only see it duplicated inside each *subtest* body
+// (already skipped). Assertions the parent makes directly in its own
+// statements, outside of any nested func literal, still count.
 func classifyBody(fset *token.FileSet, path, subject string, pos token.Pos, body *ast.BlockStmt, out *[]Finding) {
 	children := directSubtests(body)
 
@@ -153,7 +165,7 @@ func classifyBody(fset *token.FileSet, path, subject string, pos token.Pos, body
 		skip[c.body] = true
 	}
 
-	k := classify(body, skip)
+	k := classify(body, skip, len(children) > 0)
 	report := k != ""
 	if len(children) > 0 {
 		report = k == kindWeakAssertion
@@ -168,9 +180,11 @@ func classifyBody(fset *token.FileSet, path, subject string, pos token.Pos, body
 }
 
 // classify returns kindNoAssertion, kindWeakAssertion, or "" for a body,
-// skipping any nested subtest bodies which are reported separately.
-func classify(body *ast.BlockStmt, skip map[ast.Node]bool) string {
-	testify, native := collectAssertionCalls(body, skip)
+// skipping any nested subtest bodies which are reported separately. When
+// delegatesToSubtests is true, assertions inside any other nested function
+// literal are treated as fixture setup and excluded too — see classifyBody.
+func classify(body *ast.BlockStmt, skip map[ast.Node]bool, delegatesToSubtests bool) string {
+	testify, native := collectAssertionCalls(body, skip, delegatesToSubtests)
 
 	if native {
 		return ""
@@ -188,9 +202,11 @@ func classify(body *ast.BlockStmt, skip map[ast.Node]bool) string {
 
 // collectAssertionCalls walks body, skipping any nested subtest bodies, and
 // returns every testify assertion method invoked plus whether a native
-// t.Error/t.Fatal call was used.
-func collectAssertionCalls(body *ast.BlockStmt, skip map[ast.Node]bool) ([]string, bool) {
-	c := &assertionCollector{body: body, skip: skip}
+// t.Error/t.Fatal call was used. skipFuncLits additionally treats every other
+// nested function literal's body as out of scope (fixture helpers, not the
+// body's own assertion surface) — see classifyBody.
+func collectAssertionCalls(body *ast.BlockStmt, skip map[ast.Node]bool, skipFuncLits bool) ([]string, bool) {
+	c := &assertionCollector{body: body, skip: skip, skipFuncLits: skipFuncLits}
 	ast.Inspect(body, c.visit)
 	return c.testify, c.native
 }
@@ -198,26 +214,48 @@ func collectAssertionCalls(body *ast.BlockStmt, skip map[ast.Node]bool) ([]strin
 // assertionCollector accumulates the assertion calls found while walking a
 // single test/subtest body.
 type assertionCollector struct {
-	body    *ast.BlockStmt
-	skip    map[ast.Node]bool
-	testify []string
-	native  bool
+	body         *ast.BlockStmt
+	skip         map[ast.Node]bool
+	skipFuncLits bool
+	testify      []string
+	native       bool
 }
 
 // visit is an ast.Inspect callback: it records testify assertion calls,
 // native t.Error/t.Fatal calls, and calls to locally-defined assertion
-// helpers, stepping over any nested subtest body.
+// helpers, stepping over any nested subtest body (and, when skipFuncLits is
+// set, over every other nested function literal too — see classify).
 func (c *assertionCollector) visit(n ast.Node) bool {
 	if n == nil {
 		return false
 	}
-	if b, ok := n.(*ast.BlockStmt); ok && c.skip[b] && b != c.body {
+	if c.shouldSkip(n) {
 		return false
 	}
 	call, ok := n.(*ast.CallExpr)
 	if !ok {
 		return true
 	}
+	return c.recordCall(call)
+}
+
+// shouldSkip reports whether n roots a subtree outside this collector's
+// assertion surface: a nested subtest body (reported separately by its own
+// classifyBody call) or, when skipFuncLits is set, any other nested function
+// literal (fixture setup — see classify).
+func (c *assertionCollector) shouldSkip(n ast.Node) bool {
+	if b, ok := n.(*ast.BlockStmt); ok && c.skip[b] && b != c.body {
+		return true
+	}
+	_, isFuncLit := n.(*ast.FuncLit)
+	return isFuncLit && c.skipFuncLits
+}
+
+// recordCall inspects one call expression, recording it as a testify
+// assertion, a native (t.Error/t.Fatal or locally-defined helper) assertion,
+// or neither. Always returns true so ast.Inspect keeps descending into the
+// call's own arguments.
+func (c *assertionCollector) recordCall(call *ast.CallExpr) bool {
 	switch fn := call.Fun.(type) {
 	case *ast.Ident:
 		// A bare call like assertCard(t, got) or mustParse(...) verifies
