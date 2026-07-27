@@ -198,10 +198,15 @@ func (a *GuardrailHookAdapter) OnChunk(
 	}
 
 	if result.Score == nil || *result.Score < 1.0 {
-		// Truncate chunk content for length validators
-		if maxLen := extractMaxLen(params); maxLen > 0 && len(chunk.Content) > maxLen {
-			chunk.Content = chunk.Content[:maxLen]
-		}
+		// Substitute the enforced content, exactly as the non-streaming path
+		// does. Previously this only truncated for length validators, so a
+		// content blocker left the offending text in place and the caller
+		// received the very pattern it was configured to block (#1697).
+		//
+		// Deltas already emitted to a consumer cannot be recalled — that is
+		// inherent to streaming — but the accumulated content the stage keeps,
+		// which becomes the assistant message, is corrected here.
+		chunk.Content = a.enforcedContent(chunk.Content, params)
 		return a.enforced(result)
 	}
 
@@ -210,20 +215,34 @@ func (a *GuardrailHookAdapter) OnChunk(
 
 // enforce modifies the message content based on the validator type.
 func (a *GuardrailHookAdapter) enforce(msg *types.Message, params map[string]any) {
-	if maxLen := extractMaxLen(params); maxLen > 0 && len(msg.Content) > maxLen {
+	msg.Content = a.enforcedContent(msg.Content, params)
+}
+
+// enforcedContent returns the content that should replace the offending text.
+//
+// Single-sourced so the streaming and non-streaming paths cannot disagree about
+// what enforcement means. They legitimately disagree about *detection* — the
+// streaming check matches substrings so a pattern split across chunks is not
+// missed, while the final check honors match_mode — but once either has fired,
+// the substituted content must be the same.
+//
+// Getting that wrong leaked the banned text: a chunk check fired on a substring,
+// the stream stopped, and the final check then judged the same content clean
+// under word_boundary mode and left it in place (#1697).
+func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string]any) string {
+	if maxLen := extractMaxLen(params); maxLen > 0 && len(content) > maxLen {
 		logger.Info("Guardrail enforced: truncating content",
-			"type", a.evalType, "original_length", len(msg.Content), "max_length", maxLen)
-		msg.Content = msg.Content[:maxLen]
-		return
+			"type", a.evalType, "original_length", len(content), "max_length", maxLen)
+		return content[:maxLen]
 	}
 
-	// Content blocker — replace with user-facing message
+	// Content blocker — replace with the user-facing message.
 	blockedMsg := a.message
 	if blockedMsg == "" {
 		blockedMsg = prompt.DefaultBlockedMessage
 	}
 	logger.Info("Guardrail enforced: content blocked", "type", a.evalType)
-	msg.Content = blockedMsg
+	return blockedMsg
 }
 
 // enforced builds an Enforced decision from an EvalResult.
