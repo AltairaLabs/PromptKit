@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -24,8 +23,6 @@ import (
 // This must drive the REAL adapter: a test hook putting a plain float64 in the
 // decision metadata would not reproduce a pointer-type mismatch.
 func TestGuardrailEvent_CarriesTheEvalScore(t *testing.T) {
-	provider := mock.NewProvider("p", "m", false)
-
 	// max_characters far below the mock's reply length, so the guardrail fires
 	// with a fractional score rather than a pass.
 	guard, err := guardrails.NewGuardrailHook("length", map[string]any{
@@ -33,16 +30,11 @@ func TestGuardrailEvent_CarriesTheEvalScore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	bus := events.NewEventBus()
-	getEvents := collectValidationFailures(t, bus)
-	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
-
-	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
-		MaxTokens: 100,
-	}, emitter, hooks.NewRegistry(hooks.WithProviderHook(guard)))
-
-	_, runErr := runProviderStage(t, stage, "hello")
-	require.NoError(t, runErr)
+	_, getEvents := runStageCollectingValidations(t,
+		mock.NewProvider("p", "m", false),
+		hooks.NewRegistry(hooks.WithProviderHook(guard)),
+		"hello",
+	)
 
 	got := getEvents()
 	require.Len(t, got, 1, "the guardrail should have fired once")

@@ -1198,22 +1198,13 @@ func collectValidationFailures(
 func TestProviderStage_BeforeCallHook_EnforcedRecordsFiring(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 
-	bus := events.NewEventBus()
-	getEvents := collectValidationFailures(t, bus)
-	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
-
 	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
 		reason:      "pii detected",
 		replacement: "I can't help with that.",
 		metadata:    map[string]any{"validator_type": "pii_leakage"},
 	}))
 
-	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
-		MaxTokens: 100,
-	}, emitter, reg)
-
-	elems, err := runProviderStage(t, stage, "my SSN is 123-45-6789")
-	require.NoError(t, err)
+	elems, getEvents := runStageCollectingValidations(t, provider, reg, "my SSN is 123-45-6789")
 	assert.Equal(t, 0, provider.callCount())
 
 	// Validation record lands on the canned assistant message.
@@ -1238,24 +1229,37 @@ func TestProviderStage_BeforeCallHook_EnforcedRecordsFiring(t *testing.T) {
 func TestProviderStage_AfterCallHook_EnforcedTaggedOutput(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 
-	bus := events.NewEventBus()
-	getEvents := collectValidationFailures(t, bus)
-	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
-
 	reg := hooks.NewRegistry(hooks.WithProviderHook(
 		&enforceAfterCallHook{replacement: "I can't help with that."},
 	))
+
+	_, getEvents := runStageCollectingValidations(t, provider, reg, "hi")
+
+	got := getEvents()
+	require.Len(t, got, 1)
+	assert.Equal(t, "output", got[0].Direction)
+}
+
+// runStageCollectingValidations runs one turn through a ProviderStage wired to
+// reg, and returns the emitted elements plus a getter for the validation.failed
+// events. The getter closes the bus to flush async delivery, so call it after
+// asserting on the elements.
+func runStageCollectingValidations(
+	t *testing.T, provider providers.Provider, reg *hooks.Registry, userText string,
+) ([]StreamElement, func() []*events.ValidationEventData) {
+	t.Helper()
+
+	bus := events.NewEventBus()
+	getEvents := collectValidationFailures(t, bus)
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
 
 	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
 	}, emitter, reg)
 
-	_, err := runProviderStage(t, stage, "hi")
+	elems, err := runProviderStage(t, stage, userText)
 	require.NoError(t, err)
-
-	got := getEvents()
-	require.Len(t, got, 1)
-	assert.Equal(t, "output", got[0].Direction)
+	return elems, getEvents
 }
 
 // TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop proves the real
