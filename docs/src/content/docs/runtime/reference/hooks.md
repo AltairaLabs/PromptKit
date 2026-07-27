@@ -84,6 +84,21 @@ const (
 )
 ```
 
+<a name="DirectionInput"></a>Guardrail directions: which side of a provider call a check gates, and the vocabulary a firing is tagged with.
+
+These live here rather than in hooks/guardrails because both the guardrail adapter and the pipeline stage need them, and the stage's use is about its own two call phases — it should not have to depend on a concrete hook implementation for a set of string labels.
+
+```go
+const (
+    // DirectionInput gates the user's input, in BeforeCall.
+    DirectionInput = "input"
+    // DirectionOutput gates the assistant's response, in AfterCall.
+    DirectionOutput = "output"
+    // DirectionBoth gates input and output.
+    DirectionBoth = "both"
+)
+```
+
 ## Variables
 
 <a name="Allow"></a>Allow is the zero\-cost approval decision.

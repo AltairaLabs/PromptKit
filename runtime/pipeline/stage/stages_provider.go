@@ -14,7 +14,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -1149,35 +1148,16 @@ func (s *ProviderStage) executeRound(
 	}
 
 	// Run AfterCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     messages,
-			SystemPrompt: systemPrompt,
-			Round:        round,
-			Metadata:     metadata,
-		}
-		hookResp := &hooks.ProviderResponse{
-			ProviderID: s.provider.ID(),
-			Model:      s.provider.Model(),
-			Message:    responseMsg,
-			Round:      round,
-			LatencyMs:  duration.Milliseconds(),
-		}
-		hookStart := time.Now()
-		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.recordGuardrailFiring(&responseMsg, d, guardrails.DirectionOutput, time.Since(hookStart))
-			if !d.Enforced {
-				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: providerHookName,
-					HookType: providerHookTypeAfter,
-					Reason:   d.Reason,
-					Metadata: d.Metadata,
-				}
-			}
-			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
-		}
+	if err := s.runAfterCallHooks(ctx, &afterCallParams{
+		messages:     messages,
+		systemPrompt: systemPrompt,
+		round:        round,
+		metadata:     metadata,
+		duration:     duration,
+		responseMsg:  &responseMsg,
+		toolCalls:    &toolCalls,
+	}); err != nil {
+		return responseMsg, false, err
 	}
 
 	logger.Debug("Provider round completed",
@@ -1320,46 +1300,33 @@ func (s *ProviderStage) executeStreamingRound(
 	// firings — without this, a guardrail that aborts mid-stream produces
 	// no observable validation record.
 	responseMsg := types.Message{
-		Role:        "assistant",
-		Content:     content,
-		ToolCalls:   toolCalls,
-		Reasoning:   reasoning,
-		Timestamp:   timeNow(),
-		LatencyMs:   duration.Milliseconds(),
-		CostInfo:    costInfo,
-		Validations: chunkValidations,
+		Role:      roleAssistant,
+		Content:   content,
+		ToolCalls: toolCalls,
+		Reasoning: reasoning,
+		Timestamp: timeNow(),
+		LatencyMs: duration.Milliseconds(),
+		CostInfo:  costInfo,
+		// Stamp the provider's own reason, mirroring the non-streaming path.
+		// Enforcement below overwrites this with FinishReasonSafety when a
+		// guardrail fires. Without it a streaming turn reports no finish
+		// reason at all, so max_output_tokens and refusal are indistinguishable
+		// from a normal completion once the SDK surfaces the field.
+		FinishReason: finishReason,
+		Validations:  chunkValidations,
 	}
 
 	// Run AfterCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     params.messages,
-			SystemPrompt: params.systemPrompt,
-			Round:        params.round,
-			Metadata:     params.metadata,
-		}
-		hookResp := &hooks.ProviderResponse{
-			ProviderID: s.provider.ID(),
-			Model:      s.provider.Model(),
-			Message:    responseMsg,
-			Round:      params.round,
-			LatencyMs:  duration.Milliseconds(),
-		}
-		hookStart := time.Now()
-		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.recordGuardrailFiring(&responseMsg, d, guardrails.DirectionOutput, time.Since(hookStart))
-			if !d.Enforced {
-				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: providerHookName,
-					HookType: providerHookTypeAfter,
-					Reason:   d.Reason,
-					Metadata: d.Metadata,
-				}
-			}
-			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
-		}
+	if err := s.runAfterCallHooks(ctx, &afterCallParams{
+		messages:     params.messages,
+		systemPrompt: params.systemPrompt,
+		round:        params.round,
+		metadata:     params.metadata,
+		duration:     duration,
+		responseMsg:  &responseMsg,
+		toolCalls:    &toolCalls,
+	}); err != nil {
+		return responseMsg, false, err
 	}
 
 	logger.Debug("Provider streaming round completed",
@@ -1462,7 +1429,7 @@ func (s *ProviderStage) processStreamChunks(
 		// Run chunk interceptor hooks
 		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
 			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
-				s.recordGuardrailFiring(nil, d, guardrails.DirectionOutput, 0)
+				s.recordGuardrailFiring(nil, d, hooks.DirectionOutput, 0)
 				// Stamp the firing on a sentinel pending-validation slot so
 				// the AfterCall path below can fold it into responseMsg.
 				// Without this, streaming-only guardrails produce no
@@ -1797,6 +1764,66 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels m
 	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
 }
 
+// afterCallParams carries what the AfterCall hook chain needs from either
+// round function. responseMsg and toolCalls are pointers because an enforcing
+// guardrail rewrites the response and drops its tool calls in place.
+type afterCallParams struct {
+	messages     []types.Message
+	systemPrompt string
+	round        int
+	metadata     map[string]interface{}
+	duration     time.Duration
+	responseMsg  *types.Message
+	toolCalls    *[]types.MessageToolCall
+}
+
+// runAfterCallHooks runs the AfterCall hook chain, shared by the unary and
+// streaming rounds so the two cannot drift.
+//
+// A non-nil error is a hook denial, which aborts the pipeline. An enforcing
+// guardrail returns nil: it rewrites the response and clears its tool calls via
+// applyEnforcedResponse, so the caller reports hasToolCalls=false and the round
+// loop stops while the pipeline continues.
+func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParams) error {
+	if s.hookRegistry == nil {
+		return nil
+	}
+
+	hookReq := &hooks.ProviderRequest{
+		ProviderID:   s.provider.ID(),
+		Model:        s.provider.Model(),
+		Messages:     p.messages,
+		SystemPrompt: p.systemPrompt,
+		Round:        p.round,
+		Metadata:     p.metadata,
+	}
+	hookResp := &hooks.ProviderResponse{
+		ProviderID: s.provider.ID(),
+		Model:      s.provider.Model(),
+		Message:    *p.responseMsg,
+		Round:      p.round,
+		LatencyMs:  p.duration.Milliseconds(),
+	}
+
+	hookStart := time.Now()
+	d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp)
+	if d.Allow {
+		return nil
+	}
+
+	s.recordGuardrailFiring(p.responseMsg, d, hooks.DirectionOutput, time.Since(hookStart))
+	if !d.Enforced {
+		return &hooks.HookDeniedError{
+			HookName: providerHookName,
+			HookType: providerHookTypeAfter,
+			Reason:   d.Reason,
+			Metadata: d.Metadata,
+		}
+	}
+	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d)
+	return nil
+}
+
 // runBeforeCallHooks runs the BeforeCall hook chain. It is called BEFORE the
 // provider request is built, because hooks may mutate the message slice in
 // place (e.g. redaction) and NormalizeMessages copies that slice when a system
@@ -1842,7 +1869,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	}
 	// Guardrail skipped the provider call: no request, no tokens.
 	blocked := s.blockedMessage(hookReq, d)
-	s.recordGuardrailFiring(&blocked, d, guardrails.DirectionInput, time.Since(hookStart))
+	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil
 }
 
@@ -1906,19 +1933,36 @@ func (s *ProviderStage) recordGuardrailFiring(
 	if s.emitter == nil {
 		return
 	}
-	score, _ := d.Metadata["score"].(float64)
 	data := &events.ValidationEventData{
 		ValidatorName: vType,
 		ValidatorType: vType,
 		Direction:     direction,
 		Duration:      duration,
 		Enforced:      d.Enforced,
-		Score:         score,
+		Score:         metadataScore(d.Metadata),
 	}
 	if !d.Allow {
 		data.Violations = []string{d.Reason}
 	}
 	s.emitter.GuardrailResult(data)
+}
+
+// metadataScore extracts a guardrail's eval score from decision metadata.
+//
+// The guardrail adapter stores evals.EvalResult.Score, which is a *float64, so
+// a plain float64 type assertion silently yields 0 and every event under-reports
+// the score. Accept both shapes: a hand-written hook may reasonably put a plain
+// float64 there.
+func metadataScore(metadata map[string]any) float64 {
+	switch v := metadata["score"].(type) {
+	case *float64:
+		if v != nil {
+			return *v
+		}
+	case float64:
+		return v
+	}
+	return 0
 }
 
 // blockedMessage builds the assistant turn substituted for a provider call that

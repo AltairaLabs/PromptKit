@@ -11,17 +11,14 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Direction values for guardrail hook evaluation, as accepted in a validator's
-// params["direction"]. Exported so the pipeline can tag a firing with the same
-// vocabulary the adapter gates on — a second, private copy in another package
-// could diverge without breaking the build.
+// Aliases of the canonical direction constants, retained for existing callers.
+// See runtime/hooks for what each value means; the vocabulary lives there so
+// the pipeline stage need not import a concrete hook implementation to tag a
+// firing.
 const (
-	// DirectionInput gates the user's input in BeforeCall.
-	DirectionInput = "input"
-	// DirectionOutput gates the assistant's response in AfterCall.
-	DirectionOutput = "output"
-	// DirectionBoth gates input and output.
-	DirectionBoth = "both"
+	DirectionInput  = hooks.DirectionInput
+	DirectionOutput = hooks.DirectionOutput
+	DirectionBoth   = hooks.DirectionBoth
 )
 
 // roleUser is the message role an input guardrail gates on.
