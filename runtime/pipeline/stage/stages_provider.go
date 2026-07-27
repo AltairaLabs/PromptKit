@@ -1148,35 +1148,16 @@ func (s *ProviderStage) executeRound(
 	}
 
 	// Run AfterCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     messages,
-			SystemPrompt: systemPrompt,
-			Round:        round,
-			Metadata:     metadata,
-		}
-		hookResp := &hooks.ProviderResponse{
-			ProviderID: s.provider.ID(),
-			Model:      s.provider.Model(),
-			Message:    responseMsg,
-			Round:      round,
-			LatencyMs:  duration.Milliseconds(),
-		}
-		hookStart := time.Now()
-		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.recordGuardrailFiring(&responseMsg, d, hooks.DirectionOutput, time.Since(hookStart))
-			if !d.Enforced {
-				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: providerHookName,
-					HookType: providerHookTypeAfter,
-					Reason:   d.Reason,
-					Metadata: d.Metadata,
-				}
-			}
-			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
-		}
+	if err := s.runAfterCallHooks(ctx, &afterCallParams{
+		messages:     messages,
+		systemPrompt: systemPrompt,
+		round:        round,
+		metadata:     metadata,
+		duration:     duration,
+		responseMsg:  &responseMsg,
+		toolCalls:    &toolCalls,
+	}); err != nil {
+		return responseMsg, false, err
 	}
 
 	logger.Debug("Provider round completed",
@@ -1336,35 +1317,16 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Run AfterCall hooks
-	if s.hookRegistry != nil {
-		hookReq := &hooks.ProviderRequest{
-			ProviderID:   s.provider.ID(),
-			Model:        s.provider.Model(),
-			Messages:     params.messages,
-			SystemPrompt: params.systemPrompt,
-			Round:        params.round,
-			Metadata:     params.metadata,
-		}
-		hookResp := &hooks.ProviderResponse{
-			ProviderID: s.provider.ID(),
-			Model:      s.provider.Model(),
-			Message:    responseMsg,
-			Round:      params.round,
-			LatencyMs:  duration.Milliseconds(),
-		}
-		hookStart := time.Now()
-		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
-			s.recordGuardrailFiring(&responseMsg, d, hooks.DirectionOutput, time.Since(hookStart))
-			if !d.Enforced {
-				return responseMsg, false, &hooks.HookDeniedError{
-					HookName: providerHookName,
-					HookType: providerHookTypeAfter,
-					Reason:   d.Reason,
-					Metadata: d.Metadata,
-				}
-			}
-			applyEnforcedResponse(&responseMsg, &toolCalls, hookResp, d)
-		}
+	if err := s.runAfterCallHooks(ctx, &afterCallParams{
+		messages:     params.messages,
+		systemPrompt: params.systemPrompt,
+		round:        params.round,
+		metadata:     params.metadata,
+		duration:     duration,
+		responseMsg:  &responseMsg,
+		toolCalls:    &toolCalls,
+	}); err != nil {
+		return responseMsg, false, err
 	}
 
 	logger.Debug("Provider streaming round completed",
@@ -1800,6 +1762,66 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels m
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
 	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
+}
+
+// afterCallParams carries what the AfterCall hook chain needs from either
+// round function. responseMsg and toolCalls are pointers because an enforcing
+// guardrail rewrites the response and drops its tool calls in place.
+type afterCallParams struct {
+	messages     []types.Message
+	systemPrompt string
+	round        int
+	metadata     map[string]interface{}
+	duration     time.Duration
+	responseMsg  *types.Message
+	toolCalls    *[]types.MessageToolCall
+}
+
+// runAfterCallHooks runs the AfterCall hook chain, shared by the unary and
+// streaming rounds so the two cannot drift.
+//
+// A non-nil error is a hook denial, which aborts the pipeline. An enforcing
+// guardrail returns nil: it rewrites the response and clears its tool calls via
+// applyEnforcedResponse, so the caller reports hasToolCalls=false and the round
+// loop stops while the pipeline continues.
+func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParams) error {
+	if s.hookRegistry == nil {
+		return nil
+	}
+
+	hookReq := &hooks.ProviderRequest{
+		ProviderID:   s.provider.ID(),
+		Model:        s.provider.Model(),
+		Messages:     p.messages,
+		SystemPrompt: p.systemPrompt,
+		Round:        p.round,
+		Metadata:     p.metadata,
+	}
+	hookResp := &hooks.ProviderResponse{
+		ProviderID: s.provider.ID(),
+		Model:      s.provider.Model(),
+		Message:    *p.responseMsg,
+		Round:      p.round,
+		LatencyMs:  p.duration.Milliseconds(),
+	}
+
+	hookStart := time.Now()
+	d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp)
+	if d.Allow {
+		return nil
+	}
+
+	s.recordGuardrailFiring(p.responseMsg, d, hooks.DirectionOutput, time.Since(hookStart))
+	if !d.Enforced {
+		return &hooks.HookDeniedError{
+			HookName: providerHookName,
+			HookType: providerHookTypeAfter,
+			Reason:   d.Reason,
+			Metadata: d.Metadata,
+		}
+	}
+	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d)
+	return nil
 }
 
 // runBeforeCallHooks runs the BeforeCall hook chain. It is called BEFORE the
