@@ -100,3 +100,71 @@ func TestGuardrail_InputBlockRecordsValidation(t *testing.T) {
 	assert.False(t, validations[0].Passed)
 	assert.Equal(t, "input", validations[0].Details["direction"])
 }
+
+// TestGuardrail_StreamingOutputBlockDoesNotLeakBannedContent pins that an
+// output guardrail replaces the response on the STREAMING path, not just the
+// unary one.
+//
+// GuardrailHookAdapter.OnChunk only rewrote content for length validators; a
+// content blocker modified nothing yet still returned Enforced, and the stage
+// took that text verbatim. The caller therefore received the model's words —
+// including the very pattern the guardrail was configured to block — and
+// WithMessage was silently ignored (#1697).
+//
+// mock.NewProvider advertises streaming, so Send takes the streaming path here,
+// which is what most real providers do too. Asserting on the absence of the
+// banned word is the point: a fix that returned some other placeholder while
+// still leaking the pattern would not satisfy this.
+func TestGuardrail_StreamingOutputBlockDoesNotLeakBannedContent(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			// "respons" matches the mock's canned reply ("Mock response from
+			// mock model mock-model") under the STREAMING check, which uses
+			// substring mode deliberately to avoid false negatives on partial
+			// words — but not under the final check, which uses banned_words'
+			// default word_boundary mode. That divergence is what let the
+			// content survive: the chunk check aborted the stream, then the
+			// final check judged the same text clean and never replaced it.
+			guardrails.Output("banned_words", map[string]any{
+				"words": []any{"respons"},
+			}, guardrails.WithMessage("I can't share that.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	resp, err := conv.Send(context.Background(), "hello")
+	require.NoError(t, err, "an Enforced output guardrail must not surface as an error")
+
+	assert.NotContains(t, resp.Text(), "respons",
+		"the banned pattern must not reach the caller")
+	assert.Equal(t, "I can't share that.", resp.Text(),
+		"the configured guardrail message must replace the model text")
+}
+
+// TestGuardrail_StreamingOutputAllowsCleanResponse is the discriminating half:
+// a guardrail whose pattern does not appear must leave the model's reply alone,
+// so a fix that always substituted the message would fail here.
+func TestGuardrail_StreamingOutputAllowsCleanResponse(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			guardrails.Output("banned_words", map[string]any{
+				"words": []any{"nonexistent-phrase-xyzzy"},
+			}, guardrails.WithMessage("I can't share that.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	resp, err := conv.Send(context.Background(), "hello")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, "I can't share that.", resp.Text(),
+		"a clean response must not be replaced")
+	assert.Contains(t, resp.Text(), "Mock response",
+		"the model's reply must pass through untouched")
+}
