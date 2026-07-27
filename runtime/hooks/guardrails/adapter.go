@@ -12,16 +12,18 @@ import (
 )
 
 // Direction values for guardrail hook evaluation, as accepted in a validator's
-// params["direction"]. Exported so the pipeline can tag a firing with the same
-// vocabulary the adapter gates on — a second, private copy in another package
-// could diverge without breaking the build.
+// params["direction"].
+//
+// Aliases of the canonical constants in runtime/hooks, which is where the
+// vocabulary lives so the pipeline stage does not have to import a concrete
+// hook implementation to tag a firing. Kept here for existing callers.
 const (
 	// DirectionInput gates the user's input in BeforeCall.
-	DirectionInput = "input"
+	DirectionInput = hooks.DirectionInput
 	// DirectionOutput gates the assistant's response in AfterCall.
-	DirectionOutput = "output"
+	DirectionOutput = hooks.DirectionOutput
 	// DirectionBoth gates input and output.
-	DirectionBoth = "both"
+	DirectionBoth = hooks.DirectionBoth
 )
 
 // roleUser is the message role an input guardrail gates on.

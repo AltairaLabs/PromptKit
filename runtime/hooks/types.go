@@ -37,6 +37,22 @@ func Enforced(reason string, metadata map[string]any) Decision {
 	return Decision{Allow: false, Reason: reason, Metadata: metadata, Enforced: true}
 }
 
+// Guardrail directions: which side of a provider call a check gates, and the
+// vocabulary a firing is tagged with.
+//
+// These live here rather than in hooks/guardrails because both the guardrail
+// adapter and the pipeline stage need them, and the stage's use is about its
+// own two call phases — it should not have to depend on a concrete hook
+// implementation for a set of string labels.
+const (
+	// DirectionInput gates the user's input, in BeforeCall.
+	DirectionInput = "input"
+	// DirectionOutput gates the assistant's response, in AfterCall.
+	DirectionOutput = "output"
+	// DirectionBoth gates input and output.
+	DirectionBoth = "both"
+)
+
 // ProviderRequest describes an LLM call about to be made.
 type ProviderRequest struct {
 	ProviderID   string
