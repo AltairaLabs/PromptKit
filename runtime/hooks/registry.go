@@ -63,16 +63,38 @@ func (r *Registry) IsEmpty() bool {
 
 // --- Provider hooks ---
 
+// Log messages for a non-Allow provider hook decision. Enforced and Deny are
+// different outcomes and must not read alike: Enforced is a guardrail doing its
+// job — the provider call is skipped (before-call) or the response is replaced
+// (after-call), the round loop stops, and the pipeline continues. Deny aborts
+// the pipeline with a HookDeniedError.
+const (
+	msgEnforcedBeforeCall = "provider hook enforced before-call: provider call skipped, canned turn substituted"
+	msgDeniedBeforeCall   = "provider hook denied before-call"
+	msgEnforcedAfterCall  = "provider hook enforced after-call: response replaced, pipeline continues"
+	msgDeniedAfterCall    = "provider hook denied after-call"
+)
+
+// logProviderHookDecision logs a non-Allow provider hook decision at the level
+// its outcome warrants. A graceful enforcement is routine policy work, so it
+// logs at INFO; only a genuine denial — which aborts the pipeline — is a WARN.
+func logProviderHookDecision(h ProviderHook, d Decision, enforcedMsg, deniedMsg string) {
+	if d.Enforced {
+		logger.Info(enforcedMsg, "hook", fmt.Sprintf("%T", h), "reason", d.Reason)
+		return
+	}
+	logger.Warn(deniedMsg, "hook", fmt.Sprintf("%T", h), "reason", d.Reason)
+}
+
 // RunBeforeProviderCall executes all provider hooks' BeforeCall in order.
-// First deny wins and short-circuits.
+// The first non-Allow decision wins and short-circuits.
 func (r *Registry) RunBeforeProviderCall(ctx context.Context, req *ProviderRequest) Decision {
 	if r == nil {
 		return Allow
 	}
 	for _, h := range r.providerHooks {
 		if d := h.BeforeCall(ctx, req); !d.Allow {
-			logger.Warn("provider hook denied before-call",
-				"hook", fmt.Sprintf("%T", h), "reason", d.Reason)
+			logProviderHookDecision(h, d, msgEnforcedBeforeCall, msgDeniedBeforeCall)
 			return d
 		}
 	}
@@ -80,15 +102,14 @@ func (r *Registry) RunBeforeProviderCall(ctx context.Context, req *ProviderReque
 }
 
 // RunAfterProviderCall executes all provider hooks' AfterCall in order.
-// First deny wins and short-circuits.
+// The first non-Allow decision wins and short-circuits.
 func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision {
 	if r == nil {
 		return Allow
 	}
 	for _, h := range r.providerHooks {
 		if d := h.AfterCall(ctx, req, resp); !d.Allow {
-			logger.Warn("provider hook denied after-call",
-				"hook", fmt.Sprintf("%T", h), "reason", d.Reason)
+			logProviderHookDecision(h, d, msgEnforcedAfterCall, msgDeniedAfterCall)
 			return d
 		}
 	}

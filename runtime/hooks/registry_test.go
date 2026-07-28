@@ -1,10 +1,14 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -252,6 +256,131 @@ type countingProviderHook struct {
 func (h *countingProviderHook) AfterCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision {
 	*h.count++
 	return h.providerHookOnly.AfterCall(ctx, req, resp)
+}
+
+// --- decision logging ---
+
+// captureHookLogs redirects the package logger into a buffer for the duration
+// of fn and returns everything written. Debug level so nothing under WARN is
+// filtered out before the assertions can see it.
+func captureHookLogs(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+	fn()
+	return buf.String()
+}
+
+// TestProviderHooks_EnforcedLogsInfoNotDenial pins issue #1720: an Enforced
+// decision is a guardrail doing exactly its job on a blocked turn, so it must
+// not be reported at WARN, and it must not be worded as a denial. The provider
+// call is skipped and a canned turn substituted (before-call) or the response
+// replaced (after-call) — the pipeline continues either way.
+func TestProviderHooks_EnforcedLogsInfoNotDenial(t *testing.T) {
+	const reason = "forbidden content found"
+	tests := []struct {
+		name     string
+		hook     *providerHookOnly
+		run      func(*Registry) Decision
+		wantText string
+	}{
+		{
+			name: "before-call",
+			hook: &providerHookOnly{name: "guard", before: Enforced(reason, nil), after: Allow},
+			run: func(r *Registry) Decision {
+				return r.RunBeforeProviderCall(context.Background(), &ProviderRequest{})
+			},
+			wantText: "provider call skipped, canned turn substituted",
+		},
+		{
+			name: "after-call",
+			hook: &providerHookOnly{name: "guard", before: Allow, after: Enforced(reason, nil)},
+			run: func(r *Registry) Decision {
+				return r.RunAfterProviderCall(context.Background(), &ProviderRequest{}, &ProviderResponse{})
+			},
+			wantText: "response replaced, pipeline continues",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var d Decision
+			out := captureHookLogs(t, func() { d = tc.run(NewRegistry(WithProviderHook(tc.hook))) })
+
+			if !d.Enforced {
+				t.Fatalf("decision must stay Enforced, got %+v", d)
+			}
+			if !strings.Contains(out, reason) {
+				t.Fatalf("enforced decision logged nothing about %q; output: %q", reason, out)
+			}
+			if strings.Contains(out, "level=WARN") {
+				t.Errorf("enforced decision logged at WARN; output: %q", out)
+			}
+			if !strings.Contains(out, "level=INFO") {
+				t.Errorf("enforced decision should log at INFO; output: %q", out)
+			}
+			if strings.Contains(out, "denied") {
+				t.Errorf("enforced decision must not be worded as a denial; output: %q", out)
+			}
+			if !strings.Contains(out, tc.wantText) {
+				t.Errorf("log should say %q; output: %q", tc.wantText, out)
+			}
+		})
+	}
+}
+
+// TestProviderHooks_DenyLogsWarn is the other half of #1720: a genuine Deny
+// aborts the pipeline with a HookDeniedError, so it keeps WARN and the
+// "denied" wording. Without this, downgrading everything to INFO would pass.
+func TestProviderHooks_DenyLogsWarn(t *testing.T) {
+	const reason = "policy violation"
+	tests := []struct {
+		name    string
+		hook    *providerHookOnly
+		run     func(*Registry) Decision
+		wantMsg string
+	}{
+		{
+			name: "before-call",
+			hook: &providerHookOnly{name: "denier", before: Deny(reason), after: Allow},
+			run: func(r *Registry) Decision {
+				return r.RunBeforeProviderCall(context.Background(), &ProviderRequest{})
+			},
+			wantMsg: "provider hook denied before-call",
+		},
+		{
+			name: "after-call",
+			hook: &providerHookOnly{name: "denier", before: Allow, after: Deny(reason)},
+			run: func(r *Registry) Decision {
+				return r.RunAfterProviderCall(context.Background(), &ProviderRequest{}, &ProviderResponse{})
+			},
+			wantMsg: "provider hook denied after-call",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var d Decision
+			out := captureHookLogs(t, func() { d = tc.run(NewRegistry(WithProviderHook(tc.hook))) })
+
+			if d.Allow || d.Enforced {
+				t.Fatalf("decision must be a hard deny, got %+v", d)
+			}
+			if !strings.Contains(out, tc.wantMsg) {
+				t.Errorf("deny should log %q; output: %q", tc.wantMsg, out)
+			}
+			if !strings.Contains(out, "level=WARN") {
+				t.Errorf("deny should log at WARN; output: %q", out)
+			}
+			if strings.Contains(out, "level=INFO") {
+				t.Errorf("deny must not be downgraded to INFO; output: %q", out)
+			}
+			if !strings.Contains(out, reason) {
+				t.Errorf("deny log should carry the reason %q; output: %q", reason, out)
+			}
+		})
+	}
 }
 
 // --- chunk interceptor ---
