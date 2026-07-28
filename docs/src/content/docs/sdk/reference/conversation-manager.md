@@ -365,6 +365,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(e \*PackError\) Unwrap\(\) error](<#PackError.Unwrap>)
 - [type PackIssue](<#PackIssue>)
   - [func ValidatePack\(path string, skipSchemaValidation bool\) \(\[\]PackIssue, error\)](<#ValidatePack>)
+  - [func ValidatePackWithRegistry\(path string, skipSchemaValidation bool, registry \*evals.EvalTypeRegistry\) \(\[\]PackIssue, error\)](<#ValidatePackWithRegistry>)
   - [func \(p PackIssue\) String\(\) string](<#PackIssue.String>)
 - [type PackTemplate](<#PackTemplate>)
   - [func LoadTemplate\(packPath string, opts ...Option\) \(\*PackTemplate, error\)](<#LoadTemplate>)
@@ -4517,6 +4518,21 @@ When skipSchemaValidation is false \(the default for callers who pass the zero v
 Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pack file is missing, unreadable, fails JSON parse, or fails schema validation \(when strict\). These are considered fatal and distinct from semantic issues. Returns \(issues, nil\) if the pack loads cleanly but has semantic problems \(unknown validator/eval types, missing required params\) the caller should address.
 
 This is a pre\-flight check for CI gates and operator tools. It runs the same handler\-level validation the SDK runs internally during Open\(\), exposed as a standalone function.
+
+Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown.
+
+<a name="ValidatePackWithRegistry"></a>
+### func ValidatePackWithRegistry
+
+```go
+func ValidatePackWithRegistry(path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry) ([]PackIssue, error)
+```
+
+ValidatePackWithRegistry is ValidatePack resolving every validator and eval type against the supplied registry instead of the built\-in default. Pass the registry the caller configured \(sdk.WithEvalRegistry\) so preflight knows the same custom handlers Open\(\) does; a nil registry means the default one, so ValidatePackWithRegistry\(path, skip, nil\) and ValidatePack\(path, skip\) are equivalent.
+
+Without this a pack validator or eval naming a custom eval type is reported as an unknown\-type issue even though Open\(\) with the matching WithEvalRegistry builds and enforces it — preflight and runtime disagreeing about the same pack, in the direction that cries wolf \(\#1725\).
+
+Everything else — the error/issue split, strict schema validation, the \(nil, nil\) fully\-valid result — is exactly as documented on ValidatePack.
 
 <a name="PackIssue.String"></a>
 ### func \(PackIssue\) String
