@@ -75,6 +75,76 @@ func TestGuardrail_NormalTurnIsNotMarkedBlocked(t *testing.T) {
 	assert.NotEmpty(t, resp.Text(), "a clean turn must carry the provider's reply")
 }
 
+// collectStreamDone drains a Stream channel and returns the Response carried by
+// the terminal ChunkDone, failing the test if the stream errored or never
+// finished.
+func collectStreamDone(t *testing.T, ch <-chan StreamChunk) *Response {
+	t.Helper()
+
+	var done *Response
+	for chunk := range ch {
+		require.NoError(t, chunk.Error, "the stream must not error")
+		if chunk.Type == ChunkDone {
+			done = chunk.Message
+		}
+	}
+	require.NotNil(t, done, "the stream must terminate with a ChunkDone carrying a Response")
+	return done
+}
+
+// TestGuardrail_InputBlockIsVisibleToStreamCaller mirrors
+// TestGuardrail_InputBlockIsVisibleToCaller on the streaming path. Send and
+// Stream are different code paths — executePipeline/buildResponse versus
+// executeStreamingPipeline/buildStreamingResponse — and only the latter dropped
+// FinishReason, so a guardrail-blocked turn was invisible to a streaming caller
+// short of matching the canned text (#1715).
+func TestGuardrail_InputBlockIsVisibleToStreamCaller(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
+			}, guardrails.WithMessage("I can't help with transfers.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	resp := collectStreamDone(t, conv.Stream(context.Background(), "please arrange a wire transfer"))
+
+	assert.Equal(t, "I can't help with transfers.", resp.Text(),
+		"the canned message must reach the streaming caller")
+	require.NotNil(t, resp.Message())
+	assert.Equal(t, types.FinishReasonSafety, resp.Message().FinishReason,
+		"a blocked streaming turn must be detectable via FinishReason, not by matching text")
+}
+
+// TestGuardrail_StreamNormalTurnIsNotMarkedBlocked is the discriminating half of
+// the test above: a clean streaming turn must NOT report the safety finish
+// reason. Without it, a fix that hardcoded types.FinishReasonSafety in
+// buildStreamingResponse would pass.
+func TestGuardrail_StreamNormalTurnIsNotMarkedBlocked(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
+			}),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	resp := collectStreamDone(t, conv.Stream(context.Background(), "what is the capital of France?"))
+
+	require.NotNil(t, resp.Message())
+	assert.NotEqual(t, types.FinishReasonSafety, resp.Message().FinishReason,
+		"a clean streaming turn must not be reported as safety-blocked")
+	assert.NotEmpty(t, resp.Text(), "a clean streaming turn must carry the provider's reply")
+}
+
 // TestGuardrail_InputBlockRecordsValidation pins the other observable signal —
 // the ValidationResult naming the guardrail that fired — so an application can
 // report *which* policy blocked the turn, not merely that one did.

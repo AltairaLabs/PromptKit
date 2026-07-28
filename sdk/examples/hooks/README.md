@@ -112,7 +112,7 @@ call.
 Every eval-backed and func-backed guardrail in this example (`Input`,
 `InputFunc`, `Output`, and the pack validator) answers with `hooks.Enforced`
 on a hit: `Send()` succeeds, the turn is replaced with a canned message, and
-it's marked internally with `types.FinishReasonSafety` plus a
+it's marked with `types.FinishReasonSafety` plus a
 `types.ValidationResult` naming the guardrail. The pipeline is **not**
 aborted — downstream stages still run.
 
@@ -153,15 +153,20 @@ func blockedByGuardrail(resp *sdk.Response) (validatorType string, blocked bool)
 }
 ```
 
-**A note on the SDK's public API surface:** the pipeline internally marks a
-blocked turn's message with `FinishReason == types.FinishReasonSafety`, but
-that doesn't reach the caller today — `sdk.Response` has no `FinishReason()`
-accessor, and `Response.Message()` returns a message rebuilt from a narrower
-internal struct that doesn't carry `FinishReason` either. `resp.Validations()`
-is the reliable signal, and only when the firing guardrail's
-`hooks.Enforced(...)` call includes a `"validator_type"` key in its metadata
-— `guardrails.Input`/`Output` always do; a bespoke `InputFunc`/`OutputFunc`
-only does if you add it yourself, same as the `no-ssn` example above.
+**The two signals, and when to use which.** The pipeline marks a blocked turn's
+message with `FinishReason == types.FinishReasonSafety`, and that now reaches
+the caller on both paths — `resp.Message().FinishReason` after `Send()` (#1681)
+and after the terminal `ChunkDone` of `Stream()` (#1715). There is no dedicated
+`Response.FinishReason()` accessor; go through `Message()`. That's the cheapest
+check for *whether* a turn was blocked, and it also surfaces other terminal
+states such as `max_output_tokens` and `refusal`.
+
+`resp.Validations()` is the only signal that names *which* guardrail fired, so
+the helper above stays the right tool when you want to log or branch on the
+specific policy. It is populated only when the firing guardrail's
+`hooks.Enforced(...)` call includes a `"validator_type"` key in its metadata —
+`guardrails.Input`/`Output` always do; a bespoke `InputFunc`/`OutputFunc` only
+does if you add it yourself, same as the `no-ssn` example above.
 
 ## Next Steps
 
