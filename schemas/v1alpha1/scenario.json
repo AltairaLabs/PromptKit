@@ -112,7 +112,8 @@
           "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
         },
         "params": {
-          "type": "object"
+          "type": "object",
+          "description": "Params is optional: many assertion types take no parameters, so an\nentry with only `type:` is valid and must not require an empty\n`params: {}` stub. omitempty also drops it from the schema's required set."
         },
         "message": {
           "type": "string"
@@ -121,32 +122,39 @@
           "$ref": "#/$defs/AssertionWhen"
         },
         "pass_threshold": {
-          "type": "number"
+          "type": "number",
+          "description": "PassThreshold is the minimum pass rate (0.0-1.0) required across trials.\nOnly meaningful when the parent scenario has Trials \u003e 1.\nIf unset, defaults to 1.0 (must pass every trial)."
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "type"
-      ]
+      ],
+      "description": "AssertionConfig represents an assertion configuration used in arena scenarios."
     },
     "AssertionWhen": {
       "properties": {
         "tool_called": {
-          "type": "string"
+          "type": "string",
+          "description": "ToolCalled requires an exact tool name to have been called."
         },
         "tool_called_pattern": {
-          "type": "string"
+          "type": "string",
+          "description": "ToolCalledPattern is a regex that must match at least one tool name."
         },
         "any_tool_called": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "AnyToolCalled requires at least one tool to have been called."
         },
         "min_tool_calls": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MinToolCalls is the minimum number of tool calls required."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "AssertionWhen specifies preconditions that must be met for an assertion to run."
     },
     "ChaosConfig": {
       "properties": {
@@ -154,25 +162,31 @@
           "items": {
             "$ref": "#/$defs/ChaosToolFailure"
           },
-          "type": "array"
+          "type": "array",
+          "description": "ToolFailures injects failures into specific tool calls."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "ChaosConfig defines fault injection rules for a turn."
     },
     "ChaosToolFailure": {
       "properties": {
         "tool": {
-          "type": "string"
+          "type": "string",
+          "description": "Tool is the name of the tool to inject failures for."
         },
         "mode": {
-          "type": "string"
+          "type": "string",
+          "description": "Mode is the type of failure: \"error\", \"timeout\", or \"slow\"."
         },
         "probability": {
-          "type": "number"
+          "type": "number",
+          "description": "Probability is the chance of failure (0.0 to 1.0, default 1.0)."
         },
         "message": {
-          "type": "string"
+          "type": "string",
+          "description": "Message is an optional custom error message."
         }
       },
       "additionalProperties": false,
@@ -180,7 +194,8 @@
       "required": [
         "tool",
         "mode"
-      ]
+      ],
+      "description": "ChaosToolFailure defines a failure injection rule for a specific tool."
     },
     "ContextMetadata": {
       "properties": {
@@ -195,61 +210,77 @@
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "ContextMetadata provides structured context information for scenarios"
     },
     "ContextPolicy": {
       "properties": {
         "token_budget": {
-          "type": "integer"
+          "type": "integer",
+          "description": "TokenBudget is the maximum tokens for context (0 = unlimited)"
         },
         "reserve_for_output": {
-          "type": "integer"
+          "type": "integer",
+          "description": "ReserveForOutput reserves tokens for the response (default 4000)"
         },
         "strategy": {
-          "type": "string"
+          "type": "string",
+          "description": "Strategy is the truncation strategy: \"oldest\", \"summarize\", \"relevance\", \"fail\""
         },
         "cache_breakpoints": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "CacheBreakpoints enables Anthropic caching"
         },
         "relevance": {
-          "$ref": "#/$defs/RelevanceConfig"
+          "$ref": "#/$defs/RelevanceConfig",
+          "description": "Relevance configures embedding-based truncation when Strategy is \"relevance\""
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "ContextPolicy defines context management for a scenario"
     },
     "DuplexConfig": {
       "properties": {
         "timeout": {
-          "type": "string"
+          "type": "string",
+          "description": "Timeout is the maximum session duration (e.g., \"10m\", \"5m30s\")."
         },
         "turn_detection": {
-          "$ref": "#/$defs/TurnDetectionConfig"
+          "$ref": "#/$defs/TurnDetectionConfig",
+          "description": "TurnDetection configures how turn boundaries are detected."
         },
         "resilience": {
-          "$ref": "#/$defs/DuplexResilienceConfig"
+          "$ref": "#/$defs/DuplexResilienceConfig",
+          "description": "Resilience configures error handling and retry behavior."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "DuplexConfig enables duplex (bidirectional) streaming mode for a scenario."
     },
     "DuplexResilienceConfig": {
       "properties": {
         "max_retries": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxRetries is the number of retry attempts for failed turns (default: 0).\nEach retry creates a new session if the previous one ended."
         },
         "retry_delay_ms": {
-          "type": "integer"
+          "type": "integer",
+          "description": "RetryDelayMs is the delay in milliseconds between retries (default: 1000)."
         },
         "partial_success_min_turns": {
-          "type": "integer"
+          "type": "integer",
+          "description": "PartialSuccessMinTurns is the minimum completed turns to accept partial success (default: 1).\nIf the session ends unexpectedly but this many turns completed, treat as success."
         },
         "ignore_last_turn_session_end": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "IgnoreLastTurnSessionEnd treats session end on the final turn as success (default: true).\nUseful when providers may close sessions after completing the expected conversation."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "DuplexResilienceConfig configures error handling and retry behavior for duplex streaming."
     },
     "ObjectMeta": {
       "properties": {
@@ -286,38 +317,48 @@
     "RelevanceConfig": {
       "properties": {
         "provider": {
-          "type": "string"
+          "type": "string",
+          "description": "Provider specifies the embedding provider: \"openai\" or \"gemini\""
         },
         "model": {
-          "type": "string"
+          "type": "string",
+          "description": "Model optionally overrides the default embedding model for the provider"
         },
         "min_recent_messages": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MinRecentMessages always keeps the N most recent messages regardless of relevance.\nDefault: 3"
         },
         "always_keep_system_role": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "AlwaysKeepSystemRole keeps all system role messages regardless of score.\nDefault: true"
         },
         "similarity_threshold": {
-          "type": "number"
+          "type": "number",
+          "description": "SimilarityThreshold is the minimum score (0.0-1.0) to consider a message relevant.\nMessages below this threshold are dropped first. Default: 0.0 (no threshold)"
         },
         "query_source": {
-          "type": "string"
+          "type": "string",
+          "description": "QuerySource determines what text to compare messages against.\nValues: \"last_user\" (default), \"last_n\", \"custom\""
         },
         "last_n_count": {
-          "type": "integer"
+          "type": "integer",
+          "description": "LastNCount is the number of messages to use when QuerySource is \"last_n\".\nDefault: 3"
         },
         "custom_query": {
-          "type": "string"
+          "type": "string",
+          "description": "CustomQuery is the query text when QuerySource is \"custom\"."
         },
         "cache_embeddings": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "CacheEmbeddings enables caching of embeddings across truncation calls.\nDefault: false"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "provider"
-      ]
+      ],
+      "description": "RelevanceConfig configures embedding-based relevance truncation."
     },
     "Scenario": {
       "oneOf": [
@@ -353,7 +394,8 @@
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": "object",
+          "description": "Labels are key/value tags copied from the scenario manifest's metadata.labels\n(K8s-style). Used for stratified reporting in arena. Populated by LoadScenario;\nnot read from the spec body itself."
         },
         "context_metadata": {
           "$ref": "#/$defs/ContextMetadata"
@@ -377,7 +419,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "description": "ProvidersOverride: If empty, uses all arena providers."
         },
         "provider_group": {
           "type": "string"
@@ -386,25 +429,31 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "description": "RequiredCapabilities filters providers to only those supporting all listed capabilities.\nValid values: text, streaming, vision, tools, json, audio, video, documents"
         },
         "streaming": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Enable streaming for all turns by default."
         },
         "context_policy": {
-          "$ref": "#/$defs/ContextPolicy"
+          "$ref": "#/$defs/ContextPolicy",
+          "description": "Context management policy for long conversations."
         },
         "conversation_assertions": {
           "items": {
             "$ref": "#/$defs/AssertionConfig"
           },
-          "type": "array"
+          "type": "array",
+          "description": "Assertions evaluated after the entire conversation completes."
         },
         "duplex": {
-          "$ref": "#/$defs/DuplexConfig"
+          "$ref": "#/$defs/DuplexConfig",
+          "description": "Duplex enables bidirectional streaming mode for voice/audio scenarios."
         },
         "voice": {
-          "type": "string"
+          "type": "string",
+          "description": "Voice references an arena-level voice id (see Config.Voices) used to\nsynthesize this scenario's scripted-text user turns. The duplex executor\nresolves the voice via Config.ResolveVoice.\n\nFor selfplay scenarios (turns with role: selfplay-user) the persona owns\nvoice choice; Scenario.Voice is ignored."
         },
         "variables": {
           "additionalProperties": {
@@ -421,14 +470,16 @@
           "items": {
             "$ref": "#/$defs/SeedMemoryEntry"
           },
-          "type": "array"
+          "type": "array",
+          "description": "SeedMemories pre-populates the memory store before the first turn.\nUses the same fields as memory__remember: content (required), type, confidence, metadata."
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "description"
-      ]
+      ],
+      "description": "Scenario describes user turns, context, and validation constraints."
     },
     "SeedMemoryEntry": {
       "properties": {
@@ -449,12 +500,14 @@
       "type": "object",
       "required": [
         "content"
-      ]
+      ],
+      "description": "SeedMemoryEntry defines a memory to pre-populate before scenario execution."
     },
     "ToolPolicy": {
       "properties": {
         "tool_choice": {
-          "type": "string"
+          "type": "string",
+          "description": "\"auto\" | \"required\" | \"none\""
         },
         "max_tool_calls_per_turn": {
           "type": "integer"
@@ -469,13 +522,16 @@
           "type": "array"
         },
         "max_rounds": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxRounds is the maximum number of tool-call rounds per turn.\n0/unset means use the Arena default (50). Never unlimited."
         },
         "max_cost_usd": {
-          "type": "number"
+          "type": "number",
+          "description": "MaxCostUSD is the maximum cost in USD allowed per turn.\n0/unset means use the Arena default ($2.00). Never unlimited."
         },
         "max_identical_tool_calls": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxIdenticalToolCalls is the maximum number of times the same tool may be\ncalled with identical arguments before the loop is aborted.\n0/unset means use the Arena default (3). Never unlimited."
         }
       },
       "additionalProperties": false,
@@ -484,30 +540,36 @@
         "tool_choice",
         "max_tool_calls_per_turn",
         "max_total_tool_calls"
-      ]
+      ],
+      "description": "ToolPolicy defines constraints for tool usage in scenarios"
     },
     "TurnContentPart": {
       "properties": {
         "type": {
-          "type": "string"
+          "type": "string",
+          "description": "\"text\", \"image\", \"audio\", \"video\""
         },
         "text": {
-          "type": "string"
+          "type": "string",
+          "description": "Text content (for type=text)"
         },
         "media": {
-          "$ref": "#/$defs/TurnMediaContent"
+          "$ref": "#/$defs/TurnMediaContent",
+          "description": "For media content"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "type"
-      ]
+      ],
+      "description": "TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)"
     },
     "TurnDefinition": {
       "properties": {
         "role": {
-          "type": "string"
+          "type": "string",
+          "description": "\"user\", \"assistant\", or provider selector like \"claude-user\" (only for self-play turns)"
         },
         "content": {
           "type": "string"
@@ -516,34 +578,43 @@
           "items": {
             "$ref": "#/$defs/TurnContentPart"
           },
-          "type": "array"
+          "type": "array",
+          "description": "Multimodal content parts (text, images, audio, video)\nIf Parts is non-empty, it takes precedence over Content."
         },
         "persona": {
-          "type": "string"
+          "type": "string",
+          "description": "Self-play specific fields (when role is a provider selector like \"claude-user\")"
         },
         "turns": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Turns is the number of self-play exchanges. Exact count if MaxTurns absent."
         },
         "max_turns": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxTurns is the upper bound; enables natural termination when \u003e Turns."
         },
         "assistant_temp": {
-          "type": "number"
+          "type": "number",
+          "description": "Override assistant temperature"
         },
         "user_temp": {
-          "type": "number"
+          "type": "number",
+          "description": "Override user temperature"
         },
         "seed": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Override seed"
         },
         "streaming": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Streaming control - if nil, uses scenario-level streaming setting"
         },
         "consent_overrides": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": "object",
+          "description": "ConsentOverrides controls consent simulation for client-side tools.\nKeys are tool names, values are \"grant\", \"deny\", or \"timeout\"."
         },
         "perturbations": {
           "additionalProperties": {
@@ -552,80 +623,99 @@
             },
             "type": "array"
           },
-          "type": "object"
+          "type": "object",
+          "description": "Perturbations define variable substitutions for behavioral testing.\nEach key is a placeholder name (e.g., \"city\") and the value is a list of variants.\nThe engine expands each variant into a separate trial, substituting {key} in Content."
         },
         "chaos": {
-          "$ref": "#/$defs/ChaosConfig"
+          "$ref": "#/$defs/ChaosConfig",
+          "description": "Chaos configures fault injection for resilience testing."
         },
         "assertions": {
           "items": {
             "$ref": "#/$defs/AssertionConfig"
           },
-          "type": "array"
+          "type": "array",
+          "description": "Turn-level assertions (for testing only)"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "role"
-      ]
+      ],
+      "description": "TurnDefinition represents a single conversation turn definition"
     },
     "TurnDetectionConfig": {
       "properties": {
         "mode": {
-          "type": "string"
+          "type": "string",
+          "description": "Mode specifies the turn detection method: \"vad\" (voice activity detection) or \"asm\" (provider-native)."
         },
         "vad": {
-          "$ref": "#/$defs/VADConfig"
+          "$ref": "#/$defs/VADConfig",
+          "description": "VAD contains voice activity detection settings (used when Mode is \"vad\")."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "TurnDetectionConfig configures turn detection for duplex mode."
     },
     "TurnMediaContent": {
       "properties": {
         "file_path": {
-          "type": "string"
+          "type": "string",
+          "description": "Relative path to media file (resolved at test time)"
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "description": "External URL (http/https)"
         },
         "data": {
-          "type": "string"
+          "type": "string",
+          "description": "Base64-encoded data (for inline media)"
         },
         "storage_reference": {
-          "type": "string"
+          "type": "string",
+          "description": "Storage backend reference (for externalized media)"
         },
         "mime_type": {
-          "type": "string"
+          "type": "string",
+          "description": "MIME type (e.g., \"image/jpeg\")"
         },
         "detail": {
-          "type": "string"
+          "type": "string",
+          "description": "Detail level for images: \"low\", \"high\", \"auto\""
         },
         "caption": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional caption/description"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "mime_type"
-      ]
+      ],
+      "description": "TurnMediaContent represents media content in a turn definition"
     },
     "VADConfig": {
       "properties": {
         "silence_threshold_ms": {
-          "type": "integer"
+          "type": "integer",
+          "description": "SilenceThresholdMs is the silence duration in milliseconds to trigger turn end (default: 500)."
         },
         "min_speech_ms": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MinSpeechMs is the minimum speech duration before silence counts (default: 1000)."
         },
         "max_turn_duration_s": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxTurnDurationS forces turn end after this duration in seconds (default: 60)."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "VADConfig configures voice activity detection for turn detection."
     }
   },
   "properties": {

@@ -112,7 +112,8 @@
           "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
         },
         "params": {
-          "type": "object"
+          "type": "object",
+          "description": "Params is optional: many assertion types take no parameters, so an\nentry with only `type:` is valid and must not require an empty\n`params: {}` stub. omitempty also drops it from the schema's required set."
         },
         "message": {
           "type": "string"
@@ -121,32 +122,39 @@
           "$ref": "#/$defs/AssertionWhen"
         },
         "pass_threshold": {
-          "type": "number"
+          "type": "number",
+          "description": "PassThreshold is the minimum pass rate (0.0-1.0) required across trials.\nOnly meaningful when the parent scenario has Trials \u003e 1.\nIf unset, defaults to 1.0 (must pass every trial)."
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "type"
-      ]
+      ],
+      "description": "AssertionConfig represents an assertion configuration used in arena scenarios."
     },
     "AssertionWhen": {
       "properties": {
         "tool_called": {
-          "type": "string"
+          "type": "string",
+          "description": "ToolCalled requires an exact tool name to have been called."
         },
         "tool_called_pattern": {
-          "type": "string"
+          "type": "string",
+          "description": "ToolCalledPattern is a regex that must match at least one tool name."
         },
         "any_tool_called": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "AnyToolCalled requires at least one tool to have been called."
         },
         "min_tool_calls": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MinToolCalls is the minimum number of tool calls required."
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "AssertionWhen specifies preconditions that must be met for an assertion to run."
     },
     "Eval": {
       "properties": {
@@ -202,7 +210,8 @@
       "required": [
         "description",
         "recording"
-      ]
+      ],
+      "description": "Eval describes an evaluation configuration for replaying and validating saved conversations"
     },
     "EvalAllTurnsConfig": {
       "properties": {
@@ -215,7 +224,8 @@
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "EvalAllTurnsConfig contains the assertions for all turns"
     },
     "EvalTurnConfig": {
       "properties": {
@@ -225,7 +235,8 @@
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "EvalTurnConfig configures turn-level assertions for evaluations Uses a structure parallel to Scenario turns but with all_turns instead of role"
     },
     "ObjectMeta": {
       "properties": {
@@ -280,7 +291,8 @@
       "type": "object",
       "required": [
         "path"
-      ]
+      ],
+      "description": "RecordingSource specifies where to load the saved conversation from"
     }
   },
   "properties": {
