@@ -98,7 +98,10 @@ PromptKit/
 ├── runtime/          # Core runtime components
 ├── pkg/              # Shared packages
 ├── sdk/              # PromptKit SDK
-├── examples/         # Example configurations
+│   └── examples/     # Runnable SDK examples
+├── server/a2a/       # A2A protocol server module
+├── schemas/          # JSON schemas (hosted)
+├── benchmarks/       # Framework comparison benchmarks
 └── docs/             # Documentation
 ```
 
@@ -129,7 +132,7 @@ cd sdk && go test ./...
 cd sdk && go test -tags=integration ./...
 
 # Test with examples
-cd examples/customer-support && go run main.go
+cd sdk/examples/hello && go run .
 ```
 
 ### Runtime (`runtime/`)

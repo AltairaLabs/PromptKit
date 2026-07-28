@@ -37,7 +37,7 @@ The PromptKit SDK solves both with a three-tier context system:
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.26+
 - OpenAI API key (for the LLM, embeddings, and summarization)
 
 ## Running the Example
