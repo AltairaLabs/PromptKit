@@ -1394,6 +1394,8 @@ Close releases resources associated with the conversation.
 
 After Close is called, Send and Stream will return [ErrConversationClosed](<#ErrConversationClosed>). It's safe to call Close multiple times.
 
+Close cancels the session context; it does not drain work already in flight. On the streaming ingestion path in particular, turns are processed asynchronously after the last chunk is queued, so calling Close immediately can cancel a turn mid\-pipeline and drop its response. Wait for the responses you expect before closing.
+
 <a name="Conversation.Continue"></a>
 ### func \(\*Conversation\) Continue
 

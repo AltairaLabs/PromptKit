@@ -31,14 +31,19 @@ const (
 
 // Default model per provider, used when the caller supplies no model and the
 // provider is auto-detected from the environment.
+// Each is the vendor's current balance-intelligence-and-cost tier, matching
+// what the previous defaults were when they were chosen. Callers who want a
+// frontier or budget model pass one explicitly.
 const (
-	defaultOpenAIModel = "gpt-4o"
-	// claude-sonnet-5 is the documented drop-in successor to the previous
-	// default (claude-sonnet-4-20250514), which is deprecated. Same tier, so
-	// auto-detected callers keep their cost profile; pass an explicit model to
-	// opt into claude-opus-5.
+	// Replaces gpt-4o, which OpenAI now lists as deprecated.
+	defaultOpenAIModel = "gpt-5.6-terra"
+	// Replaces claude-sonnet-4-20250514, which is deprecated. claude-sonnet-5
+	// is its documented drop-in successor; pass a model to opt into
+	// claude-opus-5.
 	defaultAnthropicModel = "claude-sonnet-5"
-	defaultGeminiModel    = "gemini-1.5-pro"
+	// Replaces gemini-1.5-pro, long retired. gemini-3.6-flash is GA and the
+	// current speed/intelligence balance; there is no current Pro-tier ID.
+	defaultGeminiModel = "gemini-3.6-flash"
 )
 
 // Environment variables consulted during provider auto-detection.
@@ -90,7 +95,7 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	// If apiKey provided but no provider-specific env var detected, default to OpenAI.
 	// Log a warning so the caller knows this is an implicit assumption.
 	if info == nil {
-		slog.Warn("no provider detected from environment; defaulting to OpenAI gpt-4o",
+		slog.Warn("no provider detected from environment; defaulting to OpenAI "+defaultOpenAIModel,
 			"hint", "set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY to be explicit")
 		info = &Info{Name: providerOpenAI, APIKey: apiKey, Model: defaultOpenAIModel}
 	}
