@@ -1,6 +1,14 @@
 name: Schema Validation
 
 on:
+  # The path filters below only fire on OUR edits. Drift is caused by the
+  # upstream repos regenerating (promptarena for schemas/v1alpha1, promptpack.org
+  # for the embedded PromptPack schema), which touches nothing here — so without
+  # a scheduled run this workflow is blind to the exact failure it exists to
+  # catch. See #1700.
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
   push:
     branches: [ main ]
     paths:
