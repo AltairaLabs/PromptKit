@@ -8,6 +8,91 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBuildGuardrailEvalContext_EnrichesFromHistory pins the fields the
+// guardrail adapter used to leave zeroed (#1704). Every one is derivable from
+// the message history, so a handler must see the same data whether it runs as
+// an eval or as a guardrail.
+func TestBuildGuardrailEvalContext_EnrichesFromHistory(t *testing.T) {
+	toolResult := types.NewTextToolResult("c1", "lookup", "shipped")
+	messages := []types.Message{
+		types.NewUserMessage("where is my order"),
+		{
+			Role:      "assistant",
+			ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup", Args: []byte(`{"id":"A1"}`)}},
+			Meta:      map[string]any{"_workflow_current_state": "tracking"},
+		},
+		{Role: "tool", Content: "shipped", ToolResult: &toolResult},
+		{
+			Role:        "assistant",
+			Content:     "it shipped",
+			Validations: []types.ValidationResult{{ValidatorType: "banned_words", Passed: false}},
+		},
+	}
+	metadata := map[string]any{"total_cost": 1.25, "workflow_complete": true}
+
+	ctx := BuildGuardrailEvalContext(messages, "the message under test", metadata)
+
+	require.NotNil(t, ctx)
+	assert.Equal(t, metadata, ctx.Metadata, "Metadata must pass through untouched")
+
+	require.Len(t, ctx.ToolCalls, 1, "ToolCalls must be derived from the transcript")
+	assert.Equal(t, "lookup", ctx.ToolCalls[0].ToolName)
+	assert.Equal(t, map[string]any{"id": "A1"}, ctx.ToolCalls[0].Arguments,
+		"the call's JSON arguments must be parsed")
+	parts, ok := ctx.ToolCalls[0].Result.([]types.ContentPart)
+	require.True(t, ok, "a NewTextToolResult carries Parts, so Result is the parts slice")
+	require.Len(t, parts, 1, "the tool-role result message must be paired in by call ID")
+	require.NotNil(t, parts[0].Text)
+	assert.Equal(t, "shipped", *parts[0].Text)
+
+	assert.Equal(t, "tracking", ctx.Extras["workflow_current_state"],
+		"workflow state on message Meta must reach Extras")
+	assert.Equal(t, true, ctx.Extras["workflow_complete"],
+		"workflow keys on the metadata map must also reach Extras")
+
+	require.Len(t, ctx.PriorResults, 1, "failed validations must seed PriorResults")
+	assert.Equal(t, "banned_words", ctx.PriorResults[0].Type)
+	require.NotNil(t, ctx.PriorResults[0].Score)
+	assert.Equal(t, 0.0, *ctx.PriorResults[0].Score, "a failed validation scores 0")
+}
+
+// TestBuildGuardrailEvalContext_StatesContentInsteadOfInferringIt is the
+// difference from BuildEvalContext, and it is load-bearing: an input guardrail
+// judges the USER's message. Inferring the content under test from the last
+// assistant turn is what made banned_words a silent no-op on input (#1679).
+func TestBuildGuardrailEvalContext_StatesContentInsteadOfInferringIt(t *testing.T) {
+	messages := []types.Message{
+		types.NewAssistantMessage("how can I help?"),
+		types.NewUserMessage("please arrange a wire transfer"),
+	}
+
+	ctx := BuildGuardrailEvalContext(messages, "please arrange a wire transfer", nil)
+
+	assert.Equal(t, "please arrange a wire transfer", ctx.CurrentOutput,
+		"the caller states the content; it must not be re-derived from assistant turns")
+	assert.Equal(t, ContentScopeCurrent, ctx.ContentScope,
+		"a guardrail judges one message, so scope must be pinned to current")
+
+	// Contrast: the eval path legitimately infers the last assistant turn.
+	evalCtx := BuildEvalContext(messages, 0, "", "", nil)
+	assert.Equal(t, "how can I help?", evalCtx.CurrentOutput)
+	assert.Equal(t, ContentScopeTranscript, evalCtx.ContentScope)
+}
+
+// TestBuildGuardrailEvalContext_ToleratesNilMetadata covers the nil-map path —
+// indexing a nil map for the workflow keys is safe, and a guardrail declared in
+// a pack often has no metadata at all.
+func TestBuildGuardrailEvalContext_ToleratesNilMetadata(t *testing.T) {
+	ctx := BuildGuardrailEvalContext(nil, "text", nil)
+
+	require.NotNil(t, ctx)
+	assert.Nil(t, ctx.Metadata)
+	assert.Nil(t, ctx.Extras, "no workflow state anywhere means no Extras map")
+	assert.Empty(t, ctx.ToolCalls)
+	assert.Empty(t, ctx.PriorResults)
+	assert.Equal(t, "text", ctx.CurrentOutput)
+}
+
 func TestBuildEvalContext_ExtractsCurrentOutput(t *testing.T) {
 	messages := []types.Message{
 		types.NewUserMessage("hello"),

@@ -90,14 +90,14 @@ func (a *GuardrailHookAdapter) BeforeCall(
 		return hooks.Allow
 	}
 
-	evalCtx := &evals.EvalContext{
-		CurrentOutput: lastMsg.GetContent(),
-		Messages:      req.Messages,
-		// A guardrail judges one message. For the input direction that
-		// message is the user's, which a transcript scan filtered to
-		// assistant role would never see.
-		ContentScope: evals.ContentScopeCurrent,
-	}
+	// A guardrail judges one message. For the input direction that message is
+	// the user's, which a transcript scan filtered to assistant role would
+	// never see — hence the explicit content argument rather than
+	// BuildEvalContext's last-assistant inference. See
+	// evals.BuildGuardrailEvalContext.
+	evalCtx := evals.BuildGuardrailEvalContext(
+		req.Messages, lastMsg.GetContent(), req.Metadata,
+	)
 
 	d := a.evaluate(ctx, evalCtx)
 	if !d.Allow {
@@ -123,21 +123,21 @@ func (a *GuardrailHookAdapter) AfterCall(
 
 	// Build messages list: request messages + the response being evaluated.
 	var msgs []types.Message
+	var metadata map[string]any
 	if req != nil {
 		msgs = make([]types.Message, len(req.Messages)+1)
 		copy(msgs, req.Messages)
 		msgs[len(req.Messages)] = resp.Message
+		metadata = req.Metadata
 	} else {
 		msgs = []types.Message{resp.Message}
 	}
 
-	evalCtx := &evals.EvalContext{
-		CurrentOutput: resp.Message.GetContent(),
-		Messages:      msgs,
-		// Judge this response only. Scanning the whole transcript would make
-		// one tripped turn re-block every later turn in the conversation.
-		ContentScope: evals.ContentScopeCurrent,
-	}
+	// Judge this response only. Scanning the whole transcript would make one
+	// tripped turn re-block every later turn in the conversation.
+	evalCtx := evals.BuildGuardrailEvalContext(
+		msgs, resp.Message.GetContent(), metadata,
+	)
 
 	// Apply defaults for aliased eval types, then normalize legacy param names
 	params := evals.ApplyDefaults(a.evalType, a.params)
