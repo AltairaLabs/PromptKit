@@ -139,16 +139,14 @@ func (a *GuardrailHookAdapter) AfterCall(
 		msgs, resp.Message.GetContent(), metadata,
 	)
 
-	// Apply defaults for aliased eval types, then normalize legacy param names
-	params := evals.ApplyDefaults(a.evalType, a.params)
-	params = evals.NormalizeParams(a.evalType, params)
+	params, thresholds := a.evalParams()
 
 	result, err := a.handler.Eval(ctx, evalCtx, params)
 	if err != nil {
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
-	if result.Score == nil || *result.Score < 1.0 {
+	if thresholds.Triggered(result) {
 		a.enforce(&resp.Message, params)
 		return a.enforced(result)
 	}
@@ -156,21 +154,35 @@ func (a *GuardrailHookAdapter) AfterCall(
 	return hooks.Allow
 }
 
+// evalParams returns the params the inner handler should see, plus the
+// thresholds this adapter applies itself.
+//
+// Two things are load-bearing. Defaults and legacy-name normalization run
+// first, so a threshold declared under an aliased name is still found. And the
+// threshold keys are stripped before the handler sees them: they are wrapper
+// params by design, and several handler families call rejectThresholdParams,
+// which returns an error result scoring 0 — read by the guardrail as "block".
+// Forwarding a threshold therefore turned the guardrail into an always-block
+// instead of merely ignoring the param (#1707).
+func (a *GuardrailHookAdapter) evalParams() (map[string]any, evals.ScoreThresholds) {
+	params := evals.ApplyDefaults(a.evalType, a.params)
+	params = evals.NormalizeParams(a.evalType, params)
+	thresholds := evals.ExtractScoreThresholds(params)
+	return evals.StripScoreThresholds(params), thresholds
+}
+
 // evaluate runs the handler and converts the EvalResult to a Decision.
 func (a *GuardrailHookAdapter) evaluate(
 	ctx context.Context, evalCtx *evals.EvalContext,
 ) hooks.Decision {
-	// Apply defaults for aliased eval types, then normalize legacy param names
-	params := evals.ApplyDefaults(a.evalType, a.params)
-	params = evals.NormalizeParams(a.evalType, params)
+	params, thresholds := a.evalParams()
 
 	result, err := a.handler.Eval(ctx, evalCtx, params)
 	if err != nil {
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
-	// Derive pass/fail from Score (score < 1.0 = fail).
-	if result.Score == nil || *result.Score < 1.0 {
+	if thresholds.Triggered(result) {
 		return a.enforced(result)
 	}
 
@@ -189,15 +201,14 @@ func (a *GuardrailHookAdapter) OnChunk(
 		return hooks.Allow
 	}
 
-	params := evals.ApplyDefaults(a.evalType, a.params)
-	params = evals.NormalizeParams(a.evalType, params)
+	params, thresholds := a.evalParams()
 
 	result, err := streamable.EvalPartial(ctx, chunk.Content, params)
 	if err != nil {
 		return hooks.Deny("guardrail streaming error: " + err.Error())
 	}
 
-	if result.Score == nil || *result.Score < 1.0 {
+	if thresholds.Triggered(result) {
 		// Substitute the enforced content, exactly as the non-streaming path
 		// does. Previously this only truncated for length validators, so a
 		// content blocker left the offending text in place and the caller

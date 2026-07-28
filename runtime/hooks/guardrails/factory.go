@@ -47,8 +47,12 @@ func NewGuardrailHookFromRegistry(
 
 	// Normalise params the same way adapter.AfterCall does before passing
 	// to ValidateParams, so handlers only need to check canonical key names.
+	// Threshold keys are stripped for the same reason the adapter strips them:
+	// they belong to this wrapper, and a handler asked to validate one rejects
+	// it, which would fail construction outright (#1707).
 	normalized := evals.ApplyDefaults(typeName, params)
 	normalized = evals.NormalizeParams(typeName, normalized)
+	normalized = evals.StripScoreThresholds(normalized)
 
 	if pv, ok := handler.(evals.ParamValidator); ok {
 		if verr := pv.ValidateParams(normalized); verr != nil {

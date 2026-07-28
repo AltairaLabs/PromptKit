@@ -11,6 +11,92 @@ const WrapperTypeAssertion = "assertion"
 // WrapperTypeGuardrail is the eval type name for the guardrail wrapper handler.
 const WrapperTypeGuardrail = "guardrail"
 
+// scoreThresholdParamKeys are the wrapper-level param names that convert an
+// inner eval's score into a verdict. They are deliberately *not* valid on an
+// eval handler — handlers call rejectThresholdParams to refuse them — so a
+// wrapper must consume them and strip them before invoking its inner handler.
+var scoreThresholdParamKeys = []string{"min_score", "max_score"}
+
+// ScoreThresholds turns an eval score into a verdict, and is the single
+// implementation of that decision.
+//
+// Every role that wraps an eval needs it: the "assertion" and "guardrail" eval
+// types here, and the pipeline's guardrail hook adapter. The adapter used to
+// carry its own copy hardcoded at `< 1.0` in three places, which ignored
+// min_score entirely and so made continuous-score handlers (cost_budget,
+// latency_budget) untunable and effectively unusable as guardrails (#1707).
+type ScoreThresholds struct {
+	// Min fails a score below it. Max fails a score above it. Both optional;
+	// with neither set, Triggered requires a perfect 1.0.
+	Min *float64
+	Max *float64
+}
+
+// ExtractScoreThresholds reads min_score/max_score from wrapper params.
+func ExtractScoreThresholds(params map[string]any) ScoreThresholds {
+	return ScoreThresholds{
+		Min: extractOptionalFloat64(params, "min_score"),
+		Max: extractOptionalFloat64(params, "max_score"),
+	}
+}
+
+// StripScoreThresholds returns params without the threshold keys, so they never
+// reach an inner eval handler. Handlers that call rejectThresholdParams return
+// an error result scoring 0 when they see one, which a guardrail reads as
+// "block" — so forwarding a threshold turns the guardrail into an always-block
+// rather than merely ignoring the param.
+//
+// The input map is never mutated; callers may share it across turns.
+func StripScoreThresholds(params map[string]any) map[string]any {
+	if params == nil {
+		return nil
+	}
+	present := false
+	for _, key := range scoreThresholdParamKeys {
+		if _, ok := params[key]; ok {
+			present = true
+			break
+		}
+	}
+	if !present {
+		return params
+	}
+	stripped := make(map[string]any, len(params))
+	for k, v := range params {
+		stripped[k] = v
+	}
+	for _, key := range scoreThresholdParamKeys {
+		delete(stripped, key)
+	}
+	return stripped
+}
+
+// Triggered reports whether a result trips a guardrail under these thresholds.
+//
+// A nil result or nil score means the handler could not judge, and a safety
+// mechanism that cannot judge blocks: this is fail-closed, matching what the
+// pipeline's guardrail hook has always done. Note the assertion role makes the
+// opposite choice — see AssertionEvalHandler.applyThresholds — because failing
+// a *test* over a handler that declined to score would be noise, whereas
+// allowing unjudged content through a *guardrail* is a hole.
+func (t ScoreThresholds) Triggered(result *EvalResult) bool {
+	if result == nil || result.Score == nil {
+		return true
+	}
+	minScore := t.Min
+	if minScore == nil && t.Max == nil {
+		perfect := 1.0
+		minScore = &perfect
+	}
+	if minScore != nil && *result.Score < *minScore {
+		return true
+	}
+	if t.Max != nil && *result.Score > *t.Max {
+		return true
+	}
+	return false
+}
+
 // extractOptionalFloat64 extracts a float64 from params, handling int->float64.
 func extractOptionalFloat64(params map[string]any, key string) *float64 {
 	v, ok := params[key]
@@ -153,7 +239,7 @@ func (h *GuardrailEvalHandler) Eval(
 	}
 
 	action := extractParamString(params, "action", "block")
-	minScore := extractOptionalFloat64(params, "min_score")
+	thresholds := ExtractScoreThresholds(params)
 	innerParams := extractEvalParams(params)
 
 	result, err := handler.Eval(ctx, evalCtx, innerParams)
@@ -161,13 +247,12 @@ func (h *GuardrailEvalHandler) Eval(
 		return nil, err
 	}
 
-	// Determine if the guardrail was triggered
-	triggered := false
-	if minScore != nil && result.Score != nil {
-		triggered = *result.Score < *minScore
-	} else {
-		triggered = result.Score != nil && *result.Score < 1.0
-	}
+	// Shared with the pipeline's guardrail hook adapter so the two cannot drift
+	// again. This converges one difference: a nil score now counts as triggered
+	// (fail-closed) where this path previously read it as not-triggered. A
+	// guardrail whose handler could not produce a score has not cleared
+	// anything, and no test pinned the old behavior.
+	triggered := thresholds.Triggered(result)
 
 	if result.Details == nil {
 		result.Details = make(map[string]any)
