@@ -90,7 +90,42 @@ jobs:
         echo "Sample paths:"
         head -5 coverage.out
     
-    - name: Publish Test Results  
+    # `./sdk/...` and `./server/a2a/...` above do NOT descend into nested
+    # modules, so every example carrying its own go.mod is invisible to the
+    # coverage run — build failures and test files alike. Walk them explicitly.
+    # Build tags (portaudio, onnx) are deliberately not passed: this gates the
+    # default build, which is what a user gets on `go build ./...`.
+    - name: Build and test nested-module examples
+      run: |
+        set -uo pipefail
+        failed=""
+        skipped=""
+        while IFS= read -r mod; do
+          d=$(dirname "$mod")
+          echo "::group::$d"
+          # `go vet` compiles without emitting binaries — `go build` would collide
+          # with same-named subdirectories (e.g. a2a-auth-test/server/).
+          out=$(go -C "$d" vet ./... 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q "matched no packages"; then
+            # Every package is behind a build tag (e.g. portaudio). Not a failure,
+            # but record it so the summary never implies full coverage.
+            skipped="$skipped $d"
+          elif [ -n "$out" ]; then
+            failed="$failed $d(vet)"
+          elif find "$d" -name '*_test.go' -print -quit | grep -q .; then
+            if ! go -C "$d" test ./... -count=1; then failed="$failed $d(test)"; fi
+          fi
+          echo "::endgroup::"
+        done < <(find sdk/examples server/a2a/examples -name go.mod | sort)
+        [ -n "$skipped" ] && echo "::notice::tag-gated, not built:$skipped"
+        if [ -n "$failed" ]; then
+          echo "::error::nested-module examples failed:$failed"
+          exit 1
+        fi
+        echo "nested-module examples OK"
+
+    - name: Publish Test Results
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
