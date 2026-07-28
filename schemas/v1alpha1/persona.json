@@ -8,7 +8,8 @@
           "type": "string"
         },
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional: relative path to fragment file"
         },
         "required": {
           "type": "boolean"
@@ -19,7 +20,8 @@
       "required": [
         "name",
         "required"
-      ]
+      ],
+      "description": "FragmentRef references a reusable prompt fragment Reuses the same structure as prompt.FragmentRef for consistency"
     },
     "ObjectMeta": {
       "properties": {
@@ -63,27 +65,33 @@
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "description": "PersonaDefaults contains default LLM parameters for the persona."
     },
     "PersonaStyle": {
       "properties": {
         "verbosity": {
-          "type": "string"
+          "type": "string",
+          "description": "\"short\", \"medium\", \"long\""
         },
         "challenge_level": {
-          "type": "string"
+          "type": "string",
+          "description": "\"low\", \"medium\", \"high\""
         },
         "friction_tags": {
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "description": "e.g., [\"skeptical\", \"impatient\", \"detail-oriented\"]"
         },
         "expressive": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Expressive opts the persona into TTS characterization markup. When\ntrue, [UserPersonaPack.BuildSystemPrompt] prepends a bracket-tag\nrubric (from the resolved TTS provider, or from\nCharacterizationRubric below) so the LLM emits \"[whispers]\" /\n\"[excited]\" / \"[laughs]\" etc. that downstream provider adapters\nlower into their native dialects. Default false — existing personas\nproduce byte-identical prompts."
         },
         "characterization_rubric": {
-          "type": "string"
+          "type": "string",
+          "description": "CharacterizationRubric is an optional override that replaces the\nprovider-default rubric verbatim. Only consulted when Expressive is\ntrue. Use this when a persona has unusual delivery requirements\n(custom tag examples, narrower vocabulary, alternative phrasing)."
         }
       },
       "additionalProperties": false,
@@ -92,7 +100,8 @@
         "verbosity",
         "challenge_level",
         "friction_tags"
-      ]
+      ],
+      "description": "PersonaStyle defines behavioral characteristics for the user persona"
     },
     "UserPersonaPack": {
       "properties": {
@@ -103,31 +112,37 @@
           "type": "string"
         },
         "prompt_activity": {
-          "type": "string"
+          "type": "string",
+          "description": "DEPRECATED: Legacy prompt builder reference"
         },
         "fragments": {
           "items": {
             "$ref": "#/$defs/FragmentRef"
           },
-          "type": "array"
+          "type": "array",
+          "description": "NEW: Template system (preferred)"
         },
         "system_template": {
-          "type": "string"
+          "type": "string",
+          "description": "Template with {{variables}}"
         },
         "required_vars": {
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "description": "Variables that must be provided"
         },
         "optional_vars": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": "object",
+          "description": "Variables with default values"
         },
         "system_prompt": {
-          "type": "string"
+          "type": "string",
+          "description": "LEGACY: Backward compatibility"
         },
         "goals": {
           "items": {
@@ -145,7 +160,8 @@
           "$ref": "#/$defs/PersonaStyle"
         },
         "voice": {
-          "type": "string"
+          "type": "string",
+          "description": "Voice references an arena-level voice id (see Config.Voices). When\nset, selfplay synthesis routes this persona's text through the bound\nTTS provider. Empty means the arena falls back to its default voice\nor fails fast if no default is configured."
         },
         "defaults": {
           "$ref": "#/$defs/PersonaDefaults"
@@ -157,7 +173,8 @@
         "description",
         "goals",
         "constraints"
-      ]
+      ],
+      "description": "UserPersonaPack defines how the User LLM behaves in self-play scenarios"
     }
   },
   "properties": {
