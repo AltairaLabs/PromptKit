@@ -42,7 +42,7 @@ func TestDetectInfo(t *testing.T) {
 		require.NotNil(t, info)
 		assert.Equal(t, "openai", info.Name)
 		assert.Equal(t, "sk-test-key", info.APIKey)
-		assert.Equal(t, "gpt-4o", info.Model)
+		assert.Equal(t, "gpt-5.6-terra", info.Model)
 	})
 
 	t.Run("anthropic key set", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestDetectInfo(t *testing.T) {
 		require.NotNil(t, info)
 		assert.Equal(t, "gemini", info.Name)
 		assert.Equal(t, "google-key", info.APIKey)
-		assert.Equal(t, "gemini-1.5-pro", info.Model)
+		assert.Equal(t, "gemini-3.6-flash", info.Model)
 	})
 
 	t.Run("gemini key set", func(t *testing.T) {
@@ -260,9 +260,14 @@ func TestInferProviderFromModel(t *testing.T) {
 		{"gemini-2.0-flash-exp", "gemini"},
 		{"gemini-1.5-pro", "gemini"},
 		{"Gemini-Pro", "gemini"},
+		// The current auto-detect default: if a new generation ever stopped
+		// matching the prefix rule, detection would silently pick the wrong
+		// provider, so pin it here alongside the default itself.
+		{defaultGeminiModel, "gemini"},
 
 		// OpenAI models
 		{"gpt-4o", "openai"},
+		{defaultOpenAIModel, "openai"},
 		{"gpt-4-turbo", "openai"},
 		{"GPT-3.5-Turbo", "openai"},
 		{"o1-preview", "openai"},
@@ -273,6 +278,7 @@ func TestInferProviderFromModel(t *testing.T) {
 		{"claude-3-opus", "anthropic"},
 		{"claude-sonnet-4-20250514", "anthropic"},
 		{"Claude-3-Haiku", "anthropic"},
+		{defaultAnthropicModel, "anthropic"},
 
 		// Ollama models (detected by ":" in name)
 		{"llava:7b", "ollama"},

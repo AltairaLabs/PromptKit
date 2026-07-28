@@ -1259,6 +1259,12 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 //
 // After Close is called, Send and Stream will return [ErrConversationClosed].
 // It's safe to call Close multiple times.
+//
+// Close cancels the session context; it does not drain work already in
+// flight. On the streaming ingestion path in particular, turns are processed
+// asynchronously after the last chunk is queued, so calling Close immediately
+// can cancel a turn mid-pipeline and drop its response. Wait for the
+// responses you expect before closing.
 func (c *Conversation) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
