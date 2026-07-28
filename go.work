@@ -12,6 +12,7 @@ use (
 	./sdk/examples/duplex-streaming
 	./sdk/examples/eval-hooks
 	./sdk/examples/multitrack-ingestion
+	./sdk/examples/onnx-audio-emotion
 	./sdk/examples/openai-realtime
 	./sdk/examples/sdk-evals
 	./sdk/examples/sdk-http-auth
