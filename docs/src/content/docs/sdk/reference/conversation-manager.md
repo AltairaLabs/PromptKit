@@ -3300,6 +3300,8 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 
 Construction errors \(unknown eval type, invalid params\) are returned from Open rather than at the call site. For a hook implementing the full hooks.ProviderHook interface, use WithProviderHook.
 
+An eval\-backed guardrail resolves its type against the registry supplied by WithEvalRegistry, if any. Resolution happens after every option has been applied, so the two options may be passed in either order.
+
 <a name="WithImagePreprocessing"></a>
 ### func WithImagePreprocessing
 
