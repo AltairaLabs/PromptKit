@@ -97,6 +97,18 @@ func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailO
 	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry(), opts...)
 }
 
+// registryOrDefault resolves an optional caller-supplied registry. nil means
+// "the caller expressed no preference", which is the default registry of
+// built-in handlers — the behavior every caller had before registries could be
+// threaded through. A caller that *does* supply one gets exactly that registry,
+// so a custom eval type can back a guardrail (#1717).
+func registryOrDefault(registry *evals.EvalTypeRegistry) *evals.EvalTypeRegistry {
+	if registry != nil {
+		return registry
+	}
+	return evals.NewEvalTypeRegistry()
+}
+
 // CompileValidators turns pack-declared validators into ProviderHooks suitable
 // for prepending to a hook registry. Both SDK.Open and Arena's per-turn
 // pipeline use this so guardrails run identically in production and in tests.
@@ -123,7 +135,21 @@ func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailO
 // On a fatal error no hooks are returned, so a caller cannot accidentally
 // proceed with a partial guardrail set.
 func CompileValidators(validators []prompt.ValidatorConfig) ([]hooks.ProviderHook, error) {
-	return compileValidators(validators, true)
+	return compileValidators(validators, true, nil)
+}
+
+// CompileValidatorsWithRegistry is CompileValidators resolving each validator's
+// eval type against the supplied registry instead of the built-in default. Pass
+// the registry a caller configured (sdk.WithEvalRegistry) so a custom handler
+// can back a pack validator; a nil registry means the default one.
+//
+// Without this the default registry does not know a custom type, construction
+// fails, and — on the lenient path — the guardrail is logged and dropped, which
+// leaves the conversation unprotected while load appears to succeed (#1717).
+func CompileValidatorsWithRegistry(
+	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry,
+) ([]hooks.ProviderHook, error) {
+	return compileValidators(validators, true, registry)
 }
 
 // ValidatorsToHooks is the lenient form: every unusable validator — including
@@ -135,19 +161,38 @@ func CompileValidators(validators []prompt.ValidatorConfig) ([]hooks.ProviderHoo
 // unprotected. Retained unchanged so existing callers keep their behavior.
 func ValidatorsToHooks(validators []prompt.ValidatorConfig) []hooks.ProviderHook {
 	// The lenient path never returns an error.
-	out, _ := compileValidators(validators, false)
+	out, _ := compileValidators(validators, false, nil)
+	return out
+}
+
+// ValidatorsToHooksWithRegistry is the lenient form of
+// CompileValidatorsWithRegistry: every unusable validator — including an
+// unknown eval type — is logged and skipped. A nil registry means the default
+// one.
+//
+// Deprecated: use CompileValidatorsWithRegistry. This form cannot report an
+// unknown eval type, so a typo'd validator is silently dropped and the caller
+// proceeds unprotected.
+func ValidatorsToHooksWithRegistry(
+	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry,
+) []hooks.ProviderHook {
+	out, _ := compileValidators(validators, false, registry)
 	return out
 }
 
 // compileValidators builds hooks from validator specs. When fatalUnknownType is
 // true an unregistered eval type aborts the whole set (no partial guardrails);
-// when false it is logged and skipped like any other unusable entry.
+// when false it is logged and skipped like any other unusable entry. registry
+// resolves the eval types; nil selects the default registry.
 func compileValidators(
-	validators []prompt.ValidatorConfig, fatalUnknownType bool,
+	validators []prompt.ValidatorConfig, fatalUnknownType bool, registry *evals.EvalTypeRegistry,
 ) ([]hooks.ProviderHook, error) {
 	if len(validators) == 0 {
 		return nil, nil
 	}
+	// Resolved once: every validator in a set must see the same handlers, and
+	// the default constructor is not free.
+	reg := registryOrDefault(registry)
 	out := make([]hooks.ProviderHook, 0, len(validators))
 	for _, v := range validators {
 		if v.Enabled != nil && !*v.Enabled {
@@ -162,7 +207,7 @@ func compileValidators(
 			opts = append(opts, WithMessage(msg))
 		}
 
-		hook, err := NewGuardrailHook(v.Type, v.Params, opts...)
+		hook, err := NewGuardrailHookFromRegistry(v.Type, v.Params, reg, opts...)
 		if err != nil {
 			if fatalUnknownType && errors.Is(err, ErrUnknownGuardrailType) {
 				return nil, fmt.Errorf("pack validator: %w", err)

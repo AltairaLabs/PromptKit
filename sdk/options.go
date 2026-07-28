@@ -156,6 +156,13 @@ type config struct {
 	toolHooks     []hooks.ToolHook
 	sessionHooks  []hooks.SessionHook
 
+	// Guardrail specs declared via WithGuardrail, not yet built. Building is
+	// deferred to resolveGuardrails so an eval-backed guardrail sees the eval
+	// registry from WithEvalRegistry regardless of the order the two options
+	// were passed in (#1717). Each entry remembers the providerHooks index it
+	// was declared at so the built hooks land in declaration order.
+	pendingGuardrails []pendingGuardrail
+
 	// Schema validation
 	skipSchemaValidation bool
 
@@ -1468,19 +1475,67 @@ func WithProviderHook(h hooks.ProviderHook) Option {
 // Construction errors (unknown eval type, invalid params) are returned from
 // Open rather than at the call site. For a hook implementing the full
 // hooks.ProviderHook interface, use WithProviderHook.
+//
+// An eval-backed guardrail resolves its type against the registry supplied by
+// WithEvalRegistry, if any. Resolution happens after every option has been
+// applied, so the two options may be passed in either order.
 func WithGuardrail(specs ...guardrails.Spec) Option {
 	return func(c *config) error {
-		built := make([]hooks.ProviderHook, 0, len(specs))
+		at := len(c.providerHooks)
 		for _, spec := range specs {
-			h, err := spec.Hook()
-			if err != nil {
-				return fmt.Errorf("guardrail: %w", err)
-			}
-			built = append(built, h)
+			c.pendingGuardrails = append(c.pendingGuardrails, pendingGuardrail{spec: spec, at: at})
 		}
-		c.providerHooks = append(c.providerHooks, built...)
 		return nil
 	}
+}
+
+// pendingGuardrail is a WithGuardrail spec awaiting construction, tagged with
+// the providerHooks position it was declared at. Hooks run in registration
+// order, so a guardrail declared between two WithProviderHook calls has to end
+// up between them once built.
+type pendingGuardrail struct {
+	spec guardrails.Spec
+	at   int
+}
+
+// resolveGuardrails builds every deferred WithGuardrail spec against the
+// configured eval registry and splices the hooks into providerHooks at the
+// positions they were declared at.
+//
+// Deferred rather than built inside the option because WithEvalRegistry may be
+// passed after WithGuardrail: building eagerly would resolve a custom eval type
+// against the default registry, fail, and — since the pack path logs and skips
+// unusable validators — leave the conversation unprotected (#1717).
+//
+// All specs are built before any hook is spliced in, so one failing spec
+// registers nothing rather than a partial guardrail set.
+func (c *config) resolveGuardrails() error {
+	if len(c.pendingGuardrails) == 0 {
+		return nil
+	}
+	built := make([]hooks.ProviderHook, 0, len(c.pendingGuardrails))
+	for _, pending := range c.pendingGuardrails {
+		h, err := pending.spec.HookWithRegistry(c.evalRegistry)
+		if err != nil {
+			return fmt.Errorf("guardrail: %w", err)
+		}
+		built = append(built, h)
+	}
+
+	merged := make([]hooks.ProviderHook, 0, len(c.providerHooks)+len(built))
+	next := 0
+	for i := 0; i <= len(c.providerHooks); i++ {
+		for next < len(built) && c.pendingGuardrails[next].at == i {
+			merged = append(merged, built[next])
+			next++
+		}
+		if i < len(c.providerHooks) {
+			merged = append(merged, c.providerHooks[i])
+		}
+	}
+	c.providerHooks = merged
+	c.pendingGuardrails = nil
+	return nil
 }
 
 // WithSandboxFactory registers a sandbox factory for the given mode name.

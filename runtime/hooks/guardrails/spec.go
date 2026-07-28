@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
@@ -20,16 +21,29 @@ var ErrEmptySpec = errors.New(
 // declare guardrails inline and report all failures at one point — typically
 // sdk.Open.
 type Spec struct {
-	build func() (hooks.ProviderHook, error)
+	build func(*evals.EvalTypeRegistry) (hooks.ProviderHook, error)
 }
 
-// Hook builds the ProviderHook this Spec describes. A zero-value Spec returns
-// ErrEmptySpec rather than panicking.
+// Hook builds the ProviderHook this Spec describes against the default eval
+// registry. A zero-value Spec returns ErrEmptySpec rather than panicking.
 func (s Spec) Hook() (hooks.ProviderHook, error) {
+	return s.HookWithRegistry(nil)
+}
+
+// HookWithRegistry builds the ProviderHook resolving an eval-backed guardrail's
+// type against registry. A nil registry means the default one, so
+// HookWithRegistry(nil) and Hook() are equivalent.
+//
+// Callers that let a user supply their own evals.EvalTypeRegistry — the SDK's
+// WithEvalRegistry — must use this form. Building against the default registry
+// makes a custom eval type unknown, and the guardrail is then dropped rather
+// than enforced (#1717). Func-backed Specs (InputFunc, OutputFunc) ignore the
+// registry: they carry their own logic.
+func (s Spec) HookWithRegistry(registry *evals.EvalTypeRegistry) (hooks.ProviderHook, error) {
 	if s.build == nil {
 		return nil, ErrEmptySpec
 	}
-	return s.build()
+	return s.build(registry)
 }
 
 // Input declares an eval-backed guardrail that gates the user's input before
@@ -55,8 +69,8 @@ func evalSpec(
 		merged[k] = v
 	}
 	merged["direction"] = direction
-	return Spec{build: func() (hooks.ProviderHook, error) {
-		return NewGuardrailHook(evalType, merged, opts...)
+	return Spec{build: func(registry *evals.EvalTypeRegistry) (hooks.ProviderHook, error) {
+		return NewGuardrailHookFromRegistry(evalType, merged, registryOrDefault(registry), opts...)
 	}}
 }
 
@@ -74,7 +88,7 @@ func evalSpec(
 func InputFunc(
 	name string, fn func(context.Context, *hooks.InputRequest) hooks.Decision,
 ) Spec {
-	return Spec{build: func() (hooks.ProviderHook, error) {
+	return Spec{build: func(*evals.EvalTypeRegistry) (hooks.ProviderHook, error) {
 		return &funcGuardrail{name: name, input: fn}, nil
 	}}
 }
@@ -86,7 +100,7 @@ func InputFunc(
 func OutputFunc(
 	name string, fn func(context.Context, *hooks.OutputRequest) hooks.Decision,
 ) Spec {
-	return Spec{build: func() (hooks.ProviderHook, error) {
+	return Spec{build: func(*evals.EvalTypeRegistry) (hooks.ProviderHook, error) {
 		return &funcGuardrail{name: name, output: fn}, nil
 	}}
 }
