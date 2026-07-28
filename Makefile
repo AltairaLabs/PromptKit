@@ -434,3 +434,6 @@ sonar-scan: sonar-deps ## Run SonarScanner locally (requires SONAR_TOKEN env var
 	fi
 
 sonar-quick: coverage sonar-scan ## Generate coverage and run Sonar analysis in one command
+
+check-weak-assertions: ## Fail on new tests whose assertions cannot fail
+	@./scripts/check-weak-assertions.sh
