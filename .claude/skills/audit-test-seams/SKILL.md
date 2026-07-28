@@ -29,8 +29,9 @@ turns a candidate into a finding.
 
 Audit **one subsystem at a time** — a package tree someone is actively working
 in, e.g. `runtime/hooks`. Per-package is the default and useful unit. A
-whole-repo run produces a report nobody reads (113 packages as of this
-writing) and a whole-repo pattern is rejected outright — see Step 1.
+whole-repo run produces a report nobody reads (well over a hundred packages
+across the workspace modules) and a whole-repo pattern is rejected outright —
+see Step 1.
 
 ## Step 1: Run the analyzer
 
