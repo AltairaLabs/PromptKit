@@ -1435,12 +1435,13 @@ func (s *ProviderStage) processStreamChunks(
 				// Without this, streaming-only guardrails produce no
 				// observable Validations entry and the guardrail_triggered
 				// assertion would silently miss them.
-				if vType, _ := d.Metadata["validator_type"].(string); vType != "" {
-					pendingValidations = append(pendingValidations, types.ValidationResult{
-						ValidatorType: vType,
-						Passed:        false,
-						Details:       d.Metadata,
-					})
+				//
+				// The stamp goes through the same builder recordGuardrailFiring
+				// uses so a streaming firing carries direction and a timestamp
+				// like every other firing, and copies the decision metadata
+				// rather than aliasing it.
+				if v, ok := guardrailValidation(d, hooks.DirectionOutput); ok {
+					pendingValidations = append(pendingValidations, v)
 				}
 				if d.Enforced {
 					// Hook enforced (e.g., truncated content) — use the
@@ -1916,18 +1917,10 @@ func (s *ProviderStage) recordGuardrailFiring(
 ) {
 	vType, _ := d.Metadata["validator_type"].(string)
 
-	if msg != nil && vType != "" {
-		details := make(map[string]any, len(d.Metadata)+1)
-		for k, v := range d.Metadata {
-			details[k] = v
+	if msg != nil {
+		if v, ok := guardrailValidation(d, direction); ok {
+			msg.Validations = append(msg.Validations, v)
 		}
-		details["direction"] = direction
-		msg.Validations = append(msg.Validations, types.ValidationResult{
-			ValidatorType: vType,
-			Passed:        false,
-			Details:       details,
-			Timestamp:     timeNow(),
-		})
 	}
 
 	if s.emitter == nil {
@@ -1945,6 +1938,49 @@ func (s *ProviderStage) recordGuardrailFiring(
 		data.Violations = []string{d.Reason}
 	}
 	s.emitter.GuardrailResult(data)
+}
+
+// guardrailValidation builds the ValidationResult recorded for a guardrail
+// firing. Every path that records a firing goes through here — the before/after
+// call phases via recordGuardrailFiring, and the streaming chunk interceptor,
+// which cannot use recordGuardrailFiring for the stamp because no message
+// exists yet at that point. Sharing the construction is what keeps a streaming
+// firing shaped like every other one: same direction tag, same timestamp, same
+// copied details map (§4.5 observability parity).
+//
+// ok is false when the decision carries no validator_type — there is no
+// validation to record without a validator identity.
+//
+// The details map is copied, never aliased: a hook that holds a reference to
+// the metadata map it returned must not be able to mutate an already-recorded
+// validation afterwards (mirrors blockedMessage and applyEnforcedResponse).
+func guardrailValidation(d hooks.Decision, direction string) (types.ValidationResult, bool) {
+	vType, _ := d.Metadata["validator_type"].(string)
+	if vType == "" {
+		return types.ValidationResult{}, false
+	}
+
+	details := make(map[string]any, len(d.Metadata)+1)
+	for k, v := range d.Metadata {
+		details[k] = v
+	}
+	// Details is public API via sdk.Response.Validations(), and the guardrail
+	// adapter stores evals.EvalResult.Score — a *float64. Copied verbatim, a
+	// consumer doing Details["score"].(float64) gets 0, false, and the map
+	// renders as an address. Dereference to the same plain float64 the event
+	// payload already carries via metadataScore. Any other shape (a
+	// hand-written hook's own type) is left untouched.
+	if _, isPtr := details["score"].(*float64); isPtr {
+		details["score"] = metadataScore(d.Metadata)
+	}
+	details["direction"] = direction
+
+	return types.ValidationResult{
+		ValidatorType: vType,
+		Passed:        false,
+		Details:       details,
+		Timestamp:     timeNow(),
+	}, true
 }
 
 // metadataScore extracts a guardrail's eval score from decision metadata.
