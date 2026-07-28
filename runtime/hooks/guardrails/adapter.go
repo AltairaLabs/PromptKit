@@ -95,8 +95,12 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	// never see — hence the explicit content argument rather than
 	// BuildEvalContext's last-assistant inference. See
 	// evals.BuildGuardrailEvalContext.
+	//
+	// nil latency: no call has completed, so there is nothing to judge. A
+	// latency guardrail is output-only by nature.
+	metadata := evals.SeedBudgetMetadata(req.Metadata, req.Messages, nil)
 	evalCtx := evals.BuildGuardrailEvalContext(
-		req.Messages, lastMsg.GetContent(), req.Metadata,
+		req.Messages, lastMsg.GetContent(), metadata,
 	)
 
 	d := a.evaluate(ctx, evalCtx)
@@ -123,15 +127,20 @@ func (a *GuardrailHookAdapter) AfterCall(
 
 	// Build messages list: request messages + the response being evaluated.
 	var msgs []types.Message
-	var metadata map[string]any
+	var reqMetadata map[string]any
 	if req != nil {
 		msgs = make([]types.Message, len(req.Messages)+1)
 		copy(msgs, req.Messages)
 		msgs[len(req.Messages)] = resp.Message
-		metadata = req.Metadata
+		reqMetadata = req.Metadata
 	} else {
 		msgs = []types.Message{resp.Message}
 	}
+
+	// Spend and tokens come off the transcript's CostInfo — including this
+	// response, which is why seeding happens after msgs is assembled. Latency is
+	// the completed call's, which only exists on this side of the provider.
+	metadata := evals.SeedBudgetMetadata(reqMetadata, msgs, &resp.LatencyMs)
 
 	// Judge this response only. Scanning the whole transcript would make one
 	// tripped turn re-block every later turn in the conversation.

@@ -82,6 +82,63 @@ func BuildGuardrailEvalContext(
 	}
 }
 
+// SeedBudgetMetadata fills in the spend, token and latency values the budget
+// eval handlers read, deriving them from data the caller already holds.
+//
+// cost_budget reads total_cost/input_tokens/output_tokens and latency_budget
+// reads latency_ms, all off EvalContext.Metadata. Nothing populated those on the
+// guardrail hook path, so cost_budget computed zero spend and never fired, while
+// latency_budget treated its missing key as a hard fail — scoring 0, which a
+// guardrail reads as enforce — and therefore blocked every turn regardless of
+// actual latency (#1707).
+//
+// Neither value needs threading through the pipeline. Spend and tokens
+// accumulate on per-message CostInfo (the same source sumHistoryCost totals for
+// the tool loop's own budget check), and latency arrives on the hook's
+// ProviderResponse. Pass latencyMs as nil where no call has completed yet — an
+// input-direction guardrail has no latency to judge, and inventing a zero there
+// would silently report every prospective call as instant.
+//
+// Caller-supplied values win: a host tracking session-wide spend across turns
+// puts its own total_cost on the request metadata, and per-request derivation
+// must not quietly replace it. The input map is never mutated.
+func SeedBudgetMetadata(
+	metadata map[string]any, messages []types.Message, latencyMs *int64,
+) map[string]any {
+	var totalCost float64
+	var inputTokens, outputTokens, cachedTokens int
+	for i := range messages {
+		cost := messages[i].CostInfo
+		if cost == nil {
+			continue
+		}
+		totalCost += cost.TotalCost
+		inputTokens += cost.InputTokens
+		outputTokens += cost.OutputTokens
+		cachedTokens += cost.CachedTokens
+	}
+
+	seeded := map[string]any{
+		"total_cost":    totalCost,
+		"input_tokens":  inputTokens,
+		"output_tokens": outputTokens,
+		"cached_tokens": cachedTokens,
+	}
+	if latencyMs != nil {
+		seeded["latency_ms"] = float64(*latencyMs)
+	}
+
+	out := make(map[string]any, len(seeded)+len(metadata))
+	for k, v := range seeded {
+		out[k] = v
+	}
+	// Copied second so anything the caller set overrides the derived value.
+	for k, v := range metadata {
+		out[k] = v
+	}
+	return out
+}
+
 // workflowMetadataKeys are the workflow fields an engine sets on the metadata
 // map for workflow scenarios, rather than on message Meta.
 var workflowMetadataKeys = []string{
