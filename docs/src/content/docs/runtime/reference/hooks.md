@@ -541,7 +541,7 @@ IsEmpty returns true if no hooks are registered.
 func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision
 ```
 
-RunAfterProviderCall executes all provider hooks' AfterCall in order. First deny wins and short\-circuits.
+RunAfterProviderCall executes all provider hooks' AfterCall in order. The first non\-Allow decision wins and short\-circuits.
 
 <a name="Registry.RunAfterToolExecution"></a>
 ### func \(\*Registry\) RunAfterToolExecution
@@ -559,7 +559,7 @@ RunAfterToolExecution executes all tool hooks' AfterExecution in order. First de
 func (r *Registry) RunBeforeProviderCall(ctx context.Context, req *ProviderRequest) Decision
 ```
 
-RunBeforeProviderCall executes all provider hooks' BeforeCall in order. First deny wins and short\-circuits.
+RunBeforeProviderCall executes all provider hooks' BeforeCall in order. The first non\-Allow decision wins and short\-circuits.
 
 <details><summary>Example</summary>
 <p>
