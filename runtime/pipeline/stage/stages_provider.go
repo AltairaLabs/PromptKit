@@ -1182,6 +1182,11 @@ func (s *ProviderStage) executeStreamingRound(
 	if blocked, handled, err := s.runBeforeCallHooks(
 		ctx, params.messages, params.systemPrompt, params.round, params.metadata,
 	); handled {
+		if err == nil {
+			if emitErr := s.emitBlockedTurnText(ctx, &blocked, output); emitErr != nil {
+				return blocked, false, emitErr
+			}
+		}
 		return blocked, false, err
 	}
 
@@ -1872,6 +1877,44 @@ func (s *ProviderStage) runBeforeCallHooks(
 	blocked := s.blockedMessage(hookReq, d)
 	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil
+}
+
+// emitBlockedTurnText streams the canned assistant text of a guardrail-blocked
+// turn as a text element, so a blocked turn reaches the caller the same way
+// every unblocked turn does. Enforcement returns before startStreamingRequest,
+// so no chunk ever passes through emitChunkElement: without this the caller
+// received nothing at all until the whole message landed at once at the end of
+// the turn, and a UI rendering text deltas showed an empty reply (#1716).
+//
+// The element is shaped exactly like the element a real final chunk produces
+// (emitChunkElement), which is what keeps the reply delivered exactly once:
+//
+//   - Meta.StreamingDelta marks it as the live-text feed. A speech-out stage
+//     skips deltas and speaks the complete Message (stages_speech.go,
+//     stages_tts.go), so the canned reply is synthesized once; and
+//     accumulateResult only folds text that arrives after the assistant message,
+//     which this element precedes. Consumers that render deltas concatenate them
+//     to exactly the Message content, as on any other turn.
+//   - Meta.FinishReason carries the message's finish reason
+//     (types.FinishReasonSafety), the element-level marker
+//     PRE_LLM_GUARDRAILS_DESIGN.md §4.1.2 calls for. It mirrors how the duplex
+//     stage marks an interrupted turn, and lets a consumer reading element
+//     metadata rather than the message tell a policy block from a model reply.
+func (s *ProviderStage) emitBlockedTurnText(
+	ctx context.Context, blocked *types.Message, output chan<- StreamElement,
+) error {
+	if blocked == nil || blocked.Content == "" {
+		return nil
+	}
+	elem := NewTextElement(blocked.Content)
+	elem.Timestamp = timeNow()
+	elem.Priority = PriorityNormal
+	elem.Meta.StreamingDelta = true
+	if blocked.FinishReason != "" {
+		fr := blocked.FinishReason
+		elem.Meta.FinishReason = &fr
+	}
+	return sendStreamElement(ctx, elem, output)
 }
 
 // applyEnforcedResponse folds an enforcing AfterCall decision into the round's

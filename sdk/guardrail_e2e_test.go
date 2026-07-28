@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -212,6 +213,120 @@ func TestGuardrail_StreamingOutputBlockDoesNotLeakBannedContent(t *testing.T) {
 		"the banned pattern must not reach the caller")
 	assert.Equal(t, "I can't share that.", resp.Text(),
 		"the configured guardrail message must replace the model text")
+}
+
+// guardrailTurnDelivery is everything a caller of Stream() actually receives for
+// one turn: the ChunkText payloads in order, how many arrived, and the final
+// ChunkDone response. Named for this file to avoid colliding with the other
+// stream helpers in package sdk.
+type guardrailTurnDelivery struct {
+	deltas     []string
+	textChunks int
+	done       *Response
+}
+
+// joined is the text a UI rendering ChunkText would have displayed by the end of
+// the turn.
+func (d guardrailTurnDelivery) joined() string {
+	return strings.Join(d.deltas, "")
+}
+
+// drainGuardrailStream consumes a Stream() channel to completion. Draining fully
+// (rather than breaking at ChunkDone) is deliberate: a duplicate emission after
+// the terminal chunk would otherwise go unseen.
+func drainGuardrailStream(t *testing.T, ch <-chan StreamChunk) guardrailTurnDelivery {
+	t.Helper()
+
+	var got guardrailTurnDelivery
+	for chunk := range ch {
+		require.NoError(t, chunk.Error, "no chunk may carry an error")
+		switch chunk.Type {
+		case ChunkText:
+			got.textChunks++
+			got.deltas = append(got.deltas, chunk.Text)
+		case ChunkDone:
+			got.done = chunk.Message
+		case ChunkToolCall, ChunkMedia, ChunkClientTool:
+			// Not produced by these turns.
+		}
+	}
+	return got
+}
+
+// TestGuardrail_InputBlockStreamsCannedTextExactlyOnce is the user-visible
+// regression for #1716. An enforcing input guardrail skips the provider call
+// before startStreamingRequest, so the canned reply never passed through
+// emitChunkElement: a probe through this exact API saw `text chunk count = 0`
+// and then the whole message at once on ChunkDone. A UI rendering ChunkText
+// showed an empty reply for the entire turn.
+//
+// The pair of assertions is the point. Counting the chunks proves the text now
+// streams at all; comparing the *concatenation* of every delta against the
+// canned text proves the fix did not buy that by delivering the reply twice —
+// the specific hazard here, since the blocked turn's message element already
+// carries the same text.
+func TestGuardrail_InputBlockStreamsCannedTextExactlyOnce(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
+			}, guardrails.WithMessage("I can't help with transfers.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	got := drainGuardrailStream(t, conv.Stream(context.Background(), "please arrange a wire transfer"))
+
+	assert.Equal(t, 1, got.textChunks,
+		"a blocked turn must stream its reply — before the fix this was 0 and the "+
+			"caller saw nothing until ChunkDone")
+	assert.Equal(t, "I can't help with transfers.", got.joined(),
+		"every delta concatenated must equal the canned text exactly once, not twice")
+
+	require.NotNil(t, got.done, "the turn must still end with a ChunkDone")
+	assert.Equal(t, "I can't help with transfers.", got.done.Text(),
+		"the terminal response must carry the same reply, not the deltas appended to it")
+
+	// The streaming surface's own blocked-turn marker. Validations() is the
+	// signal that names WHICH guardrail fired, so it is worth pinning
+	// independently of Message().FinishReason — which answers only whether the
+	// turn was blocked, and is covered by
+	// TestGuardrail_InputBlockIsVisibleToStreamCaller above (#1715).
+	validations := got.done.Validations()
+	require.NotEmpty(t, validations,
+		"a Stream() caller must still be able to tell the turn was policy-blocked")
+	assert.Equal(t, "banned_words", validations[0].ValidatorType)
+	assert.Equal(t, "input", validations[0].Details["direction"])
+}
+
+// TestGuardrail_CleanTurnStreamsProviderTextOnce is the discriminating half: a
+// fix that emitted a synthetic delta on every turn — or that let the canned text
+// leak into unblocked turns — would pass the test above while doubling or
+// corrupting normal streaming.
+func TestGuardrail_CleanTurnStreamsProviderTextOnce(t *testing.T) {
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{
+				"words": []any{"wire transfer"},
+			}, guardrails.WithMessage("I can't help with transfers.")),
+		),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	got := drainGuardrailStream(t, conv.Stream(context.Background(), "what is the capital of France?"))
+
+	require.Positive(t, got.textChunks, "a clean turn must stream the model's reply")
+	assert.NotContains(t, got.joined(), "I can't help with transfers.",
+		"the canned block message must never appear on an unblocked turn")
+	require.NotNil(t, got.done)
+	assert.Equal(t, got.done.Text(), got.joined(),
+		"the deltas of a clean turn must concatenate to exactly the final response")
 }
 
 // TestGuardrail_StreamingOutputAllowsCleanResponse is the discriminating half:
