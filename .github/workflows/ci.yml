@@ -276,6 +276,41 @@ jobs:
     - name: Check foundational packages are purego-free (issue #1536)
       run: ./scripts/check-no-audio-device-leak.sh
 
+  weak-assertions:
+    name: Weak Assertion Guard
+    runs-on: ubuntu-latest
+    # Pull requests only. On a push to main the merge base is HEAD itself, so
+    # the diff is empty by construction and the job would burn minutes proving
+    # nothing.
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # The guard scans the merge base in a throwaway worktree and diffs it
+        # against the working tree, so it needs real history — the default
+        # shallow clone cannot check out the base commit at all.
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache-dependency-path: tools/seamscan/go.sum
+
+    # Fails only on NEW tests whose assertions cannot fail. The ~679
+    # pre-existing ones are a separate, deliberate cleanup and must not block
+    # unrelated work — see scripts/check-weak-assertions.sh and
+    # .claude/skills/audit-test-seams/SKILL.md for the known limitations.
+    #
+    # The base SHA is passed explicitly rather than relying on the script's
+    # origin/main default: on a pull_request event the checkout is a detached
+    # merge commit, and depending on a remote-tracking ref existing is how this
+    # kind of guard silently ends up diffing against the wrong tree.
+    - name: Check for new tests that cannot fail (issue #1703)
+      run: ./scripts/check-weak-assertions.sh "${{ github.event.pull_request.base.sha }}"
+
   perf-regression:
     name: Performance Regression Check
     runs-on: ubuntu-latest

@@ -184,9 +184,15 @@ blocks the cleanup and the fix is to backfill exactly the junk you removed.
 - **No score, grade, or percentage.** A number becomes a target, and targets
   get gamed — that is the failure mode of the coverage gate this audit exists
   to supplement. Report findings, not a metric.
-- **No gating.** This audit does not block a build or a merge. (Weak, brand
-  new assertions can separately be caught by running `make check-weak-assertions`
-  locally — a different, narrower mechanism; see
-  `scripts/check-weak-assertions.sh`. It is local opt-in tooling only: it is
-  not run in pre-commit, it is not wired into
-  `.github/workflows/ci.yml`, and it is not this skill.)
+- **No gating.** *This audit* does not block a build or a merge — seam findings
+  are never gated, because "no test exists here" is not a build error and
+  gating it would produce exactly the junk tests this work exists to remove.
+
+  One narrower mechanism *is* gated, and it is not this skill: brand-new tests
+  whose assertions cannot fail are caught by `scripts/check-weak-assertions.sh`,
+  available locally as `make check-weak-assertions` and run on pull requests by
+  the `Weak Assertion Guard` job in `.github/workflows/ci.yml`. It fires only on
+  findings absent from the merge base, so the ~679 pre-existing ones never block
+  unrelated work, and it is still not run in pre-commit. Its blind spots are
+  limitations 4-6 above, and they are why it is scoped this narrowly: a guard
+  that fires on legitimate tests gets switched off.
