@@ -90,6 +90,17 @@ func (s *streamState) accumulatedContent() string {
 	return s.contentBuilder.String()
 }
 
+// finishReason recovers the assistant FinishReason from the captured final
+// result, or "" when no result was captured. The streamed chunks and the
+// pipeline's Response type both drop the field; ExecutionResult.Messages keeps
+// it.
+func (s *streamState) finishReason() string {
+	if s.finalResult == nil {
+		return ""
+	}
+	return lastAssistantFinishReason(s.finalResult.Messages)
+}
+
 // Stream sends a message and returns a channel of response chunks.
 //
 // Use this for real-time streaming of LLM responses:
@@ -449,6 +460,13 @@ func (c *Conversation) buildStreamingResponse(
 			resp.toolCalls = state.lastToolCalls
 		}
 	}
+
+	// Neither the streamed chunks nor the pipeline's narrower Response type
+	// carry FinishReason, so recover it from the final result exactly as
+	// buildResponse does for Send. Without this a streaming caller cannot
+	// distinguish a guardrail-blocked turn (marked types.FinishReasonSafety)
+	// from a real model reply, nor see max_output_tokens or refusal (#1715).
+	resp.message.FinishReason = state.finishReason()
 
 	// Populate pending client tools from stream state
 	if len(state.pendingTools) > 0 {

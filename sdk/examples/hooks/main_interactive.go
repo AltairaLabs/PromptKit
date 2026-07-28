@@ -123,13 +123,11 @@ func hookDenialReason(err error) (string, bool) {
 // resp.Validations() for a failed entry, not by comparing resp.Text() against
 // known blocked-message strings.
 //
-// This is the most reliable detection the public SDK offers today. The
-// pipeline internally marks a blocked turn's *types.Message with
-// FinishReason == types.FinishReasonSafety, but that doesn't reach the
-// caller: sdk.Response has no FinishReason accessor, and Response.Message()
-// returns a message rebuilt from the pipeline's narrow Response struct, which
-// doesn't carry FinishReason either — so it's always empty here, blocked or
-// not. See README.md for more on this gap.
+// A blocked turn is also visible through resp.Message().FinishReason, which
+// the pipeline sets to types.FinishReasonSafety — on both the Send() and the
+// Stream() path (#1681, #1715). Use that when all you need is "was this turn
+// blocked?". Validations() is the complementary signal, and the only one that
+// names WHICH guardrail fired, which is what this helper returns.
 //
 // A caveat on Validations(): it's only populated when the firing guardrail's
 // Decision.Metadata carries a "validator_type" key. guardrails.Input/Output
