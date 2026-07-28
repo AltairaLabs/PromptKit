@@ -12,7 +12,7 @@ This example demonstrates multimodal (vision) capabilities using the PromptKit S
 ## Prerequisites
 
 1. A Google Gemini API key (for vision capabilities)
-2. Go 1.21 or later
+2. Go 1.26 or later
 
 ## Setup
 

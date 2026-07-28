@@ -12,8 +12,8 @@ Connect to remote A2A (Agent-to-Agent) agents with authentication via the Prompt
 
 ## Prerequisites
 
-- Go 1.21+
-- OpenAI API key
+- Go 1.26+
+- An API key for one of: OpenAI, Anthropic, or Google (the packs do not pin a provider)
 - A running A2A agent (this example uses the echo server from `server/a2a/examples/a2a-auth-test`)
 
 ## Running the Example

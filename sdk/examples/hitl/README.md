@@ -11,8 +11,8 @@ Approval workflows for sensitive operations with the PromptKit SDK.
 
 ## Prerequisites
 
-- Go 1.21+
-- OpenAI API key
+- Go 1.26+
+- An API key for one of: OpenAI, Anthropic, or Google (the packs do not pin a provider)
 
 ## Running the Example
 

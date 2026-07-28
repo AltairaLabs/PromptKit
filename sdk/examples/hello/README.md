@@ -11,13 +11,21 @@ The simplest SDK example - open a conversation and send a message.
 
 ## Prerequisites
 
-- Go 1.21+
-- OpenAI API key
+- Go 1.26+
+- An API key for one of: OpenAI, Anthropic, or Google
 
 ## Running the Example
 
+The pack does not name a provider — the SDK detects one from the environment,
+so any of these works:
+
 ```bash
-export OPENAI_API_KEY=your-key
+export OPENAI_API_KEY=your-key       # uses gpt-4o
+# or
+export ANTHROPIC_API_KEY=your-key
+# or
+export GOOGLE_API_KEY=your-key
+
 go run .
 ```
 
@@ -48,8 +56,10 @@ fmt.Println(resp.Text())  // Remembers "World"
 
 The `hello.pack.json` defines:
 
-- **Provider**: OpenAI with `gpt-4o-mini`
 - **Prompt**: A friendly assistant with `{{user_name}}` template variable
+
+It deliberately does not pin a provider, so the example runs against whichever
+of OpenAI / Anthropic / Google you have a key for.
 
 ```json
 {
