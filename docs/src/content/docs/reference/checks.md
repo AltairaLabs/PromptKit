@@ -808,7 +808,10 @@ control. Unusable *params* keep the warn-and-skip behavior so that one bad entry
 break the others, and so a pack authored against a newer runtime stays loadable.
 
 To surface every problem at once without opening a conversation, use `sdk.ValidatePack`,
-which dry-run constructs each validator and reports all issues together.
+which dry-run constructs each validator and reports all issues together. If your handlers
+come from a custom registry (`sdk.WithEvalRegistry`), use `sdk.ValidatePackWithRegistry`
+and pass the same registry — otherwise preflight resolves types against the built-in set
+only and reports your custom types as unknown even though `Open()` accepts them.
 
 For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
 

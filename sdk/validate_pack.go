@@ -75,7 +75,33 @@ func (p PackIssue) String() string {
 // This is a pre-flight check for CI gates and operator tools. It runs
 // the same handler-level validation the SDK runs internally during
 // Open(), exposed as a standalone function.
+//
+// Validator and eval types are resolved against the built-in eval
+// registry. Callers who supply their own handlers to Open() via
+// WithEvalRegistry must use ValidatePackWithRegistry instead, or
+// preflight will report those types as unknown.
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
+	return ValidatePackWithRegistry(path, skipSchemaValidation, nil)
+}
+
+// ValidatePackWithRegistry is ValidatePack resolving every validator and
+// eval type against the supplied registry instead of the built-in
+// default. Pass the registry the caller configured (sdk.WithEvalRegistry)
+// so preflight knows the same custom handlers Open() does; a nil registry
+// means the default one, so ValidatePackWithRegistry(path, skip, nil) and
+// ValidatePack(path, skip) are equivalent.
+//
+// Without this a pack validator or eval naming a custom eval type is
+// reported as an unknown-type issue even though Open() with the matching
+// WithEvalRegistry builds and enforces it — preflight and runtime
+// disagreeing about the same pack, in the direction that cries wolf
+// (#1725).
+//
+// Everything else — the error/issue split, strict schema validation, the
+// (nil, nil) fully-valid result — is exactly as documented on ValidatePack.
+func ValidatePackWithRegistry(
+	path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry,
+) ([]PackIssue, error) {
 	loaded, err := pack.Load(path, pack.LoadOptions{
 		SkipSchemaValidation: skipSchemaValidation,
 	})
@@ -83,7 +109,9 @@ func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 		return nil, err
 	}
 
-	registry := evals.NewEvalTypeRegistry()
+	// Resolved once: every validator and eval in a pack must be checked
+	// against the same handlers, and the default constructor is not free.
+	reg := evalRegistryOrDefault(registry)
 	var issues []PackIssue
 
 	// Per-prompt validators.
@@ -91,21 +119,33 @@ func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validatePromptValidators(promptID, promptDef.Validators, registry)...)
+		issues = append(issues, validatePromptValidators(promptID, promptDef.Validators, reg)...)
 	}
 
 	// Pack-level evals (apply to all prompts, PromptID="").
-	issues = append(issues, validateEvalDefs("", loaded.Evals, registry)...)
+	issues = append(issues, validateEvalDefs("", loaded.Evals, reg)...)
 
 	// Per-prompt evals.
 	for promptID, promptDef := range loaded.Prompts {
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validateEvalDefs(promptID, promptDef.Evals, registry)...)
+		issues = append(issues, validateEvalDefs(promptID, promptDef.Evals, reg)...)
 	}
 
 	return issues, nil
+}
+
+// evalRegistryOrDefault resolves an optional caller-supplied registry. nil
+// means "the caller expressed no preference", which is the default registry
+// of built-in handlers — the behavior every ValidatePack caller had before a
+// registry could be threaded through. This mirrors the runtime's
+// guardrails.registryOrDefault, which is unexported.
+func evalRegistryOrDefault(registry *evals.EvalTypeRegistry) *evals.EvalTypeRegistry {
+	if registry != nil {
+		return registry
+	}
+	return evals.NewEvalTypeRegistry()
 }
 
 // validatePromptValidators dry-run constructs each enabled validator
