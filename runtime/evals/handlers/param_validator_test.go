@@ -79,4 +79,23 @@ func TestGuardrailTriggeredValidateParams(t *testing.T) {
 	err := h.ValidateParams(map[string]any{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "validator_type")
+
+	// direction is optional, and accepts exactly the sides the guardrail
+	// factory accepts.
+	for _, d := range []string{"input", "output", "both"} {
+		require.NoErrorf(t, h.ValidateParams(map[string]any{
+			"validator_type": "pii_leakage", "direction": d,
+		}), "direction %q must be accepted", d)
+	}
+
+	// A typo must not be accepted: an unfiltered fallback would silently
+	// assert on the wrong side, and a filter that matches nothing reports
+	// "the guardrail never fired" — a test that checks nothing either way.
+	err = h.ValidateParams(map[string]any{"validator_type": "pii_leakage", "direction": "inpt"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inpt")
+
+	err = h.ValidateParams(map[string]any{"validator_type": "pii_leakage", "direction": 1})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "direction")
 }

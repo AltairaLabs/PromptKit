@@ -322,6 +322,48 @@ func TestGuardrailHookAdapter_ParamsPassedToHandler(t *testing.T) {
 	}
 }
 
+// TestGuardrailHookAdapter_DirectionNotForwardedToHandler pins that the
+// wrapper's own "direction" does not reach the inner handler.
+//
+// It selects the phase this adapter evaluates in and is consumed here. It is
+// also a param guardrail_triggered now reads, meaning "match a firing recorded
+// on that side" — forwarding the wrapper's copy silently re-purposes it, and
+// that guardrail then finds no firing at all (#1718).
+func TestGuardrailHookAdapter_DirectionNotForwardedToHandler(t *testing.T) {
+	var capturedParams map[string]any
+	handler := &capturingHandler{
+		typeName: "test_direction",
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
+		capture:  &capturedParams,
+	}
+	params := map[string]any{
+		"validator_type": "banned_words",
+		"direction":      "output",
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_direction",
+		params:    params,
+		direction: "output",
+	}
+
+	resp := &hooks.ProviderResponse{Message: types.Message{Content: "test"}}
+	adapter.AfterCall(context.Background(), nil, resp)
+
+	if capturedParams == nil {
+		t.Fatal("params were not passed to handler")
+	}
+	if _, present := capturedParams["direction"]; present {
+		t.Errorf("the wrapper's direction must not reach the handler, got %v", capturedParams)
+	}
+	if capturedParams["validator_type"] != "banned_words" {
+		t.Errorf("stripping direction must leave every other param, got %v", capturedParams)
+	}
+	if _, present := params["direction"]; !present {
+		t.Error("the adapter's own params map must not be mutated — it is reused every turn")
+	}
+}
+
 // capturingHandler records the params passed to Eval.
 type capturingHandler struct {
 	typeName string

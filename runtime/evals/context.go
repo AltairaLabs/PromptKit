@@ -261,6 +261,14 @@ func parseJSONArgs(data []byte) map[string]any {
 // assistant message into EvalResult entries. This seeds PriorResults so that
 // evals like guardrail_triggered can inspect pipeline-level guardrail outcomes
 // without coupling to message.Validations directly.
+//
+// Details are carried across. The guardrail recorder stamps the firing's
+// "direction" ("input" or "output") into ValidationResult.Details, and dropping
+// the map here left that distinction unreadable on the eval side — the assertion
+// could see that a guardrail of some type fired but not which side it judged,
+// which is the distinction PRE_LLM_GUARDRAILS_DESIGN §4.5 exists to serve
+// (#1718). Everything else a guardrail put in its decision metadata rides along
+// for the same reason: PriorResults is the only channel between the two.
 func validationsToPriorResults(messages []types.Message) []EvalResult {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != roleAssistant {
@@ -276,11 +284,29 @@ func validationsToPriorResults(messages []types.Message) []EvalResult {
 				score = 0.0
 			}
 			results[j] = EvalResult{
-				Type:  v.ValidatorType,
-				Score: &score,
+				Type:    v.ValidatorType,
+				Score:   &score,
+				Details: copyDetails(v.Details),
 			}
 		}
 		return results
 	}
 	return nil
+}
+
+// copyDetails shallow-copies a validation's details map.
+//
+// PriorResults is handed to arbitrary eval handlers, including third-party
+// ones; aliasing the map would let any of them mutate the recorded message's
+// Validations. Returns nil for an empty map so a validation without details
+// produces an EvalResult that still marshals without a "details" key.
+func copyDetails(details map[string]any) map[string]any {
+	if len(details) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(details))
+	for k, v := range details {
+		out[k] = v
+	}
+	return out
 }

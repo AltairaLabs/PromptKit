@@ -293,6 +293,68 @@ func TestValidationsToPriorResults_SeedsFromLastAssistant(t *testing.T) {
 	assert.Equal(t, 1.0, *results[1].Score)
 }
 
+// TestValidationsToPriorResults_CarriesDetails pins the half of the eval bridge
+// that was missing: the guardrail recorder stamps which side it judged into
+// ValidationResult.Details, and dropping the map made that unreadable to
+// guardrail_triggered (#1718).
+func TestValidationsToPriorResults_CarriesDetails(t *testing.T) {
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+		{
+			Role: "assistant",
+			Validations: []types.ValidationResult{{
+				ValidatorType: "pii_leakage",
+				Passed:        false,
+				Details:       map[string]any{"direction": "input", "reason": "ssn"},
+			}},
+		},
+	}
+
+	results := validationsToPriorResults(messages)
+	require.Len(t, results, 1)
+	assert.Equal(t, "input", results[0].Details["direction"])
+	assert.Equal(t, "ssn", results[0].Details["reason"],
+		"the whole detail map rides across, not just the direction key")
+}
+
+// TestValidationsToPriorResults_DetailsAreCopied pins that PriorResults does not
+// alias message state. PriorResults is handed to arbitrary eval handlers; an
+// aliased map lets any of them rewrite the recorded validation on the message.
+func TestValidationsToPriorResults_DetailsAreCopied(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			Validations: []types.ValidationResult{{
+				ValidatorType: "pii_leakage",
+				Details:       map[string]any{"direction": "input"},
+			}},
+		},
+	}
+
+	results := validationsToPriorResults(messages)
+	require.Len(t, results, 1)
+	results[0].Details["direction"] = "output"
+
+	assert.Equal(t, "input", messages[0].Validations[0].Details["direction"],
+		"mutating a prior result must not rewrite the message's validation")
+}
+
+// TestValidationsToPriorResults_NoDetailsStaysNil keeps a validation without
+// details from gaining an empty map, which would marshal a "details" key onto
+// every result that never had one.
+func TestValidationsToPriorResults_NoDetailsStaysNil(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role:        "assistant",
+			Validations: []types.ValidationResult{{ValidatorType: "max_length", Passed: true}},
+		},
+	}
+
+	results := validationsToPriorResults(messages)
+	require.Len(t, results, 1)
+	assert.Nil(t, results[0].Details)
+}
+
 func TestValidationsToPriorResults_NoValidations(t *testing.T) {
 	messages := []types.Message{
 		types.NewAssistantMessage("hi"),
