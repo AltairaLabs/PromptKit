@@ -69,16 +69,43 @@ relativize_file_field() {
 
 BASE_CHECKOUT="${tmp}/base"
 git -C "${ROOT}" worktree add --quiet --detach "${BASE_CHECKOUT}" "$(git -C "${ROOT}" merge-base HEAD "${BASE}")"
-${SCAN} weak-assertions "${BASE_CHECKOUT}/runtime" "${BASE_CHECKOUT}/sdk" "${BASE_CHECKOUT}/pkg" 2>/dev/null \
+${SCAN} weak-assertions "${BASE_CHECKOUT}/runtime" "${BASE_CHECKOUT}/sdk" "${BASE_CHECKOUT}/pkg" "${BASE_CHECKOUT}/server/a2a" 2>/dev/null \
   | grep -oE '"kind": "[^"]+"|"file": "[^"]+"|"subject": "[^"]+"' \
   | relativize_file_field "${BASE_CHECKOUT}" \
   | paste - - - | sort > "${tmp}/base_kfs.txt" || true
 git -C "${ROOT}" worktree remove --force "${BASE_CHECKOUT}"
 
-${SCAN} weak-assertions "${ROOT}/runtime" "${ROOT}/sdk" "${ROOT}/pkg" 2>/dev/null \
+# Head-side scan: unlike the base-side scan above, stderr is deliberately NOT
+# redirected to /dev/null here — swallowing it would also hide *why* a genuine
+# head-side scan failure happened, which is the failure mode this whole guard
+# exists to surface, not paper over. A zero-findings result (grep exits 1
+# because nothing matched) is handled explicitly below and is not an error:
+# it is the legitimate outcome once the cleanup this tool drives finishes.
+${SCAN} weak-assertions "${ROOT}/runtime" "${ROOT}/sdk" "${ROOT}/pkg" "${ROOT}/server/a2a" \
   | grep -oE '"kind": "[^"]+"|"file": "[^"]+"|"line": [0-9]+|"subject": "[^"]+"' \
   | relativize_file_field "${ROOT}" \
-  | paste - - - - > "${tmp}/head_full.txt"
+  | paste - - - - > "${tmp}/head_full.txt" || {
+  # Captured into an array in one step, before anything else runs: reading
+  # PIPESTATUS[0] and PIPESTATUS[1] as two separate statements would lose the
+  # array after the first read — a bare variable assignment is itself a
+  # simple command, and bash resets PIPESTATUS after every simple command,
+  # pipeline or not.
+  pipe_status=("${PIPESTATUS[@]}")
+  scan_rc=${pipe_status[0]}
+  grep_rc=${pipe_status[1]}
+  if [ "${scan_rc}" -ne 0 ]; then
+    echo "check-weak-assertions: head-side scan failed (exit ${scan_rc})" >&2
+    exit 1
+  fi
+  if [ "${grep_rc}" -gt 1 ]; then
+    echo "check-weak-assertions: parsing head-side scan output failed (exit ${grep_rc})" >&2
+    exit 1
+  fi
+  # grep_rc == 1: grep found no "kind"/"file"/"line"/"subject" lines at all —
+  # a legitimate outcome (every weak-assertion finding across the scanned
+  # trees has been cleaned up, not just the new ones), not a failure. Fall
+  # through with the empty head_full.txt the redirect already created.
+}
 cut -f1,2,4 "${tmp}/head_full.txt" | sort > "${tmp}/head_kfs.txt"
 
 # Split from the `if` deliberately: with set -e, `if cmd && [ ... ]` would

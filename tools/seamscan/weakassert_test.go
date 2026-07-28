@@ -33,6 +33,27 @@ func TestDoesNothing(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "no-assertion", got[0].Kind)
 	assert.Equal(t, "TestDoesNothing", got[0].Subject)
+	// File/Line are part of the finding's identity (the guard script keys on
+	// kind+file+subject) and are how a human reaches the flagged test, so
+	// both must be pinned, not just Kind/Subject: File: path -> "" or
+	// Line: fset.Position(pos).Line -> 0 would otherwise leave the suite
+	// green.
+	assert.Equal(t, filepath.Join(dir, "x_test.go"), got[0].File)
+	assert.Equal(t, 5, got[0].Line)
+}
+
+// A path WeakAssertions cannot walk at all (no such directory) must surface
+// as an error, not a silent empty result: files, _ := goTestFiles(root)
+// would turn a bad path into "0 findings, exit 0," which is exactly the
+// failure mode documented for a "/..." suffix passed to weak-assertions and
+// the failure mode the guard script's own error handling assumes can't
+// happen silently.
+func TestWeakAssertions_ErrorsOnNonexistentPath(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist")
+
+	_, err := WeakAssertions([]string{missing})
+	assert.Error(t, err)
 }
 
 func TestWeakAssertions_FlagsErrorOnlyTest(t *testing.T) {
@@ -269,6 +290,41 @@ func TestParent(t *testing.T) {
 	t.Run("one", func(t *testing.T) {
 		require.Equal(t, 1, newFixture(t))
 	})
+}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "weak-assertion", got[0].Kind)
+	assert.Equal(t, "TestParent", got[0].Subject)
+}
+
+// The fixture-closure suppression (skipping a nested func literal's body
+// when the parent delegates to t.Run subtests) must only apply when the
+// parent actually has subtests. A closure that runs itself immediately, with
+// no t.Run anywhere in the body, is not fixture setup for anything — it is
+// the test's own assertion surface — and must still be flagged. This pins
+// classifyBody's "len(children) > 0" gate specifically: hardcoding it to
+// true (treating every closure as fixture setup regardless of whether any
+// subtest exists to delegate to) would silently reclassify this weak
+// assertion as kindNoAssertion instead of kindWeakAssertion, with no fixture
+// elsewhere in this file able to notice, since every other closure fixture
+// here is always paired with at least one t.Run.
+func TestWeakAssertions_FlagsWeakAssertionInsideClosureWithoutSubtests(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestParent(t *testing.T) {
+	func() {
+		require.NoError(t, teardown())
+	}()
 }
 `)
 

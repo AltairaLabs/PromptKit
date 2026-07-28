@@ -42,6 +42,13 @@ func Rebuild(src Wide) Wide {
 	for _, f := range []string{"C", "D", "E", "F"} {
 		assert.Contains(t, got[0].Detail, f)
 	}
+	// File/Line are part of the finding's identity, not just display — a
+	// mutation blanking File: pos.Filename -> "" would collapse this finding
+	// together with every other same-named struct's findings under the
+	// guard script's kind+file+subject comparison key, and Line is how a
+	// human reaches the literal from the report.
+	assert.Equal(t, filepath.Join(dir, "a.go"), got[0].File)
+	assert.Equal(t, 8, got[0].Line)
 }
 
 // A literal setting every field is not lossy, however many fields there are.
@@ -270,6 +277,32 @@ func BuildIndex(s Source) Wide {
 	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
 	require.NoError(t, err)
 	require.Len(t, got, 3, "conversion, concatenation, and index reads must all be recognized as field-sourced")
+}
+
+// TestLossyRebuilds_DetectsBareIndexRead pins the *ast.IndexExpr case in
+// readsExistingData directly: "items" here is a bare slice parameter, not a
+// struct field, so this literal can only qualify as reading existing data
+// via the index-read case, unlike DetectsNestedFieldReads' BuildIndex
+// example (s.Items[0]), which already qualifies through its *ast.SelectorExpr
+// on s.Items even with the IndexExpr case deleted entirely. The package doc
+// and readsExistingData's docstring both claim "any slice/array/map index
+// read, regardless of what it indexes" is covered; this is what actually
+// pins that claim.
+func TestLossyRebuilds_DetectsBareIndexRead(t *testing.T) {
+	dir := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Build(items []string) Wide {
+	return Wide{A: items[0], B: "b"}
+}
+`)
+
+	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "an index read on a bare parameter (not a struct field) must qualify as field-sourced")
 }
 
 // TestLossyRebuilds_DetectsConcreteMethodCallSource pins the narrow

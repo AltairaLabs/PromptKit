@@ -201,7 +201,7 @@ func checkLiteral(
 		File:    pos.Filename,
 		Line:    pos.Line,
 		Subject: fmt.Sprintf("%s (%d/%d exported fields set)", name, len(set), len(exported)),
-		Detail:  "unset: " + strings.Join(dropped, ", "),
+		Detail:  "not set in literal: " + strings.Join(dropped, ", "),
 	}, true
 }
 

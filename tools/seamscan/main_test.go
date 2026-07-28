@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,9 +64,24 @@ func TestDoesNothing(t *testing.T) {
 }
 
 func TestRun_WeakAssertionsDefaultsToCurrentDir(t *testing.T) {
-	// No paths given: falls back to "." rather than erroring. Run from a temp
-	// dir with no Go files so the scan is a trivial no-op.
+	// No paths given: falls back to "." rather than erroring. Write a weak
+	// test file directly into the chdir'd directory so the default-to-"."
+	// scan actually finds something. A previous version of this test scanned
+	// an empty temp dir, where "defaulted to . and found nothing" is
+	// indistinguishable from "scanned nothing at all" — that version stayed
+	// green even with the `if len(paths) == 0 { paths = []string{"."} }`
+	// branch deleted from run, since fs.Args() being empty then left paths
+	// as a nil/empty slice and WeakAssertions(nil) also reports zero
+	// findings by iterating zero times.
 	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "x_test.go"), []byte(`package p
+
+import "testing"
+
+func TestDoesNothing(t *testing.T) {
+	_ = 1 + 1
+}
+`), 0o600))
 	t.Chdir(dir)
 
 	var buf bytes.Buffer
@@ -72,7 +89,26 @@ func TestRun_WeakAssertionsDefaultsToCurrentDir(t *testing.T) {
 
 	var got []Finding
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
-	assert.Empty(t, got)
+	require.Len(t, got, 1)
+	assert.Equal(t, "TestDoesNothing", got[0].Subject)
+}
+
+// TestRun_PropagatesSeamsAnalyzerError pins run()'s error propagation for the
+// "seams" subcommand: a path with no reachable go.mod makes LossyRebuilds
+// return an error (see TestLossyRebuilds_ErrorsOnUnloadablePattern), and run
+// must surface it rather than swallow it. Replacing `if err != nil { return
+// err }` with a no-op would leave this suite green everywhere else, since no
+// other run-level test drives an analyzer into an error path.
+func TestRun_PropagatesSeamsAnalyzerError(t *testing.T) {
+	dir := t.TempDir() // deliberately no go.mod anywhere reachable above it
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte(`package m
+
+type Wide struct{ A, B string }
+`), 0o600))
+
+	var buf bytes.Buffer
+	err := run([]string{"seams", dir + "/..."}, &buf)
+	assert.Error(t, err)
 }
 
 // TestRun_SeamsAppliesMinFieldsAndMinDroppedInOrder pins both the --min-fields

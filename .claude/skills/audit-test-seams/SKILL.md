@@ -82,8 +82,8 @@ the results:
    **does** qualify (the receiver chain reads a field), so some findings are
    method-call results that may be unrelated to the field read.
 3. **Lossy-rebuild is literal-only.** It cannot see fields assigned after
-   construction (`m := T{}; m.X = …`); its `unset:` list can name fields that
-   are, in fact, set later in the same function.
+   construction (`m := T{}; m.X = …`); its `not set in literal:` list can name
+   fields that are, in fact, set later in the same function.
 4. **Weak-assertions suppresses locally-defined `assert*`/`must*` helpers.**
    This is a deliberate bias toward under-reporting — a guard that fires on
    legitimate helper-wrapped tests gets disabled by whoever it annoys — so a
@@ -185,7 +185,8 @@ blocks the cleanup and the fix is to backfill exactly the junk you removed.
   get gamed — that is the failure mode of the coverage gate this audit exists
   to supplement. Report findings, not a metric.
 - **No gating.** This audit does not block a build or a merge. (Weak, brand
-  new assertions are separately caught pre-commit and in CI by
-  `make check-weak-assertions` — a different, narrower, gating mechanism; see
-  `scripts/check-weak-assertions.sh`. It is local opt-in tooling, not wired
-  into `.github/workflows/ci.yml`, and it is not this skill.)
+  new assertions can separately be caught by running `make check-weak-assertions`
+  locally — a different, narrower mechanism; see
+  `scripts/check-weak-assertions.sh`. It is local opt-in tooling only: it is
+  not run in pre-commit, it is not wired into
+  `.github/workflows/ci.yml`, and it is not this skill.)
