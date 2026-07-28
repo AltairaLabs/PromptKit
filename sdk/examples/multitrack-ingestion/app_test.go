@@ -54,9 +54,28 @@ func TestKeyless_LabelsTranscriptAndFiresAgentPerTurn(t *testing.T) {
 		t.Fatalf("feed: %v", err)
 	}
 
-	// Close drains the session; wait for the response goroutine to finish so
-	// both the transcript and the reply count are final before asserting (the
-	// pipeline processes turns asynchronously after feed returns).
+	// feed returns as soon as the last chunk is queued; the pipeline is still
+	// processing turns. Close cancels the session context rather than draining
+	// it, so closing here races the in-flight turns and intermittently kills
+	// the last one mid-STT ("stage=speaker-b_stt error=context canceled",
+	// ~20% of runs). Wait for every turn's reply first, then close.
+	deadline := time.After(5 * time.Second)
+	for {
+		replyMu.Lock()
+		got := replies
+		replyMu.Unlock()
+		if got >= len(script) {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("only %d of %d per-turn replies arrived within 5s", got, len(script))
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Now that every turn has been answered, close and let the response
+	// goroutine finish so the transcript is final before asserting.
 	_ = conv.Close()
 	select {
 	case <-done:
