@@ -56,7 +56,10 @@ func TestDetectInfo(t *testing.T) {
 		require.NotNil(t, info)
 		assert.Equal(t, "anthropic", info.Name)
 		assert.Equal(t, "sk-ant-test", info.APIKey)
-		assert.Contains(t, info.Model, "claude")
+		// Pin the exact ID, not Contains(model, "claude"): that passes for any
+		// Claude ID including retired ones, so it could not fail when the
+		// default went stale. Update deliberately when the default moves.
+		assert.Equal(t, "claude-sonnet-5", info.Model)
 	})
 
 	t.Run("google key set", func(t *testing.T) {
@@ -70,7 +73,7 @@ func TestDetectInfo(t *testing.T) {
 		require.NotNil(t, info)
 		assert.Equal(t, "gemini", info.Name)
 		assert.Equal(t, "google-key", info.APIKey)
-		assert.Contains(t, info.Model, "gemini")
+		assert.Equal(t, "gemini-1.5-pro", info.Model)
 	})
 
 	t.Run("gemini key set", func(t *testing.T) {

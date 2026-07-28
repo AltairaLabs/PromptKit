@@ -29,6 +29,26 @@ const (
 	providerOllama    = "ollama"
 )
 
+// Default model per provider, used when the caller supplies no model and the
+// provider is auto-detected from the environment.
+const (
+	defaultOpenAIModel = "gpt-4o"
+	// claude-sonnet-5 is the documented drop-in successor to the previous
+	// default (claude-sonnet-4-20250514), which is deprecated. Same tier, so
+	// auto-detected callers keep their cost profile; pass an explicit model to
+	// opt into claude-opus-5.
+	defaultAnthropicModel = "claude-sonnet-5"
+	defaultGeminiModel    = "gemini-1.5-pro"
+)
+
+// Environment variables consulted during provider auto-detection.
+const (
+	envOpenAIKey    = "OPENAI_API_KEY"
+	envAnthropicKey = "ANTHROPIC_API_KEY"
+	envGoogleKey    = "GOOGLE_API_KEY"
+	envGeminiKey    = "GEMINI_API_KEY"
+)
+
 // Info contains detected provider information.
 type Info struct {
 	// Name is the provider identifier (e.g., "openai", "anthropic", "gemini").
@@ -72,7 +92,7 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	if info == nil {
 		slog.Warn("no provider detected from environment; defaulting to OpenAI gpt-4o",
 			"hint", "set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY to be explicit")
-		info = &Info{Name: "openai", APIKey: apiKey, Model: "gpt-4o"}
+		info = &Info{Name: providerOpenAI, APIKey: apiKey, Model: defaultOpenAIModel}
 	}
 
 	// Override with provided values
@@ -121,9 +141,9 @@ func detectInfoForProvider(providerName string) *Info {
 	}
 
 	envKeys := map[string][]string{
-		"openai":    {"OPENAI_API_KEY"},
-		"anthropic": {"ANTHROPIC_API_KEY"},
-		"gemini":    {"GOOGLE_API_KEY", "GEMINI_API_KEY"},
+		providerOpenAI:    {envOpenAIKey},
+		providerAnthropic: {envAnthropicKey},
+		providerGemini:    {envGoogleKey, envGeminiKey},
 	}
 
 	keys, ok := envKeys[providerName]
@@ -152,10 +172,10 @@ func detectInfo() *Info {
 		keyEnv   string
 		defModel string
 	}{
-		{"openai", "OPENAI_API_KEY", "gpt-4o"},
-		{"anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"},
-		{"gemini", "GOOGLE_API_KEY", "gemini-1.5-pro"},
-		{"gemini", "GEMINI_API_KEY", "gemini-1.5-pro"},
+		{providerOpenAI, envOpenAIKey, defaultOpenAIModel},
+		{providerAnthropic, envAnthropicKey, defaultAnthropicModel},
+		{providerGemini, envGoogleKey, defaultGeminiModel},
+		{providerGemini, envGeminiKey, defaultGeminiModel},
 	}
 
 	for _, c := range checks {
