@@ -97,6 +97,11 @@ jobs:
     # default build, which is what a user gets on `go build ./...`.
     - name: Build and test nested-module examples
       run: |
+        # GitHub runs `bash -e`, so an assignment whose command substitution
+        # fails aborts the step. `go vet` exits 1 on a tag-gated module
+        # ("matched no packages"), which we handle below rather than fail on —
+        # so errexit has to be off for this loop.
+        set +e
         set -uo pipefail
         failed=""
         skipped=""
