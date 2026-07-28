@@ -166,18 +166,40 @@ func (a *GuardrailHookAdapter) AfterCall(
 // evalParams returns the params the inner handler should see, plus the
 // thresholds this adapter applies itself.
 //
-// Two things are load-bearing. Defaults and legacy-name normalization run
-// first, so a threshold declared under an aliased name is still found. And the
+// Three things are load-bearing. Defaults and legacy-name normalization run
+// first, so a threshold declared under an aliased name is still found. The
 // threshold keys are stripped before the handler sees them: they are wrapper
 // params by design, and several handler families call rejectThresholdParams,
 // which returns an error result scoring 0 — read by the guardrail as "block".
 // Forwarding a threshold therefore turned the guardrail into an always-block
 // instead of merely ignoring the param (#1707).
+//
+// "direction" is stripped for the same reason. It selects which phase this
+// adapter evaluates in, and it is already consumed — a.direction. Once
+// guardrail_triggered gained a direction param of its own, meaning "match a
+// firing recorded on that side", forwarding the wrapper's copy silently
+// re-purposed it and made the guardrail conclude nothing had fired (#1718).
 func (a *GuardrailHookAdapter) evalParams() (map[string]any, evals.ScoreThresholds) {
 	params := evals.ApplyDefaults(a.evalType, a.params)
 	params = evals.NormalizeParams(a.evalType, params)
 	thresholds := evals.ExtractScoreThresholds(params)
-	return evals.StripScoreThresholds(params), thresholds
+	return stripDirection(evals.StripScoreThresholds(params)), thresholds
+}
+
+// stripDirection returns params without the wrapper's "direction" key. The
+// input map is never mutated: adapters share their params across turns.
+func stripDirection(params map[string]any) map[string]any {
+	if _, present := params["direction"]; !present {
+		return params
+	}
+	stripped := make(map[string]any, len(params))
+	for k, v := range params {
+		if k == "direction" {
+			continue
+		}
+		stripped[k] = v
+	}
+	return stripped
 }
 
 // evaluate runs the handler and converts the EvalResult to a Decision.

@@ -923,10 +923,23 @@ evals:
 
 | Type | Params | Surfaces |
 |------|--------|----------|
-| `guardrail_triggered` | `guardrail` (string), `should_trigger` (bool) | A E |
+| `guardrail_triggered` | `guardrail` (string), `should_trigger` (bool), `direction` (string, optional) | A E |
 | `invariant_fields_preserved` | `tool` (string), `fields` (string[]) | E |
 
-`guardrail_triggered` inspects prior eval results in the same batch, verifying that a specific guardrail did (or did not) fire.
+`guardrail_triggered` inspects prior eval results in the same batch, verifying that a specific guardrail did (or did not) fire. Pipeline-level guardrail firings are seeded into those prior results from the assistant message's validations, so a guardrail that fired during the turn is visible here without any extra wiring.
+
+`direction` narrows the match to the side the guardrail judged — `input` (the user's message, before the LLM call) or `output` (the assistant response) — mirroring the [`direction` param on the guardrail declaration](#guardrail-direction):
+
+```yaml
+assertions:
+  - type: guardrail_triggered
+    params:
+      validator: pii_leakage
+      direction: input
+      should_trigger: true
+```
+
+Omit it (or pass `both`) to match a firing from either side — the default, and what you want unless the same check is declared as an input guardrail *and* an output guardrail, in which case only `direction` can tell you which one fired. A firing recorded without a direction never satisfies a direction-qualified assertion, and an unrecognized value is rejected when the eval definitions are validated rather than silently matching nothing.
 
 ---
 
