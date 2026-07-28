@@ -226,8 +226,15 @@ jobs:
           return 1
         }
         
-        # Check leaf modules (runtime and pkg have no replace directives)
-        # server/a2a and sdk are tagged later in update-tools after go.mod cleanup
+        # runtime is a true leaf. pkg is NOT — it replaces runtime locally and
+        # is tagged straight from this tree with no go.mod cleanup, so pkg tags
+        # ship both that replace and a stale `require runtime v1.3.5`. Consumers
+        # ignore the replace but honor the require, so a pkg-only dependant
+        # resolves an old runtime. Tracked separately; fixing it means giving pkg
+        # the same release-branch treatment sdk and server/a2a get, which
+        # reorders this phase and is not a drive-by change.
+        #
+        # server/a2a and sdk are tagged later in update-tools after go.mod cleanup.
         check_module "runtime" "$VERSION" &
         PID_RUNTIME=$!
 
@@ -317,6 +324,13 @@ jobs:
         # Remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
 
+        # Same guard as the sdk step below.
+        if grep -q '^replace' go.mod; then
+          echo "::error::server/a2a/go.mod still has replace directives after cleanup:"
+          grep '^replace' go.mod
+          exit 1
+        fi
+
         cd ../..
         echo "✓ Updated server/a2a go.mod to $VERSION"
 
@@ -333,9 +347,24 @@ jobs:
         go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
         go mod edit -require="github.com/AltairaLabs/PromptKit/server/a2a@$VERSION"
 
-        # Remove local replace directives
+        # Remove local replace directives. All three must go: sdk replaces
+        # runtime, server/a2a AND pkg locally, and a published module carrying a
+        # relative-path replace is at best confusing to read. pkg was missing
+        # here through v1.5.7, so every sdk tag up to that point shipped
+        # `replace github.com/AltairaLabs/PromptKit/pkg => ../pkg`.
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/server/a2a
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+
+        # Fail loudly rather than shipping another tag with a dangling relative
+        # path: this is exactly the class of defect that stayed invisible for
+        # five releases, because Go ignores replace in a dependency module so
+        # nothing downstream ever complained.
+        if grep -q '^replace' go.mod; then
+          echo "::error::sdk/go.mod still has replace directives after cleanup:"
+          grep '^replace' go.mod
+          exit 1
+        fi
 
         cd ..
         echo "✓ Updated sdk go.mod to $VERSION"
