@@ -154,7 +154,13 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-    
+
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache: false  # Disable cache since we use a workspace setup
+
     - name: Configure Git
       run: |
         git config user.name "github-actions[bot]"
@@ -164,32 +170,11 @@ jobs:
       # See update-tools/Fetch remote tags for rationale.
       run: git fetch --tags --force origin
 
-    - name: Tag runtime
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Tagging runtime/$VERSION"
-        if git rev-parse "runtime/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag runtime/$VERSION already exists, skipping"
-        else
-          git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
-          git push origin "runtime/$VERSION"
-          echo "✓ Tagged runtime/$VERSION"
-        fi
-    
-    - name: Tag pkg
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Tagging pkg/$VERSION"
-        if git rev-parse "pkg/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag pkg/$VERSION already exists, skipping"
-        else
-          git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
-          git push origin "pkg/$VERSION"
-          echo "✓ Tagged pkg/$VERSION"
-        fi
-    
+    # Tagged from the default branch, before the release branch is created:
+    # this is the tag the GitHub release (and therefore the docs/schema
+    # deployment) hangs off, so it must point at a commit on main. runtime and
+    # pkg are tagged further down, from the release branch, exactly as sdk and
+    # server/a2a already are.
     - name: Tag root version (for GoReleaser)
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -202,63 +187,131 @@ jobs:
           git push origin "$VERSION"
           echo "✓ Tagged $VERSION"
         fi
-    
-    - name: Verify on Go proxy
+
+    - name: Create release branch
       env:
         VERSION: ${{ needs.validate.outputs.version }}
       run: |
-        echo "Verifying tags are available on Go proxy..."
-        
-        # Function to check if a module version is available
-        check_module() {
-          local module=$1
-          local version=$2
-          echo "Checking $module..."
-          for i in {1..10}; do
-            if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/$module/@v/$version.info" >/dev/null 2>&1; then
-              echo "✓ $module@$version is available"
-              return 0
-            fi
-            echo "  Attempt $i/10: Not available yet, waiting 20s..."
-            sleep 20
-          done
-          echo "⚠ $module@$version still not available after 200s"
-          return 1
-        }
-        
-        # runtime is a true leaf. pkg is NOT — it replaces runtime locally and
-        # is tagged straight from this tree with no go.mod cleanup, so pkg tags
-        # ship both that replace and a stale `require runtime v1.3.5`. Consumers
-        # ignore the replace but honor the require, so a pkg-only dependant
-        # resolves an old runtime. Tracked separately; fixing it means giving pkg
-        # the same release-branch treatment sdk and server/a2a get, which
-        # reorders this phase and is not a drive-by change.
-        #
-        # server/a2a and sdk are tagged later in update-tools after go.mod cleanup.
-        check_module "runtime" "$VERSION" &
-        PID_RUNTIME=$!
-
-        check_module "pkg" "$VERSION" &
-        PID_PKG=$!
-
-        # Wait for all checks to complete
-        wait $PID_RUNTIME
-        RESULT_RUNTIME=$?
-
-        wait $PID_PKG
-        RESULT_PKG=$?
-
-        # Report overall status (non-blocking - Go proxy can take time to propagate)
-        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ]; then
-          echo "✓ Leaf modules are available on Go proxy"
+        BRANCH="release/libs/$VERSION"
+        # Check if branch already exists remotely
+        if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+          echo "⚠ Branch $BRANCH already exists, checking it out"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
         else
-          echo "⚠ Some modules may need more time to propagate"
-          echo "  This is normal and they will be available shortly"
-          echo "  Continuing with release process..."
+          git checkout -b "$BRANCH"
+          echo "✓ Created branch $BRANCH"
         fi
-        
-        # Always succeed - Go proxy propagation shouldn't block the release
-        exit 0
+
+    # runtime and pkg import each other (runtime/hooks/exec_build.go uses
+    # pkg/config; pkg/config uses runtime/{credentials,providers/base,tools,...}),
+    # so the two must require each other at $VERSION. That is legal — Go forbids
+    # package cycles, not module cycles — and MVS resolves it fine. `go mod edit`
+    # is pure text manipulation, so neither tag has to exist yet.
+    #
+    # No `go mod tidy`: a dependency module's go.sum is never consulted, since
+    # Go verifies downloads against the *main* module's go.sum. Tidying here
+    # would require both tags to be proxy-visible first, which is the ordering
+    # problem this layout exists to avoid.
+    - name: Update runtime dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Updating runtime to use $VERSION..."
+        cd runtime
+
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+
+        # No-op today (runtime has no replace directives), but keeps runtime
+        # correct if one is ever added locally.
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+
+        # Same guard as the pkg and sdk steps.
+        if grep -q '^replace' go.mod; then
+          echo "::error::runtime/go.mod still has replace directives after cleanup:"
+          grep '^replace' go.mod
+          exit 1
+        fi
+
+        cd ..
+        echo "✓ Updated runtime go.mod to $VERSION"
+
+    - name: Update pkg dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Updating pkg to use $VERSION..."
+        cd pkg
+
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+
+        # pkg keeps `replace .../runtime => ../runtime` on main so workspace and
+        # GOWORK=off builds resolve the local tree. It must not ship in the tag:
+        # Go ignores replace in a dependency module but honors require, so the
+        # replace masked a stale `require runtime v1.3.5` for five releases
+        # (issue #1713).
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+
+        if grep -q '^replace' go.mod; then
+          echo "::error::pkg/go.mod still has replace directives after cleanup:"
+          grep '^replace' go.mod
+          exit 1
+        fi
+
+        cd ..
+        echo "✓ Updated pkg go.mod to $VERSION"
+
+    - name: Commit changes
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        BRANCH="release/libs/$VERSION"
+
+        # Check if there are changes to commit
+        if git diff --quiet runtime/go.mod pkg/go.mod; then
+          echo "⚠ No changes to commit (already up to date)"
+        else
+          git add runtime/go.mod pkg/go.mod
+          git commit -m "release: update library modules to $VERSION"
+          git push origin "$BRANCH"
+          echo "✓ Pushed $BRANCH"
+        fi
+
+    - name: Tag runtime
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging runtime/$VERSION from release branch (internal requires bumped)"
+        if git rev-parse "runtime/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag runtime/$VERSION already exists, skipping"
+        else
+          git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
+          git push origin "runtime/$VERSION"
+          echo "✓ Tagged runtime/$VERSION"
+        fi
+
+    - name: Tag pkg
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging pkg/$VERSION from release branch (replace dropped, require bumped)"
+        if git rev-parse "pkg/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag pkg/$VERSION already exists, skipping"
+        else
+          git tag -a "pkg/$VERSION" -m "Release pkg $VERSION"
+          git push origin "pkg/$VERSION"
+          echo "✓ Tagged pkg/$VERSION"
+        fi
+
+    # Correctness gate, not an availability gate: it fetches each published
+    # go.mod from the Go proxy and fails the release if a tag carries an
+    # internal replace or an internal require pointing anywhere but $VERSION.
+    # Propagation timeouts are reported as warnings and do not fail, which is
+    # what the availability check this replaces was really doing.
+    - name: Verify published go.mod on Go proxy
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: ./scripts/verify-published-gomod.sh "$VERSION" runtime pkg
 
   update-tools:
     name: Update and Tag SDK Modules
@@ -412,39 +465,15 @@ jobs:
           echo "✓ Tagged sdk/$VERSION"
         fi
 
-    - name: Verify library modules on Go proxy
+    # Deliberately NOT continue-on-error, unlike the availability check this
+    # replaces: a published tag with an internal replace or a stale internal
+    # require is a real defect that reaches consumers, and tags are immutable,
+    # so it must stop the release loudly rather than warn into a log nobody
+    # reads. Propagation timeouts still pass — see the script header.
+    - name: Verify published go.mod on Go proxy
       env:
         VERSION: ${{ needs.validate.outputs.version }}
-      continue-on-error: true
-      run: |
-        echo "Verifying library modules are available on Go proxy..."
-
-        check_module() {
-          local module=$1
-          local version=$2
-          echo "Checking $module..."
-          for i in {1..10}; do
-            if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/$module/@v/$version.info" >/dev/null 2>&1; then
-              echo "✓ $module@$version is available"
-              return 0
-            fi
-            echo "  Attempt $i/10: Not available yet, waiting 20s..."
-            sleep 20
-          done
-          echo "⚠ $module@$version still not available after 200s"
-          return 1
-        }
-
-        check_module "server/a2a" "$VERSION" &
-        PID_SERVER_A2A=$!
-
-        check_module "sdk" "$VERSION" &
-        PID_SDK=$!
-
-        wait $PID_SERVER_A2A
-        wait $PID_SDK
-
-        echo "Library module verification complete"
+      run: ./scripts/verify-published-gomod.sh "$VERSION" sdk server/a2a
 
   create-release:
     name: Create GitHub Release

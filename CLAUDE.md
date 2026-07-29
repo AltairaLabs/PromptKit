@@ -146,7 +146,7 @@ binaries, npm packages and Homebrew casks) release from the separate
 `github.com/AltairaLabs/promptarena` repo. The release workflow
 (`.github/workflows/release.yml`) handles:
 1. **Validate** — semver format, version ordering, optional test suite
-2. **Tag libraries** — tags `runtime/`, `pkg/`, and root `vX.Y.Z`, verifies Go proxy propagation
+2. **Tag libraries** — tags root `vX.Y.Z` from main, then bumps `runtime`/`pkg` internal requires to `vX.Y.Z` and drops `pkg`'s local `replace` on a `release/libs/` branch before tagging `runtime/`, `pkg/` from it
 3. **Update & tag SDK modules** — removes `replace` directives, tags `sdk/`, `server/a2a/`
 4. **Create GitHub release** — `gh release create` (no binaries); publishing it triggers the docs/schema deployment
 5. **Notify downstream** — dispatches `promptkit-release` to the deploy repos
