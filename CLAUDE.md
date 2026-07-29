@@ -145,7 +145,7 @@ PromptKit ships Go library modules only — the PromptArena/PackC CLIs (and thei
 binaries, npm packages and Homebrew casks) release from the separate
 `github.com/AltairaLabs/promptarena` repo. The release workflow
 (`.github/workflows/release.yml`) handles:
-1. **Validate** — semver format, version ordering, optional test suite
+1. **Validate** — semver format, version ordering, optional test suite, and a check that the **previous** release's published `go.mod` files are clean (the post-tag check can only see modules the Go proxy has picked up, and `sdk`/`server/a2a` routinely take longer than the retry budget). If it fails, the old tag cannot be repaired — re-run with `-f ignore_previous_release_check=true` when this release is the roll-forward fix.
 2. **Tag libraries** — tags root `vX.Y.Z` and `runtime/` from main (runtime is a leaf — it must not depend on a sibling module, enforced by `scripts/check-runtime-is-leaf.sh`), then bumps `pkg`'s `require` on runtime to `vX.Y.Z` and drops its local `replace` on a `release/libs/` branch before tagging `pkg/` from it
 3. **Update & tag SDK modules** — removes `replace` directives, tags `sdk/`, `server/a2a/`
 4. **Create GitHub release** — `gh release create` (no binaries); publishing it triggers the docs/schema deployment

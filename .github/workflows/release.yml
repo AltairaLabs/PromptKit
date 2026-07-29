@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: false
+      ignore_previous_release_check:
+        description: "Release even if the PREVIOUS release's published go.mod is bad (use when this release is the roll-forward fix)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -120,6 +125,66 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "✓ Version $VERSION is valid and available"
     
+    # The post-tag check at the end of each release can only see modules the Go
+    # proxy has already picked up. Measured on v1.5.8: runtime and pkg were
+    # served ~3s after tagging, sdk and server/a2a were still 404 half an hour
+    # later — so that check reliably verifies half the modules and skips the
+    # other half. Checking the PREVIOUS release here closes the gap: by now the
+    # proxy has had days, so all four are actually verified. A bad release is
+    # caught one release late rather than never.
+    #
+    # Blocking by default, because the usual cause of a bad published go.mod is
+    # a broken release script — and running it again would just publish a second
+    # bad release. When THIS release is the roll-forward fix, re-run with
+    # ignore_previous_release_check=true. (The old tag can never be repaired;
+    # rolling forward is the only remedy.)
+    - name: Verify the previous release's published go.mod
+      env:
+        VERSION: ${{ steps.validate.outputs.version }}
+        IGNORE: ${{ inputs.ignore_previous_release_check }}
+      run: |
+        # Highest runtime/vX.Y.Z tag strictly BELOW the version being released.
+        # Splice VERSION into the sorted list and take the line before it —
+        # simply excluding VERSION and taking the max is wrong for a tools-only
+        # re-run of an older version, which would then select a LATER release as
+        # its "previous".
+        PREV=$( { git tag -l 'runtime/v*' | sed 's|^runtime/||'; echo "$VERSION"; } \
+          | sort -V -u \
+          | grep -B1 -Fx "$VERSION" \
+          | head -n1)
+
+        # VERSION sorted first, so there is nothing below it.
+        if [ -z "$PREV" ] || [ "$PREV" = "$VERSION" ]; then
+          echo "No previous release below $VERSION — nothing to verify."
+          exit 0
+        fi
+
+        echo "Verifying the previously published release $PREV..."
+        if ./scripts/verify-published-gomod.sh "$PREV" runtime pkg sdk server/a2a; then
+          echo "✓ $PREV is release-clean" >> $GITHUB_STEP_SUMMARY
+          exit 0
+        fi
+
+        {
+          echo "## ⚠ The previous release ($PREV) has a bad go.mod"
+          echo ""
+          echo "One or more published modules at \`$PREV\` carry an internal"
+          echo "\`replace\`, or an internal \`require\` pointing at the wrong version."
+          echo "See the job log for the offending lines."
+          echo ""
+          echo "\`$PREV\` cannot be repaired — published tags are immutable."
+          echo "If **this** release is the roll-forward fix, re-run it with"
+          echo "\`ignore_previous_release_check=true\`."
+        } >> $GITHUB_STEP_SUMMARY
+
+        if [ "$IGNORE" = "true" ]; then
+          echo "::warning::Previous release $PREV has a bad go.mod; continuing because ignore_previous_release_check=true"
+          exit 0
+        fi
+
+        echo "::error::Previous release $PREV published a bad go.mod — releasing again may repeat it. Re-run with ignore_previous_release_check=true if this release is the fix."
+        exit 1
+
     - name: Setup Go
       if: ${{ !inputs.skip_tests }}
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
