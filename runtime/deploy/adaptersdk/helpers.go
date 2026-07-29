@@ -69,3 +69,28 @@ func formatProgress(message string, pct float64) string {
 	}
 	return fmt.Sprintf("%s (%d%%)", message, pctInt)
 }
+
+// ConsoleLink builds the conventional "Console" link for a deployed resource.
+// It is a convenience over constructing deploy.ResourceLink directly, so the
+// common case reads the same across adapters.
+//
+// It returns nil when url is empty, which is the intended way to express "the
+// console URL is not known". Callers can append the result unconditionally:
+//
+//	result.Links = append(result.Links, adaptersdk.ConsoleLink(consoleURL)...)
+//
+// An adapter must never substitute a guessed URL for an unknown one — a link
+// that 404s or lands on the wrong workspace is worse than no link at all.
+func ConsoleLink(url string) []deploy.ResourceLink {
+	return Link("Console", url, "console")
+}
+
+// Link builds a single-element ResourceLink slice, or nil when url is empty.
+// The nil-on-empty behavior is what makes "no link" the safe default at every
+// call site rather than something each adapter has to remember to check.
+func Link(label, url, rel string) []deploy.ResourceLink {
+	if url == "" {
+		return nil
+	}
+	return []deploy.ResourceLink{{Label: label, URL: url, Rel: rel}}
+}

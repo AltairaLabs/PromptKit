@@ -69,6 +69,34 @@ type ApplyEvent struct {
 	Resource *ResourceResult `json:"resource,omitempty"`
 }
 
+// ResourceLink is an optional operator-facing URL an adapter associates with a
+// deployed resource — a web console, a logs view, a dashboard page.
+//
+// The protocol contract, which both sides depend on:
+//
+//   - Optional end to end. An adapter that returns no links is fully supported
+//     and must never be treated as degraded. An absent field simply means "no
+//     links", so old adapters and new clients interoperate in both directions
+//     with no capability negotiation.
+//   - Clients MUST NOT synthesize links. If the adapter returns none, the
+//     client shows nothing. Deriving a URL client-side bakes one provider's
+//     scheme into a provider-agnostic tool, and the control-plane host is not
+//     guaranteed to be the console host — so the guess is not even reliable for
+//     the provider it would be hardcoded for.
+//   - Rel is a hint, not an enum to switch on. Render Label, open URL.
+type ResourceLink struct {
+	// Label is the short human-facing text for the link, e.g. "Console".
+	Label string `json:"label"`
+	// URL is the absolute URL to open. Adapters should include whatever scoping
+	// (workspace, namespace, project) the target needs in order to resolve for
+	// an operator with access to more than one.
+	URL string `json:"url"`
+	// Rel is an optional machine hint about what the link is, e.g. "console" or
+	// "logs". Clients may use it for an icon or ordering, but must still render
+	// links whose Rel they do not recognize.
+	Rel string `json:"rel,omitempty"`
+}
+
 // ResourceResult describes the outcome of a resource operation.
 type ResourceResult struct {
 	Type   string `json:"type"`
@@ -76,6 +104,8 @@ type ResourceResult struct {
 	Action Action `json:"action"`
 	Status string `json:"status"` // "created", "updated", "deleted", "failed"
 	Detail string `json:"detail,omitempty"`
+	// Links are optional operator-facing URLs for this resource — see ResourceLink.
+	Links []ResourceLink `json:"links,omitempty"`
 }
 
 // DestroyEvent is a streaming event during Destroy.
@@ -90,6 +120,9 @@ type StatusResponse struct {
 	Status    string           `json:"status"` // "deployed", "not_deployed", "degraded", "unknown"
 	Resources []ResourceStatus `json:"resources,omitempty"`
 	State     string           `json:"state,omitempty"` // Opaque adapter state
+	// Links are optional deployment-wide operator-facing URLs that do not
+	// belong to any single resource — see ResourceLink.
+	Links []ResourceLink `json:"links,omitempty"`
 }
 
 // ResourceStatus describes the current state of a resource.
@@ -98,6 +131,8 @@ type ResourceStatus struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // "healthy", "unhealthy", "missing"
 	Detail string `json:"detail,omitempty"`
+	// Links are optional operator-facing URLs for this resource — see ResourceLink.
+	Links []ResourceLink `json:"links,omitempty"`
 }
 
 // DestroyRequest is the input to Destroy.
