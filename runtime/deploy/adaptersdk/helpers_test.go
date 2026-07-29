@@ -170,3 +170,39 @@ func TestFormatProgress_Boundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestConsoleLink(t *testing.T) {
+	got := ConsoleLink("https://omnia.example.com/agents/a?workspace=ws")
+	if len(got) != 1 {
+		t.Fatalf("ConsoleLink = %+v, want one link", got)
+	}
+	if got[0].Label != "Console" || got[0].Rel != "console" {
+		t.Errorf("ConsoleLink = %+v, want the conventional Console label and rel", got[0])
+	}
+	if got[0].URL != "https://omnia.example.com/agents/a?workspace=ws" {
+		t.Errorf("ConsoleLink URL = %q", got[0].URL)
+	}
+}
+
+func TestConsoleLink_EmptyURLYieldsNoLink(t *testing.T) {
+	// "No link" is the correct outcome for an unknown console URL, and it must
+	// be safe to append unconditionally.
+	if got := ConsoleLink(""); got != nil {
+		t.Errorf("ConsoleLink(\"\") = %+v, want nil so callers can append blindly", got)
+	}
+	var links []deploy.ResourceLink
+	links = append(links, ConsoleLink("")...)
+	if len(links) != 0 {
+		t.Errorf("appending an empty console link added %d entries", len(links))
+	}
+}
+
+func TestLink_EmptyURLYieldsNoLink(t *testing.T) {
+	if got := Link("Logs", "", "logs"); got != nil {
+		t.Errorf("Link with empty URL = %+v, want nil", got)
+	}
+	got := Link("Logs", "https://example.com/logs", "logs")
+	if len(got) != 1 || got[0].Label != "Logs" || got[0].Rel != "logs" {
+		t.Errorf("Link = %+v", got)
+	}
+}
