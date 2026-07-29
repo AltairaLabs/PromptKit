@@ -4,10 +4,8 @@ go 1.26.0
 
 retract v1.4.0 // Published prematurely; use v1.4.1+
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
-
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
+	github.com/AltairaLabs/PromptKit/runtime v1.5.8
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
