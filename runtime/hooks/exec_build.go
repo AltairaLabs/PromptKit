@@ -3,11 +3,11 @@ package hooks
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/execconfig"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 )
 
-// Hook type names as used in config.ExecHook.Hook.
+// Hook type names as used in execconfig.ExecHook.Hook.
 const (
 	HookTypeProvider = "provider"
 	HookTypeTool     = "tool"
@@ -19,7 +19,7 @@ const (
 // instances using the process-wide factory registry. Factories must have been
 // registered (via sandbox.RegisterFactory or a backend's init) beforehand.
 // Shared by the SDK and Arena so both resolve sandboxes identically.
-func ResolveSandboxes(specs map[string]*config.SandboxConfig) (map[string]sandbox.Sandbox, error) {
+func ResolveSandboxes(specs map[string]*execconfig.SandboxConfig) (map[string]sandbox.Sandbox, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -45,9 +45,9 @@ func ResolveSandboxes(specs map[string]*config.SandboxConfig) (map[string]sandbo
 // and session hook instances, resolving each binding's named sandbox from the
 // provided map. Bindings with Hook=="eval" are skipped — eval hooks live in the
 // evals package and are wired by the caller. This is the single source of truth
-// for turning config.ExecHook bindings into runtime hooks, used by both the SDK
+// for turning execconfig.ExecHook bindings into runtime hooks, used by both the SDK
 // and Arena so the two never drift.
-func BuildExecHooks(bindings map[string]*config.ExecHook, sandboxes map[string]sandbox.Sandbox) (
+func BuildExecHooks(bindings map[string]*execconfig.ExecHook, sandboxes map[string]sandbox.Sandbox) (
 	provider []ProviderHook, tool []ToolHook, session []SessionHook, err error) {
 	for name, b := range bindings {
 		if b == nil {

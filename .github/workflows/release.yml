@@ -170,11 +170,17 @@ jobs:
       # See update-tools/Fetch remote tags for rationale.
       run: git fetch --tags --force origin
 
-    # Tagged from the default branch, before the release branch is created:
-    # this is the tag the GitHub release (and therefore the docs/schema
-    # deployment) hangs off, so it must point at a commit on main. runtime and
-    # pkg are tagged further down, from the release branch, exactly as sdk and
-    # server/a2a already are.
+    # Fail before anything is pushed if runtime has grown a dependency on a
+    # sibling module: the tag below is cut straight from this tree, so a stale
+    # internal require would ship immutably (issue #1713).
+    - name: Check runtime is still a leaf module
+      run: ./scripts/check-runtime-is-leaf.sh
+
+    # Root and runtime are tagged from the default branch, before the release
+    # branch exists. The root tag is what the GitHub release — and therefore
+    # the docs/schema deployment — hangs off, so it must point at a commit on
+    # main; runtime has no internal requires to rewrite. Only pkg needs the
+    # release-branch treatment sdk and server/a2a get.
     - name: Tag root version (for GoReleaser)
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -186,6 +192,19 @@ jobs:
           git tag -a "$VERSION" -m "Release $VERSION"
           git push origin "$VERSION"
           echo "✓ Tagged $VERSION"
+        fi
+
+    - name: Tag runtime
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging runtime/$VERSION"
+        if git rev-parse "runtime/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag runtime/$VERSION already exists, skipping"
+        else
+          git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
+          git push origin "runtime/$VERSION"
+          echo "✓ Tagged runtime/$VERSION"
         fi
 
     - name: Create release branch
@@ -203,39 +222,10 @@ jobs:
           echo "✓ Created branch $BRANCH"
         fi
 
-    # runtime and pkg import each other (runtime/hooks/exec_build.go uses
-    # pkg/config; pkg/config uses runtime/{credentials,providers/base,tools,...}),
-    # so the two must require each other at $VERSION. That is legal — Go forbids
-    # package cycles, not module cycles — and MVS resolves it fine. `go mod edit`
-    # is pure text manipulation, so neither tag has to exist yet.
-    #
     # No `go mod tidy`: a dependency module's go.sum is never consulted, since
     # Go verifies downloads against the *main* module's go.sum. Tidying here
-    # would require both tags to be proxy-visible first, which is the ordering
-    # problem this layout exists to avoid.
-    - name: Update runtime dependencies
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Updating runtime to use $VERSION..."
-        cd runtime
-
-        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
-
-        # No-op today (runtime has no replace directives), but keeps runtime
-        # correct if one is ever added locally.
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-
-        # Same guard as the pkg and sdk steps.
-        if grep -q '^replace' go.mod; then
-          echo "::error::runtime/go.mod still has replace directives after cleanup:"
-          grep '^replace' go.mod
-          exit 1
-        fi
-
-        cd ..
-        echo "✓ Updated runtime go.mod to $VERSION"
-
+    # would need runtime/$VERSION to be proxy-visible first; `go mod edit` is
+    # pure text and does not, which is what keeps this a single step.
     - name: Update pkg dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -268,26 +258,13 @@ jobs:
         BRANCH="release/libs/$VERSION"
 
         # Check if there are changes to commit
-        if git diff --quiet runtime/go.mod pkg/go.mod; then
+        if git diff --quiet pkg/go.mod; then
           echo "⚠ No changes to commit (already up to date)"
         else
-          git add runtime/go.mod pkg/go.mod
-          git commit -m "release: update library modules to $VERSION"
+          git add pkg/go.mod
+          git commit -m "release: update pkg to $VERSION"
           git push origin "$BRANCH"
           echo "✓ Pushed $BRANCH"
-        fi
-
-    - name: Tag runtime
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Tagging runtime/$VERSION from release branch (internal requires bumped)"
-        if git rev-parse "runtime/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag runtime/$VERSION already exists, skipping"
-        else
-          git tag -a "runtime/$VERSION" -m "Release runtime $VERSION"
-          git push origin "runtime/$VERSION"
-          echo "✓ Tagged runtime/$VERSION"
         fi
 
     - name: Tag pkg
@@ -317,7 +294,16 @@ jobs:
     name: Update and Tag SDK Modules
     runs-on: ubuntu-latest
     needs: [validate, tag-dependencies]
-    if: ${{ always() && (inputs.phase == 'full' || inputs.phase == 'tools-only') && needs.validate.result == 'success' }}
+    # `always()` is needed because tag-dependencies is *skipped* on a tools-only
+    # re-run, and a skipped dependency would otherwise skip this job too. But it
+    # must not mean "run even when the libs phase failed": on a full release,
+    # tagging sdk on top of libraries that failed to tag or published a bad
+    # go.mod just adds more immutable tags to clean up.
+    if: >-
+      ${{ always() && needs.validate.result == 'success' && (
+        inputs.phase == 'tools-only' ||
+        (inputs.phase == 'full' && needs.tag-dependencies.result == 'success')
+      ) }}
     
     steps:
     - name: Checkout code

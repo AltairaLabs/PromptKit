@@ -282,6 +282,12 @@ jobs:
     - name: Test the published-go.mod release guard (issue #1713)
       run: ./scripts/test-verify-published-gomod.sh
 
+    # Catches the runtime <-> pkg module cycle at PR time. The release workflow
+    # re-checks before tagging, but by then a bad go.mod is one push away from
+    # being immutable.
+    - name: Check runtime is a leaf module (issue #1713)
+      run: ./scripts/check-runtime-is-leaf.sh
+
   weak-assertions:
     name: Weak Assertion Guard
     runs-on: ubuntu-latest

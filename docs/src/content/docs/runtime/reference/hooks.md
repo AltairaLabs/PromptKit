@@ -17,8 +17,8 @@ Package hooks provides synchronous interception points for provider calls, tool 
 
 - [Constants](<#constants>)
 - [Variables](<#variables>)
-- [func BuildExecHooks\(bindings map\[string\]\*config.ExecHook, sandboxes map\[string\]sandbox.Sandbox\) \(provider \[\]ProviderHook, tool \[\]ToolHook, session \[\]SessionHook, err error\)](<#BuildExecHooks>)
-- [func ResolveSandboxes\(specs map\[string\]\*config.SandboxConfig\) \(map\[string\]sandbox.Sandbox, error\)](<#ResolveSandboxes>)
+- [func BuildExecHooks\(bindings map\[string\]\*execconfig.ExecHook, sandboxes map\[string\]sandbox.Sandbox\) \(provider \[\]ProviderHook, tool \[\]ToolHook, session \[\]SessionHook, err error\)](<#BuildExecHooks>)
+- [func ResolveSandboxes\(specs map\[string\]\*execconfig.SandboxConfig\) \(map\[string\]sandbox.Sandbox, error\)](<#ResolveSandboxes>)
 - [type ChunkInterceptor](<#ChunkInterceptor>)
 - [type Decision](<#Decision>)
   - [func Deny\(reason string\) Decision](<#Deny>)
@@ -73,7 +73,7 @@ Package hooks provides synchronous interception points for provider calls, tool 
 
 ## Constants
 
-<a name="HookTypeProvider"></a>Hook type names as used in config.ExecHook.Hook.
+<a name="HookTypeProvider"></a>Hook type names as used in execconfig.ExecHook.Hook.
 
 ```go
 const (
@@ -111,16 +111,16 @@ var Allow = Decision{Allow: true} //nolint:gochecknoglobals // convenience senti
 ## func BuildExecHooks
 
 ```go
-func BuildExecHooks(bindings map[string]*config.ExecHook, sandboxes map[string]sandbox.Sandbox) (provider []ProviderHook, tool []ToolHook, session []SessionHook, err error)
+func BuildExecHooks(bindings map[string]*execconfig.ExecHook, sandboxes map[string]sandbox.Sandbox) (provider []ProviderHook, tool []ToolHook, session []SessionHook, err error)
 ```
 
-BuildExecHooks converts runtime\-config exec\-hook bindings into provider, tool, and session hook instances, resolving each binding's named sandbox from the provided map. Bindings with Hook=="eval" are skipped — eval hooks live in the evals package and are wired by the caller. This is the single source of truth for turning config.ExecHook bindings into runtime hooks, used by both the SDK and Arena so the two never drift.
+BuildExecHooks converts runtime\-config exec\-hook bindings into provider, tool, and session hook instances, resolving each binding's named sandbox from the provided map. Bindings with Hook=="eval" are skipped — eval hooks live in the evals package and are wired by the caller. This is the single source of truth for turning execconfig.ExecHook bindings into runtime hooks, used by both the SDK and Arena so the two never drift.
 
 <a name="ResolveSandboxes"></a>
 ## func ResolveSandboxes
 
 ```go
-func ResolveSandboxes(specs map[string]*config.SandboxConfig) (map[string]sandbox.Sandbox, error)
+func ResolveSandboxes(specs map[string]*execconfig.SandboxConfig) (map[string]sandbox.Sandbox, error)
 ```
 
 ResolveSandboxes builds a map from declared sandbox names to ready Sandbox instances using the process\-wide factory registry. Factories must have been registered \(via sandbox.RegisterFactory or a backend's init\) beforehand. Shared by the SDK and Arena so both resolve sandboxes identically.

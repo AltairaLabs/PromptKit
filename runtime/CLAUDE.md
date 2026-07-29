@@ -8,6 +8,10 @@ The runtime is PromptKit's core library. It defines all interfaces, executes LLM
 
 **Runtime has zero dependencies on `sdk/` or downstream consumers (PromptArena)**. All extensibility is via interfaces that higher-level modules implement. If you need to add functionality that both SDK and Arena use, it belongs here.
 
+**Runtime is also a leaf module — it must not depend on `pkg/` either.** `runtime/go.mod` carries no `require` or `replace` on a sibling PromptKit module, and `scripts/check-runtime-is-leaf.sh` enforces it in CI and again before release tagging. Runtime used to import `pkg/config` from `hooks/exec_build.go`, which made the two modules require each other; that cycle is why every published library tag shipped a stale internal `require` for five releases (issue #1713).
+
+If runtime and `pkg/config` both need a declarative type, put it in `runtime/hooks/execconfig` (a stdlib-only leaf package) and re-export it from `pkg/config` as an **alias** — `type ExecHook = execconfig.ExecHook`. An alias keeps call sites, YAML tags and the generated JSON schema identical; a defined type does not.
+
 ## Architecture Overview
 
 ```
