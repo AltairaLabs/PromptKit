@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -35,11 +36,20 @@ var assertionsProvingNothing = map[string]bool{
 // WeakAssertions reports test functions and subtests whose assertions cannot
 // distinguish correct behavior from broken behavior.
 func WeakAssertions(paths []string) ([]Finding, error) {
-	var out []Finding
+	var (
+		out  []Finding
+		errs []error
+	)
 	for _, root := range paths {
 		files, err := goTestFiles(root)
 		if err != nil {
-			return nil, err
+			// Keep scanning the remaining roots. Returning here would discard
+			// every finding already collected because one path was bad — the
+			// same all-or-nothing shape fixed in LossyRebuilds for #1729, and
+			// fixing only one of the two would be precisely the sibling
+			// divergence that motivated that issue.
+			errs = append(errs, err)
+			continue
 		}
 		for _, path := range files {
 			found, err := scanTestFile(path)
@@ -50,7 +60,7 @@ func WeakAssertions(paths []string) ([]Finding, error) {
 			out = append(out, found...)
 		}
 	}
-	return out, nil
+	return out, errors.Join(errs...)
 }
 
 // scanTestFile parses a single test file and classifies each of its Test*

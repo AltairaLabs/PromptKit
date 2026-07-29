@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -67,16 +71,40 @@ import (
 // for the same reason (no data-flow tracing here): a value already copied out
 // of a field by an earlier statement (x := src.A; T{F: x}), and a parameter
 // or local forwarded opaquely.
+//
+// # Assignment awareness
+//
+// A field is not "dropped" merely because the literal omits it: a field
+// assigned to the literal's own target afterwards, on every path out of the
+// literal, is set. Without this the signature reads identically before and
+// after a fix — #1715 added resp.message.FinishReason = ... immediately below
+// the literal at sdk/streaming.go:435, and the pre-fix and post-fix trees
+// produced the same finding, which is why the true positive went unnoticed
+// among 31 findings for sdk alone. See lateAssignedFields for the exact
+// suppression rule and why conditional assignments are deliberately not
+// suppressed.
+//
+// # Partial results
+//
+// A pattern that fails to load does not discard the patterns that succeeded:
+// every pattern is scanned, findings from the ones that worked are returned,
+// and the failures are joined into the returned error so the caller still
+// exits non-zero. Returning nothing on the first bad path is how
+// "seams ./sdk ./runtime" used to throw away all of sdk's findings.
 func LossyRebuilds(patterns []string, minFields, minDropped int) ([]Finding, error) {
-	var out []Finding
+	var (
+		out  []Finding
+		errs []error
+	)
 	for _, pattern := range patterns {
 		found, err := lossyRebuildsInPattern(pattern, minFields, minDropped)
 		if err != nil {
-			return nil, err
+			errs = append(errs, err)
+			continue
 		}
 		out = append(out, found...)
 	}
-	return out, nil
+	return out, errors.Join(errs...)
 }
 
 // lossyRebuildsInPattern loads the single pattern (a filesystem path, plain or
@@ -103,6 +131,9 @@ func LossyRebuilds(patterns []string, minFields, minDropped int) ([]Finding, err
 // how "seams" on the whole repo root used to exit 0 having scanned nothing.
 func lossyRebuildsInPattern(pattern string, minFields, minDropped int) ([]Finding, error) {
 	dir, listPattern := splitPatternDir(pattern)
+	if err := checkBareModuleRoot(pattern, dir, listPattern); err != nil {
+		return nil, err
+	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
 			packages.NeedTypes | packages.NeedTypesInfo,
@@ -125,12 +156,13 @@ func lossyRebuildsInPattern(pattern string, minFields, minDropped int) ([]Findin
 			return
 		}
 		for _, file := range p.Syntax {
+			late := lateAssignedFields(p, file)
 			ast.Inspect(file, func(n ast.Node) bool {
 				lit, ok := n.(*ast.CompositeLit)
 				if !ok {
 					return true
 				}
-				f, ok := checkLiteral(p, lit, minFields, minDropped)
+				f, ok := checkLiteral(p, lit, late[lit], minFields, minDropped)
 				if ok {
 					out = append(out, f)
 				}
@@ -139,6 +171,38 @@ func lossyRebuildsInPattern(pattern string, minFields, minDropped int) ([]Findin
 		}
 	})
 	return out, nil
+}
+
+// checkBareModuleRoot turns the single sharpest edge of the path syntax into
+// an actionable message. "seamscan seams ./runtime" loads the directory as one
+// package, and a module root that holds only subdirectories has no root-level
+// .go files, so go/packages reports "no Go files in ..." — true, but it never
+// says that "./runtime/..." is the form that works. Both spellings are
+// accepted by splitPatternDir; only one of them scans a module.
+//
+// It deliberately reports rather than silently rewriting the pattern to
+// "<dir>/...": a bare directory means "this one package, non-recursively"
+// everywhere else in the tool, and quietly recursing only when the directory
+// happens to hold no .go files would make the pattern's meaning depend on the
+// contents of the directory it names.
+func checkBareModuleRoot(pattern, dir, listPattern string) error {
+	if listPattern == recursivePattern {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Unreadable or nonexistent: let packages.Load produce the error.
+		return nil
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"no Go files directly in %q, so there is no package to scan; "+
+			"to scan the whole tree below it use %q",
+		pattern, filepath.Clean(pattern)+"/...")
 }
 
 // recursivePattern is the go/packages pattern for "this directory and
@@ -162,9 +226,11 @@ func splitPatternDir(pattern string) (dir, listPattern string) {
 	return pattern, "."
 }
 
-// checkLiteral decides whether one composite literal is a lossy rebuild.
+// checkLiteral decides whether one composite literal is a lossy rebuild. late
+// is the set of field names assigned to the literal's target after it (see
+// lateAssignedFields); those fields are set, so they are not dropped.
 func checkLiteral(
-	p *packages.Package, lit *ast.CompositeLit, minFields, minDropped int,
+	p *packages.Package, lit *ast.CompositeLit, late map[string]bool, minFields, minDropped int,
 ) (Finding, bool) {
 	st, name := structType(p.TypesInfo.TypeOf(lit))
 	if st == nil {
@@ -190,7 +256,7 @@ func checkLiteral(
 		return Finding{}, false
 	}
 
-	dropped := droppedFieldNames(exported, set)
+	dropped := droppedFieldNames(exported, set, late)
 	if len(dropped) < minDropped {
 		return Finding{}, false
 	}
@@ -200,9 +266,209 @@ func checkLiteral(
 		Kind:    "lossy-rebuild",
 		File:    pos.Filename,
 		Line:    pos.Line,
-		Subject: fmt.Sprintf("%s (%d/%d exported fields set)", name, len(set), len(exported)),
-		Detail:  "not set in literal: " + strings.Join(dropped, ", "),
+		Subject: fmt.Sprintf("%s (%d/%d exported fields set)", name, len(exported)-len(dropped), len(exported)),
+		Detail:  "never set: " + strings.Join(dropped, ", "),
 	}, true
+}
+
+// litSite is a composite literal together with the lvalue it was assigned to
+// and the conditional constructs enclosing it.
+type litSite struct {
+	lit    *ast.CompositeLit
+	target string
+	conds  []ast.Node
+}
+
+// assignSite is a `target.Field = ...` statement: which target, which field,
+// where, and the conditional constructs enclosing it.
+type assignSite struct {
+	target string
+	field  string
+	pos    token.Pos
+	conds  []ast.Node
+}
+
+// lateAssignedFields maps each composite literal in file to the field names
+// assigned to that literal's own target afterwards, on every path out of the
+// literal. Those fields are set, so they are not dropped.
+//
+// "On every path" is what makes this correct rather than merely convenient.
+// The motivating shape (sdk/streaming.go, #1715) assigns the literal inside a
+// conditional and repairs the field after it:
+//
+//	if result != nil && result.Response != nil {
+//	    resp.message = &types.Message{Role: ..., Content: ...}   // literal
+//	}
+//	resp.message.FinishReason = state.finishReason()             // repair
+//
+// so a "same statement list" rule would miss it. Instead an assignment counts
+// only when it sits after the literal and inside no conditional that does not
+// already enclose the literal — its conditional ancestors must be a subset of
+// the literal's. A field assigned only on some branch therefore stays reported,
+// which is the deliberate trade in #1729: a partial rebuild is a real finding,
+// and a false positive there is cheaper than a missed dropped field.
+//
+// Targets are compared by declared object identity, not by name, so assigning
+// to a different variable that happens to share a name or type suppresses
+// nothing. Only `x = T{...}` / `x := &T{...}` forms are tracked; a literal
+// bound by `var x = T{...}` is not, and simply keeps its pre-existing behavior.
+func lateAssignedFields(p *packages.Package, file *ast.File) map[*ast.CompositeLit]map[string]bool {
+	lits, assigns := collectSites(p, file)
+	return matchLateAssignments(lits, assigns)
+}
+
+// collectSites walks file once, recording every composite literal bound to an
+// lvalue and every `target.Field = ...` assignment, each tagged with the
+// conditional constructs enclosing it.
+func collectSites(p *packages.Package, file *ast.File) ([]litSite, []assignSite) {
+	var (
+		lits    []litSite
+		assigns []assignSite
+		stack   []ast.Node
+	)
+	ast.Inspect(file, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		stack = append(stack, n)
+		if as, ok := n.(*ast.AssignStmt); ok {
+			conds := conditionalAncestors(stack)
+			lits = append(lits, litSitesIn(p, as, conds)...)
+			assigns = append(assigns, assignSitesIn(p, as, conds)...)
+		}
+		return true
+	})
+	return lits, assigns
+}
+
+// litSitesIn returns the composite literals this statement binds to an lvalue.
+func litSitesIn(p *packages.Package, as *ast.AssignStmt, conds []ast.Node) []litSite {
+	var out []litSite
+	for i, rhs := range as.Rhs {
+		if i >= len(as.Lhs) {
+			break
+		}
+		lit := literalOf(rhs)
+		if lit == nil {
+			continue
+		}
+		if key, ok := targetKey(p, as.Lhs[i]); ok {
+			out = append(out, litSite{lit: lit, target: key, conds: conds})
+		}
+	}
+	return out
+}
+
+// assignSitesIn returns the field assignments this statement performs.
+func assignSitesIn(p *packages.Package, as *ast.AssignStmt, conds []ast.Node) []assignSite {
+	var out []assignSite
+	for _, lhs := range as.Lhs {
+		sel, ok := lhs.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		if key, ok := targetKey(p, sel.X); ok {
+			out = append(out, assignSite{
+				target: key, field: sel.Sel.Name, pos: as.Pos(), conds: conds,
+			})
+		}
+	}
+	return out
+}
+
+// matchLateAssignments pairs each literal with the field assignments that run
+// on every path out of it: same target, later in the file, and inside no
+// conditional that does not already enclose the literal.
+func matchLateAssignments(lits []litSite, assigns []assignSite) map[*ast.CompositeLit]map[string]bool {
+	out := map[*ast.CompositeLit]map[string]bool{}
+	for _, ls := range lits {
+		for _, as := range assigns {
+			if as.target != ls.target || as.pos <= ls.lit.Pos() {
+				continue
+			}
+			if !condsSubset(as.conds, ls.conds) {
+				continue
+			}
+			if out[ls.lit] == nil {
+				out[ls.lit] = map[string]bool{}
+			}
+			out[ls.lit][as.field] = true
+		}
+	}
+	return out
+}
+
+// literalOf unwraps `T{...}` and `&T{...}`, returning nil for anything else.
+func literalOf(e ast.Expr) *ast.CompositeLit {
+	if u, ok := e.(*ast.UnaryExpr); ok && u.Op == token.AND {
+		e = u.X
+	}
+	lit, _ := e.(*ast.CompositeLit)
+	return lit
+}
+
+// targetKey renders an lvalue as a key that distinguishes variables by their
+// declared object, so two different variables never compare equal even when
+// they share a name. Reports false for anything that is not a chain of
+// identifiers and field selections.
+func targetKey(p *packages.Package, e ast.Expr) (string, bool) {
+	switch v := e.(type) {
+	case *ast.Ident:
+		obj := p.TypesInfo.ObjectOf(v)
+		if obj == nil {
+			return "", false
+		}
+		// Declaration position is unique per declared object and stable.
+		return fmt.Sprintf("obj@%d", obj.Pos()), true
+	case *ast.SelectorExpr:
+		base, ok := targetKey(p, v.X)
+		if !ok {
+			return "", false
+		}
+		return base + "." + v.Sel.Name, true
+	case *ast.StarExpr:
+		return targetKey(p, v.X)
+	case *ast.ParenExpr:
+		return targetKey(p, v.X)
+	}
+	return "", false
+}
+
+// conditionalAncestors returns the nodes on stack that make their body run
+// conditionally. A function literal counts: its body may run never, later, or
+// many times, so an assignment inside one is not on the path out of a literal
+// outside it.
+func conditionalAncestors(stack []ast.Node) []ast.Node {
+	var conds []ast.Node
+	for _, n := range stack {
+		switch n.(type) {
+		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt,
+			*ast.TypeSwitchStmt, *ast.SelectStmt, *ast.CaseClause,
+			*ast.CommClause, *ast.FuncLit:
+			conds = append(conds, n)
+		}
+	}
+	return conds
+}
+
+// condsSubset reports whether every conditional enclosing the assignment also
+// encloses the literal — i.e. the assignment introduces no branch of its own
+// and therefore runs whenever the literal did.
+func condsSubset(assign, lit []ast.Node) bool {
+	for _, a := range assign {
+		found := false
+		for _, l := range lit {
+			if a == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // exportedFieldNames returns the set of exported field names on st.
@@ -282,14 +548,16 @@ func readsExistingData(p *packages.Package, e ast.Expr) bool {
 	return found
 }
 
-// droppedFieldNames returns the sorted names present in exported but absent
-// from set.
-func droppedFieldNames(exported, set map[string]bool) []string {
+// droppedFieldNames returns the sorted names present in exported but set
+// neither by the literal (set) nor by a later unconditional assignment to the
+// literal's target (late).
+func droppedFieldNames(exported, set, late map[string]bool) []string {
 	var dropped []string
 	for f := range exported {
-		if !set[f] {
-			dropped = append(dropped, f)
+		if set[f] || late[f] {
+			continue
 		}
+		dropped = append(dropped, f)
 	}
 	sort.Strings(dropped)
 	return dropped

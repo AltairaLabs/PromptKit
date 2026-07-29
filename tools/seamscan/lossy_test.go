@@ -458,3 +458,171 @@ type Wide struct{ A, B string }
 	assert.Error(t, err,
 		"scanning the workspace root itself (not a module member) must not silently report zero findings")
 }
+
+// --- assignment awareness (#1729) ---
+//
+// The four tests below define the suppression rule between them. Case 1 is
+// already covered by TestLossyRebuilds_ReportsDroppedFields: a literal whose
+// dropped fields are never assigned is reported.
+
+// A field assigned unconditionally after the literal is set, not dropped.
+//
+// Mutation caught: deleting the late-assignment lookup in droppedFieldNames
+// puts C back in Detail. Before this rule the detector reported C identically
+// whether or not the next line assigned it, which is why the finding read the
+// same before and after the #1715 fix.
+func TestLossyRebuilds_SuppressesFieldAssignedAfterLiteral(t *testing.T) {
+	dir := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Rebuild(src Wide) Wide {
+	out := Wide{A: src.A, B: src.B}
+	out.C = "assigned right after the literal"
+	return out
+}
+`)
+
+	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
+	require.NoError(t, err)
+
+	require.Len(t, got, 1, "the literal still drops D, E and F, so the finding stands")
+	assert.NotContains(t, got[0].Detail, "C",
+		"C is assigned on the next line, so it is set — reporting it is the false signal #1729 is about")
+	for _, f := range []string{"D", "E", "F"} {
+		assert.Contains(t, got[0].Detail, f,
+			"suppressing C must not suppress fields that really are never set")
+	}
+}
+
+// The motivating shape: the literal is assigned inside a conditional and the
+// field is repaired after that conditional closes. This is sdk/streaming.go's
+// buildStreamingResponse (#1715) reduced to its essentials, and it is why the
+// rule compares conditional ancestors rather than requiring the same block —
+// a same-statement-list rule would fail to suppress here.
+func TestLossyRebuilds_SuppressesRepairAfterConditionalLiteral(t *testing.T) {
+	dir := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+type Box struct {
+	msg *Wide
+}
+
+func Rebuild(src Wide, ok bool) *Box {
+	box := &Box{}
+	if ok {
+		box.msg = &Wide{A: src.A, B: src.B}
+	}
+	box.msg.C = "repaired after the branch, on every path out of the literal"
+	return box
+}
+`)
+
+	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.NotContains(t, got[0].Detail, "C",
+		"the repair runs on every path out of the literal, so C is set")
+}
+
+// A field assigned only on one branch is genuinely unset on the others, so it
+// stays reported. This is the deliberate false-positive-over-false-negative
+// trade recorded in #1729.
+//
+// Mutation caught: dropping the condsSubset check (suppressing on position
+// alone) removes C from Detail and this fails.
+func TestLossyRebuilds_ReportsFieldAssignedOnlyInBranch(t *testing.T) {
+	dir := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Rebuild(src Wide, cond bool) Wide {
+	out := Wide{A: src.A, B: src.B}
+	if cond {
+		out.C = "only on this path"
+	}
+	return out
+}
+`)
+
+	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0].Detail, "C",
+		"a field set on only one branch is still unset on the others")
+}
+
+// Suppression is keyed on the declared object, not on the identifier's
+// spelling, so a same-named variable elsewhere suppresses nothing.
+//
+// The two variables are deliberately both named "out" and live in different
+// functions. lateAssignedFields collects literals and assignments per file
+// rather than per function, so object identity is the only thing scoping one
+// function's writes away from another's — a name-keyed implementation would
+// let Other's out.C suppress Rebuild's, across the function boundary.
+//
+// Mutation caught: keying targetKey on v.Name instead of the declared object's
+// position drops C from Detail and this fails. An earlier version of this test
+// used two *differently named* variables in one function; name-keying
+// distinguishes those perfectly well, so it passed under the mutation and was
+// a test that could not fail.
+func TestLossyRebuilds_SuppressionIsPerVariable(t *testing.T) {
+	dir := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Rebuild(src Wide) Wide {
+	out := Wide{A: src.A, B: src.B}
+	return out
+}
+
+func Other() Wide {
+	out := Wide{}
+	out.C = "same name, different function, different object"
+	return out
+}
+`)
+
+	got, err := LossyRebuilds([]string{dir + "/..."}, 4, 2)
+	require.NoError(t, err)
+
+	require.Len(t, got, 1, "only the field-sourced literal is a rebuild candidate")
+	assert.Contains(t, got[0].Detail, "C",
+		"Rebuild's out.C is never assigned; Other's write to its own out.C must not suppress it")
+}
+
+// One unloadable pattern must not discard the findings from patterns that
+// loaded. "seams ./sdk ./runtime" used to return nothing at all, throwing away
+// every finding from sdk because runtime's bare root holds no .go files.
+//
+// Mutation caught: restoring the early `return nil, err` empties got while
+// leaving err non-nil, so the findings assertion fails.
+func TestLossyRebuilds_ContinuesAfterUnloadablePattern(t *testing.T) {
+	good := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Rebuild(src Wide) Wide {
+	return Wide{A: src.A, B: src.B}
+}
+`)
+	bad := t.TempDir() // no go.mod, cannot load
+
+	got, err := LossyRebuilds([]string{bad + "/...", good + "/..."}, 4, 2)
+
+	assert.Error(t, err, "the failed pattern must still be reported so the caller exits non-zero")
+	assert.NotEmpty(t, got, "findings from the pattern that loaded must survive the one that did not")
+}

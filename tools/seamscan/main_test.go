@@ -93,6 +93,45 @@ func TestDoesNothing(t *testing.T) {
 	assert.Equal(t, "TestDoesNothing", got[0].Subject)
 }
 
+// TestRun_EmitsPartialFindingsWhenAPathFails pins the CLI half of #1729's
+// partial-results guarantee, which is a separate seam from the analyzer's.
+// LossyRebuilds returns the findings from the paths that loaded alongside an
+// error for the ones that did not; run must emit those findings before
+// propagating the error, or the guarantee stops at the function boundary and
+// never reaches the only interface anyone actually uses.
+//
+// Mutation caught: restoring `if err != nil { return err }` ahead of the emit
+// leaves TestLossyRebuilds_ContinuesAfterUnloadablePattern green — the
+// analyzer still returns its partial results — while the command prints
+// nothing at all. That is exactly the unit-passes/integration-fails split this
+// tool exists to find.
+func TestRun_EmitsPartialFindingsWhenAPathFails(t *testing.T) {
+	good := writeModule(t, `package m
+
+type Wide struct {
+	A, B, C, D, E, F string
+}
+
+func Rebuild(src Wide) Wide {
+	return Wide{A: src.A, B: src.B}
+}
+`)
+	bad := t.TempDir() // no go.mod: unloadable
+
+	var buf bytes.Buffer
+	err := run([]string{
+		"seams", "--min-fields", "4", "--min-dropped", "2",
+		bad + "/...", good + "/...",
+	}, &buf)
+
+	require.Error(t, err, "the unloadable path must still fail the run")
+
+	var got []Finding
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got),
+		"the command must still emit the findings it did collect")
+	assert.NotEmpty(t, got, "findings from the path that loaded must survive the one that did not")
+}
+
 // TestRun_PropagatesSeamsAnalyzerError pins run()'s error propagation for the
 // "seams" subcommand: a path with no reachable go.mod makes LossyRebuilds
 // return an error (see TestLossyRebuilds_ErrorsOnUnloadablePattern), and run
