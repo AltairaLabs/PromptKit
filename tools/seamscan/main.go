@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -58,13 +59,18 @@ func run(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown subcommand %q", cmd)
 	}
-	if err != nil {
-		return err
-	}
-
+	// Emit before reporting the scan error. A scan over several paths returns
+	// the findings from the paths that loaded alongside an error describing
+	// the ones that did not, so returning early here would throw away exactly
+	// the partial results LossyRebuilds and WeakAssertions go to the trouble
+	// of preserving (#1729). The error still propagates, so the exit status
+	// stays non-zero and a CI caller cannot mistake a partial scan for a
+	// clean one.
+	var emitErr error
 	if *text {
 		EmitText(stdout, found)
-		return nil
+	} else {
+		emitErr = EmitJSON(stdout, found)
 	}
-	return EmitJSON(stdout, found)
+	return errors.Join(err, emitErr)
 }
