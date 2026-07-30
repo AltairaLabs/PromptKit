@@ -108,6 +108,16 @@ type Provider struct {
 	// Opt-in: OpenAI requires a verified org to return summaries. Configured via
 	// additional_config.reasoning_summary.
 	reasoningSummary string
+	// parallelToolCalls, when non-nil, is sent as parallel_tool_calls on requests
+	// that declare tools. Setting it false makes the model emit at most one tool
+	// call per assistant turn instead of a parallel batch. nil means omit the
+	// field and take OpenAI's default (parallel calling enabled). Configured via
+	// additional_config.parallel_tool_calls.
+	//
+	// Only valid alongside a non-empty tools array — OpenAI rejects the pair with
+	// "'parallel_tool_calls' is only allowed when 'tools' are specified" — so
+	// every write of this field sits inside a tools guard.
+	parallelToolCalls *bool
 }
 
 // NewProvider creates a new OpenAI provider
@@ -225,6 +235,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		capabilities:      providers.CapabilitySet(cfg.Capabilities),
 		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
 		reasoningSummary:  getReasoningSummary(cfg.AdditionalConfig),
+		parallelToolCalls: getParallelToolCalls(cfg.AdditionalConfig),
 	}
 	// Neither Azure OpenAI nor Bedrock OpenAI exposes the Responses API.
 	// Force the legacy Chat Completions path so the request shape matches
@@ -296,6 +307,27 @@ func getReasoningSummary(additionalConfig map[string]any) string {
 			"value", raw, "accepted", "auto|concise|detailed")
 		return ""
 	}
+}
+
+// getParallelToolCalls resolves parallel_tool_calls from additional_config.
+// Returns nil (omit the field, take OpenAI's default of parallel calling) when
+// unset or not a bool, so a malformed value degrades to current behavior rather
+// than silently disabling a capability. Issue #1736.
+func getParallelToolCalls(additionalConfig map[string]any) *bool {
+	if additionalConfig == nil {
+		return nil
+	}
+	raw, present := additionalConfig["parallel_tool_calls"]
+	if !present {
+		return nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		logger.Warn("openai: ignoring non-boolean parallel_tool_calls",
+			"value", raw, "expected", "true|false")
+		return nil
+	}
+	return &value
 }
 
 // getAudioModalities returns the output modalities for audio models from

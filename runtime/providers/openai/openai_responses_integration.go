@@ -169,11 +169,16 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		responsesReq["top_p"] = topP
 	}
 
-	// Add tools if provided
+	// Add tools if provided. parallel_tool_calls is scoped to this guard for the
+	// same reason as the completions builder — it is only valid alongside a
+	// declared tools array.
 	if tools != nil {
 		responsesReq["tools"] = p.convertToolsToResponsesFormat(tools)
 		if toolChoice != "" && toolChoice != toolChoiceAuto {
 			responsesReq["tool_choice"] = toolChoice
+		}
+		if p.parallelToolCalls != nil {
+			responsesReq["parallel_tool_calls"] = *p.parallelToolCalls
 		}
 	}
 

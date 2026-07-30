@@ -268,10 +268,16 @@ func (p *ToolProvider) buildToolRequest(
 		applyAudioModalities(openaiReq, p.additionalConfig, "wav")
 	}
 
-	// Add tools if provided
+	// Add tools if provided. parallel_tool_calls belongs strictly inside this
+	// guard: OpenAI rejects it when no tools are declared ("only allowed when
+	// 'tools' are specified"), and an emptied tool set still reaches this
+	// builder since #1735 routes tool-carrying history down the tool path.
 	if tools != nil {
 		openaiReq["tools"] = tools
 		p.addToolChoiceToRequest(openaiReq, toolChoice)
+		if p.parallelToolCalls != nil {
+			openaiReq["parallel_tool_calls"] = *p.parallelToolCalls
+		}
 	}
 
 	return openaiReq
