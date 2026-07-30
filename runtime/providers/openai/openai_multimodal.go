@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -53,9 +54,24 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 // declare its capabilities. Prefer the declared `capabilities` list; this only
 // recognizes models by name for callers (e.g. some SDK usages) that omit it.
 func isAudioModel(model string) bool {
+	// Current family: the bare "gpt-audio", plus everything hyphen-suffixed off
+	// it — size variants (gpt-audio-mini), point releases (gpt-audio-1.5) and
+	// dated snapshots (gpt-audio-2025-08-28, gpt-audio-mini-2025-12-15). Matched
+	// by shape rather than enumerated, because an exact list silently disables
+	// audio for every model released after it was written — which is how
+	// "gpt-audio" itself came to be unrecognized (#1739). Requiring the hyphen
+	// keeps neighboring names like "gpt-audiofoo" out.
+	//
+	// Realtime models are deliberately excluded: they are a separate WebSocket
+	// surface, not the chat-completions audio path this gates.
+	if model == "gpt-audio" || strings.HasPrefix(model, "gpt-audio-") {
+		return true
+	}
+	// Retired 4o-era previews. They 404 at the API now, but stay recognized so
+	// a config still naming one keeps today's behavior instead of silently
+	// changing shape on upgrade.
 	switch model {
-	case "gpt-4o-audio-preview", "gpt-4o-mini-audio-preview",
-		"gpt-audio-1.5", "gpt-audio-mini":
+	case "gpt-4o-audio-preview", "gpt-4o-mini-audio-preview":
 		return true
 	default:
 		return false

@@ -119,7 +119,7 @@ func TestAudioModel_Predict_TextResponse(t *testing.T) {
 	defer logger.SetVerbose(false)
 
 	provider := NewProviderWithConfig(
-		"audio-test", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		"audio-test", "gpt-audio", "https://api.openai.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.1,
 			MaxTokens:   200,
@@ -184,10 +184,13 @@ func TestAudioModel_Predict_TextResponse(t *testing.T) {
 	}
 }
 
-// TestAudioModel_Mini_BrooklynBridge investigates the gpt-4o-mini-audio-preview
-// model's ability to process a real speech audio clip (Brooklyn Bridge sample).
-// This test exists to diagnose why the mini model fails the capability matrix
-// content_matches assertion while the full model passes.
+// TestAudioModel_Mini_BrooklynBridge investigates the mini audio model's ability
+// to process a real speech audio clip (Brooklyn Bridge sample). This test exists
+// to diagnose why the mini model fails the capability matrix content_matches
+// assertion while the full model passes.
+//
+// Targets the current gpt-audio family; the gpt-4o-*-audio-preview models this
+// originally used are retired and now 404 (#1739).
 func TestAudioModel_Mini_BrooklynBridge(t *testing.T) {
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		t.Skip("OPENAI_API_KEY not set")
@@ -196,7 +199,7 @@ func TestAudioModel_Mini_BrooklynBridge(t *testing.T) {
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
-	models := []string{"gpt-4o-audio-preview", "gpt-4o-mini-audio-preview"}
+	models := []string{"gpt-audio", "gpt-audio-mini"}
 
 	// Generate a test WAV with a 440Hz tone. This isn't speech, so transcription
 	// won't produce Brooklyn Bridge keywords — but it tests whether the model
@@ -287,7 +290,7 @@ func TestAudioModel_Predict_AudioOutputWithTranscript(t *testing.T) {
 	defer logger.SetVerbose(false)
 
 	provider := NewProviderWithConfig(
-		"audio-test", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		"audio-test", "gpt-audio", "https://api.openai.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.1,
 			MaxTokens:   200,
