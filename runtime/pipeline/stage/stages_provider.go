@@ -1065,10 +1065,10 @@ func (s *ProviderStage) executeRound(
 	var toolCalls []types.MessageToolCall
 	var err error
 
-	if providerTools != nil {
+	toolProvider, supportsTools := s.provider.(providers.ToolSupport)
+	if s.useToolPath(providerTools, req.Messages, supportsTools) {
 		// Use tool-aware provider interface
-		toolProvider, ok := s.provider.(providers.ToolSupport)
-		if !ok {
+		if !supportsTools {
 			return types.Message{}, false, errors.New("provider does not support tools")
 		}
 		resp, toolCalls, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
@@ -1343,6 +1343,39 @@ func (s *ProviderStage) executeStreamingRound(
 	return responseMsg, len(toolCalls) > 0, nil
 }
 
+// messagesHaveToolLinkage reports whether the history contains assistant tool
+// calls or tool results. Providers keep two message serializers — a tool-aware
+// one and a plain one — and only the tool-aware one can represent that linkage
+// (OpenAI's plain path builds []openAIMessage, which has no tool_calls or
+// tool_call_id field at all; Claude's splits []claudeMessage vs
+// []claudeToolMessage the same way). Sending such a history down the plain path
+// silently strips the linkage and the provider rejects the array (issue #1735).
+func messagesHaveToolLinkage(messages []types.Message) bool {
+	for i := range messages {
+		if len(messages[i].ToolCalls) > 0 || messages[i].ToolResult != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// useToolPath decides whether a round goes to the provider's tool-aware entry
+// point. Having tools to declare is the obvious reason, but it is not the only
+// one: buildProviderTools returns nil both when the pack never had tools and
+// when the round's tools were filtered away (every tool excluded after repeated
+// rejection, or tool_choice "none"). In the second case the history already
+// carries tool linkage, so the tool-aware serializer is still required even
+// though there is nothing left to declare. Providers accept tool history with
+// no tools declared — verified against OpenAI, Anthropic and Gemini.
+func (s *ProviderStage) useToolPath(
+	providerTools interface{}, messages []types.Message, supportsTools bool,
+) bool {
+	if providerTools != nil {
+		return true
+	}
+	return supportsTools && messagesHaveToolLinkage(messages)
+}
+
 // startStreamingRequest initiates a streaming request with or without tools.
 func (s *ProviderStage) startStreamingRequest(
 	ctx context.Context,
@@ -1350,9 +1383,9 @@ func (s *ProviderStage) startStreamingRequest(
 	providerTools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	if providerTools != nil {
-		toolProvider, ok := s.provider.(providers.ToolSupport)
-		if !ok {
+	toolProvider, supportsTools := s.provider.(providers.ToolSupport)
+	if s.useToolPath(providerTools, req.Messages, supportsTools) {
+		if !supportsTools {
 			return nil, errors.New("provider does not support tools")
 		}
 		streamChan, err := toolProvider.PredictStreamWithTools(ctx, req, providerTools, toolChoice)
