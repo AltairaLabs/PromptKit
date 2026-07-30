@@ -89,9 +89,11 @@ func TestParallelToolCalls_NoToolsLive(t *testing.T) {
 		t.Skip("no OPENAI_API_KEY, skipping live no-tools guard test")
 	}
 
+	// includeRawOutput exposes the built request on the response, so this can
+	// assert what actually went on the wire rather than only that nothing blew up.
 	p := NewToolProvider(
 		"openai", "gpt-4o-mini", "https://api.openai.com/v1",
-		providers.ProviderDefaults{MaxTokens: 64}, false,
+		providers.ProviderDefaults{MaxTokens: 64}, true,
 		map[string]any{"parallel_tool_calls": false}, nil,
 	)
 	p.apiMode = APIModeCompletions
@@ -110,7 +112,22 @@ func TestParallelToolCalls_NoToolsLive(t *testing.T) {
 	}
 
 	// nil tooling: the emptied-tool-set case from #1735.
-	_, _, err := p.PredictWithTools(context.Background(), req, nil, "")
+	resp, _, err := p.PredictWithTools(context.Background(), req, nil, "")
 	require.NoError(t, err,
 		"configured parallel_tool_calls must not leak into a request with no tools")
+
+	// Assert on the request we actually sent, not merely on the absence of an
+	// error: the key must be gone, and "tools" with it. Hoisting the assignment
+	// out of the tools guard fails this here and 400s at the API.
+	sent, ok := resp.RawRequest.(map[string]interface{})
+	require.True(t, ok, "raw request should be captured for inspection")
+	require.NotContains(t, sent, "parallel_tool_calls",
+		"must be omitted when no tools are declared — OpenAI rejects the pair")
+	require.NotContains(t, sent, "tools",
+		"sanity: this is genuinely the no-tools case the guard protects")
+
+	// And the round trip produced a real answer, so the request was well formed
+	// rather than merely accepted.
+	require.NotEmpty(t, resp.Content,
+		"model should have replied in text after seeing the denied tool result")
 }
