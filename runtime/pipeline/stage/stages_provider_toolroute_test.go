@@ -132,11 +132,30 @@ func TestStartStreamingRequest_PlainHistoryStillUsesNonToolPath(t *testing.T) {
 	assert.False(t, provider.toolPath)
 }
 
-// A provider that cannot do tools must fall back rather than newly erroring.
-func TestStartStreamingRequest_ToolHistoryOnNonToolProviderFallsBack(t *testing.T) {
-	stage := NewProviderStage(mock.NewProvider("test", "model", false), nil, nil, &ProviderConfig{})
+// nonToolRouteProvider records the plain entry point on a provider that does
+// NOT implement providers.ToolSupport.
+type nonToolRouteProvider struct {
+	*mock.Provider
+	nonToolPath bool
+}
 
-	_, err := stage.startStreamingRequest(
+func (p *nonToolRouteProvider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	p.nonToolPath = true
+	return p.Provider.PredictStream(ctx, req)
+}
+
+// A provider that cannot do tools must actually fall back to the plain path.
+// Asserting only "no error" would pass even if the stage returned a nil stream
+// without calling the provider at all, so assert the call itself happened.
+func TestStartStreamingRequest_ToolHistoryOnNonToolProviderFallsBack(t *testing.T) {
+	provider := &nonToolRouteProvider{Provider: mock.NewProvider("test", "model", false)}
+	require.NotImplements(t, (*providers.ToolSupport)(nil), provider,
+		"premise of this test: the provider must not support tools")
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	ch, err := stage.startStreamingRequest(
 		context.Background(),
 		providers.PredictionRequest{Messages: historyWithToolLinkage()},
 		nil,
@@ -144,6 +163,10 @@ func TestStartStreamingRequest_ToolHistoryOnNonToolProviderFallsBack(t *testing.
 	)
 	require.NoError(t, err,
 		"a provider without ToolSupport must degrade to PredictStream, not error")
+	require.NotNil(t, ch, "must return a usable stream, not a nil channel")
+	assert.True(t, provider.nonToolPath,
+		"the plain path must actually be invoked — catches useToolPath returning "+
+			"true for a provider that cannot serve tools")
 }
 
 // Preserved behavior: real tools plus a provider that cannot serve them is
