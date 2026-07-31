@@ -241,32 +241,19 @@ func (p *ToolProvider) buildToolRequest(
 ) map[string]interface{} {
 	messages := p.convertRequestMessagesToOpenAI(ctx, req)
 
-	// Apply defaults to zero-valued request parameters
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
-
 	// Build request
 	openaiReq := map[string]interface{}{
 		"model":    p.model,
 		"messages": messages,
 	}
-	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openaiReq, p.unsupportedParams, maxTokens)
-	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openaiReq, p.unsupportedParams, temperature, topP)
 
-	if req.Seed != nil {
-		openaiReq["seed"] = *req.Seed
-	}
-
-	// Apply audio output modalities for audio models. Two trigger conditions:
-	//   - request already contains audio input (legacy behavior), or
-	//   - additional_config explicitly asks for audio output (text-in/audio-out).
-	// Without the second clause, configured modalities were silently dropped on
-	// text-only inputs and OpenAI rejected the request as "must contain audio".
-	if p.apiMode == APIModeCompletions && p.supportsAudioInput() &&
-		(requestContainsAudio(&req) || hasAudioOutputConfigured(p.additionalConfig)) {
-		applyAudioModalities(openaiReq, p.additionalConfig, "wav")
-	}
+	// Every field shared with the non-tool paths — max tokens, sampling params,
+	// seed, response_format and audio modalities — comes from the one builder
+	// both paths use. This hand-rolled its own copy until #1742, and the copy had
+	// drifted: response_format was set only in enrichRequest, so a pack combining
+	// structured output with tools silently lost its schema. Adding a field here
+	// by hand is how that happens; add it to enrichRequest instead.
+	p.enrichRequest(openaiReq, &req, "wav")
 
 	// Add tools if provided. parallel_tool_calls belongs strictly inside this
 	// guard: OpenAI rejects it when no tools are declared ("only allowed when
