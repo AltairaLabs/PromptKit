@@ -843,10 +843,19 @@ func TestIsAudioModel(t *testing.T) {
 		model    string
 		expected bool
 	}{
+		// Retired 4o-era previews stay recognized: they 404 at the API now, but
+		// dropping them would silently change behavior for configs still naming them.
 		{"gpt-4o-audio-preview", true},
 		{"gpt-4o-mini-audio-preview", true},
+		// Current family. "gpt-audio" is the plain base name and was previously
+		// unrecognized, which silently disabled audio for anyone using it (#1739).
+		{"gpt-audio", true},
 		{"gpt-audio-1.5", true},
 		{"gpt-audio-mini", true},
+		// Dated snapshots — what pinned production configs actually reference.
+		{"gpt-audio-2025-08-28", true},
+		{"gpt-audio-mini-2025-10-06", true},
+		{"gpt-audio-mini-2025-12-15", true},
 		{"gpt-4o", false},
 		{"gpt-4o-mini", false},
 		{"gpt-4-turbo", false},
@@ -854,6 +863,12 @@ func TestIsAudioModel(t *testing.T) {
 		{"o1", false},
 		{"o1-mini", false},
 		{"", false},
+		// Realtime is a separate WebSocket surface, not the chat-completions
+		// audio path this heuristic gates.
+		{"gpt-realtime", false},
+		{"gpt-realtime-mini", false},
+		// Keeps the family match from swallowing unrelated neighboring names.
+		{"gpt-audioxyz-not-a-model", false},
 	}
 
 	for _, tt := range tests {
