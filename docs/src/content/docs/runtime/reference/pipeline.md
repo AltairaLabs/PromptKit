@@ -181,6 +181,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewFramesToMessageStage\(config FramesToMessageConfig\) \*FramesToMessageStage](<#NewFramesToMessageStage>)
   - [func \(s \*FramesToMessageStage\) GetConfig\(\) FramesToMessageConfig](<#FramesToMessageStage.GetConfig>)
   - [func \(s \*FramesToMessageStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#FramesToMessageStage.Process>)
+- [type Handoff](<#Handoff>)
 - [type HashRouter](<#HashRouter>)
   - [func NewHashRouter\(name string, outputNames \[\]string, keyFunc func\(StreamElement\) string\) \*HashRouter](<#NewHashRouter>)
   - [func \(r \*HashRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#HashRouter.Process>)
@@ -294,6 +295,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewProviderStageWithHooks\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry\) \*ProviderStage](<#NewProviderStageWithHooks>)
   - [func NewProviderStageWithTurnState\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry, turnState \*TurnState\) \*ProviderStage](<#NewProviderStageWithTurnState>)
   - [func \(s \*ProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#ProviderStage.Process>)
+  - [func \(s \*ProviderStage\) SetWorkflowStateResolver\(r WorkflowStateResolver\)](<#ProviderStage.SetWorkflowStateResolver>)
 - [type QuerySourceType](<#QuerySourceType>)
 - [type RandomRouter](<#RandomRouter>)
   - [func NewRandomRouter\(name string, outputNames \[\]string\) \*RandomRouter](<#NewRandomRouter>)
@@ -439,6 +441,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewWeightedRouter\(name string, weights map\[string\]float64\) \*WeightedRouter](<#NewWeightedRouter>)
   - [func \(r \*WeightedRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#WeightedRouter.Process>)
   - [func \(r \*WeightedRouter\) RegisterOutput\(name string, output chan\<\- StreamElement\)](<#WeightedRouter.RegisterOutput>)
+- [type WorkflowStateResolver](<#WorkflowStateResolver>)
 
 
 ## Constants
@@ -2347,6 +2350,31 @@ func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamE
 
 Process implements the Stage interface. Collects frames and composes them into messages.
 
+<a name="Handoff"></a>
+## type Handoff
+
+Handoff describes the prompt and tool set the workflow's current state needs.
+
+It is a statement of what the turn \*should\* be running, not a record that something changed — the stage compares it against what the turn is actually running and swaps only on a mismatch. That distinction matters: a pipeline re\-execution \(HITL resume, deferred client tool\) re\-runs PromptAssemblyStage, which resets the turn's prompt to the state the pipeline was built for. A "did a transition just happen" signal is unobservable by then; a "what should be running" signal self\-corrects.
+
+```go
+type Handoff struct {
+    // Valid reports whether SystemPrompt and AllowedTools are meaningful.
+    // False when there is no workflow state to apply.
+    Valid bool
+    // Stop ends the turn without a further provider round. Set for states the
+    // runtime must not continue into — externally orchestrated states pause for
+    // an injected event (RFC 0009), and composition states are run by
+    // CompositionStage rather than the tool loop.
+    Stop bool
+    // SystemPrompt is the current state's rendered system prompt.
+    SystemPrompt string
+    // AllowedTools is the current state's allowed-tool list, used to rebuild
+    // the provider tool set from the registry.
+    AllowedTools []string
+}
+```
+
 <a name="HashRouter"></a>
 ## type HashRouter
 
@@ -3865,6 +3893,15 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 ```
 
 Process executes the LLM provider call and handles tool execution.
+
+<a name="ProviderStage.SetWorkflowStateResolver"></a>
+### func \(\*ProviderStage\) SetWorkflowStateResolver
+
+```go
+func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
+```
+
+SetWorkflowStateResolver installs the resolver used to apply workflow state changes mid\-turn. Pass nil to disable. Must be called before the stage runs.
 
 <a name="QuerySourceType"></a>
 ## type QuerySourceType
@@ -5786,5 +5823,32 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 ```
 
 RegisterOutput registers an output channel with a name.
+
+<a name="WorkflowStateResolver"></a>
+## type WorkflowStateResolver
+
+WorkflowStateResolver lets a workflow consumer keep a turn aligned with the workflow's current state.
+
+A workflow state change is exactly two things: a different system prompt and a different tool set. Both are already per\-round inputs to the provider tool loop, so reconciling them between rounds is sufficient to make the turn run as the current state — no new conversation, no new pipeline, and no user message required. Without this, a transition advances the state machine and the destination state never speaks \(see docs/local\-backlog/WORKFLOW\_IN\_TURN\_STATE\_HANDOFF\_DESIGN.md\).
+
+runtime must not import sdk, so the interface is defined here and implemented by consumers \(SDK WorkflowConversation, Arena's per\-run transition executor\). Nil is the non\-workflow case and is always safe.
+
+```go
+type WorkflowStateResolver interface {
+    // ResolveCurrentState commits any transition left pending by the workflow
+    // transition tool, then reports the prompt and tools for the state the
+    // workflow is now in.
+    //
+    // It is called at the start of each pipeline execution and after each
+    // round's tool results, and must be safe to call repeatedly: callers rely
+    // on it being idempotent when nothing has changed.
+    ResolveCurrentState(ctx context.Context) (Handoff, error)
+
+    // CurrentStateMeta returns metadata describing the state that is active
+    // right now, for stamping onto the assistant message a round produced.
+    // Returns nil when there is nothing to record.
+    CurrentStateMeta() map[string]any
+}
+```
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

@@ -256,6 +256,7 @@ func initConversation(
 		promptName:       promptName,
 		promptRegistry:   pack.ToPromptRegistry(p), // Create registry for PromptAssemblyMiddleware
 		toolRegistry:     toolReg,
+		workflowResolver: &workflowResolverHolder{},
 		config:           cfg,
 		handlers:         make(map[string]ToolHandler),
 		ctxHandlers:      make(map[string]ToolHandlerCtx),

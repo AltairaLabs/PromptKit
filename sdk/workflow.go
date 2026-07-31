@@ -568,6 +568,16 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)
 	registry.RegisterExecutor(wc.artifactExec)
 	workflow.RegisterArtifactTool(registry, wc.workflowSpec)
+
+	// Hand the provider tool loop a resolver so a transition applies mid-turn
+	// and the destination state generates the next round. The pipeline was
+	// built against the conversation's holder before transExec existed, so
+	// populating it here is what activates the handoff.
+	if wc.activeConv.workflowResolver != nil {
+		wc.activeConv.workflowResolver.set(newWorkflowStateResolver(
+			wc.machine, wc.workflowSpec, wc.transExec, wc.activeConv.promptRegistry,
+		))
+	}
 }
 
 // onTransitionCommitted runs the post-commit work after a deferred
