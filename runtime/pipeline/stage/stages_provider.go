@@ -58,6 +58,17 @@ type ProviderStage struct {
 	// and ProviderRequestMetadata are sourced from it. Nil-safe (the
 	// stage emits an empty system prompt and no allowed tools).
 	turnState *TurnState
+	// stateResolver advances workflow state between tool-loop rounds, so a
+	// transition's destination state generates the next round instead of the
+	// turn ending with the origin state still in control. Nil for
+	// non-workflow runs. See state_handoff.go.
+	stateResolver WorkflowStateResolver
+}
+
+// SetWorkflowStateResolver installs the resolver used to apply workflow state
+// changes mid-turn. Pass nil to disable. Must be called before the stage runs.
+func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
+	s.stateResolver = r
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -547,11 +558,67 @@ func (s *ProviderStage) executeMultiRound(
 		if err != nil {
 			return loop.messages, err
 		}
+		// Stamp before afterRound appends the response: the active state right
+		// now is the one that generated this round, and applyStateHandoff may
+		// move it on before the next round runs.
+		s.stampWorkflowState(&response)
 		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
 			return msgs, err
 		}
+		if err := s.applyStateHandoff(ctx, acc, loop); err != nil {
+			return loop.messages, err
+		}
 	}
 	return loop.messages, nil
+}
+
+// stampWorkflowState records the workflow state that produced this round's
+// assistant message. A turn can span several states once handoffs are applied
+// mid-loop, so attribution has to be per message rather than per turn. No-op
+// for non-workflow runs.
+func (s *ProviderStage) stampWorkflowState(response *types.Message) {
+	if s.stateResolver == nil || response == nil {
+		return
+	}
+	meta := s.stateResolver.CurrentStateMeta()
+	if len(meta) == 0 {
+		return
+	}
+	if response.Meta == nil {
+		response.Meta = map[string]interface{}{}
+	}
+	response.Meta[workflowStateMetaKey] = meta
+}
+
+// applyStateHandoff commits a workflow transition left pending by this round's
+// tool calls, then swaps the turn's system prompt and tool set to the
+// destination state's so the next round runs as that state. This is what makes
+// the destination state speak without waiting for a user message.
+//
+// No-op without a resolver, or when the resolver reports no pending transition
+// (including the states it declines to advance through: external, terminal,
+// composition).
+func (s *ProviderStage) applyStateHandoff(
+	ctx context.Context, acc *providerInput, loop *toolLoop,
+) error {
+	if s.stateResolver == nil {
+		return nil
+	}
+	handoff, err := s.stateResolver.ResolvePendingHandoff(ctx)
+	if err != nil {
+		return fmt.Errorf("provider stage: workflow handoff: %w", err)
+	}
+	if !handoff.Changed {
+		return nil
+	}
+	rebuilt, _, err := s.buildProviderTools(handoff.AllowedTools, loop.excluded)
+	if err != nil {
+		return fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
+	}
+	acc.systemPrompt = handoff.SystemPrompt
+	acc.allowedTools = handoff.AllowedTools
+	loop.providerTools = rebuilt
+	return nil
 }
 
 // applyToolSelector narrows acc.allowedTools through the configured
@@ -747,8 +814,15 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		if err != nil {
 			return loop.messages, err
 		}
+		// Same per-round stamp/handoff as the unary loop — the next round's
+		// streamingRoundParams re-read acc.systemPrompt and loop.providerTools,
+		// so a mid-loop swap takes effect there.
+		s.stampWorkflowState(&response)
 		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
 			return msgs, err
+		}
+		if err := s.applyStateHandoff(ctx, acc, loop); err != nil {
+			return loop.messages, err
 		}
 	}
 	return loop.messages, nil

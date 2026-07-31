@@ -181,6 +181,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewFramesToMessageStage\(config FramesToMessageConfig\) \*FramesToMessageStage](<#NewFramesToMessageStage>)
   - [func \(s \*FramesToMessageStage\) GetConfig\(\) FramesToMessageConfig](<#FramesToMessageStage.GetConfig>)
   - [func \(s \*FramesToMessageStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#FramesToMessageStage.Process>)
+- [type Handoff](<#Handoff>)
 - [type HashRouter](<#HashRouter>)
   - [func NewHashRouter\(name string, outputNames \[\]string, keyFunc func\(StreamElement\) string\) \*HashRouter](<#NewHashRouter>)
   - [func \(r \*HashRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#HashRouter.Process>)
@@ -294,6 +295,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewProviderStageWithHooks\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry\) \*ProviderStage](<#NewProviderStageWithHooks>)
   - [func NewProviderStageWithTurnState\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry, turnState \*TurnState\) \*ProviderStage](<#NewProviderStageWithTurnState>)
   - [func \(s \*ProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#ProviderStage.Process>)
+  - [func \(s \*ProviderStage\) SetWorkflowStateResolver\(r WorkflowStateResolver\)](<#ProviderStage.SetWorkflowStateResolver>)
 - [type QuerySourceType](<#QuerySourceType>)
 - [type RandomRouter](<#RandomRouter>)
   - [func NewRandomRouter\(name string, outputNames \[\]string\) \*RandomRouter](<#NewRandomRouter>)
@@ -439,6 +441,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewWeightedRouter\(name string, weights map\[string\]float64\) \*WeightedRouter](<#NewWeightedRouter>)
   - [func \(r \*WeightedRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#WeightedRouter.Process>)
   - [func \(r \*WeightedRouter\) RegisterOutput\(name string, output chan\<\- StreamElement\)](<#WeightedRouter.RegisterOutput>)
+- [type WorkflowStateResolver](<#WorkflowStateResolver>)
 
 
 ## Constants
@@ -2347,6 +2350,25 @@ func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamE
 
 Process implements the Stage interface. Collects frames and composes them into messages.
 
+<a name="Handoff"></a>
+## type Handoff
+
+Handoff describes a workflow state change that took effect mid\-turn.
+
+Changed is false when no transition was pending, in which case the other fields are meaningless and the caller must leave the turn's system prompt and tool set alone.
+
+```go
+type Handoff struct {
+    // Changed reports whether a pending transition was committed.
+    Changed bool
+    // SystemPrompt is the destination state's rendered system prompt.
+    SystemPrompt string
+    // AllowedTools is the destination state's allowed-tool list, used to
+    // rebuild the provider tool set from the registry.
+    AllowedTools []string
+}
+```
+
 <a name="HashRouter"></a>
 ## type HashRouter
 
@@ -3865,6 +3887,15 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 ```
 
 Process executes the LLM provider call and handles tool execution.
+
+<a name="ProviderStage.SetWorkflowStateResolver"></a>
+### func \(\*ProviderStage\) SetWorkflowStateResolver
+
+```go
+func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
+```
+
+SetWorkflowStateResolver installs the resolver used to apply workflow state changes mid\-turn. Pass nil to disable. Must be called before the stage runs.
 
 <a name="QuerySourceType"></a>
 ## type QuerySourceType
@@ -5786,5 +5817,34 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 ```
 
 RegisterOutput registers an output channel with a name.
+
+<a name="WorkflowStateResolver"></a>
+## type WorkflowStateResolver
+
+WorkflowStateResolver lets a workflow consumer advance the conversation's state in the middle of a tool loop.
+
+A workflow state change is exactly two things: a different system prompt and a different tool set. Both are already per\-round inputs to the provider loop, so committing a transition between rounds is sufficient to make the next round run as the destination state — no new conversation, no new pipeline, and no user message required. Without this, a transition advances the state machine and the destination state never speaks \(see docs/local\-backlog/WORKFLOW\_IN\_TURN\_STATE\_HANDOFF\_DESIGN.md\).
+
+runtime must not import sdk, so the interface is defined here and implemented by consumers \(SDK WorkflowConversation, Arena's per\-run transition executor\). Nil is the non\-workflow case and is always safe.
+
+```go
+type WorkflowStateResolver interface {
+    // ResolvePendingHandoff commits any transition left pending by the
+    // workflow transition tool and returns the destination state's prompt and
+    // allowed tools. It is called after each round's tool results are appended
+    // and before the next provider call.
+    //
+    // Implementations must return Changed=false — not an error — when no
+    // transition is pending, when the destination state is externally
+    // orchestrated (RFC 0009: the runtime pauses for an injected event),
+    // terminal, or composition-orchestrated.
+    ResolvePendingHandoff(ctx context.Context) (Handoff, error)
+
+    // CurrentStateMeta returns metadata describing the state that is active
+    // right now, for stamping onto the assistant message a round produced.
+    // Returns nil when there is nothing to record.
+    CurrentStateMeta() map[string]any
+}
+```
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)
