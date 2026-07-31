@@ -182,6 +182,14 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		}
 	}
 
+	// Seed. Omitted entirely when unset, since the API's own default is
+	// "non-deterministic" and sending a zero would pin every run to seed 0.
+	// This builder never read req.Seed until #1742, so reproducibility was
+	// silently lost for every Responses-mode model.
+	if req.Seed != nil {
+		responsesReq["seed"] = *req.Seed
+	}
+
 	// Add response format if specified
 	if req.ResponseFormat != nil {
 		responsesReq["text"] = p.convertResponseFormatToResponses(req.ResponseFormat)
