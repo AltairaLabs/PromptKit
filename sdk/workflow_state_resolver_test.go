@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
@@ -43,27 +45,67 @@ func newPendingResolver(t *testing.T, spec *workflow.Spec) *workflowStateResolve
 	return newWorkflowStateResolver(machine, spec, transExec, nil)
 }
 
-func TestWorkflowStateResolver_NoPendingTransition(t *testing.T) {
+// testRegistry builds a prompt registry with one template per named task.
+func testRegistry(t *testing.T, templates map[string]string) *prompt.Registry {
+	t.Helper()
+
+	repo := memory.NewPromptRepository()
+	for taskType, tmpl := range templates {
+		repo.RegisterPrompt(taskType, &prompt.Config{
+			APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+			Kind:       "Prompt",
+			Spec: prompt.Spec{
+				TaskType:       taskType,
+				Version:        "1.0.0",
+				SystemTemplate: tmpl,
+			},
+		})
+	}
+	return prompt.NewRegistryWithRepository(repo)
+}
+
+// With nothing pending, the resolver reports the state the workflow is already
+// in. It is not a change notification -- a re-executed pipeline depends on
+// getting the current state back every time.
+func TestWorkflowStateResolver_ReportsCurrentStateWithNothingPending(t *testing.T) {
 	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
 	machine := workflow.NewStateMachine(spec)
 	transExec := workflow.NewTransitionExecutor(machine, spec)
-	resolver := newWorkflowStateResolver(machine, spec, transExec, nil)
+	registry := testRegistry(t, map[string]string{"origin": "ORIGIN PROMPT"})
+	resolver := newWorkflowStateResolver(machine, spec, transExec, registry)
 
-	handoff, err := resolver.ResolvePendingHandoff(context.Background())
-
-	require.NoError(t, err)
-	require.False(t, handoff.Changed, "no pending transition must not change the turn")
-	require.Equal(t, "origin", machine.CurrentState())
+	// Repeated calls must be idempotent: the loop calls this every round.
+	for i := range 3 {
+		handoff, err := resolver.ResolveCurrentState(context.Background())
+		require.NoError(t, err, "call %d", i)
+		require.True(t, handoff.Valid)
+		require.Equal(t, "ORIGIN PROMPT", handoff.SystemPrompt)
+	}
+	require.Equal(t, "origin", machine.CurrentState(), "state must not move")
 }
 
-func TestWorkflowStateResolver_NilExecutorIsInert(t *testing.T) {
+// After the transition tool has run, the resolver reports the destination --
+// and keeps reporting it, which is what lets a resumed execution recover.
+func TestWorkflowStateResolver_ReportsDestinationAfterCommit(t *testing.T) {
 	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
-	resolver := newWorkflowStateResolver(workflow.NewStateMachine(spec), spec, nil, nil)
+	registry := testRegistry(t, map[string]string{
+		"origin": "ORIGIN PROMPT",
+		"dest":   "DESTINATION PROMPT",
+	})
+	resolver := newPendingResolver(t, spec)
+	resolver.registry = registry
 
-	handoff, err := resolver.ResolvePendingHandoff(context.Background())
-
+	handoff, err := resolver.ResolveCurrentState(context.Background())
 	require.NoError(t, err)
-	require.False(t, handoff.Changed)
+	require.True(t, handoff.Valid)
+	require.Equal(t, "DESTINATION PROMPT", handoff.SystemPrompt)
+	require.Equal(t, "dest", resolver.machine.CurrentState())
+
+	// Nothing pending now, but the answer must not revert.
+	handoff, err = resolver.ResolveCurrentState(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "DESTINATION PROMPT", handoff.SystemPrompt,
+		"a later call must still report the destination -- this is what recovers a resumed turn")
 }
 
 // The states the turn must not continue into. In every case the transition is
@@ -85,11 +127,7 @@ func TestWorkflowStateResolver_CommitsButDoesNotContinue(t *testing.T) {
 			dest: &workflow.State{PromptTask: "dest", Orchestration: workflow.OrchestrationComposition},
 			why:  "CompositionStage runs the state itself",
 		},
-		{
-			name: "no prompt_task",
-			dest: &workflow.State{},
-			why:  "nothing to render",
-		},
+
 	}
 
 	for _, tc := range cases {
@@ -97,10 +135,11 @@ func TestWorkflowStateResolver_CommitsButDoesNotContinue(t *testing.T) {
 			spec := resolverSpec(tc.dest)
 			resolver := newPendingResolver(t, spec)
 
-			handoff, err := resolver.ResolvePendingHandoff(context.Background())
+			handoff, err := resolver.ResolveCurrentState(context.Background())
 
 			require.NoError(t, err)
-			require.False(t, handoff.Changed, tc.why)
+			require.True(t, handoff.Stop, tc.why)
+			require.False(t, handoff.Valid)
 			require.Equal(t, "dest", resolver.machine.CurrentState(),
 				"the transition must still be committed")
 			require.Nil(t, resolver.transExec.Pending(),
@@ -121,7 +160,7 @@ func TestWorkflowStateResolver_UnknownDestinationErrors(t *testing.T) {
 	}
 	resolver := newPendingResolver(t, spec)
 
-	_, err := resolver.ResolvePendingHandoff(context.Background())
+	_, err := resolver.ResolveCurrentState(context.Background())
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ghost")
@@ -133,7 +172,7 @@ func TestWorkflowStateResolver_NoRegistryErrors(t *testing.T) {
 	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
 	resolver := newPendingResolver(t, spec)
 
-	_, err := resolver.ResolvePendingHandoff(context.Background())
+	_, err := resolver.ResolveCurrentState(context.Background())
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prompt registry")
@@ -172,9 +211,9 @@ func TestWorkflowResolverHolder_NilReceiverIsSafe(t *testing.T) {
 	var holder *workflowResolverHolder
 
 	require.NotPanics(t, func() {
-		handoff, err := holder.ResolvePendingHandoff(context.Background())
+		handoff, err := holder.ResolveCurrentState(context.Background())
 		require.NoError(t, err)
-		require.False(t, handoff.Changed)
+		require.False(t, handoff.Valid)
 		require.Nil(t, holder.CurrentStateMeta())
 		holder.set(nil)
 	})
@@ -184,9 +223,9 @@ func TestWorkflowResolverHolder_NilReceiverIsSafe(t *testing.T) {
 func TestWorkflowResolverHolder_EmptyThenPopulated(t *testing.T) {
 	holder := &workflowResolverHolder{}
 
-	handoff, err := holder.ResolvePendingHandoff(context.Background())
+	handoff, err := holder.ResolveCurrentState(context.Background())
 	require.NoError(t, err)
-	require.False(t, handoff.Changed, "empty holder must report no handoff")
+	require.False(t, handoff.Valid, "empty holder must report no state")
 	require.Nil(t, holder.CurrentStateMeta())
 
 	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
@@ -195,4 +234,37 @@ func TestWorkflowResolverHolder_EmptyThenPopulated(t *testing.T) {
 
 	require.Equal(t, "origin", holder.CurrentStateMeta()["current_state"],
 		"once populated the holder must delegate")
+}
+
+// A state with no prompt_task has nothing to render. The turn keeps whatever
+// prompt it already has rather than being blanked or stopped.
+func TestWorkflowStateResolver_NoPromptTaskLeavesTurnAlone(t *testing.T) {
+	spec := resolverSpec(&workflow.State{})
+	resolver := newPendingResolver(t, spec)
+
+	handoff, err := resolver.ResolveCurrentState(context.Background())
+
+	require.NoError(t, err)
+	require.False(t, handoff.Valid)
+	require.False(t, handoff.Stop)
+	require.Equal(t, "dest", resolver.machine.CurrentState(),
+		"the transition must still be committed")
+}
+
+// An externally orchestrated state still handles ordinary user turns. Only
+// auto-advancing INTO it mid-turn is suppressed -- treating it as never-run
+// ends a plain Send with no rounds and an empty response.
+func TestWorkflowStateResolver_ExternalStateStillServesItsOwnTurns(t *testing.T) {
+	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
+	spec.States["origin"].Orchestration = workflow.OrchestrationExternal
+	machine := workflow.NewStateMachine(spec)
+	registry := testRegistry(t, map[string]string{"origin": "ORIGIN PROMPT"})
+	resolver := newWorkflowStateResolver(machine, spec, nil, registry)
+
+	handoff, err := resolver.ResolveCurrentState(context.Background())
+
+	require.NoError(t, err)
+	require.False(t, handoff.Stop, "no transition committed: the state serves this turn")
+	require.True(t, handoff.Valid)
+	require.Equal(t, "ORIGIN PROMPT", handoff.SystemPrompt)
 }

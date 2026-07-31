@@ -552,6 +552,16 @@ func (s *ProviderStage) executeMultiRound(
 	// calling this at loop-start is safe for multi-turn conversations where
 	// the history was persisted by a previous turn.
 	loop.preSeedLog(ctx)
+	// Reconcile before the first round. A resumed execution (HITL approval,
+	// deferred client tool) re-ran PromptAssemblyStage, which reset the prompt
+	// to the state the pipeline was built for even though the workflow has
+	// already moved on. Nothing is "pending" by then, so only a comparison
+	// against the current state recovers it.
+	if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
+		return loop.messages, hErr
+	} else if stop {
+		return loop.messages, nil
+	}
 	for round := 1; round <= loop.maxRounds; round++ {
 		response, hasToolCalls, err := s.executeRound(
 			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, round, acc.metadata)
@@ -565,8 +575,10 @@ func (s *ProviderStage) executeMultiRound(
 		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
 			return msgs, err
 		}
-		if err := s.applyStateHandoff(ctx, acc, loop); err != nil {
-			return loop.messages, err
+		if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
+			return loop.messages, hErr
+		} else if stop {
+			return loop.messages, nil
 		}
 	}
 	return loop.messages, nil
@@ -598,38 +610,45 @@ func (s *ProviderStage) stampWorkflowState(response *types.Message) {
 // No-op without a resolver, or when the resolver reports no pending transition
 // (including the states it declines to advance through: external, terminal,
 // composition).
+// Returns stop=true when the turn must end without a further provider round.
 func (s *ProviderStage) applyStateHandoff(
 	ctx context.Context, acc *providerInput, loop *toolLoop,
-) error {
+) (stop bool, err error) {
 	if s.stateResolver == nil {
-		return nil
+		return false, nil
 	}
-	handoff, err := s.stateResolver.ResolvePendingHandoff(ctx)
+	handoff, err := s.stateResolver.ResolveCurrentState(ctx)
 	if err != nil {
-		return fmt.Errorf("provider stage: workflow handoff: %w", err)
+		return false, fmt.Errorf("provider stage: workflow handoff: %w", err)
 	}
-	if !handoff.Changed {
-		return nil
+	if handoff.Stop {
+		return true, nil
+	}
+	// Compare rather than trust a change flag. PromptAssemblyStage re-runs on
+	// every pipeline execution and resets the prompt to the one the pipeline
+	// was built for, so a resumed turn (HITL, deferred client tool) can find
+	// itself back on the origin state's prompt with nothing "pending" to
+	// signal it. Reconciling against what is actually loaded self-corrects.
+	if !handoff.Valid || handoff.SystemPrompt == acc.systemPrompt {
+		return false, nil
 	}
 	rebuilt, _, err := s.buildProviderTools(handoff.AllowedTools, loop.excluded)
 	if err != nil {
-		return fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
+		return false, fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
 	}
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools = handoff.AllowedTools
 	loop.providerTools = rebuilt
 
-	// Write through to TurnState as well as the per-execution copy.
-	// accumulateInput re-reads TurnState on every pipeline execution, and a
-	// turn suspended for HITL or a deferred client tool is resumed by
-	// re-executing the SAME pipeline (UnarySession.ResumeWithToolResults).
-	// Without this the resumed execution reverts to the origin state's prompt
-	// while the state machine has already moved on.
+	// Write through to TurnState so anything else reading it this execution
+	// sees the same state. Note this does NOT survive the next execution --
+	// PromptAssemblyStage overwrites it -- which is why the comparison above,
+	// not this write, is what makes resume correct.
 	if s.turnState != nil {
 		s.turnState.SystemPrompt = handoff.SystemPrompt
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
-	return nil
+	return false, nil
 }
 
 // applyToolSelector narrows acc.allowedTools through the configured
@@ -812,6 +831,16 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		return nil, err
 	}
 	loop.preSeedLog(ctx)
+	// Reconcile before the first round. A resumed execution (HITL approval,
+	// deferred client tool) re-ran PromptAssemblyStage, which reset the prompt
+	// to the state the pipeline was built for even though the workflow has
+	// already moved on. Nothing is "pending" by then, so only a comparison
+	// against the current state recovers it.
+	if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
+		return loop.messages, hErr
+	} else if stop {
+		return loop.messages, nil
+	}
 	for round := 1; round <= loop.maxRounds; round++ {
 		params := &streamingRoundParams{
 			messages:      loop.messages,
@@ -832,8 +861,10 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
 			return msgs, err
 		}
-		if err := s.applyStateHandoff(ctx, acc, loop); err != nil {
-			return loop.messages, err
+		if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
+			return loop.messages, hErr
+		} else if stop {
+			return loop.messages, nil
 		}
 	}
 	return loop.messages, nil

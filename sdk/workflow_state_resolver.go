@@ -48,13 +48,13 @@ func (h *workflowResolverHolder) get() stage.WorkflowStateResolver {
 	return h.inner
 }
 
-// ResolvePendingHandoff implements stage.WorkflowStateResolver.
-func (h *workflowResolverHolder) ResolvePendingHandoff(ctx context.Context) (stage.Handoff, error) {
+// ResolveCurrentState implements stage.WorkflowStateResolver.
+func (h *workflowResolverHolder) ResolveCurrentState(ctx context.Context) (stage.Handoff, error) {
 	inner := h.get()
 	if inner == nil {
 		return stage.Handoff{}, nil
 	}
-	return inner.ResolvePendingHandoff(ctx)
+	return inner.ResolveCurrentState(ctx)
 }
 
 // CurrentStateMeta implements stage.WorkflowStateResolver.
@@ -79,6 +79,12 @@ type workflowStateResolver struct {
 	transExec *workflow.TransitionExecutor
 	registry  *prompt.Registry
 	renderer  *template.Renderer
+
+	// contextSummary is the brief the outgoing state wrote for the incoming
+	// one (the transition tool's `context` argument). Retained across calls
+	// because ResolveCurrentState re-renders on every execution, including
+	// resumes long after the transition committed and cleared the record.
+	contextSummary string
 }
 
 func newWorkflowStateResolver(
@@ -96,51 +102,68 @@ func newWorkflowStateResolver(
 	}
 }
 
-// ResolvePendingHandoff implements stage.WorkflowStateResolver.
-func (r *workflowStateResolver) ResolvePendingHandoff(_ context.Context) (stage.Handoff, error) {
-	if r.transExec == nil {
-		return stage.Handoff{}, nil
-	}
-	pending := r.transExec.Pending()
-	if pending == nil {
-		return stage.Handoff{}, nil
-	}
-	// Capture before committing — CommitPending clears the pending record, and
-	// the LLM's `context` argument is the brief for the destination state.
-	contextSummary := pending.ContextSummary
-
-	result, err := r.transExec.CommitPending()
-	if err != nil {
-		return stage.Handoff{}, err
-	}
-	if result == nil {
-		return stage.Handoff{}, nil
-	}
-
-	dest := r.spec.States[result.To]
-	if dest == nil {
-		return stage.Handoff{}, fmt.Errorf("destination state %q not found in spec", result.To)
+// ResolveCurrentState implements stage.WorkflowStateResolver.
+//
+// It reports what the turn *should* be running rather than whether something
+// just changed, so a re-executed pipeline (HITL resume, deferred client tool)
+// — which re-runs PromptAssemblyStage and resets the prompt to the pipeline's
+// build-time state — is corrected on the next call. Safe to call repeatedly.
+func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Handoff, error) {
+	// Commit any transition the tool left pending. Capture the brief first:
+	// CommitPending clears the record, and the LLM's `context` argument is
+	// what the outgoing state wrote for the incoming one.
+	justTransitioned := false
+	if r.transExec != nil {
+		if pending := r.transExec.Pending(); pending != nil {
+			r.contextSummary = pending.ContextSummary
+			if _, err := r.transExec.CommitPending(); err != nil {
+				return stage.Handoff{}, err
+			}
+			justTransitioned = true
+		}
 	}
 
-	// States the turn must not continue into. The transition is committed
-	// either way — only the in-turn continuation is suppressed.
+	if r.machine == nil {
+		return stage.Handoff{}, nil
+	}
+	name := r.machine.CurrentState()
+	current := r.spec.States[name]
+	if current == nil {
+		return stage.Handoff{}, fmt.Errorf("current state %q not found in spec", name)
+	}
+
+	// States the turn must not auto-advance INTO. This applies only when we
+	// arrived here by committing a transition during this turn — an
+	// externally orchestrated state still handles ordinary user turns
+	// normally. RFC 0009 says the runtime pauses there for an injected event,
+	// which constrains where transitions come from, not whether the state may
+	// converse. Treating it as "never run" ends a plain Send with no rounds
+	// and an empty response.
 	//
-	//   external    — RFC 0009: the runtime pauses for an injected event.
+	//   external    — RFC 0009: wait for the injected event, don't run on.
 	//   composition — CompositionStage runs the state itself.
-	//   no prompt   — nothing to render.
-	switch {
-	case dest.Orchestration == workflow.OrchestrationExternal,
-		dest.Orchestration == workflow.OrchestrationComposition,
-		dest.PromptTask == "":
+	if justTransitioned {
+		switch current.Orchestration {
+		case workflow.OrchestrationExternal, workflow.OrchestrationComposition:
+			return stage.Handoff{Stop: true}, nil
+		case workflow.OrchestrationInternal, workflow.OrchestrationHybrid:
+			// Both are runtime-driven: continue the turn as this state.
+			// (The zero value "" also lands here — it means internal.)
+		}
+	}
+
+	// Nothing to render: leave the turn on whatever prompt it already has
+	// rather than blanking it.
+	if current.PromptTask == "" {
 		return stage.Handoff{}, nil
 	}
 
-	systemPrompt, allowedTools, err := r.renderState(dest, contextSummary)
+	systemPrompt, allowedTools, err := r.renderState(current, r.contextSummary)
 	if err != nil {
 		return stage.Handoff{}, err
 	}
 	return stage.Handoff{
-		Changed:      true,
+		Valid:        true,
 		SystemPrompt: systemPrompt,
 		AllowedTools: allowedTools,
 	}, nil

@@ -24,8 +24,6 @@ type handoffProvider struct {
 // parallel implementations, so both need the handoff wiring.
 func (p *handoffProvider) SupportsStreaming() bool { return false }
 
-// Predict records too, so a test failure distinguishes "wrong method routed"
-// from "provider never called".
 func (p *handoffProvider) Predict(
 	_ context.Context, req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
@@ -41,7 +39,8 @@ func (p *handoffProvider) PredictWithTools(
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	p.seenPrompts = append(p.seenPrompts, req.System)
 
-	// Round 1 transitions; every later round answers plainly so the loop ends.
+	// Transition on the first round only; later rounds answer plainly so the
+	// loop terminates.
 	if len(p.seenPrompts) == 1 {
 		calls := []types.MessageToolCall{{
 			ID:   "call-1",
@@ -53,28 +52,45 @@ func (p *handoffProvider) PredictWithTools(
 	return providers.PredictionResponse{Content: "destination speaking"}, nil, nil
 }
 
-// fakeResolver reports a single handoff, then no further changes.
+// fakeResolver returns a scripted sequence of Handoffs, repeating the last.
+// The resolver contract is "what should this turn be running", so a real
+// implementation returns the ORIGIN state's prompt until the transition
+// commits and the DESTINATION's afterwards — the sequence models that.
 type fakeResolver struct {
-	handoff Handoff
-	err     error
-	meta    map[string]any
-	calls   int
+	sequence []Handoff
+	err      error
+	meta     map[string]any
+	calls    int
 }
 
-func (f *fakeResolver) ResolvePendingHandoff(_ context.Context) (Handoff, error) {
-	f.calls++
+func (f *fakeResolver) ResolveCurrentState(_ context.Context) (Handoff, error) {
 	if f.err != nil {
 		return Handoff{}, f.err
 	}
-	if f.calls > 1 {
-		return Handoff{Changed: false}, nil
+	f.calls++
+	if len(f.sequence) == 0 {
+		return Handoff{}, nil
 	}
-	return f.handoff, nil
+	idx := f.calls - 1
+	if idx >= len(f.sequence) {
+		idx = len(f.sequence) - 1
+	}
+	return f.sequence[idx], nil
 }
 
 func (f *fakeResolver) CurrentStateMeta() map[string]any { return f.meta }
 
-func newHandoffStage(t *testing.T, resolver WorkflowStateResolver) (*ProviderStage, *handoffProvider) {
+// originThenDestination is the common script: the workflow is in the origin
+// state when the turn starts, and in the destination state once the transition
+// tool has run.
+func originThenDestination() []Handoff {
+	return []Handoff{
+		{Valid: true, SystemPrompt: "ORIGIN PROMPT", AllowedTools: []string{"workflow__transition"}},
+		{Valid: true, SystemPrompt: "DESTINATION PROMPT", AllowedTools: []string{"workflow__transition"}},
+	}
+}
+
+func newHandoffStage(t *testing.T, resolver WorkflowStateResolver) (*ProviderStage, *handoffProvider, *TurnState) {
 	t.Helper()
 
 	registry := tools.NewRegistry()
@@ -95,7 +111,7 @@ func newHandoffStage(t *testing.T, resolver WorkflowStateResolver) (*ProviderSta
 	}, nil, nil, turnState)
 	stage.SetWorkflowStateResolver(resolver)
 
-	return stage, provider
+	return stage, provider, turnState
 }
 
 func runHandoffTurn(t *testing.T, stage *ProviderStage) {
@@ -117,13 +133,9 @@ func runHandoffTurn(t *testing.T, stage *ProviderStage) {
 // second round repeats the origin prompt, which is the bug this fixes — the
 // origin agent gets the last word and the destination state never speaks.
 func TestProviderStage_HandoffSwapsSystemPromptMidTurn(t *testing.T) {
-	resolver := &fakeResolver{handoff: Handoff{
-		Changed:      true,
-		SystemPrompt: "DESTINATION PROMPT",
-		AllowedTools: []string{"workflow__transition"},
-	}}
+	resolver := &fakeResolver{sequence: originThenDestination()}
 
-	stage, provider := newHandoffStage(t, resolver)
+	stage, provider, _ := newHandoffStage(t, resolver)
 	runHandoffTurn(t, stage)
 
 	require.Len(t, provider.seenPrompts, 2,
@@ -133,52 +145,63 @@ func TestProviderStage_HandoffSwapsSystemPromptMidTurn(t *testing.T) {
 		"round after the transition must run as the destination state")
 }
 
-// A handoff must survive re-execution of the same pipeline.
-//
-// HITL and deferred client tools suspend a turn and resume it via
-// ResumeWithToolResults, which re-runs the SAME pipeline; accumulateInput
-// rebuilds the per-execution state from TurnState every time. If the handoff
-// only mutates the per-execution copy, the resumed execution silently reverts
-// to the origin state's prompt while the state machine has already moved on.
+// A resumed execution re-runs PromptAssemblyStage, which resets the turn's
+// prompt to the state the pipeline was BUILT for — even though the workflow has
+// already moved on and nothing is "pending" any more. Only a comparison against
+// the current state recovers it, which is why the resolver reports what should
+// be running rather than what changed.
 func TestProviderStage_HandoffSurvivesPipelineReExecution(t *testing.T) {
-	resolver := &fakeResolver{handoff: Handoff{
-		Changed:      true,
-		SystemPrompt: "DESTINATION PROMPT",
-		AllowedTools: []string{"workflow__transition"},
-	}}
+	resolver := &fakeResolver{sequence: originThenDestination()}
 
-	stage, provider := newHandoffStage(t, resolver)
+	stage, provider, turnState := newHandoffStage(t, resolver)
 
-	// First turn: transitions mid-flight.
 	runHandoffTurn(t, stage)
 	require.Equal(t, "DESTINATION PROMPT", provider.seenPrompts[1])
 
-	// Re-execute the same pipeline, as a HITL resume does. The resolver now
-	// reports no further change, so the prompt must come from the state the
-	// handoff left us in.
+	// Simulate what PromptAssemblyStage does on the next execution of the same
+	// pipeline: reload the build-time prompt over whatever the handoff set.
+	turnState.SystemPrompt = "ORIGIN PROMPT"
+
 	runHandoffTurn(t, stage)
 
 	require.Equal(t, "DESTINATION PROMPT", provider.seenPrompts[2],
-		"re-execution must not revert to the origin state's prompt")
+		"a re-executed turn must be reconciled back to the current state")
 }
 
-// A resolver reporting no change must leave the turn untouched — this is the
-// path every non-workflow and non-transitioning turn takes.
-func TestProviderStage_NoHandoffLeavesPromptUnchanged(t *testing.T) {
-	resolver := &fakeResolver{handoff: Handoff{Changed: false, SystemPrompt: "SHOULD NOT APPLY"}}
+// Reporting the state the turn is already running must not disturb it.
+func TestProviderStage_MatchingStateLeavesPromptUnchanged(t *testing.T) {
+	resolver := &fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "ORIGIN PROMPT", AllowedTools: []string{"workflow__transition"}},
+	}}
 
-	stage, provider := newHandoffStage(t, resolver)
+	stage, provider, _ := newHandoffStage(t, resolver)
 	runHandoffTurn(t, stage)
 
 	require.Len(t, provider.seenPrompts, 2)
 	require.Equal(t, "ORIGIN PROMPT", provider.seenPrompts[0])
 	require.Equal(t, "ORIGIN PROMPT", provider.seenPrompts[1],
-		"Changed=false must not alter the system prompt")
+		"an unchanged state must not alter the system prompt")
+}
+
+// Stop ends the turn rather than running another round under a prompt the
+// runtime must not use — externally orchestrated states pause for an injected
+// event, composition states are run by CompositionStage.
+func TestProviderStage_StopEndsTurnWithoutFurtherRound(t *testing.T) {
+	resolver := &fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "ORIGIN PROMPT", AllowedTools: []string{"workflow__transition"}},
+		{Stop: true},
+	}}
+
+	stage, provider, _ := newHandoffStage(t, resolver)
+	runHandoffTurn(t, stage)
+
+	require.Len(t, provider.seenPrompts, 1,
+		"no round may run after the resolver reports Stop")
 }
 
 // A nil resolver is the non-workflow case and must be inert.
 func TestProviderStage_NilResolverIsInert(t *testing.T) {
-	stage, provider := newHandoffStage(t, nil)
+	stage, provider, _ := newHandoffStage(t, nil)
 	runHandoffTurn(t, stage)
 
 	require.Len(t, provider.seenPrompts, 2)
@@ -190,7 +213,7 @@ func TestProviderStage_NilResolverIsInert(t *testing.T) {
 func TestProviderStage_HandoffErrorAbortsTurn(t *testing.T) {
 	resolver := &fakeResolver{err: context.DeadlineExceeded}
 
-	stage, provider := newHandoffStage(t, resolver)
+	stage, provider, _ := newHandoffStage(t, resolver)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "hello"}
@@ -204,24 +227,8 @@ func TestProviderStage_HandoffErrorAbortsTurn(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "workflow handoff")
-	require.Len(t, provider.seenPrompts, 1,
-		"no further round may run after a failed handoff")
-}
-
-// Each assistant message carries the state that produced it. A turn can span
-// states, so per-turn attribution is not sufficient.
-func TestProviderStage_StampsStatePerAssistantMessage(t *testing.T) {
-	resolver := &fakeResolver{
-		handoff: Handoff{Changed: true, SystemPrompt: "DESTINATION PROMPT"},
-		meta:    map[string]any{"current_state": "handoff"},
-	}
-	stage, _ := newHandoffStage(t, resolver)
-
-	response := types.Message{Role: "assistant", Content: "hi"}
-	stage.stampWorkflowState(&response)
-
-	require.Equal(t, map[string]any{"current_state": "handoff"},
-		response.Meta[workflowStateMetaKey])
+	require.Empty(t, provider.seenPrompts,
+		"the loop-start reconcile must fail before any provider round")
 }
 
 // streamingHandoffProvider drives the OTHER tool loop.
@@ -272,11 +279,7 @@ func (p *streamingHandoffProvider) PredictStreamWithTools(
 
 // The streaming loop must apply the handoff exactly as the unary loop does.
 func TestProviderStage_StreamingLoopSwapsSystemPromptMidTurn(t *testing.T) {
-	resolver := &fakeResolver{handoff: Handoff{
-		Changed:      true,
-		SystemPrompt: "DESTINATION PROMPT",
-		AllowedTools: []string{"workflow__transition"},
-	}}
+	resolver := &fakeResolver{sequence: originThenDestination()}
 
 	registry := tools.NewRegistry()
 	require.NoError(t, registry.Register(&tools.ToolDescriptor{
@@ -307,16 +310,32 @@ func TestProviderStage_StreamingLoopSwapsSystemPromptMidTurn(t *testing.T) {
 		"streaming round after the transition must run as the destination state")
 }
 
+// Each assistant message carries the state that produced it. A turn can span
+// states, so per-turn attribution is not sufficient.
+func TestProviderStage_StampsStatePerAssistantMessage(t *testing.T) {
+	resolver := &fakeResolver{
+		sequence: originThenDestination(),
+		meta:     map[string]any{"current_state": "handoff"},
+	}
+	stage, _, _ := newHandoffStage(t, resolver)
+
+	response := types.Message{Role: "assistant", Content: "hi"}
+	stage.stampWorkflowState(&response)
+
+	require.Equal(t, map[string]any{"current_state": "handoff"},
+		response.Meta[workflowStateMetaKey])
+}
+
 func TestProviderStage_StampIsNoOpWithoutResolverOrMeta(t *testing.T) {
 	t.Run("nil resolver", func(t *testing.T) {
-		stage, _ := newHandoffStage(t, nil)
+		stage, _, _ := newHandoffStage(t, nil)
 		response := types.Message{Role: "assistant", Content: "hi"}
 		stage.stampWorkflowState(&response)
 		require.Nil(t, response.Meta)
 	})
 
 	t.Run("empty meta", func(t *testing.T) {
-		stage, _ := newHandoffStage(t, &fakeResolver{})
+		stage, _, _ := newHandoffStage(t, &fakeResolver{})
 		response := types.Message{Role: "assistant", Content: "hi"}
 		stage.stampWorkflowState(&response)
 		require.Nil(t, response.Meta)
