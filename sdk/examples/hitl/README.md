@@ -8,6 +8,49 @@ Approval workflows for sensitive operations with the PromptKit SDK.
 - Implementing approval check functions
 - Handling pending tool calls
 - Resolving or rejecting tools
+- Combining approval with a workflow, so the state the approval unlocks speaks
+  for itself (`hitl-workflow.pack.json`)
+
+## Two packs
+
+| Pack | Shows |
+|---|---|
+| `hitl.pack.json` | Approval on its own: one agent, one gated tool. |
+| `hitl-workflow.pack.json` | Approval inside a workflow — `triage` processes the refund, and once approved hands off to a `confirmation` state that confirms to the customer in the same turn. |
+
+### Approval inside a workflow
+
+The workflow pack is the more realistic shape: approving a refund is not the
+end of the interaction, it is the thing that unblocks the next stage.
+
+```
+turn 1   triage         → calls process_refund ($150)
+                        → over the limit, suspends for approval
+         [human approves]
+resume   triage         → calls workflow__transition(Approved)
+         confirmation   → "Your $150 refund for order 12345 is on its way…"
+```
+
+Two details worth noticing:
+
+- The confirmation state speaks **in the resumed turn**. There is no second
+  user message — the customer never has to say "and then?" to hear the outcome.
+- What the triage agent wrote in the transition's `context` argument arrives in
+  the confirmation prompt as `{{workflow_context}}`. That is how one stage
+  briefs the next.
+
+Resuming after approval is `ResolveTool` followed by `Continue`, reaching
+through `wc.ActiveConversation()`:
+
+```go
+pending := resp.PendingTools()
+conv := wc.ActiveConversation()
+conv.ResolveTool(ctx, pending[0].ID)
+resumed, _ := conv.Continue(ctx)   // confirmation state's reply
+```
+
+`workflow_hitl_test.go` runs this end to end against a scripted provider, so it
+doubles as the integration test for the interaction.
 
 ## Prerequisites
 

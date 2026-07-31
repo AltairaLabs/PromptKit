@@ -1,0 +1,68 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "hitl-workflow-example",
+  "name": "HITL Workflow Example",
+  "version": "1.0.0",
+  "description": "Human-in-the-Loop approval inside a workflow: the approved refund transitions to a confirmation state, which speaks for itself",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "triage": {
+      "id": "triage",
+      "name": "Refund Triage",
+      "version": "1.0.0",
+      "system_template": "You are a refund triage agent. Use process_refund to process a refund request. Once a refund has been processed, call workflow__transition with the Approved event and a short summary of what was refunded.",
+      "tools": ["process_refund"]
+    },
+    "confirmation": {
+      "id": "confirmation",
+      "name": "Refund Confirmation",
+      "version": "1.0.0",
+      "system_template": "You are the refund confirmation agent. A refund has just been approved and processed. Confirm it warmly to the customer and tell them when to expect the money.\n\nWhat the triage agent handed over: {{workflow_context}}"
+    }
+  },
+  "tools": {
+    "process_refund": {
+      "name": "process_refund",
+      "description": "Process a refund for a customer order",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "The order ID to refund"
+          },
+          "amount": {
+            "type": "number",
+            "description": "The refund amount in dollars"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the refund"
+          }
+        },
+        "required": ["order_id", "amount", "reason"]
+      }
+    }
+  },
+  "workflow": {
+    "version": 1,
+    "entry": "triage",
+    "states": {
+      "triage": {
+        "prompt_task": "triage",
+        "description": "Take the refund request and process it, subject to approval",
+        "on_event": {
+          "Approved": "confirmation"
+        }
+      },
+      "confirmation": {
+        "prompt_task": "confirmation",
+        "description": "Confirm the completed refund to the customer",
+        "terminal": true
+      }
+    }
+  }
+}
