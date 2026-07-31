@@ -195,6 +195,89 @@ func TestProviderStage_StampsStatePerAssistantMessage(t *testing.T) {
 		response.Meta[workflowStateMetaKey])
 }
 
+// streamingHandoffProvider drives the OTHER tool loop.
+// executeAndEmit routes on SupportsStreaming(), and the streaming loop is a
+// parallel implementation of executeMultiRound — it rebuilds
+// streamingRoundParams per round rather than sharing code, so the handoff
+// wiring has to be verified there independently.
+type streamingHandoffProvider struct {
+	*mock.ToolProvider
+	seenPrompts []string
+}
+
+func (p *streamingHandoffProvider) SupportsStreaming() bool { return true }
+
+func (p *streamingHandoffProvider) PredictStreamWithTools(
+	_ context.Context,
+	req providers.PredictionRequest,
+	_ providers.ProviderTools,
+	_ string,
+) (<-chan providers.StreamChunk, error) {
+	p.seenPrompts = append(p.seenPrompts, req.System)
+	round := len(p.seenPrompts)
+
+	out := make(chan providers.StreamChunk, 2)
+	go func() {
+		defer close(out)
+		if round == 1 {
+			reason := "tool_calls"
+			out <- providers.StreamChunk{
+				ToolCalls: []types.MessageToolCall{{
+					ID:   "call-1",
+					Name: "workflow__transition",
+					Args: []byte(`{"event":"Escalate","context":"caller verified"}`),
+				}},
+				FinishReason: &reason,
+			}
+			return
+		}
+		reason := "stop"
+		out <- providers.StreamChunk{
+			Content:      "destination speaking",
+			Delta:        "destination speaking",
+			FinishReason: &reason,
+		}
+	}()
+	return out, nil
+}
+
+// The streaming loop must apply the handoff exactly as the unary loop does.
+func TestProviderStage_StreamingLoopSwapsSystemPromptMidTurn(t *testing.T) {
+	resolver := &fakeResolver{handoff: Handoff{
+		Changed:      true,
+		SystemPrompt: "DESTINATION PROMPT",
+		AllowedTools: []string{"workflow__transition"},
+	}}
+
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "workflow__transition",
+		Description: "Transition the workflow",
+		InputSchema: []byte(`{"type":"object"}`),
+	}))
+
+	provider := &streamingHandoffProvider{
+		ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+	}
+
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "ORIGIN PROMPT"
+	turnState.AllowedTools = []string{"workflow__transition"}
+
+	stage := NewProviderStageWithTurnState(provider, registry, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, nil, nil, turnState)
+	stage.SetWorkflowStateResolver(resolver)
+
+	runHandoffTurn(t, stage)
+
+	require.Len(t, provider.seenPrompts, 2,
+		"the streaming loop must run a second round after the transition")
+	require.Equal(t, "ORIGIN PROMPT", provider.seenPrompts[0])
+	require.Equal(t, "DESTINATION PROMPT", provider.seenPrompts[1],
+		"streaming round after the transition must run as the destination state")
+}
+
 func TestProviderStage_StampIsNoOpWithoutResolverOrMeta(t *testing.T) {
 	t.Run("nil resolver", func(t *testing.T) {
 		stage, _ := newHandoffStage(t, nil)
