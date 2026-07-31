@@ -224,9 +224,20 @@ func (a *GuardrailHookAdapter) evaluate(
 // When a guardrail triggers, it truncates the chunk content and returns
 // an Enforced decision so the provider stage can stop reading but continue
 // the pipeline.
+//
+// A chunk is assistant output, so this is the streaming half of AfterCall and
+// gates on direction identically. Without that gate a guardrail declared
+// `direction: input` still scored the model's reply — but only when streaming —
+// and the firing was recorded as an "output" one, since the chunk path stamps
+// that side unconditionally. So an input-only guardrail could block a response
+// it was never meant to judge, under a direction it never declared.
 func (a *GuardrailHookAdapter) OnChunk(
 	ctx context.Context, chunk *providers.StreamChunk,
 ) hooks.Decision {
+	if a.direction == DirectionInput {
+		return hooks.Allow
+	}
+
 	streamable, ok := a.handler.(evals.StreamableEvalHandler)
 	if !ok {
 		return hooks.Allow

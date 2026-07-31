@@ -550,6 +550,58 @@ func TestGuardrailHookAdapter_OnChunk_StreamableFail(t *testing.T) {
 	}
 }
 
+// TestGuardrailHookAdapter_OnChunk_HonorsDirection pins that OnChunk gates on
+// the declared direction exactly as AfterCall does.
+//
+// A chunk is assistant output. An input-direction guardrail judges the user's
+// message and has no business scoring the model's reply — but OnChunk used to
+// run for every adapter that implemented StreamableEvalHandler, so declaring
+// `direction: input` silently produced an output guardrail on the streaming path
+// only. The firing was then recorded with direction "output"
+// (recordGuardrailFiring tags the chunk path unconditionally), so it did not
+// even report the side it was declared for.
+//
+// The stub always fails, so an ungated OnChunk cannot look like a pass: the
+// input case can only return Allow by skipping evaluation altogether.
+func TestGuardrailHookAdapter_OnChunk_HonorsDirection(t *testing.T) {
+	tests := []struct {
+		direction string
+		wantAllow bool
+	}{
+		{direction: DirectionInput, wantAllow: true},
+		{direction: DirectionOutput, wantAllow: false},
+		{direction: DirectionBoth, wantAllow: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.direction, func(t *testing.T) {
+			handler := &streamableStubHandler{
+				typeName:      "test_direction",
+				result:        &evals.EvalResult{Score: floatPtr(1.0)},
+				partialResult: &evals.EvalResult{Score: floatPtr(0.0), Explanation: "would fire"},
+			}
+			adapter := &GuardrailHookAdapter{
+				handler:   handler,
+				evalType:  "test_direction",
+				params:    map[string]any{},
+				direction: tc.direction,
+			}
+
+			chunk := &providers.StreamChunk{Content: "some output", Delta: "output"}
+			decision := adapter.OnChunk(context.Background(), chunk)
+
+			if decision.Allow != tc.wantAllow {
+				t.Errorf("direction %q: got Allow=%v, want %v",
+					tc.direction, decision.Allow, tc.wantAllow)
+			}
+			if tc.wantAllow && chunk.Content != "some output" {
+				t.Errorf("direction %q: an input guardrail must not rewrite an output chunk, got %q",
+					tc.direction, chunk.Content)
+			}
+		})
+	}
+}
+
 func TestGuardrailHookAdapter_OnChunk_StreamableError(t *testing.T) {
 	handler := &streamableStubHandler{
 		typeName:   "test_streamable_err",
