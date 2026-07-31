@@ -618,6 +618,17 @@ func (s *ProviderStage) applyStateHandoff(
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools = handoff.AllowedTools
 	loop.providerTools = rebuilt
+
+	// Write through to TurnState as well as the per-execution copy.
+	// accumulateInput re-reads TurnState on every pipeline execution, and a
+	// turn suspended for HITL or a deferred client tool is resumed by
+	// re-executing the SAME pipeline (UnarySession.ResumeWithToolResults).
+	// Without this the resumed execution reverts to the origin state's prompt
+	// while the state machine has already moved on.
+	if s.turnState != nil {
+		s.turnState.SystemPrompt = handoff.SystemPrompt
+		s.turnState.AllowedTools = handoff.AllowedTools
+	}
 	return nil
 }
 

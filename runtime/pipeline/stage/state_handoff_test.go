@@ -133,6 +133,35 @@ func TestProviderStage_HandoffSwapsSystemPromptMidTurn(t *testing.T) {
 		"round after the transition must run as the destination state")
 }
 
+// A handoff must survive re-execution of the same pipeline.
+//
+// HITL and deferred client tools suspend a turn and resume it via
+// ResumeWithToolResults, which re-runs the SAME pipeline; accumulateInput
+// rebuilds the per-execution state from TurnState every time. If the handoff
+// only mutates the per-execution copy, the resumed execution silently reverts
+// to the origin state's prompt while the state machine has already moved on.
+func TestProviderStage_HandoffSurvivesPipelineReExecution(t *testing.T) {
+	resolver := &fakeResolver{handoff: Handoff{
+		Changed:      true,
+		SystemPrompt: "DESTINATION PROMPT",
+		AllowedTools: []string{"workflow__transition"},
+	}}
+
+	stage, provider := newHandoffStage(t, resolver)
+
+	// First turn: transitions mid-flight.
+	runHandoffTurn(t, stage)
+	require.Equal(t, "DESTINATION PROMPT", provider.seenPrompts[1])
+
+	// Re-execute the same pipeline, as a HITL resume does. The resolver now
+	// reports no further change, so the prompt must come from the state the
+	// handoff left us in.
+	runHandoffTurn(t, stage)
+
+	require.Equal(t, "DESTINATION PROMPT", provider.seenPrompts[2],
+		"re-execution must not revert to the origin state's prompt")
+}
+
 // A resolver reporting no change must leave the turn untouched — this is the
 // path every non-workflow and non-transitioning turn takes.
 func TestProviderStage_NoHandoffLeavesPromptUnchanged(t *testing.T) {
