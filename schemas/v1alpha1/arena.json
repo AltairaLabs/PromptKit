@@ -3945,7 +3945,7 @@
             "dir": "out",
             "formats": [
               "json",
-              "html"
+              "markdown"
             ]
           },
           "temperature": 0.7
