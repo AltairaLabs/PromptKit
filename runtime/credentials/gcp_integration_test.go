@@ -232,3 +232,16 @@ func TestGCPCredential_ConcurrentAccess(t *testing.T) {
 	// Despite concurrent access, token source should only be called once
 	assert.Equal(t, 1, mock.getCalls())
 }
+
+// Embeddings are published by "google", not "anthropic". Reusing the chat
+// endpoint here produces a URL that 404s at request time rather than failing
+// at construction, which is why they are separate helpers (#1301).
+func TestVertexEmbeddingEndpoint(t *testing.T) {
+	got := VertexEmbeddingEndpoint("my-project", "us-central1")
+
+	assert.Equal(t,
+		"https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models",
+		got)
+	assert.NotContains(t, got, "anthropic",
+		"the embedding endpoint must not inherit the chat publisher")
+}

@@ -12,10 +12,37 @@ import (
 // gcpTokenRefreshBuffer is the time before token expiration to trigger a refresh.
 const gcpTokenRefreshBuffer = 5 * time.Minute
 
-// VertexEndpoint returns the Vertex AI endpoint URL for a project and region.
+// Vertex model publishers. The publisher is part of the URL, so a model from
+// one cannot be reached through the other's endpoint.
+const (
+	vertexPublisherAnthropic = "anthropic"
+	vertexPublisherGoogle    = "google"
+)
+
+// VertexEndpoint returns the Vertex AI endpoint URL for Anthropic models in a
+// project and region. For Google-published models (embeddings) use
+// VertexEmbeddingEndpoint.
 func VertexEndpoint(project, region string) string {
-	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models",
-		region, project, region)
+	return vertexPublisherEndpoint(project, region, vertexPublisherAnthropic)
+}
+
+// VertexEmbeddingEndpoint returns the Vertex AI models base URL for Google's
+// text-embedding models. Callers append "/{model}:predict".
+//
+// Kept separate from VertexEndpoint rather than parameterised at the call site
+// because the publisher is easy to get wrong and wrong late: an anthropic-shaped
+// URL for an embedding model is structurally valid and only fails when the
+// request is made (#1301).
+func VertexEmbeddingEndpoint(project, region string) string {
+	return vertexPublisherEndpoint(project, region, vertexPublisherGoogle)
+}
+
+// vertexPublisherEndpoint builds the models base URL for one publisher. Single
+// format string so the two exported helpers cannot drift.
+func vertexPublisherEndpoint(project, region, publisher string) string {
+	return fmt.Sprintf(
+		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models",
+		region, project, region, publisher)
 }
 
 // Apply adds the OAuth2 token to the request.

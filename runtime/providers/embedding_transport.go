@@ -18,6 +18,9 @@ const (
 	// embeddingTypeBedrock speaks Bedrock's per-family InvokeModel bodies
 	// (Titan/Cohere) — see runtime/providers/bedrock.
 	embeddingTypeBedrock = "bedrock"
+	// embeddingTypeVertex speaks Vertex AI's :predict instances/predictions
+	// bodies, which are likewise not OpenAI-shaped.
+	embeddingTypeVertex = "vertex"
 )
 
 // EmbeddingTransport is the resolved HTTP wiring for a vendor embedding
@@ -86,9 +89,7 @@ func buildPlatformEmbeddingClient(
 	case platformBedrock:
 		return buildBedrockEmbeddingClient(cred, providerType, pc)
 	case platformVertex:
-		return nil, "", fmt.Errorf(
-			"embedding platform %q is not yet supported: it requires a platform-native embedding "+
-				"provider type (Vertex body shapes), which is not implemented", platform)
+		return buildVertexEmbeddingClient(cred, providerType, pc)
 	default:
 		return nil, "", fmt.Errorf("unsupported embedding platform: %q", platform)
 	}
@@ -123,6 +124,48 @@ func buildBedrockEmbeddingClient(
 	return &http.Client{
 		Transport: &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
 	}, baseURL, nil
+}
+
+// buildVertexEmbeddingClient wires GCP bearer-token auth and resolves the
+// Vertex models base URL. Like Bedrock — and unlike Azure — it returns the
+// models collection rather than a per-model URL: Vertex carries the model in
+// the path as /{model}:predict, so the provider appends it and a per-request
+// model override still works.
+func buildVertexEmbeddingClient(
+	cred credentials.Credential, providerType string, pc *PlatformConfig,
+) (*http.Client, string, error) {
+	if providerType != embeddingTypeVertex {
+		return nil, "", fmt.Errorf(
+			"embedding platform %q requires the platform-native provider type %q (:predict "+
+				"body shapes), got %q", platformVertex, embeddingTypeVertex, providerType)
+	}
+
+	// An explicit endpoint wins, for private or otherwise non-standard
+	// endpoints. Otherwise both project and region are required: each appears
+	// twice in the URL and neither has a sane default.
+	if pc != nil && pc.Endpoint != "" {
+		return vertexClient(cred), pc.Endpoint, nil
+	}
+	if pc == nil || pc.Project == "" {
+		return nil, "", fmt.Errorf(
+			"embedding platform %q requires platform.project (or an explicit platform.endpoint)",
+			platformVertex)
+	}
+	if pc.Region == "" {
+		return nil, "", fmt.Errorf(
+			"embedding platform %q requires platform.region (or an explicit platform.endpoint)",
+			platformVertex)
+	}
+
+	return vertexClient(cred), credentials.VertexEmbeddingEndpoint(pc.Project, pc.Region), nil
+}
+
+// vertexClient builds the token-applying HTTP client. Vertex needs no
+// api-version query param, so the round tripper carries only the credential.
+func vertexClient(cred credentials.Credential) *http.Client {
+	return &http.Client{
+		Transport: &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+	}
 }
 
 // azureEmbeddingAPIVersion mirrors the chat path: prefer an explicit
