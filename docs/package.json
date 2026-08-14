@@ -11,6 +11,7 @@
     "check-doc-urls": "node check-doc-urls.js"
   },
   "dependencies": {
+    "@altairalabs/brand": "^0.2.0",
     "@astrojs/mdx": "^7.0.3",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "~0.41.4",

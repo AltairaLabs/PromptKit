@@ -7,7 +7,7 @@ import '@fontsource/space-grotesk/600.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/spline-sans-mono/400.css';
 import '@fontsource/spline-sans-mono/500.css';
-import FamilyBar from '../components/FamilyBar.astro';
+import FamilyBar from '@altairalabs/brand/FamilyBar.astro';
 import ProductNav from '../components/landing/ProductNav.astro';
 import Hero from '../components/landing/Hero.astro';
 import HowItFits from '../components/landing/HowItFits.astro';
@@ -41,7 +41,7 @@ import SiteFooter from '../components/landing/SiteFooter.astro';
     </script>
   </head>
   <body>
-    <FamilyBar />
+    <FamilyBar current="promptkit" docsHref="/sdk/" />
     <ProductNav />
     <main>
       <Hero />
