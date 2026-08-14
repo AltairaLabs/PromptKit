@@ -50,6 +50,9 @@ type vllmFunctionCall struct {
 	Arguments string `json:"arguments"` // vLLM returns this as a JSON string
 }
 
+// toolTypeFunction is the only tool type the OpenAI-compatible API defines.
+const toolTypeFunction = "function"
+
 // BuildTooling converts tool descriptors to vLLM format
 func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, error) {
 	if len(descriptors) == 0 {
