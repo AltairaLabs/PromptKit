@@ -86,15 +86,28 @@ func TestValidateOptions_RejectsUnregisteredProviderTypeWithoutAPack(t *testing.
 	assert.Contains(t, err.Error(), "titan", "error must name the offending type")
 }
 
-func TestValidateOptions_AcceptsRegisteredProviderSet(t *testing.T) {
+// TestValidateOptions_TracksRegisteredProviderTypes pins the contract the two
+// APIs jointly promise: registration is the only gate on construction, so what
+// RegisteredProviderTypes lists is exactly what ValidateOptions accepts. The
+// two calls differ only in the provider type, so acceptance cannot be
+// unconditional — a ValidateOptions that ignored the type, always returned nil,
+// or always errored fails one of the three assertions, and a lister that drifts
+// from the validator fails the requires.
+func TestValidateOptions_TracksRegisteredProviderTypes(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 
-	err := ValidateOptions(
+	listed := RegisteredProviderTypes()[pkgconfig.RoleTTS]
+	require.Contains(t, listed, "openai")
+	require.NotContains(t, listed, "polly", "test needs a type that is genuinely unregistered")
+
+	assert.NoError(t, ValidateOptions(
 		WithTTSProvider(ProviderSpec{ID: "voice", Type: "openai"}),
 		WithSTTProvider(ProviderSpec{ID: "ears", Type: "openai"}),
-	)
+	), "every listed type must validate")
 
-	assert.NoError(t, err)
+	err := ValidateOptions(WithTTSProvider(ProviderSpec{ID: "voice", Type: "polly"}))
+	require.Error(t, err, "an unlisted type must not validate")
+	assert.Contains(t, err.Error(), "polly", "error must name the offending type")
 }
 
 // Validation must apply the same cross-option checks Open does, or a set that
