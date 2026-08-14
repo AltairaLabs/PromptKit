@@ -39,9 +39,9 @@ func fakeBedrock(t *testing.T, respond func(i int) string) (*httptest.Server, *c
 func titanProvider(t *testing.T, url string) *bedrock.EmbeddingProvider {
 	t.Helper()
 	p, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("amazon.titan-embed-text-v2:0"),
-		bedrock.WithBaseURL(url),
-		bedrock.WithPlatformAuth(),
+		bedrock.WithWiring(providers.EmbeddingWiring{
+			Model: "amazon.titan-embed-text-v2:0", BaseURL: url, PlatformAuth: true,
+		}),
 	)
 	require.NoError(t, err)
 	return p
@@ -50,9 +50,9 @@ func titanProvider(t *testing.T, url string) *bedrock.EmbeddingProvider {
 func cohereProvider(t *testing.T, url string) *bedrock.EmbeddingProvider {
 	t.Helper()
 	p, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("cohere.embed-english-v3"),
-		bedrock.WithBaseURL(url),
-		bedrock.WithPlatformAuth(),
+		bedrock.WithWiring(providers.EmbeddingWiring{
+			Model: "cohere.embed-english-v3", BaseURL: url, PlatformAuth: true,
+		}),
 	)
 	require.NoError(t, err)
 	return p
@@ -160,9 +160,9 @@ func TestCohere_ParsesEmbeddingsInOrder(t *testing.T) {
 func TestCohere_InputTypeIsConfigurable(t *testing.T) {
 	srv, c := fakeBedrock(t, func(int) string { return `{"embeddings":[[1]]}` })
 	p, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("cohere.embed-english-v3"),
-		bedrock.WithBaseURL(srv.URL),
-		bedrock.WithPlatformAuth(),
+		bedrock.WithWiring(providers.EmbeddingWiring{
+			Model: "cohere.embed-english-v3", BaseURL: srv.URL, PlatformAuth: true,
+		}),
 		bedrock.WithInputType("search_query"),
 	)
 	require.NoError(t, err)
@@ -184,8 +184,7 @@ func TestMaxBatchSizeDiffersByModelFamily(t *testing.T) {
 
 func TestUnknownModelFamilyIsRejectedAtConstruction(t *testing.T) {
 	_, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("meta.llama3-70b-instruct-v1:0"),
-		bedrock.WithPlatformAuth(),
+		bedrock.WithWiring(providers.EmbeddingWiring{Model: "meta.llama3-70b-instruct-v1:0", PlatformAuth: true}),
 	)
 
 	require.Error(t, err)
@@ -235,10 +234,10 @@ func TestTitan_FanOutStopsOnError(t *testing.T) {
 // Titan v1 emits 1536, so its default must not be the v2 default.
 func TestDimensionsFollowModelVersion(t *testing.T) {
 	v1, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("amazon.titan-embed-text-v1"), bedrock.WithPlatformAuth())
+		bedrock.WithWiring(providers.EmbeddingWiring{Model: "amazon.titan-embed-text-v1", PlatformAuth: true}))
 	require.NoError(t, err)
 	v2, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("amazon.titan-embed-text-v2:0"), bedrock.WithPlatformAuth())
+		bedrock.WithWiring(providers.EmbeddingWiring{Model: "amazon.titan-embed-text-v2:0", PlatformAuth: true}))
 	require.NoError(t, err)
 
 	assert.NotEqual(t, v1.EmbeddingDimensions(), v2.EmbeddingDimensions())
@@ -249,8 +248,7 @@ func TestDimensionsFollowModelVersion(t *testing.T) {
 // default value?", and the override is silently discarded.
 func TestExplicitDimensionsOverrideFamilyDefault(t *testing.T) {
 	p, err := bedrock.NewEmbeddingProvider(
-		bedrock.WithModel("amazon.titan-embed-text-v1"),
-		bedrock.WithDimensions(1024),
+		bedrock.WithWiring(providers.EmbeddingWiring{Model: "amazon.titan-embed-text-v1", Dimensions: 1024}),
 		bedrock.WithPlatformAuth(),
 	)
 	require.NoError(t, err)

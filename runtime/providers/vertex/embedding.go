@@ -21,7 +21,6 @@ package vertex
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -39,7 +38,8 @@ const (
 const DefaultModel = "text-embedding-005"
 
 // Family defaults. These are the documented defaults at time of writing and
-// are overridable per provider: WithDimensions sets outputDimensionality, and
+// are overridable per provider: the wiring's Dimensions sets
+// outputDimensionality, and
 // the batch size is what the caller's batching loop is told to respect. They
 // are not enforced by this package — the endpoint is the authority, and a
 // wrong guess here surfaces as an API error rather than silent truncation.
@@ -70,34 +70,6 @@ type EmbeddingProvider struct {
 
 // EmbeddingOption configures the EmbeddingProvider.
 type EmbeddingOption func(*EmbeddingProvider)
-
-// WithModel sets the Vertex model id (e.g. text-embedding-005).
-func WithModel(model string) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.ProviderModel = model }
-}
-
-// WithBaseURL overrides the models base URL. The provider appends
-// /{model}:predict per request, so this is the models collection — not a single
-// model — which is what lets a per-request model override work.
-func WithBaseURL(url string) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.BaseURL = url }
-}
-
-// WithHTTPClient sets the HTTP client. For real use this must be the
-// token-applying client from providers.ResolveEmbeddingTransport.
-func WithHTTPClient(client *http.Client) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.HTTPClient = client }
-}
-
-// WithDimensions requests a specific output dimensionality. Sent as
-// parameters.outputDimensionality; Vertex truncates server-side, so this is a
-// request parameter and not a client-side slice.
-func WithDimensions(dims int) EmbeddingOption {
-	return func(p *EmbeddingProvider) {
-		p.Dimensions = dims
-		p.dimsExplicit = true
-	}
-}
 
 // WithTaskType sets the Vertex task type ("RETRIEVAL_DOCUMENT",
 // "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY", …).

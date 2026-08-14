@@ -55,9 +55,9 @@ func TestEmbeddingProvider_SendsVertexPredictBody(t *testing.T) {
 	srv, got := predictServer(t, []float32{0.1, 0.2, 0.3}, 7)
 
 	p, err := NewEmbeddingProvider(
-		WithModel("text-embedding-005"),
-		WithBaseURL(srv.URL),
-		WithHTTPClient(srv.Client()),
+		WithWiring(providers.EmbeddingWiring{
+			Model: "text-embedding-005", BaseURL: srv.URL, Client: srv.Client(),
+		}),
 	)
 	require.NoError(t, err)
 
@@ -92,9 +92,9 @@ func TestEmbeddingProvider_SendsTaskType(t *testing.T) {
 	srv, got := predictServer(t, []float32{1}, 1)
 
 	p, err := NewEmbeddingProvider(
-		WithModel("text-embedding-005"),
-		WithBaseURL(srv.URL),
-		WithHTTPClient(srv.Client()),
+		WithWiring(providers.EmbeddingWiring{
+			Model: "text-embedding-005", BaseURL: srv.URL, Client: srv.Client(),
+		}),
 		WithTaskType("RETRIEVAL_QUERY"),
 	)
 	require.NoError(t, err)
@@ -112,10 +112,9 @@ func TestEmbeddingProvider_SendsOutputDimensionality(t *testing.T) {
 	srv, got := predictServer(t, []float32{1}, 1)
 
 	p, err := NewEmbeddingProvider(
-		WithModel("text-embedding-005"),
-		WithBaseURL(srv.URL),
-		WithHTTPClient(srv.Client()),
-		WithDimensions(256),
+		WithWiring(providers.EmbeddingWiring{
+			Model: "text-embedding-005", BaseURL: srv.URL, Client: srv.Client(), Dimensions: 256,
+		}),
 	)
 	require.NoError(t, err)
 
@@ -143,7 +142,7 @@ func TestNewEmbeddingProvider_FamilyDefaults(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.model, func(t *testing.T) {
-			p, err := NewEmbeddingProvider(WithModel(tc.model))
+			p, err := NewEmbeddingProvider(WithWiring(providers.EmbeddingWiring{Model: tc.model}))
 			require.NoError(t, err)
 			assert.Equal(t, tc.dims, p.EmbeddingDimensions())
 			assert.Equal(t, tc.batch, p.MaxBatchSize())
@@ -154,7 +153,7 @@ func TestNewEmbeddingProvider_FamilyDefaults(t *testing.T) {
 // An unknown model is rejected at construction rather than producing a request
 // the endpoint rejects later.
 func TestNewEmbeddingProvider_RejectsUnknownModel(t *testing.T) {
-	_, err := NewEmbeddingProvider(WithModel("gpt-4o"))
+	_, err := NewEmbeddingProvider(WithWiring(providers.EmbeddingWiring{Model: "gpt-4o"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported vertex embedding model")
 }
@@ -169,7 +168,9 @@ func TestEmbeddingProvider_RejectsPredictionCountMismatch(t *testing.T) {
 	defer srv.Close()
 
 	p, err := NewEmbeddingProvider(
-		WithModel("text-embedding-005"), WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+		WithWiring(providers.EmbeddingWiring{
+			Model: "text-embedding-005", BaseURL: srv.URL, Client: srv.Client(),
+		}))
 	require.NoError(t, err)
 
 	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"a", "b"}})
@@ -183,7 +184,9 @@ func TestEmbeddingProvider_PerRequestModelOverride(t *testing.T) {
 	srv, got := predictServer(t, []float32{1}, 1)
 
 	p, err := NewEmbeddingProvider(
-		WithModel("text-embedding-005"), WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+		WithWiring(providers.EmbeddingWiring{
+			Model: "text-embedding-005", BaseURL: srv.URL, Client: srv.Client(),
+		}))
 	require.NoError(t, err)
 
 	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{
