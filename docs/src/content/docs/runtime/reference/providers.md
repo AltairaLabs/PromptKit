@@ -64,6 +64,8 @@ This file contains exported test helpers that can be used by provider implementa
 - [func ReadResponseBody\(body io.Reader\) \(\[\]byte, error\)](<#ReadResponseBody>)
 - [func RegisterEmbeddingProviderFactory\(providerType string, factory EmbeddingProviderFactory\)](<#RegisterEmbeddingProviderFactory>)
 - [func RegisterProviderFactory\(providerType string, factory ProviderFactory\)](<#RegisterProviderFactory>)
+- [func RegisteredEmbeddingProviderTypes\(\) \[\]string](<#RegisteredEmbeddingProviderTypes>)
+- [func RegisteredProviderTypes\(\) \[\]string](<#RegisteredProviderTypes>)
 - [func ResetDefaultStreamMetrics\(\)](<#ResetDefaultStreamMetrics>)
 - [func ResolveEmbeddingCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveEmbeddingCredential>)
 - [func RunProviderContractTests\(t \*testing.T, config ProviderContractTests\)](<#RunProviderContractTests>)
@@ -738,6 +740,24 @@ func RegisterProviderFactory(providerType string, factory ProviderFactory)
 ```
 
 RegisterProviderFactory registers a factory function for a provider type
+
+<a name="RegisteredEmbeddingProviderTypes"></a>
+## func RegisteredEmbeddingProviderTypes
+
+```go
+func RegisteredEmbeddingProviderTypes() []string
+```
+
+RegisteredEmbeddingProviderTypes returns the embedding provider types with a registered factory, sorted. Use it to check a configured type before CreateEmbeddingProviderFromSpec rather than constructing and parsing the error.
+
+<a name="RegisteredProviderTypes"></a>
+## func RegisteredProviderTypes
+
+```go
+func RegisteredProviderTypes() []string
+```
+
+RegisteredProviderTypes returns the completion \(chat\) provider types with a registered factory, sorted. This is the registry CreateProviderFromSpec resolves against for the llm, image and video roles alike — a type listed here will construct for any of them.
 
 <a name="ResetDefaultStreamMetrics"></a>
 ## func ResetDefaultStreamMetrics

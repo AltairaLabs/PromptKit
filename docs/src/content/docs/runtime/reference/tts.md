@@ -76,6 +76,7 @@ The package includes implementations for:
 - [func CostInfoToMetaMap\(ci \*types.CostInfo\) map\[string\]any](<#CostInfoToMetaMap>)
 - [func PricingFromSpec\(spec ProviderSpec\) \*base.PricingDescriptor](<#PricingFromSpec>)
 - [func RegisterFactory\(providerType string, factory Factory\)](<#RegisterFactory>)
+- [func RegisteredTypes\(\) \[\]string](<#RegisteredTypes>)
 - [func ResolveCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig\) \(credentials.Credential, error\)](<#ResolveCredential>)
 - [func SynthesizeWithRetry\(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig\) \(io.ReadCloser, error\)](<#SynthesizeWithRetry>)
 - [func WithCartesiaWSURL\(url string\) func\(\*CartesiaService\)](<#WithCartesiaWSURL>)
@@ -361,6 +362,15 @@ func RegisterFactory(providerType string, factory Factory)
 ```
 
 RegisterFactory registers a factory for the given provider type. Typically called from per\-provider package init\(\).
+
+<a name="RegisteredTypes"></a>
+## func RegisteredTypes
+
+```go
+func RegisteredTypes() []string
+```
+
+RegisteredTypes returns the TTS provider types with a registered factory, sorted. Use it to check a configured type before CreateFromSpec rather than constructing and parsing the error.
 
 <a name="ResolveCredential"></a>
 ## func ResolveCredential

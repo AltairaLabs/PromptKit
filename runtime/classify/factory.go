@@ -33,6 +33,11 @@ func RegisterFactory(providerType string, f Factory) {
 	classifyRegistry.Register(providerType, f)
 }
 
+// RegisteredTypes returns the inference provider types with a registered
+// factory, sorted. Use it to check a configured type before CreateFromSpec
+// rather than constructing and parsing the error.
+func RegisteredTypes() []string { return classifyRegistry.Types() }
+
 // CreateFromSpec builds a Backend for the spec's Type.
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.

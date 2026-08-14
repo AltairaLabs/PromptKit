@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -57,6 +58,21 @@ func RegisterEmbeddingProviderFactory(providerType string, factory EmbeddingProv
 	embeddingFactoriesMu.Lock()
 	defer embeddingFactoriesMu.Unlock()
 	embeddingFactories[providerType] = factory
+}
+
+// RegisteredEmbeddingProviderTypes returns the embedding provider types with
+// a registered factory, sorted. Use it to check a configured type before
+// CreateEmbeddingProviderFromSpec rather than constructing and parsing the
+// error.
+func RegisteredEmbeddingProviderTypes() []string {
+	embeddingFactoriesMu.RLock()
+	defer embeddingFactoriesMu.RUnlock()
+	types := make([]string, 0, len(embeddingFactories))
+	for t := range embeddingFactories {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // CreateEmbeddingProviderFromSpec returns an EmbeddingProvider

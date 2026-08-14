@@ -123,7 +123,9 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
 - [Variables](<#variables>)
 - [func Evaluate\(ctx context.Context, opts EvaluateOpts\) \(\[\]evals.EvalResult, error\)](<#Evaluate>)
 - [func GracefulShutdown\(mgr \*ShutdownManager, timeout time.Duration\)](<#GracefulShutdown>)
+- [func RegisteredProviderTypes\(\) map\[string\]\[\]string](<#RegisteredProviderTypes>)
 - [func ValidateEvalTypes\(opts ValidateEvalTypesOpts\) \(\[\]evals.EvalDef, error\)](<#ValidateEvalTypes>)
+- [func ValidateOptions\(opts ...Option\) error](<#ValidateOptions>)
 - [type A2AAgentBuilder](<#A2AAgentBuilder>)
   - [func NewA2AAgent\(url string\) \*A2AAgentBuilder](<#NewA2AAgent>)
   - [func \(b \*A2AAgentBuilder\) Build\(\) \*tools.A2AConfig](<#A2AAgentBuilder.Build>)
@@ -591,6 +593,21 @@ GracefulShutdown listens for SIGTERM and SIGINT, then calls mgr.Shutdown with th
 go sdk.GracefulShutdown(mgr, 30*time.Second)
 ```
 
+<a name="RegisteredProviderTypes"></a>
+## func RegisteredProviderTypes
+
+```go
+func RegisteredProviderTypes() map[string][]string
+```
+
+RegisteredProviderTypes returns, per provider role, the types that have a registered factory in this binary — the types a With\*Provider option \(or a role in a \*.provider.yaml\) will successfully construct. Each list is sorted, and the result is a snapshot the caller may modify freely.
+
+Registration is the only gate on construction, so this answers "will this binding build?" exactly. It does not rank types by suitability: llm, image and video share one completion\-provider registry, so all three report the same set even though a given type may only be useful for one of them.
+
+The registries are populated by package init\(\), which means the answer depends on which provider packages the binary imports. Callers that need a type not listed here should add its blank import.
+
+Intended for deploy\-time and boot\-time validation — a caller can check a configured type without constructing a provider and string\-matching the error. See ValidateOptions to check a whole option set.
+
 <a name="ValidateEvalTypes"></a>
 ## func ValidateEvalTypes
 
@@ -601,6 +618,19 @@ func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error)
 ValidateEvalTypes checks that every eval type referenced in the resolved eval definitions has a registered handler in the EvalTypeRegistry. Returns a list of eval IDs whose types are missing, or nil if all are valid.
 
 This is useful as a preflight check — e.g. at startup or in CI — to catch configuration errors \(typos, missing RuntimeConfig bindings\) before evals are actually executed.
+
+<a name="ValidateOptions"></a>
+## func ValidateOptions
+
+```go
+func ValidateOptions(opts ...Option) error
+```
+
+ValidateOptions reports whether an option set would be accepted by Open, without loading a pack or starting a conversation. It runs exactly the option\-application phase Open runs: every option is applied \(so providers are constructed and credentials resolved\) and the cross\-option constraints are then checked.
+
+Call it once at startup with the same options the server will later pass to Open. Provider options are applied eagerly inside Open, and a server that opens a conversation per request would otherwise surface a bad binding as a failure on every request rather than as a startup error.
+
+Anything constructed during validation is discarded.
 
 <a name="A2AAgentBuilder"></a>
 ## type A2AAgentBuilder

@@ -3,6 +3,8 @@ package providers
 import (
 	"context"
 	"net/http"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -33,11 +35,34 @@ type Registry struct {
 // ProviderFactory is a function that creates a provider from a spec
 type ProviderFactory func(spec ProviderSpec) (Provider, error)
 
-var providerFactories = make(map[string]ProviderFactory)
+// providerFactories is populated from per-provider package init() functions.
+// The mutex guards it because RegisteredProviderTypes ranges over the map,
+// and tests register factories after init has run.
+var (
+	providerFactoriesMu sync.RWMutex
+	providerFactories   = make(map[string]ProviderFactory)
+)
 
 // RegisterProviderFactory registers a factory function for a provider type
 func RegisterProviderFactory(providerType string, factory ProviderFactory) {
+	providerFactoriesMu.Lock()
+	defer providerFactoriesMu.Unlock()
 	providerFactories[providerType] = factory
+}
+
+// RegisteredProviderTypes returns the completion (chat) provider types with a
+// registered factory, sorted. This is the registry CreateProviderFromSpec
+// resolves against for the llm, image and video roles alike — a type listed
+// here will construct for any of them.
+func RegisteredProviderTypes() []string {
+	providerFactoriesMu.RLock()
+	defer providerFactoriesMu.RUnlock()
+	types := make([]string, 0, len(providerFactories))
+	for t := range providerFactories {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // NewRegistry creates a new provider registry.
@@ -322,7 +347,9 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	spec.BaseURL = baseURL
 
 	// Look up the factory for this provider type
+	providerFactoriesMu.RLock()
 	factory, exists := providerFactories[spec.Type]
+	providerFactoriesMu.RUnlock()
 	if !exists {
 		return nil, &UnsupportedProviderError{ProviderType: spec.Type}
 	}

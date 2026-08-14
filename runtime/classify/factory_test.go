@@ -2,6 +2,7 @@ package classify_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
@@ -174,6 +175,23 @@ func TestBuildRegistry_AllTaskDefaults(t *testing.T) {
 	}
 	if _, err := reg.Embedder(""); err != nil {
 		t.Fatalf("default embedder: %v", err)
+	}
+}
+
+// TestRegisteredTypes asserts the lister reads the package's own factory
+// registry — a lister pointed at a fresh registry would not see a type
+// registered through classify.RegisterFactory.
+func TestRegisteredTypes(t *testing.T) {
+	classify.RegisterFactory("fakelisted", func(_ classify.ProviderSpec) (classify.Backend, error) {
+		return fakeText{}, nil
+	})
+
+	got := classify.RegisteredTypes()
+	if !slices.Contains(got, "fakelisted") {
+		t.Errorf("RegisteredTypes() = %v, missing %q", got, "fakelisted")
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("RegisteredTypes() = %v, not sorted", got)
 	}
 }
 
