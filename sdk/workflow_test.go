@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -789,6 +790,41 @@ func TestResumeWorkflow_ValidMetadataButOpenFails(t *testing.T) {
 		assert.Equal(t, "processing", wc.CurrentState())
 		_ = wc.Close()
 	}
+}
+
+// A resumed workflow runs every state under the workflow ID. ResumeWorkflow
+// threads WithConversationID into the conversation it opens for the state it
+// resumed into, so the ID must survive the first transition too — otherwise the
+// destination state's conversation gets a fresh UUID and its history is
+// persisted under a key no later Resume will ever look up.
+func TestResumeWorkflow_KeepsConversationIDAcrossTransition(t *testing.T) {
+	packPath := writeWorkflowTestPack(t, workflowPackJSON)
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+
+	const workflowID = "wf-keep-conv-id"
+	require.NoError(t, store.Save(ctx, &statestore.ConversationState{
+		ID:       workflowID,
+		Metadata: map[string]any{workflowCurrentKey: &workflow.Context{CurrentState: "intake"}},
+	}))
+
+	wc, err := ResumeWorkflow(workflowID, packPath,
+		WithStateStore(store),
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+	)
+	require.NoError(t, err)
+	defer wc.Close()
+
+	require.Equal(t, workflowID, wc.ActiveConversation().ID(),
+		"the resumed state's conversation runs under the workflow ID")
+
+	newState, err := wc.Transition("InfoComplete")
+	require.NoError(t, err)
+	require.Equal(t, "processing", newState)
+
+	assert.Equal(t, workflowID, wc.ActiveConversation().ID(),
+		"the destination state's conversation must keep the workflow ID, not be issued a fresh UUID")
 }
 
 func TestExtractWorkflowContext_MarshalError(t *testing.T) {

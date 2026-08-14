@@ -304,13 +304,17 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 	}
 
 	wc := &WorkflowConversation{
-		machine:                 machine,
-		workflowSpec:            spec,
-		packPath:                packPath,
-		sdkPack:                 p,
-		activeConv:              conv,
-		activeStateName:         machine.CurrentState(),
-		opts:                    opts,
+		machine:         machine,
+		workflowSpec:    spec,
+		packPath:        packPath,
+		sdkPack:         p,
+		activeConv:      conv,
+		activeStateName: machine.CurrentState(),
+		// optsWithID, not opts: openConvForCurrentState reuses this slice for
+		// every state entered after a transition, so the workflow ID has to be
+		// in it or the destination state's conversation is issued a fresh UUID
+		// and persists under a key no later Resume looks up.
+		opts:                    optsWithID,
 		stateStore:              cfg.stateStore,
 		workflowID:              workflowID,
 		contextCarryForward:     cfg.contextCarryForward,

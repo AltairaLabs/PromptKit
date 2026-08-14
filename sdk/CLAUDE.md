@@ -40,12 +40,27 @@ c.toolRegistry.RegisterExecutor(localExec)  // Name() = "local"
 
 The runtime's ProviderStage dispatches to it identically to any other executor. **Do not create parallel execution paths** — always go through `tools.Executor`.
 
-### 2. Pipeline Built Per Send()
+### 2. Pipeline Built Once, at Open()
 
-Every `Send()` rebuilds the entire pipeline. This enables:
-- Dynamic tool registration between sends
-- Capability registration on first build (guarded by `capabilitiesRegistered`)
-- Handler snapshots at send time
+`Open()` builds the pipeline exactly once (`initInternalStateStore` →
+`buildPipelineWithParams` in `sdk.go`) and every `Send()` executes that same
+pipeline through the session. **`Send()` does not rebuild anything** —
+`executePipeline` just calls `unarySession.ExecuteWithMessage`. `OpenDuplex()`
+does the same for the streaming pipeline.
+
+Consequences, and they bite:
+
+- **Capabilities register their tools during that single build** (guarded by
+  `capabilitiesRegistered`), so a capability added later never registers.
+- **Build-time snapshots go stale.** `buildPipelineConfig` copies the handler
+  maps into `localExecutor`, so an `OnTool()` call made after `Open()` would be
+  invisible to it. That is why `localExecutor` also carries a `live`
+  `localHandlersAccessor` that reads the conversation's handler maps under its
+  mutex — the copy alone would fail post-Open registrations with "no handler
+  registered". Any new build-time snapshot needs the same treatment.
+- **A tool absent from the registry at build time stays absent.** Registering a
+  handler is not enough; register a live executor on `conv.ToolRegistry()`
+  (see `TestComposition_EmbeddedState_RunsViaSend`).
 
 ### 3. Deferred Workflow Transitions
 
@@ -83,7 +98,7 @@ Providers can be supplied three ways: programmatic instances (`WithProvider`, `W
 
 - **Don't duplicate runtime interfaces** — use `tools.Executor`, not a parallel dispatch mechanism
 - **Don't import `sdk/` from `runtime/`** — if both need it, it belongs in runtime
-- **Don't cache pipelines across Send() calls** — the per-Send rebuild is intentional
+- **Don't assume `Send()` rebuilds the pipeline** — it is built once at `Open()`, so anything that must see post-Open state needs a live accessor, not a build-time copy
 - **Don't execute workflow transitions immediately** — use the deferred pattern via `TransitionExecutor.Pending()`/`CommitPending()`
 
 ## Testing
