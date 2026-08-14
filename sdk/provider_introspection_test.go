@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +52,38 @@ func TestRegisteredProviderTypes_CompletionRolesShareOneRegistry(t *testing.T) {
 	got := RegisteredProviderTypes()
 	assert.Equal(t, got[pkgconfig.RoleLLM], got[pkgconfig.RoleImage])
 	assert.Equal(t, got[pkgconfig.RoleLLM], got[pkgconfig.RoleVideo])
+}
+
+// The Bedrock embedding provider (#1300) is only reachable if the SDK links it
+// in. Without the blank import it exists but no SDK caller can construct it,
+// which is the exact shape of the gap #1774 reported.
+func TestRegisteredProviderTypes_IncludesBedrockEmbedding(t *testing.T) {
+	assert.Contains(t, RegisteredProviderTypes()[pkgconfig.RoleEmbedding], "bedrock")
+}
+
+// The binding #1774 reported as broken must now validate — and the platform
+// block must be what makes the difference. Bedrock has no API-key mode, so a
+// spec without one has no SigV4 signer and every request would go unsigned;
+// accepting it would be worse than the original error.
+func TestValidateOptions_AcceptsBedrockEmbeddingOnlyWithPlatform(t *testing.T) {
+	withPlatform := func(p *pkgconfig.PlatformConfig) []Option {
+		return []Option{
+			WithContextWindow(10),
+			WithStateStore(statestore.NewMemoryStore()),
+			WithEmbeddingProvider(ProviderSpec{
+				ID: "embed", Type: "bedrock",
+				Model: "amazon.titan-embed-text-v2:0", Platform: p,
+			}),
+		}
+	}
+
+	assert.NoError(t,
+		ValidateOptions(withPlatform(&pkgconfig.PlatformConfig{Type: "bedrock", Region: "us-west-2"})...),
+		"a Bedrock embedding binding must validate")
+
+	err := ValidateOptions(withPlatform(nil)...)
+	require.Error(t, err, "without a platform block there is no SigV4 signer")
+	assert.Contains(t, err.Error(), "platform")
 }
 
 func TestRegisteredProviderTypes_SortedPerRole(t *testing.T) {
