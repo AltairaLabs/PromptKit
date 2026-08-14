@@ -15,6 +15,9 @@ const (
 	platformBedrock     = "bedrock"
 	platformVertex      = "vertex"
 	embeddingTypeOpenAI = "openai"
+	// embeddingTypeBedrock speaks Bedrock's per-family InvokeModel bodies
+	// (Titan/Cohere) — see runtime/providers/bedrock.
+	embeddingTypeBedrock = "bedrock"
 )
 
 // EmbeddingTransport is the resolved HTTP wiring for a vendor embedding
@@ -80,13 +83,46 @@ func buildPlatformEmbeddingClient(
 			apiVersion: azureEmbeddingAPIVersion(pc),
 		}
 		return &http.Client{Transport: rt}, credentials.AzureOpenAIEndpoint(pc.Endpoint, model), nil
-	case platformBedrock, platformVertex:
+	case platformBedrock:
+		return buildBedrockEmbeddingClient(cred, providerType, pc)
+	case platformVertex:
 		return nil, "", fmt.Errorf(
 			"embedding platform %q is not yet supported: it requires a platform-native embedding "+
-				"provider type (Titan/Vertex body shapes), which is not implemented", platform)
+				"provider type (Vertex body shapes), which is not implemented", platform)
 	default:
 		return nil, "", fmt.Errorf("unsupported embedding platform: %q", platform)
 	}
+}
+
+// buildBedrockEmbeddingClient wires SigV4 auth and resolves the Bedrock
+// runtime host. Unlike Azure it returns the bare host, not a per-model URL:
+// Bedrock carries the model in the request path, so the provider appends
+// /model/{modelId}/invoke and a per-request model override still works.
+func buildBedrockEmbeddingClient(
+	cred credentials.Credential, providerType string, pc *PlatformConfig,
+) (*http.Client, string, error) {
+	if providerType != embeddingTypeBedrock {
+		return nil, "", fmt.Errorf(
+			"embedding platform %q requires the platform-native provider type %q (Titan/Cohere "+
+				"body shapes), got %q", platformBedrock, embeddingTypeBedrock, providerType)
+	}
+
+	baseURL := ""
+	if pc != nil {
+		baseURL = pc.Endpoint
+		if baseURL == "" && pc.Region != "" {
+			baseURL = credentials.BedrockEndpoint(pc.Region)
+		}
+	}
+	if baseURL == "" {
+		return nil, "", fmt.Errorf(
+			"embedding platform %q requires platform.region (or an explicit platform.endpoint)",
+			platformBedrock)
+	}
+
+	return &http.Client{
+		Transport: &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+	}, baseURL, nil
 }
 
 // azureEmbeddingAPIVersion mirrors the chat path: prefer an explicit

@@ -172,16 +172,103 @@ func TestResolveEmbeddingTransport_AzureRequiresOpenAIWire(t *testing.T) {
 	}
 }
 
-func TestResolveEmbeddingTransport_BedrockVertexGated(t *testing.T) {
-	for _, p := range []string{"bedrock", "vertex"} {
-		_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
-			Type:           "openai",
-			Platform:       p,
-			PlatformConfig: &PlatformConfig{Type: p},
-			Credential:     &fakeCred{},
-		})
-		if err == nil || !strings.Contains(err.Error(), "not yet supported") {
-			t.Fatalf("platform %s: err = %v, want 'not yet supported'", p, err)
-		}
+func TestResolveEmbeddingTransport_VertexStillGated(t *testing.T) {
+	_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "openai",
+		Platform:       "vertex",
+		PlatformConfig: &PlatformConfig{Type: "vertex"},
+		Credential:     &fakeCred{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not yet supported") {
+		t.Fatalf("err = %v, want 'not yet supported'", err)
+	}
+}
+
+// Bedrock speaks its own per-model wire format, so an OpenAI-format provider
+// cannot be hosted on it. The error must point at the fix rather than repeat
+// the old blanket "not yet supported".
+func TestResolveEmbeddingTransport_BedrockRejectsOpenAIType(t *testing.T) {
+	_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "openai",
+		Platform:       "bedrock",
+		PlatformConfig: &PlatformConfig{Type: "bedrock", Region: "us-west-2"},
+		Credential:     &fakeCred{},
+	})
+	if err == nil {
+		t.Fatal("err = nil, want a type guard error")
+	}
+	if !strings.Contains(err.Error(), "bedrock") {
+		t.Fatalf("err = %v, want the error to name the required provider type", err)
+	}
+}
+
+func TestResolveEmbeddingTransport_BedrockResolvesRuntimeHost(t *testing.T) {
+	tr, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "bedrock",
+		Model:          "amazon.titan-embed-text-v2:0",
+		Platform:       "bedrock",
+		PlatformConfig: &PlatformConfig{Type: "bedrock", Region: "eu-central-1"},
+		Credential:     &fakeCred{},
+	})
+	if err != nil {
+		t.Fatalf("ResolveEmbeddingTransport: %v", err)
+	}
+	if want := "https://bedrock-runtime.eu-central-1.amazonaws.com"; tr.BaseURL != want {
+		t.Errorf("BaseURL = %q, want %q", tr.BaseURL, want)
+	}
+	// The host, not a per-model URL: the provider appends /model/{id}/invoke so
+	// a per-request model override retargets correctly.
+	if strings.Contains(tr.BaseURL, "invoke") {
+		t.Errorf("BaseURL = %q, want the bare runtime host", tr.BaseURL)
+	}
+	if !tr.PlatformAuth || tr.Client == nil {
+		t.Errorf("PlatformAuth = %v, Client = %v, want platform-auth wiring", tr.PlatformAuth, tr.Client)
+	}
+	if tr.APIKey != "" {
+		t.Errorf("APIKey = %q, want empty — Bedrock has no API-key mode", tr.APIKey)
+	}
+}
+
+// Without a region there is no host to build, and defaulting one silently
+// would send traffic to the wrong account's region.
+func TestResolveEmbeddingTransport_BedrockRequiresRegion(t *testing.T) {
+	_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "bedrock",
+		Platform:       "bedrock",
+		PlatformConfig: &PlatformConfig{Type: "bedrock"},
+		Credential:     &fakeCred{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "region") {
+		t.Fatalf("err = %v, want a region requirement error", err)
+	}
+}
+
+// The credential must be applied to embedding requests, or they go unsigned
+// and Bedrock rejects them.
+func TestResolveEmbeddingTransport_BedrockAppliesCredential(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cred := &fakeCred{}
+	tr, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "bedrock",
+		Platform:       "bedrock",
+		PlatformConfig: &PlatformConfig{Type: "bedrock", Region: "us-west-2"},
+		Credential:     cred,
+	})
+	if err != nil {
+		t.Fatalf("ResolveEmbeddingTransport: %v", err)
+	}
+
+	resp, err := tr.Client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if !cred.applied {
+		t.Error("credential was not applied to the request")
 	}
 }
