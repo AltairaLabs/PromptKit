@@ -83,6 +83,12 @@ jobs:
         run: |
           rm -f docs/package-lock.json
           make docs-install
+        env:
+          # @altairalabs/brand (the masterbrand family bar) is a private
+          # GitHub Packages dependency; docs/.npmrc reads this. secrets.GITHUB_TOKEN
+          # cannot be used — it is scoped to this repo and cannot read another
+          # repository's packages. Needs `read:packages`.
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
         
       - name: Build documentation
         run: make docs-build
