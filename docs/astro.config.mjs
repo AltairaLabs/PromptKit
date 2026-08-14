@@ -62,54 +62,10 @@ const referenceRedirects = {
   '/sdk/reference/variables/': '/runtime/reference/variables/',
 };
 
-// The Arena deploy-adapter docs used to be fetched from the adapter repos at
-// build time and published here as well as from `AltairaLabs/promptarena`,
-// which owns Arena's docs and is now their sole publisher (PromptKit#1773).
-// These are every `/arena/` URL this site served before the fetch was dropped;
-// each has a live 1:1 counterpart on promptarena.altairalabs.ai. Astro renders
-// each as a meta-refresh page carrying `robots: noindex` and a canonical link
-// to the destination, so the duplicate search listings collapse onto the
-// surviving copy rather than 404ing.
-const ARENA_DEPLOY_PAGES = [
-  'explanation/deploy/agentcore/overview',
-  'explanation/deploy/agentcore/resource-lifecycle',
-  'explanation/deploy/agentcore/security',
-  'explanation/deploy/omnia/agent-anatomy',
-  'explanation/deploy/omnia/configuration-mapping',
-  'explanation/deploy/omnia/overview',
-  'explanation/deploy/omnia/resource-lifecycle',
-  'explanation/deploy/omnia/security',
-  'how-to/deploy/agentcore/configure',
-  'how-to/deploy/agentcore/dry-run',
-  'how-to/deploy/agentcore/observability',
-  'how-to/deploy/agentcore/tagging',
-  'how-to/deploy/omnia/configure',
-  'how-to/deploy/omnia/dry-run',
-  'how-to/deploy/omnia/labels',
-  'how-to/deploy/omnia/login',
-  'reference/deploy/agentcore/configuration',
-  'reference/deploy/agentcore/env-vars',
-  'reference/deploy/agentcore/resource-types',
-  'reference/deploy/agentcore/runtime-protocols',
-  'reference/deploy/omnia/configuration',
-  'reference/deploy/omnia/resource-types',
-  'tutorials/deploy/agentcore/first-deployment',
-  'tutorials/deploy/agentcore/multi-agent',
-  'tutorials/deploy/omnia/first-deployment',
-  'tutorials/deploy/omnia/multi-agent',
-];
-
-const arenaDeployRedirects = Object.fromEntries(
-  ARENA_DEPLOY_PAGES.map((page) => [
-    `/arena/${page}/`,
-    `https://promptarena.altairalabs.ai/arena/${page}/`,
-  ]),
-);
-
 // https://astro.build/config
 export default defineConfig({
   site: 'https://promptkit.altairalabs.ai',
-  redirects: { ...howToRedirects, ...referenceRedirects, ...arenaDeployRedirects },
+  redirects: { ...howToRedirects, ...referenceRedirects },
   integrations: [
     d2(),
     starlight({
