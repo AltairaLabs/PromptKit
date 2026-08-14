@@ -44,9 +44,7 @@ The built site will be in `dist/`
 docs-new/
 ├── src/
 │   ├── content/          # Content collections (markdown files)
-│   │   ├── arena/        # PromptArena documentation
 │   │   ├── sdk/          # SDK documentation
-│   │   ├── packc/        # PackC documentation
 │   │   ├── runtime/      # Runtime documentation
 │   │   ├── concepts/     # Cross-cutting concepts
 │   │   ├── examples/     # Generated examples

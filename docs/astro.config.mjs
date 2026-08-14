@@ -1,29 +1,7 @@
 // @ts-check
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import d2 from 'astro-d2';
-
-const DOCS_CONTENT = fileURLToPath(new URL('./src/content/docs/', import.meta.url));
-
-// Arena "Deploy" docs are fetched from external adapter repos at build time
-// (scripts/fetch-adapter-docs.mjs) and can be skipped for fast local dev via
-// SKIP_ADAPTER_DOCS=1. Only wire a Deploy group into a Diátaxis section when its
-// fetched content is actually present, so a skipped/offline build doesn't fail
-// on a missing autogenerate directory.
-function deployGroups(section) {
-  const subs = [
-    ['AgentCore', 'agentcore'],
-    ['Omnia', 'omnia'],
-  ]
-    .filter(([, name]) => existsSync(`${DOCS_CONTENT}arena/${section}/deploy/${name}`))
-    .map(([label, name]) => ({
-      label,
-      items: [{ autogenerate: { directory: `arena/${section}/deploy/${name}` } }],
-    }));
-  return subs.length ? [{ label: 'Deploy', items: subs }] : [];
-}
 
 // Redirects for How-To pages that moved into themed subdirectories (see
 // docs/local-backlog/2026-07-05-docs-navigation-taxonomy-design.md). In-repo
@@ -84,10 +62,54 @@ const referenceRedirects = {
   '/sdk/reference/variables/': '/runtime/reference/variables/',
 };
 
+// The Arena deploy-adapter docs used to be fetched from the adapter repos at
+// build time and published here as well as from `AltairaLabs/promptarena`,
+// which owns Arena's docs and is now their sole publisher (PromptKit#1773).
+// These are every `/arena/` URL this site served before the fetch was dropped;
+// each has a live 1:1 counterpart on promptarena.altairalabs.ai. Astro renders
+// each as a meta-refresh page carrying `robots: noindex` and a canonical link
+// to the destination, so the duplicate search listings collapse onto the
+// surviving copy rather than 404ing.
+const ARENA_DEPLOY_PAGES = [
+  'explanation/deploy/agentcore/overview',
+  'explanation/deploy/agentcore/resource-lifecycle',
+  'explanation/deploy/agentcore/security',
+  'explanation/deploy/omnia/agent-anatomy',
+  'explanation/deploy/omnia/configuration-mapping',
+  'explanation/deploy/omnia/overview',
+  'explanation/deploy/omnia/resource-lifecycle',
+  'explanation/deploy/omnia/security',
+  'how-to/deploy/agentcore/configure',
+  'how-to/deploy/agentcore/dry-run',
+  'how-to/deploy/agentcore/observability',
+  'how-to/deploy/agentcore/tagging',
+  'how-to/deploy/omnia/configure',
+  'how-to/deploy/omnia/dry-run',
+  'how-to/deploy/omnia/labels',
+  'how-to/deploy/omnia/login',
+  'reference/deploy/agentcore/configuration',
+  'reference/deploy/agentcore/env-vars',
+  'reference/deploy/agentcore/resource-types',
+  'reference/deploy/agentcore/runtime-protocols',
+  'reference/deploy/omnia/configuration',
+  'reference/deploy/omnia/resource-types',
+  'tutorials/deploy/agentcore/first-deployment',
+  'tutorials/deploy/agentcore/multi-agent',
+  'tutorials/deploy/omnia/first-deployment',
+  'tutorials/deploy/omnia/multi-agent',
+];
+
+const arenaDeployRedirects = Object.fromEntries(
+  ARENA_DEPLOY_PAGES.map((page) => [
+    `/arena/${page}/`,
+    `https://promptarena.altairalabs.ai/arena/${page}/`,
+  ]),
+);
+
 // https://astro.build/config
 export default defineConfig({
   site: 'https://promptkit.altairalabs.ai',
-  redirects: { ...howToRedirects, ...referenceRedirects },
+  redirects: { ...howToRedirects, ...referenceRedirects, ...arenaDeployRedirects },
   integrations: [
     d2(),
     starlight({
@@ -135,9 +157,9 @@ export default defineConfig({
       ],
       // --- Diátaxis-first navigation ---
       // Top level is the four Diátaxis quadrants (Tutorials / How-To / Reference
-      // / Explanation), with product (SDK / Runtime / Deploy) as the second axis.
-      // Generated/fetched sections (sdk/examples, arena/**/deploy, api) wire in
-      // via autogenerate; committed How-To guides are grouped by theme subdir.
+      // / Explanation), with product (SDK / Runtime) as the second axis.
+      // Generated sections (sdk/examples, api) wire in via autogenerate;
+      // committed How-To guides are grouped by theme subdir.
       // Starlight (this version) requires `autogenerate` to live inside an
       // `items` array on a labeled group, not as a sibling of `label`.
       sidebar: [
@@ -160,7 +182,6 @@ export default defineConfig({
               ],
             },
             { label: 'Runtime', items: [{ autogenerate: { directory: 'runtime/tutorials' } }] },
-            ...deployGroups('tutorials'),
           ],
         },
         {
@@ -192,7 +213,6 @@ export default defineConfig({
                 { label: 'A2A', items: [{ autogenerate: { directory: 'runtime/how-to/a2a' } }] },
               ],
             },
-            ...deployGroups('how-to'),
           ],
         },
         {
@@ -201,7 +221,6 @@ export default defineConfig({
           items: [
             { label: 'SDK', items: [{ autogenerate: { directory: 'sdk/reference' } }] },
             { label: 'Runtime', items: [{ autogenerate: { directory: 'runtime/reference' } }] },
-            ...deployGroups('reference'),
             { label: 'Schemas & Checks', items: [{ autogenerate: { directory: 'reference' } }] },
             { label: 'API', items: [{ autogenerate: { directory: 'api' } }] },
           ],
@@ -214,7 +233,6 @@ export default defineConfig({
             { label: 'Architecture', items: [{ autogenerate: { directory: 'architecture' } }] },
             { label: 'SDK Internals', items: [{ autogenerate: { directory: 'sdk/explanation' } }] },
             { label: 'Runtime Internals', items: [{ autogenerate: { directory: 'runtime/explanation' } }] },
-            ...deployGroups('explanation'),
           ],
         },
         {
