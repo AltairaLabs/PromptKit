@@ -29,6 +29,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/imagen"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/vertex"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"

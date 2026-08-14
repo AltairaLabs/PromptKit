@@ -61,6 +61,12 @@ func TestRegisteredProviderTypes_IncludesBedrockEmbedding(t *testing.T) {
 	assert.Contains(t, RegisteredProviderTypes()[pkgconfig.RoleEmbedding], "bedrock")
 }
 
+// Same for Vertex (#1301): the provider is unreachable from the SDK without the
+// blank import, so the registration is only real if this passes.
+func TestRegisteredProviderTypes_IncludesVertexEmbedding(t *testing.T) {
+	assert.Contains(t, RegisteredProviderTypes()[pkgconfig.RoleEmbedding], "vertex")
+}
+
 // The binding #1774 reported as broken must now validate — and the platform
 // block must be what makes the difference. Bedrock has no API-key mode, so a
 // spec without one has no SigV4 signer and every request would go unsigned;

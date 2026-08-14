@@ -17,7 +17,6 @@ package bedrock
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -69,31 +68,6 @@ type EmbeddingProvider struct {
 // EmbeddingOption configures the EmbeddingProvider.
 type EmbeddingOption func(*EmbeddingProvider)
 
-// WithModel sets the Bedrock model id (e.g. amazon.titan-embed-text-v2:0).
-func WithModel(model string) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.ProviderModel = model }
-}
-
-// WithBaseURL overrides the Bedrock runtime host. The provider appends
-// /model/{modelId}/invoke per request.
-func WithBaseURL(url string) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.BaseURL = url }
-}
-
-// WithHTTPClient sets the HTTP client. For real use this must be the
-// SigV4-applying client from providers.ResolveEmbeddingTransport.
-func WithHTTPClient(client *http.Client) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.HTTPClient = client }
-}
-
-// WithDimensions overrides the reported embedding dimensionality.
-func WithDimensions(dims int) EmbeddingOption {
-	return func(p *EmbeddingProvider) {
-		p.Dimensions = dims
-		p.dimsExplicit = true
-	}
-}
-
 // WithInputType sets Cohere's input_type ("search_document" or
 // "search_query"). Ignored by Titan, which has no equivalent.
 func WithInputType(inputType string) EmbeddingOption {
@@ -105,6 +79,11 @@ func WithInputType(inputType string) EmbeddingOption {
 // use; the flag exists for symmetry with the other embedding providers.
 func WithPlatformAuth() EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.PlatformAuth = true }
+}
+
+// WithWiring applies the transport-derived settings the factory resolved.
+func WithWiring(w providers.EmbeddingWiring) EmbeddingOption {
+	return func(p *EmbeddingProvider) { p.dimsExplicit = p.ApplyWiring(w) }
 }
 
 // NewEmbeddingProvider creates a Bedrock embedding provider. It fails when the

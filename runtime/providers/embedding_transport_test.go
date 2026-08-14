@@ -172,15 +172,88 @@ func TestResolveEmbeddingTransport_AzureRequiresOpenAIWire(t *testing.T) {
 	}
 }
 
-func TestResolveEmbeddingTransport_VertexStillGated(t *testing.T) {
+// Vertex is no longer gated (#1301); it now requires its own provider type,
+// like Bedrock, because :predict bodies are not OpenAI-shaped. This replaces
+// the old "still gated" test.
+func TestResolveEmbeddingTransport_VertexRejectsOpenAIType(t *testing.T) {
 	_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
 		Type:           "openai",
 		Platform:       "vertex",
-		PlatformConfig: &PlatformConfig{Type: "vertex"},
+		PlatformConfig: &PlatformConfig{Type: "vertex", Project: "p", Region: "us-central1"},
 		Credential:     &fakeCred{},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not yet supported") {
-		t.Fatalf("err = %v, want 'not yet supported'", err)
+	if err == nil || !strings.Contains(err.Error(), `platform-native provider type "vertex"`) {
+		t.Fatalf("err = %v, want a pointer at the vertex provider type", err)
+	}
+}
+
+// The resolved base URL must be the google-publisher models collection: the
+// anthropic-shaped chat endpoint is structurally valid and only fails when a
+// request is made, so getting this wrong is invisible until runtime.
+func TestResolveEmbeddingTransport_VertexResolvesGooglePublisherEndpoint(t *testing.T) {
+	tr, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:           "vertex",
+		Platform:       "vertex",
+		PlatformConfig: &PlatformConfig{Type: "vertex", Project: "my-proj", Region: "us-central1"},
+		Credential:     &fakeCred{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "https://us-central1-aiplatform.googleapis.com/v1/projects/my-proj/locations/us-central1/publishers/google/models"
+	if tr.BaseURL != want {
+		t.Fatalf("BaseURL = %q, want %q", tr.BaseURL, want)
+	}
+	if !tr.PlatformAuth {
+		t.Fatal("PlatformAuth = false, want true — Vertex has no API-key mode")
+	}
+	if tr.Client == nil {
+		t.Fatal("Client = nil, want a credential-applying client")
+	}
+}
+
+// Vertex URLs embed the project and region, so neither can be defaulted.
+func TestResolveEmbeddingTransport_VertexRequiresProjectAndRegion(t *testing.T) {
+	tests := []struct {
+		name string
+		pc   *PlatformConfig
+		want string
+	}{
+		{"no project", &PlatformConfig{Type: "vertex", Region: "us-central1"}, "platform.project"},
+		{"no region", &PlatformConfig{Type: "vertex", Project: "p"}, "platform.region"},
+		{"no config", nil, "platform.project"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+				Type:           "vertex",
+				Platform:       "vertex",
+				PlatformConfig: tc.pc,
+				Credential:     &fakeCred{},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want mention of %s", err, tc.want)
+			}
+		})
+	}
+}
+
+// An explicit endpoint wins, for private/regional endpoints and for tests.
+func TestResolveEmbeddingTransport_VertexHonorsExplicitEndpoint(t *testing.T) {
+	tr, err := ResolveEmbeddingTransport(EmbeddingProviderSpec{
+		Type:     "vertex",
+		Platform: "vertex",
+		PlatformConfig: &PlatformConfig{
+			Type: "vertex", Project: "p", Region: "us-central1",
+			Endpoint: "https://custom.example/v1/models",
+		},
+		Credential: &fakeCred{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tr.BaseURL != "https://custom.example/v1/models" {
+		t.Fatalf("BaseURL = %q, want the explicit endpoint", tr.BaseURL)
 	}
 }
 
