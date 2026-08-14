@@ -2,7 +2,6 @@ package guardrails
 
 import (
 	"context"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -236,13 +235,15 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 ) hooks.Decision {
 	params, thresholds := a.evalParams()
 
-	a.emitStarted()
-	start := time.Now()
+	lc := lifecycle{
+		emitter: a.emitter, name: a.evalType, valType: a.evalType, direction: a.direction,
+	}
+	start := lc.start()
 
 	result, err := a.handler.Eval(ctx, evalCtx, params)
 	if err != nil {
-		// No passed/failed emitted here: the decision is a denial, so the
-		// pipeline stage emits the failure that closes the span.
+		// No passed emitted here: the decision is a denial, so the pipeline
+		// stage emits the failure that closes the span.
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
@@ -253,35 +254,12 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 		return a.enforced(result)
 	}
 
-	a.emitPassed(time.Since(start), result)
+	var score *float64
+	if result != nil {
+		score = result.Score
+	}
+	lc.pass(start, score)
 	return hooks.Allow
-}
-
-// emitStarted opens the validation span for this guardrail.
-func (a *GuardrailHookAdapter) emitStarted() {
-	if a.emitter == nil {
-		return
-	}
-	a.emitter.ValidationStarted(a.evalType, a.evalType)
-}
-
-// emitPassed closes it for an evaluation that did not trigger. Without this the
-// metrics have no denominator: firings are countable but evaluations are not,
-// so a guardrail's firing rate cannot be computed.
-func (a *GuardrailHookAdapter) emitPassed(duration time.Duration, result *evals.EvalResult) {
-	if a.emitter == nil {
-		return
-	}
-	data := &events.ValidationEventData{
-		ValidatorName: a.evalType,
-		ValidatorType: a.evalType,
-		Direction:     a.direction,
-		Duration:      duration,
-	}
-	if result != nil && result.Score != nil {
-		data.Score = *result.Score
-	}
-	a.emitter.GuardrailResult(data)
 }
 
 // OnChunk evaluates streaming chunks via StreamableEvalHandler.EvalPartial.
