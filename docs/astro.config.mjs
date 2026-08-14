@@ -74,7 +74,7 @@ export default defineConfig({
         src: './public/atlas/logo-promptkit.svg',
         alt: 'PromptKit',
       },
-      customCss: ['./src/styles/custom.css'],
+      customCss: ['@altairalabs/brand/family-bar-starlight.css', './src/styles/custom.css'],
       // Atlas-themed code blocks: a distinct ink-void surface, mono code font,
       // hairline frame with a soft shadow, and a violet active-tab indicator —
       // so docs code blocks read as first-class, not the plain default.
