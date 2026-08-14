@@ -48,6 +48,12 @@ type Config struct {
 	// ToolPolicy for tool usage constraints (optional)
 	ToolPolicy *rtpipeline.ToolPolicy
 
+	// WorkflowStateResolver applies workflow state changes between tool-loop
+	// rounds, so a transition's destination state generates the next round
+	// rather than the turn ending with the origin state in control. Optional;
+	// nil for non-workflow conversations.
+	WorkflowStateResolver stage.WorkflowStateResolver
+
 	// TokenBudget for context management (0 = no limit)
 	TokenBudget int
 
@@ -547,7 +553,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
 			providerConfig.Compactor = buildCompactionStrategy(cfg)
 		}
-		return []stage.Stage{stage.NewProviderStageWithTurnState(
+		providerStage := stage.NewProviderStageWithTurnState(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
@@ -555,7 +561,11 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			cfg.EventEmitter,
 			cfg.HookRegistry,
 			turnState,
-		)}, nil
+		)
+		if cfg.WorkflowStateResolver != nil {
+			providerStage.SetWorkflowStateResolver(cfg.WorkflowStateResolver)
+		}
+		return []stage.Stage{providerStage}, nil
 	}
 	return nil, nil
 }

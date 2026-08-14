@@ -113,6 +113,13 @@ type Conversation struct {
 	toolRegistry   *tools.Registry       // Registry for tools (pre-populated from pack)
 	serverExecutor *tools.ServerExecutor // Long-running server executor (may be nil)
 
+	// workflowResolver lets the provider tool loop apply workflow state
+	// changes mid-turn. The pipeline is built against this holder before the
+	// real resolver exists (it needs the TransitionExecutor, created after
+	// Open returns); WorkflowConversation populates it in
+	// registerWorkflowTools. Empty for plain conversations.
+	workflowResolver *workflowResolverHolder
+
 	// Configuration from options (includes provider)
 	config *config
 
@@ -540,6 +547,7 @@ func (c *Conversation) buildPipelineConfig(
 		Provider:              c.config.getAgentProvider(),
 		ToolRegistry:          toolRegistry,
 		PromptRegistry:        c.promptRegistry,
+		WorkflowStateResolver: c.workflowResolver,
 		TaskType:              c.promptName,
 		Variables:             vars,
 		VariableProviders:     appendSendScopedProvider(c.config.variableProviders), // dynamic + per-send resolution
@@ -1191,11 +1199,13 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	// Create the forked conversation
 	forkPendingStore, forkOwnsPending := newPendingStore(c.config)
 	fork := &Conversation{
-		pack:             c.pack,
-		prompt:           c.prompt,
-		promptName:       c.promptName,
-		promptRegistry:   c.promptRegistry,
-		toolRegistry:     forkRegistry,
+		pack:           c.pack,
+		prompt:         c.prompt,
+		promptName:     c.promptName,
+		promptRegistry: c.promptRegistry,
+		toolRegistry:   forkRegistry,
+		// A fork gets its own holder: workflow state is not shared across forks.
+		workflowResolver: &workflowResolverHolder{},
 		config:           c.config,
 		mode:             c.mode,
 		handlers:         handlers,
