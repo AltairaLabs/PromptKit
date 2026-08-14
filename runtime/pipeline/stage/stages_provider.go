@@ -185,6 +185,11 @@ func NewProviderStageWithTurnState(
 	if config == nil {
 		config = &ProviderConfig{}
 	}
+	// Hooks that emit their own events (guardrails) cannot build an emitter for
+	// themselves — they are compiled from the pack before the conversation, and
+	// therefore its IDs, exist. This constructor is the one place holding both,
+	// so joining them here covers every consumer at once.
+	hookRegistry.SetEmitter(emitter)
 	return &ProviderStage{
 		BaseStage:    NewBaseStage("provider", StageTypeGenerate),
 		provider:     provider,

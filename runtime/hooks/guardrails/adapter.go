@@ -2,8 +2,10 @@ package guardrails
 
 import (
 	"context"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -54,13 +56,23 @@ type GuardrailHookAdapter struct {
 	params    map[string]any
 	direction string // "input" | "output" | "both"
 	message   string // User-facing message when content is blocked
+
+	// emitter reports the validation lifecycle. Optional: a guardrail built
+	// without one behaves exactly as before, silently.
+	emitter *events.Emitter
 }
 
 // Compile-time interface checks.
 var (
 	_ hooks.ProviderHook     = (*GuardrailHookAdapter)(nil)
 	_ hooks.ChunkInterceptor = (*GuardrailHookAdapter)(nil)
+	_ hooks.EmitterAware     = (*GuardrailHookAdapter)(nil)
 )
+
+// SetEmitter implements hooks.EmitterAware. The provider stage calls this with
+// the conversation's emitter, which is the only path by which a pack-compiled
+// guardrail becomes observable — WithEmitter covers direct construction.
+func (a *GuardrailHookAdapter) SetEmitter(e *events.Emitter) { a.emitter = e }
 
 // Name returns the eval type identifier for this guardrail.
 func (a *GuardrailHookAdapter) Name() string { return a.evalType }
@@ -148,19 +160,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 		msgs, resp.Message.GetContent(), metadata,
 	)
 
-	params, thresholds := a.evalParams()
-
-	result, err := a.handler.Eval(ctx, evalCtx, params)
-	if err != nil {
-		return hooks.Deny("guardrail error: " + err.Error())
-	}
-
-	if thresholds.Triggered(result) {
-		a.enforce(&resp.Message, params)
-		return a.enforced(result)
-	}
-
-	return hooks.Allow
+	return a.evaluateMessage(ctx, evalCtx, &resp.Message)
 }
 
 // evalParams returns the params the inner handler should see, plus the
@@ -203,21 +203,85 @@ func stripDirection(params map[string]any) map[string]any {
 }
 
 // evaluate runs the handler and converts the EvalResult to a Decision.
+// evaluate runs the handler and maps its result to a hook decision. It is the
+// single choke point for both directions, so it is also where the validation
+// lifecycle is emitted.
+//
+// The adapter emits started and passed only; ProviderStage.recordGuardrailFiring
+// owns validation.failed, because it alone knows the enforcement outcome and it
+// also covers func-backed guardrails, which are not adapters. Emitting the
+// failure here as well would double-count every firing.
+//
+// started matters more than it looks: it is the only place the OTel listener
+// creates the validation span and sets promptkit.guardrail=true. Without it an
+// end arrives for a span that was never started, is buffered in pendingEnds and
+// never exported — so a firing could raise a metric while leaving traces empty
+// (#1771).
 func (a *GuardrailHookAdapter) evaluate(
 	ctx context.Context, evalCtx *evals.EvalContext,
 ) hooks.Decision {
+	// nil target: the input direction judges a message the pipeline replaces
+	// wholesale when blocked, so there is nothing to rewrite in place.
+	return a.evaluateMessage(ctx, evalCtx, nil)
+}
+
+// evaluateMessage is the shared body of both directions. enforceTarget is the
+// message to rewrite when the guardrail triggers, or nil when there is none.
+//
+// AfterCall used to carry its own copy of this logic, which is how the two
+// directions could drift; anything added to one — this emission, for a start —
+// silently skipped the other.
+func (a *GuardrailHookAdapter) evaluateMessage(
+	ctx context.Context, evalCtx *evals.EvalContext, enforceTarget *types.Message,
+) hooks.Decision {
 	params, thresholds := a.evalParams()
+
+	a.emitStarted()
+	start := time.Now()
 
 	result, err := a.handler.Eval(ctx, evalCtx, params)
 	if err != nil {
+		// No passed/failed emitted here: the decision is a denial, so the
+		// pipeline stage emits the failure that closes the span.
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
 	if thresholds.Triggered(result) {
+		if enforceTarget != nil {
+			a.enforce(enforceTarget, params)
+		}
 		return a.enforced(result)
 	}
 
+	a.emitPassed(time.Since(start), result)
 	return hooks.Allow
+}
+
+// emitStarted opens the validation span for this guardrail.
+func (a *GuardrailHookAdapter) emitStarted() {
+	if a.emitter == nil {
+		return
+	}
+	a.emitter.ValidationStarted(a.evalType, a.evalType)
+}
+
+// emitPassed closes it for an evaluation that did not trigger. Without this the
+// metrics have no denominator: firings are countable but evaluations are not,
+// so a guardrail's firing rate cannot be computed.
+func (a *GuardrailHookAdapter) emitPassed(duration time.Duration, result *evals.EvalResult) {
+	if a.emitter == nil {
+		return
+	}
+	data := &events.ValidationEventData{
+		ValidatorName: a.evalType,
+		ValidatorType: a.evalType,
+		Direction:     a.direction,
+		Duration:      duration,
+	}
+	if result != nil && result.Score != nil {
+		data.Score = *result.Score
+	}
+	a.emitter.GuardrailResult(data)
 }
 
 // OnChunk evaluates streaming chunks via StreamableEvalHandler.EvalPartial.

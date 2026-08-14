@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -25,6 +26,16 @@ type GuardrailOption func(*GuardrailHookAdapter)
 // WithMessage sets the user-facing message shown when content is blocked.
 func WithMessage(msg string) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.message = msg }
+}
+
+// WithEmitter gives the guardrail an event emitter so it reports its validation
+// lifecycle — started, and passed when it does not trigger. Firings are emitted
+// by the pipeline stage, which knows the enforcement outcome and also covers
+// func-backed guardrails; see GuardrailHookAdapter.evaluate.
+//
+// Optional: a guardrail built without an emitter is silent, as before.
+func WithEmitter(emitter *events.Emitter) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.emitter = emitter }
 }
 
 // NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
