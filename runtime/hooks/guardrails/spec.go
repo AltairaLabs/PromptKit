@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
@@ -111,12 +112,31 @@ type funcGuardrail struct {
 	name   string
 	input  func(context.Context, *hooks.InputRequest) hooks.Decision
 	output func(context.Context, *hooks.OutputRequest) hooks.Decision
+
+	// emitter reports the validation lifecycle. Supplied by the provider stage
+	// via SetEmitter; nil until then, and nil forever for direct construction.
+	emitter *events.Emitter
 }
 
-var _ hooks.ProviderHook = (*funcGuardrail)(nil)
+var (
+	_ hooks.ProviderHook = (*funcGuardrail)(nil)
+	_ hooks.EmitterAware = (*funcGuardrail)(nil)
+)
 
 // Name returns the guardrail's declared name.
 func (g *funcGuardrail) Name() string { return g.name }
+
+// SetEmitter implements hooks.EmitterAware.
+func (g *funcGuardrail) SetEmitter(e *events.Emitter) { g.emitter = e }
+
+// lifecycleFor builds the emitter pair for one direction. A func guardrail has
+// no eval type, so it reports "func" — the listener maps that to
+// promptkit.eval.type, where the caller's name would be redundant.
+func (g *funcGuardrail) lifecycleFor(direction string) lifecycle {
+	return lifecycle{
+		emitter: g.emitter, name: g.name, valType: funcValidatorType, direction: direction,
+	}
+}
 
 // BeforeCall runs the input func, if any, when the last message is from the
 // user. Tool-loop rounds — where the last message is a tool result — are
@@ -138,7 +158,13 @@ func (g *funcGuardrail) BeforeCall(
 		Messages:  req.Messages,
 		Round:     req.Round,
 	}
+	lc := g.lifecycleFor(DirectionInput)
+	start := lc.start()
+
 	d := g.input(ctx, in)
+	if d.Allow {
+		lc.pass(start, nil)
+	}
 	if !d.Allow {
 		req.Replacement = in.Replacement
 		if req.Replacement == "" {
@@ -155,9 +181,17 @@ func (g *funcGuardrail) AfterCall(
 	if g.output == nil || resp == nil {
 		return hooks.Allow
 	}
-	return g.output(ctx, &hooks.OutputRequest{
+
+	lc := g.lifecycleFor(DirectionOutput)
+	start := lc.start()
+
+	d := g.output(ctx, &hooks.OutputRequest{
 		Content: resp.Message.GetContent(),
 		Message: &resp.Message,
 		Round:   resp.Round,
 	})
+	if d.Allow {
+		lc.pass(start, nil)
+	}
+	return d
 }
