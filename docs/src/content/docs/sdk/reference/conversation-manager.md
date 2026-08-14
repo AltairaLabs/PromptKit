@@ -630,6 +630,13 @@ ValidateOptions reports whether an option set would be accepted by Open, without
 
 Call it once at startup with the same options the server will later pass to Open. Provider options are applied eagerly inside Open, and a server that opens a conversation per request would otherwise surface a bad binding as a failure on every request rather than as a startup error.
 
+It checks that the set constructs — an unregistered or misspelled provider type, an option that fails to build, a violated cross\-option constraint. It does not check that the resulting providers will work:
+
+- Credentials are resolved, not verified. A missing key resolves to a no\-op credential and an invalid key resolves fine, so a provider that will fail authentication on its first real call still validates.
+- Nothing is contacted. Endpoint reachability, region, IAM policy and whether the configured model exists are all out of scope.
+
+So a nil return means "this configuration builds", not "this deployment will serve traffic". Callers gating a deploy on it should say so.
+
 Anything constructed during validation is discarded.
 
 <a name="A2AAgentBuilder"></a>

@@ -110,6 +110,24 @@ func TestValidateOptions_TracksRegisteredProviderTypes(t *testing.T) {
 	assert.Contains(t, err.Error(), "polly", "error must name the offending type")
 }
 
+// TestValidateOptions_ChecksConstructionNotCredentials pins the documented
+// boundary of what validation covers. Both calls carry an unusable credential;
+// only the one naming an unregistered type is rejected. A caller gating a
+// deploy on ValidateOptions depends on knowing which side of this line it sits
+// on, so the limitation is pinned rather than left to the doc comment.
+func TestValidateOptions_ChecksConstructionNotCredentials(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-not-a-real-key")
+
+	assert.NoError(t,
+		ValidateOptions(WithTTSProvider(ProviderSpec{ID: "voice", Type: "openai"})),
+		"an unusable credential must still validate — validity is not checked")
+
+	// "transcribe" is the STT type a Bedrock deployment would reach for (#1774).
+	err := ValidateOptions(WithSTTProvider(ProviderSpec{ID: "ears", Type: "transcribe"}))
+	require.Error(t, err, "an unregistered type must be rejected")
+	assert.Contains(t, err.Error(), "transcribe")
+}
+
 // Validation must apply the same cross-option checks Open does, or a set that
 // passes here would still fail at request time.
 func TestValidateOptions_AppliesCrossOptionChecks(t *testing.T) {
