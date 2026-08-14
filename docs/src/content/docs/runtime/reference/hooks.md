@@ -24,6 +24,7 @@ Package hooks provides synchronous interception points for provider calls, tool 
   - [func Deny\(reason string\) Decision](<#Deny>)
   - [func DenyWithMetadata\(reason string, metadata map\[string\]any\) Decision](<#DenyWithMetadata>)
   - [func Enforced\(reason string, metadata map\[string\]any\) Decision](<#Enforced>)
+- [type EmitterAware](<#EmitterAware>)
 - [type ExecHookConfig](<#ExecHookConfig>)
 - [type ExecProviderHook](<#ExecProviderHook>)
   - [func NewExecProviderHook\(cfg \*ExecHookConfig\) \*ExecProviderHook](<#NewExecProviderHook>)
@@ -64,6 +65,7 @@ Package hooks provides synchronous interception points for provider calls, tool 
   - [func \(r \*Registry\) RunSessionEnd\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionEnd>)
   - [func \(r \*Registry\) RunSessionStart\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionStart>)
   - [func \(r \*Registry\) RunSessionUpdate\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionUpdate>)
+  - [func \(r \*Registry\) SetEmitter\(e \*events.Emitter\)](<#Registry.SetEmitter>)
 - [type SessionEvent](<#SessionEvent>)
 - [type SessionHook](<#SessionHook>)
 - [type ToolHook](<#ToolHook>)
@@ -180,6 +182,19 @@ func Enforced(reason string, metadata map[string]any) Decision
 ```
 
 Enforced creates an enforced decision — the hook applied enforcement \(truncation, content replacement\) and the pipeline should continue.
+
+<a name="EmitterAware"></a>
+## type EmitterAware
+
+EmitterAware is implemented by hooks that report their own events. A hook cannot build an emitter for itself: the session and conversation IDs the events must carry are only known once the conversation exists, long after hooks are compiled from the pack.
+
+The provider stage constructor is the single place holding both the emitter and the hook registry, so that is where the two are joined — which is why SDK and Arena both get this without wiring anything themselves.
+
+```go
+type EmitterAware interface {
+    SetEmitter(*events.Emitter)
+}
+```
 
 <a name="ExecHookConfig"></a>
 ## type ExecHookConfig
@@ -661,6 +676,15 @@ func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) err
 ```
 
 RunSessionUpdate executes all session hooks' OnSessionUpdate in order. First error short\-circuits.
+
+<a name="Registry.SetEmitter"></a>
+### func \(\*Registry\) SetEmitter
+
+```go
+func (r *Registry) SetEmitter(e *events.Emitter)
+```
+
+SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
 ## type SessionEvent

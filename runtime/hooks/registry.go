@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
@@ -15,6 +16,32 @@ type Registry struct {
 	toolHooks         []ToolHook
 	sessionHooks      []SessionHook
 	chunkInterceptors []ChunkInterceptor // cached from providerHooks that implement ChunkInterceptor
+}
+
+// EmitterAware is implemented by hooks that report their own events. A hook
+// cannot build an emitter for itself: the session and conversation IDs the
+// events must carry are only known once the conversation exists, long after
+// hooks are compiled from the pack.
+//
+// The provider stage constructor is the single place holding both the emitter
+// and the hook registry, so that is where the two are joined — which is why
+// SDK and Arena both get this without wiring anything themselves.
+type EmitterAware interface {
+	SetEmitter(*events.Emitter)
+}
+
+// SetEmitter hands the emitter to every registered provider hook that wants
+// one. Hooks that do not implement EmitterAware are untouched. Nil-safe on both
+// the receiver and the emitter.
+func (r *Registry) SetEmitter(e *events.Emitter) {
+	if r == nil || e == nil {
+		return
+	}
+	for _, h := range r.providerHooks {
+		if aware, ok := h.(EmitterAware); ok {
+			aware.SetEmitter(e)
+		}
+	}
 }
 
 // Option configures a Registry during construction.
