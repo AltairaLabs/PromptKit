@@ -110,6 +110,12 @@ type vllmMessage struct {
 	Role      string         `json:"role"`
 	Content   any            `json:"content"` // Can be string or []any for multimodal
 	ToolCalls []vllmToolCall `json:"tool_calls,omitempty"`
+	// ToolCallID links a role:"tool" message back to the assistant tool call
+	// it answers. OpenAI-compatible servers reject or ignore an unlinked tool
+	// message, which breaks multi-turn tool use.
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Name carries the tool name on tool-result messages.
+	Name string `json:"name,omitempty"`
 }
 
 type vllmChatResponse struct {
@@ -180,13 +186,46 @@ func (p *Provider) prepareMessages(req *providers.PredictionRequest) ([]vllmMess
 
 	// Convert each message
 	for i := range req.Messages {
-		messages = append(messages, vllmMessage{
-			Role:    req.Messages[i].Role,
-			Content: req.Messages[i].GetContent(),
-		})
+		messages = append(messages, newVLLMMessage(req.Messages[i], req.Messages[i].GetContent()))
 	}
 
 	return messages, nil
+}
+
+// newVLLMMessage builds a wire message from a runtime message and its
+// already-resolved content, carrying the tool fields across.
+//
+// Tool fields are applied unconditionally rather than by a tool-aware variant
+// selected at a routing seam: they are omitempty, so a tool-free message
+// serializes byte-identically, and there is no wrong serializer left to route
+// to. Picking the tool-blind builder at such a seam is what broke the OpenAI
+// provider in #1735.
+func newVLLMMessage(msg types.Message, content any) vllmMessage {
+	out := vllmMessage{Role: msg.Role, Content: content}
+
+	if len(msg.ToolCalls) > 0 {
+		out.ToolCalls = make([]vllmToolCall, 0, len(msg.ToolCalls))
+		for _, call := range msg.ToolCalls {
+			out.ToolCalls = append(out.ToolCalls, vllmToolCall{
+				ID:   call.ID,
+				Type: toolTypeFunction,
+				Function: vllmFunctionCall{
+					Name: call.Name,
+					// vLLM takes arguments as a JSON string, not an object.
+					Arguments: string(call.Args),
+				},
+			})
+		}
+	}
+
+	// A tool result is unusable to the model without the id of the call it
+	// answers; OpenAI-compatible servers reject or ignore an unlinked one.
+	if msg.Role == "tool" && msg.ToolResult != nil {
+		out.ToolCallID = msg.ToolResult.ID
+		out.Name = msg.ToolResult.Name
+	}
+
+	return out
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters

@@ -48,16 +48,10 @@ func (p *Provider) prepareMultimodalMessages(req providers.PredictionRequest) ([
 			if err != nil {
 				return nil, fmt.Errorf("failed to build multimodal content for message %d: %w", i, err)
 			}
-			messages = append(messages, vllmMessage{
-				Role:    msg.Role,
-				Content: content,
-			})
+			messages = append(messages, newVLLMMessage(msg, content))
 		} else {
 			// Regular text-only message
-			messages = append(messages, vllmMessage{
-				Role:    msg.Role,
-				Content: msg.GetContent(),
-			})
+			messages = append(messages, newVLLMMessage(msg, msg.GetContent()))
 		}
 	}
 
