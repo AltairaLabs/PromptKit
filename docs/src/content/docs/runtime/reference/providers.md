@@ -63,6 +63,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func ReadErrorBody\(body io.Reader\) \[\]byte](<#ReadErrorBody>)
 - [func ReadResponseBody\(body io.Reader\) \(\[\]byte, error\)](<#ReadResponseBody>)
 - [func RegisterEmbeddingProviderFactory\(providerType string, factory EmbeddingProviderFactory\)](<#RegisterEmbeddingProviderFactory>)
+- [func RegisterPlatformEmbeddingProvider\(typeName string, spec PlatformEmbeddingSpec\)](<#RegisterPlatformEmbeddingProvider>)
 - [func RegisterProviderFactory\(providerType string, factory ProviderFactory\)](<#RegisterProviderFactory>)
 - [func RegisteredEmbeddingProviderTypes\(\) \[\]string](<#RegisteredEmbeddingProviderTypes>)
 - [func RegisteredProviderTypes\(\) \[\]string](<#RegisteredProviderTypes>)
@@ -86,6 +87,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b BargeInSignal\) SignalBargeIn\(\)](<#BargeInSignal.SignalBargeIn>)
 - [type BaseEmbeddingProvider](<#BaseEmbeddingProvider>)
   - [func NewBaseEmbeddingProvider\(providerID, defaultModel, defaultBaseURL string, defaultDimensions, defaultBatchSize int, defaultTimeout time.Duration\) \*BaseEmbeddingProvider](<#NewBaseEmbeddingProvider>)
+  - [func \(b \*BaseEmbeddingProvider\) ApplyWiring\(w EmbeddingWiring\) \(dimsExplicit bool\)](<#BaseEmbeddingProvider.ApplyWiring>)
   - [func \(b \*BaseEmbeddingProvider\) DoEmbeddingRequest\(ctx context.Context, cfg HTTPRequestConfig\) \(\[\]byte, error\)](<#BaseEmbeddingProvider.DoEmbeddingRequest>)
   - [func \(b \*BaseEmbeddingProvider\) EmbedWithEmptyCheck\(ctx context.Context, req EmbeddingRequest, embedFn EmbedFunc\) \(EmbeddingResponse, error\)](<#BaseEmbeddingProvider.EmbedWithEmptyCheck>)
   - [func \(b \*BaseEmbeddingProvider\) EmbeddingDimensions\(\) int](<#BaseEmbeddingProvider.EmbeddingDimensions>)
@@ -154,6 +156,8 @@ This file contains exported test helpers that can be used by provider implementa
 - [type EmbeddingTransport](<#EmbeddingTransport>)
   - [func ResolveEmbeddingTransport\(spec EmbeddingProviderSpec\) \(EmbeddingTransport, error\)](<#ResolveEmbeddingTransport>)
 - [type EmbeddingUsage](<#EmbeddingUsage>)
+- [type EmbeddingWiring](<#EmbeddingWiring>)
+  - [func EmbeddingWiringFrom\(spec EmbeddingProviderSpec, tr EmbeddingTransport\) EmbeddingWiring](<#EmbeddingWiringFrom>)
 - [type ExecutionResult](<#ExecutionResult>)
 - [type FrameDetector](<#FrameDetector>)
 - [type HTTPRequestConfig](<#HTTPRequestConfig>)
@@ -184,6 +188,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(NDJSONFrameDetector\) Name\(\) string](<#NDJSONFrameDetector.Name>)
   - [func \(NDJSONFrameDetector\) PeekFirstFrame\(r io.Reader\) \(\[\]byte, error\)](<#NDJSONFrameDetector.PeekFirstFrame>)
 - [type PlatformConfig](<#PlatformConfig>)
+- [type PlatformEmbeddingSpec](<#PlatformEmbeddingSpec>)
 - [type PredictionRequest](<#PredictionRequest>)
   - [func \(r \*PredictionRequest\) NormalizeMessages\(\)](<#PredictionRequest.NormalizeMessages>)
 - [type PredictionResponse](<#PredictionResponse>)
@@ -732,6 +737,19 @@ func RegisterEmbeddingProviderFactory(providerType string, factory EmbeddingProv
 
 RegisterEmbeddingProviderFactory registers a factory for the given provider type. Typically called from per\-provider package init\(\). Re\-registration overwrites silently — matching RegisterProviderFactory for chat providers.
 
+<a name="RegisterPlatformEmbeddingProvider"></a>
+## func RegisterPlatformEmbeddingProvider
+
+```go
+func RegisterPlatformEmbeddingProvider(typeName string, spec PlatformEmbeddingSpec)
+```
+
+RegisterPlatformEmbeddingProvider registers an embedding factory that enforces the platform block, resolves the transport, and delegates to Build.
+
+Platform\-native providers have no API\-key mode: without a platform block there is no signer or token source, so every request would go unauthenticated. Failing at construction beats failing once per request.
+
+Shared because the enforce\-resolve\-construct sequence is identical for every such provider; only the hint and the constructor differ.
+
 <a name="RegisterProviderFactory"></a>
 ## func RegisterProviderFactory
 
@@ -974,6 +992,15 @@ func NewBaseEmbeddingProvider(providerID, defaultModel, defaultBaseURL string, d
 ```
 
 NewBaseEmbeddingProvider creates a base embedding provider with defaults.
+
+<a name="BaseEmbeddingProvider.ApplyWiring"></a>
+### func \(\*BaseEmbeddingProvider\) ApplyWiring
+
+```go
+func (b *BaseEmbeddingProvider) ApplyWiring(w EmbeddingWiring) (dimsExplicit bool)
+```
+
+ApplyWiring applies the transport\-derived settings, leaving each field alone when the wiring does not carry one. It reports whether Dimensions was set, so the caller knows not to overwrite it with a model\-family default — a comparison against the default value cannot tell "unset" from "set to the same number".
 
 <a name="BaseEmbeddingProvider.DoEmbeddingRequest"></a>
 ### func \(\*BaseEmbeddingProvider\) DoEmbeddingRequest
@@ -1710,6 +1737,32 @@ type EmbeddingUsage struct {
 }
 ```
 
+<a name="EmbeddingWiring"></a>
+## type EmbeddingWiring
+
+EmbeddingWiring is the transport\-derived configuration every platform\-native embedding provider applies the same way. Family\-specific settings — Cohere's input\_type, Vertex's task\_type — stay with their own provider.
+
+```go
+type EmbeddingWiring struct {
+    Model        string
+    BaseURL      string
+    Client       *http.Client
+    PlatformAuth bool
+    // Dimensions is 0 when the spec did not request one, which is what tells
+    // the provider to keep its family default.
+    Dimensions int
+}
+```
+
+<a name="EmbeddingWiringFrom"></a>
+### func EmbeddingWiringFrom
+
+```go
+func EmbeddingWiringFrom(spec EmbeddingProviderSpec, tr EmbeddingTransport) EmbeddingWiring
+```
+
+EmbeddingWiringFrom extracts the shared wiring from a spec and its resolved transport.
+
 <a name="ExecutionResult"></a>
 ## type ExecutionResult
 
@@ -2128,6 +2181,21 @@ PlatformConfig is an alias for credentials.PlatformConfig.
 
 ```go
 type PlatformConfig = credentials.PlatformConfig
+```
+
+<a name="PlatformEmbeddingSpec"></a>
+## type PlatformEmbeddingSpec
+
+PlatformEmbeddingSpec describes a platform\-native embedding provider — one whose request bodies are the cloud's own rather than OpenAI\-shaped, so it is selected by provider type and cannot be hosted on the OpenAI path.
+
+```go
+type PlatformEmbeddingSpec struct {
+    // PlatformHint completes the "requires a platform block (…)" error, naming
+    // the fields that platform actually needs.
+    PlatformHint string
+    // Build constructs the provider once the transport has been resolved.
+    Build func(EmbeddingProviderSpec, EmbeddingTransport) (EmbeddingProvider, error)
+}
 ```
 
 <a name="PredictionRequest"></a>

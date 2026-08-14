@@ -112,6 +112,11 @@ func WithPlatformAuth() EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.PlatformAuth = true }
 }
 
+// WithWiring applies the transport-derived settings the factory resolved.
+func WithWiring(w providers.EmbeddingWiring) EmbeddingOption {
+	return func(p *EmbeddingProvider) { p.dimsExplicit = p.ApplyWiring(w) }
+}
+
 // NewEmbeddingProvider creates a Vertex embedding provider. It fails when the
 // model is not a recognized embedding family rather than sending a body the
 // endpoint would reject at request time.
