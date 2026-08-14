@@ -23,7 +23,7 @@
     "starlight-theme-galaxy": "^0.8.0"
   },
   "devDependencies": {
-    "linkinator": "^8.0.2",
+    "linkinator": "^8.0.3",
     "playwright": "^1.62.0"
   }
 }
