@@ -602,6 +602,19 @@ func (s *ProviderStage) stampWorkflowState(response *types.Message) {
 	response.Meta[workflowStateMetaKey] = meta
 }
 
+// recordToolCalls reports a round's executed tool-call count to the resolver
+// when it implements ToolCallRecorder, feeding RFC 0009's max_tool_calls
+// budget. No-op without a resolver, or when the resolver does not enforce a
+// budget — the ordinary non-workflow case.
+func (s *ProviderStage) recordToolCalls(n int) {
+	if n <= 0 || s.stateResolver == nil {
+		return
+	}
+	if rec, ok := s.stateResolver.(ToolCallRecorder); ok {
+		rec.RecordToolCalls(n)
+	}
+}
+
 // applyStateHandoff commits a workflow transition left pending by this round's
 // tool calls, then swaps the turn's system prompt and tool set to the
 // destination state's so the next round runs as that state. This is what makes
@@ -1785,6 +1798,12 @@ func (s *ProviderStage) executeToolCalls(
 		}
 		results = append(results, resultSlots[i].message)
 	}
+
+	// Report what actually ran for RFC 0009's max_tool_calls budget. results
+	// excludes pending calls, which have not executed and are counted when they
+	// run on resume; errored and policy-blocked calls are included, since both
+	// consumed a round.
+	s.recordToolCalls(len(results))
 
 	if len(pendingTools) > 0 {
 		return results, &tools.ErrToolsPending{Pending: pendingTools}
