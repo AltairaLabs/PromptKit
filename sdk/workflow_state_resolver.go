@@ -66,6 +66,21 @@ func (h *workflowResolverHolder) CurrentStateMeta() map[string]any {
 	return inner.CurrentStateMeta()
 }
 
+// RecordToolCalls implements stage.ToolCallRecorder.
+//
+// The holder is what the pipeline installs, so the stage type-asserts against
+// it, not the inner resolver — without this hop the count stops here and never
+// reaches a workflow. Inner resolvers that do not record are skipped.
+func (h *workflowResolverHolder) RecordToolCalls(n int) {
+	inner := h.get()
+	if inner == nil {
+		return
+	}
+	if rec, ok := inner.(stage.ToolCallRecorder); ok {
+		rec.RecordToolCalls(n)
+	}
+}
+
 // workflowStateResolver implements stage.WorkflowStateResolver for the SDK.
 //
 // It commits the transition the workflow tool left pending and renders the
@@ -100,6 +115,18 @@ func newWorkflowStateResolver(
 		registry:  registry,
 		renderer:  template.NewRenderer(),
 	}
+}
+
+// RecordToolCalls implements stage.ToolCallRecorder, feeding RFC 0009's
+// engine.budget.max_tool_calls. The runtime tool loop counts what executed;
+// this forwards it to the workflow context, where checkBudgetLocked reads it on
+// the next ProcessEvent. Before this existed the counter had no production
+// caller at all, so the limit could never fire (#1785).
+func (r *workflowStateResolver) RecordToolCalls(n int) {
+	if r == nil || r.machine == nil || n <= 0 {
+		return
+	}
+	r.machine.IncrementToolCalls(n)
 }
 
 // ResolveCurrentState implements stage.WorkflowStateResolver.

@@ -412,6 +412,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewTokenBudgetStage\(config \*TokenBudgetConfig\) \*TokenBudgetStage](<#NewTokenBudgetStage>)
   - [func NewTokenBudgetStageWithTurnState\(config \*TokenBudgetConfig, turnState \*TurnState\) \*TokenBudgetStage](<#NewTokenBudgetStageWithTurnState>)
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
+- [type ToolCallRecorder](<#ToolCallRecorder>)
 - [type TranscriptReorderStage](<#TranscriptReorderStage>)
   - [func NewTranscriptReorderStage\(placeholder string\) \*TranscriptReorderStage](<#NewTranscriptReorderStage>)
   - [func NewTranscriptReorderStageWithTimeout\(placeholder string, holdTimeout time.Duration\) \*TranscriptReorderStage](<#NewTranscriptReorderStageWithTimeout>)
@@ -5379,6 +5380,25 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 ```
 
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
+
+<a name="ToolCallRecorder"></a>
+## type ToolCallRecorder
+
+ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
+
+RFC 0009's engine.budget.max\_tool\_calls needs a per\-round count, and the tool loop is the only place that sees every call on every path — unary, streaming, and resumed\-after\-HITL. Counting here rather than in each consumer keeps one counting site, so the SDK's and Arena's totals cannot drift apart; consumers only forward the number to the workflow context they own.
+
+It is deliberately separate from WorkflowStateResolver and type\-asserted at the call site: adding a method to that interface would break every existing implementer, and a resolver with no budget to enforce need not implement this.
+
+```go
+type ToolCallRecorder interface {
+    // RecordToolCalls reports that n tool calls executed in a round. Calls held
+    // pending (HITL approval, deferred client tools) are excluded — they have
+    // not run yet and are reported when they execute on resume, so counting
+    // them here would charge a gated call twice.
+    RecordToolCalls(n int)
+}
+```
 
 <a name="TranscriptReorderStage"></a>
 ## type TranscriptReorderStage
