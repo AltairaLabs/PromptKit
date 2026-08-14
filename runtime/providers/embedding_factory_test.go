@@ -2,6 +2,7 @@ package providers_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -13,6 +14,30 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 )
+
+// TestRegisteredEmbeddingProviderTypes asserts the lister reads the live
+// embedding factory map: the four side-effect-imported providers above are
+// present, and a type registered at runtime shows up too. A lister backed by
+// a fresh map or a construction-time snapshot fails one or both.
+func TestRegisteredEmbeddingProviderTypes(t *testing.T) {
+	got := providers.RegisteredEmbeddingProviderTypes()
+	for _, want := range []string{"gemini", "ollama", "openai", "voyageai"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("RegisteredEmbeddingProviderTypes() = %v, missing %q", got, want)
+		}
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("RegisteredEmbeddingProviderTypes() = %v, not sorted", got)
+	}
+
+	providers.RegisterEmbeddingProviderFactory("fakelisted",
+		func(_ providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) {
+			return nil, nil
+		})
+	if got := providers.RegisteredEmbeddingProviderTypes(); !slices.Contains(got, "fakelisted") {
+		t.Errorf("after registration, RegisteredEmbeddingProviderTypes() = %v, missing %q", got, "fakelisted")
+	}
+}
 
 // Each per-provider test exercises every conditional branch of the
 // registered factory closure (model, base_url, credential, and any

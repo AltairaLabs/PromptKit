@@ -24,6 +24,11 @@ func RegisterFactory(providerType string, factory Factory) {
 	ttsRegistry.Register(providerType, factory)
 }
 
+// RegisteredTypes returns the TTS provider types with a registered factory,
+// sorted. Use it to check a configured type before CreateFromSpec rather than
+// constructing and parsing the error.
+func RegisteredTypes() []string { return ttsRegistry.Types() }
+
 // CreateFromSpec returns a Service implementation for the given spec.
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.

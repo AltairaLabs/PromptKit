@@ -3,6 +3,8 @@ package base_test
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -39,6 +41,54 @@ func TestFactoryRegistry_FactoryErrorPropagates(t *testing.T) {
 	_, err := r.Create(base.CapabilitySpec{Type: "broken"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestFactoryRegistry_TypesListsRegisteredTypesSorted(t *testing.T) {
+	r := base.NewFactoryRegistry[*fakeService]()
+	// Registered out of order, and with enough entries that a map-iteration
+	// order would be vanishingly unlikely to come out sorted by chance.
+	for _, name := range []string{"openai", "cartesia", "elevenlabs", "polly", "deepgram", "azure"} {
+		r.Register(name, func(_ base.CapabilitySpec) (*fakeService, error) { return &fakeService{}, nil })
+	}
+
+	assert.Equal(t, []string{"azure", "cartesia", "deepgram", "elevenlabs", "openai", "polly"}, r.Types())
+}
+
+func TestFactoryRegistry_TypesEmptyRegistry(t *testing.T) {
+	assert.Empty(t, base.NewFactoryRegistry[*fakeService]().Types())
+}
+
+func TestFactoryRegistry_TypesReflectsLaterRegistration(t *testing.T) {
+	r := base.NewFactoryRegistry[*fakeService]()
+	r.Register("first", func(_ base.CapabilitySpec) (*fakeService, error) { return &fakeService{}, nil })
+	require.Equal(t, []string{"first"}, r.Types())
+
+	// Types must read the live map, not a snapshot taken at construction.
+	r.Register("second", func(_ base.CapabilitySpec) (*fakeService, error) { return &fakeService{}, nil })
+	assert.Equal(t, []string{"first", "second"}, r.Types())
+}
+
+func TestFactoryRegistry_TypesIsRaceSafeWithRegister(t *testing.T) {
+	// Fails under -race if Types reads the map without holding the lock.
+	r := base.NewFactoryRegistry[*fakeService]()
+	f := func(_ base.CapabilitySpec) (*fakeService, error) { return &fakeService{}, nil }
+	r.Register("seed", f)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := range 50 {
+			r.Register("t"+strconv.Itoa(i), f)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			assert.NotEmpty(t, r.Types())
+		}
+	}()
+	wg.Wait()
 }
 
 func TestAPIKeyFromCredential_Nil(t *testing.T) {

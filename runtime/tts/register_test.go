@@ -2,6 +2,7 @@ package tts_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -17,6 +18,21 @@ func TestResolveCredential(t *testing.T) {
 	}
 	if got := tts.APIKeyFromCredential(cred); got != "sk-env" {
 		t.Errorf("got %q want sk-env", got)
+	}
+}
+
+// TestRegisteredTypes asserts the lister is wired to the same registry the
+// package's own init() functions register into — a lister pointed at a fresh
+// or unrelated registry would come back without these.
+func TestRegisteredTypes(t *testing.T) {
+	got := tts.RegisteredTypes()
+	for _, want := range []string{"cartesia", "elevenlabs", "openai"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("RegisteredTypes() = %v, missing %q", got, want)
+		}
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("RegisteredTypes() = %v, not sorted", got)
 	}
 }
 

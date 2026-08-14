@@ -23,6 +23,11 @@ func RegisterFactory(providerType string, factory Factory) {
 	sttRegistry.Register(providerType, factory)
 }
 
+// RegisteredTypes returns the STT provider types with a registered factory,
+// sorted. Use it to check a configured type before CreateFromSpec rather than
+// constructing and parsing the error.
+func RegisteredTypes() []string { return sttRegistry.Types() }
+
 // CreateFromSpec returns a Service implementation for the given spec.
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.

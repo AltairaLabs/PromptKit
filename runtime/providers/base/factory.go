@@ -3,6 +3,7 @@ package base
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
@@ -50,6 +51,21 @@ func (r *FactoryRegistry[T]) Register(implType string, f Factory[T]) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[implType] = f
+}
+
+// Types returns the implementation types with a registered factory, sorted.
+// Callers use it to discover what Create will accept without attempting a
+// construction and string-matching the error — e.g. a deploy adapter
+// validating provider bindings before serving traffic.
+func (r *FactoryRegistry[T]) Types() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	types := make([]string, 0, len(r.factories))
+	for t := range r.factories {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
 }
 
 // Create dispatches to the registered factory for spec.Type.

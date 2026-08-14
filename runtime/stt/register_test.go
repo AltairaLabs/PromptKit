@@ -2,12 +2,26 @@ package stt_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 )
+
+// TestRegisteredTypes asserts the lister is wired to the same registry the
+// package's own init() registers into — a lister pointed at a fresh registry
+// would come back empty.
+func TestRegisteredTypes(t *testing.T) {
+	got := stt.RegisteredTypes()
+	if !slices.Contains(got, "openai") {
+		t.Errorf("RegisteredTypes() = %v, missing %q", got, "openai")
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("RegisteredTypes() = %v, not sorted", got)
+	}
+}
 
 func TestSTTRegister_OpenAI_AllOptions(t *testing.T) {
 	cred := credentials.NewAPIKeyCredential("sk-stub")
