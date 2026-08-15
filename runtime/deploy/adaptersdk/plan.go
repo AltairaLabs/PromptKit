@@ -91,17 +91,21 @@ func SummarizeChanges(changes []deploy.ResourceChange) string {
 		counts[c.Action]++
 	}
 
-	// Fixed order for deterministic output.
+	// Fixed order for deterministic output. Drift is included because a plan
+	// made entirely of drift would otherwise summarize as "No changes" — the
+	// case an operator most needs to see (#1781).
 	order := []deploy.Action{
 		deploy.ActionCreate,
 		deploy.ActionUpdate,
 		deploy.ActionDelete,
+		deploy.ActionDrift,
 		deploy.ActionNoChange,
 	}
 	labels := map[deploy.Action]string{
 		deploy.ActionCreate:   "to create",
 		deploy.ActionUpdate:   "to update",
 		deploy.ActionDelete:   "to delete",
+		deploy.ActionDrift:    "drifted",
 		deploy.ActionNoChange: "unchanged",
 	}
 
