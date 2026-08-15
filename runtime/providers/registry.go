@@ -297,6 +297,24 @@ type MediaStorageConfigurable interface {
 	SetMediaStorageService(storage.MediaStorageService)
 }
 
+// openAIBuildsPlatformBaseURL reports whether the openai factory derives the
+// base URL itself from PlatformConfig — Azure's deployment URL, Bedrock's
+// regional invoke URL, Vertex's Model Garden endpoint.
+//
+// For those, applying the api.openai.com default here would clobber spec.BaseURL
+// and make the platform branch in NewProviderFromConfig unreachable (#1010).
+// Kept as a named list because the failure is silent: the provider constructs
+// fine and simply talks to the wrong host. A platform added to the factory's
+// switch and forgotten here looks implemented and is not (#1768).
+func openAIBuildsPlatformBaseURL(platform string) bool {
+	switch platform {
+	case platformAzure, platformBedrock, platformVertex:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
@@ -305,13 +323,7 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	if baseURL == "" {
 		switch spec.Type {
 		case "openai":
-			// Skip the api.openai.com default for hyperscaler-hosted
-			// OpenAI — the openai factory builds the platform URL from
-			// PlatformConfig (Azure: deployment URL; Bedrock: regional
-			// invoke URL). Without these skips the default clobbers
-			// spec.BaseURL and the platform branch in
-			// NewProviderFromConfig becomes unreachable (#1010).
-			if spec.Platform != "azure" && spec.Platform != "bedrock" {
+			if !openAIBuildsPlatformBaseURL(spec.Platform) {
 				baseURL = "https://api.openai.com/v1"
 			}
 		case "gemini":

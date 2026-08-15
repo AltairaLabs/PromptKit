@@ -65,26 +65,48 @@ func TestUnsupportedProviderPlatformError_Message(t *testing.T) {
 	}
 }
 
-// TestCreateProviderFromSpec_RejectsOpenAIVertex verifies the registered
-// openai factory returns UnsupportedProviderPlatformError when the spec
-// asks for Vertex (which Google does not host as an OpenAI partner
-// endpoint).
-func TestCreateProviderFromSpec_RejectsOpenAIVertex(t *testing.T) {
+// (openai, vertex) is no longer rejected. #1009 blocked it because Vertex
+// hosted no OpenAI-shaped endpoint, so the pair could only 404; #1768 added the
+// OpenAI-compatible Model Garden route, so the combination is real and the
+// rejection was lifted. This replaces the old rejection test.
+//
+// The base URL is the assertion that matters: the api.openai.com default must
+// NOT be applied, or the provider constructs happily and talks to the wrong
+// host — a silent failure the old error at least made loud.
+func TestCreateProviderFromSpec_AllowsOpenAIVertex(t *testing.T) {
 	if _, ok := providerFactories["openai"]; !ok {
 		t.Skip("openai factory not registered; subpackage not imported in this test build")
 	}
-	_, err := CreateProviderFromSpec(ProviderSpec{
+	p, err := CreateProviderFromSpec(ProviderSpec{
 		ID:       "x",
 		Type:     "openai",
 		Model:    testModelName,
 		Platform: "vertex",
+		PlatformConfig: &PlatformConfig{
+			Type: "vertex", Project: "my-project", Region: "us-central1",
+		},
 	})
-	if err == nil {
-		t.Fatal("expected error for openai+vertex, got nil")
+	if err != nil {
+		t.Fatalf("openai+vertex must construct, got %v", err)
 	}
-	var typed *UnsupportedProviderPlatformError
-	if !errors.As(err, &typed) {
-		t.Fatalf("expected UnsupportedProviderPlatformError, got %T: %v", err, err)
+	if p == nil {
+		t.Fatal("provider = nil")
+	}
+}
+
+// The default base URL must be skipped for every platform whose factory builds
+// its own, or the platform branch is unreachable (#1010) — the defect that made
+// #1768 look implemented while it was not.
+func TestOpenAIBuildsPlatformBaseURL(t *testing.T) {
+	for _, platform := range []string{"azure", "bedrock", "vertex"} {
+		if !openAIBuildsPlatformBaseURL(platform) {
+			t.Errorf("openAIBuildsPlatformBaseURL(%q) = false, want true", platform)
+		}
+	}
+	for _, platform := range []string{"", "none", "openai"} {
+		if openAIBuildsPlatformBaseURL(platform) {
+			t.Errorf("openAIBuildsPlatformBaseURL(%q) = true, want false", platform)
+		}
 	}
 }
 

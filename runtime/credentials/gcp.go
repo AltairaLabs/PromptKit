@@ -37,6 +37,36 @@ func VertexEmbeddingEndpoint(project, region string) string {
 	return vertexPublisherEndpoint(project, region, vertexPublisherGoogle)
 }
 
+// DefaultVertexOpenAIEndpointID is the shared endpoint serving Vertex's
+// OpenAI-compatible Chat Completions API for Gemini and MaaS partner models.
+// Self-deployed Model Garden models use their own numeric endpoint ID instead.
+const DefaultVertexOpenAIEndpointID = "openapi"
+
+// VertexOpenAIEndpoint returns the base URL for Vertex AI's OpenAI-compatible
+// Chat Completions API. Callers append "/chat/completions" — the OpenAI
+// provider does this itself, so the helper stops short of it.
+//
+// endpointID selects the surface: empty means the shared "openapi" endpoint
+// (Gemini plus MaaS partner models, zero configuration), and a numeric ID
+// targets a self-deployed Model Garden endpoint.
+//
+// Separate from VertexEndpoint because this path differs in both API version
+// (v1beta1) and shape (endpoints/{id} rather than publishers/{p}/models) — the
+// two are not interchangeable, and substituting one produces a URL that is
+// structurally valid and fails only at request time.
+//
+// Note: a self-deployed endpoint only speaks chat-completions when it is backed
+// by a TGI, vLLM or HexLLM serving container deployed after 2024-08-20. That is
+// not visible on the endpoint resource, so an older one fails at request time.
+func VertexOpenAIEndpoint(project, region, endpointID string) string {
+	if endpointID == "" {
+		endpointID = DefaultVertexOpenAIEndpointID
+	}
+	return fmt.Sprintf(
+		"https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/%s",
+		region, project, region, endpointID)
+}
+
 // vertexPublisherEndpoint builds the models base URL for one publisher. Single
 // format string so the two exported helpers cannot drift.
 func vertexPublisherEndpoint(project, region, publisher string) string {

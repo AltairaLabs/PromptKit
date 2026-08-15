@@ -647,12 +647,14 @@ func (p *ToolProvider) predictStreamWithCompletions(
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
-	// Reject (openai, vertex): Vertex AI does not host OpenAI models as a
-	// native partner endpoint. Routing this combination would either 404
-	// at the wire or silently send Entra-style auth to an OpenAI-shaped
-	// URL. Fail at construction with a clear error instead. (#1009)
-	providers.RegisterProviderFactory("openai", providers.RejectPlatforms(
-		map[string]bool{"vertex": true},
+	// (openai, vertex) was rejected under #1009 because Vertex hosts no
+	// OpenAI-shaped endpoint, so the pair could only 404 at the wire. That is
+	// no longer true: Vertex exposes an OpenAI-compatible Chat Completions API
+	// covering Model Garden, and the platform switch now builds its URL from
+	// project/region with an ADC bearer token (#1768). The rejection is lifted
+	// rather than narrowed — with a base URL and a credential, the combination
+	// is real.
+	providers.RegisterProviderFactory("openai",
 		providers.CredentialFactory(
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
 				tp := NewToolProviderWithCredential(
@@ -672,5 +674,5 @@ func init() {
 				return tp, nil
 			},
 		),
-	))
+	)
 }
