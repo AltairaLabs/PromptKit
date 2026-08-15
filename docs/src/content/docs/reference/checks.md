@@ -240,6 +240,7 @@ assertions:
 | `workflow_transitioned_to` | `state` (string) | A E |
 | `workflow_transition_order` | `sequence` (string[]) | A E |
 | `workflow_tool_access` | `rules` (array of `{state, allowed}`) | A E |
+| `spoke_in_state` | `state` (string) | A E |
 
 **Example:**
 
@@ -249,6 +250,32 @@ assertions:
     params:
       sequence: ["triage", "investigation", "resolution"]
 ```
+
+### Checking a state actually spoke
+
+Every other workflow check reads the state machine's transition history, so a
+transition that produces **no output at all** satisfies all of them — the state
+was entered, and that is all they ask. `spoke_in_state` is the one that reads
+the conversation instead: it passes only when an assistant message with
+non-empty text was produced while the workflow was in that state.
+
+Pair it with `workflow_transitioned_to` when a handoff is supposed to say
+something:
+
+```yaml
+assertions:
+  - type: workflow_transitioned_to
+    params:
+      state: handoff        # the machine advanced
+  - type: spoke_in_state
+    params:
+      state: handoff        # ...and the destination agent actually replied
+```
+
+Whitespace does not count as speech. If a run produces no per-message state
+stamps at all, the failure says so explicitly rather than reporting a silent
+state — that case means the workflow resolver is not wired, which is a
+different problem from a state that stayed quiet.
 
 ---
 

@@ -1592,6 +1592,7 @@ func TestRegisterInit(t *testing.T) {
 		"workflow_complete",
 		"state_is",
 		"transitioned_to",
+		"spoke_in_state",
 		"workflow_transition_order",
 		"workflow_tool_access",
 		"skill_activated",
