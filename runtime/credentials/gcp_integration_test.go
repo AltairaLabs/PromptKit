@@ -245,3 +245,38 @@ func TestVertexEmbeddingEndpoint(t *testing.T) {
 	assert.NotContains(t, got, "anthropic",
 		"the embedding endpoint must not inherit the chat publisher")
 }
+
+// Model Garden's OpenAI-compatible surface is a different shape from the
+// publisher-models path: v1beta1, and endpoints/{id} rather than
+// publishers/{p}/models. Reusing either of the other helpers produces a URL
+// that only fails when a request is made.
+func TestVertexOpenAIEndpoint(t *testing.T) {
+	tests := []struct {
+		name       string
+		endpointID string
+		want       string
+	}{
+		{
+			name:       "shared MaaS endpoint defaults to openapi",
+			endpointID: "",
+			want: "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/my-project" +
+				"/locations/us-central1/endpoints/openapi",
+		},
+		{
+			name:       "dedicated self-deployed endpoint",
+			endpointID: "4812379461283840",
+			want: "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/my-project" +
+				"/locations/us-central1/endpoints/4812379461283840",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := VertexOpenAIEndpoint("my-project", "us-central1", tc.endpointID)
+			assert.Equal(t, tc.want, got)
+			// The OpenAI provider appends /chat/completions itself, so the
+			// helper must stop short of it or the path doubles up.
+			assert.NotContains(t, got, "chat/completions")
+			assert.NotContains(t, got, "publishers")
+		})
+	}
+}

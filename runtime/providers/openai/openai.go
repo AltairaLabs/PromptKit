@@ -217,6 +217,15 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 			baseURL = credentials.AzureOpenAIEndpoint(cfg.PlatformConfig.Endpoint, cfg.Model)
 		case cfg.Platform == bedrockPlatform && cfg.PlatformConfig != nil && cfg.PlatformConfig.Region != "":
 			baseURL = credentials.BedrockEndpoint(cfg.PlatformConfig.Region)
+		// Vertex needs both project and region — each appears twice in the URL
+		// and neither has a default. PlatformConfig.Endpoint carries the
+		// endpoint ID here, not a host: empty selects the shared "openapi"
+		// endpoint (Gemini and MaaS partner models), and a numeric ID targets a
+		// self-deployed Model Garden endpoint.
+		case cfg.Platform == vertexPlatform && cfg.PlatformConfig != nil &&
+			cfg.PlatformConfig.Project != "" && cfg.PlatformConfig.Region != "":
+			baseURL = credentials.VertexOpenAIEndpoint(
+				cfg.PlatformConfig.Project, cfg.PlatformConfig.Region, cfg.PlatformConfig.Endpoint)
 		}
 	}
 
@@ -450,6 +459,10 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 const (
 	azurePlatform   = "azure"
 	bedrockPlatform = "bedrock"
+	// vertexPlatform reaches Vertex AI's OpenAI-compatible Chat Completions
+	// API, which covers Model Garden — Gemini, MaaS partner models, and
+	// self-deployed TGI/vLLM endpoints — with ADC and no API key.
+	vertexPlatform = "vertex"
 )
 
 // isAzure returns true if this provider is hosted on Azure OpenAI.
