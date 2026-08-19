@@ -1,4 +1,10 @@
 ---
+// The published token layer FIRST, this site's own overrides after: 42 of the 49
+// tokens the two share are already byte-identical, and loading the package
+// first means the 7 that differ still resolve to this site's values. Purely
+// additive — it supplies the semantic aliases and the type and space scales
+// that the shared brand components need and this site never had.
+import '@altairalabs/atlas-tokens/index.css';
 import '../styles/atlas/tokens.css';
 import '../styles/atlas/semantic.css';
 import '@fontsource/space-grotesk/400.css';
@@ -17,7 +23,7 @@ import InstallBand from '../components/landing/InstallBand.astro';
 import StreamWithTools from '../components/landing/StreamWithTools.astro';
 import DiataxisMatrix from '../components/landing/DiataxisMatrix.astro';
 import RepoStructure from '../components/landing/RepoStructure.astro';
-import SiteFooter from '../components/landing/SiteFooter.astro';
+import SiteFooter from '@altairalabs/brand/SiteFooter.astro';
 ---
 
 <!doctype html>
@@ -53,7 +59,29 @@ import SiteFooter from '../components/landing/SiteFooter.astro';
       <DiataxisMatrix />
       <RepoStructure />
     </main>
-    <SiteFooter />
+    <SiteFooter
+      current="promptkit"
+      logo="/atlas/logo-promptkit.svg"
+      tagline="The high-performance Go runtime and SDK for production LLM applications."
+      columns={[
+        {
+          title: 'Product',
+          links: [
+            { text: 'Runtime', href: '/runtime/' },
+            { text: 'SDK', href: '/sdk/' },
+            { text: 'Reference', href: '/runtime/reference/' },
+          ],
+        },
+        {
+          title: 'Docs',
+          links: [
+            { text: 'Tutorials', href: '/runtime/tutorials/' },
+            { text: 'How-to guides', href: '/runtime/how-to/' },
+            { text: 'Explanation', href: '/runtime/explanation/' },
+          ],
+        },
+      ]}
+    />
     <style is:global>
       html {
         background: var(--bg-app);
