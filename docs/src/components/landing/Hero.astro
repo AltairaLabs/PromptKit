@@ -98,23 +98,22 @@ import PathNav from '@altairalabs/brand/PathNav.astro';
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    border-radius: var(--radius-btn);
+    border-radius: var(--radius-md);
     transition: all var(--dur-base) var(--ease-standard);
   }
+  /* Gold, like every other product site's primary CTA. Violet is PromptKit's
+     star colour in the mark system, not a button colour — using it here made
+     this the one site whose call to action did not match the family. */
   .btn-primary {
     padding: 12px 20px;
     font-size: 14px;
-    background: var(--nebula-violet);
-    color: #1c1630;
-    box-shadow: 0 8px 22px -10px rgba(139, 92, 246, 0.55);
+    background: var(--gold-500);
+    color: var(--gold-ink);
+    box-shadow: 0 8px 22px -8px rgba(227, 179, 65, 0.5);
   }
   .btn-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 26px -8px rgba(139, 92, 246, 0.6);
-  }
-  /* On light paper the violet ramp deepens; flip to white text for contrast. */
-  :global(html[data-theme='light']) .btn-primary {
-    color: #ffffff;
+    box-shadow: 0 10px 26px -8px rgba(227, 179, 65, 0.6);
   }
   .btn-text {
     font-size: 14px;

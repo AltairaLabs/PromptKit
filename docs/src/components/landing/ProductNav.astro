@@ -41,12 +41,15 @@ const links = [
     background: var(--ink-canvas);
     border-bottom: 1px solid var(--hairline);
   }
+  /* No inline padding. .atlas-inner already sets the page's content column,
+     and the 30px that used to sit here pushed the mark 30px further right than
+     the hero directly beneath it — measured: logo at 220, h1 at 190. The
+     product row and the page content share one left edge. */
   .row {
     height: 62px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 30px;
   }
   .left {
     display: flex;
@@ -94,7 +97,7 @@ const links = [
     font-size: 11px;
     color: var(--star-900);
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-tag);
+    border-radius: var(--radius-sm);
     padding: 4px 8px;
   }
   .install {
@@ -102,7 +105,7 @@ const links = [
     font-size: 13px;
     color: var(--nebula-violet);
     border: 1px solid var(--violet-border);
-    border-radius: var(--radius-btn);
+    border-radius: var(--radius-md);
     padding: 9px 14px;
     transition: border-color var(--dur-base) var(--ease-standard);
   }

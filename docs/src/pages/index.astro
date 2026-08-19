@@ -1,18 +1,10 @@
 ---
-// The published token layer FIRST, this site's own overrides after: 42 of the 49
-// tokens the two share are already byte-identical, and loading the package
-// first means the 7 that differ still resolve to this site's values. Purely
-// additive — it supplies the semantic aliases and the type and space scales
-// that the shared brand components need and this site never had.
+// The same theme layer the docs pages load, in the same order. Starlight's
+// customCss only reaches Starlight pages, and a landing page is not one — so
+// without this the home page and the docs of the same site disagreed on the
+// Atlas mapping, the wordmark size and the border-box reset.
 import '@altairalabs/atlas-tokens/index.css';
-import '../styles/atlas/tokens.css';
-import '../styles/atlas/semantic.css';
-import '@fontsource/space-grotesk/400.css';
-import '@fontsource/space-grotesk/500.css';
-import '@fontsource/space-grotesk/600.css';
-import '@fontsource/space-grotesk/700.css';
-import '@fontsource/spline-sans-mono/400.css';
-import '@fontsource/spline-sans-mono/500.css';
+import '@altairalabs/brand/starlight-atlas.css';
 import FamilyBar from '@altairalabs/brand/FamilyBar.astro';
 import ProductNav from '../components/landing/ProductNav.astro';
 import Hero from '../components/landing/Hero.astro';

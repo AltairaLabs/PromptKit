@@ -70,11 +70,17 @@ export default defineConfig({
     d2(),
     starlight({
       title: 'PromptKit',
+      // Without this Starlight falls back to /favicon.svg — the pre-Atlas
+      // mark that predates the design system.
+      favicon: '/atlas/logo-promptkit.svg',
       logo: {
         src: './public/atlas/logo-promptkit.svg',
         alt: 'PromptKit',
       },
-      customCss: ['@altairalabs/brand/family-bar-starlight.css', './src/styles/custom.css'],
+      customCss: [
+        '@altairalabs/atlas-tokens/index.css',
+        '@altairalabs/brand/starlight-atlas.css','@altairalabs/brand/family-bar-starlight.css', './src/styles/custom.css',
+      ],
       // Atlas-themed code blocks: a distinct ink-void surface, mono code font,
       // hairline frame with a soft shadow, and a violet active-tab indicator —
       // so docs code blocks read as first-class, not the plain default.
@@ -85,7 +91,7 @@ export default defineConfig({
         themes: ['tokyo-night', 'github-light'],
         styleOverrides: {
           borderColor: 'var(--hairline)',
-          borderRadius: 'var(--radius-code)',
+          borderRadius: 'var(--radius-lg)',
           codeBackground: 'var(--ink-void)',
           codeFontFamily: 'var(--font-mono)',
           codeFontSize: '13.5px',
