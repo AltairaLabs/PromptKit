@@ -1,12 +1,16 @@
 ---
 import Terminal from './Terminal.astro';
 import { icon } from './icons';
+import PathNav from '@altairalabs/brand/PathNav.astro';
 ---
 
 <section class="hero">
   <div class="atlas-inner grid">
     <div class="col-left">
-      <p class="eyebrow">PROMPTKIT · GO RUNTIME</p>
+      {/* The v5 product path replaces the hand-written eyebrow. It says what
+          the eyebrow said — which product this is and what it does — but from
+          the registry, and it places the product among the other three. */}
+      <div class="eyebrow-slot"><PathNav current="promptkit" /></div>
       <h1>The Go runtime for production agents.</h1>
       <p class="lead">
         The high-performance Go runtime and SDK for production LLM applications.
@@ -61,14 +65,10 @@ import { icon } from './icons';
     gap: 52px;
     align-items: center;
   }
-  .eyebrow {
+  /* Spacing only. The component owns its own type and colour — a host that
+     restyled it would be the start of four hosts restyling it differently. */
+  .eyebrow-slot {
     margin: 0 0 20px;
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 12px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--nebula-violet);
   }
   h1 {
     margin: 0;
@@ -98,23 +98,22 @@ import { icon } from './icons';
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    border-radius: var(--radius-btn);
+    border-radius: var(--radius-md);
     transition: all var(--dur-base) var(--ease-standard);
   }
+  /* Gold, like every other product site's primary CTA. Violet is PromptKit's
+     star colour in the mark system, not a button colour — using it here made
+     this the one site whose call to action did not match the family. */
   .btn-primary {
     padding: 12px 20px;
     font-size: 14px;
-    background: var(--nebula-violet);
-    color: #1c1630;
-    box-shadow: 0 8px 22px -10px rgba(139, 92, 246, 0.55);
+    background: var(--gold-500);
+    color: var(--gold-ink);
+    box-shadow: 0 8px 22px -8px rgba(227, 179, 65, 0.5);
   }
   .btn-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 26px -8px rgba(139, 92, 246, 0.6);
-  }
-  /* On light paper the violet ramp deepens; flip to white text for contrast. */
-  :global(html[data-theme='light']) .btn-primary {
-    color: #ffffff;
+    box-shadow: 0 10px 26px -8px rgba(227, 179, 65, 0.6);
   }
   .btn-text {
     font-size: 14px;

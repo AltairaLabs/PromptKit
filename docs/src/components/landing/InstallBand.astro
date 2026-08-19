@@ -121,21 +121,22 @@ const install = 'go get github.com/AltairaLabs/PromptKit/sdk';
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    border-radius: var(--radius-btn);
+    border-radius: var(--radius-md);
     transition: all var(--dur-base) var(--ease-standard);
   }
+  /* Gold with gold-ink text, like every other product site's primary CTA.
+     The violet here (and the white-text light-mode override that went with it)
+     was left from when this button used PromptKit's star colour: white on
+     violet reads, white on gold does not. */
   .btn-primary {
     padding: 12px 20px;
     font-size: 14px;
-    background: var(--nebula-violet);
-    color: #1c1630;
-    box-shadow: 0 8px 22px -10px rgba(139, 92, 246, 0.55);
+    background: var(--gold-500);
+    color: var(--gold-ink);
+    box-shadow: 0 8px 22px -8px rgba(227, 179, 65, 0.5);
   }
   .btn-primary:hover {
     transform: translateY(-1px);
-  }
-  :global(html[data-theme='light']) .btn-primary {
-    color: #ffffff;
   }
   .btn-text {
     font-size: 14px;
@@ -164,7 +165,7 @@ const install = 'go get github.com/AltairaLabs/PromptKit/sdk';
     align-items: center;
     gap: 12px;
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-code);
+    border-radius: var(--radius-lg);
     background: var(--surface-code);
     padding: 15px 16px;
   }
@@ -184,7 +185,7 @@ const install = 'go get github.com/AltairaLabs/PromptKit/sdk';
 
   .code-card {
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-code);
+    border-radius: var(--radius-lg);
     background: var(--surface-code);
     overflow: hidden;
   }

@@ -210,18 +210,18 @@ const quadrants = [
   }
   /* Share edges — round only the outer corners so the four read as one chart. */
   .quad:nth-of-type(1) {
-    border-top-left-radius: var(--radius-card);
+    border-top-left-radius: var(--radius-2xl);
   }
   .quad:nth-of-type(2) {
-    border-top-right-radius: var(--radius-card);
+    border-top-right-radius: var(--radius-2xl);
     border-left: none;
   }
   .quad:nth-of-type(3) {
-    border-bottom-left-radius: var(--radius-card);
+    border-bottom-left-radius: var(--radius-2xl);
     border-top: none;
   }
   .quad:nth-of-type(4) {
-    border-bottom-right-radius: var(--radius-card);
+    border-bottom-right-radius: var(--radius-2xl);
     border-top: none;
     border-left: none;
   }
@@ -298,7 +298,7 @@ const quadrants = [
     .quad,
     .quad:nth-of-type(n) {
       border: 1px solid var(--hairline);
-      border-radius: var(--radius-card);
+      border-radius: var(--radius-2xl);
       margin-bottom: 12px;
     }
   }

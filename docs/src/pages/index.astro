@@ -1,12 +1,10 @@
 ---
-import '../styles/atlas/tokens.css';
-import '../styles/atlas/semantic.css';
-import '@fontsource/space-grotesk/400.css';
-import '@fontsource/space-grotesk/500.css';
-import '@fontsource/space-grotesk/600.css';
-import '@fontsource/space-grotesk/700.css';
-import '@fontsource/spline-sans-mono/400.css';
-import '@fontsource/spline-sans-mono/500.css';
+// The same theme layer the docs pages load, in the same order. Starlight's
+// customCss only reaches Starlight pages, and a landing page is not one — so
+// without this the home page and the docs of the same site disagreed on the
+// Atlas mapping, the wordmark size and the border-box reset.
+import '@altairalabs/atlas-tokens/index.css';
+import '@altairalabs/brand/starlight-atlas.css';
 import FamilyBar from '@altairalabs/brand/FamilyBar.astro';
 import ProductNav from '../components/landing/ProductNav.astro';
 import Hero from '../components/landing/Hero.astro';
@@ -17,7 +15,7 @@ import InstallBand from '../components/landing/InstallBand.astro';
 import StreamWithTools from '../components/landing/StreamWithTools.astro';
 import DiataxisMatrix from '../components/landing/DiataxisMatrix.astro';
 import RepoStructure from '../components/landing/RepoStructure.astro';
-import SiteFooter from '../components/landing/SiteFooter.astro';
+import SiteFooter from '@altairalabs/brand/SiteFooter.astro';
 ---
 
 <!doctype html>
@@ -53,7 +51,29 @@ import SiteFooter from '../components/landing/SiteFooter.astro';
       <DiataxisMatrix />
       <RepoStructure />
     </main>
-    <SiteFooter />
+    <SiteFooter
+      current="promptkit"
+      logo="/atlas/logo-promptkit.svg"
+      tagline="The high-performance Go runtime and SDK for production LLM applications."
+      columns={[
+        {
+          title: 'Product',
+          links: [
+            { text: 'Runtime', href: '/runtime/' },
+            { text: 'SDK', href: '/sdk/' },
+            { text: 'Reference', href: '/runtime/reference/' },
+          ],
+        },
+        {
+          title: 'Docs',
+          links: [
+            { text: 'Tutorials', href: '/runtime/tutorials/' },
+            { text: 'How-to guides', href: '/runtime/how-to/' },
+            { text: 'Explanation', href: '/runtime/explanation/' },
+          ],
+        },
+      ]}
+    />
     <style is:global>
       html {
         background: var(--bg-app);
