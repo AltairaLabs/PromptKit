@@ -192,6 +192,13 @@ func TestSessionPlayer_PauseResume(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	player.Pause()
 
+	// Pause cancels the playback context but does not join the playback
+	// goroutine — that is what Wait is for. A goroutine already past the
+	// context check in playbackLoop still delivers its event, so sampling the
+	// counter straight after Pause races with that last delivery and reads one
+	// too few. Join first, then sample.
+	player.Wait()
+
 	mu.Lock()
 	countAtPause := eventCount
 	mu.Unlock()
