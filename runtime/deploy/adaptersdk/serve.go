@@ -14,6 +14,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/deploy"
 )
 
+// msgMethodNotFound prefixes the JSON-RPC error for an unrecognized method.
+const msgMethodNotFound = "method not found: "
+
 // JSON-RPC method names recognized by the adapter protocol.
 const (
 	MethodGetProviderInfo = "get_provider_info"
@@ -166,7 +169,7 @@ func dispatch(provider deploy.Provider, req *request) response {
 			JSONRPC: jsonRPCVersion,
 			Error: &rpcError{
 				Code:    CodeMethodNotFound,
-				Message: "method not found: " + req.Method,
+				Message: msgMethodNotFound + req.Method,
 			},
 			ID: req.ID,
 		}
@@ -310,7 +313,7 @@ func handleGetLoginURL(
 ) response {
 	lp, ok := provider.(deploy.LoginProvider)
 	if !ok {
-		return errResponse(req.ID, CodeMethodNotFound, "method not found: "+req.Method)
+		return errResponse(req.ID, CodeMethodNotFound, msgMethodNotFound+req.Method)
 	}
 	var params deploy.LoginURLRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -332,7 +335,7 @@ func handleCompleteLogin(
 ) response {
 	lp, ok := provider.(deploy.LoginProvider)
 	if !ok {
-		return errResponse(req.ID, CodeMethodNotFound, "method not found: "+req.Method)
+		return errResponse(req.ID, CodeMethodNotFound, msgMethodNotFound+req.Method)
 	}
 	var params deploy.CompleteLoginRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {

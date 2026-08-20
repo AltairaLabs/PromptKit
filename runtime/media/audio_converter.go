@@ -9,6 +9,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// ffmpegAudioCodecFlag selects the output audio codec in an ffmpeg argument list.
+const ffmpegAudioCodecFlag = "-acodec"
+
 // Audio format constants.
 const (
 	AudioFormatWAV  = "wav"
@@ -303,10 +306,10 @@ func (c *AudioConverter) buildFFmpegArgs(inputPath, outputPath, toFormat string)
 	switch toFormat {
 	case AudioFormatWAV:
 		// PCM 16-bit signed little-endian for maximum compatibility
-		args = append(args, "-acodec", "pcm_s16le")
+		args = append(args, ffmpegAudioCodecFlag, "pcm_s16le")
 
 	case AudioFormatMP3:
-		args = append(args, "-acodec", "libmp3lame")
+		args = append(args, ffmpegAudioCodecFlag, "libmp3lame")
 		if c.config.BitRate != "" {
 			args = append(args, "-b:a", c.config.BitRate)
 		} else {
@@ -314,16 +317,16 @@ func (c *AudioConverter) buildFFmpegArgs(inputPath, outputPath, toFormat string)
 		}
 
 	case AudioFormatFLAC:
-		args = append(args, "-acodec", "flac")
+		args = append(args, ffmpegAudioCodecFlag, "flac")
 
 	case AudioFormatOGG:
-		args = append(args, "-acodec", "libvorbis")
+		args = append(args, ffmpegAudioCodecFlag, "libvorbis")
 		if c.config.BitRate != "" {
 			args = append(args, "-b:a", c.config.BitRate)
 		}
 
 	case AudioFormatAAC, AudioFormatM4A:
-		args = append(args, "-acodec", "aac")
+		args = append(args, ffmpegAudioCodecFlag, "aac")
 		if c.config.BitRate != "" {
 			args = append(args, "-b:a", c.config.BitRate)
 		}

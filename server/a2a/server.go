@@ -61,6 +61,27 @@ const (
 	evictionInterval = 1 * time.Minute
 )
 
+// HTTP header names and values used across the JSON-RPC and SSE handlers.
+const (
+	headerContentType  = "Content-Type"
+	headerCacheControl = "Cache-Control"
+	headerConnection   = "Connection"
+
+	contentTypeJSON = "application/json"
+	contentTypeSSE  = "text/event-stream"
+
+	cacheControlNoCache = "no-cache"
+	connectionKeepAlive = "keep-alive"
+)
+
+// Error messages returned to clients. Kept here so the same wording is used
+// everywhere a given condition is reported.
+const (
+	msgInternalServerError = "internal server error"
+	msgInvalidParams       = "Invalid params"
+	msgStreamingNotSupport = "Streaming not supported"
+)
+
 // Authenticator validates incoming requests. Return a non-nil error to reject.
 type Authenticator interface {
 	Authenticate(r *http.Request) error
@@ -363,7 +384,7 @@ func (s *Server) Serve(ln net.Listener) error {
 // handleHealthz is a liveness probe: it returns 200 whenever the HTTP server
 // is accepting connections.
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
@@ -371,7 +392,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 // to accept traffic and 503 otherwise. It checks the isReady flag and all
 // registered health checkers.
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 
 	if !s.isReady.Load() {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -418,7 +439,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // handleAgentCard serves the agent card as JSON.
 func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 	if s.cardProvider == nil {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, contentTypeJSON)
 		_ = json.NewEncoder(w).Encode(a2a.AgentCard{})
 		return
 	}
@@ -428,7 +449,7 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(card)
 }
 
@@ -473,7 +494,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
 	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -485,7 +506,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	conv, err := s.getOrCreateConversation(contextID)
 	if err != nil {
 		log.Printf("a2a: failed to open conversation for context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 
@@ -505,7 +526,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	taskID := generateID()
 	if _, createErr := s.taskStore.Create(taskID, contextID); createErr != nil {
 		log.Printf("a2a: failed to create task for context %s: %v", contextID, createErr)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 
@@ -528,7 +549,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
 		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 	writeRPCResult(w, req.ID, task)
@@ -582,7 +603,7 @@ func (s *Server) handleToolResultMessage(
 		} else {
 			if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
 				log.Printf("a2a: failed to submit tool result %s: %v", tr.CallID, err)
-				writeRPCError(w, req.ID, -32000, "internal server error")
+				writeRPCError(w, req.ID, -32000, msgInternalServerError)
 				return
 			}
 		}
@@ -591,7 +612,7 @@ func (s *Server) handleToolResultMessage(
 	taskID := generateID()
 	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
 		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 
@@ -613,7 +634,7 @@ func (s *Server) handleToolResultMessage(
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
 		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 	writeRPCResult(w, req.ID, task)
@@ -769,7 +790,7 @@ func buildPendingToolsMessage(resp SendResult) *a2a.Message {
 func (s *Server) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.GetTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -787,7 +808,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.CancelTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -808,7 +829,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest
 	task, err := s.taskStore.Get(params.ID)
 	if err != nil {
 		log.Printf("a2a: failed to retrieve task %s after cancel: %v", params.ID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		writeRPCError(w, req.ID, -32000, msgInternalServerError)
 		return
 	}
 	writeRPCResult(w, req.ID, task)
@@ -818,7 +839,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest
 func (s *Server) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.ListTasksRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -884,7 +905,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 		writeRPCError(w, id, -32603, "Internal error: failed to encode result")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -894,7 +915,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 
 // writeRPCError writes a JSON-RPC 2.0 error response.
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -904,7 +925,7 @@ func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 
 // writeRPCErrorWithStatus writes a JSON-RPC 2.0 error response with a specific HTTP status code.
 func writeRPCErrorWithStatus(w http.ResponseWriter, status int, id any, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",

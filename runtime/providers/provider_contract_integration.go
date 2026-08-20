@@ -14,6 +14,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// skipNoToolSupport is the skip reason for providers without tool support.
+const skipNoToolSupport = "Provider doesn't implement ToolSupport"
+
 // Default values for contract test requests.
 const (
 	contractTestTemperature = 0.7
@@ -426,7 +429,7 @@ func buildWeatherTools(t *testing.T, toolSupport ToolSupport) ProviderTools {
 func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 
@@ -467,7 +470,7 @@ func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
 func testPredictWithToolsToolCallFormat(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 
@@ -522,7 +525,7 @@ func testPredictWithToolsToolCallFormat(t *testing.T, provider Provider) {
 func testPredictWithToolsSystemMessage(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 
@@ -557,7 +560,7 @@ func testPredictWithToolsSystemMessage(t *testing.T, provider Provider) {
 func testPredictWithToolsReturnsCostInfo(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 
@@ -595,7 +598,7 @@ func testPredictWithToolsReturnsCostInfo(t *testing.T, provider Provider) {
 func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 
@@ -720,7 +723,7 @@ func SkipIfNoCredentials(t *testing.T, provider Provider) {
 func testPredictStreamWithToolsProducesToolCalls(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
+		t.Skip(skipNoToolSupport)
 		return
 	}
 

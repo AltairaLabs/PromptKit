@@ -21,6 +21,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// msgDedupIndexPersistFailed is logged when the dedup index cannot be written.
+const msgDedupIndexPersistFailed = "failed to persist dedup index"
+
 const (
 	audioMIMETypePCM   = "audio/pcm"
 	audioMIMETypeL16   = "audio/L16"
@@ -280,7 +283,7 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 
 		// Persist index (skips write if not dirty)
 		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
+			logger.Warn(msgDedupIndexPersistFailed, "error", err)
 		}
 	}
 
@@ -441,7 +444,7 @@ func (fs *FileStore) storeMediaStreaming(
 		fs.refMu.Unlock()
 
 		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
+			logger.Warn(msgDedupIndexPersistFailed, "error", err)
 		}
 	}
 
@@ -568,7 +571,7 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 
 		// Persist index (skips write if not dirty)
 		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
+			logger.Warn(msgDedupIndexPersistFailed, "error", err)
 		}
 	}
 

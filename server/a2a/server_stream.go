@@ -227,7 +227,7 @@ func (s *Server) handleStreamMessage(
 ) {
 	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -272,14 +272,14 @@ func (s *Server) handleStreamMessage(
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+		writeRPCError(w, req.ID, -32000, msgStreamingNotSupport)
 		return
 	}
 
 	// Set SSE headers.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set(headerContentType, contentTypeSSE)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	sc := &streamCtx{
 		srv:       s,
@@ -345,13 +345,13 @@ func (s *Server) handleStreamToolResultMessage(
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+		writeRPCError(w, req.ID, -32000, msgStreamingNotSupport)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set(headerContentType, contentTypeSSE)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	sc := &streamCtx{
 		srv:       s,
@@ -509,7 +509,7 @@ func (sc *streamCtx) emitArtifact(idx int, parts []a2a.Part) {
 func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
 	var params a2a.SubscribeTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+		writeRPCError(w, req.ID, -32602, msgInvalidParams)
 		return
 	}
 
@@ -528,14 +528,14 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			writeRPCError(w, req.ID, -32000, "Streaming not supported")
+			writeRPCError(w, req.ID, -32000, msgStreamingNotSupport)
 			return
 		}
 
 		// Task exists but no active stream. Send its current status.
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set(headerContentType, contentTypeSSE)
+		w.Header().Set(headerCacheControl, cacheControlNoCache)
+		w.Header().Set(headerConnection, connectionKeepAlive)
 
 		writeSSE(w, flusher, req.ID, a2a.TaskStatusUpdateEvent{
 			TaskID:    task.ID,
@@ -547,13 +547,13 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+		writeRPCError(w, req.ID, -32000, msgStreamingNotSupport)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set(headerContentType, contentTypeSSE)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	ch, subID, subErr := broadcaster.subscribe()
 	if subErr != nil {

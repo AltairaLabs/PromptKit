@@ -19,6 +19,9 @@ import (
 	promptschema "github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
+// fileURLScheme is the prefix gojsonschema expects for a local schema path.
+const fileURLScheme = "file://"
+
 // SchemaBaseURL is the base URL for PromptKit JSON schemas
 const SchemaBaseURL = "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 
@@ -292,7 +295,7 @@ func tryLocalSchemaFallback(configType ConfigType) (*gojsonschema.Schema, error)
 		return nil, fmt.Errorf("no local schema found for fallback")
 	}
 
-	localLoader := gojsonschema.NewReferenceLoader("file://" + localSchemaPath)
+	localLoader := gojsonschema.NewReferenceLoader(fileURLScheme + localSchemaPath)
 	return gojsonschema.NewSchema(localLoader)
 }
 
@@ -455,8 +458,8 @@ func loadRawSchemaForKey(schemaKey string) map[string]any {
 
 func fetchSchemaBytes(schemaKey string) ([]byte, error) {
 	switch {
-	case strings.HasPrefix(schemaKey, "file://"):
-		path := strings.TrimPrefix(schemaKey, "file://")
+	case strings.HasPrefix(schemaKey, fileURLScheme):
+		path := strings.TrimPrefix(schemaKey, fileURLScheme)
 		return os.ReadFile(path) //nolint:gosec // path comes from configured schemaDir
 	case strings.HasPrefix(schemaKey, "http://"), strings.HasPrefix(schemaKey, "https://"):
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, schemaKey, http.NoBody)

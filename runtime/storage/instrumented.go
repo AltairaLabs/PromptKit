@@ -17,6 +17,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// attrMediaReference is the span attribute naming the media reference operated on.
+const attrMediaReference = "media.reference"
+
 // instrumentationTracerName is the OTel tracer name used for media storage spans.
 const instrumentationTracerName = "github.com/AltairaLabs/PromptKit/runtime/storage"
 
@@ -113,7 +116,7 @@ func (s *InstrumentedStorage) StoreMedia(
 		return ref, err
 	}
 
-	span.SetAttributes(attribute.String("media.reference", string(ref)))
+	span.SetAttributes(attribute.String(attrMediaReference, string(ref)))
 	s.publish(events.EventMediaStored, &events.MediaStorageEventData{
 		Operation:  "store",
 		Backend:    s.backend,
@@ -134,7 +137,7 @@ func (s *InstrumentedStorage) RetrieveMedia(
 ) (*types.MediaContent, error) {
 	ctx, span := s.startSpan(ctx, "media.retrieve", nil)
 	defer span.End()
-	span.SetAttributes(attribute.String("media.reference", string(reference)))
+	span.SetAttributes(attribute.String(attrMediaReference, string(reference)))
 
 	start := time.Now()
 	content, err := s.inner.RetrieveMedia(ctx, reference)
@@ -161,7 +164,7 @@ func (s *InstrumentedStorage) RetrieveMedia(
 func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Reference) error {
 	ctx, span := s.startSpan(ctx, "media.delete", nil)
 	defer span.End()
-	span.SetAttributes(attribute.String("media.reference", string(reference)))
+	span.SetAttributes(attribute.String(attrMediaReference, string(reference)))
 
 	start := time.Now()
 	err := s.inner.DeleteMedia(ctx, reference)
@@ -190,7 +193,7 @@ func (s *InstrumentedStorage) GetURL(
 ) (string, error) {
 	ctx, span := s.startSpan(ctx, "media.get_url", nil)
 	defer span.End()
-	span.SetAttributes(attribute.String("media.reference", string(reference)))
+	span.SetAttributes(attribute.String(attrMediaReference, string(reference)))
 
 	start := time.Now()
 	url, err := s.inner.GetURL(ctx, reference, expiry)
