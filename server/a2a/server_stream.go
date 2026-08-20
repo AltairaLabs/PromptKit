@@ -12,6 +12,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// setSSEHeaders writes the header set every SSE response needs. The four
+// streaming handlers all opened with the same three Set calls; naming the
+// sequence once keeps them from drifting apart.
+func setSSEHeaders(w http.ResponseWriter) {
+	w.Header().Set(headerContentType, contentTypeSSE)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
+}
+
 // subscriberBuffer is the channel buffer size for broadcast subscribers.
 const subscriberBuffer = 64
 
@@ -277,9 +286,7 @@ func (s *Server) handleStreamMessage(
 	}
 
 	// Set SSE headers.
-	w.Header().Set(headerContentType, contentTypeSSE)
-	w.Header().Set(headerCacheControl, cacheControlNoCache)
-	w.Header().Set(headerConnection, connectionKeepAlive)
+	setSSEHeaders(w)
 
 	sc := &streamCtx{
 		srv:       s,
@@ -349,9 +356,7 @@ func (s *Server) handleStreamToolResultMessage(
 		return
 	}
 
-	w.Header().Set(headerContentType, contentTypeSSE)
-	w.Header().Set(headerCacheControl, cacheControlNoCache)
-	w.Header().Set(headerConnection, connectionKeepAlive)
+	setSSEHeaders(w)
 
 	sc := &streamCtx{
 		srv:       s,
@@ -533,9 +538,7 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 		}
 
 		// Task exists but no active stream. Send its current status.
-		w.Header().Set(headerContentType, contentTypeSSE)
-		w.Header().Set(headerCacheControl, cacheControlNoCache)
-		w.Header().Set(headerConnection, connectionKeepAlive)
+		setSSEHeaders(w)
 
 		writeSSE(w, flusher, req.ID, a2a.TaskStatusUpdateEvent{
 			TaskID:    task.ID,
@@ -551,9 +554,7 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 		return
 	}
 
-	w.Header().Set(headerContentType, contentTypeSSE)
-	w.Header().Set(headerCacheControl, cacheControlNoCache)
-	w.Header().Set(headerConnection, connectionKeepAlive)
+	setSSEHeaders(w)
 
 	ch, subID, subErr := broadcaster.subscribe()
 	if subErr != nil {
