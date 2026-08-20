@@ -11,7 +11,7 @@
 // Run locally against the demo resource:
 //
 //	az login --scope https://cognitiveservices.azure.com/.default
-//	export AZURE_OPENAI_ENDPOINT=https://aoai-omnia-demo-33eebkdcvsi4a.cognitiveservices.azure.com
+//	export AZURE_OPENAI_ENDPOINT=https://aoai-omnia-demo-2cbltt3edbpwa.cognitiveservices.azure.com
 //	export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
 //	go test -tags=integration ./runtime/providers/openai/... -run AzureEmbedding -v
 //
@@ -23,11 +23,31 @@ package openai
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
+
+// skipIfDeploymentMissing turns Azure's DeploymentNotFound into a skip.
+//
+// An Azure OpenAI account only serves the models actually deployed on it, and
+// an embedding model is not present on every resource — the chat-only Foundry
+// resource used elsewhere in this package has no text-embedding deployment at
+// all. That is a property of the target account, not a defect, and it is the
+// same reason skipIfNoAzure exists: these tests are gated on what the
+// environment provides.
+//
+// Only DeploymentNotFound is treated this way. Any other failure against a
+// deployment that does exist is a real one and still fails the test.
+func skipIfDeploymentMissing(t *testing.T, err error) {
+	t.Helper()
+	if err != nil && strings.Contains(err.Error(), "DeploymentNotFound") {
+		t.Skipf("embedding deployment %q is not provisioned on %s — set AZURE_OPENAI_EMBEDDING_DEPLOYMENT to one that is",
+			azureEmbeddingDeployment(), azureEndpoint())
+	}
+}
 
 // azureEmbeddingDeployment returns the embedding deployment to address. Azure
 // routes by deployment name, not model name. Defaults to the demo resource's
@@ -98,6 +118,7 @@ func TestAzureEmbedding_Embed(t *testing.T) {
 		Texts: []string{"PromptKit keyless Azure embedding works."},
 	})
 	if err != nil {
+		skipIfDeploymentMissing(t, err)
 		t.Fatalf("Embed failed against live Azure: %v", err)
 	}
 
@@ -139,6 +160,7 @@ func TestAzureEmbedding_BatchEmbed(t *testing.T) {
 	texts := []string{"first document", "second document", "third document"}
 	resp, err := emb.Embed(ctx, providers.EmbeddingRequest{Texts: texts})
 	if err != nil {
+		skipIfDeploymentMissing(t, err)
 		t.Fatalf("batch Embed failed against live Azure: %v", err)
 	}
 
