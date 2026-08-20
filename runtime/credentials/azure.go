@@ -26,11 +26,15 @@ const azureDeploymentPath = "/openai/deployments/"
 // The returned URL does NOT include the API path (/chat/completions) or
 // api-version query param — the provider appends those per-request.
 //
-// endpoint is normally an account host (https://acct.openai.azure.com), which
-// gets the deployment path appended. An endpoint that already addresses a
-// deployment is returned as-is instead of having a second deployment path
-// stacked onto it, so a caller that passes a full deployment URL still ends up
-// with a usable base.
+// endpoint is normally an account host, which gets the deployment path
+// appended:
+//
+//	https://<resource>.openai.azure.com
+//	  -> https://<resource>.openai.azure.com/openai/deployments/<deployment>
+//
+// An endpoint that already addresses a deployment is returned as-is instead of
+// having a second deployment path stacked onto it, so a caller that passes a
+// full deployment URL still ends up with a usable base.
 func AzureOpenAIEndpoint(endpoint, deployment string) string {
 	trimmed := strings.TrimRight(endpoint, "/")
 	if strings.Contains(trimmed, azureDeploymentPath) {
