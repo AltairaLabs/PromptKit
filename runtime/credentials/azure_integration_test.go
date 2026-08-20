@@ -174,6 +174,22 @@ func TestAzureOpenAIEndpoint(t *testing.T) {
 			deployment: "gpt-4o",
 			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
 		},
+		{
+			// A caller that already addressed a deployment must not get a
+			// second deployment path stacked underneath the first.
+			name:       "endpoint already names a deployment",
+			endpoint:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+			deployment: "gpt-4o",
+			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+		},
+		{
+			// The deployment already in the endpoint wins: it is the more
+			// specific statement of intent.
+			name:       "existing deployment differs from the model",
+			endpoint:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/",
+			deployment: "gpt-4-1-mini",
+			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -578,9 +578,23 @@ func resolvePlatformCredential(ctx context.Context, pc *platformConfig) (provide
 	}
 }
 
-// platformBaseURL returns the base URL for a platform + provider combination.
-// The endpoint can be overridden via WithPlatformEndpoint.
+// platformBaseURL returns the base URL for a platform + provider combination,
+// or "" to leave the base URL for the provider factory to derive from
+// PlatformConfig. The endpoint can be overridden via WithPlatformEndpoint.
+//
+// Bedrock and Vertex endpoints are base URLs, so an endpoint set for either is
+// returned as-is. Azure's is not: it is an account host, and the base URL is a
+// per-deployment path underneath it. Returning the account host as a base URL
+// points every request at {host}/chat/completions, which Azure does not route,
+// so Azure defers to the openai factory — it builds the deployment path from
+// PlatformConfig.Endpoint, which sdk.go populates with the same value.
 func platformBaseURL(pc *platformConfig, provType string) string {
+	// Azure's endpoint is an account host rather than a base URL, so it must not
+	// short-circuit the factory the way Bedrock's and Vertex's can.
+	if pc.platformType == platformTypeAzure {
+		return ""
+	}
+
 	if pc.endpoint != "" {
 		return pc.endpoint
 	}
@@ -590,11 +604,6 @@ func platformBaseURL(pc *platformConfig, provType string) string {
 		return credentials.BedrockEndpoint(pc.region)
 	case platformTypeVertex:
 		return vertexBaseURL(pc, provType)
-	case platformTypeAzure:
-		// Azure always requires an explicit endpoint via WithPlatformEndpoint.
-		// When none is set, pc.endpoint is empty and provider creation will fail
-		// with a clear error from the Azure credential/provider layer.
-		return pc.endpoint
 	default:
 		return ""
 	}

@@ -18,11 +18,25 @@ const tokenRefreshBuffer = 5 * time.Minute
 // platform.additional_config.api_version is not set.
 const DefaultAzureAPIVersion = "2024-12-01-preview"
 
+// azureDeploymentPath is the path segment under an Azure OpenAI account host
+// that addresses a single deployment.
+const azureDeploymentPath = "/openai/deployments/"
+
 // AzureOpenAIEndpoint returns the base URL for an Azure OpenAI deployment.
 // The returned URL does NOT include the API path (/chat/completions) or
 // api-version query param — the provider appends those per-request.
+//
+// endpoint is normally an account host (https://acct.openai.azure.com), which
+// gets the deployment path appended. An endpoint that already addresses a
+// deployment is returned as-is instead of having a second deployment path
+// stacked onto it, so a caller that passes a full deployment URL still ends up
+// with a usable base.
 func AzureOpenAIEndpoint(endpoint, deployment string) string {
-	return strings.TrimRight(endpoint, "/") + "/openai/deployments/" + deployment
+	trimmed := strings.TrimRight(endpoint, "/")
+	if strings.Contains(trimmed, azureDeploymentPath) {
+		return trimmed
+	}
+	return trimmed + azureDeploymentPath + deployment
 }
 
 // Apply adds the Azure AD token to the request.
