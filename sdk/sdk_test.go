@@ -701,10 +701,20 @@ func TestPlatformBaseURL(t *testing.T) {
 		assert.Equal(t, "https://custom.vertex", url)
 	})
 
-	t.Run("azure returns endpoint directly", func(t *testing.T) {
+	// Azure's endpoint is an account host, not a base URL — the base URL is the
+	// per-deployment path under it. Returning the host here would send requests
+	// to {host}/chat/completions, which Azure does not route, so the openai
+	// factory builds the deployment path from PlatformConfig.Endpoint instead.
+	t.Run("azure defers to the provider factory", func(t *testing.T) {
 		pc := &platformConfig{platformType: "azure", endpoint: "https://my-resource.openai.azure.com"}
 		url := platformBaseURL(pc, "openai")
-		assert.Equal(t, "https://my-resource.openai.azure.com", url)
+		assert.Empty(t, url)
+	})
+
+	t.Run("azure defers even with an endpoint override", func(t *testing.T) {
+		pc := &platformConfig{platformType: "azure", endpoint: "https://custom.openai.azure.com"}
+		url := platformBaseURL(pc, "openai")
+		assert.Empty(t, url)
 	})
 
 	t.Run("unknown platform returns empty", func(t *testing.T) {
