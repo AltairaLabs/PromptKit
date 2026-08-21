@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -199,6 +200,50 @@ func TestClientLogin_Errors(t *testing.T) {
 	}
 	if _, err := client.CompleteLogin(context.Background(), &CompleteLoginRequest{}); err == nil {
 		t.Error("expected error from CompleteLogin")
+	}
+}
+
+// TestClientMethodNotFound_IsErrMethodNotSupported pins the contract that lets
+// a caller tell "this adapter is older and does not serve that RPC" apart from
+// "the call failed". There is no version handshake between the CLI and an
+// adapter binary, so this is the only signal available, and before
+// ErrMethodNotSupported existed the sole way to detect it was matching the
+// error text.
+func TestClientMethodNotFound_IsErrMethodNotSupported(t *testing.T) {
+	notFound := func(method string, _ json.RawMessage) (any, *rpcError) {
+		return nil, &rpcError{Code: -32601, Message: "method not found: " + method}
+	}
+	client := startTestClient(t, notFound)
+
+	_, err := client.GetLoginURL(context.Background(), &LoginURLRequest{})
+	if err == nil {
+		t.Fatal("expected an error from GetLoginURL")
+	}
+	if !errors.Is(err, ErrMethodNotSupported) {
+		t.Errorf("method-not-found should match ErrMethodNotSupported, got %v", err)
+	}
+	// The message is part of the contract too: callers that treat this as fatal
+	// still print something that names the method.
+	if !strings.Contains(err.Error(), "get_login_url") {
+		t.Errorf("error should name the method, got %q", err.Error())
+	}
+}
+
+// TestClientOtherRPCError_IsNotMethodNotSupported is the other half: a real
+// adapter failure must not be mistaken for an absent method, or a broken
+// adapter would silently look like an old one.
+func TestClientOtherRPCError_IsNotMethodNotSupported(t *testing.T) {
+	internal := func(_ string, _ json.RawMessage) (any, *rpcError) {
+		return nil, &rpcError{Code: -32603, Message: "boom"}
+	}
+	client := startTestClient(t, internal)
+
+	_, err := client.GetLoginURL(context.Background(), &LoginURLRequest{})
+	if err == nil {
+		t.Fatal("expected an error from GetLoginURL")
+	}
+	if errors.Is(err, ErrMethodNotSupported) {
+		t.Errorf("internal error must not match ErrMethodNotSupported, got %v", err)
 	}
 }
 
