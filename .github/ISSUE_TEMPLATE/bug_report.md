@@ -84,9 +84,25 @@ Add any other context about the problem here, such as:
 - Did this work in a previous version?
 - Are there any workarounds you've found?
 
+## Documentation Impact
+
+**Would closing this make something in the docs untrue?**
+Check the docs for statements this issue would invalidate — a documented limitation,
+a "not supported yet", or a described behaviour that changes. Docs deliberately carry
+no issue links, so nothing points back here when this closes; the doc update has to be
+part of the work.
+
+- [ ] No documented statement changes
+- [ ] Yes — the pages to update are listed below, and updating them is part of this issue
+
+```
+<paths under docs/ that this makes stale>
+```
+
 ## Checklist
 
 - [ ] I have searched existing issues to ensure this is not a duplicate
 - [ ] I have provided all the information requested above
 - [ ] I have tested this with the latest version of PromptKit
 - [ ] I have included relevant configuration and error output
+- [ ] I have checked whether fixing this makes any existing documentation untrue, and listed the pages if so
