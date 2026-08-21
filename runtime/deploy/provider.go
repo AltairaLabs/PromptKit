@@ -224,9 +224,12 @@ type CompleteLoginResponse struct {
 
 // LoginProvider is the OPTIONAL deploy capability for browser-based
 // autoconfigure. Adapters that implement it advertise LoginCapability in
-// ProviderInfo.Capabilities. The adaptersdk exposes get_login_url /
-// complete_login only for providers that satisfy this interface, and the CLI
-// degrades gracefully (method not found) for those that don't.
+// ProviderInfo.Capabilities, and the adaptersdk exposes get_login_url /
+// complete_login only for providers that satisfy this interface.
+//
+// Callers decide whether login is available by checking Capabilities, not by
+// calling and recovering: an adapter that does not serve the method answers
+// method-not-found, which surfaces as ErrMethodNotSupported.
 type LoginProvider interface {
 	GetLoginURL(ctx context.Context, req *LoginURLRequest) (*LoginURLResponse, error)
 	CompleteLogin(ctx context.Context, req *CompleteLoginRequest) (*CompleteLoginResponse, error)

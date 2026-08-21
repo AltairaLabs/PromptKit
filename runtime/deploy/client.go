@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -61,6 +62,37 @@ type rpcError struct {
 
 func (e *rpcError) Error() string {
 	return fmt.Sprintf("adapter error %d: %s", e.Code, e.Message)
+}
+
+// codeMethodNotFound is the JSON-RPC 2.0 code for a method the peer does not
+// implement. The adaptersdk returns it for any RPC an adapter does not serve —
+// notably the optional login pair, which only some providers implement.
+const codeMethodNotFound = -32601
+
+// ErrMethodNotSupported reports that the adapter does not implement the method
+// that was called.
+//
+// Optional RPCs are the reason this exists. There is no version handshake
+// between the CLI and an adapter binary: an adapter built against an older
+// PromptKit simply answers method-not-found, and the only way for a caller to
+// tell that apart from a genuine failure was to match on the error text. Match
+// with errors.Is instead:
+//
+//	if errors.Is(err, deploy.ErrMethodNotSupported) {
+//		// degrade: this adapter does not offer the capability
+//	}
+//
+// Callers that treat this as fatal are still correct — it remains an error, and
+// the message is unchanged.
+var ErrMethodNotSupported = errors.New("adapter does not implement this method")
+
+// Unwrap exposes ErrMethodNotSupported behind a method-not-found response so
+// callers can branch on the condition rather than on the message.
+func (e *rpcError) Unwrap() error {
+	if e.Code == codeMethodNotFound {
+		return ErrMethodNotSupported
+	}
+	return nil
 }
 
 const (
@@ -325,8 +357,12 @@ func (c *AdapterClient) Import(ctx context.Context, req *ImportRequest) (*Import
 	return &resp, nil
 }
 
-// GetLoginURL asks the adapter for the provider's browser authorize URL. A
-// method-not-found error means the adapter does not implement login.
+// GetLoginURL asks the adapter for the provider's browser authorize URL.
+//
+// An adapter that does not implement login answers method-not-found, which
+// matches errors.Is(err, ErrMethodNotSupported). Prefer checking
+// ProviderInfo.Capabilities for LoginCapability first — this is the backstop
+// for an adapter that advertises the capability without serving the method.
 func (c *AdapterClient) GetLoginURL(ctx context.Context, req *LoginURLRequest) (*LoginURLResponse, error) {
 	var resp LoginURLResponse
 	if err := c.callCtx(ctx, methodGetLoginURL, req, &resp); err != nil {
