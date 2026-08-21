@@ -106,9 +106,25 @@ How widely do you think this feature would be adopted?
 - [ ] Medium (significant subset of users)
 - [ ] Low (specialized use case)
 
+## Documentation Impact
+
+**Would closing this make something in the docs untrue?**
+Check the docs for statements this issue would invalidate — a documented limitation,
+a "not supported yet", or a described behaviour that changes. Docs deliberately carry
+no issue links, so nothing points back here when this closes; the doc update has to be
+part of the work.
+
+- [ ] No documented statement changes
+- [ ] Yes — the pages to update are listed below, and updating them is part of this issue
+
+```
+<paths under docs/ that this makes stale>
+```
+
 ## Checklist
 
 - [ ] I have searched existing issues to ensure this is not a duplicate
 - [ ] I have provided a clear problem statement and proposed solution
 - [ ] I have considered the implementation complexity and community impact
 - [ ] I have provided examples of how this feature would be used
+- [ ] I have checked whether this makes any existing documentation untrue, and listed the pages if so
