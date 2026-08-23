@@ -651,6 +651,33 @@ jobs:
           -f "client_payload[version]=$VERSION"
         echo "✓ Dispatched to promptarena-deploy-omnia"
 
+    # vertex and foundry depend on PromptKit exactly as the two above do, but
+    # were never added here, so they have been missing every release since they
+    # were written. Their bumps were raised by hand or not at all.
+    - name: Dispatch to promptarena-deploy-vertex
+      continue-on-error: true
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+      run: |
+        echo "Notifying promptarena-deploy-vertex of runtime/$VERSION..."
+        gh api repos/AltairaLabs/promptarena-deploy-vertex/dispatches \
+          -f event_type=promptkit-release \
+          -f "client_payload[version]=$VERSION"
+        echo "✓ Dispatched to promptarena-deploy-vertex"
+
+    - name: Dispatch to promptarena-deploy-foundry
+      continue-on-error: true
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+      run: |
+        echo "Notifying promptarena-deploy-foundry of runtime/$VERSION..."
+        gh api repos/AltairaLabs/promptarena-deploy-foundry/dispatches \
+          -f event_type=promptkit-release \
+          -f "client_payload[version]=$VERSION"
+        echo "✓ Dispatched to promptarena-deploy-foundry"
+
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
