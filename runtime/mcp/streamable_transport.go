@@ -50,7 +50,7 @@ func newStreamableTransport(config ServerConfig, options ClientOptions) *streama
 	return &streamableTransport{
 		config:     config,
 		options:    options,
-		httpClient: &http.Client{}, //nolint:exhaustruct // stdlib defaults are fine
+		httpClient: &http.Client{Transport: config.RoundTripper}, //nolint:exhaustruct // stdlib defaults are fine
 		url:        config.URL,
 	}
 }

@@ -2416,6 +2416,14 @@ MCPEndpoint is the live coordinates a host hands the SDK so an MCP server declar
 type MCPEndpoint struct {
     URL     string
     Headers map[string]string
+    // RoundTripper sends requests to this endpoint. Nil uses the standard
+    // library default.
+    //
+    // A resolver knows where a server lives, and sometimes that is inseparable
+    // from how to reach it: an endpoint behind a request-signing scheme needs
+    // each request signed over its own body, which Headers cannot express
+    // because the value differs every time.
+    RoundTripper http.RoundTripper
 }
 ```
 

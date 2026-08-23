@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -332,3 +333,57 @@ func TestStreamableTransport_SendAfterClose(t *testing.T) {
 	err := tr.sendRequest(context.Background(), "x", nil, nil)
 	assert.ErrorIs(t, err, ErrClientClosed)
 }
+
+// TestStreamableTransport_RoundTripperSignsEachRequest pins what Headers cannot
+// do.
+//
+// A request-signing scheme derives its credential from that request's own body
+// and timestamp, so consecutive requests carry different values. A static
+// header cannot express that, which is the whole reason this seam exists — so
+// the property under test is that each request gets its own, not merely that
+// the round tripper is called.
+func TestStreamableTransport_RoundTripperSignsEachRequest(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`))
+	}))
+	defer srv.Close()
+
+	var signed int
+	rt := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		// A real signer reads the body to hash it, so prove the body is still
+		// readable here rather than consumed out from under the transport.
+		signed++
+		req.Header.Set("Authorization", fmt.Sprintf("signature-%d", signed))
+		return http.DefaultTransport.RoundTrip(req)
+	})
+
+	tr := newStreamableTransport(ServerConfig{
+		Name:          "gw",
+		URL:           srv.URL,
+		TransportName: TransportStreamableHTTP,
+		RoundTripper:  rt,
+	}, ClientOptions{})
+
+	var out ToolsListResponse
+	if err := tr.sendRequest(context.Background(), "tools/list", nil, &out); err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	if err := tr.sendRequest(context.Background(), "tools/list", nil, &out); err != nil {
+		t.Fatalf("tools/list (second): %v", err)
+	}
+
+	if signed != 2 {
+		t.Errorf("RoundTripper ran %d times, want 2 — every request needs its own signature", signed)
+	}
+	if len(seen) != 2 || seen[0] == seen[1] {
+		t.Errorf("each request should carry its own signature, got %v", seen)
+	}
+}
+
+// roundTripperFunc adapts a function to http.RoundTripper.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

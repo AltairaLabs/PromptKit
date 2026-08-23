@@ -135,7 +135,7 @@ func newSSETransport(config ServerConfig, options ClientOptions) *sseTransport {
 	return &sseTransport{
 		config:     config,
 		options:    options,
-		httpClient: &http.Client{}, //nolint:exhaustruct // stdlib defaults are fine
+		httpClient: &http.Client{Transport: config.RoundTripper}, //nolint:exhaustruct // stdlib defaults are fine
 		baseURL:    strings.TrimRight(config.URL, "/"),
 		pending:    newPendingRequests(),
 		ctx:        ctx,

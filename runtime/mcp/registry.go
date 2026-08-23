@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -582,6 +583,7 @@ type ServerConfigData struct {
 	TransportName Transport
 	TimeoutMs     int
 	ToolFilter    *ToolFilter
+	RoundTripper  http.RoundTripper
 }
 
 // NewRegistryWithServers creates a registry and registers multiple servers.

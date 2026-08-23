@@ -637,6 +637,18 @@ type ServerConfig struct {
     TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
     // ToolFilter controls which tools from this server are exposed.
     ToolFilter *ToolFilter `json:"tool_filter,omitempty" yaml:"tool_filter,omitempty"`
+    // RoundTripper sends the HTTP requests for the HTTP transports. Nil uses
+    // the standard library default.
+    //
+    // Headers covers a credential that is the same on every request, such as
+    // a bearer token. Some endpoints require one that is not: a request-signing
+    // scheme derives its credential from that request's own body and
+    // timestamp, so it cannot be written down ahead of time. Supplying the
+    // round tripper lets the caller sign each request as it goes.
+    //
+    // Set programmatically and never serialized, because it carries a
+    // credential rather than configuration.
+    RoundTripper http.RoundTripper `json:"-" yaml:"-"`
 }
 ```
 
@@ -666,6 +678,7 @@ type ServerConfigData struct {
     TransportName Transport
     TimeoutMs     int
     ToolFilter    *ToolFilter
+    RoundTripper  http.RoundTripper
 }
 ```
 

@@ -936,6 +936,7 @@ func resolveMCPEndpoint(serverCfg *mcp.ServerConfig, resolver MCPEndpointResolve
 		return fmt.Errorf("MCP endpoint resolver returned no URL for server %q", serverCfg.Name)
 	}
 	serverCfg.URL = endpoint.URL
+	serverCfg.RoundTripper = endpoint.RoundTripper
 	if len(endpoint.Headers) > 0 {
 		if serverCfg.Headers == nil {
 			serverCfg.Headers = make(map[string]string, len(endpoint.Headers))
