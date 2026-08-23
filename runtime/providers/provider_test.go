@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -615,6 +616,31 @@ func TestUnsupportedProviderError(t *testing.T) {
 
 	if err.Error() != expected {
 		t.Errorf("Expected error message %q, got %q", expected, err.Error())
+	}
+}
+
+// TestUnsupportedProviderError_PlatformNameSaysWhatToWrite covers the mistake
+// this error is most often reporting: a platform name given as the type.
+//
+// Naming the platform is the natural thing to do when deploying to it, and the
+// bare "unsupported provider type: bedrock" leaves the author with no way to
+// tell that the type should be the vendor and the platform a separate block.
+func TestUnsupportedProviderError_PlatformNameSaysWhatToWrite(t *testing.T) {
+	for _, platform := range []string{"bedrock", "vertex", "azure"} {
+		t.Run(platform, func(t *testing.T) {
+			msg := (&UnsupportedProviderError{ProviderType: platform}).Error()
+
+			for _, want := range []string{"hosting platform", "platform", platform} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("message for %q omits %q: %s", platform, want, msg)
+				}
+			}
+			// The vendor to use instead is the actionable part.
+			if !strings.Contains(msg, "claude") && !strings.Contains(msg, "openai") &&
+				!strings.Contains(msg, "gemini") {
+				t.Errorf("message for %q names no vendor to use instead: %s", platform, msg)
+			}
+		})
 	}
 }
 

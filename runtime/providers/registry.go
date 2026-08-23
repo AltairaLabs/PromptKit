@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 	"sync"
@@ -439,8 +440,28 @@ type UnsupportedProviderError struct {
 	ProviderType string
 }
 
+// platformVendors names the vendors reachable on each hosting platform.
+//
+// A platform is not a provider type: the type is the model's vendor, and the
+// platform says who hosts it. Someone deploying to one of these writes its name
+// as the type — it is the word in front of them — and "unsupported provider
+// type: bedrock" does not tell them what to write instead. The pack deploys,
+// the agent reaches ready, and it fails on its first turn, which is the
+// expensive place to learn this.
+var platformVendors = map[string]string{
+	"bedrock": "claude or openai",
+	"vertex":  "gemini or claude",
+	"azure":   "openai",
+}
+
 // Error returns the error message for this unsupported provider error.
 func (e *UnsupportedProviderError) Error() string {
+	if vendors, ok := platformVendors[e.ProviderType]; ok {
+		return fmt.Sprintf(
+			"unsupported provider type: %q is a hosting platform, not a provider type — "+
+				"set type to the model vendor (%s) and platform to {\"type\": %q}",
+			e.ProviderType, vendors, e.ProviderType)
+	}
 	return "unsupported provider type: " + e.ProviderType
 }
 
