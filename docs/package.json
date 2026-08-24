@@ -13,7 +13,7 @@
   "dependencies": {
     "@altairalabs/atlas-tokens": "^0.4.1",
     "@altairalabs/brand": "^0.7.2",
-    "@astrojs/mdx": "^7.0.3",
+    "@astrojs/mdx": "^7.0.7",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "~0.41.7",
     "astro": "^7.2.1",
