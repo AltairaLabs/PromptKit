@@ -11,7 +11,7 @@ require (
 	github.com/stretchr/testify v1.12.0
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.36.3
+	k8s.io/apimachinery v0.36.4
 )
 
 require (
