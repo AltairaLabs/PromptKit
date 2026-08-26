@@ -259,6 +259,14 @@ type ProviderCallStartedData struct {
 	ToolCount    int
 	Source       string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels       map[string]string // Optional metadata propagated to metrics and traces
+
+	// Round is the 1-based tool-loop round this provider call belongs to.
+	Round int
+
+	// CallID uniquely identifies this provider call. Tool calls the round
+	// produces carry it as ToolCallEventData.ProviderCallID, making the
+	// turn→tool-call relationship explicit rather than ordinal.
+	CallID string
 }
 
 // ProviderCallCompletedData contains data for provider call completion events.
@@ -275,6 +283,14 @@ type ProviderCallCompletedData struct {
 	ToolCallCount int
 	Source        string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels        map[string]string // Optional metadata propagated to metrics and traces
+
+	// Round is the 1-based tool-loop round this provider call belongs to.
+	Round int
+
+	// CallID matches the ProviderCallStartedData.CallID of the same call, and
+	// is carried by every tool call this round produced as
+	// ToolCallEventData.ProviderCallID.
+	CallID string
 }
 
 // ProviderCallFailedData contains data for provider call failure events.
@@ -286,6 +302,13 @@ type ProviderCallFailedData struct {
 	Duration time.Duration
 	Source   string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels   map[string]string // Optional metadata propagated to metrics and traces
+
+	// Round is the 1-based tool-loop round this provider call belongs to.
+	Round int
+
+	// CallID matches the ProviderCallStartedData.CallID of the failed call, so
+	// a failure can be tied to the round that attempted it.
+	CallID string
 }
 
 // --- Tool call events (consolidated) ---
@@ -303,6 +326,23 @@ type ToolCallEventData struct {
 	Parts    []types.ContentPart    // Set on completed — tool result content parts
 	Error    error                  // Set on failed
 	Labels   map[string]string      // Optional metadata from ToolDescriptor.Labels
+
+	// Round is the 1-based tool-loop round whose model turn requested this
+	// call. A tool call is made BY a turn, and a consumer rendering a
+	// transcript needs that linkage. Deriving it by counting
+	// provider.call.completed events fails silently: a round's tool calls are
+	// dispatched BEFORE that round's provider call reports completion, so the
+	// count reads zero on the first round and lags by one thereafter.
+	Round int
+
+	// ProviderCallID ties this tool call to the provider call that produced
+	// it, matching ProviderCallStartedData/ProviderCallCompletedData.CallID.
+	// Stronger than the ordinal Round: it stays correct across retries and any
+	// future change to how rounds are counted. It distinguishes the case Round
+	// alone cannot — the same tool called with the same argument shape one
+	// round apart, after a policy refusal, which is two model decisions rather
+	// than one repeated.
+	ProviderCallID string
 }
 
 type (

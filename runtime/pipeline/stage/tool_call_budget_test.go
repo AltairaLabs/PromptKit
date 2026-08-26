@@ -59,7 +59,7 @@ func TestProviderStage_RecordsExecutedToolCalls(t *testing.T) {
 	stage.SetWorkflowStateResolver(rec)
 
 	results, err := stage.executeToolCalls(context.Background(),
-		[]types.MessageToolCall{call("c1"), call("c2"), call("c3")})
+		[]types.MessageToolCall{call("c1"), call("c2"), call("c3")}, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 
@@ -82,7 +82,7 @@ func TestProviderStage_DoesNotRecordPendingToolCalls(t *testing.T) {
 	stage.SetWorkflowStateResolver(rec)
 
 	_, err := stage.executeToolCalls(context.Background(),
-		[]types.MessageToolCall{call("c1"), call("c2")})
+		[]types.MessageToolCall{call("c1"), call("c2")}, roundRef{round: 1})
 	var pendErr *tools.ErrToolsPending
 	require.ErrorAs(t, err, &pendErr)
 
@@ -97,7 +97,7 @@ func TestProviderStage_RecordToolCallsIsOptional(t *testing.T) {
 	stage.SetWorkflowStateResolver(&fakeResolver{}) // no RecordToolCalls method
 
 	require.NotPanics(t, func() {
-		_, err := stage.executeToolCalls(context.Background(), []types.MessageToolCall{call("c1")})
+		_, err := stage.executeToolCalls(context.Background(), []types.MessageToolCall{call("c1")}, roundRef{round: 1})
 		require.NoError(t, err)
 	})
 }

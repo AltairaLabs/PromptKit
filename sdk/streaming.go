@@ -468,6 +468,14 @@ func (c *Conversation) buildStreamingResponse(
 	// from a real model reply, nor see max_output_tokens or refusal (#1715).
 	resp.message.FinishReason = state.finishReason()
 
+	// Likewise for the reasoning trace: neither the streamed chunks nor the
+	// pipeline Response carry it, so recover it from the final result exactly
+	// as buildResponse does for Send. Without this, fixing one path would
+	// leave the other silently returning nil.
+	if state.finalResult != nil {
+		resp.message.Reasoning = lastAssistantReasoning(state.finalResult.Messages)
+	}
+
 	// Populate pending client tools from stream state
 	if len(state.pendingTools) > 0 {
 		resp.clientTools = state.pendingTools

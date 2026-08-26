@@ -267,6 +267,10 @@ func (p *ToolProvider) parseToolResponse(
 			Message struct {
 				Content   string           `json:"content"`
 				ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+				// ReasoningContent is the reasoning summary for this round —
+				// including tool-calling rounds, where it explains why the
+				// model chose the calls it did.
+				ReasoningContent string `json:"reasoning_content,omitempty"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -291,9 +295,10 @@ func (p *ToolProvider) parseToolResponse(
 	)
 
 	resp := providers.PredictionResponse{
-		Content:  choice.Message.Content,
-		CostInfo: &costBreakdown,
-		Raw:      respBytes,
+		Content:   choice.Message.Content,
+		CostInfo:  &costBreakdown,
+		Raw:       respBytes,
+		Reasoning: reasoningFromContent(choice.Message.ReasoningContent),
 	}
 
 	// Extract tool calls

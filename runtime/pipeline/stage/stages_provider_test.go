@@ -1090,7 +1090,7 @@ func TestProviderStage_ExecuteToolCalls_NilRegistry(t *testing.T) {
 		{ID: "call-1", Name: "some_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	_, err := stage.executeToolCalls(context.Background(), toolCalls)
+	_, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool registry not configured")
@@ -1117,7 +1117,7 @@ func TestProviderStage_ExecuteToolCalls_BlockedTool(t *testing.T) {
 		{ID: "call-1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1135,7 +1135,7 @@ func TestProviderStage_ExecuteToolCalls_ToolNotFound(t *testing.T) {
 		{ID: "call-1", Name: "nonexistent_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1170,7 +1170,7 @@ func TestProviderStage_ExecuteToolCalls_Complete(t *testing.T) {
 		{ID: "call-1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1205,7 +1205,7 @@ func TestProviderStage_ExecuteToolCalls_Pending(t *testing.T) {
 		{ID: "call-1", Name: "pending_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	// Pending tools now return ErrToolsPending
 	require.Error(t, err)
@@ -1245,7 +1245,7 @@ func TestProviderStage_ExecuteToolCalls_Failed(t *testing.T) {
 		{ID: "call-1", Name: "failing_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1287,7 +1287,7 @@ func TestProviderStage_ExecuteToolCalls_MultipleToolCalls(t *testing.T) {
 		{ID: "call-2", Name: "tool2", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 2)
@@ -1630,7 +1630,7 @@ func TestProviderStage_ExecuteToolCalls_PendingSuspends(t *testing.T) {
 		{ID: "call-2", Name: "pending_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := s.executeToolCalls(context.Background(), toolCalls)
+	results, err := s.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 
 	// Should return ErrToolsPending
 	require.Error(t, err)
@@ -1682,7 +1682,7 @@ func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
 		{ID: "call-1", Name: "emit_tool", Args: json.RawMessage(`{"key":"value"}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -1745,7 +1745,7 @@ func TestProviderStage_ExecuteToolCalls_EmitsFailed(t *testing.T) {
 		{ID: "call-1", Name: "nonexistent_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ToolResult.Error, "nonexistent_tool")
@@ -1817,7 +1817,7 @@ func TestProviderStage_ExecuteToolCalls_PendingEmitsRequestAndCompleted(t *testi
 		{ID: "call-loc", Name: "location_tool", Args: json.RawMessage(`{"accuracy":"fine"}`)},
 	}
 
-	_, err := stage.executeToolCalls(context.Background(), toolCalls)
+	_, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.Error(t, err, "should return ErrToolsPending")
 
 	wg.Wait()
@@ -1887,7 +1887,7 @@ func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
 		{ID: "call-1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ToolResult.GetTextContent(), "blocked by policy")
@@ -1988,7 +1988,7 @@ func TestProviderStage_ExecuteToolCalls_PropagatesMultimodalParts(t *testing.T) 
 		{ID: "call-1", Name: "mm_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].ToolResult)
@@ -2035,7 +2035,7 @@ func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
 		{ID: "call-img", Name: "img_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -2613,7 +2613,7 @@ func TestAfterRound_WriteThroughAppendsMessages(t *testing.T) {
 			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, _ := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	done, _, _ := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 	assert.False(t, done)
 
 	// Write-through should have fired
@@ -2659,7 +2659,7 @@ func TestAfterRound_WriteThroughFailureNonFatal(t *testing.T) {
 	}
 
 	// First call fails but loop continues
-	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 	assert.False(t, done)
 	assert.NoError(t, err, "write-through failure should not abort the loop")
 }
@@ -2692,7 +2692,7 @@ func TestAfterRound_NoToolCalls(t *testing.T) {
 	require.NoError(t, err)
 
 	response := types.Message{Role: "assistant", Content: "hello"}
-	done, msgs, err := loop.afterRound(context.Background(), nil, &response, false, 1)
+	done, msgs, err := loop.afterRound(context.Background(), nil, &response, false, roundRef{round: 1})
 
 	assert.True(t, done, "should be done when no tool calls")
 	require.NoError(t, err)
@@ -2717,7 +2717,7 @@ func TestAfterRound_NoToolCalls_PersistsFinalResponse(t *testing.T) {
 
 	// Final response with no tool calls — should still be persisted
 	response := types.Message{Role: "assistant", Content: "goodbye"}
-	done, _, err := loop.afterRound(context.Background(), nil, &response, false, 1)
+	done, _, err := loop.afterRound(context.Background(), nil, &response, false, roundRef{round: 1})
 	assert.True(t, done)
 	require.NoError(t, err)
 
@@ -2758,7 +2758,7 @@ func TestAfterRound_MaxRoundsExceeded(t *testing.T) {
 			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 
 	assert.True(t, done)
 	require.Error(t, err)
@@ -2800,7 +2800,7 @@ func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
 			{ID: "c1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, _ := loop.afterRound(context.Background(), []string{"blocked_tool"}, &response, true, 1)
+	done, _, _ := loop.afterRound(context.Background(), []string{"blocked_tool"}, &response, true, roundRef{round: 1})
 	assert.False(t, done)
 	assert.False(t, loop.excluded["blocked_tool"], "first rejection should not exclude")
 
@@ -2811,7 +2811,7 @@ func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
 			{ID: "c2", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, _ = loop.afterRound(context.Background(), []string{"blocked_tool"}, &response2, true, 2)
+	done, _, _ = loop.afterRound(context.Background(), []string{"blocked_tool"}, &response2, true, roundRef{round: 2})
 	assert.False(t, done)
 	assert.True(t, loop.excluded["blocked_tool"], "second rejection should exclude")
 }
@@ -2847,7 +2847,7 @@ func TestAfterRound_CostBudgetExceeded(t *testing.T) {
 			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response1, true, 1)
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response1, true, roundRef{round: 1})
 	assert.False(t, done, "should continue when under budget")
 	require.NoError(t, err)
 	assert.InDelta(t, 0.05, loop.cumulativeCost, 0.001)
@@ -2860,7 +2860,7 @@ func TestAfterRound_CostBudgetExceeded(t *testing.T) {
 			{ID: "c2", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response2, true, 2)
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response2, true, roundRef{round: 2})
 	assert.True(t, done, "should stop when cost budget exceeded")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cost budget exceeded")
@@ -2888,7 +2888,7 @@ func TestAfterRound_CostBudgetZeroIsUnlimited(t *testing.T) {
 		Content:  "done",
 		CostInfo: &types.CostInfo{TotalCost: 999.99},
 	}
-	done, _, err := loop.afterRound(context.Background(), nil, &response, false, 1)
+	done, _, err := loop.afterRound(context.Background(), nil, &response, false, roundRef{round: 1})
 	assert.True(t, done, "done because no tool calls")
 	require.NoError(t, err, "should not error — zero MaxCostUSD means unlimited")
 }
@@ -2935,7 +2935,7 @@ func TestNewToolLoop_CostBudgetIsPerRun(t *testing.T) {
 			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 	assert.True(t, done, "run budget should trip from accumulated prior cost")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cost budget exceeded")
@@ -2994,7 +2994,7 @@ func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
 		},
 	}
-	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 	assert.False(t, done)
 	require.NoError(t, err)
 
@@ -3052,7 +3052,7 @@ func TestProviderStage_StopOnTool(t *testing.T) {
 				{ID: "c1", Name: "stop_tool", Args: json.RawMessage(`{}`)},
 			},
 		}
-		done, msgs, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, 1)
+		done, msgs, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, roundRef{round: 1})
 
 		assert.True(t, done, "StopOnTool should signal done when the named tool fires")
 		require.NoError(t, err, "StopOnTool stop should be clean — no error")
@@ -3078,7 +3078,7 @@ func TestProviderStage_StopOnTool(t *testing.T) {
 				{ID: "c2", Name: "other_tool", Args: json.RawMessage(`{}`)},
 			},
 		}
-		done, _, err := loop.afterRound(context.Background(), []string{"other_tool"}, &response, true, 1)
+		done, _, err := loop.afterRound(context.Background(), []string{"other_tool"}, &response, true, roundRef{round: 1})
 
 		assert.False(t, done, "non-terminal tool should not stop the loop")
 		require.NoError(t, err)
@@ -3103,7 +3103,7 @@ func TestProviderStage_StopOnTool(t *testing.T) {
 				{ID: "c3", Name: "stop_tool", Args: json.RawMessage(`{}`)},
 			},
 		}
-		done, _, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, 1)
+		done, _, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, roundRef{round: 1})
 
 		assert.True(t, done, "max rounds should still stop the loop")
 		require.Error(t, err, "max rounds exceeded should be an error (not a clean stop)")
@@ -3151,14 +3151,14 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 
 		// Rounds 1-2: below threshold — continue.
 		for round := 1; round <= 2; round++ {
-			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(round), true, round)
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(round), true, roundRef{round: round})
 			assert.False(t, done, "round %d: should not stop before threshold", round)
 			require.NoError(t, loopErr, "round %d: should not error before threshold", round)
 		}
 
 		// Round 3: hits threshold — NUDGE (continue, no error), feedback appended.
 		before := len(loop.messages)
-		done, msgs, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, 3)
+		done, msgs, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, roundRef{round: 3})
 		assert.False(t, done, "threshold should nudge, not abort")
 		require.NoError(t, loopErr, "threshold nudge should not error")
 		require.Greater(t, len(msgs), before, "a feedback message should be appended")
@@ -3167,7 +3167,7 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 			"the model should be told it repeated the call")
 
 		// Round 4: still looping after the nudge — ABORT.
-		done, _, loopErr = loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(4), true, 4)
+		done, _, loopErr = loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(4), true, roundRef{round: 4})
 		assert.True(t, done, "should abort once the loop persists after a nudge")
 		require.Error(t, loopErr, "should error after the nudge fails")
 		assert.Contains(t, loopErr.Error(), "persisted after a self-correction nudge")
@@ -3197,7 +3197,7 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 						Args: json.RawMessage(fmt.Sprintf(`{"query":"step-%d"}`, round))},
 				},
 			}
-			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, round)
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, roundRef{round: round})
 			// round == loop.maxRounds would stop; otherwise should continue without error
 			if round < loop.maxRounds {
 				assert.False(t, done, "round %d: varying args should not trip breaker", round)

@@ -38,7 +38,7 @@ func TestProviderStage_ApprovalCheckerHoldsToolPending(t *testing.T) {
 	})
 
 	_, err := stage.executeToolCalls(context.Background(),
-		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{"amount":150}`)}})
+		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{"amount":150}`)}}, roundRef{round: 1})
 
 	// The tool is HELD pending, not executed.
 	var pendErr *tools.ErrToolsPending
@@ -64,7 +64,7 @@ func TestProviderStage_ApprovalCheckerNilExecutesNormally(t *testing.T) {
 	})
 
 	results, err := stage.executeToolCalls(context.Background(),
-		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{}`)}})
+		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.EqualValues(t, 1, exec.callCount.Load(), "tool with no approval gate should execute")
@@ -80,7 +80,7 @@ func TestProviderStage_NoApprovalCheckerExecutesNormally(t *testing.T) {
 	stage := NewProviderStage(mock.NewProvider("t", "m", false), registry, nil, nil) // nil config
 
 	_, err := stage.executeToolCalls(context.Background(),
-		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{}`)}})
+		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, exec.callCount.Load())
 }

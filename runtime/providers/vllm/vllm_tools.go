@@ -177,6 +177,7 @@ func (p *Provider) PredictWithTools( // NOSONAR
 
 	choice := vllmResp.Choices[0]
 	predictResp.Content = choice.Message.Content.(string)
+	predictResp.Reasoning = reasoningFromContent(choice.Message.ReasoningContent)
 
 	// Calculate cost from the full wire usage.
 	costInfo := p.costFromUsage(vllmResp.Usage)

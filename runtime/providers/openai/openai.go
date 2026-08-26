@@ -554,6 +554,13 @@ type openAIMessage struct {
 	Role    string               `json:"role"`
 	Content interface{}          `json:"content"` // Can be string or []interface{} for multimodal
 	Audio   *openAIAudioResponse `json:"audio,omitempty"`
+	// ReasoningContent carries the reasoning/thinking summary that
+	// OpenAI-compatible reasoning models (o-series via chat completions,
+	// deepseek-r1, qwq) return alongside the answer. The streaming path reads
+	// the same field off the delta; without it here, Predict silently reported
+	// no reasoning while Stream reported it. Routed to Message.Reasoning, never
+	// to content. Omitted on requests — it is a response-only field.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type openAIResponse struct {
@@ -1224,8 +1231,19 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
 	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(openAIResp.Choices[0].FinishReason)
+	predictResp.Reasoning = reasoningFromContent(openAIResp.Choices[0].Message.ReasoningContent)
 
 	return predictResp, nil
+}
+
+// reasoningFromContent wraps a reasoning_content string as a ReasoningTrace,
+// returning nil when empty so "the model did not reason" stays distinguishable
+// from "the trace was dropped".
+func reasoningFromContent(text string) *types.ReasoningTrace {
+	if text == "" {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: text}
 }
 
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
