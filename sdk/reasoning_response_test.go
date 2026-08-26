@@ -79,17 +79,30 @@ func TestBuildResponse_TakesLastAssistantReasoning(t *testing.T) {
 		"terminal response reported an earlier round's reasoning")
 }
 
-// TestBuildResponse_NoReasoning_StaysNil keeps "the model did not reason"
-// distinguishable from "the trace was dropped".
-func TestBuildResponse_NoReasoning_StaysNil(t *testing.T) {
+// TestBuildResponse_ReasoningPresenceIsDiscriminated pins that nil means "the
+// model did not reason" rather than being the zero value we would get from
+// never reading the field.
+//
+// Asserting nil on a no-reasoning result alone is not a test: it passes
+// against a buildResponse that ignores reasoning entirely. Driving both inputs
+// through the same builder is, because the present case fails the moment the
+// recovery is dropped.
+func TestBuildResponse_ReasoningPresenceIsDiscriminated(t *testing.T) {
 	conv := newTestConversation()
-	result := &rtpipeline.ExecutionResult{
+
+	withReasoning := conv.buildResponse(context.Background(), reasoningResult(), time.Now())
+	require.NotNil(t, withReasoning.Message().Reasoning,
+		"an execution carrying reasoning produced none")
+
+	noReasoning := conv.buildResponse(context.Background(), &rtpipeline.ExecutionResult{
 		Messages: []types.Message{{Role: roleAssistant, Content: "No thinking."}},
 		Response: &rtpipeline.Response{Role: roleAssistant, Content: "No thinking."},
-	}
+	}, time.Now())
+	require.NotNil(t, noReasoning.Message())
+	assert.Nil(t, noReasoning.Message().Reasoning,
+		"an execution with no reasoning must stay nil, not an empty trace")
 
-	resp := conv.buildResponse(context.Background(), result, time.Now())
-
-	require.NotNil(t, resp.Message())
-	assert.Nil(t, resp.Message().Reasoning)
+	// Both came from the same builder, so the difference is the input — which
+	// is what makes the nil meaningful rather than incidental.
+	assert.NotEqual(t, withReasoning.Message().Reasoning, noReasoning.Message().Reasoning)
 }

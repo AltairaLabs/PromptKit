@@ -24,8 +24,10 @@ import (
 // message.reasoning_content. Without this the SDK's Send() path reports no
 // reasoning for those models while Stream() reports it — the same
 // fix-one-path-leave-the-other-broken shape that bites elsewhere in the repo.
+const thoughtText = "The user asked for 2+2. That is 4."
+
 func TestPredict_CarriesReasoningContent(t *testing.T) {
-	const thought = "The user asked for 2+2. That is 4."
+	const thought = thoughtText
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -70,30 +72,72 @@ func TestPredict_CarriesReasoningContent(t *testing.T) {
 	assert.NotContains(t, resp.Content, thought)
 }
 
-// TestPredict_NoReasoningContent_StaysNil keeps "the model did not reason"
-// distinguishable from "the trace was dropped".
-func TestPredict_NoReasoningContent_StaysNil(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"id": "cmpl-2","object":"chat.completion","model":"gpt-4",
-			"choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],
-			"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-		}`))
-	}))
-	defer server.Close()
-
-	provider := &Provider{
-		BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
-		model:        "gpt-4",
-		baseURL:      server.URL,
-		apiKey:       "test-key",
-		defaults:     providers.ProviderDefaults{MaxTokens: 100},
+// TestPredict_ReasoningPresenceIsDiscriminated pins that nil means "the model
+// did not reason" and is not merely the zero value we would get from ignoring
+// the field.
+//
+// Asserting nil on a no-reasoning response alone is not a test: it passes
+// against an implementation that never reads reasoning_content at all. Driving
+// BOTH inputs through the same provider is, because the present case fails the
+// moment the field stops being read, and the absent case fails if the parser
+// manufactures an empty non-nil trace.
+func TestPredict_ReasoningPresenceIsDiscriminated(t *testing.T) {
+	cases := []struct {
+		name        string
+		messageJSON string
+		wantTrace   bool
+	}{
+		{
+			name:        "reasoning present",
+			messageJSON: `{"role":"assistant","content":"4","reasoning_content":"` + thoughtText + `"}`,
+			wantTrace:   true,
+		},
+		{
+			name:        "reasoning absent",
+			messageJSON: `{"role":"assistant","content":"4"}`,
+			wantTrace:   false,
+		},
+		{
+			name:        "reasoning present but empty",
+			messageJSON: `{"role":"assistant","content":"4","reasoning_content":""}`,
+			wantTrace:   false,
+		},
 	}
 
-	resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
-		Messages: []types.Message{{Role: "user", Content: "hi"}},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, resp.Reasoning)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"id":"c1","object":"chat.completion","model":"deepseek-reasoner",
+				"choices":[{"index":0,"message":` + tc.messageJSON + `,"finish_reason":"stop"}],
+				"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}`
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			provider := &Provider{
+				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
+				model:        "deepseek-reasoner",
+				baseURL:      server.URL,
+				apiKey:       "test-key",
+				defaults:     providers.ProviderDefaults{MaxTokens: 100},
+			}
+
+			resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
+				Messages: []types.Message{{Role: "user", Content: "2+2?"}},
+			})
+			require.NoError(t, err)
+
+			if tc.wantTrace {
+				require.NotNil(t, resp.Reasoning, "reasoning_content was present but produced no trace")
+				assert.Equal(t, thoughtText, resp.Reasoning.Text)
+			} else {
+				assert.Nil(t, resp.Reasoning,
+					"absent or empty reasoning_content must stay nil, not an empty trace")
+			}
+			// Spoken content is unaffected either way.
+			assert.Equal(t, "4", resp.Content)
+		})
+	}
 }
