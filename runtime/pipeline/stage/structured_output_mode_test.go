@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -323,9 +324,10 @@ func (p *streamingSpyProvider) SupportsStreaming() bool { return true }
 
 func (p *streamingSpyProvider) PredictStreamWithTools(
 	_ context.Context, req providers.PredictionRequest,
-	_ providers.ProviderTools, _ string,
+	providerTools providers.ProviderTools, _ string,
 ) (<-chan providers.StreamChunk, error) {
-	p.record(true, req.ResponseFormat)
+	offered := providerTools != nil
+	p.record(offered, req.ResponseFormat)
 
 	p.mu.Lock()
 	n := 0
@@ -337,6 +339,22 @@ func (p *streamingSpyProvider) PredictStreamWithTools(
 	p.mu.Unlock()
 
 	ch := make(chan providers.StreamChunk, 4)
+	if !offered {
+		// The re-ask: streams the constrained answer, which IS what the
+		// consumer should receive.
+		go func() {
+			defer close(ch)
+			// Both Delta and Content, as real providers do: Delta drives the
+			// text elements a consumer renders, while processStreamChunks takes
+			// the message body from Content as a running snapshot. A fake that
+			// sets only Delta streams correctly and yields an empty message.
+			ch <- providers.StreamChunk{
+				Delta:   `{"answer":"constrained"}`,
+				Content: `{"answer":"constrained"}`,
+			}
+		}()
+		return ch, nil
+	}
 	go func() {
 		defer close(ch)
 		ch <- providers.StreamChunk{Reasoning: "deliberating"}
@@ -352,13 +370,20 @@ func (p *streamingSpyProvider) PredictStreamWithTools(
 	return ch, nil
 }
 
-// TestFinalTurn_StreamingPartialsNeverReachTheClient guards the leak path.
+// TestFinalTurn_StreamCarriesOnlyTheConstrainedAnswer guards both halves of the
+// streaming contract, which are easy to get half-right.
 //
-// Suppression is per LOOP, not per round: a round is only known to be the last
-// one once it has finished, far too late to have withheld its deltas. So every
-// round's text is dropped, and the consumer's only text is the constrained
-// answer. Reasoning deltas are a separate non-content channel and must survive.
-func TestFinalTurn_StreamingPartialsNeverReachTheClient(t *testing.T) {
+// The loop's prose must NOT reach the consumer: suppression is per LOOP, since
+// a round is only known to be the last one after it finishes, far too late to
+// withhold its deltas selectively.
+//
+// The re-ask MUST reach it. An earlier version of this test asserted only that
+// no text arrived, and passed against a build where the re-ask was issued
+// non-streaming and the consumer therefore received NOTHING AT ALL — a broken
+// stream scoring identically to a correct one. A live run through sdk.Stream is
+// what exposed it. Assert what the consumer should see, never merely what it
+// should not.
+func TestFinalTurn_StreamCarriesOnlyTheConstrainedAnswer(t *testing.T) {
 	p := &streamingSpyProvider{schemaSpyProvider{toolRounds: 2}}
 
 	reg := registryWithTools(t, "probe")
@@ -380,7 +405,8 @@ func TestFinalTurn_StreamingPartialsNeverReachTheClient(t *testing.T) {
 	output := make(chan StreamElement, 128)
 	require.NoError(t, stage.Process(context.Background(), input, output))
 
-	var textDeltas, reasoningDeltas int
+	var streamedText strings.Builder
+	var reasoningDeltas int
 	var msgs []types.Message
 	for elem := range output {
 		switch {
@@ -388,14 +414,19 @@ func TestFinalTurn_StreamingPartialsNeverReachTheClient(t *testing.T) {
 			reasoningDeltas++
 		case elem.Message != nil:
 			msgs = append(msgs, *elem.Message)
-		case elem.Meta.StreamingDelta:
-			textDeltas++
+		case elem.Meta.StreamingDelta && elem.Text != nil:
+			streamedText.WriteString(*elem.Text)
 		}
 	}
 
-	assert.Zero(t, textDeltas,
-		"a schema-withheld loop leaked %d text delta(s); those partials are prose "+
-			"the caller never asked for and are discarded by the re-ask", textDeltas)
+	got := streamedText.String()
+	assert.NotContains(t, got, "leaked partial",
+		"the loop's prose reached the consumer; it is discarded by the re-ask and was never "+
+			"part of the answer")
+	assert.JSONEq(t, `{"answer":"constrained"}`, got,
+		"a streaming consumer must receive the constrained answer as text. Empty here means "+
+			"the re-ask did not stream and the caller sees nothing at all")
+
 	assert.Positive(t, reasoningDeltas,
 		"reasoning deltas are a separate non-content channel and must keep flowing")
 

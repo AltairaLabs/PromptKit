@@ -882,6 +882,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	if err != nil {
 		return nil, err
 	}
+	loop.output = output
 	loop.preSeedLog(ctx)
 	// Reconcile before the first round. A resumed execution (HITL approval,
 	// deferred client tool) re-ran PromptAssemblyStage, which reset the prompt
@@ -954,6 +955,12 @@ type toolLoop struct {
 	// construction: whether a schema was withheld is a property of the loop,
 	// not of the round that happens to finish it.
 	schemaWithheld bool
+
+	// output is the pipeline's element channel, set only on the streaming path.
+	// Its presence is what tells the final-turn re-ask to stream its answer —
+	// with every round's text suppressed, that re-ask is the only text a
+	// streaming consumer receives.
+	output chan<- StreamElement
 }
 
 // promptCachingProvider is optionally implemented by providers that support
@@ -1084,7 +1091,7 @@ func (tl *toolLoop) afterRound(
 		// revealed the ending is regenerated under it. Before persistMessages,
 		// so the log holds the constrained answer rather than the discarded one.
 		if tl.schemaWithheld {
-			tl.reaskUnderSchema(ctx)
+			tl.reaskUnderSchema(ctx, rr)
 		}
 		tl.persistMessages(ctx, round)
 		return true, tl.messages, nil

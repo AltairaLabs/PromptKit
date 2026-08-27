@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -112,8 +113,42 @@ func (s *ProviderStage) roundResponseFormat(providerTools interface{}) *provider
 	return s.config.ResponseFormat
 }
 
-// reaskPredict issues the re-ask, choosing the same request path the stage's
-// rounds use.
+// reaskCall issues the re-ask on whichever transport the loop is running.
+//
+// On the streaming path it MUST stream. Every round's text is suppressed while
+// a schema is withheld, so the re-ask is the only thing a streaming consumer
+// ever receives — issuing it non-streaming delivers the answer as a message
+// with no text chunks at all, and a caller rendering the stream sees nothing.
+// Unit tests could not see this: asserting "no loop text leaked" is satisfied
+// just as well by a stream that carries nothing whatsoever.
+func (tl *toolLoop) reaskCall(
+	ctx context.Context, req providers.PredictionRequest, rr roundRef,
+) (providers.PredictionResponse, error) {
+	if tl.output == nil {
+		return tl.reaskPredict(ctx, req)
+	}
+
+	// suppressText is false here: this IS the answer, and it is the only text
+	// the consumer is going to get.
+	streamChan, err := tl.stage.startStreamingRequest(ctx, req, nil, "")
+	if err != nil {
+		return providers.PredictionResponse{}, err
+	}
+	content, _, costInfo, reasoning, _, finishReason, err :=
+		tl.stage.processStreamChunks(ctx, streamChan, tl.output, rr, false)
+	if err != nil {
+		return providers.PredictionResponse{}, err
+	}
+	return providers.PredictionResponse{
+		Content:      content,
+		CostInfo:     costInfo,
+		Reasoning:    reasoning,
+		FinishReason: finishReason,
+	}, nil
+}
+
+// reaskPredict issues a non-streaming re-ask, choosing the same request path
+// the stage's rounds use.
 //
 // It must go through the TOOL path whenever the transcript contains tool
 // messages, even though it offers no tools: a provider's plain-Predict
@@ -151,7 +186,7 @@ func (tl *toolLoop) reaskPredict(
 // A failure here returns the unconstrained answer rather than failing the turn.
 // Prose where JSON was asked for is a caller-visible defect, but it is a
 // smaller one than losing a completed tool loop's work outright.
-func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
+func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	s := tl.stage
 	if len(tl.messages) == 0 {
 		return
@@ -170,9 +205,46 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 	}
 	req.NormalizeMessages()
 
+	// Reset the idle watchdog, exactly as executeRound does at the top of every
+	// round. Without this the re-ask shares the previous round's window: that
+	// round's reset, then its tool executions, then this call all have to fit
+	// inside one idle timeout (30s by default), and a slow re-ask trips it
+	// mid-flight as "http2: response body closed". A round-trip to a provider
+	// is activity, so it gets its own window.
+	ResetIdleFromContext(ctx)
+
+	// The re-ask is a real provider call and is emitted as one. Without this a
+	// consumer counting provider.call.* under-reports by one call per
+	// structured-output turn, and any cost or latency derived from those events
+	// is short by the whole final answer. Its own call ID keeps it distinct
+	// from the round that preceded it.
+	callID := newProviderCallID()
+	if tl.stage.emitter != nil {
+		tl.stage.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
+			Provider: s.provider.ID(),
+			Model:    s.provider.Model(),
+			Source:   s.config.Source,
+			Labels:   s.config.Labels,
+			Round:    rr.round,
+			CallID:   callID,
+		})
+	}
+
 	started := timeNow()
-	resp, err := tl.reaskPredict(ctx, req)
+	resp, err := tl.reaskCall(ctx, req, rr)
 	if err != nil {
+		if tl.stage.emitter != nil {
+			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+				Provider: s.provider.ID(),
+				Model:    s.provider.Model(),
+				Error:    err,
+				Duration: timeNow().Sub(started),
+				Source:   s.config.Source,
+				Labels:   s.config.Labels,
+				Round:    rr.round,
+				CallID:   callID,
+			})
+		}
 		// Degrade rather than fail: prose where JSON was asked for is a defect,
 		// but a smaller one than discarding a completed tool loop's work.
 		//
@@ -198,6 +270,26 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 		if resp.CostInfo.Latency == 0 {
 			resp.CostInfo.Latency = duration
 		}
+	}
+
+	if tl.stage.emitter != nil {
+		completed := &events.ProviderCallCompletedData{
+			Provider:     s.provider.ID(),
+			Model:        s.provider.Model(),
+			Duration:     duration,
+			FinishReason: resp.FinishReason,
+			Source:       s.config.Source,
+			Labels:       s.config.Labels,
+			Round:        rr.round,
+			CallID:       callID,
+		}
+		if resp.CostInfo != nil {
+			completed.InputTokens = resp.CostInfo.InputTokens
+			completed.OutputTokens = resp.CostInfo.OutputTokens
+			completed.CachedTokens = resp.CostInfo.CachedTokens
+			completed.Cost = resp.CostInfo.TotalCost
+		}
+		tl.stage.emitter.ProviderCallCompletedCtx(ctx, completed)
 	}
 
 	constrained := types.Message{
