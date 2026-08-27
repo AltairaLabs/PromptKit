@@ -73,6 +73,18 @@ const (
 	// user/assistant message.
 	EventReasoningDelta EventType = "reasoning.delta"
 
+	// EventReasoningCompleted carries the model's assembled reasoning for one
+	// tool-loop round — the terminal counterpart to reasoning.delta, the way a
+	// complete message is the counterpart to text deltas.
+	//
+	// It exists because reasoning.delta is the only reasoning signal that
+	// reaches a consumer without a recording stage, and it is the one shape
+	// that forces the consumer to re-accumulate what the runtime has already
+	// accumulated, and to invent a turn boundary to do it. Like reasoning.delta
+	// this is explicitly NOT conversational content: subscribers must not treat
+	// it as a user/assistant message.
+	EventReasoningCompleted EventType = "reasoning.completed"
+
 	// EventMessageCreated marks message creation.
 	EventMessageCreated EventType = "message.created"
 	// EventMessageUpdated marks message update (e.g., cost/latency after completion).
@@ -424,6 +436,45 @@ type StreamInterruptedData struct {
 type ReasoningDeltaData struct {
 	baseEventData
 	Text string
+
+	// Round is the 1-based tool-loop round this fragment belongs to, and
+	// ProviderCallID identifies the provider call that produced it — the same
+	// join key carried by that round's tool and provider events. Without them
+	// a streaming consumer cannot say which model turn it is watching think.
+	//
+	// Both are zero on the duplex/realtime path, which has no round concept.
+	Round          int
+	ProviderCallID string
+}
+
+// ReasoningCompletedData carries one round's assembled reasoning trace.
+//
+// Trace serializes normally, matching ReasoningDeltaData.Text: the same
+// content already leaves the process as deltas, so withholding the assembled
+// form would give a serializing consumer the fragments but not the whole. This
+// is a different concern from MessageCreatedData.Reasoning being `json:"-"`,
+// which keeps reasoning out of the MESSAGE RECORD — session recordings,
+// exports and conversation stores — where it would become conversational
+// history. Persistence there stays opt-in via the save stage's
+// PersistReasoning.
+type ReasoningCompletedData struct {
+	baseEventData
+
+	// Trace is the round's complete reasoning, already accumulated by the
+	// provider stage. Never nil on an emitted event — a round that produced no
+	// reasoning emits nothing at all, so "absent" stays distinguishable from
+	// "empty".
+	Trace *types.ReasoningTrace
+
+	// Round is the 1-based tool-loop round this reasoning belongs to.
+	Round int
+
+	// ProviderCallID ties this reasoning to the provider call that produced it,
+	// and so to the tool calls that call requested — they carry the same value
+	// as ToolCallEventData.ProviderCallID. This is what makes "the reasoning
+	// behind these tool calls" a lookup rather than an inference from event
+	// ordering, which a lossy bus cannot support anyway.
+	ProviderCallID string
 }
 
 // CustomEventData allows middleware to emit arbitrary structured events.

@@ -88,6 +88,23 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // to upstream — recording correctness wins over pipeline throughput. For
 // production use cases where this trade-off is wrong, inject a buffered
 // EventStore implementation via Engine.EnableSessionRecordingWithStore.
+//
+// Routing, because it surprises people: this stage writes DIRECTLY to the
+// EventStore and never touches the EventBus. It also does not use
+// events.Emitter — it builds each Event literal itself, which is why searching
+// for a producer by emitter method name (".MessageCreated(") finds nothing and
+// message.created looks unemitted.
+//
+// Two consequences worth stating plainly:
+//
+//   - message.created reaches ONLY an EventStore, never a bus subscriber.
+//   - The stage is opt-in (see the builder: it exists only when a
+//     RecordingConfig and an EventStore are both set), so without
+//     WithRecording there is no message.created at all. Consumers needing
+//     per-turn reasoning without recording should read reasoning.completed
+//     from the bus instead.
+//
+// See the routing note on events.Emitter.emit for the other side.
 type RecordingStage struct {
 	BaseStage
 	store     events.EventStore
