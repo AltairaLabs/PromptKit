@@ -471,6 +471,14 @@ func (p *Provider) applyResponseFormatToMap(genConfig map[string]any, rf *provid
 	}
 }
 
+// toolCallingDisabled reports whether a tool choice prevents the model from
+// calling anything this round, which is exactly when a response schema is safe
+// to send alongside declared tools. Mirrors addToolConfig's mapping of
+// toolChoice onto Gemini's functionCallingConfig.mode.
+func toolCallingDisabled(toolChoice string) bool {
+	return strings.EqualFold(toolChoice, "none")
+}
+
 // wantsSchema reports whether the caller asked for a constrained response, so
 // a path that cannot honor it can say so instead of dropping it silently.
 func wantsSchema(rf *providers.ResponseFormat) bool {
