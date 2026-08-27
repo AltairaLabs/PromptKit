@@ -121,6 +121,29 @@ func structuredCases() []structuredCase {
 			},
 		},
 		{
+			// gpt-5 with a BARE ProviderConfig — no temperature, no top_p, no
+			// unsupported_params. This is the combination that used to fail
+			// with "top_p is not supported with this model" before #1856, and
+			// it is the shape a programmatic caller writes by default.
+			name:    "openai_gpt5_bare_config",
+			envKeys: []string{"OPENAI_API_KEY"},
+			model:   envOrDefault("OPENAI_GPT5_MODEL", "gpt-5"),
+			build: func(t *testing.T, model string) providers.Provider {
+				t.Helper()
+				// Through CreateProviderFromSpec, not the constructor: the
+				// model-name fallback that makes this work lives in the
+				// config-reading path, so a constructor-built provider would
+				// pass while the configured one still failed.
+				p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+					ID: "openai-gpt5-live", Type: "openai", Model: model,
+					BaseURL:  "https://api.openai.com/v1",
+					Defaults: providers.ProviderDefaults{MaxTokens: 4096},
+				})
+				require.NoError(t, err)
+				return p
+			},
+		},
+		{
 			name:    "openai",
 			envKeys: []string{"OPENAI_API_KEY"},
 			// gpt-4.1, not gpt-5. The provider serializes unset temperature AND

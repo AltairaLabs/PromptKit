@@ -135,7 +135,7 @@ var openaiPricingTable = map[string]*base.PricingDescriptor{
 	"o4-mini": o4Mini,
 
 	// GPT-5
-	"gpt-5":      gpt5,
+	modelGPT5:    gpt5,
 	"gpt-5-mini": gpt5Mini,
 	"gpt-5-nano": gpt5Nano,
 }
