@@ -115,7 +115,7 @@ func TestParallelToolCalls_ExecutesConcurrently(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestParallelToolCalls_PreservesResultOrder(t *testing.T) {
 		}
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, len(toolNames))
 
@@ -182,7 +182,7 @@ func TestParallelToolCalls_MaxConcurrencyLimit(t *testing.T) {
 		}
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, len(toolNames))
 
@@ -249,7 +249,7 @@ func TestParallelToolCalls_OneFailureDoesNotCancelOthers(t *testing.T) {
 		{ID: "c3", Name: "good_tool_2", Args: json.RawMessage(`{}`)},
 	}
 
-	results, execErr := stage.executeToolCalls(context.Background(), calls)
+	results, execErr := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 	require.NoError(t, execErr, "individual tool failures should not produce a top-level error")
 	require.Len(t, results, 3)
 
@@ -282,7 +282,7 @@ func TestParallelToolCalls_MixedBlockedAndExecuted(t *testing.T) {
 		{ID: "c2", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
@@ -336,7 +336,7 @@ func TestParallelToolCalls_PendingMixedWithComplete(t *testing.T) {
 		{ID: "c3", Name: "normal_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, execErr := stage.executeToolCalls(context.Background(), calls)
+	results, execErr := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 
 	// Should get ErrToolsPending.
 	require.Error(t, execErr)
@@ -373,7 +373,7 @@ func TestParallelToolCalls_ContextCancellation(t *testing.T) {
 		defer wg.Done()
 		results, execErr = stage.executeToolCalls(ctx, []types.MessageToolCall{
 			{ID: "c1", Name: "slow_tool", Args: json.RawMessage(`{}`)},
-		})
+		}, roundRef{round: 1})
 	}()
 
 	// Cancel after a short delay.
@@ -405,7 +405,7 @@ func TestParallelToolCalls_SingleToolCall(t *testing.T) {
 
 	results, err := stage.executeToolCalls(context.Background(), []types.MessageToolCall{
 		{ID: "c1", Name: "solo_tool", Args: json.RawMessage(`{}`)},
-	})
+	}, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -423,7 +423,7 @@ func TestParallelToolCalls_EmptyToolCalls(t *testing.T) {
 	toolNames := []string{"tool"}
 	stage := setupDelayedStage(t, executor, toolNames, nil)
 
-	results, err := stage.executeToolCalls(context.Background(), []types.MessageToolCall{})
+	results, err := stage.executeToolCalls(context.Background(), []types.MessageToolCall{}, roundRef{round: 1})
 
 	require.NoError(t, err)
 	assert.Empty(t, results)

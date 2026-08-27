@@ -423,7 +423,7 @@ func TestProviderStage_AfterCallHook_PopulatesValidations(t *testing.T) {
 		"system",
 		nil,
 		"",
-		1,
+		roundRef{round: 1},
 		nil,
 	)
 
@@ -510,7 +510,7 @@ func TestProviderStage_ToolHook_BlocksToolExecution(t *testing.T) {
 		{ID: "c1", Name: "blocked_by_hook", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -546,7 +546,7 @@ func TestProviderStage_ToolHook_AfterExecution_Records(t *testing.T) {
 		{ID: "c1", Name: "observed_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -637,7 +637,7 @@ func TestProviderStage_ToolHook_DenyMetadataThreaded(t *testing.T) {
 		{ID: "c1", Name: "consent_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -675,7 +675,7 @@ func TestProviderStage_ToolHook_AllowMetadataThreaded(t *testing.T) {
 		{ID: "c1", Name: "consent_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	results, err := stage.executeToolCalls(context.Background(), calls)
+	results, err := stage.executeToolCalls(context.Background(), calls, roundRef{round: 1})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -1285,7 +1285,7 @@ func TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop(t *testing.T) {
 		{Role: "user", Content: "search for x"},
 	}
 	msg1, hasTools1, err := stage.executeRound(
-		context.Background(), round1, "sys", nil, "", 1, nil)
+		context.Background(), round1, "sys", nil, "", roundRef{round: 1}, nil)
 	require.NoError(t, err)
 	assert.False(t, hasTools1)
 	assert.Equal(t, types.FinishReasonSafety, msg1.FinishReason,
@@ -1301,7 +1301,7 @@ func TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop(t *testing.T) {
 		{Role: "tool", Content: `{"result":"a much longer tool payload"}`},
 	}
 	msg2, _, err := stage.executeRound(
-		context.Background(), round2, "sys", nil, "", 2, nil)
+		context.Background(), round2, "sys", nil, "", roundRef{round: 2}, nil)
 	require.NoError(t, err)
 	// Asserting on FinishReason here would be vacuous — mock.Provider never sets
 	// one, so NotEqual(FinishReasonSafety) holds however the round went. A

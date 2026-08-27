@@ -207,6 +207,15 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 		Role:    msg.Role,
 		Content: msg.Content,
 		Parts:   msg.Parts,
+		// Carry the turn's assembled reasoning. The provider stage accumulates
+		// it per round and hangs it on the message; without this the trace dies
+		// at the stage boundary and a recorder has to re-accumulate
+		// reasoning.delta fragments and invent a turn boundary to do it.
+		// MessageCreatedData.Reasoning is `json:"-"`, so this stays in-process
+		// for live consumers reading the struct and never reaches a serialized
+		// sink — persistence remains opt-in via the save stage's
+		// PersistReasoning.
+		Reasoning: msg.Reasoning,
 	}
 
 	// Convert tool calls if present

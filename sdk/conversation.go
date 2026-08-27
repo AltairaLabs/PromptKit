@@ -741,6 +741,25 @@ func lastAssistantFinishReason(msgs []types.Message) string {
 	return ""
 }
 
+// lastAssistantReasoning recovers the final assistant turn's ReasoningTrace
+// from the execution's messages, mirroring lastAssistantFinishReason.
+//
+// The pipeline's Response type is narrower than types.Message and carries no
+// reasoning, so a Response built from it alone reports Reasoning as nil on
+// every turn — indistinguishable from a model that did not reason at all.
+//
+// This is the LAST round's reasoning by design: Response means "the final
+// response". In a multi-round tool loop the earlier rounds' traces reach a
+// recorder as separate message.created events, one per round.
+func lastAssistantReasoning(msgs []types.Message) *types.ReasoningTrace {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == roleAssistant {
+			return msgs[i].Reasoning
+		}
+	}
+	return nil
+}
+
 // buildResponse creates a Response from the pipeline result.
 func (c *Conversation) buildResponse(
 	ctx context.Context, result *rtpipeline.ExecutionResult, startTime time.Time,
@@ -760,6 +779,10 @@ func (c *Conversation) buildResponse(
 		// types.FinishReasonSafety) from a real model reply, nor see
 		// max_output_tokens or refusal.
 		assistantMsg.FinishReason = lastAssistantFinishReason(result.Messages)
+		// Same recovery for the reasoning trace, and for the same reason: the
+		// pipeline Response drops it, so without this the caller cannot read
+		// the model's thinking for the turn at all.
+		assistantMsg.Reasoning = lastAssistantReasoning(result.Messages)
 	}
 
 	resp := &Response{

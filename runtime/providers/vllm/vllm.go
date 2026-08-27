@@ -116,6 +116,20 @@ type vllmMessage struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	// Name carries the tool name on tool-result messages.
 	Name string `json:"name,omitempty"`
+	// ReasoningContent carries the thinking summary vLLM returns for reasoning
+	// models (deepseek-r1, qwq) when served with a reasoning parser. Routed to
+	// Message.Reasoning, never to spoken content. Response-only.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// reasoningFromContent wraps a reasoning_content string as a ReasoningTrace,
+// returning nil when empty so "the model did not reason" stays distinguishable
+// from "the trace was dropped".
+func reasoningFromContent(text string) *types.ReasoningTrace {
+	if text == "" {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: text}
 }
 
 type vllmChatResponse struct {
@@ -159,6 +173,8 @@ type vllmStreamChoice struct {
 type vllmStreamDelta struct {
 	Content   string               `json:"content,omitempty"`
 	ToolCalls []vllmStreamToolCall `json:"tool_calls,omitempty"`
+	// ReasoningContent streams before any visible token on reasoning models.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type vllmStreamToolCall struct {
@@ -471,6 +487,7 @@ func (p *Provider) predictWithMessages(
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
 	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(vllmResp.Choices[0].FinishReason)
+	predictResp.Reasoning = reasoningFromContent(vllmResp.Choices[0].Message.ReasoningContent)
 
 	return predictResp, nil
 }
@@ -585,6 +602,15 @@ func (p *Provider) streamResponse(
 		}
 
 		choice := chunk.Choices[0]
+
+		// Reasoning streams separately from content so it reaches
+		// Message.Reasoning without contaminating spoken output.
+		if choice.Delta.ReasoningContent != "" {
+			outChan <- providers.StreamChunk{
+				Content:   sb.String(),
+				Reasoning: choice.Delta.ReasoningContent,
+			}
+		}
 
 		// Send content chunk
 		if choice.Delta.Content != "" {

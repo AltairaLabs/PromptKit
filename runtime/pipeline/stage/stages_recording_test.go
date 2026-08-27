@@ -712,3 +712,139 @@ func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
 	require.NotNil(t, data.ToolResult.Parts[1].Media)
 	assert.Equal(t, "image/jpeg", data.ToolResult.Parts[1].Media.MIMEType)
 }
+
+// TestRecordingStage_MessageElement_CarriesReasoning verifies a complete
+// assistant message's ReasoningTrace reaches the message.created event.
+//
+// message.created is the only event in the package carrying complete message
+// content (MessageCreatedData.Content), so it is also the only place a
+// recorder can pick up the turn's assembled reasoning. Without this the
+// trace the provider stage already accumulated dies at the stage boundary
+// and a recorder has to re-accumulate reasoning.delta fragments itself.
+func TestRecordingStage_MessageElement_CarriesReasoning(t *testing.T) {
+	store := &fakeEventStore{}
+	stage := NewRecordingStage(store, RecordingStageConfig{
+		Position:  RecordingPositionOutput,
+		SessionID: "test-session",
+	})
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	input <- StreamElement{
+		Message: &types.Message{
+			Role:    "assistant",
+			Content: "The ball costs $0.05.",
+			Reasoning: &types.ReasoningTrace{
+				Text: "If the ball is x, the bat is x+1.00, so 2x+1.00=1.10.",
+				Opaque: []types.OpaqueReasoning{
+					{Provider: "claude", Kind: "thinking_signature", Data: "sig-abc"},
+				},
+			},
+		},
+		Timestamp: time.Now(),
+	}
+	close(input)
+
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	captured := store.filterByType(events.EventMessageCreated)
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(*events.MessageCreatedData)
+
+	require.NotNil(t, data.Reasoning, "message.created dropped the reasoning trace")
+	assert.Equal(t, "If the ball is x, the bat is x+1.00, so 2x+1.00=1.10.", data.Reasoning.Text)
+	require.Len(t, data.Reasoning.Opaque, 1)
+	assert.Equal(t, "thinking_signature", data.Reasoning.Opaque[0].Kind)
+	assert.Equal(t, "sig-abc", data.Reasoning.Opaque[0].Data)
+
+	// The trace must not leak into conversational content.
+	assert.Equal(t, "The ball costs $0.05.", data.Content)
+	assert.NotContains(t, data.Content, "2x+1.00")
+}
+
+// TestRecordingStage_MultiRound_EachRoundKeepsOwnReasoning is the assertion
+// that matters for a long tool loop: every round's assistant message carries
+// its OWN trace, not the last round's and not a concatenation of all of them.
+//
+// A recorder reading only the terminal SDK response gets the final round's
+// reasoning about writing the summary, and nothing about why the model chose
+// any of the tool calls — which is the part worth recording.
+func TestRecordingStage_MultiRound_EachRoundKeepsOwnReasoning(t *testing.T) {
+	store := &fakeEventStore{}
+	stage := NewRecordingStage(store, RecordingStageConfig{
+		Position:  RecordingPositionOutput,
+		SessionID: "test-session",
+	})
+
+	// Three provider rounds: two tool-calling, one final answer — the shape a
+	// tool loop actually produces.
+	rounds := []struct {
+		content   string
+		reasoning string
+	}{
+		{"", "I need the weather before I can answer. Calling get_weather."},
+		{"", "Sunny but I still need the forecast. Calling get_forecast."},
+		{"It'll stay sunny.", "I have both readings now; I can answer directly."},
+	}
+
+	input := make(chan StreamElement, len(rounds))
+	output := make(chan StreamElement, len(rounds))
+	for _, r := range rounds {
+		input <- StreamElement{
+			Message: &types.Message{
+				Role:      "assistant",
+				Content:   r.content,
+				Reasoning: &types.ReasoningTrace{Text: r.reasoning},
+			},
+			Timestamp: time.Now(),
+		}
+	}
+	close(input)
+
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	captured := store.filterByType(events.EventMessageCreated)
+	require.Len(t, captured, len(rounds), "expected one message.created per round")
+
+	for i, want := range rounds {
+		data := captured[i].Data.(*events.MessageCreatedData)
+		require.NotNilf(t, data.Reasoning, "round %d lost its reasoning trace", i+1)
+		assert.Equalf(t, want.reasoning, data.Reasoning.Text,
+			"round %d carries the wrong round's reasoning", i+1)
+	}
+
+	// Guard against a last-round-wins or accumulate-everything regression:
+	// the three traces must remain distinct from one another.
+	first := captured[0].Data.(*events.MessageCreatedData).Reasoning.Text
+	last := captured[len(rounds)-1].Data.(*events.MessageCreatedData).Reasoning.Text
+	assert.NotEqual(t, first, last, "every round reported the same reasoning")
+	assert.NotContains(t, first, last, "round 1 accumulated later rounds' reasoning")
+}
+
+// TestRecordingStage_MessageElement_NoReasoning_StaysNil verifies a message
+// without reasoning records a nil trace rather than an empty struct, so a
+// consumer can distinguish "the model did not reason" from "reasoning was
+// dropped". Re-emitted history arrives this way: the save stage strips
+// reasoning before persistence unless PersistReasoning is set.
+func TestRecordingStage_MessageElement_NoReasoning_StaysNil(t *testing.T) {
+	store := &fakeEventStore{}
+	stage := NewRecordingStage(store, RecordingStageConfig{
+		Position:  RecordingPositionOutput,
+		SessionID: "test-session",
+	})
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	input <- StreamElement{
+		Message:   &types.Message{Role: "assistant", Content: "No thinking here."},
+		Timestamp: time.Now(),
+	}
+	close(input)
+
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	captured := store.filterByType(events.EventMessageCreated)
+	require.Len(t, captured, 1)
+	assert.Nil(t, captured[0].Data.(*events.MessageCreatedData).Reasoning)
+}

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -131,6 +132,28 @@ type streamingRoundParams struct {
 	toolChoice    string
 	round         int
 	metadata      map[string]interface{}
+	// providerCallID identifies this round's provider call, stamped on its
+	// provider events and on every tool event the round produces.
+	providerCallID string
+}
+
+// roundRef names the model turn that requested a set of tool calls: the 1-based
+// tool-loop round, and the ID of the provider call that produced them.
+//
+// A tool call is made BY a turn, and consumers need that linkage to render a
+// transcript. Reconstructing it from event ordering fails silently — a round's
+// tool calls are dispatched before that round's provider call reports
+// completion — so it is passed down explicitly rather than inferred.
+type roundRef struct {
+	round          int
+	providerCallID string
+}
+
+// newProviderCallID mints an identifier for one provider call. Shared by the
+// call's own provider events and by the tool events its tool calls produce, so
+// the relationship survives retries and any change to how rounds are counted.
+func newProviderCallID() string {
+	return uuid.NewString()
 }
 
 // NewProviderStage creates a new provider stage for request/response mode.
@@ -568,8 +591,9 @@ func (s *ProviderStage) executeMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		response, hasToolCalls, err := s.executeRound(
-			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, round, acc.metadata)
+			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, rr, acc.metadata)
 		if err != nil {
 			return loop.messages, err
 		}
@@ -577,7 +601,7 @@ func (s *ProviderStage) executeMultiRound(
 		// now is the one that generated this round, and applyStateHandoff may
 		// move it on before the next round runs.
 		s.stampWorkflowState(&response)
-		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
+		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
 			return msgs, err
 		}
 		if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
@@ -809,7 +833,7 @@ func (tl *toolLoop) identicalLoopCalls(toolCalls []types.MessageToolCall) []type
 // result (NOT executed, since the result wouldn't change), while any non-looping
 // calls in the same round execute normally so every tool_use still has a result.
 func (tl *toolLoop) loopFeedbackResults(
-	ctx context.Context, all, looping []types.MessageToolCall,
+	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef,
 ) []types.Message {
 	loopSet := make(map[string]bool, len(looping))
 	for _, c := range looping {
@@ -832,7 +856,7 @@ func (tl *toolLoop) loopFeedbackResults(
 		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
 	}
 	if len(toExecute) > 0 {
-		executed, _ := tl.stage.executeToolCalls(ctx, toExecute)
+		executed, _ := tl.stage.executeToolCalls(ctx, toExecute, rr)
 		results = append(results, executed...)
 	}
 	return results
@@ -860,13 +884,15 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		params := &streamingRoundParams{
-			messages:      loop.messages,
-			systemPrompt:  acc.systemPrompt,
-			providerTools: loop.providerTools,
-			toolChoice:    loop.toolChoice,
-			round:         round,
-			metadata:      acc.metadata,
+			messages:       loop.messages,
+			systemPrompt:   acc.systemPrompt,
+			providerTools:  loop.providerTools,
+			toolChoice:     loop.toolChoice,
+			round:          round,
+			metadata:       acc.metadata,
+			providerCallID: rr.providerCallID,
 		}
 		response, hasToolCalls, err := s.executeStreamingRound(ctx, params, output)
 		if err != nil {
@@ -876,7 +902,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		// streamingRoundParams re-read acc.systemPrompt and loop.providerTools,
 		// so a mid-loop swap takes effect there.
 		s.stampWorkflowState(&response)
-		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
+		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
 			return msgs, err
 		}
 		if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {
@@ -995,8 +1021,9 @@ func (tl *toolLoop) afterRound(
 	allowedTools []string,
 	response *types.Message,
 	hasToolCalls bool,
-	round int,
+	rr roundRef,
 ) (bool, []types.Message, error) {
+	round := rr.round
 	tl.messages = append(tl.messages, *response)
 
 	// Track cumulative cost for budget enforcement
@@ -1033,13 +1060,13 @@ func (tl *toolLoop) afterRound(
 		tl.nudgedLoop = true
 		logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
 			"tool", looping[0].Name)
-		tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, response.ToolCalls, looping)...)
+		tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, response.ToolCalls, looping, rr)...)
 		ResetIdleFromContext(ctx)
 		tl.persistMessages(ctx, round)
 		return false, tl.messages, nil
 	}
 
-	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls)
+	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls, rr)
 	if err != nil {
 		if _, ok := tools.IsErrToolsPending(err); ok {
 			tl.messages = append(tl.messages, toolResults...)
@@ -1149,9 +1176,10 @@ func (s *ProviderStage) executeRound(
 	systemPrompt string,
 	providerTools interface{},
 	toolChoice string,
-	round int,
+	rr roundRef,
 	metadata map[string]interface{},
 ) (types.Message, bool, error) {
+	round := rr.round
 	ResetIdleFromContext(ctx)
 
 	if blocked, handled, err := s.runBeforeCallHooks(
@@ -1190,7 +1218,15 @@ func (s *ProviderStage) executeRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount, s.config.Labels)
+		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
+			Provider:     s.provider.ID(),
+			Model:        s.provider.Model(),
+			MessageCount: len(messages),
+			ToolCount:    toolCount,
+			Labels:       s.config.Labels,
+			Round:        rr.round,
+			CallID:       rr.providerCallID,
+		})
 	}
 
 	// Call provider (with or without tools)
@@ -1225,6 +1261,8 @@ func (s *ProviderStage) executeRound(
 				Duration: duration,
 				Source:   s.config.Source,
 				Labels:   s.config.Labels,
+				Round:    rr.round,
+				CallID:   rr.providerCallID,
 			})
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
@@ -1240,6 +1278,8 @@ func (s *ProviderStage) executeRound(
 			FinishReason:  resp.FinishReason,
 			Source:        s.config.Source,
 			Labels:        s.config.Labels,
+			Round:         rr.round,
+			CallID:        rr.providerCallID,
 		}
 		if resp.CostInfo != nil {
 			completedData.InputTokens = resp.CostInfo.InputTokens
@@ -1354,7 +1394,15 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(params.messages), toolCount, s.config.Labels)
+		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
+			Provider:     s.provider.ID(),
+			Model:        s.provider.Model(),
+			MessageCount: len(params.messages),
+			ToolCount:    toolCount,
+			Labels:       s.config.Labels,
+			Round:        params.round,
+			CallID:       params.providerCallID,
+		})
 	}
 
 	startTime := time.Now()
@@ -1372,6 +1420,8 @@ func (s *ProviderStage) executeStreamingRound(
 				Duration: duration,
 				Source:   s.config.Source,
 				Labels:   s.config.Labels,
+				Round:    params.round,
+				CallID:   params.providerCallID,
 			})
 		}
 		return types.Message{}, false, err
@@ -1392,6 +1442,8 @@ func (s *ProviderStage) executeStreamingRound(
 				Duration: duration,
 				Source:   s.config.Source,
 				Labels:   s.config.Labels,
+				Round:    params.round,
+				CallID:   params.providerCallID,
 			})
 		}
 		return types.Message{}, false, err
@@ -1407,6 +1459,8 @@ func (s *ProviderStage) executeStreamingRound(
 			FinishReason:  finishReason,
 			Source:        s.config.Source,
 			Labels:        s.config.Labels,
+			Round:         params.round,
+			CallID:        params.providerCallID,
 		}
 		// Populate token counts from cost info if available (present in final chunk)
 		if costInfo != nil {
@@ -1760,7 +1814,7 @@ func (s *ProviderStage) getMaxParallelToolCalls() int {
 }
 
 func (s *ProviderStage) executeToolCalls(
-	ctx context.Context, toolCalls []types.MessageToolCall,
+	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
 	if s.toolRegistry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
@@ -1778,7 +1832,7 @@ func (s *ProviderStage) executeToolCalls(
 		toolCall := tc
 
 		g.Go(func() error {
-			result := s.executeSingleToolCall(gctx, toolCall)
+			result := s.executeSingleToolCall(gctx, toolCall, rr)
 			mu.Lock()
 			defer mu.Unlock()
 			result.index = idx
@@ -1863,6 +1917,7 @@ func (s *ProviderStage) preExecCheck(
 func (s *ProviderStage) executeSingleToolCall(
 	ctx context.Context,
 	toolCall types.MessageToolCall,
+	rr roundRef,
 ) toolCallResult {
 	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall)
 	if skip {
@@ -1890,7 +1945,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	}
 
 	labels := s.toolLabels(toolCall.Name)
-	s.emitToolStarted(toolCall, labels)
+	s.emitToolStarted(ctx, toolCall, labels, rr)
 
 	startTime := time.Now()
 	ctx = tools.WithCallID(ctx, toolCall.ID)
@@ -1898,9 +1953,15 @@ func (s *ProviderStage) executeSingleToolCall(
 	ResetIdleFromContext(ctx)
 	if err != nil {
 		if s.emitter != nil {
-			s.emitter.ToolCallFailedCtx(
-				ctx, toolCall.Name, toolCall.ID, err, time.Since(startTime), labels,
-			)
+			s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
+				ToolName:       toolCall.Name,
+				CallID:         toolCall.ID,
+				Error:          err,
+				Duration:       time.Since(startTime),
+				Labels:         labels,
+				Round:          rr.round,
+				ProviderCallID: rr.providerCallID,
+			})
 		}
 		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
 		errResult.Error = err.Error()
@@ -1916,10 +1977,16 @@ func (s *ProviderStage) executeSingleToolCall(
 
 	result := s.handleToolResult(toolCall, asyncResult)
 	if s.emitter != nil {
-		status := string(asyncResult.Status)
-		s.emitter.ToolCallCompletedCtx(
-			ctx, toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts, labels,
-		)
+		s.emitter.ToolCallEventCtx(ctx, events.EventToolCallCompleted, &events.ToolCallEventData{
+			ToolName:       toolCall.Name,
+			CallID:         toolCall.ID,
+			Duration:       time.Since(startTime),
+			Status:         string(asyncResult.Status),
+			Parts:          result.Parts,
+			Labels:         labels,
+			Round:          rr.round,
+			ProviderCallID: rr.providerCallID,
+		})
 	}
 	resultMsg := types.NewToolResultMessage(result)
 	if hookDecision.Metadata != nil {
@@ -1932,7 +1999,9 @@ func (s *ProviderStage) executeSingleToolCall(
 }
 
 // emitToolStarted emits the tool call started event if an emitter is configured.
-func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels map[string]string) {
+func (s *ProviderStage) emitToolStarted(
+	ctx context.Context, toolCall types.MessageToolCall, labels map[string]string, rr roundRef,
+) {
 	if s.emitter == nil {
 		return
 	}
@@ -1940,7 +2009,14 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels m
 	if toolCall.Args != nil {
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
-	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
+	s.emitter.ToolCallEventCtx(ctx, events.EventToolCallStarted, &events.ToolCallEventData{
+		ToolName:       toolCall.Name,
+		CallID:         toolCall.ID,
+		Args:           argsMap,
+		Labels:         labels,
+		Round:          rr.round,
+		ProviderCallID: rr.providerCallID,
+	})
 }
 
 // afterCallParams carries what the AfterCall hook chain needs from either

@@ -103,7 +103,7 @@ func TestExecuteRound_ToolHistoryKeepsToolPathWhenToolsEmpty(t *testing.T) {
 	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
 
 	_, _, err := stage.executeRound(
-		context.Background(), historyWithToolLinkage(), "", nil, "", 1, nil,
+		context.Background(), historyWithToolLinkage(), "", nil, "", roundRef{round: 1}, nil,
 	)
 	require.NoError(t, err)
 

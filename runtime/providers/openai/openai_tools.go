@@ -434,6 +434,11 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 				Content   string               `json:"content"`
 				Audio     *openAIAudioResponse `json:"audio,omitempty"`
 				ToolCalls []openAIToolCall     `json:"tool_calls,omitempty"`
+				// ReasoningContent is the reasoning summary a reasoning model
+				// returns. This is the TOOL-CALLING round, where the model
+				// explains why it chose the calls it did — the reasoning a
+				// consumer most wants and the terminal response cannot supply.
+				ReasoningContent string `json:"reasoning_content,omitempty"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
@@ -460,6 +465,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 		CostInfo:     &costBreakdown,
 		Raw:          respBytes,
 		FinishReason: providers.NormalizeOpenAIFinishReason(choice.FinishReason),
+		Reasoning:    reasoningFromContent(choice.Message.ReasoningContent),
 	}
 
 	if audio := choice.Message.Audio; audio != nil {

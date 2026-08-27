@@ -227,6 +227,23 @@ func (e *Emitter) ProviderCallFailed(
 	})
 }
 
+// ToolCallEventCtx emits any tool-call lifecycle event (started, completed,
+// failed) from a fully-populated payload, with trace context for exemplar
+// correlation.
+//
+// The positional ToolCallStarted/Completed/Failed helpers below cover the
+// common case but cannot carry fields they have no parameter for — notably
+// Round and ProviderCallID, which tie a tool call to the model turn that
+// requested it. This is the struct-taking form, matching
+// ProviderCallCompletedCtx, for callers that need the full payload.
+func (e *Emitter) ToolCallEventCtx(ctx context.Context, eventType EventType, data *ToolCallEventData) {
+	if data == nil {
+		return
+	}
+	data.Parts = types.MetadataOnlyParts(data.Parts)
+	e.emitCtx(ctx, eventType, data)
+}
+
 // ToolCallStarted emits the tool.call.started event.
 func (e *Emitter) ToolCallStarted(
 	toolName, callID string, args map[string]interface{}, labels map[string]string,
@@ -268,6 +285,21 @@ func (e *Emitter) ToolCallFailed(
 		Duration: duration,
 		Labels:   labels,
 	})
+}
+
+// ProviderCallStartedCtx emits provider.call.started from a full payload, with
+// trace context for exemplar correlation. Unlike the positional
+// ProviderCallStarted, it can carry Round and CallID — the fields that tie a
+// provider call to its tool-loop round and to the tool calls it produced.
+// Source defaults to "agent" if not already set on data.
+func (e *Emitter) ProviderCallStartedCtx(ctx context.Context, data *ProviderCallStartedData) {
+	if data == nil {
+		return
+	}
+	if data.Source == "" {
+		data.Source = SourceAgent
+	}
+	e.emitCtx(ctx, EventProviderCallStarted, data)
 }
 
 // ProviderCallCompletedCtx emits provider.call.completed with trace context for exemplar correlation.

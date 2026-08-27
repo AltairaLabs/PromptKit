@@ -87,6 +87,20 @@ type ollamaRequest struct {
 type ollamaMessage struct {
 	Role    string `json:"role"`
 	Content any    `json:"content"` // Can be string or []any for multimodal
+	// ReasoningContent carries the thinking summary Ollama's OpenAI-compatible
+	// endpoint returns for reasoning models (deepseek-r1, qwq). Routed to
+	// Message.Reasoning, never to spoken content. Response-only.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// reasoningFromContent wraps a reasoning_content string as a ReasoningTrace,
+// returning nil when empty so "the model did not reason" stays distinguishable
+// from "the trace was dropped".
+func reasoningFromContent(text string) *types.ReasoningTrace {
+	if text == "" {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: text}
 }
 
 type ollamaResponse struct {
@@ -217,6 +231,8 @@ type ollamaStreamChoice struct {
 type ollamaStreamDelta struct {
 	Content   string                 `json:"content"`
 	ToolCalls []ollamaStreamToolCall `json:"tool_calls,omitempty"`
+	// ReasoningContent streams before any visible token on reasoning models.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type ollamaStreamToolCall struct {
@@ -414,6 +430,19 @@ func (p *Provider) processStreamChoice(
 	accumulatedToolCalls *[]types.MessageToolCall,
 	outChan chan<- providers.StreamChunk,
 ) int {
+	// Handle reasoning deltas: reasoning models stream reasoning_content before
+	// any visible token. Carry it on Reasoning (never Delta) so it reaches
+	// Message.Reasoning without contaminating spoken content, and so a long
+	// thinking phase resets the pipeline idle timer.
+	if choice.Delta.ReasoningContent != "" {
+		outChan <- providers.StreamChunk{
+			Content:    sb.String(),
+			ToolCalls:  *accumulatedToolCalls,
+			TokenCount: totalTokens,
+			Reasoning:  choice.Delta.ReasoningContent,
+		}
+	}
+
 	// Handle content delta
 	if choice.Delta.Content != "" {
 		sb.WriteString(choice.Delta.Content)
@@ -594,6 +623,7 @@ func (p *Provider) predictWithMessages(
 	predictResp.Latency = latency
 	predictResp.Raw = respBody
 	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(ollamaResp.Choices[0].FinishReason)
+	predictResp.Reasoning = reasoningFromContent(ollamaResp.Choices[0].Message.ReasoningContent)
 
 	return predictResp, nil
 }
