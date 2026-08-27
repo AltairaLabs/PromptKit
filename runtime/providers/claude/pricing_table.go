@@ -142,12 +142,12 @@ var claudePricingTable = map[string]*base.PricingDescriptor{
 	"claude-opus-4-1-20250805": claudeOpus41,
 	"claude-sonnet-4":          claudeSonnet4,
 	"claude-opus-4":            claudeOpus4,
-	"claude-opus-4-1":          claudeOpus41,
+	modelOpus41:                claudeOpus41,
 
 	// Claude 4.5
 	"claude-sonnet-4-5-20250929": claudeSonnet45,
 	"claude-haiku-4-5-20251001":  claudeHaiku45,
 	idClaudeSonnet45:             claudeSonnet45,
 	idClaudeHaiku45:              claudeHaiku45,
-	"claude-opus-4-5":            claudeOpus45,
+	modelOpus45:                  claudeOpus45,
 }
