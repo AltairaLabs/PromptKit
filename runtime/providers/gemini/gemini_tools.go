@@ -454,19 +454,34 @@ func (p *ToolProvider) buildToolRequest(
 		genConfig["thinkingConfig"] = tc
 	}
 
-	// Honor the caller's ResponseFormat, except where the model cannot accept it
-	// alongside tools. See rejectsSchemaWithTools: Gemini 2.5 returns HTTP 400
-	// for that combination, Gemini 3 handles it. Verified live on both.
+	// A response schema is NOT sent on rounds that carry tools. Both Gemini
+	// generations break on that combination, in different ways, both verified
+	// live:
+	//
+	//	2.5  HTTP 400 "Function calling with a response mime type:
+	//	     'application/json' is unsupported" — the turn fails outright.
+	//	3.x  Accepted, and then the model never stops calling tools. With the
+	//	     schema it called the same tool on all 5 rounds and never produced
+	//	     an answer; without it, the identical loop terminated on round 2.
+	//	     The schema appears to leave the model unable to emit a final text
+	//	     part, so it keeps reaching for the tool instead.
+	//
+	// The 3.x failure is the more dangerous of the two: it looks like it works
+	// (round one returns a normal tool call) and only shows up as a turn that
+	// burns rounds until the loop breaker fires.
+	//
+	// Rounds WITHOUT tools carry the schema normally, which is the case a final
+	// answer-only round hits.
 	switch {
-	case tools == nil || !rejectsSchemaWithTools(p.model):
+	case tools == nil:
 		p.applyResponseFormatToMap(genConfig, req.ResponseFormat)
 	case wantsSchema(req.ResponseFormat):
 		// Dropped rather than sent, or the request would fail outright. Say so:
 		// a caller could otherwise not tell "schema applied" from "schema
 		// discarded" until validation failed downstream (#1848).
-		logger.Warn("gemini: response schema dropped for this round — this model rejects "+
-			"function calling combined with a JSON response mime type, so the model is "+
-			"not constrained to the supplied schema on tool-using rounds",
+		logger.Warn("gemini: response schema dropped for this round — combining it with "+
+			"function calling either fails the request (2.5) or prevents the model from "+
+			"ever answering (3.x), so tool-using rounds go unconstrained",
 			"provider", p.ID(), "model", p.model)
 	}
 	request := map[string]any{

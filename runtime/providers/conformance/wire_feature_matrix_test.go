@@ -149,10 +149,11 @@ func wireProviderCases() []wireProviderCase {
 			name:     "gemini_2.5",
 			marker:   "responseSchema",
 			response: geminiReply,
-			// MODEL CONSTRAINT, verified live: Gemini 2.5 returns HTTP 400
-			// "Function calling with a response mime type: 'application/json'
-			// is unsupported". Sending it on the tool paths would break every
-			// tool call, so the provider drops it there and warns. Rounds
+			// VENDOR CONSTRAINT, verified live on BOTH generations: 2.5 returns
+			// HTTP 400 for tools + JSON response mime type, and 3.x accepts it
+			// then never stops calling tools (5/5 rounds with the schema; the
+			// identical loop terminated on round 2 without it). So neither
+			// generation gets the schema on a tool-carrying round. Rounds
 			// without tools carry it normally.
 			wantOnPath: map[string]bool{
 				"predict":                   true,
@@ -162,8 +163,7 @@ func wireProviderCases() []wireProviderCase {
 			},
 			gap: "Gemini 2.5 rejects function calling combined with responseMimeType " +
 				"application/json (HTTP 400). The provider logs a warning when it drops " +
-				"the schema on a tool-using round rather than discarding it silently. " +
-				"Gemini 3 has no such limit — see the gemini_3 case.",
+				"the schema on a tool-using round rather than discarding it silently.",
 			build: func(t *testing.T, url string) providers.Provider {
 				t.Helper()
 				t.Setenv("GEMINI_API_KEY", "test-key")
@@ -172,14 +172,23 @@ func wireProviderCases() []wireProviderCase {
 			},
 		},
 		{
-			// Gemini 3 accepts a schema alongside tools and honors it, verified
-			// live. Dropping it here would silently discard a capability the
-			// model has, so all four paths must carry it. This pair is what
-			// keeps rejectsSchemaWithTools honest in BOTH directions.
-			name:       "gemini_3",
-			marker:     "responseSchema",
-			response:   geminiReply,
-			wantOnPath: allPaths(true),
+			// Gemini 3 ACCEPTS a schema alongside tools — and then never stops
+			// calling them. Verified live: 5/5 rounds called the same tool and
+			// produced no answer, while the identical loop without the schema
+			// terminated on round 2. Accepting is not the same as working, so
+			// this generation is treated exactly like 2.5.
+			name:     "gemini_3",
+			marker:   "responseSchema",
+			response: geminiReply,
+			wantOnPath: map[string]bool{
+				"predict":                   true,
+				"predict_stream":            true,
+				"predict_with_tools":        false,
+				"predict_stream_with_tools": false,
+			},
+			gap: "Gemini 3 accepts tools + schema but then loops: the model keeps calling " +
+				"the tool and never emits a final text part. Dropping the schema on " +
+				"tool-carrying rounds is what lets the turn finish at all.",
 			build: func(t *testing.T, url string) providers.Provider {
 				t.Helper()
 				t.Setenv("GEMINI_API_KEY", "test-key")
