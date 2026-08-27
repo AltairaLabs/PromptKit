@@ -72,14 +72,19 @@ func (p *scriptedRoundProvider) PredictWithTools(
 	p.mu.Unlock()
 
 	if n > p.toolRounds {
-		return providers.PredictionResponse{Content: "done"}, nil, nil
+		return providers.PredictionResponse{
+			Content:   "done",
+			Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I have everything; answer.", n)},
+		}, nil, nil
 	}
 	// The SAME tool called again with corrected arguments — the motivating
 	// case from #1840. Timestamp order puts these in sequence but cannot show
 	// they came from two different model decisions; the round and the
 	// provider-call ID can. Arguments differ per round because identical ones
 	// trip the stage's repeated-call breaker.
-	return providers.PredictionResponse{}, []types.MessageToolCall{{
+	return providers.PredictionResponse{
+		Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I still need data; calling probe.", n)},
+	}, []types.MessageToolCall{{
 		ID:   "call_" + string(rune('A'+n-1)),
 		Name: "probe",
 		Args: json.RawMessage(fmt.Sprintf(`{"q":"attempt-%d"}`, n)),
@@ -277,4 +282,30 @@ func TestToolCallEvents_ProviderCallIDMatchesItsRound(t *testing.T) {
 		checked++
 	}
 	assert.Equal(t, toolRounds, checked, "did not check every round's tool call")
+}
+
+// waitForEvents polls snapshot until at least want events have arrived, then
+// returns them. The bus dispatches through a worker pool, so events arrive
+// asynchronously AND out of publish order — never assume either.
+func waitForEvents(t *testing.T, snapshot func() []*events.Event, want int) []*events.Event {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(snapshot()) >= want {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got := snapshot()
+	require.GreaterOrEqualf(t, len(got), want, "timed out waiting for %d events, got %d", want, len(got))
+	return got
+}
+
+// drainEvents waits a short fixed interval and returns whatever arrived. Use it
+// to assert an event was NOT emitted: unlike waitForEvents there is nothing to
+// poll for, so it must give the bus real time to deliver a wrong send.
+func drainEvents(t *testing.T, snapshot func() []*events.Event) []*events.Event {
+	t.Helper()
+	time.Sleep(300 * time.Millisecond)
+	return snapshot()
 }

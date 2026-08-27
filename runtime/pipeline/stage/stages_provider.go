@@ -1026,6 +1026,19 @@ func (tl *toolLoop) afterRound(
 	round := rr.round
 	tl.messages = append(tl.messages, *response)
 
+	// Emit this round's assembled reasoning before its tool events, matching
+	// the causal order a consumer renders: the model reasons, then calls.
+	//
+	// This is the only emit site for both the unary and streaming paths — they
+	// converge here with the response and the round in hand — so the two cannot
+	// drift. It is also the signal a consumer WITHOUT a recording stage
+	// depends on: message.created only exists when RecordingStage is wired, so
+	// without this the accumulated trace never leaves the process and the
+	// consumer is left re-accumulating reasoning.delta fragments.
+	if tl.stage.emitter != nil {
+		tl.stage.emitter.ReasoningCompletedCtx(ctx, response.Reasoning, rr.round, rr.providerCallID)
+	}
+
 	// Track cumulative cost for budget enforcement
 	if response.CostInfo != nil {
 		tl.cumulativeCost += response.CostInfo.TotalCost
@@ -1429,7 +1442,7 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Process all chunks and collect response
 	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason, err :=
-		s.processStreamChunks(ctx, streamChan, output)
+		s.processStreamChunks(ctx, streamChan, output, roundRef{round: params.round, providerCallID: params.providerCallID})
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -1600,6 +1613,7 @@ func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
+	rr roundRef,
 ) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, string, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
@@ -1648,7 +1662,7 @@ func (s *ProviderStage) processStreamChunks(
 		reasoning.WriteString(chunk.Reasoning)
 		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
 
-		if err := s.emitChunkElement(ctx, &chunk, output); err != nil {
+		if err := s.emitChunkElement(ctx, &chunk, output, rr); err != nil {
 			return "", nil, nil, nil, nil, "", err
 		}
 
@@ -1696,13 +1710,17 @@ func (s *ProviderStage) emitChunkElement(
 	ctx context.Context,
 	chunk *providers.StreamChunk,
 	output chan<- StreamElement,
+	rr roundRef,
 ) error {
 	// Emit a live, non-content reasoning element if present, so the UI can stream
 	// thinking as it arrives (it also accumulates onto Message.Reasoning). Mirror
 	// onto the events bus as a distinct non-content signal for live consumers.
 	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
 		if s.emitter != nil && chunk.Reasoning != "" {
-			s.emitter.ReasoningDelta(chunk.Reasoning)
+			// Attributed to its round so a streaming consumer can tell which
+			// model turn it is watching think, and can tie these fragments to
+			// the reasoning.completed that follows them.
+			s.emitter.ReasoningDeltaCtx(ctx, chunk.Reasoning, rr.round, rr.providerCallID)
 		}
 		select {
 		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:

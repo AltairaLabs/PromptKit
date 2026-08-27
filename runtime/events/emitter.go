@@ -448,8 +448,43 @@ func (e *Emitter) StreamInterrupted(reason string) {
 
 // ReasoningDelta emits the reasoning.delta event — an incremental chunk of model
 // reasoning ("thinking") for live display. Not conversational content.
+//
+// This form carries no round attribution. Prefer ReasoningDeltaCtx where the
+// tool-loop round is known, so a consumer can tell which model turn it is
+// watching think.
 func (e *Emitter) ReasoningDelta(text string) {
 	e.emit(EventReasoningDelta, &ReasoningDeltaData{Text: text})
+}
+
+// ReasoningDeltaCtx emits reasoning.delta with round attribution and trace
+// context. Round and providerCallID are the same join key the round's tool and
+// provider events carry; pass zero and "" where no round applies (duplex).
+func (e *Emitter) ReasoningDeltaCtx(
+	ctx context.Context, text string, round int, providerCallID string,
+) {
+	e.emitCtx(ctx, EventReasoningDelta, &ReasoningDeltaData{
+		Text:           text,
+		Round:          round,
+		ProviderCallID: providerCallID,
+	})
+}
+
+// ReasoningCompletedCtx emits reasoning.completed — one round's assembled
+// reasoning trace, the terminal counterpart to reasoning.delta.
+//
+// A nil or empty trace emits nothing, so a consumer can distinguish "this
+// round produced no reasoning" from "the trace was dropped on the way here".
+func (e *Emitter) ReasoningCompletedCtx(
+	ctx context.Context, rt *types.ReasoningTrace, round int, providerCallID string,
+) {
+	if rt == nil || (rt.Text == "" && len(rt.Opaque) == 0) {
+		return
+	}
+	e.emitCtx(ctx, EventReasoningCompleted, &ReasoningCompletedData{
+		Trace:          rt,
+		Round:          round,
+		ProviderCallID: providerCallID,
+	})
 }
 
 // EmitCustom allows middleware to emit arbitrary event types with structured payloads.
