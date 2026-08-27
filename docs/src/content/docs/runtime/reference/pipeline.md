@@ -391,6 +391,8 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(p \*StreamPipeline\) Execute\(ctx context.Context, input \<\-chan StreamElement\) \(\<\-chan StreamElement, error\)](<#StreamPipeline.Execute>)
   - [func \(p \*StreamPipeline\) ExecuteSync\(ctx context.Context, input ...StreamElement\) \(\*ExecutionResult, error\)](<#StreamPipeline.ExecuteSync>)
   - [func \(p \*StreamPipeline\) Shutdown\(ctx context.Context\) error](<#StreamPipeline.Shutdown>)
+- [type StructuredOutputMode](<#StructuredOutputMode>)
+  - [func ParseStructuredOutputMode\(raw string\) StructuredOutputMode](<#ParseStructuredOutputMode>)
 - [type TTSConfig](<#TTSConfig>)
   - [func DefaultTTSConfig\(\) TTSConfig](<#DefaultTTSConfig>)
 - [type TTSService](<#TTSService>)
@@ -550,6 +552,16 @@ const (
     // 1 FPS is suitable for most LLM vision scenarios.
     DefaultFrameRateLimitFPS = 1.0
 )
+```
+
+<a name="SchemaUnappliedMetaKey"></a>SchemaUnappliedMetaKey marks an assistant message that a configured ResponseFormat was NOT applied to, so its content is the loop's unconstrained answer rather than schema\-shaped output. The value says why.
+
+Two causes reach it: the re\-ask failed at the provider, or the tool loop exhausted its rounds and never produced a final turn to constrain.
+
+Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened — an unmarked fallback is indistinguishable from a model that simply answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
+
+```go
+const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
 ```
 
 ## Variables
@@ -3791,8 +3803,16 @@ type ProviderConfig struct {
     Temperature    float32
     Seed           *int
     ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
-    Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
-    Source         string                    // Origin of the call: "agent" (default), "judge", "selfplay"
+
+    // StructuredOutputMode selects when ResponseFormat is applied to a tool
+    // loop. Empty means final_turn — the schema is withheld from tool-calling
+    // rounds and the final answer is re-asked under it, because a schema on
+    // every round suppresses tool calling. See structured_output_mode.go and
+    // issue #1853. Ignored when ResponseFormat is nil or the turn uses no
+    // tools, where there is no loop to protect.
+    StructuredOutputMode StructuredOutputMode
+    Labels               map[string]string // Optional labels propagated to events, metrics, and traces
+    Source               string            // Origin of the call: "agent" (default), "judge", "selfplay"
 
     // MessageLog enables per-round write-through persistence during tool loops.
     // When set, messages are appended to the log after each tool-loop round
@@ -5127,6 +5147,60 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error
 ```
 
 Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions to complete.
+
+<a name="StructuredOutputMode"></a>
+## type StructuredOutputMode
+
+StructuredOutputMode selects when a caller's ResponseFormat is applied to a tool loop.
+
+A response schema competes with tool calling. Applied to every round it suppresses tool use — silently, intermittently, and more the more work the task requires. Measured on an identical 7\-tool task, mean tools called \(n=5, no schema \-\> schema\):
+
+```
+claude-sonnet-5      7.0 -> 7.0   (no detectable effect)
+gpt-5                6.8 -> 6.6   (within its own baseline noise)
+claude-sonnet-4-6    7.0 -> 5.8   (one run did almost no work)
+gemini-3.7-flash     terminates 5/5 -> 1/5
+```
+
+On a production underwriting pack the same model that scores 5.8 here reached tool\_use in 1 run out of 5 — the effect scales with task complexity, so these numbers understate it. Every failure arrives as a successful HTTP 200.
+
+The fix is to constrain only the turn that produces the final answer, which is what the providers that hold up are already doing server\-side \(Anthropic's stronger models; Gemini's Interactions API\). Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
+
+See issue \#1853.
+
+```go
+type StructuredOutputMode string
+```
+
+<a name="StructuredOutputFinalTurn"></a>
+
+```go
+const (
+    // StructuredOutputFinalTurn withholds ResponseFormat during tool-calling
+    // rounds and re-asks the final answer under the schema. Default.
+    StructuredOutputFinalTurn StructuredOutputMode = "final_turn"
+
+    // StructuredOutputEveryRound sends ResponseFormat on every round — the
+    // pre-#1853 behavior.
+    //
+    // This is an escape hatch, not a supported alternative: it is the
+    // configuration measured above, and on two of the four models tested it
+    // loses tool calls. It exists so an operator can pin the old behavior
+    // without waiting on a release, not because it is a reasonable choice.
+    StructuredOutputEveryRound StructuredOutputMode = "every_round"
+)
+```
+
+<a name="ParseStructuredOutputMode"></a>
+### func ParseStructuredOutputMode
+
+```go
+func ParseStructuredOutputMode(raw string) StructuredOutputMode
+```
+
+ParseStructuredOutputMode reads a configured mode string.
+
+Mirrors the provider api\_mode convention: an unrecognized value is ignored with a warning rather than forwarded, since guessing here silently changes whether a caller's schema constrains tool\-calling rounds.
 
 <a name="TTSConfig"></a>
 ## type TTSConfig

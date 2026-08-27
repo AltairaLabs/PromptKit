@@ -78,6 +78,14 @@ type ProviderConfig struct {
 	Temperature    float32
 	Seed           *int
 	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
+
+	// StructuredOutputMode selects when ResponseFormat is applied to a tool
+	// loop. Empty means final_turn — the schema is withheld from tool-calling
+	// rounds and the final answer is re-asked under it, because a schema on
+	// every round suppresses tool calling. See structured_output_mode.go and
+	// issue #1853. Ignored when ResponseFormat is nil or the turn uses no
+	// tools, where there is no loop to protect.
+	StructuredOutputMode StructuredOutputMode
 	Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
 	Source         string                    // Origin of the call: "agent" (default), "judge", "selfplay"
 
@@ -610,6 +618,8 @@ func (s *ProviderStage) executeMultiRound(
 			return loop.messages, nil
 		}
 	}
+	// Unreachable: afterRound returns done with an error at round == maxRounds,
+	// so every exit goes through it. Kept as a compile-time fallthrough.
 	return loop.messages, nil
 }
 
@@ -872,6 +882,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	if err != nil {
 		return nil, err
 	}
+	loop.output = output
 	loop.preSeedLog(ctx)
 	// Reconcile before the first round. A resumed execution (HITL approval,
 	// deferred client tool) re-ran PromptAssemblyStage, which reset the prompt
@@ -911,6 +922,8 @@ func (s *ProviderStage) executeStreamingMultiRound(
 			return loop.messages, nil
 		}
 	}
+	// Unreachable: afterRound returns done with an error at round == maxRounds,
+	// so every exit goes through it. Kept as a compile-time fallthrough.
 	return loop.messages, nil
 }
 
@@ -931,6 +944,23 @@ type toolLoop struct {
 	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
 	nudgedLoop          bool           // already fed an identical-loop back to the model once
+
+	// acc is the live turn input. Held as a pointer rather than copied because
+	// applyStateHandoff can swap the system prompt mid-loop, and the
+	// final-turn re-ask must use the prompt in force when the loop ended.
+	acc *providerInput
+
+	// schemaWithheld records that ResponseFormat was kept off this loop's
+	// rounds, so the final answer still owes a constrained re-ask. Set once at
+	// construction: whether a schema was withheld is a property of the loop,
+	// not of the round that happens to finish it.
+	schemaWithheld bool
+
+	// output is the pipeline's element channel, set only on the streaming path.
+	// Its presence is what tells the final-turn re-ask to stream its answer —
+	// with every round's text suppressed, that re-ask is the only text a
+	// streaming consumer receives.
+	output chan<- StreamElement
 }
 
 // promptCachingProvider is optionally implemented by providers that support
@@ -982,6 +1012,8 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	}
 	return &toolLoop{
 		stage:               s,
+		acc:                 acc,
+		schemaWithheld:      s.withholdsSchema(providerTools),
 		messages:            acc.messages,
 		providerTools:       providerTools,
 		toolChoice:          toolChoice,
@@ -1054,6 +1086,13 @@ func (tl *toolLoop) afterRound(
 	}
 
 	if !hasToolCalls {
+		// The loop has ended. This is the first and only moment that is
+		// knowable, so a withheld schema is applied here — the answer that
+		// revealed the ending is regenerated under it. Before persistMessages,
+		// so the log holds the constrained answer rather than the discarded one.
+		if tl.schemaWithheld {
+			tl.reaskUnderSchema(ctx, rr)
+		}
 		tl.persistMessages(ctx, round)
 		return true, tl.messages, nil
 	}
@@ -1208,7 +1247,7 @@ func (s *ProviderStage) executeRound(
 		MaxTokens:      s.config.MaxTokens,
 		Temperature:    s.config.Temperature,
 		Seed:           s.config.Seed,
-		ResponseFormat: s.config.ResponseFormat,
+		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
 	}
 
@@ -1385,7 +1424,7 @@ func (s *ProviderStage) executeStreamingRound(
 		Temperature:    s.config.Temperature,
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
-		ResponseFormat: s.config.ResponseFormat,
+		ResponseFormat: s.roundResponseFormat(params.providerTools),
 	}
 
 	// Normalize: merge any system-role messages from Messages into the System
@@ -1442,7 +1481,9 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Process all chunks and collect response
 	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason, err :=
-		s.processStreamChunks(ctx, streamChan, output, roundRef{round: params.round, providerCallID: params.providerCallID})
+		s.processStreamChunks(ctx, streamChan, output,
+			roundRef{round: params.round, providerCallID: params.providerCallID},
+			s.withholdsSchema(params.providerTools))
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -1614,6 +1655,7 @@ func (s *ProviderStage) processStreamChunks(
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
 	rr roundRef,
+	suppressText bool,
 ) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, string, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
@@ -1662,7 +1704,7 @@ func (s *ProviderStage) processStreamChunks(
 		reasoning.WriteString(chunk.Reasoning)
 		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
 
-		if err := s.emitChunkElement(ctx, &chunk, output, rr); err != nil {
+		if err := s.emitChunkElement(ctx, &chunk, output, rr, suppressText); err != nil {
 			return "", nil, nil, nil, nil, "", err
 		}
 
@@ -1711,6 +1753,7 @@ func (s *ProviderStage) emitChunkElement(
 	chunk *providers.StreamChunk,
 	output chan<- StreamElement,
 	rr roundRef,
+	suppressText bool,
 ) error {
 	// Emit a live, non-content reasoning element if present, so the UI can stream
 	// thinking as it arrives (it also accumulates onto Message.Reasoning). Mirror
@@ -1729,8 +1772,20 @@ func (s *ProviderStage) emitChunkElement(
 		}
 	}
 
-	// Emit text element if present
-	if chunk.Delta != "" {
+	// Emit text element if present.
+	//
+	// Suppressed for the whole of a schema-withheld tool loop. None of that
+	// loop's prose is the deliverable: a tool-calling round's preamble is not
+	// part of a JSON contract, and the closing round's answer is discarded and
+	// re-asked under the schema. Suppressing unconditionally is what makes this
+	// work without lookahead — a round is only known to be the last one after
+	// it has finished, far too late to have withheld its deltas selectively.
+	// The consumer sees exactly one thing: the constrained final answer.
+	//
+	// Reasoning deltas above are deliberately NOT suppressed. They are a
+	// separate, non-content channel that a UI renders as thinking, and they
+	// never form part of the schema-constrained answer.
+	if chunk.Delta != "" && !suppressText {
 		elem := NewTextElement(chunk.Delta)
 		elem.Timestamp = timeNow()
 		elem.Priority = PriorityNormal

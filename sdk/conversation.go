@@ -564,6 +564,7 @@ func (c *Conversation) buildPipelineConfig(
 		VideoStreamConfig:     c.buildVideoStreamConfig(),
 		EventEmitter:          eventEmitter,
 		ResponseFormat:        c.config.responseFormat,
+		StructuredOutputMode:  c.config.structuredOutputMode,
 		ContextWindow:         c.config.contextWindow,
 		RetrievalTopK:         c.config.retrievalTopK,
 		SummarizeThreshold:    c.config.summarizeThreshold,

@@ -72,6 +72,10 @@ type Config struct {
 	// ResponseFormat for JSON mode output (optional)
 	ResponseFormat *providers.ResponseFormat
 
+	// StructuredOutputMode selects when ResponseFormat is applied to a tool
+	// loop. Empty means final_turn. See runtime stage.StructuredOutputMode.
+	StructuredOutputMode stage.StructuredOutputMode
+
 	// StateStore for conversation history persistence (optional)
 	// When provided, StateStoreLoad/Save stages will be added to the pipeline
 	StateStore statestore.Store
@@ -548,6 +552,8 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolSelector:     cfg.ToolSelector,
 			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
+
+			StructuredOutputMode: cfg.StructuredOutputMode,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

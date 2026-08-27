@@ -224,6 +224,10 @@ type config struct {
 	// When set, enables frame rate limiting and preprocessing for video/image streams
 	videoStreamConfig *VideoStreamConfig
 
+	// structuredOutputMode selects when responseFormat is applied to a tool
+	// loop. Empty means final_turn.
+	structuredOutputMode stage.StructuredOutputMode
+
 	// ResponseFormat configures the LLM response format (JSON mode)
 	// When set, the provider will request responses in the specified format
 	responseFormat *providers.ResponseFormat
@@ -2601,6 +2605,28 @@ func WithAutoResize(maxWidth, maxHeight int) Option {
 func WithResponseFormat(format *providers.ResponseFormat) Option {
 	return func(c *config) error {
 		c.responseFormat = format
+		return nil
+	}
+}
+
+// WithStructuredOutputMode selects when a configured response format is applied
+// to a tool loop.
+//
+// The default, "final_turn", withholds the schema from tool-calling rounds and
+// re-asks the final answer under it. A schema applied to every round competes
+// with tool calling and suppresses it — silently, intermittently, and more the
+// more work the task requires. See issue #1853.
+//
+// "every_round" restores the pre-#1853 behavior. It is an escape hatch for
+// pinning old behavior without waiting on a release, not a supported
+// alternative: it is the configuration that loses tool calls.
+//
+// An unrecognized value is ignored with a warning and the default applies.
+//
+//	sdk.WithStructuredOutputMode("every_round")
+func WithStructuredOutputMode(mode string) Option {
+	return func(c *config) error {
+		c.structuredOutputMode = stage.ParseStructuredOutputMode(mode)
 		return nil
 	}
 }
