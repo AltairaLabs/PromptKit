@@ -116,14 +116,11 @@ func jsonCases() []jsonCase {
 					"https://generativelanguage.googleapis.com/v1beta",
 					providers.ProviderDefaults{MaxTokens: 4096}, false)
 			},
-			// Same as 2.5, for a different reason: Gemini 3 accepts a schema
-			// with tools and then never stops calling them, so the provider
-			// drops it on tool rounds and the answer is prose.
-			conformsInMode: map[string]bool{
-				modeUnary: true, modeStream: true, modeUnaryTools: false, modeStreamTools: false,
-			},
-			why: "Gemini 3 accepts tools + schema but then loops forever without answering; " +
-				"dropping the schema on tool rounds is what lets the turn finish",
+			// All four modes conform since #1852. On generateContent a schema
+			// alongside tools left Gemini 3 looping without ever answering, so
+			// the provider now routes that combination to the Interactions API,
+			// which constrains only the answering turn.
+			conformsInMode: allModes(true),
 		},
 	}
 }
@@ -259,8 +256,23 @@ func buildProbeTool(t *testing.T, p providers.Provider) (providers.ToolSupport, 
 // it is not the assistant's answer and must never be mistaken for it.
 func collectStream(t *testing.T, ch <-chan providers.StreamChunk, err error) (string, []types.MessageToolCall) {
 	t.Helper()
+	content, calls, _ := collectStreamWithReasoning(t, ch, err)
+	return content, calls
+}
+
+// collectStreamWithReasoning additionally returns the accumulated reasoning
+// trace, which a tool loop must replay alongside the calls it carried.
+//
+// Gemini's Interactions API rejects a function_call whose thought signature was
+// not replayed, so a caller that drops this cannot complete a second round.
+func collectStreamWithReasoning(
+	t *testing.T, ch <-chan providers.StreamChunk, err error,
+) (string, []types.MessageToolCall, *types.ReasoningTrace) {
+	t.Helper()
 	require.NoError(t, err)
 
+	var reasoning strings.Builder
+	var opaque []types.OpaqueReasoning
 	var sb strings.Builder
 	var content string
 	var calls []types.MessageToolCall
@@ -276,11 +288,20 @@ func collectStream(t *testing.T, ch <-chan providers.StreamChunk, err error) (st
 		if len(chunk.ToolCalls) > len(calls) {
 			calls = chunk.ToolCalls
 		}
+		if chunk.Reasoning != "" {
+			reasoning.WriteString(chunk.Reasoning)
+		}
+		opaque = append(opaque, chunk.OpaqueReasoning...)
+	}
+
+	var trace *types.ReasoningTrace
+	if reasoning.Len() > 0 || len(opaque) > 0 {
+		trace = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaque}
 	}
 	if sb.Len() > 0 {
-		return sb.String(), calls
+		return sb.String(), calls, trace
 	}
-	return content, calls
+	return content, calls, trace
 }
 
 // runToolLoop drives a real tool loop until the model stops calling tools,
@@ -298,13 +319,14 @@ func runToolLoop(t *testing.T, p providers.Provider, streaming bool) string {
 		var content string
 		var calls []types.MessageToolCall
 
+		var reasoning *types.ReasoningTrace
 		if streaming {
 			ch, err := ts.PredictStreamWithTools(context.Background(), req, tools, "auto")
-			content, calls = collectStream(t, ch, err)
+			content, calls, reasoning = collectStreamWithReasoning(t, ch, err)
 		} else {
 			resp, c, err := ts.PredictWithTools(context.Background(), req, tools, "auto")
 			require.NoError(t, err)
-			content, calls = resp.Content, c
+			content, calls, reasoning = resp.Content, c, resp.Reasoning
 		}
 
 		if len(calls) == 0 {
@@ -312,7 +334,18 @@ func runToolLoop(t *testing.T, p providers.Provider, streaming bool) string {
 		}
 
 		// Feed every call a reading, so the model has what it needs to answer.
-		req.Messages = append(req.Messages, types.Message{Role: "assistant", ToolCalls: calls})
+		//
+		// Reasoning is replayed with the tool calls, not dropped. Gemini's
+		// Interactions API treats a thought step as an opaque signature whose
+		// replay is MANDATORY: a function_call arriving without its preceding
+		// thought is rejected, and the 400 lands on the round AFTER the one that
+		// omitted it. Reconstructing a bare assistant message here made this
+		// loop a non-conforming caller and reported a provider fault that was
+		// really this helper's. The real ProviderStage carries Reasoning on the
+		// assistant message, which is why it does not hit this.
+		req.Messages = append(req.Messages, types.Message{
+			Role: "assistant", ToolCalls: calls, Reasoning: reasoning,
+		})
 		for i := range calls {
 			req.Messages = append(req.Messages, types.NewToolResultMessage(
 				types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))

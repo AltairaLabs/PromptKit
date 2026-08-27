@@ -554,6 +554,14 @@ const (
 )
 ```
 
+<a name="ReaskFailedMetaKey"></a>ReaskFailedMetaKey marks an assistant message whose final\-turn re\-ask failed, so its content is the loop's unconstrained answer rather than schema\-shaped output. The value is the provider error.
+
+Exported because detecting it is a caller's decision: returning prose is the right trade against losing a completed tool loop, but only if the caller can tell it happened.
+
+```go
+const ReaskFailedMetaKey = "structured_output_reask_failed"
+```
+
 ## Variables
 
 <a name="ErrPipelineShuttingDown"></a>Common errors

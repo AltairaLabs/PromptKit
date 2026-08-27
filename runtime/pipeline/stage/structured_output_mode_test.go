@@ -286,6 +286,15 @@ func TestFinalTurn_ReaskFailureKeepsTheLoopsWork(t *testing.T) {
 		}
 	}
 	assert.Positive(t, toolResults, "the completed tool work must still be returned")
+
+	// The degradation must be detectable. Handing back prose with nothing to
+	// distinguish it from a model that just answered that way is the same
+	// unobservable success this mode exists to remove — and a live 400 produced
+	// exactly that before this marker existed.
+	require.NotNil(t, last.Meta, "a failed re-ask left no trace on the message")
+	cause, ok := last.Meta[ReaskFailedMetaKey].(string)
+	require.True(t, ok, "expected %s on the un-replaced answer", ReaskFailedMetaKey)
+	assert.NotEmpty(t, cause, "the marker must carry the provider error, not just a flag")
 }
 
 func TestParseStructuredOutputMode(t *testing.T) {

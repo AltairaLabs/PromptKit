@@ -173,8 +173,17 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 	started := timeNow()
 	resp, err := tl.reaskPredict(ctx, req)
 	if err != nil {
+		// Degrade rather than fail: prose where JSON was asked for is a defect,
+		// but a smaller one than discarding a completed tool loop's work.
+		//
+		// Mark it on the message. A silent fallback would hand the caller prose
+		// with nothing to distinguish it from a model that simply answered that
+		// way — the same unobservable-success failure this whole mode exists to
+		// remove. Callers that require conforming output can detect it here;
+		// the log alone is not reachable from a response.
 		logger.Warn("structured output: final-turn re-ask failed; returning the unconstrained answer",
 			"error", err)
+		tl.markReaskFailed(err)
 		return
 	}
 	duration := timeNow().Sub(started)
@@ -216,4 +225,25 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 		tl.cumulativeCost += constrained.CostInfo.TotalCost
 	}
 	tl.messages[last] = constrained
+}
+
+// ReaskFailedMetaKey marks an assistant message whose final-turn re-ask failed,
+// so its content is the loop's unconstrained answer rather than schema-shaped
+// output. The value is the provider error.
+//
+// Exported because detecting it is a caller's decision: returning prose is the
+// right trade against losing a completed tool loop, but only if the caller can
+// tell it happened.
+const ReaskFailedMetaKey = "structured_output_reask_failed"
+
+// markReaskFailed stamps the un-replaced answer so the degradation is visible.
+func (tl *toolLoop) markReaskFailed(cause error) {
+	if len(tl.messages) == 0 {
+		return
+	}
+	last := len(tl.messages) - 1
+	if tl.messages[last].Meta == nil {
+		tl.messages[last].Meta = map[string]interface{}{}
+	}
+	tl.messages[last].Meta[ReaskFailedMetaKey] = cause.Error()
 }
