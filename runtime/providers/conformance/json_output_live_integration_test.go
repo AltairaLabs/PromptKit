@@ -102,8 +102,9 @@ func jsonCases() []jsonCase {
 			conformsInMode: map[string]bool{
 				modeUnary: true, modeStream: true, modeUnaryTools: false, modeStreamTools: false,
 			},
-			why: "Gemini 2.5 returns HTTP 400 for function calling plus responseMimeType " +
-				"application/json, so tool-carrying rounds go unconstrained",
+			why: "on generateContent a schema constrains every turn, so 2.5 returns HTTP 400 " +
+				"for function calling plus responseMimeType application/json. Not a Gemini " +
+				"limitation — the Interactions API handles it (#1851)",
 		},
 		{
 			name:    "gemini_3",

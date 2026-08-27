@@ -149,12 +149,16 @@ func wireProviderCases() []wireProviderCase {
 			name:     "gemini_2.5",
 			marker:   "responseSchema",
 			response: geminiReply,
-			// VENDOR CONSTRAINT, verified live on BOTH generations: 2.5 returns
-			// HTTP 400 for tools + JSON response mime type, and 3.x accepts it
-			// then never stops calling tools (5/5 rounds with the schema; the
-			// identical loop terminated on round 2 without it). So neither
-			// generation gets the schema on a tool-carrying round. Rounds
-			// without tools carry it normally.
+			// API CONSTRAINT, verified live on BOTH generations: on
+			// generateContent a schema constrains every turn, so it cannot
+			// coexist with function calling. 2.5 returns HTTP 400; 3.x accepts
+			// it then never stops calling tools (5/5 rounds with the schema,
+			// while the identical loop terminated on round 2 without it).
+			// Neither generation gets the schema on a tool-carrying round.
+			// Rounds without tools carry it normally.
+			//
+			// Not a Gemini limitation — the Interactions API constrains only
+			// the answering turn and does return conforming JSON (#1851).
 			wantOnPath: map[string]bool{
 				"predict":                   true,
 				"predict_stream":            true,

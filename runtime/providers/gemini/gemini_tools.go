@@ -454,9 +454,10 @@ func (p *ToolProvider) buildToolRequest(
 		genConfig["thinkingConfig"] = tc
 	}
 
-	// A response schema is NOT sent on rounds that carry tools. Both Gemini
-	// generations break on that combination, in different ways, both verified
-	// live:
+	// A response schema is NOT sent on rounds that carry tools, because on the
+	// generateContent API the schema constrains EVERY turn — including the
+	// turns that are supposed to produce a function call. Both generations
+	// break on that, in different ways, both verified live:
 	//
 	//	2.5  HTTP 400 "Function calling with a response mime type:
 	//	     'application/json' is unsupported" — the turn fails outright.
@@ -469,6 +470,12 @@ func (p *ToolProvider) buildToolRequest(
 	// The 3.x failure is the more dangerous of the two: it looks like it works
 	// (round one returns a normal tool call) and only shows up as a turn that
 	// burns rounds until the loop breaker fires.
+	//
+	// This is NOT a Gemini limitation. Google's Interactions API applies the
+	// schema only to the turn that produces a final answer, so a tool loop
+	// there returns conforming JSON — verified live. Supporting it means a
+	// second request path with different request, response and continuation
+	// shapes; tracked in #1851.
 	//
 	// Rounds WITHOUT tools carry the schema normally, which is the case a final
 	// answer-only round hits.
