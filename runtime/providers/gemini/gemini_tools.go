@@ -453,6 +453,27 @@ func (p *ToolProvider) buildToolRequest(
 	if tc := p.geminiThinkingConfigFor(maxTokens); tc != nil {
 		genConfig["thinkingConfig"] = tc
 	}
+
+	// Honor the caller's ResponseFormat only when this round carries no tools.
+	//
+	// Unlike Claude, Gemini genuinely rejects the combination — sending both
+	// returns HTTP 400 "Function calling with a response mime type:
+	// 'application/json' is unsupported". So applying it unconditionally would
+	// turn a silent omission into a hard failure on every tool call.
+	//
+	// A round without tools has no such conflict and gets the schema, which is
+	// the case a final answer-only round hits. When tools ARE present the
+	// constraint cannot be honored, so say so rather than dropping it in
+	// silence: a caller could otherwise not tell "schema applied" from "schema
+	// discarded" until validation failed downstream (#1848).
+	if tools == nil {
+		p.applyResponseFormatToMap(genConfig, req.ResponseFormat)
+	} else if wantsSchema(req.ResponseFormat) {
+		logger.Warn("gemini: response schema dropped for this round — the API rejects "+
+			"function calling combined with a JSON response mime type; the model is "+
+			"not constrained to the supplied schema on tool-using rounds",
+			"provider", p.ID(), "model", p.model)
+	}
 	request := map[string]any{
 		"contents":          contents,
 		keyGenerationConfig: genConfig,

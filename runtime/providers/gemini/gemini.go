@@ -446,30 +446,68 @@ func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstructio
 	}
 }
 
-// applyResponseFormat applies response format settings to a Gemini request
+// applyResponseFormat applies response format settings to a Gemini request.
 func (p *Provider) applyResponseFormat(req *geminiRequest, rf *providers.ResponseFormat) {
-	if rf == nil {
-		return
+	mime, schema := responseFormatFields(rf)
+	if mime != "" {
+		req.GenerationConfig.ResponseMimeType = mime
 	}
+	if schema != nil {
+		req.GenerationConfig.ResponseSchema = schema
+	}
+}
 
+// applyResponseFormatToMap is the map-based equivalent for the tool builder,
+// which assembles generationConfig as a map rather than a geminiRequest.
+// Both go through responseFormatFields so the struct and map paths cannot
+// drift — a drift that previously dropped the caller's schema on tool turns.
+func (p *Provider) applyResponseFormatToMap(genConfig map[string]any, rf *providers.ResponseFormat) {
+	mime, schema := responseFormatFields(rf)
+	if mime != "" {
+		genConfig["responseMimeType"] = mime
+	}
+	if schema != nil {
+		genConfig["responseSchema"] = schema
+	}
+}
+
+// wantsSchema reports whether the caller asked for a constrained response, so
+// a path that cannot honor it can say so instead of dropping it silently.
+func wantsSchema(rf *providers.ResponseFormat) bool {
+	if rf == nil {
+		return false
+	}
+	return rf.Type == providers.ResponseFormatJSON || rf.Type == providers.ResponseFormatJSONSchema
+}
+
+// responseFormatFields maps a provider ResponseFormat onto Gemini's
+// responseMimeType / responseSchema pair. Returns zero values when nothing
+// should be sent, so "text" and nil stay indistinguishable from unset.
+func responseFormatFields(rf *providers.ResponseFormat) (mimeType string, schema interface{}) {
+	if rf == nil {
+		return "", nil
+	}
 	switch rf.Type {
 	case providers.ResponseFormatJSON:
 		// Simple JSON mode - just set the MIME type
-		req.GenerationConfig.ResponseMimeType = applicationJSON
+		return applicationJSON, nil
 	case providers.ResponseFormatJSONSchema:
 		// JSON schema mode - set MIME type and schema
-		req.GenerationConfig.ResponseMimeType = applicationJSON
-		if len(rf.JSONSchema) > 0 {
-			var schema interface{}
-			if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
-				// Gemini's responseSchema is an OpenAPI 3.0 subset and rejects
-				// standard JSON Schema keywords like $schema/additionalProperties.
-				req.GenerationConfig.ResponseSchema = sanitizeGeminiSchema(schema)
-			}
+		if len(rf.JSONSchema) == 0 {
+			return applicationJSON, nil
 		}
+		var parsed interface{}
+		if err := json.Unmarshal(rf.JSONSchema, &parsed); err != nil {
+			return applicationJSON, nil
+		}
+		// Gemini's responseSchema is an OpenAPI 3.0 subset and rejects
+		// standard JSON Schema keywords like $schema/additionalProperties.
+		return applicationJSON, sanitizeGeminiSchema(parsed)
 	case providers.ResponseFormatText:
 		// Text is default, no changes needed
+		return "", nil
 	}
+	return "", nil
 }
 
 // geminiUnsupportedSchemaKeys are JSON Schema keywords that Gemini's
