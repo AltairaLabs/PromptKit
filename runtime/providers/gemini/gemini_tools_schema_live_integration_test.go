@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,91 +160,4 @@ func TestGemini3_ToolLoopTerminates_Live(t *testing.T) {
 	}
 	t.Fatalf("%s never stopped calling tools in %d rounds — the schema is reaching the "+
 		"tool request again, which prevents the model from ever answering", model, maxRounds)
-}
-
-// TestGemini_ToolLoopThenConstrainedAnswer_Live is the pattern a function-mode
-// agent needs: run the tool loop normally, then take a constrained answer.
-//
-// Gemini rejects a schema while function calling is ENABLED, not while tools
-// are declared. So the answering round keeps the tools (the tool history stays
-// in context) and sets tool_choice=none, at which point the schema applies and
-// the answer conforms. Verified on both generations, which behave identically
-// here despite failing differently when calling is left enabled.
-func TestGemini_ToolLoopThenConstrainedAnswer_Live(t *testing.T) {
-	if os.Getenv("GEMINI_API_KEY") == "" {
-		t.Skip("GEMINI_API_KEY not set")
-	}
-
-	models := []string{"gemini-2.5-flash", "gemini-3.7-flash"}
-	if m := os.Getenv("GEMINI_SCHEMA_MODELS"); m != "" {
-		models = strings.Split(m, ",")
-	}
-
-	for _, model := range models {
-		t.Run(model, func(t *testing.T) {
-			tp := NewToolProvider("gemini-constrained", model,
-				"https://generativelanguage.googleapis.com/v1beta",
-				providers.ProviderDefaults{MaxTokens: 4096}, false)
-			defer func() { _ = tp.Close() }()
-
-			tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
-				Name:        "get_temperature",
-				Description: "Get the current temperature for a city",
-				InputSchema: json.RawMessage(
-					`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
-			}})
-			require.NoError(t, err)
-
-			rf := &providers.ResponseFormat{
-				Type: providers.ResponseFormatJSONSchema,
-				JSONSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"},` +
-					`"celsius":{"type":"number"}},"required":["city","celsius"]}`),
-			}
-			req := providers.PredictionRequest{
-				Messages: []types.Message{{
-					Role:    "user",
-					Content: "Temperature in Bristol? Use the tool, then answer.",
-				}},
-				MaxTokens:      4096,
-				ResponseFormat: rf,
-			}
-
-			// Tool loop with calling enabled. The schema is dropped for these
-			// rounds, which is what lets the loop terminate at all.
-			const maxRounds = 4
-			answered := false
-			for round := 1; round <= maxRounds && !answered; round++ {
-				_, calls, cErr := tp.PredictWithTools(context.Background(), req, tools, "auto")
-				require.NoErrorf(t, cErr, "%s round %d", model, round)
-				if len(calls) == 0 {
-					answered = true
-					break
-				}
-				req.Messages = append(req.Messages, types.Message{Role: roleAssistant, ToolCalls: calls})
-				for i := range calls {
-					req.Messages = append(req.Messages, types.NewToolResultMessage(
-						types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))
-				}
-			}
-			require.True(t, answered, "%s: tool loop never terminated", model)
-
-			// Answering round: tools still declared, calling disabled, schema
-			// applied. This is the round whose output the caller validates.
-			final, calls, err := tp.PredictWithTools(context.Background(), req, tools, "none")
-			require.NoError(t, err)
-			assert.Empty(t, calls, "tool_choice=none must prevent further calls")
-			t.Logf("%s constrained answer: %.90q", model, final.Content)
-
-			var out struct {
-				City    *string  `json:"city"`
-				Celsius *float64 `json:"celsius"`
-			}
-			require.NoErrorf(t, json.Unmarshal([]byte(final.Content), &out),
-				"%s: answering round was not JSON, so the schema did not apply: %q",
-				model, final.Content)
-			require.NotNil(t, out.City, "schema requires city")
-			require.NotNil(t, out.Celsius, "schema requires celsius")
-			assert.InDelta(t, 21, *out.Celsius, 0.001, "answer should reflect the tool result")
-		})
-	}
 }

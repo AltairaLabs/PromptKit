@@ -28,12 +28,6 @@ import (
 // it prose? It runs every provider through all four modes against the live API
 // and parses the result.
 //
-// The tool modes here run with tool_choice=auto, which is the ordinary loop.
-// Gemini cannot be constrained in that mode — but it CAN be on an answering
-// round with tool_choice=none, which is a different shape rather than a
-// limitation, and is covered by
-// TestGemini_ToolLoopThenConstrainedAnswer_Live in runtime/providers/gemini.
-//
 // Run:
 //
 //	ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=... \
@@ -108,10 +102,8 @@ func jsonCases() []jsonCase {
 			conformsInMode: map[string]bool{
 				modeUnary: true, modeStream: true, modeUnaryTools: false, modeStreamTools: false,
 			},
-			why: "Gemini rejects a schema while function calling is ENABLED, so rounds run " +
-				"with tool_choice=auto go unconstrained. This is not a dead end: an " +
-				"answering round with tool_choice=none keeps the tools declared and DOES " +
-				"return conforming JSON — see TestGemini_ToolLoopThenConstrainedAnswer_Live",
+			why: "Gemini 2.5 returns HTTP 400 for function calling plus responseMimeType " +
+				"application/json, so tool-carrying rounds go unconstrained",
 		},
 		{
 			name:    "gemini_3",
@@ -129,9 +121,8 @@ func jsonCases() []jsonCase {
 			conformsInMode: map[string]bool{
 				modeUnary: true, modeStream: true, modeUnaryTools: false, modeStreamTools: false,
 			},
-			why: "Gemini 3 accepts a schema with calling enabled and then never stops " +
-				"calling tools, so it is dropped there too. As with 2.5, an answering " +
-				"round with tool_choice=none returns conforming JSON",
+			why: "Gemini 3 accepts tools + schema but then loops forever without answering; " +
+				"dropping the schema on tool rounds is what lets the turn finish",
 		},
 	}
 }
