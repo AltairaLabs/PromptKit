@@ -66,6 +66,11 @@ type Provider struct {
 	// summaries. Both come from additional_config — see gemini_thinking.go.
 	thinkingBudget  *int
 	includeThoughts bool
+	// thinkingLevel is Gemini 3's replacement for thinkingBudget. Mutually
+	// exclusive with it: Gemini 2.5 rejects thinkingLevel with HTTP 400, and
+	// Gemini 3 accepts thinkingBudget but does not reliably return thought
+	// summaries for it. See geminiThinkingConfigFor.
+	thinkingLevel *string
 	// responseModalities is the Live-API response modality declared once at the
 	// provider level via additional_config.response_modalities (e.g. ["AUDIO"]).
 	// Empty means "not set"; a per-request Metadata["response_modalities"] still
@@ -248,13 +253,26 @@ type geminiGenConfig struct {
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
-// geminiThinkingConfig controls Gemini 2.5 "thinking" models. ThinkingBudget is
-// a TOKEN ceiling on internal reasoning (0 disables on flash, -1 lets the model
-// decide); those tokens count toward maxOutputTokens. IncludeThoughts returns
-// thought summaries. See gemini_thinking.go.
+// geminiThinkingConfig controls Gemini "thinking" models. IncludeThoughts
+// returns thought summaries. See gemini_thinking.go.
+//
+// The two controls are generation-specific and mutually exclusive:
+//
+//   - ThinkingBudget (Gemini 2.5) is a TOKEN ceiling on internal reasoning
+//     (0 disables on flash, -1 lets the model decide); those tokens count
+//     toward maxOutputTokens.
+//   - ThinkingLevel (Gemini 3) is a qualitative setting: low, medium or high.
+//     Gemini 3 accepts ThinkingBudget but does not reliably return thought
+//     summaries for it — measured live on gemini-3.7-flash streaming,
+//     thinkingBudget produced thought parts in 0 of 6 runs where
+//     thinkingLevel:"high" produced them in 6 of 6. Gemini 2.5 rejects
+//     ThinkingLevel with HTTP 400.
+//
+// Both use omitempty so exactly one is ever sent.
 type geminiThinkingConfig struct {
-	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
-	IncludeThoughts bool `json:"includeThoughts,omitempty"`
+	ThinkingBudget  *int    `json:"thinkingBudget,omitempty"`
+	ThinkingLevel   *string `json:"thinkingLevel,omitempty"`
+	IncludeThoughts bool    `json:"includeThoughts,omitempty"`
 }
 
 type geminiSafety struct {
