@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Gemini expresses a response schema as a responseMimeType / responseSchema
@@ -42,6 +44,13 @@ func TestResponseFormatFields(t *testing.T) {
 			name:     "json_schema with no schema degrades to json mode",
 			rf:       &providers.ResponseFormat{Type: providers.ResponseFormatJSONSchema},
 			wantMime: "application/json",
+		},
+		{
+			// An unrecognized type must send nothing at all rather than guess.
+			// Guessing json here would silently constrain a caller who asked
+			// for something else.
+			name: "unknown type sends nothing",
+			rf:   &providers.ResponseFormat{Type: providers.ResponseFormatType("xml")},
 		},
 		{
 			// Malformed JSON must not send a broken schema; JSON mode alone is
@@ -115,4 +124,83 @@ func TestWantsSchema(t *testing.T) {
 	assert.False(t, wantsSchema(&providers.ResponseFormat{Type: providers.ResponseFormatText}))
 	assert.True(t, wantsSchema(&providers.ResponseFormat{Type: providers.ResponseFormatJSON}))
 	assert.True(t, wantsSchema(&providers.ResponseFormat{Type: providers.ResponseFormatJSONSchema}))
+}
+
+// buildToolRequest decides whether the caller's schema reaches the wire, and
+// the two branches have very different consequences. Dropping it on a
+// tool-free round would discard the constraint for no reason; sending it on a
+// tool-carrying round fails the turn on Gemini 2.5 and stops Gemini 3 ever
+// answering. Both are covered here because only the assembled request shows
+// which branch ran.
+
+func toolRequestGenConfig(t *testing.T, model string, rf *providers.ResponseFormat, withTools bool) map[string]any {
+	t.Helper()
+	tp := NewToolProvider("gemini-rf", model,
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{MaxTokens: 512}, false)
+
+	var tools providers.ProviderTools
+	if withTools {
+		built, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+			Name:        "probe",
+			Description: "probe",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+		}})
+		require.NoError(t, err)
+		tools = built
+	}
+
+	req := providers.PredictionRequest{
+		Messages:       []types.Message{{Role: "user", Content: "hello"}},
+		MaxTokens:      512,
+		ResponseFormat: rf,
+	}
+	built := tp.buildToolRequest(context.Background(), req, tools, "auto")
+
+	raw, err := json.Marshal(built)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	gen, ok := decoded[keyGenerationConfig].(map[string]any)
+	require.Truef(t, ok, "generationConfig missing from request: %s", raw)
+	return gen
+}
+
+func TestBuildToolRequest_SchemaOnlyOnToolFreeRounds(t *testing.T) {
+	rf := &providers.ResponseFormat{
+		Type:       providers.ResponseFormatJSONSchema,
+		JSONSchema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`),
+	}
+
+	// Both generations behave the same, for different underlying reasons: 2.5
+	// rejects the combination outright, 3.x accepts it and then never stops
+	// calling tools.
+	for _, model := range []string{"gemini-2.5-flash", "gemini-3.7-flash"} {
+		t.Run(model+"/with_tools_drops_schema", func(t *testing.T) {
+			gen := toolRequestGenConfig(t, model, rf, true)
+			assert.NotContains(t, gen, "responseSchema",
+				"a schema sent alongside tools fails the turn (2.5) or prevents the model "+
+					"from ever answering (3.x)")
+			assert.NotContains(t, gen, "responseMimeType")
+		})
+
+		t.Run(model+"/without_tools_keeps_schema", func(t *testing.T) {
+			gen := toolRequestGenConfig(t, model, rf, false)
+			assert.Contains(t, gen, "responseSchema",
+				"a tool-free round has no conflict and must honor the caller's schema")
+			assert.Equal(t, "application/json", gen["responseMimeType"])
+		})
+	}
+}
+
+// TestBuildToolRequest_NoSchemaConfigured keeps the drop path distinguishable
+// from the never-asked path: neither sends the fields, but only one of them
+// represents a constraint the caller will not get.
+func TestBuildToolRequest_NoSchemaConfigured(t *testing.T) {
+	for _, withTools := range []bool{true, false} {
+		gen := toolRequestGenConfig(t, "gemini-2.5-flash", nil, withTools)
+		assert.NotContains(t, gen, "responseSchema")
+		assert.NotContains(t, gen, "responseMimeType")
+	}
 }
