@@ -7,10 +7,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
@@ -344,6 +346,10 @@ func (p *streamingSpyProvider) PredictStreamWithTools(
 		// consumer should receive.
 		go func() {
 			defer close(ch)
+			if p.failReask {
+				ch <- providers.StreamChunk{Error: assert.AnError}
+				return
+			}
 			// Both Delta and Content, as real providers do: Delta drives the
 			// text elements a consumer renders, while processStreamChunks takes
 			// the message body from Content as a running snapshot. A fake that
@@ -576,4 +582,140 @@ func TestFinalTurn_LoopExhaustionFailsRatherThanDroppingTheSchema(t *testing.T) 
 		assert.Truef(t, c.withTools,
 			"call %d ran without tools; a loop that never concluded has nothing to re-ask", i+1)
 	}
+}
+
+// TestFinalTurn_ReaskEmitsItsOwnProviderCall guards the re-ask's observability.
+//
+// The re-ask is a real provider call. Emitting nothing for it makes a consumer
+// counting provider.call.* under-report by one call per structured-output turn,
+// and any cost or latency derived from those events short by the whole final
+// answer — silently, since the numbers still look plausible.
+//
+// It must also be a DISTINCT call: sharing the preceding round's ID would merge
+// the two in any consumer keyed on it, which is the same under-count wearing a
+// different hat.
+func TestFinalTurn_ReaskEmitsItsOwnProviderCall(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+	snapshot := collectEvents(bus, events.EventProviderCallCompleted, events.EventProviderCallStarted)
+
+	p := &schemaSpyProvider{toolRounds: 1, reaskCost: 0.5}
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "sys"
+	turnState.AllowedTools = []string{"probe"}
+
+	st := NewProviderStageWithTurnState(p, reg, nil, &ProviderConfig{
+		MaxTokens:      100,
+		ResponseFormat: jsonSchemaFormat(),
+	}, emitter, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "go"}
+	input <- NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan StreamElement, 64)
+	require.NoError(t, st.Process(context.Background(), input, output))
+	for range output { //nolint:revive // draining
+	}
+
+	// The bus dispatches through a worker pool, so wait on the count rather
+	// than assuming delivery order.
+	deadline := timeNow().Add(2 * time.Second)
+	var completed []*events.Event
+	for timeNow().Before(deadline) {
+		completed = nil
+		for _, e := range snapshot() {
+			if e.Type == events.EventProviderCallCompleted {
+				completed = append(completed, e)
+			}
+		}
+		if len(completed) >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// 1 tool round + the round that ends the loop + the re-ask.
+	require.Lenf(t, completed, 3,
+		"expected 3 provider.call.completed events; got %d. A missing one means the re-ask "+
+			"is invisible to anything counting provider calls", len(completed))
+
+	ids := map[string]bool{}
+	var reaskCost float64
+	for _, e := range completed {
+		d, ok := e.Data.(*events.ProviderCallCompletedData)
+		require.True(t, ok, "unexpected payload %T", e.Data)
+		ids[d.CallID] = true
+		if d.Cost > 0 {
+			reaskCost = d.Cost
+		}
+	}
+	assert.Len(t, ids, 3,
+		"the re-ask reused a round's call ID; a consumer keyed on it would merge them")
+	assert.InDelta(t, 0.5, reaskCost, 1e-9,
+		"the re-ask's cost must reach the event, or event-derived spend misses the final answer")
+}
+
+// TestFinalTurn_StreamingReaskFailureDegradesTheSameWay covers the streaming
+// path's failure mode, which has its own request and its own error returns.
+//
+// The unary re-ask degrading correctly says nothing about this one: they are
+// separate calls through separate provider methods, and a fix applied to one
+// leaves the other broken — the four-path split that produced #1848 and #1735.
+// A streaming consumer whose re-ask fails must still get the loop's work, and
+// the message must still say the schema was not applied.
+func TestFinalTurn_StreamingReaskFailureDegradesTheSameWay(t *testing.T) {
+	p := &streamingSpyProvider{schemaSpyProvider{toolRounds: 1, failReask: true}}
+
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "sys"
+	turnState.AllowedTools = []string{"probe"}
+
+	st := NewProviderStageWithTurnState(p, reg, nil, &ProviderConfig{
+		MaxTokens:      100,
+		ResponseFormat: jsonSchemaFormat(),
+	}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "go"}
+	input <- NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan StreamElement, 128)
+	require.NoError(t, st.Process(context.Background(), input, output),
+		"a failed re-ask must not fail the turn on the streaming path either")
+
+	var msgs []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			msgs = append(msgs, *elem.Message)
+		}
+	}
+	require.NotEmpty(t, msgs)
+
+	var marked bool
+	for _, m := range msgs {
+		if m.Meta == nil {
+			continue
+		}
+		if reason, ok := m.Meta[SchemaUnappliedMetaKey].(string); ok && reason != "" {
+			marked = true
+		}
+	}
+	assert.True(t, marked,
+		"a streaming re-ask failed silently: no %s marker, so the caller cannot tell its "+
+			"schema was dropped", SchemaUnappliedMetaKey)
+
+	var toolWork int
+	for _, m := range msgs {
+		if m.Role == "tool" || len(m.ToolCalls) > 0 {
+			toolWork++
+		}
+	}
+	assert.Positive(t, toolWork, "the completed tool work must survive the failed re-ask")
 }
