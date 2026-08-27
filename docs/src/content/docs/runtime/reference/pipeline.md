@@ -554,12 +554,14 @@ const (
 )
 ```
 
-<a name="ReaskFailedMetaKey"></a>ReaskFailedMetaKey marks an assistant message whose final\-turn re\-ask failed, so its content is the loop's unconstrained answer rather than schema\-shaped output. The value is the provider error.
+<a name="SchemaUnappliedMetaKey"></a>SchemaUnappliedMetaKey marks an assistant message that a configured ResponseFormat was NOT applied to, so its content is the loop's unconstrained answer rather than schema\-shaped output. The value says why.
 
-Exported because detecting it is a caller's decision: returning prose is the right trade against losing a completed tool loop, but only if the caller can tell it happened.
+Two causes reach it: the re\-ask failed at the provider, or the tool loop exhausted its rounds and never produced a final turn to constrain.
+
+Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened — an unmarked fallback is indistinguishable from a model that simply answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
 
 ```go
-const ReaskFailedMetaKey = "structured_output_reask_failed"
+const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
 ```
 
 ## Variables

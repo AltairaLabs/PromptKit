@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -292,8 +293,8 @@ func TestFinalTurn_ReaskFailureKeepsTheLoopsWork(t *testing.T) {
 	// unobservable success this mode exists to remove — and a live 400 produced
 	// exactly that before this marker existed.
 	require.NotNil(t, last.Meta, "a failed re-ask left no trace on the message")
-	cause, ok := last.Meta[ReaskFailedMetaKey].(string)
-	require.True(t, ok, "expected %s on the un-replaced answer", ReaskFailedMetaKey)
+	cause, ok := last.Meta[SchemaUnappliedMetaKey].(string)
+	require.True(t, ok, "expected %s on the un-replaced answer", SchemaUnappliedMetaKey)
 	assert.NotEmpty(t, cause, "the marker must carry the provider error, not just a flag")
 }
 
@@ -496,4 +497,52 @@ func TestFinalTurn_ToolFreeTranscriptUsesPlainPredict(t *testing.T) {
 		}
 	}
 	assert.JSONEq(t, `{"answer":"constrained"}`, last.Content)
+}
+
+// TestFinalTurn_LoopExhaustionFailsRatherThanDroppingTheSchema pins the
+// invariant that makes an "unapplied schema" marker unnecessary on this path.
+//
+// A loop that runs out of rounds never reaches the final turn, so the re-ask
+// never happens and the caller's schema is never applied. The safe behavior is
+// the one in place: afterRound returns an ERROR at round == maxRounds, so the
+// turn fails loudly instead of returning prose that looks like an answer.
+//
+// Worth pinning because the alternative is silent and would be easy to
+// introduce — moving that guard, or letting the loop fall through, would hand
+// back an unconstrained answer with nothing to say the schema was dropped,
+// which is the failure mode #1853 is about.
+func TestFinalTurn_LoopExhaustionFailsRatherThanDroppingTheSchema(t *testing.T) {
+	// Never stops calling tools.
+	p := &schemaSpyProvider{toolRounds: 99}
+
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "sys"
+	turnState.AllowedTools = []string{"probe"}
+
+	st := NewProviderStageWithTurnState(p, reg, &pipeline.ToolPolicy{MaxRounds: 3},
+		&ProviderConfig{MaxTokens: 100, ResponseFormat: jsonSchemaFormat()}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "go"}
+	input <- NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan StreamElement, 128)
+	err := st.Process(context.Background(), input, output)
+	for range output { //nolint:revive // draining
+	}
+
+	require.Error(t, err,
+		"an exhausted loop must fail the turn; returning silently would hand the caller "+
+			"an unconstrained answer with no sign its schema was dropped")
+	assert.Contains(t, err.Error(), "max rounds")
+
+	// And no re-ask should have been attempted: there was no final turn to
+	// constrain, so every call must have carried tools.
+	for i, c := range p.snapshot() {
+		assert.Truef(t, c.withTools,
+			"call %d ran without tools; a loop that never concluded has nothing to re-ask", i+1)
+	}
 }

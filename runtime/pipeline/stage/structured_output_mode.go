@@ -183,7 +183,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 		// the log alone is not reachable from a response.
 		logger.Warn("structured output: final-turn re-ask failed; returning the unconstrained answer",
 			"error", err)
-		tl.markReaskFailed(err)
+		tl.markSchemaUnapplied("final-turn re-ask failed: " + err.Error())
 		return
 	}
 	duration := timeNow().Sub(started)
@@ -227,17 +227,22 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context) {
 	tl.messages[last] = constrained
 }
 
-// ReaskFailedMetaKey marks an assistant message whose final-turn re-ask failed,
-// so its content is the loop's unconstrained answer rather than schema-shaped
-// output. The value is the provider error.
+// SchemaUnappliedMetaKey marks an assistant message that a configured
+// ResponseFormat was NOT applied to, so its content is the loop's unconstrained
+// answer rather than schema-shaped output. The value says why.
 //
-// Exported because detecting it is a caller's decision: returning prose is the
-// right trade against losing a completed tool loop, but only if the caller can
-// tell it happened.
-const ReaskFailedMetaKey = "structured_output_reask_failed"
+// Two causes reach it: the re-ask failed at the provider, or the tool loop
+// exhausted its rounds and never produced a final turn to constrain.
+//
+// Exported because detecting it is a caller's decision. Returning prose is the
+// right trade against losing a completed tool loop's work, but only if the
+// caller can tell it happened — an unmarked fallback is indistinguishable from
+// a model that simply answered in prose, which is the unobservable-success
+// failure this whole mode exists to remove.
+const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
 
-// markReaskFailed stamps the un-replaced answer so the degradation is visible.
-func (tl *toolLoop) markReaskFailed(cause error) {
+// markSchemaUnapplied stamps the un-replaced answer so the gap is visible.
+func (tl *toolLoop) markSchemaUnapplied(reason string) {
 	if len(tl.messages) == 0 {
 		return
 	}
@@ -245,5 +250,5 @@ func (tl *toolLoop) markReaskFailed(cause error) {
 	if tl.messages[last].Meta == nil {
 		tl.messages[last].Meta = map[string]interface{}{}
 	}
-	tl.messages[last].Meta[ReaskFailedMetaKey] = cause.Error()
+	tl.messages[last].Meta[SchemaUnappliedMetaKey] = reason
 }

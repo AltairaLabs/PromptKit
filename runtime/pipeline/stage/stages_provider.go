@@ -618,6 +618,8 @@ func (s *ProviderStage) executeMultiRound(
 			return loop.messages, nil
 		}
 	}
+	// Unreachable: afterRound returns done with an error at round == maxRounds,
+	// so every exit goes through it. Kept as a compile-time fallthrough.
 	return loop.messages, nil
 }
 
@@ -919,6 +921,8 @@ func (s *ProviderStage) executeStreamingMultiRound(
 			return loop.messages, nil
 		}
 	}
+	// Unreachable: afterRound returns done with an error at round == maxRounds,
+	// so every exit goes through it. Kept as a compile-time fallthrough.
 	return loop.messages, nil
 }
 
