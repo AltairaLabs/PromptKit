@@ -128,3 +128,66 @@ func TestPredictStreamWithResponses_NoReasoning_EmitsNone(t *testing.T) {
 	}
 	assert.Empty(t, reasoning.String(), "emitted reasoning for a stream that contained none")
 }
+
+// TestHandleOutputDone_IgnoresNonReasoningAndMalformed covers the guards on the
+// output-item handler. Each exists so a stream that is not carrying reasoning
+// cannot produce a spurious reasoning chunk — which downstream would become a
+// reasoning.completed event for a round that never reasoned.
+func TestHandleOutputDone_IgnoresNonReasoningAndMalformed(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "malformed json",
+			data: `{"item":`,
+		},
+		{
+			name: "not a reasoning item",
+			data: `{"item":{"type":"function_call","id":"fc_1","call_id":"c1","name":"probe"}}`,
+		},
+		{
+			name: "reasoning item with empty summary",
+			data: `{"item":{"type":"reasoning","id":"rs_1","summary":[]}}`,
+		},
+		{
+			name: "reasoning item with blank summary text",
+			data: `{"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":""}]}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Provider{}
+			// Buffered so a wrongful send does not deadlock; the assertion is
+			// that nothing was sent at all.
+			out := make(chan providers.StreamChunk, 4)
+			p.handleOutputDone(tc.data, out)
+			close(out)
+
+			var got []providers.StreamChunk
+			for c := range out {
+				got = append(got, c)
+			}
+			assert.Emptyf(t, got, "%s produced a reasoning chunk; want none", tc.name)
+		})
+	}
+}
+
+// TestHandleOutputDone_ConcatenatesMultipleSummaryEntries verifies the whole
+// summary is emitted, not just its first entry — a live o4-mini response
+// returned two entries for one reasoning item.
+func TestHandleOutputDone_ConcatenatesMultipleSummaryEntries(t *testing.T) {
+	p := &Provider{}
+	out := make(chan providers.StreamChunk, 4)
+	p.handleOutputDone(`{"item":{"type":"reasoning","id":"rs_1","summary":[`+
+		`{"type":"summary_text","text":"First part. "},`+
+		`{"type":"summary_text","text":"Second part."}]}}`, out)
+	close(out)
+
+	var sb strings.Builder
+	for c := range out {
+		sb.WriteString(c.Reasoning)
+	}
+	assert.Equal(t, "First part. Second part.", sb.String())
+}
