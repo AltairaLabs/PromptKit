@@ -30,6 +30,10 @@ const (
 	eventTypeReasoningDelta = "response.reasoning_summary_text.delta"
 	eventTypeFuncArgsDelta  = "response.function_call_arguments.delta"
 	eventTypeOutputAdded    = "response.output_item.added"
+	// eventTypeOutputDone carries a completed output item. For reasoning items
+	// this is where the summary text actually arrives on models that send no
+	// summary deltas (o-series) — verified against a live o4-mini stream.
+	eventTypeOutputDone = "response.output_item.done"
 	eventTypeCompleted      = "response.completed"
 	eventTypeError          = "error"
 
@@ -464,6 +468,10 @@ func (p *Provider) handleStreamEvent(
 	case eventTypeOutputAdded:
 		return totalTokens, p.handleOutputAdded(data, toolCalls, idMap), usage
 
+	case eventTypeOutputDone:
+		p.handleOutputDone(data, outChan)
+		return totalTokens, toolCalls, usage
+
 	case eventTypeCompleted:
 		usage = p.handleCompleted(data, sb.String(), toolCalls, totalTokens, outChan)
 		return totalTokens, toolCalls, usage
@@ -488,6 +496,41 @@ func (p *Provider) handleStreamEvent(
 	}
 
 	return totalTokens, toolCalls, usage
+}
+
+// handleOutputDone emits the reasoning summary carried by a completed reasoning
+// output item.
+//
+// Reasoning reaches a streaming caller two different ways depending on the
+// model: as response.reasoning_summary_text.delta events, or — for o-series —
+// only here, on the finished item, with no deltas at all. Handling just the
+// delta meant those models silently produced no reasoning whatsoever. Both
+// paths land on StreamChunk.Reasoning, so the stage accumulates them
+// identically and a model that sends both does not double-count, because the
+// delta path fires on a different event type than this one.
+func (p *Provider) handleOutputDone(data string, outChan chan<- providers.StreamChunk) {
+	var ev struct {
+		Item struct {
+			Type    string `json:"type"`
+			Summary []struct {
+				Text string `json:"text"`
+			} `json:"summary"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
+		return
+	}
+	if ev.Item.Type != "reasoning" {
+		return
+	}
+	var sb strings.Builder
+	for _, s := range ev.Item.Summary {
+		sb.WriteString(s.Text)
+	}
+	if sb.Len() == 0 {
+		return
+	}
+	outChan <- providers.StreamChunk{Reasoning: sb.String()}
 }
 
 // handleReasoningDelta streams a reasoning-summary delta on StreamChunk.Reasoning

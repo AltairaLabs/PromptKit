@@ -362,3 +362,249 @@ func TestLive_NonRecordingConsumer_GetsCorrelatedReasoning(t *testing.T) {
 		assert.NotEmpty(t, d.ProviderCallID, "reasoning.delta carries no provider call ID")
 	}
 }
+
+// liveReasoningProvider names one real reasoning-capable provider and how to
+// turn its thinking on. Each vendor exposes reasoning differently on the wire —
+// Claude streams thinking blocks, Gemini marks parts with thought:true, OpenAI
+// returns a reasoning summary via the Responses API — so a provider-agnostic
+// claim is only as good as the providers actually exercised.
+type liveReasoningProvider struct {
+	name    string
+	envKeys []string
+	spec    providers.ProviderSpec
+
+	// reasonsOnToolRounds records whether the vendor RELIABLY supplies reasoning
+	// text on rounds that call tools. Claude and Gemini do, on every observed
+	// run.
+	//
+	// OpenAI o-series does not: observed live returning a reasoning item with an
+	// EMPTY summary on one run and a full summary (plus 83 summary deltas) on
+	// the next, for the same request. Requiring presence there would be a flaky
+	// test, and asserting absence would fail the moment it does supply one — so
+	// for these providers presence is optional and only the SHAPE is asserted:
+	// whatever reasoning arrives must still be well-formed and correlated.
+	reasonsOnToolRounds bool
+}
+
+func liveReasoningProviders() []liveReasoningProvider {
+	claudeModel := os.Getenv("CLAUDE_THINKING_MODEL")
+	if claudeModel == "" {
+		claudeModel = "claude-sonnet-4-6"
+	}
+	geminiModel := os.Getenv("GEMINI_THINKING_MODEL")
+	if geminiModel == "" {
+		geminiModel = "gemini-2.5-flash"
+	}
+	openaiModel := os.Getenv("OPENAI_REASONING_MODEL")
+	if openaiModel == "" {
+		openaiModel = "o4-mini"
+	}
+
+	return []liveReasoningProvider{
+		{
+			name:                "claude",
+			envKeys:             []string{"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
+			reasonsOnToolRounds: true,
+			spec: providers.ProviderSpec{
+				ID: "claude-live", Type: "claude", Model: claudeModel,
+				BaseURL:          "https://api.anthropic.com/v1",
+				Defaults:         providers.ProviderDefaults{MaxTokens: 4096},
+				AdditionalConfig: map[string]interface{}{"thinking_budget": 2048},
+			},
+		},
+		{
+			name:                "gemini",
+			envKeys:             []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+			reasonsOnToolRounds: true,
+			spec: providers.ProviderSpec{
+				ID: "gemini-live", Type: "gemini", Model: geminiModel,
+				BaseURL:  "https://generativelanguage.googleapis.com/v1beta",
+				Defaults: providers.ProviderDefaults{MaxTokens: 4096},
+				// include_thoughts is what makes the thought parts visible;
+				// without it the model still thinks but returns no summary.
+				AdditionalConfig: map[string]interface{}{
+					"thinking_budget":  2048,
+					"include_thoughts": true,
+				},
+			},
+		},
+		{
+			name:    "openai",
+			envKeys: []string{"OPENAI_API_KEY"},
+			// See reasonsOnToolRounds: empty summaries on tool-calling rounds.
+			reasonsOnToolRounds: false,
+			spec: providers.ProviderSpec{
+				ID: "openai-live", Type: "openai", Model: openaiModel,
+				BaseURL:  "https://api.openai.com/v1",
+				Defaults: providers.ProviderDefaults{MaxTokens: 4096},
+				// Reasoning text is only available through the Responses API,
+				// and only when a summary is requested.
+				AdditionalConfig: map[string]interface{}{
+					"api_mode":          "responses",
+					"reasoning_effort":  "medium",
+					"reasoning_summary": "auto",
+				},
+			},
+		},
+	}
+}
+
+// TestLive_AllReasoningProviders_CorrelatedReasoning runs the same
+// non-recording consumer assertions against every real reasoning provider a
+// key is available for.
+//
+// The conformance table in runtime/providers proves each vendor's PARSE against
+// a canned wire response. It cannot prove the canned shape matches what the
+// vendor actually sends — only a live call does that. This is that check, and
+// it runs end to end: real API, real tool loop, events observed at a consumer.
+func TestLive_AllReasoningProviders_CorrelatedReasoning(t *testing.T) {
+	ran := 0
+	for _, lp := range liveReasoningProviders() {
+		t.Run(lp.name, func(t *testing.T) {
+			var key string
+			for _, k := range lp.envKeys {
+				if v := os.Getenv(k); v != "" {
+					key = v
+					break
+				}
+			}
+			if key == "" {
+				t.Skipf("none of %v set", lp.envKeys)
+			}
+			ran++
+			res := runLiveReasoningConsumer(t, lp)
+
+			// The invariant every provider must satisfy, reasoning or not: a
+			// consumer receives the round's provider events, attributed. This
+			// is asserted here rather than in the gathering helper so the
+			// subtest itself can fail.
+			require.NotEmptyf(t, res.providerStarted,
+				"%s: no provider.call.started reached the consumer", lp.name)
+			for _, d := range res.providerStarted {
+				assert.NotZerof(t, d.Round, "%s: provider.call.started stamped round 0", lp.name)
+				assert.NotEmptyf(t, d.CallID, "%s: provider.call.started carries no call ID", lp.name)
+			}
+		})
+	}
+	if ran == 0 {
+		t.Skip("no provider keys available")
+	}
+}
+
+// liveConsumerResult is what one live provider run delivered to the consumer.
+type liveConsumerResult struct {
+	providerStarted []*events.ProviderCallStartedData
+	reasoningTraces int
+}
+
+// runLiveReasoningConsumer opens a non-recording consumer against one live
+// provider, asserts the reasoning-specific expectations, and returns what
+// arrived so the caller can assert the provider-agnostic invariants.
+func runLiveReasoningConsumer(t *testing.T, lp liveReasoningProvider) liveConsumerResult {
+	t.Helper()
+
+	provider, err := providers.CreateProviderFromSpec(lp.spec)
+	require.NoErrorf(t, err, "%s: CreateProviderFromSpec", lp.name)
+
+	dir := t.TempDir()
+	packPath := dir + "/live.pack.json"
+	require.NoError(t, os.WriteFile(packPath, []byte(livePackJSON), 0o644))
+
+	store := &consumerStore{}
+	bus := events.NewEventBus()
+
+	conv, err := sdk.Open(packPath, "chat",
+		sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithEventBus(bus),
+		sdk.WithEventStore(store),
+	)
+	require.NoError(t, err)
+	defer func() { _ = conv.Close() }()
+
+	conv.OnTool("get_temperature", func(map[string]any) (any, error) {
+		return map[string]any{"celsius": 21}, nil
+	})
+	conv.OnTool("get_humidity", func(map[string]any) (any, error) {
+		return map[string]any{"percent": 64}, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	_, err = conv.Send(ctx, "What's the weather in Bristol? Check temperature and humidity first.")
+	require.NoErrorf(t, err, "%s: Send", lp.name)
+	time.Sleep(1 * time.Second)
+
+	completed := store.byType(events.EventReasoningCompleted)
+	deltas := store.byType(events.EventReasoningDelta)
+	toolStarted := store.byType(events.EventToolCallStarted)
+	provStarted := store.byType(events.EventProviderCallStarted)
+
+	t.Logf("%s: %d reasoning.completed, %d reasoning.delta, %d tool.call.started, %d provider.call.started",
+		lp.name, len(completed), len(deltas), len(toolStarted), len(provStarted))
+
+	res := liveConsumerResult{}
+	for _, e := range provStarted {
+		if d, ok := e.Data.(*events.ProviderCallStartedData); ok {
+			res.providerStarted = append(res.providerStarted, d)
+		}
+	}
+
+	switch {
+	case lp.reasonsOnToolRounds:
+		require.NotEmptyf(t, completed,
+			"%s: NO reasoning.completed from a live reasoning model that reliably supplies "+
+				"it. Either the vendor changed, or the wire field this repo parses does not "+
+				"match what it actually sends. (%d reasoning.delta seen)", lp.name, len(deltas))
+	case len(completed) == 0:
+		// Allowed for this vendor — see reasonsOnToolRounds. Nothing to
+		// correlate, so stop here rather than assert on an empty set.
+		t.Logf("  %s: no reasoning on this tool-calling run (vendor supplies it "+
+			"only sometimes; %d deltas seen)", lp.name, len(deltas))
+		return res
+	default:
+		t.Logf("  %s: vendor supplied reasoning on this run; asserting shape and correlation",
+			lp.name)
+	}
+
+	reasoningByCall := map[string]string{}
+	for _, e := range completed {
+		d, ok := e.Data.(*events.ReasoningCompletedData)
+		require.Truef(t, ok, "%s: unexpected payload %T", lp.name, e.Data)
+		require.NotNilf(t, d.Trace, "%s: emitted a nil trace", lp.name)
+		assert.NotEmptyf(t, d.Trace.Text, "%s: emitted an empty trace", lp.name)
+		assert.NotZerof(t, d.Round, "%s: reasoning.completed stamped round 0", lp.name)
+		require.NotEmptyf(t, d.ProviderCallID, "%s: reasoning.completed carries no call ID", lp.name)
+		reasoningByCall[d.ProviderCallID] = d.Trace.Text
+		res.reasoningTraces++
+		t.Logf("  %s round %d: %d chars — %.90s…", lp.name, d.Round, len(d.Trace.Text), d.Trace.Text)
+	}
+
+	// Where the model used tools, the reasoning behind them must be joinable.
+	joined := 0
+	for _, e := range toolStarted {
+		d := e.Data.(*events.ToolCallEventData)
+		assert.NotZerof(t, d.Round, "%s: tool %q stamped round 0", lp.name, d.ToolName)
+		if r, found := reasoningByCall[d.ProviderCallID]; found {
+			joined++
+			assert.NotEmptyf(t, r,
+				"%s: tool %q joined to an empty reasoning trace", lp.name, d.ToolName)
+		}
+	}
+	// A provider that reliably reasons on tool rounds must produce at least one
+	// joinable pair, or correlation is broken. For a best-effort provider the
+	// reasoning may land on a round that called no tools (observed: OpenAI
+	// reasoning on round 2 only), so requiring a join there would fail on
+	// vendor behaviour rather than on a defect. What still must hold in both
+	// cases — asserted in the loop above — is that any tool call sharing a
+	// provider call with reasoning maps to a non-empty trace.
+	if len(toolStarted) > 0 && lp.reasonsOnToolRounds {
+		assert.Positivef(t, joined,
+			"%s: %d tool calls, none joinable to the reasoning that produced them",
+			lp.name, len(toolStarted))
+	}
+	t.Logf("  %s: %d/%d tool calls joined to their reasoning", lp.name, joined, len(toolStarted))
+
+	return res
+}
