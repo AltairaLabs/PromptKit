@@ -411,12 +411,63 @@ type claudeRequest struct {
 	ToolChoice   any                  `json:"tool_choice,omitempty"`
 }
 
-// claudeThinking enables Claude extended thinking. BudgetTokens caps reasoning
-// tokens (>= 1024) and must be below max_tokens (the answer needs headroom). With
-// thinking enabled the API rejects a custom temperature, so callers omit it.
+// claudeThinking enables Claude extended thinking.
+//
+// The wire shape depends on the model generation, and sending the wrong one is
+// a hard 400 rather than a degraded response. Verified live:
+//
+//	                     enabled+budget_tokens   adaptive
+//	4.5 and older        accepted                400 "adaptive thinking is not
+//	                                                  supported on this model"
+//	4.6                  accepted                accepted
+//	5-series (4.7+)      400 "thinking.type.     accepted
+//	                     enabled is not
+//	                     supported"
+//
+// BudgetTokens applies only to the legacy shape: it caps reasoning tokens
+// (>= 1024) and must sit below max_tokens so the answer has headroom. Adaptive
+// lets the model decide, and depth is controlled by output_config.effort
+// instead. With thinking enabled the API rejects a custom temperature, so
+// callers omit it.
 type claudeThinking struct {
-	Type         string `json:"type"` // "enabled"
-	BudgetTokens int    `json:"budget_tokens"`
+	Type string `json:"type"` // "adaptive" or "enabled"
+	// BudgetTokens is omitted for adaptive thinking, which rejects it.
+	BudgetTokens int `json:"budget_tokens,omitempty"`
+}
+
+// thinkingTypeAdaptive and thinkingTypeEnabled are the two wire shapes.
+const (
+	thinkingTypeAdaptive = "adaptive"
+	thinkingTypeEnabled  = "enabled"
+)
+
+// legacyThinkingFamilies are model prefixes that only understand the older
+// enabled+budget_tokens shape and reject adaptive.
+//
+// This is a DENYLIST of older generations rather than an allowlist of adaptive
+// ones, and the direction is deliberate: adaptive is what every current and
+// future model wants, so an unrecognized model gets it automatically. An
+// allowlist would 400 every new release until someone added it.
+var legacyThinkingFamilies = []string{
+	"claude-3", modelOpus41, "claude-sonnet-4-5", "claude-haiku-4-5", modelOpus45,
+}
+
+// modelOpus41 is referenced by both the thinking-shape denylist and the pricing
+// table, so it lives in one place.
+const (
+	modelOpus41 = "claude-opus-4-1"
+	modelOpus45 = "claude-opus-4-5"
+)
+
+// requiresLegacyThinking reports whether a model needs the enabled+budget_tokens
+// shape instead of adaptive.
+func requiresLegacyThinking(model string) bool {
+	for _, family := range legacyThinkingFamilies {
+		if strings.HasPrefix(model, family) {
+			return true
+		}
+	}
+	return false
 }
 
 // thinkingAnswerHeadroom is added above budget_tokens when the configured
@@ -429,7 +480,14 @@ func (p *Provider) claudeThinkingFor() *claudeThinking {
 	if p.thinkingBudget == nil {
 		return nil
 	}
-	return &claudeThinking{Type: "enabled", BudgetTokens: *p.thinkingBudget}
+	if requiresLegacyThinking(p.model) {
+		return &claudeThinking{Type: thinkingTypeEnabled, BudgetTokens: *p.thinkingBudget}
+	}
+	// Adaptive takes no budget. Say so rather than silently discarding a number
+	// the caller chose deliberately — depth is controlled by effort here.
+	logger.Debug("claude: using adaptive thinking; thinking_budget does not apply to this model",
+		"provider", p.ID(), "model", p.model, "thinking_budget", *p.thinkingBudget)
+	return &claudeThinking{Type: thinkingTypeAdaptive}
 }
 
 // buildBaseRequest assembles the fields every Claude request shares: model,
