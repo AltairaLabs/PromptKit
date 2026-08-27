@@ -39,6 +39,35 @@ func (e *Emitter) WithUserID(userID string) *Emitter {
 }
 
 // emit publishes an event with shared context fields (no trace context).
+// Two routes carry pipeline facts to consumers, with deliberately different
+// guarantees. Knowing which one an event takes is not optional: it decides
+// whether a given consumer sees it at all.
+//
+//	Emitter (this type)  -> EventBus -> subscribers, and any EventStore
+//	                        subscribed via initEventBus.
+//	                        ASYNC, worker-pooled, and LOSSY: Publish returns
+//	                        false when an event is dropped under burst (see
+//	                        issue #853). Binary payloads are stripped. This is
+//	                        the observability route.
+//
+//	RecordingStage       -> EventStore.Append DIRECTLY, no bus hop.
+//	                        SYNCHRONOUS, back-pressures the pipeline, retains
+//	                        full binary. Opt-in: it exists only when
+//	                        WithRecording and an EventStore are both
+//	                        configured. This is the fidelity route.
+//
+// Consequences that have bitten more than once:
+//
+//   - message.created is emitted ONLY by RecordingStage, so it never reaches a
+//     bus subscriber, and does not exist at all without WithRecording. A
+//     consumer needing per-turn reasoning without recording wants
+//     reasoning.completed, which is emitted here.
+//   - Searching for a producer by emitter method name misses RecordingStage
+//     entirely: it builds the Event literal itself rather than calling these
+//     methods.
+//   - An event emitted here can be dropped. Correlate with Round /
+//     ProviderCallID rather than event ordering, so loss is detectable instead
+//     of silently misattributed.
 func (e *Emitter) emit(eventType EventType, data EventData) {
 	if e == nil || e.bus == nil {
 		return
@@ -502,10 +531,18 @@ func (e *Emitter) EmitCustom(
 	})
 }
 
-// MessageCreated emits the message.created event.
+// MessageCreated emits the message.created event on the BUS.
+//
+// Deprecated: nothing in this repo calls it, and calling it is probably a
+// mistake. message.created is produced by RecordingStage, which does NOT go
+// through this emitter or the bus at all — see the routing note on Emitter.
+// Adding a second producer here would give bus subscribers a message.created
+// that recording-store consumers never see, and would double-record for any
+// consumer attached to both. Kept only so existing external callers still
+// compile.
+//
 // Binary data (base64 Data, FilePath) is stripped from content parts to avoid
-// large payloads in observability events. RecordingStage bypasses the emitter
-// and publishes directly to the EventBus with full binary data.
+// large payloads in observability events.
 func (e *Emitter) MessageCreated(
 	role, content string,
 	index int,
