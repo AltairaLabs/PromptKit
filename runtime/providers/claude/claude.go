@@ -443,10 +443,11 @@ func (p *Provider) claudeThinkingFor() *claudeThinking {
 // the previously divergent behavior where the map-based stream/tool builders
 // sent temperature:0 while Predict omitted it.
 //
-// output_config is intentionally NOT set here: the no-tools callers
-// (Predict/PredictStream) apply outputConfigFor themselves, and the tool paths
-// deliberately omit structured outputs. Wiring structured outputs into the tool
-// paths is a separate change, not a no-op refactor.
+// output_config is intentionally NOT set here: every caller applies
+// outputConfigFor itself, so the field stays explicit at each call site rather
+// than appearing implicitly for paths that have not considered it. All three
+// paths (Predict, PredictStream, buildToolRequest) now do so — the tool paths
+// used to omit it, which silently discarded the caller's schema (#1848).
 //
 //nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
 func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages any) claudeRequest {
