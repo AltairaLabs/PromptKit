@@ -165,3 +165,100 @@ func TestGemini_InteractionsRouting_Live(t *testing.T) {
 		})
 	}
 }
+
+// TestGemini_InteractionsStreaming_ToolLoopReturnsJSON_Live is the end-to-end
+// proof for the STREAMING path, which is the one that matters: the pipeline
+// streams by default, so a fix that only covered Predict would leave real
+// traffic unconstrained.
+//
+// Drives a real streaming tool loop and asserts the final streamed answer
+// conforms to the caller's schema.
+func TestGemini_InteractionsStreaming_ToolLoopReturnsJSON_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	model := os.Getenv("GEMINI_3_MODEL")
+	if model == "" {
+		model = "gemini-3.7-flash"
+	}
+
+	tp := NewToolProvider("gemini-int-stream", model,
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{MaxTokens: 4096}, false)
+	defer func() { _ = tp.Close() }()
+
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name:        "get_temperature",
+		Description: "Get the current temperature for a city in Celsius",
+		InputSchema: json.RawMessage(
+			`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+	}})
+	require.NoError(t, err)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role:    "user",
+			Content: "What's the temperature in Bristol? Use the tool, then answer.",
+		}},
+		MaxTokens: 4096,
+		ResponseFormat: &providers.ResponseFormat{
+			Type: providers.ResponseFormatJSONSchema,
+			JSONSchema: json.RawMessage(`{"type":"object","properties":{` +
+				`"city":{"type":"string"},"celsius":{"type":"number"}},` +
+				`"required":["city","celsius"],"additionalProperties":false}`),
+		},
+	}
+
+	const maxRounds = 4
+	for round := 1; round <= maxRounds; round++ {
+		ch, sErr := tp.PredictStreamWithTools(context.Background(), req, tools, "auto")
+		require.NoErrorf(t, sErr, "round %d", round)
+
+		var content string
+		var calls []types.MessageToolCall
+		var opaque []types.OpaqueReasoning
+		for chunk := range ch {
+			require.NoError(t, chunk.Error)
+			if chunk.Content != "" {
+				content = chunk.Content
+			}
+			if len(chunk.ToolCalls) > 0 {
+				calls = chunk.ToolCalls
+			}
+			opaque = append(opaque, chunk.OpaqueReasoning...)
+		}
+
+		if len(calls) == 0 {
+			t.Logf("%s: streamed answer on round %d: %.90q", model, round, content)
+
+			var out struct {
+				City    *string  `json:"city"`
+				Celsius *float64 `json:"celsius"`
+			}
+			require.NoErrorf(t, json.Unmarshal([]byte(content), &out),
+				"streamed answer is not JSON, so the schema did not apply: %q", content)
+			require.NotNil(t, out.City, "schema requires city")
+			require.NotNil(t, out.Celsius, "schema requires celsius")
+			assert.InDelta(t, 21, *out.Celsius, 0.001, "answer should reflect the tool result")
+			return
+		}
+
+		t.Logf("%s round %d: %d streamed tool call(s), %d thought signature(s)",
+			model, round, len(calls), len(opaque))
+		require.NotEmptyf(t, opaque,
+			"round %d streamed no thought signature; the next round's history would be rejected", round)
+
+		// Carry the signatures forward exactly as the runtime's tool loop does
+		// when it accumulates a round's reasoning onto the response message.
+		req.Messages = append(req.Messages, types.Message{
+			Role:      roleAssistant,
+			ToolCalls: calls,
+			Reasoning: &types.ReasoningTrace{Opaque: opaque},
+		})
+		for i := range calls {
+			req.Messages = append(req.Messages, types.NewToolResultMessage(
+				types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))
+		}
+	}
+	t.Fatalf("%s: streaming loop never produced a final answer in %d rounds", model, maxRounds)
+}

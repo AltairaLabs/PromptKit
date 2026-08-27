@@ -717,6 +717,12 @@ func (p *ToolProvider) PredictStreamWithTools(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// Same routing as the non-streaming path: a response schema alongside
+	// tools only works on the Interactions API (#1851).
+	if p.resolveAPIMode(req.ResponseFormat, tools != nil) == APIModeInteractions {
+		return p.predictStreamWithInteractions(ctx, req, tools)
+	}
+
 	// Build Gemini request with tools
 	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
