@@ -146,27 +146,44 @@ func wireProviderCases() []wireProviderCase {
 			},
 		},
 		{
-			name:     "gemini",
+			name:     "gemini_2.5",
 			marker:   "responseSchema",
 			response: geminiReply,
-			// VENDOR CONSTRAINT, verified live: sending tools together with a
-			// JSON response mime type returns HTTP 400 "Function calling with a
-			// response mime type: 'application/json' is unsupported". So the
-			// tool paths must NOT send it — doing so would break every Gemini
-			// tool call. Rounds without tools carry it normally.
+			// MODEL CONSTRAINT, verified live: Gemini 2.5 returns HTTP 400
+			// "Function calling with a response mime type: 'application/json'
+			// is unsupported". Sending it on the tool paths would break every
+			// tool call, so the provider drops it there and warns. Rounds
+			// without tools carry it normally.
 			wantOnPath: map[string]bool{
 				"predict":                   true,
 				"predict_stream":            true,
 				"predict_with_tools":        false,
 				"predict_stream_with_tools": false,
 			},
-			gap: "Gemini rejects function calling combined with responseMimeType " +
+			gap: "Gemini 2.5 rejects function calling combined with responseMimeType " +
 				"application/json (HTTP 400). The provider logs a warning when it drops " +
-				"the schema on a tool-using round rather than discarding it silently.",
+				"the schema on a tool-using round rather than discarding it silently. " +
+				"Gemini 3 has no such limit — see the gemini_3 case.",
 			build: func(t *testing.T, url string) providers.Provider {
 				t.Helper()
 				t.Setenv("GEMINI_API_KEY", "test-key")
 				return gemini.NewToolProvider("gemini-wire", "gemini-2.5-flash", url,
+					providers.ProviderDefaults{MaxTokens: 256}, false)
+			},
+		},
+		{
+			// Gemini 3 accepts a schema alongside tools and honors it, verified
+			// live. Dropping it here would silently discard a capability the
+			// model has, so all four paths must carry it. This pair is what
+			// keeps rejectsSchemaWithTools honest in BOTH directions.
+			name:       "gemini_3",
+			marker:     "responseSchema",
+			response:   geminiReply,
+			wantOnPath: allPaths(true),
+			build: func(t *testing.T, url string) providers.Provider {
+				t.Helper()
+				t.Setenv("GEMINI_API_KEY", "test-key")
+				return gemini.NewToolProvider("gemini3-wire", "gemini-3.7-flash", url,
 					providers.ProviderDefaults{MaxTokens: 256}, false)
 			},
 		},

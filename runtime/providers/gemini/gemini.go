@@ -471,6 +471,32 @@ func (p *Provider) applyResponseFormatToMap(genConfig map[string]any, rf *provid
 	}
 }
 
+// rejectsSchemaWithTools reports whether a model refuses a JSON response schema
+// in the same request as function declarations.
+//
+// Gemini 2.5 returns HTTP 400 "Function calling with a response mime type:
+// 'application/json' is unsupported"; Gemini 3 accepts the combination and
+// honors the schema. Both verified live.
+//
+// This is a DENYLIST of the known-incapable generation, not an allowlist of
+// capable ones, and that direction is deliberate. The repo avoids model-name
+// rules because enumerating capabilities is a maintenance trap — every new
+// model needs a new entry, and forgetting one silently disables a feature.
+// Denylisting inverts that: an unrecognized model is assumed capable, so a new
+// release gains the behavior automatically and only a genuine regression needs
+// an entry. The all-paths wire matrix in runtime/providers/conformance plus a
+// live test cover both branches.
+func rejectsSchemaWithTools(model string) bool {
+	// Match the family prefix rather than exact IDs so dated and -latest
+	// variants (gemini-2.5-flash-002, gemini-2.0-pro-exp) are covered too.
+	for _, family := range []string{"gemini-1.", "gemini-2."} {
+		if strings.HasPrefix(model, family) {
+			return true
+		}
+	}
+	return false
+}
+
 // wantsSchema reports whether the caller asked for a constrained response, so
 // a path that cannot honor it can say so instead of dropping it silently.
 func wantsSchema(rf *providers.ResponseFormat) bool {
