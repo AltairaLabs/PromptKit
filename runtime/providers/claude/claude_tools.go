@@ -432,8 +432,21 @@ func (p *ToolProvider) buildToolRequest(
 
 	// Common fields (model, max_tokens, gated temperature, cache-aware system)
 	// come from the shared base builder — same source of truth as
-	// Predict/PredictStream. The tool paths deliberately omit output_config.
+	// Predict/PredictStream.
 	request := p.buildBaseRequest(req, messages)
+
+	// Honor the caller's ResponseFormat here too. The tool paths used to drop
+	// it, guarded on a presumed conflict between structured outputs and tool
+	// use. There is none: verified live against claude-sonnet-4-6 that sending
+	// tools and output_config together returns 200, the model calls tools
+	// normally on tool-using rounds, and the final round returns
+	// schema-conforming JSON (issue #1848).
+	//
+	// Dropping it silently was the real problem — a caller could not tell
+	// "constraint applied" from "constraint discarded", and the difference
+	// depended on whether a given round happened to carry tools.
+	request.OutputConfig = outputConfigFor(req.ResponseFormat)
+
 	if tools != nil {
 		addClaudeToolConfig(&request, tools, toolChoice)
 	}
