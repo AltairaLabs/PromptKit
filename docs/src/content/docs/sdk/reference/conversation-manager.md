@@ -346,6 +346,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithStateStore\(store statestore.Store\) Option](<#WithStateStore>)
   - [func WithStreamingConfig\(streamingConfig \*providers.StreamingInputConfig\) Option](<#WithStreamingConfig>)
   - [func WithStreamingVideo\(cfg \*VideoStreamConfig\) Option](<#WithStreamingVideo>)
+  - [func WithStructuredOutputMode\(mode string\) Option](<#WithStructuredOutputMode>)
   - [func WithTTS\(service tts.Service\) Option](<#WithTTS>)
   - [func WithTTSProvider\(spec ProviderSpec\) Option](<#WithTTSProvider>)
   - [func WithTokenBudget\(tokens int\) Option](<#WithTokenBudget>)
@@ -4132,6 +4133,25 @@ for frame := range webcam.Frames() {
         Timestamp: time.Now(),
     })
 }
+```
+
+<a name="WithStructuredOutputMode"></a>
+### func WithStructuredOutputMode
+
+```go
+func WithStructuredOutputMode(mode string) Option
+```
+
+WithStructuredOutputMode selects when a configured response format is applied to a tool loop.
+
+The default, "final\_turn", withholds the schema from tool\-calling rounds and re\-asks the final answer under it. A schema applied to every round competes with tool calling and suppresses it — silently, intermittently, and more the more work the task requires. See issue \#1853.
+
+"every\_round" restores the pre\-\#1853 behavior. It is an escape hatch for pinning old behavior without waiting on a release, not a supported alternative: it is the configuration that loses tool calls.
+
+An unrecognized value is ignored with a warning and the default applies.
+
+```
+sdk.WithStructuredOutputMode("every_round")
 ```
 
 <a name="WithTTS"></a>
