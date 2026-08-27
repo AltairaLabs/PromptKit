@@ -141,6 +141,14 @@ func (p *ToolProvider) PredictWithTools(
 	p.currentTools = tools
 	p.currentRequest = &req
 
+	// A response schema alongside tools only works on the Interactions API:
+	// generateContent applies the schema to every turn, so it either rejects
+	// the request (2.5) or leaves the model unable to finish (3.x). Route there
+	// rather than silently dropping the caller's schema (#1851).
+	if p.resolveAPIMode(req.ResponseFormat, tools != nil) == APIModeInteractions {
+		return p.predictWithInteractions(ctx, req, tools)
+	}
+
 	// Build Gemini request with tools
 	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
@@ -639,8 +647,14 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.generateContentURL("generateContent")
+	return p.postJSON(ctx, p.generateContentURL("generateContent"), requestBytes)
+}
 
+// postJSON performs the authenticated POST shared by every Gemini request path.
+// Extracted so the Interactions API reuses the same auth, custom headers,
+// platform-aware error mapping and logging rather than growing a second,
+// slightly-different copy.
+func (p *ToolProvider) postJSON(ctx context.Context, url string, requestBytes []byte) ([]byte, error) {
 	// Debug log the request
 	var requestObj any
 	if err := json.Unmarshal(requestBytes, &requestObj); err != nil {
@@ -703,6 +717,12 @@ func (p *ToolProvider) PredictStreamWithTools(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// Same routing as the non-streaming path: a response schema alongside
+	// tools only works on the Interactions API (#1851).
+	if p.resolveAPIMode(req.ResponseFormat, tools != nil) == APIModeInteractions {
+		return p.predictStreamWithInteractions(ctx, req, tools)
+	}
+
 	// Build Gemini request with tools
 	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
 
@@ -780,6 +800,7 @@ func init() {
 				tp.setCapabilities(spec.Capabilities)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
+				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				return tp, nil
 			},
@@ -790,6 +811,7 @@ func init() {
 				tp.setCapabilities(spec.Capabilities)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
+				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				return tp, nil
 			},
