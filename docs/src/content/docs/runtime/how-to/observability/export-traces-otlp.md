@@ -177,8 +177,8 @@ The listener converts runtime events into typed OTel spans following the [GenAI 
 | Session start/end | `promptkit invoke_agent` (Server) | `invoke_agent` | `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.agent.id` |
 | `provider.call.*` | `{system} chat` (Client) | `chat` | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `promptkit.provider.cost` |
 | `pipeline.*` | `promptkit.pipeline` (Internal) | — | `promptkit.pipeline.cost`, token counts |
-| `message.created` | Span event on provider span | — | `gen_ai.message.content`, `gen_ai.tool_calls` |
-| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments`, `gen_ai.tool.type` |
+| `message.created` | Span event on provider span | — | `gen_ai.message.content`†, `gen_ai.tool_calls`† |
+| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments`†, `gen_ai.tool.type` |
 | `middleware.*` | `promptkit.middleware.{name}` (Internal) | — | `promptkit.middleware.name`, `promptkit.middleware.index` |
 | `validation.*` | `promptkit.eval.{name}` (Internal) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `promptkit.guardrail` |
 | `eval.*` | `promptkit.eval.{evalID}` (Internal, instant) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation` |
@@ -191,10 +191,72 @@ Spans follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetr
 
 - **Session spans** use `invoke_agent` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec
 - **Provider spans** use `chat` from the [GenAI Client Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) spec with `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, and `gen_ai.response.finish_reason`
-- **Tool spans** use `execute_tool` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec with `gen_ai.tool.name`, `gen_ai.tool.call.id`, and `gen_ai.tool.call.arguments`
+- **Tool spans** use `execute_tool` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec with `gen_ai.tool.name`, `gen_ai.tool.call.id`, and `gen_ai.tool.call.arguments`†
 - **Eval and guardrail spans** use [GenAI Evaluation Attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) (`gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation`). Guardrails are distinguished by `promptkit.guardrail = true`
 - **Message events** are named `gen_ai.<role>.message` following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
 - **PromptKit-specific attributes** are namespaced under `promptkit.*` (e.g., `promptkit.provider.cost`, `promptkit.workflow.from_state`)
+
+## Content attributes are opt-in
+
+Attributes marked † above carry **conversation content** and are **not exported
+by default**:
+
+| Attribute | Carries |
+|-----------|---------|
+| `gen_ai.tool.call.arguments` | whatever the model passed to your tool |
+| `gen_ai.tool_calls` | full tool-call payloads |
+| `gen_ai.tool_result` | tool return values |
+| `gen_ai.message.content` | raw message content |
+
+Everything else — span structure, timing, token usage, model, provider and tool
+**names** — is exported regardless. That is the operational signal without the
+payload.
+
+The reason is that tool arguments are composed by the model and carry whatever
+your tools accept: order ids, email addresses, free text. With on-behalf-of
+token exchange they carry live delegated OAuth credentials. Exporting a trace
+sends all of it to your APM, across whatever trust boundary that sits behind.
+The [OpenTelemetry GenAI conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+treat content capture as opt-in for the same reason.
+
+### Enabling capture
+
+```go
+conv, err := sdk.Open(pack, prompt,
+    sdk.WithTracerProvider(tp),
+    sdk.WithTelemetryContentCapture(true),
+)
+```
+
+### Scrubbing what you capture
+
+`WithEventRedactor` runs at the event bus, so one policy covers the tracer, a
+configured event store and the metrics collector — not just spans:
+
+```go
+sdk.WithEventRedactor(func(field, value string) string {
+    if field == events.FieldToolCallArgs {
+        return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+    }
+    return value
+}),
+```
+
+Each subscriber receives its own redacted copy; the underlying event is
+untouched, so wrapping the tracer does not strip a store that should keep the
+original.
+
+:::caution
+The capture gate is a **tracing** control. It keeps payloads off spans and does
+nothing for other consumers — an `EventStore` you wire still receives raw
+events. Use `WithEventRedactor` for those. `WithRecording` is deliberately
+unaffected by both: `RecordingStage` writes straight to its store without a bus
+hop, so recordings keep full fidelity.
+:::
+
+The runnable
+[telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction)
+shows all three configurations side by side.
 
 ## Event Ordering
 

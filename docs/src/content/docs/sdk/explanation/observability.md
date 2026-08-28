@@ -161,7 +161,23 @@ type BlobStore interface {
 
 **Binary stripping in events**: The `Emitter.MessageCreated()` method automatically strips binary data (base64 `Data` and `FilePath`) from content parts, keeping only metadata (MIMEType, SizeKB, dimensions, URL references). This prevents large binary payloads from flowing through observability events when recording is not enabled.
 
-**RecordingStage** is a pipeline stage that publishes content-carrying events (like `message.created`) directly to the EventBus, bypassing the emitter's binary stripping. This ensures that full binary data is captured for session replay. RecordingStages observe without modifying data, making them safe to insert at any position.
+**RecordingStage** is a pipeline stage that writes content-carrying events (like `message.created`) **directly to the EventStore, bypassing the EventBus entirely**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
+
+:::note[Two routes, different guarantees]
+Events reach consumers two ways, and which route a type takes is not visible
+from its name:
+
+| Route | Delivery | Reaches |
+|-------|----------|---------|
+| `Emitter` → `EventBus` | async, worker-pooled, **lossy** | bus subscribers |
+| `RecordingStage` → `EventStore.Append` | synchronous, **lossless**, opt-in | the store only |
+
+`message.created` is produced **only** by `RecordingStage`, so a bus subscriber
+never receives it without `WithRecording()`. Putting a fact on that event makes
+it invisible to everyone else — this shipped once, in v1.5.12, where an
+accumulated reasoning trace reached recording consumers and nobody else.
+Bus-delivered reasoning arrives as `reasoning.completed` instead.
+:::
 
 To enable RecordingStages via the SDK, use `WithRecording()`:
 
@@ -197,6 +213,37 @@ EventBus ──► EventBusEvalListener ──► SessionAccumulator ──► E
 4. Results flow to configured `ResultWriters` (MetricCollector, metadata attachment)
 
 This pattern enables evals without explicit SDK middleware — events from RecordingStage or any other publisher are automatically evaluated. See [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for details.
+
+### Content and redaction
+
+Events carry customer data — tool arguments the model composed, tool results,
+message text. Two controls, doing different jobs:
+
+| Option | Scope | Default |
+|--------|-------|---------|
+| `WithTelemetryContentCapture(bool)` | OTel spans only | **off** |
+| `WithEventRedactor(policy)` | every bus subscriber | none |
+
+```go
+sdk.WithEventRedactor(func(field, value string) string {
+    if field == events.FieldToolCallArgs {
+        return scrub(value)
+    }
+    return value
+}),
+```
+
+`Redacting` wraps each subscriber and hands it its own **copy**, so redacting
+for the tracer does not strip a store that should keep the original. Redaction
+is applied per consumer rather than at emit time deliberately: consumers have
+different entitlements — recording is meant to hold content, a trace exported to
+a third-party APM is not.
+
+`WithRecording()` is unaffected by both, since `RecordingStage` never touches the
+bus.
+
+See the runnable
+[telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction).
 
 ## Event Flow
 
