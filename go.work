@@ -11,6 +11,7 @@ use (
 	./sdk/examples/audiohelper
 	./sdk/examples/duplex-streaming
 	./sdk/examples/eval-hooks
+	./sdk/examples/telemetry-redaction
 	./sdk/examples/multitrack-ingestion
 	./sdk/examples/onnx-audio-emotion
 	./sdk/examples/openai-realtime
