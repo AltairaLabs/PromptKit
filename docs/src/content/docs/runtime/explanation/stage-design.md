@@ -105,6 +105,23 @@ Each stage does one thing:
 **StateStoreLoadStage**: Only loads conversation history
 **PromptAssemblyStage**: Only assembles prompts
 **ProviderStage**: Only calls the LLM and runs the tool loop
+
+:::note[Structured output and the tool loop]
+When a turn combines tools with a `ResponseFormat`, the schema is **withheld
+from the tool-calling rounds** and the final answer is re-asked under it. A
+schema applied to every round competes with tool calling and suppresses it —
+measured bimodally: the model either runs the whole loop or skips it entirely
+and answers the schema with no work behind it.
+
+This costs **one extra provider call** per such turn, since the closing answer
+is generated twice — once unconstrained and discarded, once under the schema.
+Prompt caching covers the input side. Turns without tools are unaffected and
+keep their single constrained call.
+
+`WithStructuredOutputMode("every_round")` restores the old behavior. It is an
+escape hatch, not a supported alternative — it is the configuration that loses
+tool calls.
+:::
 **IncrementalSaveStage**: Only persists new messages
 
 Validation is not a stage. It runs as `ProviderHook` / `ToolHook` chains invoked from inside `ProviderStage` (`BeforeCall`, `AfterCall`, `ChunkInterceptor` for streaming). Three authoring sources — pack-declared validators, eval-handler-as-guardrail, and user-registered `WithProviderHook` / `WithToolHook` calls — all converge on a single `hooks.Registry`.
