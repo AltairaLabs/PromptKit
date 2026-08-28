@@ -313,6 +313,12 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 			constrained.Meta[workflowStateMetaKey] = meta
 		}
 	}
+	// Accrue the spend, but note it is NOT re-checked against MaxCostUSD: that
+	// check runs in afterRound before this call, so a turn can exceed its cap by
+	// one re-ask. Deliberate — the loop has already finished its work, and
+	// failing the turn here would discard it to enforce a bound that the extra
+	// call was always going to cross. The cost is still reported, so the
+	// overshoot is visible rather than hidden.
 	if constrained.CostInfo != nil {
 		tl.cumulativeCost += constrained.CostInfo.TotalCost
 	}

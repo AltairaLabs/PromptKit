@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1440,5 +1441,47 @@ func TestOTelEventListener_EvictStale(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected stale span to be exported after eviction")
+	}
+}
+
+// TestOTelEventListener_EvalErroredIsAnErrorSpan covers the eval that BROKE, as
+// distinct from the one that failed a threshold.
+//
+// A handler that panicked, timed out, or was not found returns Error with no
+// Value and no Score — so it has no verdict at all. Deciding the span status
+// from Passed alone therefore recorded a broken eval as a healthy span, and did
+// so before Passed became nullable too: the old `Score == nil` fallback marked
+// it passed outright.
+//
+// The distinction matters for the thing spans are for. A threshold failure is a
+// finding; an errored eval is a fault, and it must not be invisible in a trace.
+func TestOTelEventListener_EvalErroredIsAnErrorSpan(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalFailed, Timestamp: now,
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.EvalFailedData{
+			EvalID:   "exec-check",
+			EvalType: "custom_check",
+			Trigger:  "every_turn",
+			// No Passed, no Score: the handler never produced either.
+			Error:      "panic in eval \"exec-check\": runtime error",
+			DurationMs: 3,
+		},
+	})
+	listener.EndSession("sess-1")
+
+	spans := flushAndGetSpans(t, tp, exp)
+	evalSpan := findSpan(t, spans, "promptkit.eval.exec-check")
+
+	if evalSpan.Status.Code != codes.Error {
+		t.Errorf("an errored eval recorded as %v; a handler that broke must not "+
+			"appear healthy in a trace", evalSpan.Status.Code)
+	}
+	if !strings.Contains(evalSpan.Status.Description, "panic in eval") {
+		t.Errorf("status must carry the error, got %q", evalSpan.Status.Description)
 	}
 }
