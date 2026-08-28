@@ -355,16 +355,21 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 	if def != nil {
 		data.Trigger = string(def.Trigger)
 	}
-	// Determine passed status: skip skipped evals, use handler's Value (bool)
-	// if available (accounts for min_score/max_score thresholds), otherwise
-	// default to score >= 1.0.
+	data.Kind = evalKindFor(result.Type)
+	// An assertion IS an eval whose value is a bool — that bool is the verdict.
+	// Anything else is a plain eval, which returns a VALUE and does not pass or
+	// fail, so no verdict is emitted for it.
+	//
+	// This used to fall back to `score >= 1.0` for those, fabricating a pass
+	// or fail nobody ever made: an llm_judge scoring 0.9 was emitted as FAILED
+	// while 1.0 passed. That is the threshold showing through, not a judgement,
+	// and it made every eval indistinguishable from an assertion downstream.
 	if !result.Skipped {
 		if passed, ok := result.Value.(bool); ok {
-			data.Passed = passed
-		} else if result.Score == nil || *result.Score >= 1.0 {
-			data.Passed = true
+			data.Passed = &passed
 		}
 	}
+
 	if len(result.Violations) > 0 {
 		data.Violations = make([]events.EvalViolationData, len(result.Violations))
 		for i, v := range result.Violations {
@@ -379,5 +384,23 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		r.emitter.EvalFailed(data)
 	} else {
 		r.emitter.EvalCompleted(data)
+	}
+}
+
+// evalKindFor maps a result's handler type to the role it was produced in.
+//
+// executeHandler stamps result.Type from the eval def, so a wrapped eval
+// reports the wrapper's type here ("assertion", "guardrail") while a bare one
+// reports its handler ("contains", "llm_judge"). Everything that is not a
+// wrapper is a plain eval — a measurement — which is the safe default: a new
+// handler is a measurement until something wraps it.
+func evalKindFor(resultType string) events.EvalKind {
+	switch resultType {
+	case WrapperTypeAssertion:
+		return events.EvalKindAssertion
+	case WrapperTypeGuardrail:
+		return events.EvalKindGuardrail
+	default:
+		return events.EvalKindEval
 	}
 }

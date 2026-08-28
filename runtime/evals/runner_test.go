@@ -646,8 +646,20 @@ func TestEvalRunner_EmitResult(t *testing.T) {
 		if data.EvalID != "e1" {
 			t.Errorf("expected eval ID e1, got %q", data.EvalID)
 		}
-		if !data.Passed {
-			t.Error("expected passed=true for score 1.0")
+		// A bare eval carries NO verdict, whatever it scored.
+		//
+		// This assertion used to read "expected passed=true for score 1.0",
+		// pinning a fallback that derived pass/fail from `score >= 1.0`. That
+		// derivation is what reported an llm_judge scoring 0.9 as a FAILURE,
+		// and its own asymmetry gives it away: 1.0 passed while 0.99 failed,
+		// which is an artifact of the threshold rather than a judgement anyone
+		// made. Only a threshold wrapper (assertion, guardrail) or a handler
+		// that judged for itself produces a verdict; this result did neither.
+		if data.Passed != nil {
+			t.Errorf("bare scored eval must carry no verdict, got passed=%v", *data.Passed)
+		}
+		if data.Score == nil || *data.Score != 1.0 {
+			t.Error("the score itself must still be reported")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out")
@@ -678,7 +690,10 @@ func TestEvalRunner_EmitResult_UsesValueForPassed(t *testing.T) {
 	select {
 	case e := <-received:
 		data := e.Data.(*events.EvalCompletedData)
-		if !data.Passed {
+		if data.Passed == nil {
+			t.Fatal("a threshold wrapper set Value=true, so a verdict must be carried")
+		}
+		if !*data.Passed {
 			t.Error("expected passed=true from Value, not score")
 		}
 	case <-time.After(2 * time.Second):
@@ -775,5 +790,122 @@ func TestEvalRunner_EmitResult_TriggerOmittedWhenNilDef(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out")
+	}
+}
+
+// TestEvalRunner_EmitResult_GradedEvalIsNotAVerdict is the #1858 reproduction:
+// an llm_judge scoring 0.9 must not be emitted as a FAILURE.
+//
+// llm_judge returns a Score and leaves Value non-bool, exactly as modelled
+// here. The old fallback derived pass/fail from `score >= 1.0`, so 0.9 emitted
+// passed=false — and 0.99 did too. Only a perfect score passed.
+//
+// An eval returns a value; it does not pass or fail. Only an assertion — an
+// eval whose value IS a bool — carries a verdict. So the correct emission for a
+// graded eval carries the score and no verdict at all.
+func TestEvalRunner_EmitResult_GradedEvalIsNotAVerdict(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) { received <- e })
+
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	score := 0.9
+	r.emitResult(nil, &EvalResult{
+		EvalID: "response-quality",
+		Type:   "llm_judge",
+		Score:  &score,
+		// The judge's own note, as llm_judge actually returns it: a detail,
+		// not a verdict.
+		Details: map[string]any{"passed": true, "reasoning": "clear and correct"},
+	})
+
+	select {
+	case e := <-received:
+		data := e.Data.(*events.EvalCompletedData)
+		if data.Passed != nil {
+			t.Errorf("a judge scoring 0.9 was emitted with a verdict (passed=%v); "+
+				"evals score, they do not pass or fail", *data.Passed)
+		}
+		if data.Score == nil || *data.Score != 0.9 {
+			t.Error("the score must still be carried")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
+	}
+}
+
+// TestEvalRunner_EmitResult_KindStatesTheRole pins the point of the enum: a
+// consumer is TOLD what a result is, rather than inferring it.
+//
+// Before this, the role was only recoverable by string-matching EvalType — a
+// field that carries the handler name and only reads "assertion" by coincidence
+// of a wrapper being used — or by treating a nil Passed as "must have been an
+// eval", which conflates "no verdict" with "not the kind of thing that has one".
+//
+// Kind and Passed must also agree: an eval never carries a verdict.
+func TestEvalRunner_EmitResult_KindStatesTheRole(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) { received <- e })
+
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	score := 0.9
+	for _, tc := range []struct {
+		name       string
+		result     *EvalResult
+		wantKind   events.EvalKind
+		wantVerdit bool
+	}{
+		{
+			name:     "bare eval scores and does not judge",
+			result:   &EvalResult{EvalID: "judge", Type: "llm_judge", Score: &score},
+			wantKind: events.EvalKindEval,
+		},
+		{
+			name: "assertion carries the verdict its bool value expresses",
+			result: &EvalResult{
+				EvalID: "a1", Type: WrapperTypeAssertion, Score: &score, Value: true,
+			},
+			wantKind: events.EvalKindAssertion, wantVerdit: true,
+		},
+		{
+			name:     "guardrail is named even when it gates elsewhere",
+			result:   &EvalResult{EvalID: "g1", Type: WrapperTypeGuardrail, Score: &score},
+			wantKind: events.EvalKindGuardrail,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r.emitResult(nil, tc.result)
+			select {
+			case e := <-received:
+				data := e.Data.(*events.EvalCompletedData)
+				if data.Kind != tc.wantKind {
+					t.Errorf("kind = %q, want %q — the role must be stated, not inferred",
+						data.Kind, tc.wantKind)
+				}
+				if tc.wantVerdit {
+					if data.Passed == nil || !*data.Passed {
+						t.Error("an assertion's bool value must arrive as the verdict")
+					}
+					return
+				}
+				if data.Passed != nil {
+					t.Errorf("kind %q carried a verdict (passed=%v); only an assertion does",
+						data.Kind, *data.Passed)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+		})
 	}
 }

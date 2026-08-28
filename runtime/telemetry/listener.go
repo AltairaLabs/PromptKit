@@ -659,7 +659,12 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 		trace.WithAttributes(attrs...),
 	)
 
-	if data.Passed {
+	// No verdict means nothing to mark failed. A bare eval is scored, not
+	// judged, and recording it as an ERROR span made every judge below a
+	// perfect 1.0 look like a fault.
+	if data.Passed == nil {
+		span.SetStatus(codes.Ok, "")
+	} else if *data.Passed {
 		span.SetStatus(codes.Ok, "")
 	} else {
 		errMsg := data.Error

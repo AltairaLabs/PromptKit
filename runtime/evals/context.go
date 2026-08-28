@@ -22,10 +22,13 @@ func BuildEvalContext(
 	promptID string,
 	metadata map[string]any,
 ) *EvalContext {
+	// GetContent, not .Content: a multimodal assistant message carries its text
+	// in Parts with Content empty, so reading the field directly yields "" and
+	// every content-matching eval silently sees nothing to match.
 	var currentOutput string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == roleAssistant {
-			currentOutput = messages[i].Content
+			currentOutput = messages[i].GetContent()
 			break
 		}
 	}

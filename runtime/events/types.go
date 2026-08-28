@@ -767,12 +767,49 @@ type EvalViolationData struct {
 // EvalResult — see https://github.com/AltairaLabs/PromptKit/issues/1028
 // for the rationale. Consumers that only want a textual summary can
 // derive it from Violations[].Description.
+// EvalKind names the ROLE a result was produced in, so a consumer is told
+// rather than left to infer it.
+//
+// Everything is an eval underneath. An assertion is an eval whose value is a
+// bool — that bool is the verdict — and a guardrail is the same shape used to
+// gate. EvalType cannot express this: it carries the HANDLER name, which for a
+// bare eval is "contains" or "llm_judge" and only happens to read "assertion"
+// when a wrapper was used. Reading a role out of that string, or out of whether
+// Passed is nil, is inference; this states it.
+type EvalKind string
+
+const (
+	// EvalKindEval is a measurement. It returns a value and does not pass or
+	// fail, so its Passed is always nil.
+	EvalKindEval EvalKind = "eval"
+
+	// EvalKindAssertion is an eval wrapped in score thresholds to reach a
+	// verdict, which arrives in Passed.
+	EvalKindAssertion EvalKind = "assertion"
+
+	// EvalKindGuardrail is the same shape used to gate rather than to report.
+	// Enforcement happens through the guardrail hook adapter, not this event,
+	// so Passed may be nil here even though a decision was made elsewhere.
+	EvalKindGuardrail EvalKind = "guardrail"
+)
+
 type EvalEventData struct {
 	baseEventData
-	EvalID      string              `json:"eval_id"`
-	EvalType    string              `json:"eval_type"` // handler type: "llm_judge", "content_check", etc.
-	Trigger     string              `json:"trigger"`   // "every_turn", "on_session_complete", etc.
-	Passed      bool                `json:"passed"`
+	EvalID   string `json:"eval_id"`
+	EvalType string `json:"eval_type"` // handler type: "llm_judge", "content_check", etc.
+	// Kind is the role: eval, assertion or guardrail. See EvalKind.
+	Kind    EvalKind `json:"kind,omitempty"`
+	Trigger string   `json:"trigger"` // "every_turn", "on_session_complete", etc.
+	// Passed is the VERDICT, and is nil when none was reached.
+	//
+	// Evals return values; they do not pass or fail. Only an assertion — an
+	// eval whose value is a bool — carries one. A plain bool could not express
+	// the difference, so a graded eval arrived indistinguishable from a failed
+	// assertion: an llm_judge scoring 0.9 was reported as FAILED because the
+	// runtime derived a verdict from `score >= 1.0`.
+	//
+	// Read alongside Kind: EvalKindEval always has this nil.
+	Passed      *bool               `json:"passed,omitempty"`
 	Score       *float64            `json:"score,omitempty"`
 	Explanation string              `json:"explanation,omitempty"`
 	DurationMs  int64               `json:"duration_ms"`

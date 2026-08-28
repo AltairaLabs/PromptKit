@@ -81,7 +81,13 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 		if data.EvalID != "e1" {
 			t.Errorf("expected eval ID e1, got %q", data.EvalID)
 		}
-		if !data.Passed {
+		// The stub handler returns Value:true, i.e. a real verdict, so one must
+		// be carried through. (Contrast a handler returning only a Score, which
+		// now emits no verdict at all rather than deriving one from >= 1.0.)
+		if data.Passed == nil {
+			t.Fatal("handler returned Value=true, so a verdict must reach the event")
+		}
+		if !*data.Passed {
 			t.Error("expected passed=true")
 		}
 	case <-time.After(2 * time.Second):
