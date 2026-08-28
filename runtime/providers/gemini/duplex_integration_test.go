@@ -27,7 +27,7 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-preview-12-2025",
+		duplexTestModel(),
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -155,7 +155,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-preview-12-2025",
+		duplexTestModel(),
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -270,7 +270,7 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-preview-12-2025",
+		duplexTestModel(),
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -360,7 +360,7 @@ func TestDuplexIntegration_AudioModality(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-preview-12-2025",
+		duplexTestModel(),
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -422,4 +422,17 @@ done:
 		t.Error("Expected response but got empty")
 	}
 	t.Logf("Response: %s", response)
+}
+
+// duplexTestModel is the model these live duplex tests run against.
+//
+// Overridable so a replacement can be verified before an example is migrated
+// onto it: the Live API needs bidiGenerateContent, which only some models
+// advertise, and a model that merely exists is not evidence a duplex session
+// will open against it.
+func duplexTestModel() string {
+	if m := os.Getenv("GEMINI_DUPLEX_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-2.5-flash-native-audio-preview-12-2025"
 }

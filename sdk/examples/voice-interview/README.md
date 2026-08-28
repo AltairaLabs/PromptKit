@@ -225,7 +225,7 @@ const (
 2. Check API quota and rate limits
 3. Ensure you have access to the required models:
    - ASM mode: `gemini-2.0-flash-exp`
-   - VAD mode: `gemini-2.5-flash`
+   - VAD mode: `gemini-3.7-flash`
 
 ### UI Display Issues
 

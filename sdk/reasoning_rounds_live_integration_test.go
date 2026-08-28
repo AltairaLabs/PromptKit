@@ -5,6 +5,7 @@ package sdk_test
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -393,6 +394,23 @@ func liveReasoningProviders() []liveReasoningProvider {
 	}
 	geminiModel := os.Getenv("GEMINI_THINKING_MODEL")
 	if geminiModel == "" {
+		// DELIBERATELY 2.5, and not swept along with the deprecation
+		// migration (#1844).
+		//
+		// This test exists to prove reasoning survives the pipeline on a
+		// TOOL-CALLING turn. Gemini 3 does not produce thought summaries on
+		// streaming tool rounds at all — a vendor limitation recorded by
+		// TestGemini3_StreamingToolRound_NoReasoning_Live, and unaffected by
+		// the thinkingLevel fix in #1846, which addressed the non-tool
+		// streaming path. Measured here: 3.7-flash gives 0 reasoning.completed
+		// and 0 deltas over a two-round tool loop, with thinking_level "high"
+		// and include_thoughts set.
+		//
+		// So moving this default to 3.x would leave the test green while it
+		// asserted nothing about reasoning — the precise failure #1844 warned
+		// the migration must avoid. 2.5 is the only Gemini generation that
+		// exercises this path, so it stays until a 3.x model supplies thoughts
+		// on tool rounds.
 		geminiModel = "gemini-2.5-flash"
 	}
 	openaiModel := os.Getenv("OPENAI_REASONING_MODEL")
@@ -422,10 +440,14 @@ func liveReasoningProviders() []liveReasoningProvider {
 				Defaults: providers.ProviderDefaults{MaxTokens: 4096},
 				// include_thoughts is what makes the thought parts visible;
 				// without it the model still thinks but returns no summary.
-				AdditionalConfig: map[string]interface{}{
-					"thinking_budget":  2048,
-					"include_thoughts": true,
-				},
+				//
+				// The thinking knob is GENERATION-SPECIFIC and must move with
+				// the model: Gemini 3 wants thinking_level and largely ignores
+				// a budget for summaries, while 2.5 rejects a level with HTTP
+				// 400 (see gemini_thinking.go). Sending the 2.5 knob to 3.7
+				// yields zero thought parts — the test still runs, still calls
+				// its tools, and asserts nothing about reasoning.
+				AdditionalConfig: geminiThinkingConfig(geminiModel),
 			},
 		},
 		{
@@ -607,4 +629,21 @@ func runLiveReasoningConsumer(t *testing.T, lp liveReasoningProvider) liveConsum
 	t.Logf("  %s: %d/%d tool calls joined to their reasoning", lp.name, joined, len(toolStarted))
 
 	return res
+}
+
+// geminiThinkingConfig picks the thinking knob matching a model's generation.
+//
+// Gemini 3 replaced thinking_budget with thinking_level. Each generation
+// rejects or ignores the other's, so this cannot be one static map — and the
+// failure is silent in the direction that matters: a 2.5 budget sent to a 3.x
+// model returns no thought summaries rather than an error, so a test
+// configured that way passes while proving nothing.
+func geminiThinkingConfig(model string) map[string]interface{} {
+	cfg := map[string]interface{}{"include_thoughts": true}
+	if strings.HasPrefix(model, "gemini-2.") || strings.HasPrefix(model, "gemini-1.") {
+		cfg["thinking_budget"] = 2048
+		return cfg
+	}
+	cfg["thinking_level"] = "high"
+	return cfg
 }
