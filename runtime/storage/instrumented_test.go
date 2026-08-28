@@ -58,10 +58,26 @@ type fakeStorage struct {
 	urlResp      string
 	urlErr       error
 	calls        []string
+
+	// storeDelay makes StoreMedia take a known, non-trivial amount of time.
+	//
+	// The duration assertion needs a lower bound it can actually justify. A
+	// fake that returns immediately is measured as 0 on a fast machine — that
+	// is the clock's resolution, not a defect — so asserting "> 0" against it
+	// tests the hardware. Sleeping a known interval and asserting AT LEAST that
+	// tests the thing worth testing: the wrapper timed the inner call rather
+	// than reporting a zero value it never set.
+	storeDelay time.Duration
 }
 
 func (f *fakeStorage) StoreMedia(_ context.Context, _ *types.MediaContent, _ *storage.MediaMetadata) (storage.Reference, error) {
 	f.calls = append(f.calls, "store")
+	// Take measurable time when a test asks for it. Without this the wrapped
+	// call returns inside the monotonic clock's granularity and the measured
+	// duration is legitimately 0 — see storeDelay.
+	if f.storeDelay > 0 {
+		time.Sleep(f.storeDelay)
+	}
 	return storage.Reference(f.storeRef), f.storeErr
 }
 
@@ -86,7 +102,8 @@ func TestNewInstrumentedStorage_NilInner(t *testing.T) {
 }
 
 func TestInstrumentedStorage_StoreEmitsEvent(t *testing.T) {
-	inner := &fakeStorage{storeRef: "out/media/run-1/abc.png"}
+	const storeDelay = 2 * time.Millisecond
+	inner := &fakeStorage{storeRef: "out/media/run-1/abc.png", storeDelay: storeDelay}
 	bus := &recordingBus{}
 	s := storage.NewInstrumentedStorage(inner, bus, "local")
 
@@ -119,7 +136,15 @@ func TestInstrumentedStorage_StoreEmitsEvent(t *testing.T) {
 	assert.Equal(t, int64(1024), data.SizeBytes)
 	assert.Equal(t, "run-1", data.RunID)
 	assert.Equal(t, 2, data.MessageIdx)
-	assert.Greater(t, data.Duration, time.Duration(0))
+	// At least the inner call's own duration.
+	//
+	// This used to assert `> 0`, which fails whenever a no-op fake returns
+	// within the clock's granularity — 20 runs in 20 on an M-series Mac,
+	// blocking the pre-commit hook on a defect that was not there (#1859).
+	// A lower bound the wrapper cannot satisfy by accident is what makes the
+	// assertion mean "it measured", rather than "the clock happened to tick".
+	assert.GreaterOrEqual(t, data.Duration, storeDelay,
+		"the wrapper must report the inner call's elapsed time, not an unset zero")
 }
 
 func TestInstrumentedStorage_StoreErrorEmitsErrorEvent(t *testing.T) {
