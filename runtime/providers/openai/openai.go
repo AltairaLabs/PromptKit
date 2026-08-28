@@ -46,6 +46,33 @@ func isOSeriesModel(model string) bool {
 	return model[0] == 'o' && model[1] >= '0' && model[1] <= '9'
 }
 
+// firstGenGPT5Models are the GPT-5 models that accept only temperature 1.
+//
+// An explicit list rather than a prefix: gpt-5.1 and gpt-5.2 take any
+// temperature, so "gpt-5" as a prefix would wrongly withhold it from them. That
+// makes this an ALLOWLIST of known-restricted models, the opposite of the
+// denylist used for Claude's thinking shape — because here the restriction is
+// the older behavior and new models are expected to relax it. A future model
+// that reintroduces the limit needs an entry; one that does not costs nothing.
+var firstGenGPT5Models = []string{modelGPT5, modelGPT5 + "-mini", modelGPT5 + "-nano"}
+
+// modelGPT5 is the base first-generation GPT-5 model name, shared with the
+// pricing table.
+const modelGPT5 = "gpt-5"
+
+// isFirstGenGPT5 reports whether a model is in that generation.
+//
+// Matches the bare name or a dated snapshot of it (gpt-5-2025-08-07), but never
+// gpt-5.1 / gpt-5.2, whose names continue past the "gpt-5" stem with a dot.
+func isFirstGenGPT5(model string) bool {
+	for _, m := range firstGenGPT5Models {
+		if model == m || strings.HasPrefix(model, m+"-20") {
+			return true
+		}
+	}
+	return false
+}
+
 // hasUnsupportedParam checks if a parameter name is in the unsupported list.
 func hasUnsupportedParam(unsupported []string, param string) bool {
 	for _, p := range unsupported {
@@ -72,11 +99,27 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 
 // addSamplingParamsToRequest adds temperature and top_p to the request,
 // skipping any that are listed in unsupportedParams.
+//
+// top_p is additionally skipped when it resolves to ZERO. OpenAI requires
+// top_p > 0, so zero is invalid on every model — older ones merely tolerate it,
+// while gpt-5.1 and 5.2 answer "top_p must be greater than 0 and less than or
+// equal to 1" and gpt-5 answers "top_p is not supported with this model".
+//
+// Zero is also never a deliberate choice here: ProviderConfig has no TopP field
+// at all, so a resolved zero always means nobody set one. Sending it turns
+// "unspecified" into an invalid request rather than letting the API apply its
+// own default.
+//
+// Temperature gets no such treatment: zero is a legitimate deterministic
+// setting and float32 cannot distinguish it from unset, so skipping it would
+// silently promote deliberate-zero callers to the API default — a quieter bug
+// than the one being fixed. Models that reject a temperature are handled by
+// unsupportedParams instead.
 func addSamplingParamsToRequest(req map[string]interface{}, unsupportedParams []string, temperature, topP float32) {
 	if !hasUnsupportedParam(unsupportedParams, "temperature") {
 		req["temperature"] = temperature
 	}
-	if !hasUnsupportedParam(unsupportedParams, "top_p") {
+	if topP != 0 && !hasUnsupportedParam(unsupportedParams, "top_p") {
 		req["top_p"] = topP
 	}
 }
@@ -200,6 +243,14 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	// which defaults to max_completion_tokens, so it's not listed here.)
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
 		unsupported = []string{"temperature", "top_p"}
+	}
+	// Same best-effort default for the first GPT-5 generation, which accepts
+	// only temperature 1. Measured live: gpt-5, gpt-5-mini and gpt-5-nano
+	// reject both 0 and 0.6, while gpt-5.1 and gpt-5.2 accept any value — so
+	// this is deliberately NOT a "gpt-5" prefix match, which would withhold
+	// temperature from models that handle it fine.
+	if len(unsupported) == 0 && isFirstGenGPT5(cfg.Model) {
+		unsupported = []string{"temperature"}
 	}
 	// Bedrock-hosted OpenAI (gpt-oss family) rejects `top_p: 0.0` (must be in
 	// (0, 1]). Skip it by default so the model picks its own; operators can
