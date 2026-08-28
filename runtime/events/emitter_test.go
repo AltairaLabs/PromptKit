@@ -1425,7 +1425,8 @@ func TestEmitter_EvalMethods(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	bus.Subscribe(EventEvalCompleted, func(e *Event) { wg.Done() })
-	emitter.EvalCompleted(&EvalCompletedData{EvalID: "e1", Passed: true})
+	passed := true
+	emitter.EvalCompleted(&EvalCompletedData{EvalID: "e1", Passed: &passed})
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for eval.completed")
 	}

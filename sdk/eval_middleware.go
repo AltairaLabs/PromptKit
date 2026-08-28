@@ -120,11 +120,10 @@ type evalMiddleware struct {
 
 	// cacheMu protects the cached fields below from concurrent access
 	// across multiple dispatchTurnEvals goroutines.
-	cacheMu          sync.Mutex
-	cachedMessages   []types.Message
-	cachedTurnIndex  int32
-	cachedSessionID  string
-	cachedLastOutput string
+	cacheMu         sync.Mutex
+	cachedMessages  []types.Message
+	cachedTurnIndex int32
+	cachedSessionID string
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -313,31 +312,42 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 	defer em.cacheMu.Unlock()
 
 	currentTurn := em.turnIndex.Load()
-	evalCtx := &evals.EvalContext{
-		TurnIndex: int(currentTurn),
-		PromptID:  em.conv.promptName,
-	}
 
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
-	if em.conv.unarySession != nil || em.conv.duplexSession != nil {
-		// Only reload messages if turn count changed since last cache
-		if currentTurn != em.cachedTurnIndex || em.cachedMessages == nil {
-			em.cachedMessages = em.conv.Messages(ctx)
-			em.cachedSessionID = em.conv.ID()
-			em.cachedTurnIndex = currentTurn
-			em.cachedLastOutput = ""
-			for i := len(em.cachedMessages) - 1; i >= 0; i-- {
-				if em.cachedMessages[i].Role == roleAssistant {
-					em.cachedLastOutput = em.cachedMessages[i].GetContent()
-					break
-				}
-			}
+	if em.conv.unarySession == nil && em.conv.duplexSession == nil {
+		return &evals.EvalContext{
+			TurnIndex: int(currentTurn),
+			PromptID:  em.conv.promptName,
 		}
-		evalCtx.Messages = em.cachedMessages
-		evalCtx.SessionID = em.cachedSessionID
-		evalCtx.CurrentOutput = em.cachedLastOutput
 	}
 
-	return evalCtx
+	// Only reload messages if turn count changed since last cache
+	if currentTurn != em.cachedTurnIndex || em.cachedMessages == nil {
+		em.cachedMessages = em.conv.Messages(ctx)
+		em.cachedSessionID = em.conv.ID()
+		em.cachedTurnIndex = currentTurn
+	}
+
+	// Delegate rather than assemble a literal.
+	//
+	// This function used to build the context inline and set four of its
+	// fields, leaving ToolCalls, Extras, Metadata and PriorResults nil while
+	// holding the messages every one of them derives from. The failure mode is
+	// the dangerous direction: handlers do not error on a nil slice, they
+	// report ABSENCE. tools_called_session failed runs that had called every
+	// tool, tools_not_called_session passed trivially, and cost_budget computed
+	// zero spend.
+	//
+	// The same mistake was fixed once before in BuildGuardrailEvalContext
+	// (#1704). Delegating is what stops a third occurrence: a field added to
+	// EvalContext now reaches this path automatically instead of needing a
+	// second edit nobody remembers to make.
+	return evals.BuildEvalContext(
+		em.cachedMessages,
+		int(currentTurn),
+		em.cachedSessionID,
+		em.conv.promptName,
+		nil,
+	)
 }

@@ -973,6 +973,7 @@ func TestOTelEventListener_EvalCompleted(t *testing.T) {
 		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineStartedData{},
 	})
+	judgePassed := true
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalCompleted, Timestamp: now.Add(100 * time.Millisecond),
 		SessionID: "sess-1", ExecutionID: "run-1",
@@ -980,7 +981,7 @@ func TestOTelEventListener_EvalCompleted(t *testing.T) {
 			EvalID:      "response-quality",
 			EvalType:    "llm_judge",
 			Trigger:     "every_turn",
-			Passed:      true,
+			Passed:      &judgePassed,
 			Score:       &score,
 			Explanation: "Response is relevant and well-structured",
 			DurationMs:  95,
@@ -1034,6 +1035,7 @@ func TestOTelEventListener_EvalFailed(t *testing.T) {
 
 	listener.StartSession(context.Background(), "sess-1")
 
+	assertionFailed := false
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalFailed, Timestamp: now,
 		SessionID: "sess-1", ExecutionID: "run-1",
@@ -1041,7 +1043,7 @@ func TestOTelEventListener_EvalFailed(t *testing.T) {
 			EvalID:      "contains-greeting",
 			EvalType:    "contains",
 			Trigger:     "every_turn",
-			Passed:      false,
+			Passed:      &assertionFailed,
 			Score:       &score,
 			Explanation: "Response does not contain expected greeting",
 			DurationMs:  5,
@@ -1066,13 +1068,14 @@ func TestOTelEventListener_EvalNoScore(t *testing.T) {
 
 	listener.StartSession(context.Background(), "sess-1")
 
+	jsonValidPassed := true
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalCompleted, Timestamp: now,
 		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.EvalCompletedData{
 			EvalID:   "json-valid",
 			EvalType: "json_valid",
-			Passed:   true,
+			Passed:   &jsonValidPassed,
 		},
 	})
 
