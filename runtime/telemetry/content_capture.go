@@ -19,21 +19,19 @@ package telemetry
 // trace records" from "what the pipeline uses", so the gate has to live here.
 // What the caller CAN own is the policy, which is what Redactor is for.
 
-// Redactor rewrites a content-bearing span attribute before it is recorded.
+// Redaction is NOT here. It lives in events.Redacting, which wraps any bus
+// subscriber and hands it a redacted copy — so one policy covers this listener,
+// a caller's own subscriber and any third-party event store, rather than each
+// consumer growing its own hook:
 //
-// Called once per attribute, with the attribute key (e.g.
-// "gen_ai.tool.call.arguments") and the value that would otherwise be recorded.
-// Return the value to record; return "" to omit the attribute entirely.
+//	bus.SubscribeAll(events.Redacting(listener.OnEvent, policy))
 //
-// Only invoked when content capture is ENABLED — it is a scrubber for
-// deliberately-captured content, not a substitute for the gate. A nil Redactor
-// records values unchanged, which is what enabling capture without one asks for.
-type Redactor func(attribute string, value string) string
+// What stays here is the GATE, because only a library-side default can stop
+// content reaching a trace for someone who simply switched tracing on.
 
 // contentCapture holds the resolved policy for one listener.
 type contentCapture struct {
-	enabled  bool
-	redactor Redactor
+	enabled bool
 }
 
 // value applies the policy to one content-bearing attribute.
@@ -41,18 +39,11 @@ type contentCapture struct {
 // Returns the value to record and whether to record it at all. Everything
 // content-bearing goes through here so a new attribute cannot be added on a
 // path that skips the gate.
-func (c contentCapture) value(attribute, raw string) (string, bool) {
+func (c contentCapture) value(_, raw string) (string, bool) {
 	if !c.enabled {
 		return "", false
 	}
-	if c.redactor == nil {
-		return raw, true
-	}
-	scrubbed := c.redactor(attribute, raw)
-	if scrubbed == "" {
-		return "", false
-	}
-	return scrubbed, true
+	return raw, true
 }
 
 // OTelOption configures an OTelEventListener.
@@ -66,18 +57,11 @@ type OTelOption func(*OTelEventListener)
 // and remain on regardless.
 //
 // Enable this only where the trace backend is an appropriate place for customer
-// data. Pair it with WithRedactor where tool arguments may carry credentials:
-// on-behalf-of token exchange puts per-user delegated OAuth tokens into tool
-// arguments, and those would otherwise land in the trace verbatim.
+// data. Where tool arguments may carry credentials — on-behalf-of token
+// exchange puts per-user delegated OAuth tokens there — wrap the subscriber in
+// events.Redacting rather than reaching for a hook on this listener.
 func WithContentCapture(enabled bool) OTelOption {
 	return func(l *OTelEventListener) { l.content.enabled = enabled }
-}
-
-// WithRedactor sets the scrubber applied to content attributes when capture is
-// enabled. It has no effect while capture is off, because nothing is recorded
-// to scrub.
-func WithRedactor(r Redactor) OTelOption {
-	return func(l *OTelEventListener) { l.content.redactor = r }
 }
 
 // Content-bearing attribute keys, named so every producer routes through

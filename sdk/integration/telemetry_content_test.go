@@ -2,7 +2,9 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,10 +105,15 @@ func TestTelemetry_ContentCaptureOptIn_EndToEnd(t *testing.T) {
 
 // TestTelemetry_RedactorAppliesEndToEnd covers the split this design rests on:
 // the caller owns the policy, the runtime owns the enforcement point.
+//
+// The redactor is applied at the BUS, not inside the listener, so the same
+// policy covers a configured event store and the metrics collector too. This
+// asserts it through traces because that is the consumer with an exporter to
+// read; events.Redacting has the per-field coverage.
 func TestTelemetry_RedactorAppliesEndToEnd(t *testing.T) {
 	joined := strings.Join(spanAttributeValues(t,
 		sdk.WithTelemetryContentCapture(true),
-		sdk.WithTelemetryRedactor(func(_, value string) string {
+		sdk.WithEventRedactor(func(_, value string) string {
 			return strings.ReplaceAll(value, spanSecret, "[REDACTED]")
 		}),
 	), "|")
@@ -115,4 +122,102 @@ func TestTelemetry_RedactorAppliesEndToEnd(t *testing.T) {
 	assert.Contains(t, joined, "[REDACTED]", "the redacted form must still be recorded")
 	assert.Contains(t, joined, "London",
 		"the redactor rewrote only what it matched; other captured content stays")
+}
+
+// capturingStore records every event it is handed, standing in for a
+// consumer-supplied EventStore shipping somewhere.
+type capturingStore struct {
+	mu  sync.Mutex
+	got []*events.Event
+}
+
+func (s *capturingStore) OnEvent(e *events.Event) {
+	s.mu.Lock()
+	s.got = append(s.got, e)
+	s.mu.Unlock()
+}
+
+func (s *capturingStore) Append(_ context.Context, e *events.Event) error {
+	s.OnEvent(e)
+	return nil
+}
+func (s *capturingStore) Query(context.Context, *events.EventFilter) ([]*events.Event, error) {
+	return nil, nil
+}
+func (s *capturingStore) QueryRaw(context.Context, *events.EventFilter) ([]*events.StoredEvent, error) {
+	return nil, nil
+}
+func (s *capturingStore) Stream(context.Context, string) (<-chan *events.Event, error) {
+	return nil, nil
+}
+func (s *capturingStore) Close() error { return nil }
+
+func (s *capturingStore) dump() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var b strings.Builder
+	for _, e := range s.got {
+		if d, ok := e.Data.(*events.ToolCallEventData); ok {
+			b.WriteString(fmt.Sprint(d.Args))
+		}
+		if d, ok := e.Data.(*events.MessageCreatedData); ok {
+			b.WriteString(d.Content)
+			for _, c := range d.ToolCalls {
+				b.WriteString(c.Args)
+			}
+		}
+	}
+	return b.String()
+}
+
+// TestEventRedactor_AppliesToTheEventStoreToo is the reason redaction lives at
+// the bus rather than inside the OTel listener.
+//
+// A consumer-supplied EventStore is just another subscriber, and it may ship
+// anywhere. A policy that only covered traces would leave it untouched — which
+// is exactly what happened before this moved out of the telemetry package.
+//
+// Note this is the BUS store subscription, not WithRecording: RecordingStage
+// appends directly and deliberately keeps full fidelity.
+func TestEventRedactor_AppliesToTheEventStoreToo(t *testing.T) {
+	store := &capturingStore{}
+
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+
+	repo := newTestTurnRepository()
+	repo.addTurn("default", 1, mock.Turn{
+		Type: "tool_calls", Content: "Looking that up",
+		ToolCalls: []mock.ToolCall{{
+			Name:      "get_weather",
+			Arguments: map[string]interface{}{"city": "London", "access_token": spanSecret},
+		}},
+	})
+	repo.addTurn("default", 2, mock.Turn{Type: "text", Content: "Sunny."})
+
+	conv := openToolConv(t, repo, map[string]func(args map[string]any) (any, error){
+		"get_weather": func(map[string]any) (any, error) {
+			return map[string]any{"temperature": 22}, nil
+		},
+	},
+		sdk.WithEventBus(bus),
+		sdk.WithTracerProvider(tp),
+		sdk.WithEventStore(store),
+		sdk.WithEventRedactor(func(_, value string) string {
+			return strings.ReplaceAll(value, spanSecret, "[REDACTED]")
+		}),
+	)
+
+	_, err := conv.Send(context.Background(), "What is the weather?")
+	require.NoError(t, err)
+	time.Sleep(300 * time.Millisecond)
+
+	dumped := store.dump()
+	require.NotEmpty(t, dumped, "the store received no content-bearing events")
+	assert.NotContains(t, dumped, spanSecret,
+		"a credential reached the event store unredacted; the policy is only wired to "+
+			"the trace listener, not to every bus consumer")
+	assert.Contains(t, dumped, "[REDACTED]", "the redacted form must reach the store")
 }

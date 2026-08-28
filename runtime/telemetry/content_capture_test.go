@@ -127,35 +127,8 @@ func TestContentCaptureOptIn(t *testing.T) {
 			"option does nothing and callers cannot get the payloads they asked for")
 }
 
-// TestRedactorScrubsCapturedContent covers the policy hook.
-//
-// The caller owns what counts as sensitive — they know their tools' schemas —
-// while the runtime owns the enforcement point, because three of the four
-// content attributes are produced by the model and the fourth cannot be
-// redacted in a handler without also withholding it from the model.
-func TestRedactorScrubsCapturedContent(t *testing.T) {
-	redactor := func(_ string, value string) string {
-		return strings.ReplaceAll(value, secretToken, "[REDACTED]")
-	}
-	joined := strings.Join(
-		driveToolTurn(t, WithContentCapture(true), WithRedactor(redactor)), "|")
-
-	assert.NotContains(t, joined, secretToken,
-		"the redactor ran but the raw credential still reached a span")
-	assert.Contains(t, joined, "[REDACTED]",
-		"the redacted form must be recorded, or capture silently drops the attribute")
-	assert.Contains(t, joined, "user@example.com",
-		"the redactor rewrote only what it was asked to; other captured content stays")
-}
-
-// TestRedactorEmptyOmitsAttribute gives the caller a way to drop an attribute
-// outright rather than record a placeholder.
-func TestRedactorEmptyOmitsAttribute(t *testing.T) {
-	dropAll := func(string, string) string { return "" }
-	joined := strings.Join(
-		driveToolTurn(t, WithContentCapture(true), WithRedactor(dropAll)), "|")
-
-	assert.NotContains(t, joined, secretToken)
-	assert.Contains(t, joined, "fetch_orders",
-		"dropping content must not drop the operational attributes with it")
-}
+// Redaction is deliberately NOT tested here: it is no longer this package's
+// job. events.Redacting wraps any subscriber and is covered in that package,
+// so one policy serves this listener, a caller's own subscriber and any
+// third-party store. What this package owns, and what the tests above pin, is
+// the default-off GATE — the part a caller cannot supply from outside.

@@ -631,21 +631,26 @@ func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
 	}
+	// redact wraps a subscriber when a policy is configured, so each consumer
+	// gets its own redacted copy. A nil policy returns the subscriber unwrapped.
+	redact := func(next func(*events.Event)) func(*events.Event) {
+		return events.Redacting(next, cfg.eventRedactor)
+	}
 	// Subscribe event store for persistence if configured.
 	if cfg.eventStore != nil {
-		cfg.eventBus.SubscribeAll(cfg.eventStore.OnEvent)
+		cfg.eventBus.SubscribeAll(redact(cfg.eventStore.OnEvent))
 	}
 	// Wire OTel event listener if a TracerProvider is configured.
 	if cfg.tracerProvider != nil {
 		tracer := telemetry.Tracer(cfg.tracerProvider)
 		listener := telemetry.NewOTelEventListener(tracer, cfg.telemetryOpts...)
-		cfg.eventBus.SubscribeAll(listener.OnEvent)
+		cfg.eventBus.SubscribeAll(redact(listener.OnEvent))
 		cfg.otelListener = listener
 	}
 	// Wire unified metrics if a Collector is configured.
 	if cfg.metricsCollector != nil {
 		metricCtx := cfg.metricsCollector.Bind(cfg.metricsInstanceLabels)
-		cfg.eventBus.SubscribeAll(metricCtx.OnEvent)
+		cfg.eventBus.SubscribeAll(redact(metricCtx.OnEvent))
 		cfg.metricContext = metricCtx
 	}
 }

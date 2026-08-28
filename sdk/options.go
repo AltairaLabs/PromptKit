@@ -286,6 +286,10 @@ type config struct {
 	// Content capture is off unless a caller opts in here.
 	telemetryOpts []telemetry.OTelOption
 
+	// eventRedactor scrubs content from events before they reach observability
+	// consumers. Nil means no redaction. See WithEventRedactor.
+	eventRedactor events.Redactor
+
 	// OTel event listener reference (set by initEventBus when tracerProvider is configured).
 	// Used by Send/Stream to call StartSession so pipeline spans are parented under the caller's context.
 	otelListener *telemetry.OTelEventListener
@@ -3259,16 +3263,33 @@ func WithTelemetryContentCapture(enabled bool) Option {
 	}
 }
 
-// WithTelemetryRedactor scrubs content-bearing span attributes when capture is
-// enabled. Called with the attribute key and the value that would be recorded;
-// return the value to record, or "" to omit the attribute entirely.
+// WithEventRedactor scrubs content-bearing fields from events before they reach
+// observability consumers — the OTel listener, a configured event store, and
+// the metrics collector.
 //
-// No effect while content capture is off, because nothing is recorded to scrub.
-// The policy is yours — you know your tools' schemas — while the enforcement
-// point is the runtime's, for the reason given on WithTelemetryContentCapture.
-func WithTelemetryRedactor(r telemetry.Redactor) Option {
+// Applied per subscriber, so each consumer receives its own redacted copy and
+// the underlying event is untouched. Content is customer data — tool arguments
+// the model composed, tool results, message text — and different consumers sit
+// behind different trust boundaries, so stripping it at the source would be
+// wrong: it would take the payload from consumers whose purpose is to hold it.
+//
+// NOT applied to WithRecording. RecordingStage appends straight to its
+// EventStore without a bus hop, so lossless recording keeps full fidelity by
+// construction. If you need recordings redacted too, redact in the store you
+// supply.
+//
+// The policy receives the field name (see events.Field* constants) and the
+// value, and returns what to deliver:
+//
+//	sdk.WithEventRedactor(func(field, value string) string {
+//	    if field == events.FieldToolCallArgs {
+//	        return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+//	    }
+//	    return value
+//	})
+func WithEventRedactor(r events.Redactor) Option {
 	return func(c *config) error {
-		c.telemetryOpts = append(c.telemetryOpts, telemetry.WithRedactor(r))
+		c.eventRedactor = r
 		return nil
 	}
 }
