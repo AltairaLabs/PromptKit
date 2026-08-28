@@ -321,6 +321,16 @@ func TestEvaluate_RuntimeConfigPath(t *testing.T) {
 read input
 echo '{"score": 0.95, "detail": "exec eval OK"}'
 `)
+	// The timeout is incidental to what this test checks — that
+	// RuntimeConfigPath wires an exec eval and it runs — so it is set well
+	// above any plausible scheduling delay rather than tightly.
+	//
+	// It was 5000ms, and the test failed at exactly 5.00s three times in one
+	// day, only ever inside a full parallel suite run (which is what the
+	// pre-commit hook does). That budget has to cover forking /bin/sh and
+	// running it on a loaded machine, so a tight value measures the host, not
+	// the code. The runner and exec-handler defaults are both 30s; this now
+	// matches them instead of undercutting them by 6x.
 	rcYAML := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: RuntimeConfig
 metadata:
@@ -329,7 +339,7 @@ spec:
   evals:
     custom_check:
       command: ` + script + `
-      timeout_ms: 5000
+      timeout_ms: 30000
 `)
 	rcPath := t.TempDir() + "/runtime.yaml"
 	require.NoError(t, os.WriteFile(rcPath, rcYAML, 0o644))
