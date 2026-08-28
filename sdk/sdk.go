@@ -638,7 +638,7 @@ func initEventBus(cfg *config) {
 	// Wire OTel event listener if a TracerProvider is configured.
 	if cfg.tracerProvider != nil {
 		tracer := telemetry.Tracer(cfg.tracerProvider)
-		listener := telemetry.NewOTelEventListener(tracer)
+		listener := telemetry.NewOTelEventListener(tracer, cfg.telemetryOpts...)
 		cfg.eventBus.SubscribeAll(listener.OnEvent)
 		cfg.otelListener = listener
 	}

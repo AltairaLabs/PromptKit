@@ -282,6 +282,10 @@ type config struct {
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider
 
+	// telemetryOpts configure the OTel listener built in initEventBus.
+	// Content capture is off unless a caller opts in here.
+	telemetryOpts []telemetry.OTelOption
+
 	// OTel event listener reference (set by initEventBus when tracerProvider is configured).
 	// Used by Send/Stream to call StartSession so pipeline spans are parented under the caller's context.
 	otelListener *telemetry.OTelEventListener
@@ -3221,6 +3225,50 @@ func WithMaxActiveSkillsOption(n int) Option {
 func WithShutdownManager(mgr *ShutdownManager) Option {
 	return func(c *config) error {
 		c.shutdownManager = mgr
+		return nil
+	}
+}
+
+// WithTelemetryContentCapture attaches conversation content and tool payloads
+// to spans.
+//
+// OFF by default, and deliberately so: tool arguments are composed by the model
+// and carry whatever your tools take — identifiers, addresses, free text, and
+// under on-behalf-of token exchange, live delegated credentials. Exporting a
+// trace exports all of it to whatever backend you have configured. Span
+// structure, timing, token usage, model names and tool NAMES are unaffected and
+// remain on regardless, since those carry the operational value without the
+// payload.
+//
+// You cannot achieve this from a tool handler. Three of the four content
+// attributes are produced by the model rather than your code, and the fourth —
+// the tool result — is the same value the MODEL consumes, so redacting it in a
+// handler withholds it from the model rather than from the trace.
+//
+// Pair with WithTelemetryRedactor when enabling this on tools that take
+// credentials.
+//
+//	sdk.WithTelemetryContentCapture(true),
+//	sdk.WithTelemetryRedactor(func(attr, value string) string {
+//	    return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+//	}),
+func WithTelemetryContentCapture(enabled bool) Option {
+	return func(c *config) error {
+		c.telemetryOpts = append(c.telemetryOpts, telemetry.WithContentCapture(enabled))
+		return nil
+	}
+}
+
+// WithTelemetryRedactor scrubs content-bearing span attributes when capture is
+// enabled. Called with the attribute key and the value that would be recorded;
+// return the value to record, or "" to omit the attribute entirely.
+//
+// No effect while content capture is off, because nothing is recorded to scrub.
+// The policy is yours — you know your tools' schemas — while the enforcement
+// point is the runtime's, for the reason given on WithTelemetryContentCapture.
+func WithTelemetryRedactor(r telemetry.Redactor) Option {
+	return func(c *config) error {
+		c.telemetryOpts = append(c.telemetryOpts, telemetry.WithRedactor(r))
 		return nil
 	}
 }
