@@ -301,6 +301,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithEvalRunner\(r \*evals.EvalRunner\) Option](<#WithEvalRunner>)
   - [func WithEvalsDisabled\(\) Option](<#WithEvalsDisabled>)
   - [func WithEventBus\(bus events.Bus\) Option](<#WithEventBus>)
+  - [func WithEventRedactor\(r events.Redactor\) Option](<#WithEventRedactor>)
   - [func WithEventStore\(store events.EventStore\) Option](<#WithEventStore>)
   - [func WithExecutionTimeout\(d time.Duration\) Option](<#WithExecutionTimeout>)
   - [func WithGuardrail\(specs ...guardrails.Spec\) Option](<#WithGuardrail>)
@@ -350,7 +351,6 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithTTS\(service tts.Service\) Option](<#WithTTS>)
   - [func WithTTSProvider\(spec ProviderSpec\) Option](<#WithTTSProvider>)
   - [func WithTelemetryContentCapture\(enabled bool\) Option](<#WithTelemetryContentCapture>)
-  - [func WithTelemetryRedactor\(r telemetry.Redactor\) Option](<#WithTelemetryRedactor>)
   - [func WithTokenBudget\(tokens int\) Option](<#WithTokenBudget>)
   - [func WithToolDescriptorOverride\(name string, fn ToolDescriptorPatchFn\) Option](<#WithToolDescriptorOverride>)
   - [func WithToolHook\(h hooks.ToolHook\) Option](<#WithToolHook>)
@@ -3273,6 +3273,30 @@ conv1, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 conv2, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 ```
 
+<a name="WithEventRedactor"></a>
+### func WithEventRedactor
+
+```go
+func WithEventRedactor(r events.Redactor) Option
+```
+
+WithEventRedactor scrubs content\-bearing fields from events before they reach observability consumers — the OTel listener, a configured event store, and the metrics collector.
+
+Applied per subscriber, so each consumer receives its own redacted copy and the underlying event is untouched. Content is customer data — tool arguments the model composed, tool results, message text — and different consumers sit behind different trust boundaries, so stripping it at the source would be wrong: it would take the payload from consumers whose purpose is to hold it.
+
+NOT applied to WithRecording. RecordingStage appends straight to its EventStore without a bus hop, so lossless recording keeps full fidelity by construction. If you need recordings redacted too, redact in the store you supply.
+
+The policy receives the field name \(see events.Field\* constants\) and the value, and returns what to deliver:
+
+```
+sdk.WithEventRedactor(func(field, value string) string {
+    if field == events.FieldToolCallArgs {
+        return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+    }
+    return value
+})
+```
+
 <a name="WithEventStore"></a>
 ### func WithEventStore
 
@@ -4203,17 +4227,6 @@ sdk.WithTelemetryRedactor(func(attr, value string) string {
     return tokenPattern.ReplaceAllString(value, "[REDACTED]")
 }),
 ```
-
-<a name="WithTelemetryRedactor"></a>
-### func WithTelemetryRedactor
-
-```go
-func WithTelemetryRedactor(r telemetry.Redactor) Option
-```
-
-WithTelemetryRedactor scrubs content\-bearing span attributes when capture is enabled. Called with the attribute key and the value that would be recorded; return the value to record, or "" to omit the attribute entirely.
-
-No effect while content capture is off, because nothing is recorded to scrub. The policy is yours — you know your tools' schemas — while the enforcement point is the runtime's, for the reason given on WithTelemetryContentCapture.
 
 <a name="WithTokenBudget"></a>
 ### func WithTokenBudget

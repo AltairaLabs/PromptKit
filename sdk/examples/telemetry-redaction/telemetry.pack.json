@@ -1,0 +1,35 @@
+{
+  "$schema": "https://promptpack.org/schema/v1.2/promptpack.schema.json",
+  "id": "telemetry-redaction-demo",
+  "name": "Telemetry Redaction Demo",
+  "version": "1.0.0",
+  "description": "Shows what conversation content reaches observability consumers, and how to control it.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are an order assistant. Use the tools available to you.",
+      "tools": ["fetch_order"]
+    }
+  },
+  "tools": {
+    "fetch_order": {
+      "name": "fetch_order",
+      "description": "Look up an order for a customer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string" },
+          "customer_email": { "type": "string" },
+          "access_token": { "type": "string" }
+        },
+        "required": ["order_id"]
+      }
+    }
+  }
+}
