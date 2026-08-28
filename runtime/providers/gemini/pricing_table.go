@@ -75,12 +75,34 @@ const (
 	gemini25FlashIn, gemini25FlashOut         = 0.30, 2.50 // Gemini 2.5 Flash (thinking)
 	gemini25FlashLiteIn, gemini25FlashLiteOut = 0.10, 0.40 // Gemini 2.5 Flash-Lite (thinking)
 
-	// Gemini 3.x: LOW-CONFIDENCE ESTIMATE. No verified public pricing was
-	// available at capture time; these are extrapolated from the 2.5 tier
-	// pricing trend and MUST be verified before being relied on for billing.
-	gemini3ProIn, gemini3ProOut             = 2.00, 12.00 // Gemini 3 Pro (thinking) — UNVERIFIED
-	gemini3FlashIn, gemini3FlashOut         = 0.40, 3.00  // Gemini 3 Flash (thinking) — UNVERIFIED
-	gemini3FlashLiteIn, gemini3FlashLiteOut = 0.15, 0.60  // Gemini 3 Flash-Lite (thinking) — UNVERIFIED
+	// Gemini 3.x — VERIFIED 2026-08-28 against ai.google.dev/gemini-api/docs/pricing
+	// (cross-checked against the .md.txt form of the same page).
+	//
+	// These replace low-confidence estimates that had been extrapolated from the
+	// 2.5 tier. Two of those estimates were materially wrong, and one of them in
+	// the direction that under-bills.
+	//
+	// There is NO single "3.x flash" rate: the versions differ by up to 2x, so
+	// they get one descriptor each rather than sharing a family tier the way 1.5
+	// and 2.0 do.
+	//
+	// Where a model tiers by context length or modality, the SHORT-CONTEXT TEXT
+	// rate is used, matching the convention already applied to 1.5 Pro and 2.5
+	// Pro above. Audio-in and >200k-context rates are higher and are not modeled
+	// here.
+	gemini31ProIn, gemini31ProOut = 2.00, 12.00 // Gemini 3.1 Pro, prompts <= 200k (>200k: 4.00/18.00)
+
+	// 3.7 and 3.6 Flash share an INTRODUCTORY rate that expires. From
+	// 2027-01-01 both become 1.50 / 7.50 — double. This table has no time
+	// dimension, so that is a diary entry, not something the code will notice.
+	gemini37FlashIn, gemini37FlashOut = 0.75, 3.75 // Gemini 3.7 Flash, introductory through 2026-12-31
+	gemini36FlashIn, gemini36FlashOut = 0.75, 3.75 // Gemini 3.6 Flash, introductory through 2026-12-31
+
+	gemini35FlashIn, gemini35FlashOut = 1.50, 9.00 // Gemini 3.5 Flash
+	gemini3FlashIn, gemini3FlashOut   = 0.50, 3.00 // Gemini 3 Flash preview, text/image/video (audio in: 1.00)
+
+	gemini35FlashLiteIn, gemini35FlashLiteOut = 0.30, 2.50 // Gemini 3.5 Flash-Lite
+	gemini31FlashLiteIn, gemini31FlashLiteOut = 0.25, 1.50 // Gemini 3.1 Flash-Lite, text/image/video (audio in: 0.50)
 )
 
 // Shared descriptors, one per rate tier, reused across dated snapshot IDs and
@@ -94,9 +116,13 @@ var (
 	gemini25Pro       = geminiPerM(gemini25ProIn, gemini25ProOut, true)
 	gemini25Flash     = geminiPerM(gemini25FlashIn, gemini25FlashOut, true)
 	gemini25FlashLite = geminiPerM(gemini25FlashLiteIn, gemini25FlashLiteOut, true)
-	gemini3Pro        = geminiPerM(gemini3ProIn, gemini3ProOut, true)
+	gemini31Pro       = geminiPerM(gemini31ProIn, gemini31ProOut, true)
+	gemini37Flash     = geminiPerM(gemini37FlashIn, gemini37FlashOut, true)
+	gemini36Flash     = geminiPerM(gemini36FlashIn, gemini36FlashOut, true)
+	gemini35Flash     = geminiPerM(gemini35FlashIn, gemini35FlashOut, true)
 	gemini3Flash      = geminiPerM(gemini3FlashIn, gemini3FlashOut, true)
-	gemini3FlashLite  = geminiPerM(gemini3FlashLiteIn, gemini3FlashLiteOut, true)
+	gemini35FlashLite = geminiPerM(gemini35FlashLiteIn, gemini35FlashLiteOut, true)
+	gemini31FlashLite = geminiPerM(gemini31FlashLiteIn, gemini31FlashLiteOut, true)
 )
 
 // Model IDs shared with the legacy geminiPricing() heuristic fallback in
@@ -135,8 +161,21 @@ var geminiPricingTable = map[string]*base.PricingDescriptor{
 	idGemini25Flash:         gemini25Flash,
 	"gemini-2.5-flash-lite": gemini25FlashLite,
 
-	// Gemini 3.x — UNVERIFIED, see const block comment above.
-	"gemini-3-pro":        gemini3Pro,
-	"gemini-3-flash":      gemini3Flash,
-	"gemini-3-flash-lite": gemini3FlashLite,
+	// Gemini 3.x — keyed by the IDs the API actually serves.
+	//
+	// The previous rows were "gemini-3-pro", "gemini-3-flash" and
+	// "gemini-3-flash-lite", which match NO released model: every real 3.x id
+	// carries a minor version ("gemini-3.7-flash"). ResolveLLMPricing has no
+	// substring fallback by design, so each of those models resolved to nothing
+	// and billed at ZERO with a warning. Verified live before this change:
+	// gemini-3.7-flash, -3.6-flash, -3.5-flash and -3.1-pro-preview all
+	// returned priced=false.
+	"gemini-3.7-flash":       gemini37Flash,
+	"gemini-3.6-flash":       gemini36Flash,
+	"gemini-3.5-flash":       gemini35Flash,
+	"gemini-3-flash-preview": gemini3Flash,
+	"gemini-3.5-flash-lite":  gemini35FlashLite,
+	"gemini-3.1-flash-lite":  gemini31FlashLite,
+	"gemini-3.1-pro-preview": gemini31Pro,
+	"gemini-3.1-pro":         gemini31Pro,
 }

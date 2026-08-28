@@ -4,8 +4,9 @@
 //
 // This example shows:
 //   - Using OpenDuplex() with ASM (Audio Streaming Model) mode
-//   - Real-time bidirectional audio streaming with gemini-2.5-pro-tts (supports bidiGenerateContent)
-//   - Text mode uses gemini-2.5-flash (regular unary API)
+//   - Real-time bidirectional audio streaming (needs a model advertising bidiGenerateContent,
+//     e.g. gemini-3.1-flash-live-preview)
+//   - Text mode uses gemini-3.7-flash (regular unary API)
 //   - Interactive audio input via microphone with voice activity detection
 //   - Sending audio chunks in real-time to Gemini
 //   - Receiving streaming audio responses
@@ -13,7 +14,10 @@
 //
 // Requirements:
 //   - Gemini API key with Live API access enabled
-//   - Model: gemini-2.5-pro-tts for audio (supports streaming input), gemini-2.5-flash for text
+//   - Model: gemini-3.7-flash for text. For audio use a Live model such as
+//     gemini-3.1-flash-live-preview; note the TTS models (gemini-2.5-pro-preview-tts,
+//     gemini-3.1-flash-tts-preview) serve generateContent only and cannot back a
+//     bidirectional session.
 //   - Microphone input (for interactive mode)
 //
 // Run with:
@@ -110,7 +114,7 @@ func main() {
 		conv, err := sdk.Open(
 			"./duplex.pack.json",
 			"assistant",
-			sdk.WithModel("gemini-2.5-flash"),
+			sdk.WithModel("gemini-3.7-flash"),
 			sdk.WithAPIKey(apiKey),
 		)
 		if err != nil {
@@ -131,7 +135,7 @@ func main() {
 		conv, err := sdk.Open(
 			"./duplex.pack.json",
 			"assistant",
-			sdk.WithModel("gemini-2.5-flash"),
+			sdk.WithModel("gemini-3.7-flash"),
 			sdk.WithAPIKey(apiKey),
 		)
 		if err != nil {

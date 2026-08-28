@@ -41,7 +41,7 @@ func main() {
 	conv, err := sdk.Open(
 		"./duplex.pack.json",
 		"assistant",
-		sdk.WithModel("gemini-2.5-flash"),
+		sdk.WithModel("gemini-3.7-flash"),
 		sdk.WithAPIKey(apiKey),
 	)
 	if err != nil {

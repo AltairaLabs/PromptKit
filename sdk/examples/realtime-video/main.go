@@ -57,7 +57,7 @@ func main() {
 		"./realtime-video.pack.json",
 		"vision-stream",
 		sdk.WithAPIKey(apiKey),
-		sdk.WithModel("gemini-2.5-flash-native-audio-preview-12-2025"),
+		sdk.WithModel("gemini-3.1-flash-live-preview"),
 		// Enable bidirectional streaming session with the provider
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{
