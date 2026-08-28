@@ -659,18 +659,22 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 		trace.WithAttributes(attrs...),
 	)
 
-	// No verdict means nothing to mark failed. A bare eval is scored, not
-	// judged, and recording it as an ERROR span made every judge below a
+	// An eval that ERRORED is a fault regardless of any verdict, and is checked
+	// first. It has no verdict to read — a handler that panicked or timed out
+	// returns Error with no Value and no Score — so deciding on Passed alone
+	// recorded a broken eval as a healthy span. That was true before Passed
+	// became nullable too: the old `Score == nil` fallback marked it passed.
+	//
+	// Otherwise: no verdict means nothing to mark failed. An eval is scored,
+	// not judged, and treating that as an ERROR made every judge below a
 	// perfect 1.0 look like a fault.
-	if data.Passed == nil {
+	switch {
+	case data.Error != "":
+		span.SetStatus(codes.Error, data.Error)
+	case data.Passed == nil || *data.Passed:
 		span.SetStatus(codes.Ok, "")
-	} else if *data.Passed {
-		span.SetStatus(codes.Ok, "")
-	} else {
-		errMsg := data.Error
-		if errMsg == "" && data.Explanation != "" {
-			errMsg = data.Explanation
-		}
+	default:
+		errMsg := data.Explanation
 		if errMsg == "" {
 			errMsg = "eval failed"
 		}
