@@ -73,18 +73,28 @@ type OTelEventListener struct {
 	pendingEnds map[string]*pendingEnd   // buffered completions for out-of-order delivery
 
 	stopCleanup chan struct{}
+
+	// content gates conversation content and tool payloads onto spans. Its
+	// zero value records neither — capture is opt-in. See content_capture.go.
+	content contentCapture
 }
 
 // NewOTelEventListener creates a listener that creates OTel spans from runtime events.
 // A background goroutine periodically cleans up stale entries to prevent unbounded
 // map growth. Call Close when the listener is no longer needed.
-func NewOTelEventListener(tracer trace.Tracer) *OTelEventListener {
+func NewOTelEventListener(tracer trace.Tracer, opts ...OTelOption) *OTelEventListener {
 	l := &OTelEventListener{
 		tracer:      tracer,
 		sessions:    make(map[string]*sessionState),
 		inflight:    make(map[string]*spanEntry),
 		pendingEnds: make(map[string]*pendingEnd),
 		stopCleanup: make(chan struct{}),
+	}
+	// Content capture defaults to OFF: the zero contentCapture records no
+	// conversation content or tool payloads. Callers opt in explicitly with
+	// WithContentCapture. See content_capture.go.
+	for _, opt := range opts {
+		opt(l)
 	}
 	go l.cleanupLoop()
 	return l
@@ -447,9 +457,14 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 		attribute.String("gen_ai.tool.call.id", data.CallID),
 		attribute.String("gen_ai.tool.type", toolType),
 	}
+	// Arguments are content: the model composes them, and they carry whatever
+	// the caller's tool takes — order ids, addresses, free text, and under
+	// on-behalf-of token exchange, live delegated credentials.
 	if data.Args != nil {
 		if argsJSON, err := json.Marshal(data.Args); err == nil {
-			attrs = append(attrs, attribute.String("gen_ai.tool.call.arguments", string(argsJSON)))
+			if v, ok := l.content.value(attrToolCallArguments, string(argsJSON)); ok {
+				attrs = append(attrs, attribute.String(attrToolCallArguments, v))
+			}
 		}
 	}
 	attrs = append(attrs, labelsToAttributes(data.Labels)...)
@@ -514,17 +529,24 @@ func (l *OTelEventListener) handleMessage(evt *events.Event) {
 		return
 	}
 
-	evtAttrs := []attribute.KeyValue{
-		attribute.String("gen_ai.message.content", data.Content),
+	// All three are content and all three go through the gate. The role and the
+	// event name below are structure, not payload, and stay regardless.
+	var evtAttrs []attribute.KeyValue
+	addContent := func(key, raw string) {
+		if v, keep := l.content.value(key, raw); keep {
+			evtAttrs = append(evtAttrs, attribute.String(key, v))
+		}
 	}
+
+	addContent(attrMessageContent, data.Content)
 	if len(data.ToolCalls) > 0 {
 		if b, err := json.Marshal(data.ToolCalls); err == nil {
-			evtAttrs = append(evtAttrs, attribute.String("gen_ai.tool_calls", string(b)))
+			addContent(attrToolCalls, string(b))
 		}
 	}
 	if data.ToolResult != nil {
 		if b, err := json.Marshal(data.ToolResult); err == nil {
-			evtAttrs = append(evtAttrs, attribute.String("gen_ai.tool_result", string(b)))
+			addContent(attrToolResult, string(b))
 		}
 	}
 

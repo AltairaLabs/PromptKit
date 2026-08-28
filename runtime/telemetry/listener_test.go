@@ -18,10 +18,23 @@ import (
 // newTestListener returns a listener, in-memory exporter, and TracerProvider for tests.
 func newTestListener(t *testing.T) (*OTelEventListener, *tracetest.InMemoryExporter, *sdktrace.TracerProvider) {
 	t.Helper()
+	return newTestListenerWith(t)
+}
+
+// newTestListenerWith builds a listener with the given options.
+//
+// Most tests want the default — content capture OFF — because that is what a
+// deployment gets. Tests asserting on content pass WithContentCapture(true)
+// explicitly, which also documents at the call site that they are exercising
+// the opt-in path rather than the default one.
+func newTestListenerWith(
+	t *testing.T, opts ...OTelOption,
+) (*OTelEventListener, *tracetest.InMemoryExporter, *sdktrace.TracerProvider) {
+	t.Helper()
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 	tracer := tp.Tracer(InstrumentationName)
-	listener := NewOTelEventListener(tracer)
+	listener := NewOTelEventListener(tracer, opts...)
 	return listener, exp, tp
 }
 
@@ -459,8 +472,13 @@ func TestOTelEventListener_MessageCreated_FallsBackToSession(t *testing.T) {
 	}
 }
 
+// TestOTelEventListener_MessageCreated_WithToolCalls covers the OPT-IN path:
+// with content capture enabled, tool-call payloads reach the span.
+//
+// Content is off by default now, so this configures it on. The default is
+// asserted separately by TestOTelEventListener_ContentIsOffByDefault.
 func TestOTelEventListener_MessageCreated_WithToolCalls(t *testing.T) {
-	listener, exp, tp := newTestListener(t)
+	listener, exp, tp := newTestListenerWith(t, WithContentCapture(true))
 	now := time.Now()
 
 	listener.StartSession(context.Background(), "sess-1")

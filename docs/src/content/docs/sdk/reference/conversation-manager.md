@@ -349,6 +349,8 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithStructuredOutputMode\(mode string\) Option](<#WithStructuredOutputMode>)
   - [func WithTTS\(service tts.Service\) Option](<#WithTTS>)
   - [func WithTTSProvider\(spec ProviderSpec\) Option](<#WithTTSProvider>)
+  - [func WithTelemetryContentCapture\(enabled bool\) Option](<#WithTelemetryContentCapture>)
+  - [func WithTelemetryRedactor\(r telemetry.Redactor\) Option](<#WithTelemetryRedactor>)
   - [func WithTokenBudget\(tokens int\) Option](<#WithTokenBudget>)
   - [func WithToolDescriptorOverride\(name string, fn ToolDescriptorPatchFn\) Option](<#WithToolDescriptorOverride>)
   - [func WithToolHook\(h hooks.ToolHook\) Option](<#WithToolHook>)
@@ -4179,6 +4181,39 @@ func WithTTSProvider(spec ProviderSpec) Option
 ```
 
 WithTTSProvider builds a TTS service from a spec and sets it as the default ttsService \(first\-wins; does not overwrite one already set by WithTTS or a prior WithTTSProvider call\).
+
+<a name="WithTelemetryContentCapture"></a>
+### func WithTelemetryContentCapture
+
+```go
+func WithTelemetryContentCapture(enabled bool) Option
+```
+
+WithTelemetryContentCapture attaches conversation content and tool payloads to spans.
+
+OFF by default, and deliberately so: tool arguments are composed by the model and carry whatever your tools take — identifiers, addresses, free text, and under on\-behalf\-of token exchange, live delegated credentials. Exporting a trace exports all of it to whatever backend you have configured. Span structure, timing, token usage, model names and tool NAMES are unaffected and remain on regardless, since those carry the operational value without the payload.
+
+You cannot achieve this from a tool handler. Three of the four content attributes are produced by the model rather than your code, and the fourth — the tool result — is the same value the MODEL consumes, so redacting it in a handler withholds it from the model rather than from the trace.
+
+Pair with WithTelemetryRedactor when enabling this on tools that take credentials.
+
+```
+sdk.WithTelemetryContentCapture(true),
+sdk.WithTelemetryRedactor(func(attr, value string) string {
+    return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+}),
+```
+
+<a name="WithTelemetryRedactor"></a>
+### func WithTelemetryRedactor
+
+```go
+func WithTelemetryRedactor(r telemetry.Redactor) Option
+```
+
+WithTelemetryRedactor scrubs content\-bearing span attributes when capture is enabled. Called with the attribute key and the value that would be recorded; return the value to record, or "" to omit the attribute entirely.
+
+No effect while content capture is off, because nothing is recorded to scrub. The policy is yours — you know your tools' schemas — while the enforcement point is the runtime's, for the reason given on WithTelemetryContentCapture.
 
 <a name="WithTokenBudget"></a>
 ### func WithTokenBudget
