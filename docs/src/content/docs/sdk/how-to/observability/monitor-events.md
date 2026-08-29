@@ -18,6 +18,47 @@ hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
 })
 ```
 
+## Watch the conversation live
+
+Subscribe to `message.created` to receive each complete message as it arrives —
+the user turn, every tool-calling round, and the final answer, as separate
+events rather than one batch at the end of the turn.
+
+```go
+bus := events.NewEventBus()
+
+conv, _ := sdk.Open("./app.pack.json", "assistant", sdk.WithEventBus(bus))
+
+hooks.On(conv, events.EventMessageCreated, func(e *events.Event) {
+    d, ok := e.Data.(*events.MessageCreatedData)
+    if !ok {
+        return
+    }
+    fmt.Printf("[%d] %s: %s\n", d.Index, d.Role, d.Content)
+})
+```
+
+This needs no `EventStore`, no `WithRecording()` and no state store — only a bus.
+
+:::caution[An event bus is required]
+`hooks.On` does nothing when the conversation has no event bus. If you do not
+pass `sdk.WithEventBus(...)`, the handler is never called and no error is
+raised.
+:::
+
+Three things to know before you rely on it:
+
+- **`Index` is transcript-absolute**, continuing across turns rather than
+  restarting. Replayed history is not re-published, so each message arrives
+  once.
+- **Arrival order is not publish order.** The bus dispatches through a worker
+  pool. Order by `Index` rather than by arrival.
+- **The bus is lossy.** Under burst an event can be dropped, by design, so
+  observability never blocks the pipeline. For a transcript that must be
+  complete, read the state store; for a lossless record, use
+  [session recording](/sdk/examples/session-recording/), which takes a
+  different route with full binary content retained.
+
 ## Event Types
 
 Events are defined as `events.EventType` in the `runtime/events` package, grouped by category:

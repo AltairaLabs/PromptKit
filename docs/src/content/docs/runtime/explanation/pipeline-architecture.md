@@ -118,7 +118,7 @@ type Stage interface {
 | Accumulate | N:1 | VAD buffering, message collection |
 | Generate | 0:N | LLM streaming, TTS |
 | Sink | N:0 | State store save, metrics |
-| Observe | 1:1 (pass-through) | RecordingStage |
+| Observe | 1:1 (pass-through) | RecordingStage, MessageBroadcastStage |
 | Bidirectional | Varies | WebSocket session |
 
 ### Contract
@@ -191,7 +191,7 @@ direction: right
 Message -> RecordingIn -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> RecordingOut -> StateStoreSave -> Response
 ```
 
-`RecordingIn` and `RecordingOut` are optional `RecordingStage` instances that capture user input and assistant output as events on the EventBus. They pass data through unchanged.
+`RecordingIn` and `RecordingOut` are optional `RecordingStage` instances that capture user input and assistant output as events written **directly to an `EventStore`** — recording does not go through the EventBus. They pass data through unchanged.
 
 Hooks (guardrails, tool hooks) run inside `ProviderStage` — they are not separate pipeline stages. Provider hooks execute before/after each LLM call, and chunk interceptors run on each streaming chunk within the provider stage.
 
@@ -372,10 +372,13 @@ These events are automatically emitted by the pipeline — stage authors don't n
 
 ### RecordingStage
 
-`RecordingStage` is a special observe-only stage that publishes content-carrying events to the EventBus as elements flow through the pipeline:
+`RecordingStage` is an observe-only stage that writes content-carrying events
+**directly to an `EventStore`**, bypassing the EventBus. That is what lets it
+stay synchronous, lossless and full-fidelity — it retains binary content for
+replay — at the cost of back-pressuring the pipeline on a slow sink.
 
 ```go
-stage.NewRecordingStage(eventBus, stage.RecordingStageConfig{
+stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{
     Position:       "output",       // "input" for user messages, "output" for assistant
     SessionID:      sessionID,
     ConversationID: conversationID,
@@ -383,15 +386,39 @@ stage.NewRecordingStage(eventBus, stage.RecordingStageConfig{
 ```
 
 It records different element types as events:
-- **Text / Message** → `EventMessageCreated` (with tool calls and results if present)
+- **Message** → `EventMessageCreated` (with index, tool calls and results if present)
 - **Audio / Image / Video** → corresponding multimodal events with metadata
 - **ToolCall** → `EventToolCallStarted`
 - **Error** → `EventStreamInterrupted`
 
-These events can be consumed by any EventBus listener, including:
-- **FileEventStore** for JSONL persistence and replay
-- **EventBusEvalListener** for automatic eval execution on `message.created` events
-- **Prometheus metrics listener** for operational monitoring
+Because it is placed after the state store load stage, it also re-captures
+replayed history on every turn: an N-turn recording holds turn 1 N times.
+
+These events are consumed by whatever `EventStore` you supply — for example
+**FileEventStore** for JSONL persistence and replay.
+
+### MessageBroadcastStage
+
+`MessageBroadcastStage` is the live counterpart. It publishes `message.created`
+on the **EventBus** as each complete message arrives, and forwards every element
+unchanged:
+
+```go
+stage.NewMessageBroadcastStage(emitter)
+```
+
+It is added whenever an event emitter is configured, so it needs no
+`EventStore`, no `WithRecording()` and no state store. It is the route a TUI, an
+SSE relay or a log tail wants.
+
+The two stages differ in exactly one payload field, deliberately: the bus route
+strips binary content parts to metadata, the recording route retains them. Both
+build through `events.NewMessageCreatedData`, so nothing else can drift.
+
+Replayed history (`Meta.FromHistory`) is counted for position but never
+re-published, which is what makes `Index` transcript-absolute. Read `Index`
+rather than arrival order — the bus dispatches through a worker pool and makes
+no ordering promise.
 
 See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for how recorded events trigger evals.
 

@@ -159,9 +159,9 @@ type BlobStore interface {
 }
 ```
 
-**Binary stripping in events**: The `Emitter.MessageCreated()` method automatically strips binary data (base64 `Data` and `FilePath`) from content parts, keeping only metadata (MIMEType, SizeKB, dimensions, URL references). This prevents large binary payloads from flowing through observability events when recording is not enabled.
+**MessageBroadcastStage** publishes `message.created` on the EventBus as each complete message arrives. It is added whenever an event bus is configured — no `EventStore`, no `WithRecording()`, no state store — so subscribing to `message.created` is the supported way to watch a conversation unfold.
 
-**RecordingStage** is a pipeline stage that writes content-carrying events (like `message.created`) **directly to the EventStore, bypassing the EventBus entirely**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
+**RecordingStage** writes the same event type **directly to the EventStore, bypassing the EventBus**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
 
 :::note[Two routes, different guarantees]
 Events reach consumers two ways, and which route a type takes is not visible
@@ -172,12 +172,41 @@ from its name:
 | `Emitter` → `EventBus` | async, worker-pooled, **lossy** | bus subscribers |
 | `RecordingStage` → `EventStore.Append` | synchronous, **lossless**, opt-in | the store only |
 
-`message.created` is produced **only** by `RecordingStage`, so a bus subscriber
-never receives it without `WithRecording()`. Putting a fact on that event makes
-it invisible to everyone else — this shipped once, in v1.5.12, where an
-accumulated reasoning trace reached recording consumers and nobody else.
-Bus-delivered reasoning arrives as `reasoning.completed` instead.
+`message.created` takes **both** routes, and both build their payload with
+`events.NewMessageCreatedData`, so they carry the same data with exactly one
+deliberate difference:
+
+| | Binary content parts | Needs |
+|---|---|---|
+| Bus (`MessageBroadcastStage`) | stripped to metadata | an event bus |
+| Store (`RecordingStage`) | retained in full | `WithRecording()` + an `EventStore` |
+
+Two things a consumer needs to know:
+
+- **The bus is lossy.** A live view can miss a message under burst. The state
+  store remains the source of truth for a transcript.
+- **Arrival order is not publish order.** The bus dispatches through a worker
+  pool. Read `MessageCreatedData.Index`, which is transcript-absolute, rather
+  than relying on the order events turn up in.
+
+The remaining trap is not which route a *type* takes but which route a *field*
+lands on. That shipped once, in v1.5.12: an accumulated reasoning trace was put
+on `message.created` when only the recording route existed, and reached nobody.
+Bus-delivered reasoning arrives as `reasoning.completed`.
 :::
+
+To subscribe:
+
+```go
+bus := events.NewEventBus()
+bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+    if d, ok := e.Data.(*events.MessageCreatedData); ok {
+        fmt.Printf("[%d] %s: %s\n", d.Index, d.Role, d.Content)
+    }
+})
+
+conv, _ := sdk.Open("./app.pack.json", "assistant", sdk.WithEventBus(bus))
+```
 
 To enable RecordingStages via the SDK, use `WithRecording()`:
 
@@ -190,11 +219,13 @@ conv, _ := sdk.Open("./app.pack.json", "assistant",
 This inserts an input RecordingStage (after template assembly) and an output RecordingStage (before state store save). For manual pipeline construction:
 
 ```go
+// NewRecordingStage takes an EventStore, not an EventBus — recording bypasses
+// the bus entirely.
 pipeline := stage.NewPipelineBuilder().
     Chain(
-        stage.NewRecordingStage(eventBus, stage.RecordingStageConfig{Position: "input"}),
+        stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{Position: "input"}),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewRecordingStage(eventBus, stage.RecordingStageConfig{Position: "output"}),
+        stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{Position: "output"}),
     ).
     Build()
 ```
