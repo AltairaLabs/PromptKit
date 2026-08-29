@@ -638,7 +638,21 @@ func initEventBus(cfg *config) {
 	}
 	// Subscribe event store for persistence if configured.
 	if cfg.eventStore != nil {
-		cfg.eventBus.SubscribeAll(redact(cfg.eventStore.OnEvent))
+		onEvent := cfg.eventStore.OnEvent
+		if cfg.recordingConfig != nil {
+			// This same store is handed to RecordingStage as RecordingStore
+			// (see conversation.go), which writes message.created to it
+			// directly — synchronously, losslessly, with full binary.
+			// Persisting the bus copy as well would put every message in the
+			// recording twice, the second time with binary stripped, and
+			// replay would show each message duplicated.
+			//
+			// Only message.created is dropped: the store still receives every
+			// other bus event, and a store supplied WITHOUT recording still
+			// receives messages, because then the bus is its only source.
+			onEvent = skipEventTypes(onEvent, events.EventMessageCreated)
+		}
+		cfg.eventBus.SubscribeAll(redact(onEvent))
 	}
 	// Wire OTel event listener if a TracerProvider is configured.
 	if cfg.tracerProvider != nil {
@@ -652,6 +666,23 @@ func initEventBus(cfg *config) {
 		metricCtx := cfg.metricsCollector.Bind(cfg.metricsInstanceLabels)
 		cfg.eventBus.SubscribeAll(redact(metricCtx.OnEvent))
 		cfg.metricContext = metricCtx
+	}
+}
+
+// skipEventTypes wraps a subscriber so the named event types never reach it.
+// Used where a consumer already receives those types by another route.
+func skipEventTypes(next func(*events.Event), skip ...events.EventType) func(*events.Event) {
+	skipped := make(map[events.EventType]struct{}, len(skip))
+	for _, t := range skip {
+		skipped[t] = struct{}{}
+	}
+	return func(e *events.Event) {
+		if e != nil {
+			if _, drop := skipped[e.Type]; drop {
+				return
+			}
+		}
+		next(e)
 	}
 }
 

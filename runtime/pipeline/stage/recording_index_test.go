@@ -93,3 +93,51 @@ func TestRecordingIndex_RetainsBinary(t *testing.T) {
 		"recording keeps binary for lossless replay")
 	assert.Equal(t, raw, *data.Parts[0].Media.Data)
 }
+
+// TestRecordingIndex_ResetsPerExecution pins that the index means something on
+// turn 2.
+//
+// A pipeline is built once and re-executed per turn (sdk/sdk.go:687), so a
+// counter held on the stage keeps climbing while the load stage replays the
+// transcript — turn 2 of a 2-message history recorded indices 2..5 instead of
+// 0..3. The single-Process test above cannot catch that.
+func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
+	store := &fakeEventStore{}
+	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionInput})
+
+	runTurn := func(msgs []types.Message) {
+		in := make(chan StreamElement, len(msgs)+1)
+		for i := range msgs {
+			in <- NewMessageElement(&msgs[i])
+		}
+		close(in)
+		out := make(chan StreamElement, len(msgs)+4)
+		require.NoError(t, rs.Process(context.Background(), in, out))
+		for range out { //nolint:revive // draining
+		}
+	}
+
+	// Turn 1: one user message.
+	runTurn([]types.Message{{Role: "user", Content: "first"}})
+
+	// Turn 2: turn 1 replayed as history, plus a new message.
+	runTurn([]types.Message{
+		{Role: "user", Content: "first", Source: "statestore"},
+		{Role: "assistant", Content: "answer", Source: "statestore"},
+		{Role: "user", Content: "second"},
+	})
+
+	recorded := store.filterByType(events.EventMessageCreated)
+	require.Len(t, recorded, 4)
+
+	// Turn 2's three events are the last three, and must be indices 0,1,2 —
+	// their real transcript positions — not 1,2,3 continuing from turn 1.
+	turn2 := recorded[1:]
+	for i, evt := range turn2 {
+		data, ok := evt.Data.(*events.MessageCreatedData)
+		require.True(t, ok)
+		assert.Equalf(t, i, data.Index,
+			"turn 2 event %d (%q) must index from the transcript, not from turn 1",
+			i, data.Content)
+	}
+}

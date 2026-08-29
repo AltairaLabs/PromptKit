@@ -24,9 +24,25 @@ import (
 // the right trade for observability and the wrong one for a transcript: the
 // state store remains the source of truth.
 //
-// Index is transcript-absolute. Replayed history (Meta.FromHistory) is counted
-// for position but never re-published, so a subscriber sees each message once,
-// at the position the persisted transcript will hold it.
+// Index is transcript-absolute, and history is never re-published, so a
+// subscriber sees each message once at the position the persisted transcript
+// will hold it.
+//
+// Two things make that work, and both are load-bearing:
+//
+//   - The counter is LOCAL to each Process call, never a field on the stage.
+//     A pipeline is built once and re-executed per turn (sdk/sdk.go:687), so a
+//     counter on the stage would keep climbing across turns and would also be a
+//     data race — pipeline.go documents that stage objects are shared across
+//     concurrent Execute calls. Counting per execution is correct because the
+//     provider re-emits the whole accumulated transcript on every turn.
+//
+//   - History is detected by Message.Source, NOT by Meta.FromHistory.
+//     ProviderStage rebuilds every message with NewMessageElement
+//     (stages_provider.go:561), which produces a zero Meta, so element metadata
+//     does not survive to any stage downstream of the provider. Source travels
+//     with the message value and does. isNewMessage is the same predicate
+//     IncrementalSaveStage uses for the same question.
 //
 // Read Index rather than arrival order. The bus dispatches through a worker
 // pool, so subscribers can and do receive these out of publish order — Index is
@@ -35,8 +51,6 @@ import (
 type MessageBroadcastStage struct {
 	BaseStage
 	emitter *events.Emitter
-	// msgIndex is the transcript-absolute position of the next message.
-	msgIndex int
 }
 
 // NewMessageBroadcastStage creates a message broadcast stage. A nil emitter
@@ -56,8 +70,13 @@ func (s *MessageBroadcastStage) Process(
 ) error {
 	defer close(output)
 
+	// Local to this execution — see the type doc. The provider re-emits the
+	// whole accumulated transcript each turn, so position within one Process
+	// call IS the transcript-absolute index.
+	msgIndex := 0
+
 	for elem := range input {
-		s.broadcast(ctx, &elem)
+		s.broadcast(ctx, &elem, &msgIndex)
 
 		select {
 		case output <- elem:
@@ -72,16 +91,16 @@ func (s *MessageBroadcastStage) Process(
 // broadcast publishes one element if it carries a new complete message.
 //
 // The index advances for history too, which is what keeps it aligned with the
-// persisted transcript rather than counting only this turn's messages.
-func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamElement) {
+// persisted transcript rather than counting only this turn's new messages.
+func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	if elem.Message == nil || elem.EndOfStream {
 		return
 	}
 
-	idx := s.msgIndex
-	s.msgIndex++
+	idx := *msgIndex
+	*msgIndex++
 
-	if s.emitter == nil || elem.Meta.FromHistory {
+	if s.emitter == nil || !isNewMessage(elem.Message) {
 		return
 	}
 

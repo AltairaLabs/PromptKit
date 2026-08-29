@@ -108,3 +108,37 @@ func TestNewMessageCreatedData_ToolCallArgsAreStringified(t *testing.T) {
 	assert.Equal(t, "lookup", d.ToolCalls[0].Name)
 	assert.JSONEq(t, `{"q":"x"}`, d.ToolCalls[0].Args)
 }
+
+// TestNewMessageCreatedData_StripsToolResultBinary covers the other place
+// binary hides. Only msg.Parts was stripped, so a tool returning an image or
+// audio blob published the full base64 payload on the bus — and the OTel
+// listener marshals the whole ToolResult into a span attribute when content
+// capture is on.
+func TestNewMessageCreatedData_StripsToolResultBinary(t *testing.T) {
+	msg := &types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_1",
+			Name: "screenshot",
+			Parts: []types.ContentPart{{
+				Type:  "image",
+				Media: &types.MediaContent{Data: strPtr("BLOBBLOBBLOB"), MIMEType: "image/png"},
+			}},
+		},
+	}
+
+	live := NewMessageCreatedData(msg, 0, true)
+	require.NotNil(t, live.ToolResult)
+	require.Len(t, live.ToolResult.Parts, 1)
+	require.NotNil(t, live.ToolResult.Parts[0].Media)
+	assert.Nil(t, live.ToolResult.Parts[0].Media.Data,
+		"tool-result binary must not reach the bus")
+	assert.Equal(t, "image/png", live.ToolResult.Parts[0].Media.MIMEType)
+
+	recording := NewMessageCreatedData(msg, 0, false)
+	require.NotNil(t, recording.ToolResult.Parts[0].Media.Data,
+		"the recording route keeps it")
+
+	require.NotNil(t, msg.ToolResult.Parts[0].Media.Data,
+		"stripping must not clear the caller's message")
+}

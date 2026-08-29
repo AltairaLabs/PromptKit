@@ -116,11 +116,6 @@ type RecordingStage struct {
 	store     events.EventStore
 	config    RecordingStageConfig
 	startTime time.Time
-	// msgIndex is the transcript-absolute position of the next complete
-	// message. Every message element is counted, replayed history included, so
-	// the count matches the persisted transcript. Before this, every recorded
-	// message.created carried Index 0.
-	msgIndex int
 }
 
 // NewRecordingStage creates a new recording stage.
@@ -142,9 +137,17 @@ func (rs *RecordingStage) Process(
 ) error {
 	defer close(output)
 
+	// Transcript-absolute position of the next complete message, LOCAL to this
+	// execution. A pipeline is built once and re-executed per turn
+	// (sdk/sdk.go:687), so a counter held on the stage would climb across turns
+	// and would also race — stage objects are shared across concurrent Execute
+	// calls (see pipeline.go). Every message element is counted, replayed
+	// history included, so the count matches the persisted transcript.
+	msgIndex := 0
+
 	for elem := range input {
 		// Record the element as event(s)
-		rs.recordElement(ctx, &elem)
+		rs.recordElement(ctx, &elem, &msgIndex)
 
 		// Pass through unchanged
 		select {
@@ -158,7 +161,7 @@ func (rs *RecordingStage) Process(
 }
 
 // recordElement converts a StreamElement to events and persists them.
-func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement) {
+func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	if rs.store == nil {
 		return
 	}
@@ -179,7 +182,7 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 	case elem.Text != nil && rs.config.IncludeStreamingText:
 		rs.recordTextElement(ctx, elem, role)
 	case elem.Message != nil:
-		rs.recordMessageElement(ctx, elem)
+		rs.recordMessageElement(ctx, elem, msgIndex)
 	case elem.Audio != nil && rs.config.IncludeAudio:
 		rs.recordAudioElement(ctx, elem, role)
 	case elem.Image != nil && rs.config.IncludeImages:
@@ -229,9 +232,9 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 }
 
 // recordMessageElement records a complete message.
-func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement) {
-	idx := rs.msgIndex
-	rs.msgIndex++
+func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
+	idx := *msgIndex
+	*msgIndex++
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,

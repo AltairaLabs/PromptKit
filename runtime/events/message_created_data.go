@@ -54,10 +54,18 @@ func NewMessageCreatedData(msg *types.Message, index int, stripBinary bool) *Mes
 	}
 
 	if msg.ToolResult != nil {
+		// Tool results carry content parts too, and a tool that returns an
+		// image or audio blob puts binary here. Stripping msg.Parts alone left
+		// that payload on the bus — and the OTel listener marshals the whole
+		// ToolResult into a span attribute when content capture is on.
+		resultParts := msg.ToolResult.Parts
+		if stripBinary {
+			resultParts = types.MetadataOnlyParts(resultParts)
+		}
 		data.ToolResult = &MessageToolResult{
 			ID:    msg.ToolResult.ID,
 			Name:  msg.ToolResult.Name,
-			Parts: msg.ToolResult.Parts,
+			Parts: resultParts,
 		}
 	}
 

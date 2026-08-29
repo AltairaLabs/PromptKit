@@ -3247,7 +3247,13 @@ RecordingStage is the FIDELITY route for the same event type: synchronous, lossl
 
 Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
 
-Index is transcript\-absolute. Replayed history \(Meta.FromHistory\) is counted for position but never re\-published, so a subscriber sees each message once, at the position the persisted transcript will hold it.
+Index is transcript\-absolute, and history is never re\-published, so a subscriber sees each message once at the position the persisted transcript will hold it.
+
+Two things make that work, and both are load\-bearing:
+
+- The counter is LOCAL to each Process call, never a field on the stage. A pipeline is built once and re\-executed per turn \(sdk/sdk.go:687\), so a counter on the stage would keep climbing across turns and would also be a data race — pipeline.go documents that stage objects are shared across concurrent Execute calls. Counting per execution is correct because the provider re\-emits the whole accumulated transcript on every turn.
+
+- History is detected by Message.Source, NOT by Meta.FromHistory. ProviderStage rebuilds every message with NewMessageElement \(stages\_provider.go:561\), which produces a zero Meta, so element metadata does not survive to any stage downstream of the provider. Source travels with the message value and does. isNewMessage is the same predicate IncrementalSaveStage uses for the same question.
 
 Read Index rather than arrival order. The bus dispatches through a worker pool, so subscribers can and do receive these out of publish order — Index is what lets a consumer reassemble a transcript from a stream that makes no ordering promise.
 
