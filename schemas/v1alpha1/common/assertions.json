@@ -89,6 +89,7 @@
             "skill_activated",
             "skill_activation_order",
             "skill_not_activated",
+            "spoke_in_state",
             "state_is",
             "text_sentiment",
             "text_toxicity",
