@@ -248,6 +248,9 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewMergeStage\(name string, inputCount int\) \*MergeStage](<#NewMergeStage>)
   - [func \(s \*MergeStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MergeStage.Process>)
   - [func \(s \*MergeStage\) ProcessMultiple\(ctx context.Context, inputs \[\]\<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MergeStage.ProcessMultiple>)
+- [type MessageBroadcastStage](<#MessageBroadcastStage>)
+  - [func NewMessageBroadcastStage\(emitter \*events.Emitter\) \*MessageBroadcastStage](<#NewMessageBroadcastStage>)
+  - [func \(s \*MessageBroadcastStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MessageBroadcastStage.Process>)
 - [type MetricsStage](<#MetricsStage>)
   - [func NewMetricsStage\(wrappedStage Stage\) \*MetricsStage](<#NewMetricsStage>)
   - [func \(s \*MetricsStage\) GetMetrics\(\) StageMetrics](<#MetricsStage.GetMetrics>)
@@ -3232,6 +3235,46 @@ func (s *MergeStage) ProcessMultiple(ctx context.Context, inputs []<-chan Stream
 ```
 
 ProcessMultiple processes multiple input channels and merges them into one output. This is a special method for merge stages that differs from the standard Process signature.
+
+<a name="MessageBroadcastStage"></a>
+## type MessageBroadcastStage
+
+MessageBroadcastStage publishes message.created on the EventBus for each new complete message that streams through it, and forwards every element unchanged.
+
+This is the LIVE route for messages: async, lossy, binary stripped. It is what a consumer watching a conversation unfold wants — a TUI, an SSE relay, a log tail. It needs no EventStore and no state store, so it works on any pipeline that has an emitter.
+
+RecordingStage is the FIDELITY route for the same event type: synchronous, lossless, full binary, opt\-in, straight to an EventStore. Both build their payload with events.NewMessageCreatedData, so they carry the same data for the same message except Parts.
+
+Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
+
+Index is transcript\-absolute. Replayed history \(Meta.FromHistory\) is counted for position but never re\-published, so a subscriber sees each message once, at the position the persisted transcript will hold it.
+
+Read Index rather than arrival order. The bus dispatches through a worker pool, so subscribers can and do receive these out of publish order — Index is what lets a consumer reassemble a transcript from a stream that makes no ordering promise.
+
+```go
+type MessageBroadcastStage struct {
+    BaseStage
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewMessageBroadcastStage"></a>
+### func NewMessageBroadcastStage
+
+```go
+func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage
+```
+
+NewMessageBroadcastStage creates a message broadcast stage. A nil emitter makes the stage an inert pass\-through.
+
+<a name="MessageBroadcastStage.Process"></a>
+### func \(\*MessageBroadcastStage\) Process
+
+```go
+func (s *MessageBroadcastStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+```
+
+Process publishes each new complete message and forwards all elements.
 
 <a name="MetricsStage"></a>
 ## type MetricsStage
