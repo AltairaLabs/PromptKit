@@ -110,6 +110,11 @@ type RecordingStage struct {
 	store     events.EventStore
 	config    RecordingStageConfig
 	startTime time.Time
+	// msgIndex is the transcript-absolute position of the next complete
+	// message. Every message element is counted, replayed history included, so
+	// the count matches the persisted transcript. Before this, every recorded
+	// message.created carried Index 0.
+	msgIndex int
 }
 
 // NewRecordingStage creates a new recording stage.
@@ -219,49 +224,18 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 
 // recordMessageElement records a complete message.
 func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement) {
-	msg := elem.Message
-	data := &events.MessageCreatedData{
-		Role:    msg.Role,
-		Content: msg.Content,
-		Parts:   msg.Parts,
-		// Carry the turn's assembled reasoning. The provider stage accumulates
-		// it per round and hangs it on the message; without this the trace dies
-		// at the stage boundary and a recorder has to re-accumulate
-		// reasoning.delta fragments and invent a turn boundary to do it.
-		// MessageCreatedData.Reasoning is `json:"-"`, so this stays in-process
-		// for live consumers reading the struct and never reaches a serialized
-		// sink — persistence remains opt-in via the save stage's
-		// PersistReasoning.
-		Reasoning: msg.Reasoning,
-	}
-
-	// Convert tool calls if present
-	if len(msg.ToolCalls) > 0 {
-		data.ToolCalls = make([]events.MessageToolCall, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			data.ToolCalls[i] = events.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: string(tc.Args),
-			}
-		}
-	}
-
-	// Convert tool result if present
-	if msg.ToolResult != nil {
-		data.ToolResult = &events.MessageToolResult{
-			ID:    msg.ToolResult.ID,
-			Name:  msg.ToolResult.Name,
-			Parts: msg.ToolResult.Parts,
-		}
-	}
+	idx := rs.msgIndex
+	rs.msgIndex++
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data:           data,
+		// Binary is retained on this route: recording exists for lossless
+		// replay. The bus route strips it. Both build the payload here so they
+		// cannot otherwise diverge.
+		Data: events.NewMessageCreatedData(elem.Message, idx, false),
 	})
 }
 
