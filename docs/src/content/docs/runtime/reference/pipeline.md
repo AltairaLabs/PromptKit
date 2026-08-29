@@ -4024,12 +4024,16 @@ RecordingStage captures pipeline elements as events for session recording. It ob
 
 Writes synchronously to the EventStore. Slow disk applies back\-pressure to upstream — recording correctness wins over pipeline throughput. For production use cases where this trade\-off is wrong, inject a buffered EventStore implementation via Engine.EnableSessionRecordingWithStore.
 
-Routing, because it surprises people: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It also does not use events.Emitter — it builds each Event literal itself, which is why searching for a producer by emitter method name \(".MessageCreated\("\) finds nothing and message.created looks unemitted.
+Routing: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It does not use events.Emitter — it builds each Event itself — which is why searching for a producer by emitter method name finds nothing here.
 
-Two consequences worth stating plainly:
+It is NOT the only producer of message.created. MessageBroadcastStage publishes the same event on the bus for live consumers, which is the route a TUI or SSE relay wants. The two differ in exactly one way, and deliberately:
 
-- message.created reaches ONLY an EventStore, never a bus subscriber.
-- The stage is opt\-in \(see the builder: it exists only when a RecordingConfig and an EventStore are both set\), so without WithRecording there is no message.created at all. Consumers needing per\-turn reasoning without recording should read reasoning.completed from the bus instead.
+- this route retains full binary, because its purpose is lossless replay;
+- the bus route strips content parts to metadata, so blobs stay out of observability.
+
+Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in — it exists only when a RecordingConfig and an EventStore are both set — but the live route is not, so a consumer without recording still sees messages.
+
+Note this stage re\-records replayed history on every turn, since the load stage runs ahead of it: an N\-turn recording holds turn 1 N times.
 
 See the routing note on events.Emitter.emit for the other side.
 

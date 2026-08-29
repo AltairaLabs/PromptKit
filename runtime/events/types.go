@@ -526,6 +526,21 @@ type MessageToolResult struct {
 }
 
 // MessageCreatedData contains data for message creation events.
+// MessageCreatedData is the payload of a message.created event.
+//
+// Two routes carry this type, and a consumer on both will see one difference:
+// the recording route (RecordingStage -> EventStore) retains binary content
+// parts for lossless replay, while the bus route (MessageBroadcastStage ->
+// EventBus) strips them to metadata. Everything else — Role, Content, Index,
+// ToolCalls, ToolResult, Reasoning — is identical, because both build through
+// NewMessageCreatedData.
+//
+// Caveat worth knowing before reading Content: RecordingStage ALSO reuses this
+// type for things that are not messages. recordTextElement emits a streaming
+// token fragment, and recordImageElement/recordVideoElement emit a JSON blob of
+// media metadata, each with only Role and Content set. Those shapes predate the
+// live route and are tracked for retyping; until then, a Content value on a
+// recording-sourced event is not necessarily message text.
 type MessageCreatedData struct {
 	baseEventData
 	Role       string
