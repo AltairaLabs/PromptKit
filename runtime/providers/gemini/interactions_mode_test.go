@@ -111,13 +111,16 @@ func TestResolveAPIMode_GateAppliesToOlderModels(t *testing.T) {
 		"routing 2.5 to interactions gains nothing and changes the API it uses")
 }
 
-// TestInteractionsURL covers both auth shapes: the key rides in the query for
-// Google AI Studio, while Vertex authenticates by header.
+// TestInteractionsURL pins that neither platform carries a credential in the
+// URL. Both authenticate by header now — Vertex with a Bearer token, AI Studio
+// with x-goog-api-key. The key used to ride in the query string here, which put
+// it inside *url.Error on any transport failure and so into the logs.
 func TestInteractionsURL(t *testing.T) {
 	p := &Provider{baseURL: "https://generativelanguage.googleapis.com/v1beta", apiKey: "K"}
 	url := p.interactionsURL()
-	assert.True(t, strings.HasSuffix(url, "/interactions?key=K"), "got %s", url)
+	assert.True(t, strings.HasSuffix(url, "/interactions"), "got %s", url)
 	assert.Contains(t, url, "/v1beta/interactions")
+	assert.NotContains(t, url, "key=", "no credential in the URL: %s", url)
 }
 
 // TestBuildInteractionsRequest_SystemLeadsTranscript covers a shape difference:

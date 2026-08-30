@@ -62,6 +62,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func ParsePlatformHTTPError\(platform string, statusCode int, body \[\]byte\) error](<#ParsePlatformHTTPError>)
 - [func ReadErrorBody\(body io.Reader\) \[\]byte](<#ReadErrorBody>)
 - [func ReadResponseBody\(body io.Reader\) \(\[\]byte, error\)](<#ReadResponseBody>)
+- [func RedactURLSecrets\(s string\) string](<#RedactURLSecrets>)
 - [func RegisterEmbeddingProviderFactory\(providerType string, factory EmbeddingProviderFactory\)](<#RegisterEmbeddingProviderFactory>)
 - [func RegisterPlatformEmbeddingProvider\(typeName string, spec PlatformEmbeddingSpec\)](<#RegisterPlatformEmbeddingProvider>)
 - [func RegisterProviderFactory\(providerType string, factory ProviderFactory\)](<#RegisterProviderFactory>)
@@ -727,6 +728,21 @@ func ReadResponseBody(body io.Reader) ([]byte, error)
 ```
 
 ReadResponseBody reads and returns the response body, limiting the size to DefaultMaxPayloadSize to prevent unbounded memory consumption.
+
+<a name="RedactURLSecrets"></a>
+## func RedactURLSecrets
+
+```go
+func RedactURLSecrets(s string) string
+```
+
+RedactURLSecrets masks credential\-bearing query parameters in any URLs found in s, leaving the rest of the string untouched.
+
+It exists because credentials in URLs reach logs through error strings, not through the logger. Gemini carries its API key as \`?key=\`, Go's \*url.Error embeds the full URL, and every layer that wraps that error reformats the same text — so one transport failure wrote a live key to the log several times over. Redacting where the error is FORMATTED covers every wrapping layer at once, and covers any provider, not just the one that was noticed.
+
+This is a backstop, not the primary defense. A credential is better kept out of the URL entirely — see the Gemini provider's x\-goog\-api\-key header.
+
+The host, path and non\-secret parameters are preserved: an error that cannot say which endpoint failed is not much use.
 
 <a name="RegisterEmbeddingProviderFactory"></a>
 ## func RegisterEmbeddingProviderFactory
@@ -1811,6 +1827,11 @@ type HTTPRequestConfig struct {
     Body        []byte
     UseAPIKey   bool   // If true, adds Authorization: Bearer <APIKey> header
     ContentType string // Defaults to application/json
+    // Headers are set on the request before it is sent. Providers that
+    // authenticate with a non-Bearer scheme use this — notably Gemini, whose
+    // key goes in x-goog-api-key so it never enters the URL and therefore
+    // never reaches a log through *url.Error.
+    Headers map[string]string
 }
 ```
 
@@ -2437,7 +2458,7 @@ type ProviderHTTPError struct {
 func (e *ProviderHTTPError) Error() string
 ```
 
-
+Error redacts credential\-bearing query parameters in the URL. Some providers authenticate via the query string, so an unredacted URL in an error message writes a live credential to every log that touches it.
 
 <a name="ProviderSpec"></a>
 ## type ProviderSpec
@@ -2584,7 +2605,9 @@ type ProviderTransportError struct {
 func (e *ProviderTransportError) Error() string
 ```
 
+Error redacts credential\-bearing query parameters. The cause is typically a \*url.Error, which embeds the full request URL — and every layer that wraps this error reformats the same text, so one failure would otherwise write the credential to the log repeatedly.
 
+Unwrap deliberately still returns the raw cause: errors.Is/As must keep working against the original \*url.Error. Anything that formats the unwrapped cause directly bypasses this, which is why the credential should not be in the URL to begin with.
 
 <a name="ProviderTransportError.Unwrap"></a>
 ### func \(\*ProviderTransportError\) Unwrap

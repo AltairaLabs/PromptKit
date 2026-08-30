@@ -322,7 +322,7 @@ func (p *Provider) cachedContentsCreateURL() string {
 		// baseURL: .../projects/{proj}/locations/{loc}/publishers/google/models
 		return strings.TrimSuffix(p.baseURL, "/publishers/google/models") + "/cachedContents"
 	}
-	return fmt.Sprintf("%s/cachedContents?key=%s", p.baseURL, p.apiKey)
+	return p.baseURL + "/cachedContents"
 }
 
 // cachedContentModelField returns the create-body "model" value.
@@ -343,5 +343,5 @@ func (p *Provider) cachedContentDeleteURL(name string) string {
 			return p.baseURL[:i+len("/v1/")] + name
 		}
 	}
-	return fmt.Sprintf("%s/%s?key=%s", p.baseURL, name, p.apiKey)
+	return fmt.Sprintf("%s/%s", p.baseURL, name)
 }

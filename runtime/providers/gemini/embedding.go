@@ -197,11 +197,13 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	start := time.Now()
-	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	url := fmt.Sprintf("%s"+embedContentPath, p.BaseURL, model)
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
-		URL:       url,
-		Body:      jsonBody,
-		UseAPIKey: false, // Gemini uses API key in URL
+		URL:  url,
+		Body: jsonBody,
+		// Key by header, never in the URL — see gemini.applyAuth.
+		UseAPIKey: false,
+		Headers:   map[string]string{apiKeyHeader: p.APIKey},
 	})
 	if err != nil {
 		return providers.EmbeddingResponse{}, err
@@ -266,11 +268,13 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	}
 
 	start := time.Now()
-	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	url := fmt.Sprintf("%s"+batchEmbedContentsPath, p.BaseURL, model)
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
-		URL:       url,
-		Body:      jsonBody,
-		UseAPIKey: false, // Gemini uses API key in URL
+		URL:  url,
+		Body: jsonBody,
+		// Key by header, never in the URL — see gemini.applyAuth.
+		UseAPIKey: false,
+		Headers:   map[string]string{apiKeyHeader: p.APIKey},
 	})
 	if err != nil {
 		return providers.EmbeddingResponse{}, err

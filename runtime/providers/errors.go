@@ -20,8 +20,13 @@ type ProviderHTTPError struct {
 	Provider   string
 }
 
+// Error redacts credential-bearing query parameters in the URL. Some providers
+// authenticate via the query string, so an unredacted URL in an error message
+// writes a live credential to every log that touches it.
 func (e *ProviderHTTPError) Error() string {
-	return fmt.Sprintf("API request to %s failed with status %d: %s", e.URL, e.StatusCode, e.Body)
+	return RedactURLSecrets(
+		fmt.Sprintf("API request to %s failed with status %d: %s", e.URL, e.StatusCode, e.Body),
+	)
 }
 
 // ProviderTransportError wraps a connection-level failure (http2 reset,
@@ -31,8 +36,17 @@ type ProviderTransportError struct {
 	Provider string
 }
 
+// Error redacts credential-bearing query parameters. The cause is typically a
+// *url.Error, which embeds the full request URL — and every layer that wraps
+// this error reformats the same text, so one failure would otherwise write the
+// credential to the log repeatedly.
+//
+// Unwrap deliberately still returns the raw cause: errors.Is/As must keep
+// working against the original *url.Error. Anything that formats the unwrapped
+// cause directly bypasses this, which is why the credential should not be in
+// the URL to begin with.
 func (e *ProviderTransportError) Error() string {
-	return fmt.Sprintf("provider transport error: %v", e.Cause)
+	return RedactURLSecrets(fmt.Sprintf("provider transport error: %v", e.Cause))
 }
 
 func (e *ProviderTransportError) Unwrap() error {
