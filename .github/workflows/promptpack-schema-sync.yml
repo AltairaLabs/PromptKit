@@ -1,0 +1,137 @@
+name: PromptPack Schema Sync
+
+# Keeps runtime/prompt/schema/promptpack.schema.json equal to the published
+# PromptPack release by raising a PR when the spec publishes a new one.
+#
+# This is the PULL half of the contract. The PUSH half — a repository_dispatch
+# from AltairaLabs/promptpack-spec when it tags a release — is already wired
+# below and needs no change here: the spec repo's publish-schema.yml just has to
+# POST to /repos/AltairaLabs/PromptKit/dispatches with
+# event_type=promptpack-release. That needs a PAT in promptpack-spec, which
+# currently holds no secrets, so until someone adds one the daily schedule does
+# the job with a worst case of ~24h. The spec has released 13 times in two
+# years; the latency is not the problem worth solving.
+#
+# Deliberately opens a PR rather than pushing to main. Resyncing is NOT always
+# mechanical: the 2026-08-30 resync (#1891) broke two spec-parity tests and
+# needed a human decision about whether `Validator.message` and
+# `Variable.binding` belong on the compiled structs. The bot does the fetch; a
+# human resolves genuine spec-vs-runtime conflicts.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [promptpack-release]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Raise PR if the published schema has moved
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # Use the PAT so the resulting PR triggers CI. A PR opened with the
+        # default GITHUB_TOKEN does not start workflow runs, which would hide
+        # the spec-parity failures this PR exists to surface.
+        token: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Fetch the published schema
+      run: ./scripts/fetch-promptpack-schema.sh
+
+    - name: Detect change
+      id: detect
+      run: |
+        EMBEDDED="runtime/prompt/schema/promptpack.schema.json"
+        if git diff --quiet -- "$EMBEDDED"; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "✓ Embedded PromptPack schema is already the published release"
+        else
+          VERSION=$(python3 -c "import json; print(json.load(open('$EMBEDDED'))['version'])")
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published release is v$VERSION; embedded copy differs."
+        fi
+
+    # Run the guards here as well as on the PR, so the PR body can say up front
+    # whether this is a clean pickup or needs a decision.
+    - name: Check spec-parity guards against the new schema
+      if: steps.detect.outputs.changed == 'true'
+      id: guards
+      continue-on-error: true
+      run: |
+        set +e
+        OUT=$(go -C runtime test ./prompt/... -count=1 -run 'MatchesPromptPackSpec' 2>&1)
+        RUNTIME_RC=$?
+        SDK_OUT=$(go -C sdk test ./internal/pack/... -count=1 2>&1)
+        SDK_RC=$?
+        OUT="${OUT}"$'\n'"${SDK_OUT}"
+        {
+          echo "output<<GUARDS_EOF"
+          echo "$OUT" | grep -E '^(---|FAIL|ok)' | head -40
+          echo "GUARDS_EOF"
+        } >> "$GITHUB_OUTPUT"
+        if [ $RUNTIME_RC -eq 0 ] && [ $SDK_RC -eq 0 ]; then
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "clean=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Open or update the sync PR
+      if: steps.detect.outputs.changed == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+        VERSION: ${{ steps.detect.outputs.version }}
+        CLEAN: ${{ steps.guards.outputs.clean }}
+        GUARDS: ${{ steps.guards.outputs.output }}
+      run: |
+        BRANCH="chore/promptpack-schema-v${VERSION}"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -B "$BRANCH"
+        git add runtime/prompt/schema/promptpack.schema.json
+        git commit -s -m "chore(schema): sync embedded PromptPack schema to v${VERSION}
+
+        Fetched verbatim from the published release by
+        scripts/fetch-promptpack-schema.sh. The embedded copy is a mirror and is
+        never hand-edited; see runtime/prompt/schema/schema.go."
+        git push -f origin "$BRANCH"
+
+        if [ "$CLEAN" = "true" ]; then
+          STATUS="**Clean pickup.** The spec-parity guards and pack schema tests pass against v${VERSION}."
+        else
+          STATUS="**Needs a decision.** A guard fails against v${VERSION} — the spec and the runtime disagree about a field.
+
+        Resolve it by changing the Go type, or by recording a \`deliberateOmission\` in \`runtime/prompt/validator_spec_parity_test.go\` with the reason. **Do not edit the schema** — it is a verbatim mirror of the release."
+        fi
+
+        BODY="Automated sync: the published PromptPack schema is now **v${VERSION}**.
+
+        ${STATUS}
+
+        \`\`\`
+        ${GUARDS}
+        \`\`\`
+
+        Raised by \`.github/workflows/promptpack-schema-sync.yml\`."
+
+        if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+          gh pr edit "$BRANCH" --body "$BODY"
+          echo "✓ Updated existing PR for $BRANCH"
+        else
+          gh pr create --head "$BRANCH" --base main \
+            --title "chore(schema): sync embedded PromptPack schema to v${VERSION}" \
+            --body "$BODY"
+          echo "✓ Opened PR for $BRANCH"
+        fi
