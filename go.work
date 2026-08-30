@@ -22,5 +22,6 @@ use (
 	./server/a2a
 	./server/a2a/examples/a2a-auth-test
 	./server/a2a/examples/a2a-demo
+	./tools/packspec-gen
 	./tools/seamscan
 )
