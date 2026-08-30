@@ -446,6 +446,16 @@ func collectPipelineStages(
 			cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope))
 	}
 
+	// 5.8 Live message broadcast - publishes message.created on the bus as each
+	// complete message arrives. Gated ONLY on an emitter: a consumer that
+	// supplied a bus wants to watch the conversation whether or not it persists
+	// or records one, so this must not sit behind the state store or
+	// WithRecording. Placed before the save sink so a message is broadcast as
+	// soon as it exists.
+	if cfg.EventEmitter != nil {
+		stages = append(stages, stage.NewMessageBroadcastStage(cfg.EventEmitter))
+	}
+
 	// 6. State store save stage - saves conversation state LAST
 	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
 

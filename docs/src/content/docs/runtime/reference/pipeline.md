@@ -248,6 +248,9 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewMergeStage\(name string, inputCount int\) \*MergeStage](<#NewMergeStage>)
   - [func \(s \*MergeStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MergeStage.Process>)
   - [func \(s \*MergeStage\) ProcessMultiple\(ctx context.Context, inputs \[\]\<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MergeStage.ProcessMultiple>)
+- [type MessageBroadcastStage](<#MessageBroadcastStage>)
+  - [func NewMessageBroadcastStage\(emitter \*events.Emitter\) \*MessageBroadcastStage](<#NewMessageBroadcastStage>)
+  - [func \(s \*MessageBroadcastStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MessageBroadcastStage.Process>)
 - [type MetricsStage](<#MetricsStage>)
   - [func NewMetricsStage\(wrappedStage Stage\) \*MetricsStage](<#NewMetricsStage>)
   - [func \(s \*MetricsStage\) GetMetrics\(\) StageMetrics](<#MetricsStage.GetMetrics>)
@@ -3233,6 +3236,60 @@ func (s *MergeStage) ProcessMultiple(ctx context.Context, inputs []<-chan Stream
 
 ProcessMultiple processes multiple input channels and merges them into one output. This is a special method for merge stages that differs from the standard Process signature.
 
+<a name="MessageBroadcastStage"></a>
+## type MessageBroadcastStage
+
+MessageBroadcastStage publishes message.created on the EventBus for each new complete message that streams through it, and forwards every element unchanged.
+
+This is the LIVE route for messages: async, lossy, binary stripped. It is what a consumer watching a conversation unfold wants — a TUI, an SSE relay, a log tail. It needs no EventStore and no state store, so it works on any pipeline that has an emitter.
+
+RecordingStage is the FIDELITY route for the same event type: synchronous, lossless, full binary, opt\-in, straight to an EventStore. Both build their payload with events.NewMessageCreatedData, so they carry the same data for the same message except Parts.
+
+Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
+
+Index is transcript\-absolute, and history is never re\-published, so a subscriber sees each message once at the position the persisted transcript will hold it.
+
+Two things make that work, and both are load\-bearing:
+
+- The counter is LOCAL to each Process call, never a field on the stage. A pipeline is built once and re\-executed per turn \(sdk/sdk.go:687\), so a counter on the stage would keep climbing across turns and would also be a data race — pipeline.go documents that stage objects are shared across concurrent Execute calls. Counting per execution is correct because the provider re\-emits the whole accumulated transcript on every turn.
+
+- History is detected by Message.Source, NOT by Meta.FromHistory. ProviderStage rebuilds every message with NewMessageElement \(stages\_provider.go:561\), which produces a zero Meta, so element metadata does not survive to any stage downstream of the provider. Source travels with the message value and does. isNewMessage is the same predicate IncrementalSaveStage uses for the same question.
+
+PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message element, in transcript order, within a single Process call. The pipeline is a DAG — PipelineBuilder offers Branch, Merge and Connect, and RouterStage does selective fan\-out — so that is a real constraint, not a formality, and nothing enforces it:
+
+- Downstream of every message producer. Assistant messages are created by ProviderStage, by CompositionStage \(which REPLACES ProviderStage for composition states\), and by the media\-compose and video\-frame stages. A message routed down a branch this stage is not on is silently never published.
+
+- On an order\-preserving path. Index is the element's position in the stream this call saw. It is transcript\-absolute only because the provider re\-emits the accumulated transcript in order down a linear chain. MergeStage spawns a goroutine per input, so downstream of a fan\-in the interleaving — and therefore Index — is nondeterministic. Completeness survives a merge; ordering does not. Both are pinned by tests.
+
+It does NOT need to be adjacent to the save stage. The SDK builder places it immediately before that sink only so a message broadcasts as soon as it exists; correctness does not depend on it.
+
+Read Index rather than arrival order. The bus dispatches through a worker pool, so subscribers can and do receive these out of publish order — Index is what lets a consumer reassemble a transcript from a stream that makes no ordering promise.
+
+```go
+type MessageBroadcastStage struct {
+    BaseStage
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewMessageBroadcastStage"></a>
+### func NewMessageBroadcastStage
+
+```go
+func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage
+```
+
+NewMessageBroadcastStage creates a message broadcast stage. A nil emitter makes the stage an inert pass\-through.
+
+<a name="MessageBroadcastStage.Process"></a>
+### func \(\*MessageBroadcastStage\) Process
+
+```go
+func (s *MessageBroadcastStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+```
+
+Process publishes each new complete message and forwards all elements.
+
 <a name="MetricsStage"></a>
 ## type MetricsStage
 
@@ -4024,12 +4081,16 @@ RecordingStage captures pipeline elements as events for session recording. It ob
 
 Writes synchronously to the EventStore. Slow disk applies back\-pressure to upstream — recording correctness wins over pipeline throughput. For production use cases where this trade\-off is wrong, inject a buffered EventStore implementation via Engine.EnableSessionRecordingWithStore.
 
-Routing, because it surprises people: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It also does not use events.Emitter — it builds each Event literal itself, which is why searching for a producer by emitter method name \(".MessageCreated\("\) finds nothing and message.created looks unemitted.
+Routing: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It does not use events.Emitter — it builds each Event itself — which is why searching for a producer by emitter method name finds nothing here.
 
-Two consequences worth stating plainly:
+It is NOT the only producer of message.created. MessageBroadcastStage publishes the same event on the bus for live consumers, which is the route a TUI or SSE relay wants. The two differ in exactly one way, and deliberately:
 
-- message.created reaches ONLY an EventStore, never a bus subscriber.
-- The stage is opt\-in \(see the builder: it exists only when a RecordingConfig and an EventStore are both set\), so without WithRecording there is no message.created at all. Consumers needing per\-turn reasoning without recording should read reasoning.completed from the bus instead.
+- this route retains full binary, because its purpose is lossless replay;
+- the bus route strips content parts to metadata, so blobs stay out of observability.
+
+Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in — it exists only when a RecordingConfig and an EventStore are both set — but the live route is not, so a consumer without recording still sees messages.
+
+Note this stage re\-records replayed history on every turn, since the load stage runs ahead of it: an N\-turn recording holds turn 1 N times.
 
 See the routing note on events.Emitter.emit for the other side.
 

@@ -78,7 +78,11 @@ func NewTokenBudgetStageWithTurnState(config *TokenBudgetConfig, turnState *Turn
 
 // budgetInput holds the collected input for token budget processing.
 type budgetInput struct {
-	messages        []types.Message
+	messages []types.Message
+	// fromHistory is index-aligned with messages: the per-element FromHistory
+	// flag each message arrived with. collectInput previously kept only
+	// *elem.Message, so every re-emitted message came out FromHistory:false.
+	fromHistory     []bool
 	nonMessageElems []StreamElement
 	systemPrompt    string
 }
@@ -96,11 +100,18 @@ func (s *TokenBudgetStage) Process(
 	s.warnLargeConversation(collected.messages)
 
 	messages := collected.messages
+	fromHistory := collected.fromHistory
 	if s.config.MaxTokens > 0 {
 		messages = s.enforceTokenBudget(messages, collected.systemPrompt)
+		if len(messages) != len(collected.messages) {
+			// Truncation dropped messages, so the collected flags no longer
+			// align by index. nil makes emitResults read each message's own
+			// Source instead.
+			fromHistory = nil
+		}
 	}
 
-	return s.emitResults(ctx, messages, collected.nonMessageElems, output)
+	return s.emitResults(ctx, messages, fromHistory, collected.nonMessageElems, output)
 }
 
 // collectInput reads all elements from the input channel, separating
@@ -112,6 +123,7 @@ func (s *TokenBudgetStage) collectInput(input <-chan StreamElement) *budgetInput
 	for elem := range input {
 		if elem.Message != nil {
 			bi.messages = append(bi.messages, *elem.Message)
+			bi.fromHistory = append(bi.fromHistory, elem.Meta.FromHistory)
 			continue
 		}
 		bi.nonMessageElems = append(bi.nonMessageElems, elem)
@@ -136,14 +148,24 @@ func (s *TokenBudgetStage) warnLargeConversation(messages []types.Message) {
 }
 
 // emitResults sends messages and non-message elements to the output channel.
+// fromHistory is index-aligned with messages, or nil when truncation has made
+// alignment impossible — then each message's own Source is used.
 func (s *TokenBudgetStage) emitResults(
 	ctx context.Context,
 	messages []types.Message,
+	fromHistory []bool,
 	nonMessageElems []StreamElement,
 	output chan<- StreamElement,
 ) error {
 	for i := range messages {
 		elem := NewMessageElement(&messages[i])
+		// NewMessageElement starts with a zero Meta, so without this every
+		// re-emitted history message looked new to downstream stages.
+		if fromHistory != nil {
+			elem.Meta.FromHistory = fromHistory[i]
+		} else {
+			elem.Meta.FromHistory = !isNewMessage(&messages[i])
+		}
 		select {
 		case output <- elem:
 		case <-ctx.Done():

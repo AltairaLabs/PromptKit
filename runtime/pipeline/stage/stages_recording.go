@@ -89,20 +89,26 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // production use cases where this trade-off is wrong, inject a buffered
 // EventStore implementation via Engine.EnableSessionRecordingWithStore.
 //
-// Routing, because it surprises people: this stage writes DIRECTLY to the
-// EventStore and never touches the EventBus. It also does not use
-// events.Emitter — it builds each Event literal itself, which is why searching
-// for a producer by emitter method name (".MessageCreated(") finds nothing and
-// message.created looks unemitted.
+// Routing: this stage writes DIRECTLY to the EventStore and never touches the
+// EventBus. It does not use events.Emitter — it builds each Event itself —
+// which is why searching for a producer by emitter method name finds nothing
+// here.
 //
-// Two consequences worth stating plainly:
+// It is NOT the only producer of message.created. MessageBroadcastStage
+// publishes the same event on the bus for live consumers, which is the route a
+// TUI or SSE relay wants. The two differ in exactly one way, and deliberately:
 //
-//   - message.created reaches ONLY an EventStore, never a bus subscriber.
-//   - The stage is opt-in (see the builder: it exists only when a
-//     RecordingConfig and an EventStore are both set), so without
-//     WithRecording there is no message.created at all. Consumers needing
-//     per-turn reasoning without recording should read reasoning.completed
-//     from the bus instead.
+//   - this route retains full binary, because its purpose is lossless replay;
+//   - the bus route strips content parts to metadata, so blobs stay out of
+//     observability.
+//
+// Both build the payload with events.NewMessageCreatedData so nothing else can
+// drift. This stage is opt-in — it exists only when a RecordingConfig and an
+// EventStore are both set — but the live route is not, so a consumer without
+// recording still sees messages.
+//
+// Note this stage re-records replayed history on every turn, since the load
+// stage runs ahead of it: an N-turn recording holds turn 1 N times.
 //
 // See the routing note on events.Emitter.emit for the other side.
 type RecordingStage struct {
@@ -131,9 +137,17 @@ func (rs *RecordingStage) Process(
 ) error {
 	defer close(output)
 
+	// Transcript-absolute position of the next complete message, LOCAL to this
+	// execution. A pipeline is built once and re-executed per turn
+	// (sdk/sdk.go:687), so a counter held on the stage would climb across turns
+	// and would also race — stage objects are shared across concurrent Execute
+	// calls (see pipeline.go). Every message element is counted, replayed
+	// history included, so the count matches the persisted transcript.
+	msgIndex := 0
+
 	for elem := range input {
 		// Record the element as event(s)
-		rs.recordElement(ctx, &elem)
+		rs.recordElement(ctx, &elem, &msgIndex)
 
 		// Pass through unchanged
 		select {
@@ -147,7 +161,7 @@ func (rs *RecordingStage) Process(
 }
 
 // recordElement converts a StreamElement to events and persists them.
-func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement) {
+func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	if rs.store == nil {
 		return
 	}
@@ -168,7 +182,7 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 	case elem.Text != nil && rs.config.IncludeStreamingText:
 		rs.recordTextElement(ctx, elem, role)
 	case elem.Message != nil:
-		rs.recordMessageElement(ctx, elem)
+		rs.recordMessageElement(ctx, elem, msgIndex)
 	case elem.Audio != nil && rs.config.IncludeAudio:
 		rs.recordAudioElement(ctx, elem, role)
 	case elem.Image != nil && rs.config.IncludeImages:
@@ -218,50 +232,19 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 }
 
 // recordMessageElement records a complete message.
-func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement) {
-	msg := elem.Message
-	data := &events.MessageCreatedData{
-		Role:    msg.Role,
-		Content: msg.Content,
-		Parts:   msg.Parts,
-		// Carry the turn's assembled reasoning. The provider stage accumulates
-		// it per round and hangs it on the message; without this the trace dies
-		// at the stage boundary and a recorder has to re-accumulate
-		// reasoning.delta fragments and invent a turn boundary to do it.
-		// MessageCreatedData.Reasoning is `json:"-"`, so this stays in-process
-		// for live consumers reading the struct and never reaches a serialized
-		// sink — persistence remains opt-in via the save stage's
-		// PersistReasoning.
-		Reasoning: msg.Reasoning,
-	}
-
-	// Convert tool calls if present
-	if len(msg.ToolCalls) > 0 {
-		data.ToolCalls = make([]events.MessageToolCall, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			data.ToolCalls[i] = events.MessageToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: string(tc.Args),
-			}
-		}
-	}
-
-	// Convert tool result if present
-	if msg.ToolResult != nil {
-		data.ToolResult = &events.MessageToolResult{
-			ID:    msg.ToolResult.ID,
-			Name:  msg.ToolResult.Name,
-			Parts: msg.ToolResult.Parts,
-		}
-	}
+func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
+	idx := *msgIndex
+	*msgIndex++
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data:           data,
+		// Binary is retained on this route: recording exists for lossless
+		// replay. The bus route strips it. Both build the payload here so they
+		// cannot otherwise diverge.
+		Data: events.NewMessageCreatedData(elem.Message, idx, false),
 	})
 }
 

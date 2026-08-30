@@ -743,8 +743,11 @@ func (s *ContextBuilderStage) Process(
 		return nil
 	}
 
-	// Accumulate all messages
+	// Accumulate all messages, keeping each one's FromHistory flag. The flag is
+	// per-message: history replayed upstream carries it, this turn's new
+	// messages do not.
 	var messages []types.Message
+	var fromHistory []bool
 	var firstElem *StreamElement
 
 	for elem := range input {
@@ -754,6 +757,7 @@ func (s *ContextBuilderStage) Process(
 
 		if elem.Message != nil {
 			messages = append(messages, *elem.Message)
+			fromHistory = append(fromHistory, elem.Meta.FromHistory)
 		}
 	}
 
@@ -777,7 +781,7 @@ func (s *ContextBuilderStage) Process(
 	// If under budget, emit all messages
 	if currentTokens <= available {
 		logger.Debug("Context under budget", "current", currentTokens, "available", available)
-		return s.emitMessages(ctx, messages, firstElem, output, false)
+		return s.emitMessages(ctx, messages, fromHistory, firstElem, output, false)
 	}
 
 	// Apply truncation strategy
@@ -789,13 +793,20 @@ func (s *ContextBuilderStage) Process(
 	logger.Warn("Context truncated", "original", len(messages), "truncated", len(truncated), "strategy", s.policy.Strategy)
 
 	// Emit truncated messages with metadata
-	return s.emitMessages(ctx, truncated, firstElem, output, true)
+	// Truncation drops, reorders and (when summarizing) synthesizes messages, so
+	// the collected flags no longer align by index. nil tells emitMessages to read
+	// each message's own Source instead.
+	return s.emitMessages(ctx, truncated, nil, firstElem, output, true)
 }
 
 // emitMessages emits accumulated messages as elements.
+//
+// fromHistory is index-aligned with messages, or nil when truncation has made
+// alignment impossible — see historyFlagAt.
 func (s *ContextBuilderStage) emitMessages(
 	ctx context.Context,
 	messages []types.Message,
+	fromHistory []bool,
 	template *StreamElement,
 	output chan<- StreamElement,
 	truncated bool,
@@ -807,6 +818,13 @@ func (s *ContextBuilderStage) emitMessages(
 		if template != nil {
 			elem.Meta = template.Meta
 		}
+		// FromHistory is PER-MESSAGE and must be set AFTER the template copy.
+		// The template is the first element seen, which on any conversation
+		// with history is a history message — copying its Meta wholesale marked
+		// this turn's live messages as history too. CompositionStage skips
+		// FromHistory elements, so composition silently stopped executing from
+		// turn 2 onward whenever a token budget was configured.
+		elem.Meta.FromHistory = s.historyFlagAt(i, messages, fromHistory)
 
 		if truncated {
 			elem.Meta.ContextTruncated = true
@@ -823,6 +841,21 @@ func (s *ContextBuilderStage) emitMessages(
 	}
 
 	return nil
+}
+
+// historyFlagAt reports whether the message at i came from persisted history.
+//
+// Prefers the flag collected from the incoming element, which is exact. When
+// flags is nil the messages have been through truncation — which drops,
+// reorders and, when summarizing, synthesizes messages — so index alignment is
+// gone and the only surviving provenance is the message's own Source. That is
+// the same question, and the same predicate, IncrementalSaveStage uses to
+// decide which messages are new.
+func (s *ContextBuilderStage) historyFlagAt(i int, messages []types.Message, flags []bool) bool {
+	if flags != nil {
+		return flags[i]
+	}
+	return !isNewMessage(&messages[i])
 }
 
 // countTokens estimates token count using the configured TokenCounter.

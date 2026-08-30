@@ -299,6 +299,8 @@ func (s *LoggerStage) Process(ctx context.Context, input <-chan StreamElement, o
 | `PromptAssemblyStage` | Assemble prompts from registry |
 | `TemplateStage` | Variable substitution |
 | `ProviderStage` | LLM execution with tool support; validation runs here as `ProviderHook` chains |
+| `MessageBroadcastStage` | Publish `message.created` on the EventBus as each complete message arrives (live route; needs only an emitter) |
+| `RecordingStage` | Write content-carrying events directly to an `EventStore` (fidelity route; synchronous, lossless, retains binary) |
 
 ### Streaming Stages
 

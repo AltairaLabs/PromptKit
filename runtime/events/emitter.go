@@ -58,10 +58,14 @@ func (e *Emitter) WithUserID(userID string) *Emitter {
 //
 // Consequences that have bitten more than once:
 //
-//   - message.created is emitted ONLY by RecordingStage, so it never reaches a
-//     bus subscriber, and does not exist at all without WithRecording. A
-//     consumer needing per-turn reasoning without recording wants
-//     reasoning.completed, which is emitted here.
+//   - message.created takes BOTH routes, and which one a consumer is on decides
+//     what it gets. MessageBroadcastStage publishes it here for live consumers
+//     with binary stripped; RecordingStage appends it to an EventStore for
+//     replay with binary retained. Both build the payload with
+//     NewMessageCreatedData, so Parts is the only difference. The trap is no
+//     longer which route the TYPE takes but which route a FIELD lands on:
+//     v1.5.12 put the reasoning trace on the recording route alone and it
+//     reached nobody. Bus-delivered reasoning is reasoning.completed.
 //   - Searching for a producer by emitter method name misses RecordingStage
 //     entirely: it builds the Event literal itself rather than calling these
 //     methods.
@@ -531,18 +535,29 @@ func (e *Emitter) EmitCustom(
 	})
 }
 
-// MessageCreated emits the message.created event on the BUS.
+// MessageCreatedCtx emits message.created on the bus from a full payload, with
+// trace context for exemplar correlation.
 //
-// Deprecated: nothing in this repo calls it, and calling it is probably a
-// mistake. message.created is produced by RecordingStage, which does NOT go
-// through this emitter or the bus at all — see the routing note on Emitter.
-// Adding a second producer here would give bus subscribers a message.created
-// that recording-store consumers never see, and would double-record for any
-// consumer attached to both. Kept only so existing external callers still
-// compile.
+// Struct-taking, matching ProviderCallStartedCtx and ToolCallEventCtx. Prefer
+// it to the positional MessageCreated, which already takes seven parameters.
+//
+// Build the payload with NewMessageCreatedData so this route and the recording
+// route carry the same data for the same message.
+func (e *Emitter) MessageCreatedCtx(ctx context.Context, data *MessageCreatedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventMessageCreated, data)
+}
+
+// MessageCreated emits the message.created event on the bus.
+//
+// Prefer MessageCreatedCtx, which takes the payload as a struct and carries
+// trace context.
 //
 // Binary data (base64 Data, FilePath) is stripped from content parts to avoid
-// large payloads in observability events.
+// large payloads in observability events; the recording route retains it. See
+// the routing note on emit.
 func (e *Emitter) MessageCreated(
 	role, content string,
 	index int,
