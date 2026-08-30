@@ -45,7 +45,14 @@ type JudgeProvider interface {
 // record jr.Passed when the model returned it so consumers that inspect
 // Details can see the model's own opinion alongside the score.
 //
-//nolint:unparam // error return kept for future extensibility
+// A response that cannot be read is an ERROR, not a measurement. It used to
+// return Score 0.5 (the pass threshold), Passed true and a nil error, so the
+// runner recorded a judge that could not be read as one that scored exactly
+// half — a fabricated number that reached gauges and anything gating on score,
+// with only a Reasoning string as evidence and nothing acting on it (#1882).
+//
+// The likeliest trigger is a rubric: Score is a float64, so a judge asked for
+// per-dimension scores answers with an object and the unmarshal fails outright.
 func parseJudgeResponse(raw string) (*JudgeResult, error) {
 	var parsed struct {
 		Passed    *bool   `json:"passed"`
@@ -62,12 +69,8 @@ func parseJudgeResponse(raw string) (*JudgeResult, error) {
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
-		return &JudgeResult{
-			Passed:    true,
-			Score:     defaultPassThreshold,
-			Reasoning: "Could not parse judge response",
-			Raw:       raw,
-		}, nil
+		return nil, fmt.Errorf("judge response could not be parsed: %w (raw: %s)",
+			err, truncateForError(raw))
 	}
 
 	result := &JudgeResult{
@@ -216,3 +219,13 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 
 // Ensure SpecJudgeProvider implements JudgeProvider.
 var _ JudgeProvider = (*SpecJudgeProvider)(nil)
+
+// truncateForError bounds a raw judge response so a parse failure names what
+// came back without pasting an entire model reply into a log line.
+func truncateForError(raw string) string {
+	const maxRawInError = 200
+	if len(raw) <= maxRawInError {
+		return raw
+	}
+	return raw[:maxRawInError] + "…"
+}
