@@ -825,6 +825,12 @@ func WithPendingStore(store sdktools.PendingStore) Option {
 //	    sdk.WithStateStore(store),
 //	    sdk.WithConversationID("user-123-session-456"),
 //	)
+//
+// Requires WithStateStore to be resumable. Without one, each Open creates its
+// own private in-memory store, so the same id passed to a second Open resolves
+// to a different, empty conversation — turns accumulate within a single
+// Conversation, but nothing survives it. Setting an id with no store logs a
+// warning saying so.
 func WithConversationID(id string) Option {
 	return func(c *config) error {
 		c.conversationID = id

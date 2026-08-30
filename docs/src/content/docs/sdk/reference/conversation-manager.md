@@ -3133,6 +3133,8 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 )
 ```
 
+Requires WithStateStore to be resumable. Without one, each Open creates its own private in\-memory store, so the same id passed to a second Open resolves to a different, empty conversation — turns accumulate within a single Conversation, but nothing survives it. Setting an id with no store logs a warning saying so.
+
 <a name="WithCredential"></a>
 ### func WithCredential
 

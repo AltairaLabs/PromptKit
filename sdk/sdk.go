@@ -660,7 +660,34 @@ func initEventBus(cfg *config) {
 // This enables the StateStoreLoad/Save middleware to manage conversation history.
 // Also generates a unique conversation ID if not already set.
 // Finally, creates a TextSession wrapping a pre-configured pipeline.
+// warnIfConversationIDInert says so when a caller has set a conversation id
+// that cannot do what they almost certainly want.
+//
+// Without a supplied state store every Open gets its own private memory store,
+// so two Opens with the SAME id hold two isolated conversations, neither able
+// to see the other. Turns still accumulate within a single Conversation — the
+// id is not useless — but resuming a conversation in a later process, or in a
+// second Open, needs a store that outlives the Conversation.
+//
+// A warning rather than an error: the single-Conversation case is legitimate
+// and common, so failing here would break working code. The complaint in #1838
+// was that it is SILENT, not that it is invalid.
+func warnIfConversationIDInert(cfg *config) {
+	if cfg.conversationID == "" || cfg.stateStore != nil {
+		return
+	}
+	logger.Warn(
+		"WithConversationID has no cross-process effect without a state store",
+		"conversation_id", cfg.conversationID,
+		"detail", "each Open without WithStateStore gets its own private in-memory store, "+
+			"so the same id in another Open resolves to a different, empty conversation. "+
+			"Supply WithStateStore to make the id resumable.",
+	)
+}
+
 func initInternalStateStore(conv *Conversation, cfg *config) error {
+	warnIfConversationIDInert(cfg)
+
 	var store statestore.Store
 	if cfg.stateStore != nil {
 		// User provided a state store (e.g., Redis for persistence)
