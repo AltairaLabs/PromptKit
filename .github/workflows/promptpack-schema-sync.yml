@@ -3,14 +3,20 @@ name: PromptPack Schema Sync
 # Keeps runtime/prompt/schema/promptpack.schema.json equal to the published
 # PromptPack release by raising a PR when the spec publishes a new one.
 #
-# This is the PULL half of the contract. The PUSH half — a repository_dispatch
-# from AltairaLabs/promptpack-spec when it tags a release — is already wired
-# below and needs no change here: the spec repo's publish-schema.yml just has to
-# POST to /repos/AltairaLabs/PromptKit/dispatches with
-# event_type=promptpack-release. That needs a PAT in promptpack-spec, which
-# currently holds no secrets, so until someone adds one the daily schedule does
-# the job with a worst case of ~24h. The spec has released 13 times in two
-# years; the latency is not the problem worth solving.
+# Two triggers, both wired:
+#   - repository_dispatch from AltairaLabs/promptpack-spec's publish-schema.yml
+#     when it tags a release (event_type=promptpack-release). Picks the release
+#     up within minutes.
+#   - the daily schedule, as the backstop for a missed or failed dispatch.
+#
+# Keep both. A dispatch is fire-and-forget: if the spec repo's step fails, is
+# skipped, or the token lapses, nothing tells this repo it was missed — which is
+# the same shape as the ::warning:: that let the schema drift 143 leaves for two
+# and a half months. The schedule is what makes the sync self-healing.
+#
+# permissions: below governs GITHUB_TOKEN. The push and the PR use
+# PERSONAL_ACCESS_TOKEN instead, for the reason on the "Open or update the sync
+# PR" step.
 #
 # Deliberately opens a PR rather than pushing to main. Resyncing is NOT always
 # mechanical: the 2026-08-30 resync (#1891) broke two spec-parity tests and
@@ -26,7 +32,8 @@ on:
     types: [promptpack-release]
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   sync:
@@ -37,10 +44,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # Use the PAT so the resulting PR triggers CI. A PR opened with the
-        # default GITHUB_TOKEN does not start workflow runs, which would hide
-        # the spec-parity failures this PR exists to surface.
-        token: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+        # Check out with the PAT so the branch push below is attributed to it
+        # rather than to GITHUB_TOKEN — see the note on "Open or update the sync
+        # PR". Mirrors promptarena-deploy-foundry's update-deps.yml.
+        token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -88,10 +95,15 @@ jobs:
           echo "clean=false" >> "$GITHUB_OUTPUT"
         fi
 
+    # The PAT is required, not a preference. GitHub deliberately does not start
+    # workflow runs for events raised by GITHUB_TOKEN (a recursion guard), so a
+    # PR opened with it never gets CI, its required checks never report, and it
+    # sits mergeable-but-BLOCKED forever. It would also hide the spec-parity
+    # failures this PR exists to surface.
     - name: Open or update the sync PR
       if: steps.detect.outputs.changed == 'true'
       env:
-        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+        GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         VERSION: ${{ steps.detect.outputs.version }}
         CLEAN: ${{ steps.guards.outputs.clean }}
         GUARDS: ${{ steps.guards.outputs.output }}
