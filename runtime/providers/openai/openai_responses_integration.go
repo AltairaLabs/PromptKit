@@ -34,8 +34,8 @@ const (
 	// this is where the summary text actually arrives on models that send no
 	// summary deltas (o-series) — verified against a live o4-mini stream.
 	eventTypeOutputDone = "response.output_item.done"
-	eventTypeCompleted      = "response.completed"
-	eventTypeError          = "error"
+	eventTypeCompleted  = "response.completed"
+	eventTypeError      = "error"
 
 	// Audio event types for Responses API streaming
 	eventTypeAudioDelta      = "response.audio.delta"
@@ -186,12 +186,30 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		}
 	}
 
-	// Seed. Omitted entirely when unset, since the API's own default is
-	// "non-deterministic" and sending a zero would pin every run to seed 0.
-	// This builder never read req.Seed until #1742, so reproducibility was
-	// silently lost for every Responses-mode model.
+	// Seed is deliberately NOT sent. The Responses API rejects the parameter
+	// outright — "Unknown parameter: 'seed'" — so sending it 400s every call,
+	// which made reasoning models unusable on the only path that returns
+	// reasoning summaries (#1870).
+	//
+	// #1742 added it here to restore reproducibility, correctly diagnosing that
+	// this builder ignored req.Seed, but the endpoint has no seed to set. It is
+	// not guarded behind unsupportedParams either: that would only make the 400
+	// suppressible, leaving every caller to hit it and configure their way out.
+	// Chat Completions does support seed and still sends it.
+	//
+	// Say so rather than dropping it silently. A caller reaches this path
+	// without asking for it — requiresResponsesAPI routes gpt-5-pro, o1-pro and
+	// friends here regardless of configured api_mode — so someone who set a
+	// seed for reproducibility would otherwise get non-reproducible output with
+	// no signal at all. Same reasoning as the dropped-schema warning in the
+	// Gemini provider (#1848).
 	if req.Seed != nil {
-		responsesReq["seed"] = *req.Seed
+		logger.Warn(
+			"openai: seed dropped — the Responses API has no seed parameter",
+			"model", p.model,
+			"detail", "this request is NOT reproducible. The Responses API rejects 'seed'. "+
+				"Use api_mode: completions on a model that supports it if reproducibility is required.",
+		)
 	}
 
 	// Add response format if specified

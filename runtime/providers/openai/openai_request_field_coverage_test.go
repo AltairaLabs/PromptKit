@@ -69,23 +69,26 @@ func TestBuildToolRequest_SendsResponseFormat(t *testing.T) {
 	assert.NotNil(t, rf)
 }
 
-// TestBuildResponsesRequest_SendsSeed pins the second divergence in #1742.
+// TestBuildResponsesRequest_NeverSendsSeed is the inverse of what this test
+// asserted between #1742 and #1870, and the reversal is the point.
 //
-// buildResponsesRequest never read req.Seed, so reproducibility was silently
-// lost for every Responses-mode model — the one field whose whole purpose is
-// determinism.
-func TestBuildResponsesRequest_SendsSeed(t *testing.T) {
+// #1742 correctly spotted that buildResponsesRequest ignored req.Seed and
+// concluded reproducibility was silently lost. The premise was wrong: the
+// Responses API has no seed parameter and rejects it — "Unknown parameter:
+// 'seed'" — so the fix 400d every Responses-mode call. A test asserting the
+// send made the bug look verified.
+//
+// The field is genuinely not expressible here; see responsesNotApplicable.
+func TestBuildResponsesRequest_NeverSendsSeed(t *testing.T) {
 	p := newFieldCoverageProvider()
 	seed := 42
 	req := providers.PredictionRequest{Seed: &seed}
 
 	got := p.buildResponsesRequest(req, nil, "")
 
-	v, ok := got["seed"]
-	require.True(t, ok,
-		"seed must reach the Responses API; without it a run configured for "+
-			"reproducibility silently is not reproducible")
-	assert.Equal(t, 42, v)
+	_, present := got["seed"]
+	require.False(t, present,
+		"the Responses API rejects 'seed'; sending it 400s the whole call")
 }
 
 // chatCompletionsFieldKeys names the wire key(s) each PredictionRequest field
@@ -111,8 +114,16 @@ var responsesFieldKeys = map[string][]string{
 	"Temperature":    {"temperature"},
 	"TopP":           {"top_p"},
 	"MaxTokens":      {"max_output_tokens"},
-	"Seed":           {"seed"},
 	"ResponseFormat": {"text"},
+}
+
+// responsesNotApplicable records fields the Responses API genuinely cannot
+// express, with the reason. Without this the Responses table would be a
+// snapshot rather than a net: dropping a field from responsesFieldKeys would
+// silently stop checking it, which is the same drift that produced the bugs
+// this file exists to catch.
+var responsesNotApplicable = map[string]string{
+	"Seed": "the Responses API rejects it — \"Unknown parameter: 'seed'\" (#1870)",
 }
 
 // firstPresentKey returns the first of keys present in body, and whether any was.
@@ -210,16 +221,26 @@ func TestPredictionRequestFieldCoverageIsExhaustive(t *testing.T) {
 		name := rt.Field(i).Name
 		_, mapped := chatCompletionsFieldKeys[name]
 		_, exempt := notApplicable[name]
+
 		assert.Truef(t, mapped || exempt,
 			"PredictionRequest.%s is new and undeclared. Add it to "+
 				"chatCompletionsFieldKeys and responsesFieldKeys, or to notApplicable "+
 				"with the reason it is never sent.", name)
 
+		// A field the chat-completions builder sends must have a decision
+		// recorded for the Responses builder too: either the wire key it uses
+		// there, or an explicit note that the endpoint cannot express it. The
+		// escape hatch exists because the two APIs genuinely diverge — but it
+		// must be stated, not implied by absence, or dropping an entry silently
+		// stops checking the field.
 		if mapped {
 			_, inResponses := responsesFieldKeys[name]
-			assert.Truef(t, inResponses,
-				"PredictionRequest.%s is mapped for chat-completions but not for the "+
-					"Responses API; declare its key there too.", name)
+			_, notInResponses := responsesNotApplicable[name]
+			assert.Truef(t, inResponses || notInResponses,
+				"PredictionRequest.%s is mapped for chat-completions but has no "+
+					"decision for the Responses API; declare its key in "+
+					"responsesFieldKeys, or record why it cannot be sent in "+
+					"responsesNotApplicable.", name)
 		}
 	}
 }
