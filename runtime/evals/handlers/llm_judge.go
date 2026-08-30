@@ -54,11 +54,11 @@ func runJudgeEval(
 	}
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
-		return &evals.EvalResult{
-			Type:        handlerType,
-			Score:       boolScore(false),
-			Explanation: extractErr.Error(),
-		}
+		// errorResult, not a bare Score: an eval that could not run has not
+		// measured 0, and Error is what routes it to eval.failed rather than
+		// eval.completed. Score stays 0 so assertions and guardrails keep
+		// failing closed on it.
+		return errorResult(handlerType, extractErr.Error())
 	}
 
 	opts := buildJudgeOpts(content, params)
@@ -66,11 +66,9 @@ func runJudgeEval(
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
-		return &evals.EvalResult{
-			Type:        handlerType,
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}
+		// Includes an unreadable response, which parseJudgeResponse now reports
+		// as an error rather than inventing a score for.
+		return errorResult(handlerType, fmt.Sprintf("judge error: %v", judgeErr))
 	}
 
 	return buildEvalResult(handlerType, judgeResult)

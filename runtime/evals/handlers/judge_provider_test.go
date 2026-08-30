@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -132,19 +133,25 @@ func TestParseJudgeResponse_NoPassed_UsesDefaultThreshold(t *testing.T) {
 	}
 }
 
+// TestParseJudgeResponse_InvalidJSON asserts the OPPOSITE of what it did
+// between its introduction and #1882.
+//
+// It used to require Passed=true and Score=0.5 on a parse failure, commented
+// "Fallback: treat as passed" — pinning fail-open on a judge that could not be
+// read, and recording a fabricated measurement as a real one. The fallback was
+// the bug; the test made it look intended.
 func TestParseJudgeResponse_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	raw := "This is not JSON at all"
 	result, err := parseJudgeResponse(raw)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("an unreadable judge response must be an error, not a measurement")
 	}
-	// Fallback: treat as passed
-	if !result.Passed {
-		t.Error("expected Passed=true on parse failure fallback")
+	if result != nil {
+		t.Errorf("no JudgeResult may be invented, got %+v", result)
 	}
-	if result.Reasoning != "Could not parse judge response" {
-		t.Errorf("unexpected reasoning: %s", result.Reasoning)
+	if !strings.Contains(err.Error(), raw) {
+		t.Errorf("the error should name what came back, got: %v", err)
 	}
 }
 
@@ -153,10 +160,14 @@ func TestSpecJudgeProvider_Implements(t *testing.T) {
 	var _ JudgeProvider = (*SpecJudgeProvider)(nil)
 }
 
+// TestSpecJudgeProvider_Judge drives the provider end to end with a mock whose
+// default reply is not judge JSON.
+//
+// That surfaces as an error now. It previously surfaced as Passed=true and
+// Score=0.5 — a "graceful fallback" that was really a fabricated measurement,
+// and the mock provider made it look like normal operation (#1882).
 func TestSpecJudgeProvider_Judge(t *testing.T) {
 	t.Parallel()
-	// Mock provider returns its default response which won't be valid judge JSON,
-	// but parseJudgeResponse handles that gracefully with a fallback result.
 	spec := &providers.ProviderSpec{
 		Type:  "mock",
 		Model: "test-judge",
@@ -166,15 +177,11 @@ func TestSpecJudgeProvider_Judge(t *testing.T) {
 		Content:  "Hello, how can I help?",
 		Criteria: "Is the response helpful?",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("a non-JSON judge reply must be an error, not a 0.5 measurement")
 	}
-	// Mock returns non-JSON → parseJudgeResponse fallback: Passed=true, Score=0.5
-	if !result.Passed {
-		t.Error("expected Passed=true (parse fallback)")
-	}
-	if result.Score != defaultPassThreshold {
-		t.Errorf("got score %f, want %f", result.Score, defaultPassThreshold)
+	if result != nil {
+		t.Errorf("no JudgeResult may be invented, got %+v", result)
 	}
 }
 
@@ -202,16 +209,20 @@ func TestSpecJudgeProvider_Judge_WithEmitter(t *testing.T) {
 		Criteria: "Is it helpful?",
 		Emitter:  emitter,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// The mock's reply is not judge JSON, so the parse fails — but the provider
+	// call itself succeeded and was billed, so its completion event must still
+	// be emitted. The emit happens before parsing for exactly this reason;
+	// losing it would lose the cost of every unreadable judgement.
+	if err == nil {
+		t.Fatal("a non-JSON judge reply must be an error")
 	}
-	if !result.Passed {
-		t.Error("expected Passed=true")
+	if result != nil {
+		t.Errorf("no JudgeResult may be invented, got %+v", result)
 	}
 
 	wg.Wait()
 	if completed == nil {
-		t.Fatal("expected ProviderCallCompleted event")
+		t.Fatal("expected ProviderCallCompleted event even when the reply is unreadable")
 	}
 	if completed.Source != events.SourceJudge {
 		t.Errorf("expected Source=%q, got %q", events.SourceJudge, completed.Source)
