@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -849,11 +850,37 @@ type EvalEventData struct {
 	// runtime derived a verdict from `score >= 1.0`.
 	//
 	// Read alongside Kind: EvalKindEval always has this nil.
-	Passed      *bool    `json:"passed,omitempty"`
-	Score       *float64 `json:"score,omitempty"`
-	Explanation string   `json:"explanation,omitempty"`
-	DurationMs  int64    `json:"duration_ms"`
-	Error       string   `json:"error,omitempty"`
+	Passed *bool    `json:"passed,omitempty"`
+	Score  *float64 `json:"score,omitempty"`
+
+	// Value is what the eval measured, in the handler's own shape, and
+	// MetricValue is the single number a metric pipeline can graph.
+	//
+	// These carry CONTENT, and that is deliberate. The bus refuses BINARY —
+	// audio samples, image bytes — because a megabyte of base64 per turn would
+	// swamp it; it has never refused text, and an eval whose value never
+	// arrived would leave a live consumer with a score and no idea what was
+	// measured. A rubric's per-criterion breakdown, a classifier's label, a
+	// reasoning service's JSON: this is the substance, not a payload to route
+	// around.
+	//
+	// Two conditions come with it. Value is bounded — see SetValue — so one
+	// pathological handler cannot swamp the channel. And it is redactable:
+	// events.Redacting rewrites it, because a handler's output routinely
+	// quotes the customer text it judged.
+	Value       any      `json:"value,omitempty"`
+	MetricValue *float64 `json:"metric_value,omitempty"`
+
+	// ValueOmitted reports that Value was DROPPED for exceeding
+	// MaxEvalValueBytes, as distinct from an eval that produced none.
+	//
+	// Without it the two are the same nil, and a consumer showing "no value"
+	// for a rubric that returned 200KB would be lying rather than truncating.
+	ValueOmitted bool `json:"value_omitted,omitempty"`
+
+	Explanation string `json:"explanation,omitempty"`
+	DurationMs  int64  `json:"duration_ms"`
+	Error       string `json:"error,omitempty"`
 
 	// Message mirrors EvalResult.Message: the author-configured message, as
 	// distinct from the handler-computed Explanation. Nothing in this repo
@@ -1084,4 +1111,37 @@ type TemplateFailedData struct {
 	TaskType               string   `json:"task_type"`
 	Error                  string   `json:"error"`
 	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
+}
+
+// MaxEvalValueBytes bounds the JSON encoding of EvalEventData.Value.
+//
+// The bus is a buffered channel drained by a worker pool: it drops rather than
+// blocks, so one oversized payload does not stall the pipeline — it evicts
+// OTHER events. 64KB is far above any rubric or judge payload measured here
+// and far below the size at which one eval could crowd out a turn's tool and
+// provider events.
+const MaxEvalValueBytes = 64 * 1024
+
+// SetValue assigns Value subject to MaxEvalValueBytes, setting ValueOmitted
+// when the value is too large to carry.
+//
+// Producers MUST use this rather than assigning Value directly; it is the only
+// thing standing between a handler that returns a 40MB blob and a bus that
+// stops delivering anything else.
+func (d *EvalEventData) SetValue(v any) {
+	if v == nil {
+		return
+	}
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		// Unencodable means no consumer could read it off the wire anyway. It
+		// is reported as omitted rather than dropped silently.
+		d.ValueOmitted = true
+		return
+	}
+	if len(encoded) > MaxEvalValueBytes {
+		d.ValueOmitted = true
+		return
+	}
+	d.Value = v
 }

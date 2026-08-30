@@ -269,15 +269,34 @@ func main() {
 	fmt.Println("  RuntimeConfigPath can be passed to both Evaluate() and ValidateEvalTypes()")
 }
 
+// outcome reports what a result actually says, which depends on its Kind.
+//
+// An assertion and a guardrail coerce to a boolean and state it in Passed. An
+// eval MEASURES: it returns a value and a score, and states no pass or fail at
+// all — so printing one as PASS or FAIL means inventing a judgement nobody
+// made. This function used to do exactly that, treating any score below 1.0 as
+// a failure, which is an assertion's DEFAULT THRESHOLD applied to something
+// that was never asserted on. A judge scoring 0.9 printed as FAIL.
+func outcome(r evals.EvalResult) string {
+	switch {
+	case r.Error != "":
+		return "ERROR"
+	case r.Skipped:
+		return "SKIP"
+	case r.Passed != nil && *r.Passed:
+		return "PASS"
+	case r.Passed != nil:
+		return "FAIL"
+	case r.Score != nil:
+		return fmt.Sprintf("%s %.2f", r.Kind, *r.Score)
+	default:
+		return string(r.Kind)
+	}
+}
+
 func printResults(results []evals.EvalResult) {
 	for _, r := range results {
-		status := "PASS"
-		if passed, ok := r.Value.(bool); ok && !passed {
-			status = "FAIL"
-		} else if r.Score != nil && *r.Score < 1.0 {
-			status = "FAIL"
-		}
-		fmt.Printf("  [%s] %s — %s\n", status, r.EvalID, r.Explanation)
+		fmt.Printf("  [%s] %s — %s\n", outcome(r), r.EvalID, r.Explanation)
 	}
 	if len(results) == 0 {
 		fmt.Println("  (no evals matched the trigger)")
