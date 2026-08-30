@@ -107,8 +107,10 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // EventStore are both set — but the live route is not, so a consumer without
 // recording still sees messages.
 //
-// Note this stage re-records replayed history on every turn, since the load
-// stage runs ahead of it: an N-turn recording holds turn 1 N times.
+// Replayed history is counted for position but not re-recorded: the load stage
+// runs ahead of this one, so history flows through every turn, and appending it
+// again made an N-turn recording hold turn 1 N times (#1879). Each message is
+// recorded once, on the turn it was new.
 //
 // See the routing note on events.Emitter.emit for the other side.
 type RecordingStage struct {
@@ -235,6 +237,21 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	idx := *msgIndex
 	*msgIndex++
+
+	// Replayed history is counted for position but not re-recorded. The load
+	// stage runs before the input RecordingStage, so history flows through here
+	// every turn; appending it again made an N-turn recording hold turn 1 N
+	// times, and recording/replay.go appends every message.created in time
+	// order, so a replayed transcript repeated its early messages (#1879).
+	//
+	// Each message is still recorded once, on the turn it was new, so the union
+	// across turns remains the complete transcript and the readers need no
+	// change. Detected by Message.Source rather than Meta.FromHistory: at the
+	// output position this stage sits downstream of ProviderStage, which
+	// rebuilds elements with a zero Meta.
+	if !isNewMessage(elem.Message) {
+		return
+	}
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,

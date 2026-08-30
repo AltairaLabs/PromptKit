@@ -4090,7 +4090,7 @@ It is NOT the only producer of message.created. MessageBroadcastStage publishes 
 
 Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in — it exists only when a RecordingConfig and an EventStore are both set — but the live route is not, so a consumer without recording still sees messages.
 
-Note this stage re\-records replayed history on every turn, since the load stage runs ahead of it: an N\-turn recording holds turn 1 N times.
+Replayed history is counted for position but not re\-recorded: the load stage runs ahead of this one, so history flows through every turn, and appending it again made an N\-turn recording hold turn 1 N times \(\#1879\). Each message is recorded once, on the turn it was new.
 
 See the routing note on events.Emitter.emit for the other side.
 
