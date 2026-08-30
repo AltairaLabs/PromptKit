@@ -3,6 +3,8 @@ package evals
 import (
 	"context"
 	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 // WrapperTypeAssertion is the eval type name for the assertion wrapper handler.
@@ -176,8 +178,13 @@ func (h *AssertionEvalHandler) Eval(
 		return nil, err
 	}
 
+	// State the role and the boolean. Do NOT touch Value: the assertion's
+	// judgement is its own field, and the inner eval's output — the rubric
+	// breakdown, the judge's structured reasoning — is the thing a consumer
+	// most wants and the thing this used to overwrite (#1875).
 	passed := h.applyThresholds(result, minScore, maxScore)
-	result.Value = passed
+	result.Kind = events.EvalKindAssertion
+	result.Passed = &passed
 	return result, nil
 }
 
@@ -253,6 +260,18 @@ func (h *GuardrailEvalHandler) Eval(
 	// guardrail whose handler could not produce a score has not cleared
 	// anything, and no test pinned the old behavior.
 	triggered := thresholds.Triggered(result)
+
+	// A guardrail coerces to a boolean just as an assertion does, so it states
+	// one the same way. It had none before: its outcome reached a consumer only
+	// as Details["triggered"], a convention every consumer had to know and one
+	// the event schema said nothing about (#1874). Passed is the inverse of
+	// triggered — a guardrail that fired did not pass.
+	//
+	// Details keeps both keys. They are what existing consumers read, and
+	// "action" is not expressible as a boolean anyway.
+	passed := !triggered
+	result.Kind = events.EvalKindGuardrail
+	result.Passed = &passed
 
 	if result.Details == nil {
 		result.Details = make(map[string]any)

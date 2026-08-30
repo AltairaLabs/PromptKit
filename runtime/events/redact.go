@@ -27,6 +27,14 @@ const (
 	FieldToolCallArgs   = "tool_call.args"
 	FieldToolResult     = "tool_result"
 	FieldContentPart    = "content_part"
+
+	// Eval payloads. An eval's output quotes what it judged — a judge's
+	// reasoning restates the answer, a rubric cites the passage, a violation's
+	// evidence IS the offending span — so all four carry customer text.
+	FieldEvalValue       = "eval.value"
+	FieldEvalExplanation = "eval.explanation"
+	FieldEvalDetails     = "eval.details"
+	FieldEvalEvidence    = "eval.violation_evidence"
 )
 
 // Redactor rewrites one content value. It receives the field name and the value
@@ -68,6 +76,8 @@ func redactEvent(e *Event, r Redactor) *Event {
 		return withData(e, redactMessage(data, r))
 	case *ToolCallEventData:
 		return withData(e, redactToolCall(data, r))
+	case *EvalEventData:
+		return withData(e, redactEval(data, r))
 	default:
 		return e
 	}
@@ -148,4 +158,94 @@ func redactParts(parts []types.ContentPart, r Redactor) []types.ContentPart {
 		out[i].Text = &scrubbed
 	}
 	return out
+}
+
+// redactEval copies an eval payload and rewrites the fields that quote what was
+// judged.
+//
+// Score, MetricValue, Passed, Kind and the timings are measurements ABOUT
+// content, not content, and are left alone — redacting them would leave a
+// consumer unable to tell a blocked guardrail from a passing one, which is the
+// thing an audit most needs. Message is the pack author's own configured text,
+// not customer data, and is left alone for the same reason.
+func redactEval(d *EvalEventData, r Redactor) *EvalEventData {
+	cp := *d
+	if d.Explanation != "" {
+		cp.Explanation = r(FieldEvalExplanation, d.Explanation)
+	}
+	if d.Value != nil {
+		cp.Value = redactAny(FieldEvalValue, d.Value, r)
+	}
+	if len(d.Details) > 0 {
+		details := make(map[string]any, len(d.Details))
+		for k, v := range d.Details {
+			details[k] = redactAny(FieldEvalDetails, v, r)
+		}
+		cp.Details = details
+	}
+	if len(d.Violations) > 0 {
+		cp.Violations = redactViolations(d.Violations, r)
+	}
+	return &cp
+}
+
+// redactViolations copies violations and rewrites the text in each.
+//
+// Evidence is the quoted span that tripped the eval — the single most
+// content-bearing field on an eval event, and the one a policy is most likely
+// to be scrubbing for.
+func redactViolations(in []EvalViolationData, r Redactor) []EvalViolationData {
+	out := make([]EvalViolationData, len(in))
+	copy(out, in)
+	for i := range out {
+		if out[i].Description != "" {
+			out[i].Description = r(FieldEvalExplanation, out[i].Description)
+		}
+		if len(out[i].Evidence) == 0 {
+			continue
+		}
+		evidence := make(map[string]any, len(out[i].Evidence))
+		for k, v := range out[i].Evidence {
+			evidence[k] = redactAny(FieldEvalEvidence, v, r)
+		}
+		out[i].Evidence = evidence
+	}
+	return out
+}
+
+// redactAny rewrites the strings inside an arbitrary handler value.
+//
+// An eval's value is whatever its handler returned — a bare string, a rubric's
+// map of criterion to comment, a list of quoted spans — so a redactor that only
+// handled top-level strings would pass the nested ones straight through, which
+// is where the quoted text actually lives.
+//
+// Containers are COPIED, never rewritten in place: the same value is delivered
+// to every other subscriber, including the ones entitled to see it unredacted.
+// Numbers and bools are returned as-is; they carry no text to rewrite.
+func redactAny(field string, v any, r Redactor) any {
+	switch val := v.(type) {
+	case string:
+		return r(field, val)
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, inner := range val {
+			out[k] = redactAny(field, inner, r)
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, inner := range val {
+			out[i] = redactAny(field, inner, r)
+		}
+		return out
+	case []string:
+		out := make([]string, len(val))
+		for i, inner := range val {
+			out[i] = r(field, inner)
+		}
+		return out
+	default:
+		return v
+	}
 }

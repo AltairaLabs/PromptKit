@@ -36,6 +36,24 @@ func newWrapperTestRegistry(handlers ...*mockHandler) *EvalTypeRegistry {
 	return r
 }
 
+// requirePassed checks the wrapper's OWN statement — result.Passed — rather
+// than result.Value.
+//
+// These five cases used to read `result.Value.(bool)`, back when the assertion
+// wrapper overwrote Value with its boolean. Value now carries the inner eval's
+// output, so that read would type-assert to false for every case: the two
+// "expected fail" tests would still pass, for entirely the wrong reason, while
+// testing nothing at all.
+func requirePassed(t *testing.T, result *EvalResult, want bool, because string) {
+	t.Helper()
+	if result.Passed == nil {
+		t.Fatalf("wrapper stated no pass/fail at all, expected %v: %s", want, because)
+	}
+	if *result.Passed != want {
+		t.Fatalf("got Passed=%v, want %v: %s", *result.Passed, want, because)
+	}
+}
+
 // --- AssertionEvalHandler ---
 
 func TestAssertionEvalHandler_MinScore_Pass(t *testing.T) {
@@ -54,9 +72,7 @@ func TestAssertionEvalHandler_MinScore_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if passed, _ := result.Value.(bool); !passed {
-		t.Fatal("expected pass: score 0.8 >= min_score 0.7")
-	}
+	requirePassed(t, result, true, "score 0.8 >= min_score 0.7")
 }
 
 func TestAssertionEvalHandler_MinScore_Fail(t *testing.T) {
@@ -74,9 +90,7 @@ func TestAssertionEvalHandler_MinScore_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if passed, _ := result.Value.(bool); passed {
-		t.Fatal("expected fail: score 0.3 < min_score 0.7")
-	}
+	requirePassed(t, result, false, "score 0.3 < min_score 0.7")
 }
 
 func TestAssertionEvalHandler_MaxScore_Pass(t *testing.T) {
@@ -94,9 +108,7 @@ func TestAssertionEvalHandler_MaxScore_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if passed, _ := result.Value.(bool); !passed {
-		t.Fatal("expected pass: score 0.5 <= max_score 0.8")
-	}
+	requirePassed(t, result, true, "score 0.5 <= max_score 0.8")
 }
 
 func TestAssertionEvalHandler_MaxScore_Fail(t *testing.T) {
@@ -114,9 +126,7 @@ func TestAssertionEvalHandler_MaxScore_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if passed, _ := result.Value.(bool); passed {
-		t.Fatal("expected fail: score 0.9 > max_score 0.8")
-	}
+	requirePassed(t, result, false, "score 0.9 > max_score 0.8")
 }
 
 func TestAssertionEvalHandler_NoThresholds_DefaultsToMinScore1(t *testing.T) {
@@ -133,9 +143,7 @@ func TestAssertionEvalHandler_NoThresholds_DefaultsToMinScore1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if passed, _ := result.Value.(bool); passed {
-		t.Fatal("expected fail: no thresholds defaults to min_score=1.0, score 0.5 < 1.0")
-	}
+	requirePassed(t, result, false, "no thresholds defaults to min_score=1.0, score 0.5 < 1.0")
 }
 
 func TestAssertionEvalHandler_NestedEvalParams(t *testing.T) {

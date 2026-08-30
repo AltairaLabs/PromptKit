@@ -38,7 +38,7 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 		typeName: "contains",
 		result: &evals.EvalResult{
 			Score: func() *float64 { v := 1.0; return &v }(),
-			Value: true,
+			Value: map[string]any{"matched": "hello"},
 		},
 	})
 	runner := evals.NewEvalRunner(registry)
@@ -81,14 +81,24 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 		if data.EvalID != "e1" {
 			t.Errorf("expected eval ID e1, got %q", data.EvalID)
 		}
-		// The stub handler returns Value:true, i.e. a real verdict, so one must
-		// be carried through. (Contrast a handler returning only a Score, which
-		// now emits no verdict at all rather than deriving one from >= 1.0.)
-		if data.Passed == nil {
-			t.Fatal("handler returned Value=true, so a verdict must reach the event")
+		// "contains" is a bare eval — nothing wrapped it — so it MEASURES and
+		// states no pass or fail, even scoring a perfect 1.0. A pass here would
+		// mean the threshold showing through as a judgement (#1861).
+		if data.Kind != events.EvalKindEval {
+			t.Errorf("kind = %q, want %q", data.Kind, events.EvalKindEval)
 		}
-		if !*data.Passed {
-			t.Error("expected passed=true")
+		if data.Passed != nil {
+			t.Errorf("a bare eval reached a subscriber stating passed=%v", *data.Passed)
+		}
+		// The measurement itself must arrive. This is the whole reason a
+		// consumer subscribes: an event carrying a score and nothing else
+		// leaves a live view unable to show WHAT was measured.
+		value, ok := data.Value.(map[string]any)
+		if !ok {
+			t.Fatalf("the eval's value did not reach the subscriber: got %#v", data.Value)
+		}
+		if value["matched"] != "hello" {
+			t.Errorf("value = %#v, want matched=hello", value)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for eval completed event")

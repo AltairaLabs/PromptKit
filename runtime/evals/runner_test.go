@@ -666,39 +666,65 @@ func TestEvalRunner_EmitResult(t *testing.T) {
 	}
 }
 
-func TestEvalRunner_EmitResult_UsesValueForPassed(t *testing.T) {
+// TestEvalRunner_EmitResult_CopiesPassedRatherThanDeriving is the guard on
+// #1861.
+//
+// emitResult used to compute the pass/fail itself: first from `score >= 1.0`,
+// then — after that reported an llm_judge scoring 0.9 as FAILED — from
+// `result.Value.(bool)`, which was only ever true because the assertion wrapper
+// overwrote Value with its own boolean. Both were the runner re-deciding a
+// question the wrapper had already answered.
+//
+// The two cases below are the two ways that goes wrong, and each fails if the
+// copy is replaced by any derivation from score or value.
+func TestEvalRunner_EmitResult_CopiesPassedRatherThanDeriving(t *testing.T) {
 	reg := NewEvalTypeRegistry()
 	bus := events.NewEventBus()
 	defer bus.Close()
 
 	received := make(chan *events.Event, 10)
-	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
-		received <- e
-	})
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) { received <- e })
 
 	emitter := events.NewEmitter(bus, "", "", "")
 	r := NewEvalRunner(reg, WithEmitter(emitter))
 
-	// Score is 0.7 (below 1.0) but Value is true (threshold passed)
-	r.emitResult(nil, &EvalResult{
-		EvalID: "e1",
-		Type:   "test",
-		Score:  func() *float64 { v := 0.7; return &v }(),
-		Value:  true,
-	})
+	nextEvent := func(t *testing.T) *events.EvalCompletedData {
+		t.Helper()
+		select {
+		case e := <-received:
+			return e.Data.(*events.EvalCompletedData)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out")
+			return nil
+		}
+	}
 
-	select {
-	case e := <-received:
-		data := e.Data.(*events.EvalCompletedData)
+	t.Run("a passing assertion below 1.0 is not overruled by its score", func(t *testing.T) {
+		score := 0.7
+		r.emitResult(nil, &EvalResult{
+			EvalID: "a1", Type: WrapperTypeAssertion, Kind: events.EvalKindAssertion,
+			Score: &score, Passed: boolPtr(true),
+		})
+		data := nextEvent(t)
 		if data.Passed == nil {
-			t.Fatal("a threshold wrapper set Value=true, so a verdict must be carried")
+			t.Fatal("the assertion stated a pass/fail and it did not reach the event")
 		}
 		if !*data.Passed {
-			t.Error("expected passed=true from Value, not score")
+			t.Error("score 0.7 overruled the assertion's own pass — the derivation is back")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out")
-	}
+	})
+
+	t.Run("a high-scoring eval still states nothing", func(t *testing.T) {
+		score := 0.9
+		r.emitResult(nil, &EvalResult{
+			EvalID: "judge", Type: "llm_judge", Kind: events.EvalKindEval, Score: &score,
+		})
+		data := nextEvent(t)
+		if data.Passed != nil {
+			t.Errorf("an eval was reported as passed=%v. Evals measure; only a wrapper judges",
+				*data.Passed)
+		}
+	})
 }
 
 // TestEvalRunner_EmitResult_Lossless1028 pins the #1028 contract: the event
@@ -842,12 +868,12 @@ func TestEvalRunner_EmitResult_GradedEvalIsNotAVerdict(t *testing.T) {
 // TestEvalRunner_EmitResult_KindStatesTheRole pins the point of the enum: a
 // consumer is TOLD what a result is, rather than inferring it.
 //
-// Before this, the role was only recoverable by string-matching EvalType — a
-// field that carries the handler name and only reads "assertion" by coincidence
-// of a wrapper being used — or by treating a nil Passed as "must have been an
-// eval", which conflates "no verdict" with "not the kind of thing that has one".
-//
-// Kind and Passed must also agree: an eval never carries a verdict.
+// The role used to be inferred here, by string-matching result.Type against the
+// two wrapper names. That is a coincidence, not a fact: Type carries the
+// handler name, and any third wrapper a consumer registers reported as a plain
+// eval. The last case below is the one that catches the inference coming back —
+// its Type says "assertion" while its Kind says eval, so a string match and a
+// copy give different answers.
 func TestEvalRunner_EmitResult_KindStatesTheRole(t *testing.T) {
 	reg := NewEvalTypeRegistry()
 	bus := events.NewEventBus()
@@ -864,24 +890,37 @@ func TestEvalRunner_EmitResult_KindStatesTheRole(t *testing.T) {
 		name       string
 		result     *EvalResult
 		wantKind   events.EvalKind
-		wantVerdit bool
+		wantPassed *bool
 	}{
 		{
-			name:     "bare eval scores and does not judge",
-			result:   &EvalResult{EvalID: "judge", Type: "llm_judge", Score: &score},
+			name: "bare eval scores and does not judge",
+			result: &EvalResult{
+				EvalID: "judge", Type: "llm_judge", Kind: events.EvalKindEval, Score: &score,
+			},
 			wantKind: events.EvalKindEval,
 		},
 		{
-			name: "assertion carries the verdict its bool value expresses",
+			name: "assertion carries the pass it decided",
 			result: &EvalResult{
-				EvalID: "a1", Type: WrapperTypeAssertion, Score: &score, Value: true,
+				EvalID: "a1", Type: WrapperTypeAssertion, Kind: events.EvalKindAssertion,
+				Score: &score, Passed: boolPtr(true),
 			},
-			wantKind: events.EvalKindAssertion, wantVerdit: true,
+			wantKind: events.EvalKindAssertion, wantPassed: boolPtr(true),
 		},
 		{
-			name:     "guardrail is named even when it gates elsewhere",
-			result:   &EvalResult{EvalID: "g1", Type: WrapperTypeGuardrail, Score: &score},
-			wantKind: events.EvalKindGuardrail,
+			name: "guardrail that fired carries the fail",
+			result: &EvalResult{
+				EvalID: "g1", Type: WrapperTypeGuardrail, Kind: events.EvalKindGuardrail,
+				Score: &score, Passed: boolPtr(false),
+			},
+			wantKind: events.EvalKindGuardrail, wantPassed: boolPtr(false),
+		},
+		{
+			name: "the stated role wins over a handler type that looks like a wrapper",
+			result: &EvalResult{
+				EvalID: "odd", Type: WrapperTypeAssertion, Kind: events.EvalKindEval, Score: &score,
+			},
+			wantKind: events.EvalKindEval,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -890,18 +929,17 @@ func TestEvalRunner_EmitResult_KindStatesTheRole(t *testing.T) {
 			case e := <-received:
 				data := e.Data.(*events.EvalCompletedData)
 				if data.Kind != tc.wantKind {
-					t.Errorf("kind = %q, want %q — the role must be stated, not inferred",
-						data.Kind, tc.wantKind)
+					t.Errorf("kind = %q, want %q — the role must be copied from the result, "+
+						"not matched off its handler type", data.Kind, tc.wantKind)
 				}
-				if tc.wantVerdit {
-					if data.Passed == nil || !*data.Passed {
-						t.Error("an assertion's bool value must arrive as the verdict")
-					}
-					return
-				}
-				if data.Passed != nil {
-					t.Errorf("kind %q carried a verdict (passed=%v); only an assertion does",
+				switch {
+				case tc.wantPassed == nil && data.Passed != nil:
+					t.Errorf("kind %q carried passed=%v; only a coercing role states one",
 						data.Kind, *data.Passed)
+				case tc.wantPassed != nil && data.Passed == nil:
+					t.Errorf("kind %q stated a pass/fail that never reached the event", data.Kind)
+				case tc.wantPassed != nil && *data.Passed != *tc.wantPassed:
+					t.Errorf("passed = %v, want %v", *data.Passed, *tc.wantPassed)
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatal("timed out")

@@ -6,6 +6,7 @@ package evals
 import (
 	"encoding/json"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -293,9 +294,42 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 // Handlers produce scores only (0.0–1.0). There is no pass/fail on evals.
 // Assertion wrappers store pass/fail as a bool in Value.
 type EvalResult struct {
-	EvalID      string   `json:"eval_id"`
-	Type        string   `json:"type"`
-	Score       *float64 `json:"score,omitempty"`
+	EvalID string `json:"eval_id"`
+	Type   string `json:"type"`
+
+	// Kind is the ROLE this result was produced in, STATED by whatever produced
+	// it rather than inferred from Type downstream. It used to be inferred, by
+	// string-matching Type against the two wrapper names, which quietly
+	// misreported any other wrapper as a plain eval.
+	//
+	// The zero value is EvalKindEval: an eval nothing wrapped is a measurement.
+	Kind events.EvalKind `json:"kind,omitempty"`
+
+	// Passed is set ONLY by a role that coerces to a boolean — an assertion or
+	// a guardrail. An eval MEASURES; it does not pass or fail, and for
+	// EvalKindEval this is always nil.
+	//
+	// That is enforced, not merely documented: every handler result funnels
+	// through EvalRunner.executeHandler, which strips this for any result that
+	// is not an assertion or a guardrail. A handler that sets it cannot leak
+	// one to a consumer. See TestExecuteHandler_StripsPassedFromAPlainEval.
+	//
+	// It is also not DERIVED. Deriving it is how an llm_judge scoring 0.9 came
+	// to be reported as FAILED (#1861): `score >= 1.0` is the assertion's
+	// default threshold showing through, not a judgement anyone made.
+	Passed *bool `json:"passed,omitempty"`
+
+	Score *float64 `json:"score,omitempty"`
+
+	// Value is what the eval MEASURED — the handler's own output, in whatever
+	// shape that handler produces: a rubric's per-criterion map, a classifier's
+	// label, a reasoning service's JSON.
+	//
+	// A wrapper does not overwrite it. The assertion wrapper used to replace it
+	// with its own boolean, destroying the inner eval's output — the judge
+	// reasoning, the rubric breakdown — so the richest thing an eval produced
+	// was thrown away by the act of asserting on it (#1875). The boolean now
+	// has its own field, above.
 	Value       any      `json:"value,omitempty"`
 	MetricValue *float64 `json:"metric_value,omitempty"`
 	Explanation string   `json:"explanation,omitempty"`

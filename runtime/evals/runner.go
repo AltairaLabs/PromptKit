@@ -274,6 +274,7 @@ func (r *EvalRunner) executeHandler(
 		return &EvalResult{
 			EvalID:     def.ID,
 			Type:       def.Type,
+			Kind:       events.EvalKindEval,
 			Error:      evalErr.Error(),
 			DurationMs: durationMs,
 		}
@@ -284,6 +285,7 @@ func (r *EvalRunner) executeHandler(
 		return &EvalResult{
 			EvalID:     def.ID,
 			Type:       def.Type,
+			Kind:       events.EvalKindEval,
 			Error:      "handler returned nil result",
 			DurationMs: durationMs,
 		}
@@ -293,6 +295,7 @@ func (r *EvalRunner) executeHandler(
 	result.EvalID = def.ID
 	result.Type = def.Type
 	result.DurationMs = durationMs
+	enforceRoleInvariant(result)
 
 	var scoreVal any = "<nil>"
 	if result.Score != nil {
@@ -344,6 +347,7 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		EvalID:      result.EvalID,
 		EvalType:    result.Type,
 		Score:       result.Score,
+		MetricValue: result.MetricValue,
 		Explanation: result.Explanation,
 		DurationMs:  result.DurationMs,
 		Error:       result.Error,
@@ -352,22 +356,20 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		Skipped:     result.Skipped,
 		SkipReason:  result.SkipReason,
 	}
+	// SetValue, not an assignment: it applies the size bound that keeps one
+	// oversized handler output from evicting a turn's other events.
+	data.SetValue(result.Value)
 	if def != nil {
 		data.Trigger = string(def.Trigger)
 	}
-	data.Kind = evalKindFor(result.Type)
-	// An assertion IS an eval whose value is a bool — that bool is the verdict.
-	// Anything else is a plain eval, which returns a VALUE and does not pass or
-	// fail, so no verdict is emitted for it.
-	//
-	// This used to fall back to `score >= 1.0` for those, fabricating a pass
-	// or fail nobody ever made: an llm_judge scoring 0.9 was emitted as FAILED
-	// while 1.0 passed. That is the threshold showing through, not a judgement,
-	// and it made every eval indistinguishable from an assertion downstream.
+	// Kind and Passed are COPIED, never derived. The result already states
+	// both — the wrapper that coerced set them, and executeHandler stripped
+	// Passed from anything that had no business carrying one — so deriving
+	// here would be re-deciding a question already answered upstream, which is
+	// exactly how `score >= 1.0` came to overrule a judge's 0.9 (#1861).
+	data.Kind = result.Kind
 	if !result.Skipped {
-		if passed, ok := result.Value.(bool); ok {
-			data.Passed = &passed
-		}
+		data.Passed = result.Passed
 	}
 
 	if len(result.Violations) > 0 {
@@ -387,20 +389,28 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 	}
 }
 
-// evalKindFor maps a result's handler type to the role it was produced in.
+// enforceRoleInvariant is where "an eval never states a pass/fail" stops being
+// a convention and becomes something a handler cannot get wrong.
 //
-// executeHandler stamps result.Type from the eval def, so a wrapped eval
-// reports the wrapper's type here ("assertion", "guardrail") while a bare one
-// reports its handler ("contains", "llm_judge"). Everything that is not a
-// wrapper is a plain eval — a measurement — which is the safe default: a new
-// handler is a measurement until something wraps it.
-func evalKindFor(resultType string) events.EvalKind {
-	switch resultType {
-	case WrapperTypeAssertion:
-		return events.EvalKindAssertion
-	case WrapperTypeGuardrail:
-		return events.EvalKindGuardrail
+// EVERY handler result reaches a consumer through executeHandler, so this one
+// call covers the whole surface: the two wrappers in this package, the
+// handlers in ./handlers, and anything a consumer registers of its own. A
+// handler that sets Passed — believing it is being helpful, or copying a
+// wrapper it read — has it stripped here rather than shipping a pass/fail
+// nobody was entitled to make.
+//
+// An unrecognized Kind normalizes to eval for the same reason the old
+// inference defaulted that way: a new role is a measurement until something
+// teaches this function otherwise, and a measurement is the claim that asserts
+// least.
+func enforceRoleInvariant(result *EvalResult) {
+	switch result.Kind {
+	case events.EvalKindAssertion, events.EvalKindGuardrail:
+		return
+	case events.EvalKindEval:
+		result.Passed = nil
 	default:
-		return events.EvalKindEval
+		result.Kind = events.EvalKindEval
+		result.Passed = nil
 	}
 }
