@@ -4,7 +4,7 @@
 package evals
 
 import (
-	"encoding/json"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -124,7 +124,7 @@ var ValidTriggers = map[EvalTrigger]bool{
 }
 
 // MetricType defines the Prometheus metric type for eval results.
-type MetricType string
+type MetricType = string
 
 const (
 	// MetricGauge represents a gauge metric (set to a value).
@@ -194,10 +194,10 @@ func (e *EvalDef) GetGroups() []string {
 }
 
 // Range defines the valid range for a metric value.
-type Range struct {
-	Min *float64 `json:"min,omitempty" yaml:"min,omitempty"`
-	Max *float64 `json:"max,omitempty" yaml:"max,omitempty"`
-}
+// Range is generated from the schema: an ALIAS for packspec.MetricDefRange.
+// The schema nests the bounds inside MetricDef rather than naming them, so the
+// generator hoists the shape under a derived name.
+type Range = packspec.MetricDefRange
 
 // Threshold defines pass/fail criteria for an eval result.
 type Threshold struct {
@@ -223,71 +223,65 @@ type EvalViolation struct {
 
 // MetricDef defines a Prometheus-style metric associated with an eval.
 // The Extra field captures additionalProperties from the schema.
-type MetricDef struct {
-	Name   string            `json:"name" yaml:"name"`
-	Type   MetricType        `json:"type" yaml:"type"`
-	Range  *Range            `json:"range,omitempty" yaml:"range,omitempty"`
-	Labels map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
+// MetricDef is generated from the schema: an ALIAS for packspec.MetricDef.
+//
+// $defs/MetricDef is additionalProperties:true — an envelope RFC 0006 expects
+// runtimes to extend. It names labels, help, aggregation, alert_threshold and
+// slo as examples and states they are NOT part of the specification. So there
+// is no `Labels` field here and there should not be: labels are a runtime
+// extension carried in Extra, alongside any other key a deployment adds.
+//
+// Read them with MetricLabels, which does the coercion once.
+type MetricDef = packspec.MetricDef
 
-	// Extra holds additional properties beyond the defined schema fields.
-	// This supports the RFC's additionalProperties: true on metric.
-	Extra map[string]any `json:"-" yaml:"-"`
+// SetMetricLabels records Prometheus labels on a metric.
+//
+// The inverse of MetricLabels. Labels are a runtime extension, so they live in
+// Extra rather than a named field; this keeps producers from hand-building the
+// nested map[string]any shape and getting it subtly wrong. Passing an empty map
+// removes the key rather than writing an empty object.
+func SetMetricLabels(m *MetricDef, labels map[string]string) {
+	if m == nil {
+		return
+	}
+	if len(labels) == 0 {
+		delete(m.Extra, "labels")
+		return
+	}
+	if m.Extra == nil {
+		m.Extra = map[string]any{}
+	}
+	raw := make(map[string]any, len(labels))
+	for k, v := range labels {
+		raw[k] = v
+	}
+	m.Extra["labels"] = raw
 }
 
-// MarshalJSON implements custom JSON marshaling to include Extra fields
-// as top-level properties alongside the known fields.
-func (m MetricDef) MarshalJSON() ([]byte, error) {
-	// Build a map with known fields
-	result := make(map[string]any)
-	result["name"] = m.Name
-	result["type"] = m.Type
-	if m.Range != nil {
-		result["range"] = m.Range
+// MetricLabels returns the Prometheus labels a metric declares, or nil.
+//
+// labels live in MetricDef.Extra because the spec deliberately does not define
+// them (RFC 0006: "the spec defines the envelope; runtimes extend it"). This
+// keeps the type assertion in one place rather than at each call site, which is
+// where a silent nil creeps in. A labels value of the wrong shape yields nil
+// rather than a partial map — validation reports the shape error.
+func MetricLabels(m *MetricDef) map[string]string {
+	if m == nil {
+		return nil
 	}
-	if len(m.Labels) > 0 {
-		result["labels"] = m.Labels
+	raw, ok := m.Extra["labels"].(map[string]any)
+	if !ok {
+		return nil
 	}
-	// Merge extra fields
-	for k, v := range m.Extra {
-		if k != "name" && k != "type" && k != "range" && k != "labels" {
-			result[k] = v
-		}
-	}
-	return json.Marshal(result)
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling to capture
-// additional properties into the Extra field.
-func (m *MetricDef) UnmarshalJSON(data []byte) error {
-	// Unmarshal known fields via an alias to avoid recursion
-	type metricAlias MetricDef
-	var alias metricAlias
-	if err := json.Unmarshal(data, &alias); err != nil {
-		return err
-	}
-	*m = MetricDef(alias)
-
-	// Capture all fields into a raw map
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// Extract extra fields (anything not name, type, range, labels)
-	knownFields := map[string]bool{"name": true, "type": true, "range": true, "labels": true}
+	out := make(map[string]string, len(raw))
 	for k, v := range raw {
-		if !knownFields[k] {
-			if m.Extra == nil {
-				m.Extra = make(map[string]any)
-			}
-			var val any
-			if err := json.Unmarshal(v, &val); err != nil {
-				return err
-			}
-			m.Extra[k] = val
+		s, ok := v.(string)
+		if !ok {
+			return nil
 		}
+		out[k] = s
 	}
-	return nil
+	return out
 }
 
 // EvalResult captures the outcome of a single eval execution.

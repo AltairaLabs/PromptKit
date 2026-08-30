@@ -182,6 +182,7 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 	fmt.Fprintf(&b, "type %s struct {\n", name)
 
 	required := def.Required()
+	var jsonNames []string
 	for i, prop := range def.PropertyNames() {
 		qualified := name + "." + prop
 		// Declared here rather than in the caller so hoisted inline objects are
@@ -200,9 +201,17 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 			b.WriteString("\n")
 		}
 		writeField(&b, prop, typ, node, required[prop])
+		jsonNames = append(jsonNames, prop)
 		e.cov.EmitProp(qualified)
 	}
+	if def.isOpenObject() {
+		emitExtraField(&b)
+	}
 	b.WriteString("}\n")
+	if def.isOpenObject() {
+		e.needsJSON = true
+		b.WriteString(emitOpenObjectJSON(name, jsonNames))
+	}
 	return b.String(), nil
 }
 

@@ -614,3 +614,53 @@ func TestNonZeroDefaultBecomesAPointer(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenObjectPreservesExtensions covers additionalProperties: true.
+//
+// RFC 0006 names labels, help, aggregation, alert_threshold and slo as runtime
+// extensions on $defs/MetricDef and states they are NOT part of the spec — the
+// def is open precisely so runtimes can add them. A generated struct with only
+// the named fields loads such a pack happily and throws the extensions away,
+// which is the inert-declaration bug one level up. Four defs are affected.
+func TestOpenObjectPreservesExtensions(t *testing.T) {
+	src, err := generate(t, minimalRoot(map[string]any{
+		"Envelope": map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string"},
+			},
+			"required": []any{"name"},
+		},
+		"Closed": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties":           map[string]any{"name": map[string]any{"type": "string"}},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Extra map[string]any",
+		"var EnvelopeKnownFields = map[string]bool{",
+		"func (v Envelope) MarshalJSON()",
+		"func (v *Envelope) UnmarshalJSON(",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("open object missing %q:\n%s", want, src)
+		}
+	}
+
+	// A closed def must NOT get the escape hatch: additionalProperties:false
+	// means an unknown key is an error, and silently absorbing it into Extra
+	// would defeat the schema's own strictness.
+	closed := src[strings.Index(src, "type Closed struct"):]
+	closed = closed[:strings.Index(closed, "\n}")]
+	if strings.Contains(closed, "Extra") {
+		t.Errorf("a closed def must not carry Extra:\n%s", closed)
+	}
+	if strings.Contains(src, "ClosedKnownFields") {
+		t.Error("a closed def must not get open-object marshaling")
+	}
+}

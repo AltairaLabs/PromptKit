@@ -263,6 +263,75 @@ type GenericMediaTypeConfig struct {
 
 	// ValidationParams custom validation parameters specific to this media type. Structure depends on the type.
 	ValidationParams map[string]any `json:"validation_params,omitempty" yaml:"validation_params,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// GenericMediaTypeConfigKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var GenericMediaTypeConfigKnownFields = map[string]bool{
+	"allowed_formats":   true,
+	"max_size_mb":       true,
+	"require_metadata":  true,
+	"validation_params": true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v GenericMediaTypeConfig) MarshalJSON() ([]byte, error) {
+	type plain GenericMediaTypeConfig
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !GenericMediaTypeConfigKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *GenericMediaTypeConfig) UnmarshalJSON(data []byte) error {
+	type plain GenericMediaTypeConfig
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = GenericMediaTypeConfig(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if GenericMediaTypeConfigKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
 }
 
 // ImageConfig configuration and validation rules for image content
@@ -361,6 +430,74 @@ type MetricDef struct {
 
 	// Type prometheus metric type that describes the value semantics.
 	Type string `json:"type" yaml:"type"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// MetricDefKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var MetricDefKnownFields = map[string]bool{
+	"name":  true,
+	"range": true,
+	"type":  true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v MetricDef) MarshalJSON() ([]byte, error) {
+	type plain MetricDef
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !MetricDefKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *MetricDef) UnmarshalJSON(data []byte) error {
+	type plain MetricDef
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = MetricDef(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if MetricDefKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
 }
 
 // MiddlewareConfig configuration for a single middleware component in the pipeline
@@ -572,6 +709,76 @@ type ProviderCapabilities struct {
 
 	// ToolUse whether the provider must support tool/function calling.
 	ToolUse *bool `json:"tool_use,omitempty" yaml:"tool_use,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// ProviderCapabilitiesKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var ProviderCapabilitiesKnownFields = map[string]bool{
+	"embedding_dimensions": true,
+	"min_context_tokens":   true,
+	"modalities":           true,
+	"structured_output":    true,
+	"tool_use":             true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v ProviderCapabilities) MarshalJSON() ([]byte, error) {
+	type plain ProviderCapabilities
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !ProviderCapabilitiesKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *ProviderCapabilities) UnmarshalJSON(data []byte) error {
+	type plain ProviderCapabilities
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = ProviderCapabilities(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if ProviderCapabilitiesKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
 }
 
 // ProviderRequirement a logical model-provider requirement (RFC 0012). A bare string is shorthand for an 'llm'
@@ -1198,6 +1405,75 @@ type PackMetadata struct {
 
 	// Tags tags for categorization and discovery
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// PackMetadataKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var PackMetadataKnownFields = map[string]bool{
+	"cost_estimate": true,
+	"domain":        true,
+	"language":      true,
+	"tags":          true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v PackMetadata) MarshalJSON() ([]byte, error) {
+	type plain PackMetadata
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !PackMetadataKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *PackMetadata) UnmarshalJSON(data []byte) error {
+	type plain PackMetadata
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = PackMetadata(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if PackMetadataKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
 }
 
 // PackMetadataCostEstimate is an inline object hoisted from the spec so its fields stay named.
@@ -1299,4 +1575,70 @@ type VariableValidation struct {
 type WorkflowConfigEngine struct {
 	// Budget resource budget for workflow execution. Provides safety limits to prevent unbounded loops.
 	Budget *WorkflowBudget `json:"budget,omitempty" yaml:"budget,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// WorkflowConfigEngineKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var WorkflowConfigEngineKnownFields = map[string]bool{
+	"budget": true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v WorkflowConfigEngine) MarshalJSON() ([]byte, error) {
+	type plain WorkflowConfigEngine
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !WorkflowConfigEngineKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *WorkflowConfigEngine) UnmarshalJSON(data []byte) error {
+	type plain WorkflowConfigEngine
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = WorkflowConfigEngine(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if WorkflowConfigEngineKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
 }
