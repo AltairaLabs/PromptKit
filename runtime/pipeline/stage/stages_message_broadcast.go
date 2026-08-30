@@ -44,6 +44,29 @@ import (
 //     with the message value and does. isNewMessage is the same predicate
 //     IncrementalSaveStage uses for the same question.
 //
+// PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message
+// element, in transcript order, within a single Process call. The pipeline is a
+// DAG — PipelineBuilder offers Branch, Merge and Connect, and RouterStage does
+// selective fan-out — so that is a real constraint, not a formality, and
+// nothing enforces it:
+//
+//   - Downstream of every message producer. Assistant messages are created by
+//     ProviderStage, by CompositionStage (which REPLACES ProviderStage for
+//     composition states), and by the media-compose and video-frame stages. A
+//     message routed down a branch this stage is not on is silently never
+//     published.
+//
+//   - On an order-preserving path. Index is the element's position in the
+//     stream this call saw. It is transcript-absolute only because the provider
+//     re-emits the accumulated transcript in order down a linear chain.
+//     MergeStage spawns a goroutine per input, so downstream of a fan-in the
+//     interleaving — and therefore Index — is nondeterministic. Completeness
+//     survives a merge; ordering does not. Both are pinned by tests.
+//
+// It does NOT need to be adjacent to the save stage. The SDK builder places it
+// immediately before that sink only so a message broadcasts as soon as it
+// exists; correctness does not depend on it.
+//
 // Read Index rather than arrival order. The bus dispatches through a worker
 // pool, so subscribers can and do receive these out of publish order — Index is
 // what lets a consumer reassemble a transcript from a stream that makes no
