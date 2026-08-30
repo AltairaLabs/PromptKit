@@ -8,6 +8,11 @@
 // account for, so a spec change cannot land here silently.
 package packspec
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // AgentDef agent definition for a single prompt, providing A2A Agent Card metadata. Overrides or
 // extends the prompt's own metadata for agent discovery.
 type AgentDef struct {
@@ -34,7 +39,7 @@ type AgentDef struct {
 // AgentStep step kind 'agent': a bounded LLM-tool loop. Internal to a single composition; distinct
 // from RFC 0007 agents.
 type AgentStep struct {
-	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+	Input *StepInput `json:"input,omitempty" yaml:"input,omitempty"`
 
 	Kind any `json:"kind" yaml:"kind"`
 
@@ -533,7 +538,7 @@ type Prompt struct {
 type PromptStep struct {
 	// Input optional input binding. Variables resolved against the composition's input and prior
 	// steps' outputs.
-	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+	Input *StepInput `json:"input,omitempty" yaml:"input,omitempty"`
 
 	Kind any `json:"kind" yaml:"kind"`
 
@@ -669,7 +674,7 @@ type Step struct {
 
 	// Input optional input binding. Variables resolved against the composition's input and prior
 	// steps' outputs.
-	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+	Input *StepInput `json:"input,omitempty" yaml:"input,omitempty"`
 
 	// Kind step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'.
 	// Free-form string with documented conventional values; runtimes may support additional
@@ -706,8 +711,46 @@ type Step struct {
 	Tools []string `json:"tools,omitempty" yaml:"tools,omitempty"`
 }
 
-// StepInput is NOT generated: presents no properties — a '${ref}' string or a free-form object; `any` is the complete
-// representation, not a lossy one
+// StepInput input binding for a step (RFC 0010). May be a reference of the form '${path.to.value}'
+// against the composition input ('${input.X}') or a prior step output
+// ('${stepId.output.X}'), or an object combining literals and references.
+//
+// A union of bare shapes, so there are no named fields to flatten. Exactly one
+// field below is populated; UnmarshalJSON decides which from the JSON shape.
+type StepInput struct {
+	// Object is set when the value is a JSON object.
+	Object map[string]any `json:"-" yaml:"-"`
+	// String is set when the value is a JSON string.
+	String string `json:"-" yaml:"-"`
+}
+
+// MarshalJSON writes whichever shape is populated.
+func (v StepInput) MarshalJSON() ([]byte, error) {
+	if v.Object != nil {
+		return json.Marshal(v.Object)
+	}
+	if v.String != "" {
+		return json.Marshal(v.String)
+	}
+	return []byte("null"), nil
+}
+
+// UnmarshalJSON accepts any of the union's shapes and rejects the rest, so an
+// unexpected shape is an error rather than a silently empty value.
+func (v *StepInput) UnmarshalJSON(data []byte) error {
+	*v = StepInput{}
+	var asObject map[string]any
+	if err := json.Unmarshal(data, &asObject); err == nil {
+		v.Object = asObject
+		return nil
+	}
+	var asString string
+	if err := json.Unmarshal(data, &asString); err == nil {
+		v.String = asString
+		return nil
+	}
+	return fmt.Errorf("StepInput: expected object or string, got %s", string(data))
+}
 
 // StepModifiers declarative annotations on a step. Semantics are runtime-defined.
 type StepModifiers struct {

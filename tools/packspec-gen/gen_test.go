@@ -167,21 +167,49 @@ func TestUnionIsGeneratedFlattened(t *testing.T) {
 	}
 }
 
-// TestPropertylessUnionStillNeedsExclusion — a union that presents NO properties
-// (a string-or-object, like StepInput) flattens to nothing, so there is no
-// struct to generate and it must still be declared.
-func TestPropertylessUnionStillNeedsExclusion(t *testing.T) {
-	_, err := generate(t, minimalRoot(map[string]any{
+// TestBareShapeUnionGeneratesAWrapper replaces
+// TestPropertylessUnionStillNeedsExclusion, which asserted that a union with no
+// named properties must be excluded. That was wrong twice over: StepInput is "a
+// string or an object", and both shapes are modelable — a wrapper with a custom
+// unmarshaller carries the choice exactly, where `any` forces every caller to
+// type-switch and cannot reject a third shape.
+func TestBareShapeUnionGeneratesAWrapper(t *testing.T) {
+	src, err := generate(t, minimalRoot(map[string]any{
 		"Scalar": map[string]any{"oneOf": []any{
 			map[string]any{"type": "string"},
 			map[string]any{"type": "object"},
 		}},
 	}))
-	if err == nil {
-		t.Fatal("a property-less union must still require an explicit exclusion")
+	if err != nil {
+		t.Fatalf("a union of bare shapes must generate, not fail: %v", err)
 	}
-	if !strings.Contains(err.Error(), "exclusions.go") {
-		t.Errorf("error should point at the exclusion mechanism; got: %v", err)
+	for _, want := range []string{
+		"type Scalar struct", "String string", "Object map[string]any",
+		"func (v Scalar) MarshalJSON()", "func (v *Scalar) UnmarshalJSON(",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("missing %q in generated wrapper:\n%s", want, src)
+		}
+	}
+	// The rejection branch is the point: a shape outside the union must error.
+	if !strings.Contains(src, "expected object or string") {
+		t.Errorf("wrapper must reject shapes outside the union:\n%s", src)
+	}
+}
+
+// TestUnrecognizableUnionStillNeedsExclusion — the exclusion mechanism still has
+// to exist for a union that is neither flattenable nor a set of bare shapes.
+func TestUnrecognizableUnionStillNeedsExclusion(t *testing.T) {
+	_, err := generate(t, minimalRoot(map[string]any{
+		"Odd": map[string]any{"oneOf": []any{
+			map[string]any{"type": "tuple"},
+		}},
+	}))
+	if err == nil {
+		t.Fatal("a union of unrecognized shapes must not generate silently")
+	}
+	if !strings.Contains(err.Error(), "exclusion") && !strings.Contains(err.Error(), "variantKinds") {
+		t.Errorf("error should say how to proceed; got: %v", err)
 	}
 }
 
@@ -193,7 +221,10 @@ func TestStaleExclusionIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	cov := NewCoverage()
-	ex := NewExclusions() // ships exclusions for Predicate, Step, ... none of which this schema has
+	// The production set is empty now — every $def generates — so exercise the
+	// mechanism with an entry the schema does not define.
+	ex := emptyExclusions()
+	ex.defs["LongGone"] = "excluded when the spec still had it"
 	s.WalkKeywords(cov)
 	if _, err := NewEmitter(s, cov, ex, "p").Generate(); err != nil {
 		t.Fatal(err)
@@ -201,6 +232,19 @@ func TestStaleExclusionIsAnError(t *testing.T) {
 	err = cov.Reconcile(ex)
 	if err == nil || !strings.Contains(err.Error(), "stale exclusions") {
 		t.Fatalf("expected a stale-exclusion error; got %v", err)
+	}
+}
+
+// TestProductionExclusionsAreEmpty pins the end state. Every claim that a
+// construct could not be represented in Go turned out to be false on
+// inspection — the unions, ProviderRequirement, and StepInput in turn. If an
+// entry reappears here, it needs to clear a high bar, and this test failing is
+// the prompt to check that it does.
+func TestProductionExclusionsAreEmpty(t *testing.T) {
+	if n := NewExclusions().Count(); n != 0 {
+		t.Errorf("production exclusions should be empty; found %d. Adding one means "+
+			"asserting no Go shape carries the information — verify that rather than "+
+			"assuming it, then update this test with the reason.", n)
 	}
 }
 
@@ -400,22 +444,25 @@ func TestLoadSchemaRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestSummaryReportsExclusions(t *testing.T) {
+func TestSummaryReportsHonestDenominator(t *testing.T) {
 	cov := NewCoverage()
 	cov.DeclareDef("A")
 	cov.EmitDef("A")
 	cov.DeclareProp("A.x")
 	cov.EmitProp("A.x")
-	if NewExclusions().Count() == 0 {
-		t.Fatal("production exclusions must not be empty")
-	}
-	s := cov.Summary(NewExclusions())
+
+	s := cov.Summary(emptyExclusions())
 	if !strings.Contains(s, "1/1 $defs") || !strings.Contains(s, "1/1 properties") {
-		t.Errorf("summary must report the honest denominator, not a ratio over a "+
-			"shrunken one: %q", s)
+		t.Errorf("summary must report the honest denominator: %q", s)
 	}
-	if !strings.Contains(s, "excluded") {
-		t.Errorf("summary must surface the exclusion count: %q", s)
+
+	// With an exclusion present the count must be surfaced, not hidden — the
+	// original summary reported "214/214 properties" while a sixth of the spec
+	// surface was excluded from the denominator entirely.
+	ex := emptyExclusions()
+	ex.defs["Skipped"] = "for the test"
+	if s := cov.Summary(ex); !strings.Contains(s, "excluded") {
+		t.Errorf("summary must surface exclusions: %q", s)
 	}
 }
 

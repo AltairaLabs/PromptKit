@@ -21,6 +21,15 @@ const rootTypeName = "Pack"
 const (
 	typeObject = "object"
 	typeString = "string"
+	typeBool   = "boolean"
+	goBool     = "bool"
+	goInt      = "int"
+	typeInt    = "integer"
+	typeNum    = "number"
+	goFloat    = "float64"
+	typeArray  = "array"
+	goAnySlice = "[]any"
+	goAnyMap   = "map[string]any"
 )
 
 func goName(s string) string {
@@ -68,6 +77,9 @@ type Emitter struct {
 	// anything — it becomes EvalThreshold.
 	hoisted     map[string]string
 	hoistedName []string
+
+	// needsJSON records that a generated variant wrapper uses encoding/json.
+	needsJSON bool
 }
 
 func NewEmitter(s *Schema, c *Coverage, e *Exclusions, pkg string) *Emitter {
@@ -84,6 +96,21 @@ func (e *Emitter) Generate() (string, error) {
 	b.WriteString("// and the generator itself fails if the schema contains anything it does not\n")
 	b.WriteString("// account for, so a spec change cannot land here silently.\n")
 	fmt.Fprintf(&b, "package %s\n", e.pkg)
+
+	// Body first: emitting it sets needsJSON, which decides the import block.
+	body, err := e.generateBody()
+	if err != nil {
+		return "", err
+	}
+	if e.needsJSON {
+		b.WriteString("\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n)\n")
+	}
+	b.WriteString(body)
+	return b.String(), nil
+}
+
+func (e *Emitter) generateBody() (string, error) {
+	var b strings.Builder
 
 	for _, name := range e.schema.DefNames {
 		e.cov.DeclareDef(name)
@@ -198,13 +225,13 @@ func (e *Emitter) goTypeNamed(n Node, where, hoistAs string) (string, error) {
 	switch t := n.PrimaryType(); t {
 	case typeString:
 		return typeString, nil
-	case "boolean":
-		return "bool", nil
-	case "integer":
-		return ptrIf("int", n.Nullable()), nil
-	case "number":
-		return ptrIf("float64", n.Nullable()), nil
-	case "array":
+	case typeBool:
+		return goBool, nil
+	case typeInt:
+		return ptrIf(goInt, n.Nullable()), nil
+	case typeNum:
+		return ptrIf(goFloat, n.Nullable()), nil
+	case typeArray:
 		return e.arrayType(n, where)
 	case typeObject:
 		return e.objectType(n, where, hoistAs)
@@ -242,7 +269,7 @@ func (e *Emitter) refType(ref, where string) (string, error) {
 func (e *Emitter) arrayType(n Node, where string) (string, error) {
 	items, ok := n.Child("items")
 	if !ok {
-		return "[]any", nil
+		return goAnySlice, nil
 	}
 	inner, err := e.goType(items, where+"[]")
 	if err != nil {
@@ -277,7 +304,7 @@ func (e *Emitter) objectType(n Node, where, hoistAs string) (string, error) {
 		}
 		return "map[string]" + strings.TrimPrefix(inner, "*"), nil
 	}
-	return "map[string]any", nil
+	return goAnyMap, nil
 }
 
 func lowerFirst(s string) string {

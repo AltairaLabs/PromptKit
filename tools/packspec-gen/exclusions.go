@@ -20,16 +20,23 @@ type Exclusions struct {
 func NewExclusions() *Exclusions {
 	e := &Exclusions{
 		used: map[string]bool{},
-		defs: map[string]string{
-			// Only defs that present NO properties remain excluded. A union with
-			// properties is generated as a flattened struct — Go has no sum
-			// type, but flattening is a representation choice, not an
-			// impossibility, and it is the choice the hand-written types
-			// already made. Excluding them meant 16 of 49 defs went unchecked;
-			// generating them keeps them under the coverage gate instead.
-			"StepInput": "presents no properties — a '${ref}' string or a free-form object; " +
-				"`any` is the complete representation, not a lossy one",
-		},
+		// Empty. Every $def in the spec is generated.
+		//
+		// This list exists as the pressure valve for a construct Go genuinely
+		// cannot represent — but three separate claims that something was
+		// unrepresentable turned out to be false on inspection:
+		//
+		//   - the six oneOf/anyOf unions: flattening is a representation choice,
+		//     not an impossibility, and it is the one the hand-written types
+		//     already made
+		//   - ProviderRequirement, excluded as "presents no properties": it
+		//     presents five, on its object variant
+		//   - StepInput, a string-or-object: a wrapper with a custom
+		//     unmarshaller models it exactly; `any` was never the only option
+		//
+		// So the bar for adding an entry is high: demonstrate that no Go shape
+		// carries the information, rather than that none is convenient.
+		defs:  map[string]string{},
 		props: map[string]string{},
 	}
 	return e

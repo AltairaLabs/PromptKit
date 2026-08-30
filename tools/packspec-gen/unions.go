@@ -84,13 +84,15 @@ func (n Node) isUnion() bool {
 func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 	props := e.schema.unionProperties(def, map[string]bool{name: true})
 	if len(props) == 0 {
-		// A union of scalars (a "${ref}" string or a free-form object) flattens
-		// to nothing. Emitting an empty struct would be worse than useless: it
-		// would accept no field at all while looking like a real type. Require
-		// an explicit exclusion so the choice is visible.
-		return "", fmt.Errorf("$defs/%s: union presents no properties, so there is no struct to "+
-			"flatten it into — add it to exclusions.go with a reason (`any` is usually the "+
-			"complete representation for these)", name)
+		// No named fields to flatten. That does not mean the union is
+		// unmodelable — a choice between bare shapes ("${ref}" string or a
+		// free-form object) is a wrapper with a custom unmarshaller.
+		if kinds := e.schema.variantKinds(def); len(kinds) > 0 {
+			e.needsJSON = true
+			return e.emitVariantWrapper(name, def, kinds), nil
+		}
+		return "", fmt.Errorf("$defs/%s: union has no properties to flatten and no recognizable "+
+			"variant shapes — teach variantKinds about it, or add an exclusion with a reason", name)
 	}
 	names := make([]string, 0, len(props))
 	for k := range props {
@@ -127,4 +129,106 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 	}
 	b.WriteString("}\n")
 	return b.String(), nil
+}
+
+// scalarVariantField maps a JSON-Schema type to the Go field that holds it in a
+// generated variant wrapper.
+var scalarVariantField = map[string]struct{ name, typ string }{
+	typeString: {"String", typeString},
+	"integer":  {"Int", goInt},
+	typeNum:    {"Number", goFloat},
+	typeBool:   {"Bool", goBool},
+	typeObject: {"Object", goAnyMap},
+	typeArray:  {"Array", goAnySlice},
+}
+
+// variantKinds returns the distinct scalar/free-form types a union can be, or
+// nil if any variant is something richer (named properties, a $ref).
+//
+// A union like StepInput — "a '${ref}' string, or a free-form object" — has an
+// empty property closure, so it cannot be flattened into a struct. That does NOT
+// make `any` the only option: the two shapes are perfectly modelable as a small
+// wrapper with a custom unmarshaller. `any` forces every caller to type-switch
+// and documents nothing.
+func (s *Schema) variantKinds(n Node) []string {
+	var kinds []string
+	seen := map[string]bool{}
+	for _, kw := range []string{kwOneOf, kwAnyOf} {
+		for _, v := range n.variantNodes(kw) {
+			if v.Has(kwProperties) || v.Str("$ref") != "" {
+				return nil // richer than a bare shape; flattening applies instead
+			}
+			t := v.PrimaryType()
+			if _, ok := scalarVariantField[t]; !ok {
+				return nil
+			}
+			if !seen[t] {
+				seen[t] = true
+				kinds = append(kinds, t)
+			}
+		}
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+// emitVariantWrapper emits a union of bare shapes as a struct with one field per
+// shape plus JSON marshaling that picks the right one.
+//
+// Exactly one field is populated. Marshaling prefers the first populated field
+// in declaration order, which round-trips because only one is ever set by
+// UnmarshalJSON.
+func (e *Emitter) emitVariantWrapper(name string, def Node, kinds []string) string {
+	var b strings.Builder
+	b.WriteString("\n")
+	if d := def.Str("description"); d != "" {
+		fmt.Fprintf(&b, "// %s %s\n", name, wrapComment(lowerFirst(d), "// "))
+	}
+	b.WriteString("//\n// A union of bare shapes, so there are no named fields to flatten. Exactly one\n")
+	b.WriteString("// field below is populated; UnmarshalJSON decides which from the JSON shape.\n")
+	fmt.Fprintf(&b, "type %s struct {\n", name)
+	for _, k := range kinds {
+		f := scalarVariantField[k]
+		fmt.Fprintf(&b, "\t// %s is set when the value is a JSON %s.\n", f.name, k)
+		fmt.Fprintf(&b, "\t%s %s `json:\"-\" yaml:\"-\"`\n", f.name, f.typ)
+	}
+	b.WriteString("}\n")
+
+	// MarshalJSON
+	fmt.Fprintf(&b, "\n// MarshalJSON writes whichever shape is populated.\n")
+	fmt.Fprintf(&b, "func (v %s) MarshalJSON() ([]byte, error) {\n", name)
+	for _, k := range kinds {
+		f := scalarVariantField[k]
+		fmt.Fprintf(&b, "\tif %s {\n\t\treturn json.Marshal(v.%s)\n\t}\n", populated("v", f.name, f.typ), f.name)
+	}
+	b.WriteString("\treturn []byte(\"null\"), nil\n}\n")
+
+	// UnmarshalJSON
+	fmt.Fprintf(&b, "\n// UnmarshalJSON accepts any of the union's shapes and rejects the rest, so an\n")
+	fmt.Fprintf(&b, "// unexpected shape is an error rather than a silently empty value.\n")
+	fmt.Fprintf(&b, "func (v *%s) UnmarshalJSON(data []byte) error {\n", name)
+	fmt.Fprintf(&b, "\t*v = %s{}\n", name)
+	for _, k := range kinds {
+		f := scalarVariantField[k]
+		fmt.Fprintf(&b, "\tvar as%s %s\n", f.name, f.typ)
+		fmt.Fprintf(&b, "\tif err := json.Unmarshal(data, &as%s); err == nil {\n", f.name)
+		fmt.Fprintf(&b, "\t\tv.%s = as%s\n\t\treturn nil\n\t}\n", f.name, f.name)
+	}
+	fmt.Fprintf(&b, "\treturn fmt.Errorf(\"%s: expected %s, got %%s\", string(data))\n}\n",
+		name, strings.Join(kinds, " or "))
+	return b.String()
+}
+
+// populated renders the "this field is set" test for a variant field.
+func populated(recv, field, typ string) string {
+	switch typ {
+	case "string":
+		return recv + "." + field + ` != ""`
+	case "int", "float64":
+		return recv + "." + field + " != 0"
+	case "bool":
+		return recv + "." + field
+	default: // maps and slices
+		return recv + "." + field + " != nil"
+	}
 }
