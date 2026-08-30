@@ -23,8 +23,25 @@ import (
 // affected, and promptkit uses the capability in two of them today
 // (MetricDef.labels, and metadata.performance / metadata.changelog).
 func (n Node) isOpenObject() bool {
-	open, ok := n.Raw["additionalProperties"].(bool)
-	return ok && open && n.Has(kwProperties)
+	if !n.Has(kwProperties) {
+		return false
+	}
+	ap, present := n.Raw["additionalProperties"]
+	if !present {
+		// JSON Schema's default is TRUE. The spec omits the keyword on 15
+		// object nodes — Tool.parameters, Reducer, StepModifiers, the predicate
+		// variants and others — so extras are legal there and promptkit's
+		// validator already accepts them. Treating absent as closed would drop
+		// data from packs that validate, which is the failure this whole
+		// mechanism exists to prevent.
+		//
+		// Several of those omissions look like oversights rather than intent;
+		// if the spec later adds additionalProperties:false the Extra fields
+		// disappear on the next regeneration, which is the point of generating.
+		return true
+	}
+	open, ok := ap.(bool)
+	return ok && open
 }
 
 // emitExtraField writes the catch-all that makes an open object round-trip.
@@ -79,5 +96,28 @@ func emitOpenObjectJSON(name string, jsonNames []string) string {
 	fmt.Fprintf(&b, "\t\tif v.Extra == nil {\n\t\t\tv.Extra = map[string]any{}\n\t\t}\n")
 	fmt.Fprintf(&b, "\t\tv.Extra[k] = val\n\t}\n")
 	fmt.Fprintf(&b, "\treturn nil\n}\n")
+	return b.String()
+}
+
+// emitOpenObjectRegistry lists every generated type that accepts extensions.
+//
+// Exists so a conformance test can exercise all of them without a hand-written
+// table that silently falls behind the schema — the failure mode being that a
+// newly-open def gets marshaling nothing ever runs. The registry is generated,
+// so it cannot drift.
+func emitOpenObjectRegistry(names []string) string {
+	sort.Strings(names)
+	var b strings.Builder
+	b.WriteString("\n// OpenObjectPrototypes returns a zero value of every type that accepts\n")
+	b.WriteString("// properties the schema does not name (additionalProperties is true, or\n")
+	b.WriteString("// absent, which JSON Schema defines as true).\n//\n")
+	b.WriteString("// Each value is a pointer, ready to unmarshal into. Intended for conformance\n")
+	b.WriteString("// tests and tooling that needs to know which parts of a pack are extensible.\n")
+	b.WriteString("func OpenObjectPrototypes() map[string]any {\n")
+	b.WriteString("\treturn map[string]any{\n")
+	for _, n := range names {
+		fmt.Fprintf(&b, "\t\t%q: &%s{},\n", n, n)
+	}
+	b.WriteString("\t}\n}\n")
 	return b.String()
 }

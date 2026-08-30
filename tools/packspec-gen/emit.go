@@ -81,6 +81,9 @@ type Emitter struct {
 	hoisted     map[string]string
 	hoistedName []string
 
+	// openNames records every emitted type that accepts extensions.
+	openNames []string
+
 	// needsJSON records that a generated variant wrapper uses encoding/json.
 	needsJSON bool
 }
@@ -165,6 +168,10 @@ func (e *Emitter) generateBody() (string, error) {
 		b.WriteString(strings.TrimPrefix(e.hoisted[name], "\n"))
 	}
 
+	if len(e.openNames) > 0 {
+		b.WriteString(emitOpenObjectRegistry(e.openNames))
+	}
+
 	return b.String(), nil
 }
 
@@ -210,6 +217,7 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 	b.WriteString("}\n")
 	if def.isOpenObject() {
 		e.needsJSON = true
+		e.openNames = append(e.openNames, name)
 		b.WriteString(emitOpenObjectJSON(name, jsonNames))
 	}
 	return b.String(), nil

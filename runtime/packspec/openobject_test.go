@@ -2,6 +2,7 @@ package packspec_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/packspec"
@@ -105,6 +106,43 @@ func TestOpenObjectsPreserveExtensions(t *testing.T) {
 					t.Errorf("Extra must never appear as a key of its own: %s", out)
 				}
 			})
+		})
+	}
+}
+
+// TestEveryOpenObjectRoundTripsExtensions walks the generated registry rather
+// than a hand-written list, so a def that becomes extensible in a future spec
+// revision is covered the moment it is generated — no table to fall behind.
+//
+// 22 types are extensible: five declare additionalProperties:true, and the rest
+// omit the keyword, which JSON Schema defines as true. promptkit's validator
+// already accepts extras on all of them, so a type that drops them loses data
+// from packs that validate.
+func TestEveryOpenObjectRoundTripsExtensions(t *testing.T) {
+	prototypes := packspec.OpenObjectPrototypes()
+	if len(prototypes) == 0 {
+		t.Fatal("no open objects registered — the generator stopped emitting the registry")
+	}
+
+	for name, proto := range prototypes {
+		t.Run(name, func(t *testing.T) {
+			// A key no schema names, so it can only survive via Extra.
+			const src = `{"x-promptkit-probe":{"nested":[1,"two"]}}`
+			target := reflect.New(reflect.TypeOf(proto).Elem()).Interface()
+			if err := json.Unmarshal([]byte(src), target); err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			out, err := json.Marshal(target)
+			if err != nil {
+				t.Fatalf("save: %v", err)
+			}
+			var back map[string]any
+			if err := json.Unmarshal(out, &back); err != nil {
+				t.Fatalf("output must be a JSON object, got %s", out)
+			}
+			if _, ok := back["x-promptkit-probe"]; !ok {
+				t.Errorf("%s dropped an extension across a round trip: %s", name, out)
+			}
 		})
 	}
 }
