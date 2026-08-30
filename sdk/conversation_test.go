@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
@@ -548,10 +550,7 @@ func TestOnToolExecutor(t *testing.T) {
 				"custom_tool": {
 					Name:        "custom_tool",
 					Description: "Test tool",
-					Parameters: map[string]any{
-						"type":       "object",
-						"properties": map[string]any{},
-					},
+					Parameters:  &packspec.ToolParameters{Type: "object", Properties: map[string]map[string]any{}},
 				},
 			},
 		}

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
@@ -249,29 +251,34 @@ func (sm *StateMachine) checkBudgetLocked() error {
 		return nil
 	}
 	budget := sm.budget
-	if budget.MaxTotalVisits > 0 && sm.context.TotalVisits() >= budget.MaxTotalVisits {
+	// Budget limits are pointers: nil means "no limit", which is a different
+	// fact from a limit of zero. Deref to 0 preserves the prior meaning, since
+	// the checks below already treat 0 as unlimited.
+	maxVisits := packspec.Deref(budget.MaxTotalVisits, 0)
+	maxToolCalls := packspec.Deref(budget.MaxToolCalls, 0)
+	if maxVisits > 0 && sm.context.TotalVisits() >= maxVisits {
 		return &BudgetExhaustedError{
 			Limit:        BudgetLimitTotalVisits,
 			Current:      sm.context.TotalVisits(),
-			Max:          budget.MaxTotalVisits,
+			Max:          maxVisits,
 			CurrentState: sm.context.CurrentState,
 		}
 	}
-	if budget.MaxToolCalls > 0 && sm.context.TotalToolCalls >= budget.MaxToolCalls {
+	if maxToolCalls > 0 && sm.context.TotalToolCalls >= maxToolCalls {
 		return &BudgetExhaustedError{
 			Limit:        BudgetLimitToolCalls,
 			Current:      sm.context.TotalToolCalls,
-			Max:          budget.MaxToolCalls,
+			Max:          maxToolCalls,
 			CurrentState: sm.context.CurrentState,
 		}
 	}
-	if budget.MaxWallTimeSec > 0 {
+	if maxWall := packspec.Deref(budget.MaxWallTimeSec, 0); maxWall > 0 {
 		elapsed := sm.now().Sub(sm.context.StartedAt)
-		if int(elapsed.Seconds()) >= budget.MaxWallTimeSec {
+		if int(elapsed.Seconds()) >= maxWall {
 			return &BudgetExhaustedError{
 				Limit:        BudgetLimitWallTimeSec,
 				Current:      int(elapsed.Seconds()),
-				Max:          budget.MaxWallTimeSec,
+				Max:          maxWall,
 				CurrentState: sm.context.CurrentState,
 			}
 		}
@@ -296,7 +303,9 @@ func (sm *StateMachine) parseBudgetFromSpec() *Budget {
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil
 	}
-	if b.MaxTotalVisits == 0 && b.MaxToolCalls == 0 && b.MaxWallTimeSec == 0 {
+	if packspec.Deref(b.MaxTotalVisits, 0) == 0 &&
+		packspec.Deref(b.MaxToolCalls, 0) == 0 &&
+		packspec.Deref(b.MaxWallTimeSec, 0) == 0 {
 		return nil
 	}
 	return &b

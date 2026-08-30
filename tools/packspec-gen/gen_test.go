@@ -416,9 +416,14 @@ func TestCompositeTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Tags []string ", "Leaves []Leaf ", "Leaf *Leaf ",
-		"Freeform map[string]any ", "TypedMap map[string]Leaf ",
-		"LooseArr []any ", "Untyped any ",
+		"Tags []string ",
+		// Slices and maps of OBJECTS keep the pointer; scalars do not. That
+		// matches the hand-written types ([]*Step, map[string]*AgentDef), and a
+		// recursive shape like Predicate.all_of cannot be a slice of values
+		// without boxing. Changed deliberately when the aliasing began.
+		"Leaves []*Leaf ", "TypedMap map[string]*Leaf ",
+		"Leaf *Leaf ",
+		"Freeform map[string]any ", "LooseArr []any ", "Untyped any ",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("missing %q in:\n%s", want, src)

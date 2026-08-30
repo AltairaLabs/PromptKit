@@ -66,8 +66,8 @@ func TestExecute_Sequential(t *testing.T) {
 		Version: 1,
 		Output:  "second",
 		Steps: []*composition.Step{
-			{ID: "first", Kind: composition.KindPrompt, PromptTask: "p1", Input: "${input.text}"},
-			{ID: "second", Kind: composition.KindPrompt, PromptTask: "p2", Input: "${first.output.label}"},
+			{ID: "first", Kind: composition.KindPrompt, PromptTask: "p1", Input: &packspec.StepInput{String: "${input.text}"}},
+			{ID: "second", Kind: composition.KindPrompt, PromptTask: "p2", Input: &packspec.StepInput{String: "${first.output.label}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{
@@ -143,7 +143,7 @@ func TestExecute_NilInput(t *testing.T) {
 func TestExecute_AgentKind(t *testing.T) {
 	comp := &composition.Composition{
 		Version: 1,
-		Steps:   []*composition.Step{{ID: "ag", Kind: composition.KindAgent, Input: "${input.q}"}},
+		Steps:   []*composition.Step{{ID: "ag", Kind: composition.KindAgent, Input: &packspec.StepInput{String: "${input.q}"}}},
 	}
 	fe := newFakeExec(map[string]any{"ag": "answer"})
 	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"q": "hi"}))
@@ -164,7 +164,7 @@ func TestExecute_BranchKind_NoOutput(t *testing.T) {
 		Version: 1,
 		Output:  "before",
 		Steps: []*composition.Step{
-			{ID: "before", Kind: composition.KindPrompt, Input: "x"},
+			{ID: "before", Kind: composition.KindPrompt, Input: &packspec.StepInput{String: "x"}},
 			{ID: "br", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.v}", Op: "equals", Value: true}},
 		},
@@ -278,7 +278,7 @@ func TestExecute_BranchPredicateError(t *testing.T) {
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.name}", Op: "less_than", Value: float64(3)},
 				Then:      "after"},
-			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: "${input.name}"},
+			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: &packspec.StepInput{String: "${input.name}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"after": "A"})
@@ -299,10 +299,10 @@ func TestExecute_BranchTakenOutputConsumedDownstream(t *testing.T) {
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
 				Then:      "paper", Else: "general"},
-			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: "${input.x}"},
-			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: "${input.x}"},
+			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: &packspec.StepInput{String: "${input.x}"}},
+			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: &packspec.StepInput{String: "${input.x}"}},
 			{ID: "join", Kind: composition.KindPrompt, PromptTask: "j",
-				DependsOn: []string{"paper", "general"}, Input: "${paper.output.label}"},
+				DependsOn: []string{"paper", "general"}, Input: &packspec.StepInput{String: "${paper.output.label}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{
@@ -326,7 +326,7 @@ func TestExecute_BranchThenEqualsElse(t *testing.T) {
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
 				Then:      "merge", Else: "merge"},
-			{ID: "merge", Kind: composition.KindPrompt, PromptTask: "m", Input: "${input.x}"},
+			{ID: "merge", Kind: composition.KindPrompt, PromptTask: "m", Input: &packspec.StepInput{String: "${input.x}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"merge": "M"})
@@ -352,14 +352,14 @@ func branchComp(predValue string) *composition.Composition {
 		Version: 1,
 		Output:  "join",
 		Steps: []*composition.Step{
-			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: "${input.text}"},
+			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: &packspec.StepInput{String: "${input.text}"}},
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${classify.output.type}", Op: "equals", Value: predValue},
 				Then:      "paper", Else: "general"},
-			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: "${input.text}"},
-			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: "${input.text}"},
+			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: &packspec.StepInput{String: "${input.text}"}},
+			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: &packspec.StepInput{String: "${input.text}"}},
 			{ID: "join", Kind: composition.KindPrompt, PromptTask: "j",
-				DependsOn: []string{"paper", "general"}, Input: "${input.text}"},
+				DependsOn: []string{"paper", "general"}, Input: &packspec.StepInput{String: "${input.text}"}},
 		},
 	}
 }
@@ -400,8 +400,8 @@ func TestExecute_EmptyElseFallThrough(t *testing.T) {
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
 				Then:      "optional"},
-			{ID: "optional", Kind: composition.KindPrompt, PromptTask: "o", Input: "${input.x}"},
-			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: "${input.x}"},
+			{ID: "optional", Kind: composition.KindPrompt, PromptTask: "o", Input: &packspec.StepInput{String: "${input.x}"}},
+			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: &packspec.StepInput{String: "${input.x}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"optional": "O", "after": "A"})
@@ -421,10 +421,10 @@ func TestExecute_JoinSkippedWhenAllDepsSkipped(t *testing.T) {
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
 				Then:      "only"},
-			{ID: "only", Kind: composition.KindPrompt, PromptTask: "o", Input: "${input.x}"},
+			{ID: "only", Kind: composition.KindPrompt, PromptTask: "o", Input: &packspec.StepInput{String: "${input.x}"}},
 			{ID: "dependent", Kind: composition.KindPrompt, PromptTask: "d",
-				DependsOn: []string{"only"}, Input: "${input.x}"},
-			{ID: "tail", Kind: composition.KindPrompt, PromptTask: "t", Input: "${input.x}"},
+				DependsOn: []string{"only"}, Input: &packspec.StepInput{String: "${input.x}"}},
+			{ID: "tail", Kind: composition.KindPrompt, PromptTask: "t", Input: &packspec.StepInput{String: "${input.x}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"only": "O", "dependent": "D", "tail": "T"})
@@ -527,7 +527,7 @@ func TestExecute_ParallelBarrier(t *testing.T) {
 				},
 				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "metadata"}},
 			{ID: "consume", Kind: composition.KindPrompt, PromptTask: "p",
-				Input: "${meta.output.metadata}"},
+				Input: &packspec.StepInput{String: "${meta.output.metadata}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{
@@ -566,7 +566,7 @@ func TestExecute_RetrySucceedsAfterFailures(t *testing.T) {
 	comp := &composition.Composition{
 		Version: 1, Output: "flaky",
 		Steps: []*composition.Step{
-			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
+			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${input.x}"},
 				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(3)}}},
 		},
 	}
@@ -588,7 +588,7 @@ func TestExecute_RetryExhaustedPropagatesError(t *testing.T) {
 	comp := &composition.Composition{
 		Version: 1, Output: "flaky",
 		Steps: []*composition.Step{
-			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
+			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${input.x}"},
 				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(2)}}},
 		},
 	}
@@ -606,7 +606,7 @@ func TestExecute_NoRetryDefaultsToOneAttempt(t *testing.T) {
 	comp := &composition.Composition{
 		Version: 1, Output: "x",
 		Steps: []*composition.Step{
-			{ID: "x", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.v}"},
+			{ID: "x", Kind: composition.KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${input.v}"}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"x": "ok"})
@@ -777,7 +777,7 @@ func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
 		Version: 1,
 		Output:  "synth",
 		Steps: []*composition.Step{
-			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: "${input.text}"},
+			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: &packspec.StepInput{String: "${input.text}"}},
 			{ID: "route", Kind: composition.KindBranch,
 				Predicate: &composition.Predicate{Path: "${classify.output.type}", Op: "equals", Value: "paper"},
 				Then:      "enrich", Else: "skip_path"},
@@ -788,10 +788,10 @@ func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
 					{ID: "citations", Kind: composition.KindTool, Tool: "t.c", Args: map[string]any{"c": "${input.text}"}},
 				},
 				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "meta"}},
-			{ID: "skip_path", Kind: composition.KindPrompt, PromptTask: "s", Input: "${input.text}"},
+			{ID: "skip_path", Kind: composition.KindPrompt, PromptTask: "s", Input: &packspec.StepInput{String: "${input.text}"}},
 			{ID: "synth", Kind: composition.KindAgent, PromptTask: "a",
 				DependsOn: []string{"enrich", "skip_path"},
-				Input:     "${enrich.output.meta}",
+				Input:     &packspec.StepInput{String: "${enrich.output.meta}"},
 				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(2)}}},
 		},
 	}

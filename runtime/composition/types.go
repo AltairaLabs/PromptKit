@@ -6,7 +6,7 @@ package composition
 import "github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 // StepKind identifies a composition step's kind.
-type StepKind string
+type StepKind = string
 
 // Step kinds (RFC 0010 v1).
 const (
@@ -25,54 +25,42 @@ const (
 )
 
 // Composition is a named step graph over the pack's prompts, tools, and evals.
-type Composition struct {
-	Version      int            `json:"version"`
-	Description  string         `json:"description,omitempty"`
-	InputSchema  string         `json:"input_schema,omitempty"`
-	OutputSchema string         `json:"output_schema,omitempty"`
-	Output       string         `json:"output,omitempty"` // step id; default = last step
-	Steps        []*Step        `json:"steps"`
-	Engine       map[string]any `json:"engine,omitempty"` // opaque runtime-specific config
-}
+//
+// Generated from the schema: an ALIAS for packspec.Composition.
+type Composition = packspec.Composition
 
 // Step is a single node in a composition graph. Only the fields legal for Kind
 // are set; per-kind legality is enforced by Validate.
-type Step struct {
-	ID   string   `json:"id"`
-	Kind StepKind `json:"kind"`
-	// Description is spec vocabulary (RFC 0010 $defs/Step) that had no Go field,
-	// so it was dropped on load and never round-tripped. Carried metadata, not
-	// behavior. Found by TestHandWrittenUnionsCoverTheSpec.
-	Description string         `json:"description,omitempty"`
-	DependsOn   []string       `json:"depends_on,omitempty"`
-	Modifiers   *StepModifiers `json:"modifiers,omitempty"`
+//
+// Generated from the schema: an ALIAS for packspec.Step. The schema expresses
+// this as a oneOf over the five *Step kinds; Go has no sum type, so the
+// generator flattens it exactly as this hand-written type already did, keeping
+// the `kind` discriminator.
+type Step = packspec.Step
 
-	// prompt, agent
-	PromptTask   string       `json:"prompt_task,omitempty"`
-	Input        any          `json:"input,omitempty"` // StepInput: "${...}" string or object
-	OutputSchema string       `json:"output_schema,omitempty"`
-	Tools        []string     `json:"tools,omitempty"`       // agent only
-	Termination  *Termination `json:"termination,omitempty"` // agent only
-
-	// tool
-	Tool string         `json:"tool,omitempty"`
-	Args map[string]any `json:"args,omitempty"`
-
-	// branch
-	Predicate *Predicate `json:"predicate,omitempty"`
-	Then      string     `json:"then,omitempty"`
-	Else      string     `json:"else,omitempty"`
-
-	// parallel
-	Branches []*Step  `json:"branches,omitempty"`
-	Reduce   *Reducer `json:"reduce,omitempty"`
+// StepInputValue returns a step's input in the form the resolver expects: the
+// reference string, the literal object, or nil.
+//
+// The spec models input as a union — a "${...}" reference or an object of
+// literals and references — so the generated field is a small wrapper rather
+// than `any`. This unwraps it in one place instead of at each call site.
+func StepInputValue(s *Step) any {
+	if s == nil || s.Input == nil {
+		return nil
+	}
+	if s.Input.Object != nil {
+		return s.Input.Object
+	}
+	if s.Input.String != "" {
+		return s.Input.String
+	}
+	return nil
 }
 
 // Termination bounds an agent step's tool loop. anyOf max_steps | tool_called.
-type Termination struct {
-	MaxSteps   int    `json:"max_steps,omitempty"`
-	ToolCalled string `json:"tool_called,omitempty"`
-}
+//
+// Generated from the schema: an ALIAS for packspec.TerminationPredicate.
+type Termination = packspec.TerminationPredicate
 
 // Reducer declares how parallel branch outputs merge. Both fields required.
 // Generated from the schema: an ALIAS for packspec.Reducer, not a copy. The
@@ -94,15 +82,11 @@ type RetryModifier = packspec.StepModifiersRetry
 
 // Predicate is the constrained predicate language. Exactly one variant is set:
 // compare (path+op+value), exists (path+exists), or a composite (all_of/any_of/not).
-type Predicate struct {
-	Path   string       `json:"path,omitempty"`
-	Op     string       `json:"op,omitempty"`
-	Value  any          `json:"value,omitempty"`
-	Exists *bool        `json:"exists,omitempty"`
-	AllOf  []*Predicate `json:"all_of,omitempty"`
-	AnyOf  []*Predicate `json:"any_of,omitempty"`
-	Not    *Predicate   `json:"not,omitempty"`
-}
+//
+// Generated from the schema: an ALIAS for packspec.Predicate. The schema
+// expresses this as a oneOf union; Go has no sum type, so the generator
+// flattens it exactly as this hand-written type already did.
+type Predicate = packspec.Predicate
 
 // compareOps is the set of valid comparison operators.
 var compareOps = map[string]bool{

@@ -112,6 +112,11 @@ type Pack struct {
 	// Skills - Skill sources for dynamic capability loading
 	Skills []SkillSourceConfig `json:"skills,omitempty" yaml:"skills,omitempty"`
 
+	// Requires - External resources the pack needs to run (RFC 0012).
+	// Read it through ResolveRequirements, which applies the string shorthand
+	// and the required-defaults-to-true rule.
+	Requires *Requires `json:"requires,omitempty" yaml:"requires,omitempty"`
+
 	// FilePath is the on-disk path this pack was loaded from, if any. It is
 	// never serialized; loaders set it so schema/fragment resolution can
 	// resolve paths relative to the pack file.
@@ -177,13 +182,18 @@ func (s *SkillSourceConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
-// Tools are defined at pack level and referenced by prompts via the tools array
-type PackTool struct {
-	Name        string      `json:"name"`        // Tool function name (required)
-	Description string      `json:"description"` // Tool description (required)
-	Parameters  interface{} `json:"parameters"`  // JSON Schema for input parameters (required)
-}
+// PackTool represents a tool definition in the pack (per PromptPack spec Section 9).
+// Tools are defined at pack level and referenced by prompts via the tools array.
+//
+// Generated from the schema: an ALIAS for packspec.Tool.
+//
+// Parameters is *ToolParameters rather than the interface{} the hand-written
+// type used. The spec defines a shape here (type/properties/required) and
+// interface{} ignored it; the generated type keeps that shape while remaining
+// extensible, since Tool.parameters omits additionalProperties and JSON Schema
+// defaults it to true. So a tool schema using $defs, oneOf or any other keyword
+// still round-trips, through ToolParameters.Extra.
+type PackTool = packspec.Tool
 
 // WorkflowConfig is an alias for workflow.Spec for backward compatibility.
 type WorkflowConfig = workflow.Spec
@@ -192,10 +202,9 @@ type WorkflowConfig = workflow.Spec
 type WorkflowState = workflow.State
 
 // AgentsConfig maps prompts to A2A-compatible agent definitions.
-type AgentsConfig struct {
-	Entry   string               `json:"entry"`
-	Members map[string]*AgentDef `json:"members"`
-}
+//
+// Generated from the schema: an ALIAS for packspec.AgentsConfig.
+type AgentsConfig = packspec.AgentsConfig
 
 // AgentDef provides A2A Agent Card metadata for a single prompt.
 //
@@ -545,12 +554,16 @@ func parseToolData(data []byte) (*PackTool, error) {
 		return nil, nil // Not a tool, skip
 	}
 
-	// Convert input_schema to parameters
-	var params interface{}
+	// Convert input_schema to parameters. Keywords the spec does not name are
+	// preserved by ToolParameters.Extra, so an author's full JSON Schema
+	// survives the conversion.
+	var params *packspec.ToolParameters
 	if len(raw.Spec.InputSchema) > 0 {
-		if err := json.Unmarshal(raw.Spec.InputSchema, &params); err != nil {
+		var parsed packspec.ToolParameters
+		if err := json.Unmarshal(raw.Spec.InputSchema, &parsed); err != nil {
 			return nil, fmt.Errorf("failed to parse input_schema as JSON: %w", err)
 		}
+		params = &parsed
 	}
 
 	return &PackTool{
@@ -577,9 +590,16 @@ func parseYAMLConfig(data []byte, v interface{}) error {
 // ConvertToolToPackTool converts a tool descriptor to a PackTool
 // This is the preferred method when tool parsing happens externally
 func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage) *PackTool {
-	var params interface{}
+	var params *packspec.ToolParameters
 	if len(inputSchema) > 0 {
-		_ = json.Unmarshal(inputSchema, &params)
+		var parsed packspec.ToolParameters
+		// A tool's input schema is author-supplied JSON Schema. Anything the
+		// spec does not name is preserved by ToolParameters.Extra, so a parse
+		// failure here means the document is not an object at all — keep the
+		// prior behavior of tolerating it rather than failing the compile.
+		if err := json.Unmarshal(inputSchema, &parsed); err == nil {
+			params = &parsed
+		}
 	}
 	return &PackTool{
 		Name:        name,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -228,7 +229,7 @@ func TestCompositionExecutor_AgentStepUsesTermination(t *testing.T) {
 		Kind:        composition.KindAgent,
 		PromptTask:  "a",
 		Tools:       []string{},
-		Termination: &composition.Termination{MaxSteps: 5},
+		Termination: &composition.Termination{MaxSteps: packspec.Ptr(5)},
 	}
 	out, err := exec(context.Background(), step, json.RawMessage(`"go"`))
 	if err != nil {
@@ -259,7 +260,7 @@ func TestCompositionExecutor_AgentStepTerminationToolCalled(t *testing.T) {
 		Kind:       composition.KindAgent,
 		PromptTask: "a",
 		Termination: &composition.Termination{
-			MaxSteps:   3,
+			MaxSteps:   packspec.Ptr(3),
 			ToolCalled: "my_tool",
 		},
 	}

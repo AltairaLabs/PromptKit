@@ -170,7 +170,7 @@ func validateAudioConfig(config *AudioConfig) error {
 
 // validateVideoConfig validates video-specific configuration
 func validateVideoConfig(config *VideoConfig) error {
-	if config.MaxSizeMB < 0 {
+	if packspec.Deref(config.MaxSizeMB, 0) < 0 {
 		return errMaxSizeMBNegative
 	}
 
@@ -190,7 +190,7 @@ func validateVideoConfig(config *VideoConfig) error {
 		}
 	}
 
-	if config.MaxDurationSec < 0 {
+	if packspec.Deref(config.MaxDurationSec, 0) < 0 {
 		return errMaxDurationSecNegative
 	}
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -146,8 +148,8 @@ func (deps CompositionExecutorDeps) execLLM(
 	policy := &pipeline.ToolPolicy{}
 	if step.Kind == composition.KindAgent {
 		if step.Termination != nil {
-			if step.Termination.MaxSteps > 0 {
-				policy.MaxRounds = step.Termination.MaxSteps
+			if maxSteps := packspec.Deref(step.Termination.MaxSteps, 0); maxSteps > 0 {
+				policy.MaxRounds = maxSteps
 			}
 			policy.StopOnTool = step.Termination.ToolCalled
 		}

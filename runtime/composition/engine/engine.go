@@ -158,7 +158,7 @@ func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scop
 	if step.Kind == composition.KindTool {
 		raw = step.Args
 	} else {
-		raw = step.Input
+		raw = composition.StepInputValue(step)
 	}
 	resolved, err := resolveInput(raw, scope)
 	if err != nil {

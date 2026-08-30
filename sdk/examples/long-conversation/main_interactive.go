@@ -49,7 +49,7 @@ func main() {
 	conv, err := sdk.Open("./assistant.pack.json", "assistant",
 		sdk.WithStateStore(store),
 		sdk.WithConversationID("demo-session-1"),
-		sdk.WithContextWindow(4),                    // Hot window: last 4 messages
+		sdk.WithContextWindow(4),                     // Hot window: last 4 messages
 		sdk.WithContextRetrieval(embProvider, 3),     // Retrieve top 3 relevant older messages
 		sdk.WithAutoSummarize(summaryProvider, 6, 4), // Summarize when >6 messages, batch of 4
 	)

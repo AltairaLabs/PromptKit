@@ -77,10 +77,10 @@ func TestValidateMediaConfig(t *testing.T) {
 				Enabled:        true,
 				SupportedTypes: []string{"video"},
 				Video: &VideoConfig{
-					MaxSizeMB:       100,
+					MaxSizeMB:       packspec.Ptr(100),
 					AllowedFormats:  []string{"mp4", "webm"},
-					MaxDurationSec:  300,
-					RequireMetadata: false,
+					MaxDurationSec:  packspec.Ptr(300),
+					RequireMetadata: packspec.Ptr(false),
 				},
 			},
 			wantErr: false,
@@ -99,7 +99,7 @@ func TestValidateMediaConfig(t *testing.T) {
 					AllowedFormats: []string{"mp3"},
 				},
 				Video: &VideoConfig{
-					MaxSizeMB:      100,
+					MaxSizeMB:      packspec.Ptr(100),
 					AllowedFormats: []string{"mp4"},
 				},
 			},
@@ -308,17 +308,17 @@ func TestValidateVideoConfig(t *testing.T) {
 		{
 			name: "valid config",
 			config: &VideoConfig{
-				MaxSizeMB:       100,
+				MaxSizeMB:       packspec.Ptr(100),
 				AllowedFormats:  []string{"mp4", "webm"},
-				MaxDurationSec:  300,
-				RequireMetadata: false,
+				MaxDurationSec:  packspec.Ptr(300),
+				RequireMetadata: packspec.Ptr(false),
 			},
 			wantErr: false,
 		},
 		{
 			name: "negative max size",
 			config: &VideoConfig{
-				MaxSizeMB: -1,
+				MaxSizeMB: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_size_mb cannot be negative",
@@ -326,7 +326,7 @@ func TestValidateVideoConfig(t *testing.T) {
 		{
 			name: "invalid format",
 			config: &VideoConfig{
-				MaxSizeMB:      100,
+				MaxSizeMB:      packspec.Ptr(100),
 				AllowedFormats: []string{"invalid"},
 			},
 			wantErr: true,
@@ -335,8 +335,8 @@ func TestValidateVideoConfig(t *testing.T) {
 		{
 			name: "negative duration",
 			config: &VideoConfig{
-				MaxSizeMB:      100,
-				MaxDurationSec: -1,
+				MaxSizeMB:      packspec.Ptr(100),
+				MaxDurationSec: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_duration_sec cannot be negative",
@@ -694,7 +694,7 @@ func TestSupportsMediaType(t *testing.T) {
 func TestGetMediaConfigs(t *testing.T) {
 	imageConfig := &ImageConfig{MaxSizeMB: packspec.Ptr(20)}
 	audioConfig := &AudioConfig{MaxSizeMB: packspec.Ptr(25)}
-	videoConfig := &VideoConfig{MaxSizeMB: 100}
+	videoConfig := &VideoConfig{MaxSizeMB: packspec.Ptr(100)}
 
 	config := &MediaConfig{
 		Enabled:        true,

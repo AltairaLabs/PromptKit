@@ -288,7 +288,11 @@ func (e *Emitter) arrayType(n Node, where string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "[]" + strings.TrimPrefix(inner, "*"), nil
+	// Slices of objects keep the pointer, for the same reason maps do: it is
+	// what the hand-written types use ([]*Step, []*Predicate), it lets a caller
+	// hold a reference rather than copying on each read, and a recursive shape
+	// like Predicate.all_of cannot be a slice of values at all without boxing.
+	return "[]" + inner, nil
 }
 
 // objectType handles the three object shapes the spec uses: a closed object with
@@ -315,7 +319,15 @@ func (e *Emitter) objectType(n Node, where, hoistAs string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return "map[string]" + strings.TrimPrefix(inner, "*"), nil
+		// A map of objects keeps the pointer. It lets a caller distinguish an
+		// explicit null from a value, matches what the hand-written types use
+		// (Pack.Prompts, AgentsConfig.Members are both map[string]*T), and
+		// avoids rewriting every `if def := m[k]; def != nil` in the repo for
+		// no gain. Scalar values stay values.
+		if strings.HasPrefix(inner, "*") {
+			return "map[string]" + inner, nil
+		}
+		return "map[string]" + inner, nil
 	}
 	return goAnyMap, nil
 }

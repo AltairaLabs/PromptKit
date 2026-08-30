@@ -87,11 +87,9 @@ func (e *BudgetExhaustedError) Error() string {
 func (e *BudgetExhaustedError) Unwrap() error { return ErrBudgetExhausted }
 
 // Budget defines workflow-level resource limits from the engine block.
-type Budget struct {
-	MaxTotalVisits int `json:"max_total_visits,omitempty"`
-	MaxToolCalls   int `json:"max_tool_calls,omitempty"`
-	MaxWallTimeSec int `json:"max_wall_time_sec,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.WorkflowBudget.
+// Optional limits are pointers so "no limit" is distinct from a limit of zero.
+type Budget = packspec.WorkflowBudget
 
 // ParseConfig parses an untyped workflow config (typically from config.Workflow
 // which is stored as interface{}) into a typed Spec. Returns nil, nil when

@@ -10,16 +10,16 @@ import (
 
 // stubCapability is a test capability.
 type stubCapability struct {
-	name      string
-	initErr   error
-	initCalls int
+	name       string
+	initErr    error
+	initCalls  int
 	closeCalls int
 }
 
-func (s *stubCapability) Name() string                     { return s.name }
-func (s *stubCapability) Init(_ CapabilityContext) error    { s.initCalls++; return s.initErr }
-func (s *stubCapability) RegisterTools(_ *tools.Registry)  {}
-func (s *stubCapability) Close() error                     { s.closeCalls++; return nil }
+func (s *stubCapability) Name() string                    { return s.name }
+func (s *stubCapability) Init(_ CapabilityContext) error  { s.initCalls++; return s.initErr }
+func (s *stubCapability) RegisterTools(_ *tools.Registry) {}
+func (s *stubCapability) Close() error                    { s.closeCalls++; return nil }
 
 func TestInferCapabilities_WithWorkflow(t *testing.T) {
 	p := &pack.Pack{

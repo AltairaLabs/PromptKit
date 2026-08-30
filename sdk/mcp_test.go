@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
@@ -293,7 +294,7 @@ func TestBuildToolRegistryWithMCP(t *testing.T) {
 			"local_tool": {
 				Name:        "local_tool",
 				Description: "A local tool",
-				Parameters:  map[string]any{"type": "object"},
+				Parameters:  &packspec.ToolParameters{Type: "object"},
 			},
 		}
 		// Reinitialize toolRegistry with the local tool

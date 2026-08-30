@@ -122,6 +122,15 @@ type Spec struct {
 type ModelTestResultRef = packspec.TestedModel
 
 // MediaConfig defines multimodal media support configuration for a prompt
+// MediaConfig defines multimodal media support configuration for a prompt.
+//
+// NOT yet generated. Aliasing it requires MultimodalExample, which requires
+// ContentPart — 773 use sites and a real semantic difference (the spec's `text`
+// is a plain string; the hand-written one is *string). That chain is its own
+// piece of work.
+//
+// Cost of the delay: the spec's `document` media config still has no Go field,
+// so a pack configuring document media has it silently dropped.
 type MediaConfig struct {
 	// Enable multimodal support for this prompt
 	Enabled bool `yaml:"enabled" json:"enabled"`
@@ -133,7 +142,9 @@ type MediaConfig struct {
 	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
 	// Video-specific configuration
 	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
-	// Example multimodal messages
+	// Maximum total media items per message
+	MaxItemsPerMessage int `yaml:"max_items_per_message,omitempty" json:"max_items_per_message,omitempty"`
+	// Multimodal few-shot examples
 	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
 }
 
@@ -149,16 +160,9 @@ type ImageConfig = packspec.ImageConfig
 type AudioConfig = packspec.AudioConfig
 
 // VideoConfig contains video-specific configuration
-type VideoConfig struct {
-	// Maximum video size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["mp4", "webm", "ogg"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Max duration in seconds (0 = unlimited)
-	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
-	// Whether metadata (resolution, fps) is required
-	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.VideoConfig.
+// Optional numeric and boolean fields are pointers: zero is a real setting.
+type VideoConfig = packspec.VideoConfig
 
 // MultimodalExample represents an example multimodal message for testing/documentation
 type MultimodalExample struct {
