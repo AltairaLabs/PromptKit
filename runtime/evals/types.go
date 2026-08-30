@@ -293,21 +293,37 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 // Handlers produce scores only (0.0–1.0). There is no pass/fail on evals.
 // Assertion wrappers store pass/fail as a bool in Value.
 type EvalResult struct {
-	EvalID      string          `json:"eval_id"`
-	Type        string          `json:"type"`
-	Score       *float64        `json:"score,omitempty"`
-	Value       any             `json:"value,omitempty"`
-	MetricValue *float64        `json:"metric_value,omitempty"`
-	Explanation string          `json:"explanation,omitempty"`
-	DurationMs  int64           `json:"duration_ms"`
-	Error       string          `json:"error,omitempty"`
-	Message     string          `json:"message,omitempty"`
-	Details     map[string]any  `json:"details,omitempty"`
-	Violations  []EvalViolation `json:"violations,omitempty"`
-	Skipped     bool            `json:"skipped,omitempty"`
-	SkipReason  string          `json:"skip_reason,omitempty"`
-	SessionID   string          `json:"session_id,omitempty"`
-	TurnIndex   int             `json:"turn_index,omitempty"`
+	EvalID      string   `json:"eval_id"`
+	Type        string   `json:"type"`
+	Score       *float64 `json:"score,omitempty"`
+	Value       any      `json:"value,omitempty"`
+	MetricValue *float64 `json:"metric_value,omitempty"`
+	Explanation string   `json:"explanation,omitempty"`
+	DurationMs  int64    `json:"duration_ms"`
+	Error       string   `json:"error,omitempty"`
+
+	// Message is the AUTHOR-configured message for this eval — EvalDef.Message,
+	// written in the pack as AssertionConfig.message — as distinct from
+	// Explanation, which is whatever the handler computed.
+	//
+	// DO NOT DELETE THIS BECAUSE NOTHING IN THIS REPO SETS IT. Nothing does,
+	// deliberately: the runtime has no reason to copy the message it was
+	// handed back to itself. PromptArena fills it downstream from its own
+	// assertion config (arena/engine/eval_orchestrator.go), moving any
+	// existing value to Details["explanation"] first, so wiring it here would
+	// only be overwritten.
+	//
+	// It is carried so a result serialized by the runtime and a result
+	// populated by a consumer have the same shape. A grep for producers finds
+	// none, which is exactly the evidence that would justify removing it —
+	// hence this comment.
+	Message    string          `json:"message,omitempty"`
+	Details    map[string]any  `json:"details,omitempty"`
+	Violations []EvalViolation `json:"violations,omitempty"`
+	Skipped    bool            `json:"skipped,omitempty"`
+	SkipReason string          `json:"skip_reason,omitempty"`
+	SessionID  string          `json:"session_id,omitempty"`
+	TurnIndex  int             `json:"turn_index,omitempty"`
 }
 
 // EvalContext provides data to eval handlers.
