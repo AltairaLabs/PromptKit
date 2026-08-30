@@ -13,7 +13,7 @@
 #
 # Why this rule exists: between 2026-06-15 and 2026-08-30 the embedded copy sat
 # 143 leaves away from the spec while claiming to be v1.5.0. It was patched
-# in place rather than replaced (#1376 was labelled "vendor v1.5.0" but was a
+# in place rather than replaced (#1376 was labeled "vendor v1.5.0" but was a
 # 301-insertion diff), so the fixes from promptpack-spec#29 never came back
 # across. The result: promptkit rejected packs that were valid against
 # promptpack.org — top-level `requires`, `validators[].message`,

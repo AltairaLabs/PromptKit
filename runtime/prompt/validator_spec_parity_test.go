@@ -175,3 +175,27 @@ func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
 func TestToolStructMatchesPromptPackSpec(t *testing.T) {
 	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackTool{}), "Tool")
 }
+
+// TestTestedModelStructMatchesPromptPackSpec pins prompt.ModelTestResultRef to
+// $defs/TestedModel. The name does not match the def — one of several such
+// mismatches across the pack types.
+func TestTestedModelStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.ModelTestResultRef{}), "TestedModel")
+}
+
+// TestModelOverrideStructMatchesPromptPackSpec pins prompt.ModelOverride to
+// $defs/ModelOverride.
+func TestModelOverrideStructMatchesPromptPackSpec(t *testing.T) {
+	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.ModelOverride{}), "ModelOverride",
+		deliberateOmission{
+			property: "system_template_prefix",
+			reason: "nothing in the runtime assembles a per-model template prefix; adding " +
+				"the field would be vocabulary with a consumer and no producer",
+		},
+		deliberateOmission{
+			property: "parameters",
+			reason: "per-model parameter overrides are not applied by the runtime — " +
+				"parameters are resolved at the prompt or provider level",
+		},
+	)
+}
