@@ -1181,3 +1181,50 @@ func TestCollector_HandlesSTTCallFailed(t *testing.T) {
 		t.Error("expected status=error label in stt_requests_total")
 	}
 }
+
+// TestMetricContext_EvalBooleanUsesMetricValue pins that a boolean metric goes
+// through ExtractValue like every other type.
+//
+// It used to read result.Score directly with `>= 1.0` — a fourth copy of the
+// coercion #1861 removed from the runtime — which meant a boolean metric could
+// never use MetricValue, the field that is supposed to BE the gauge value.
+func TestMetricContext_EvalBooleanUsesMetricValue(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	metric := &evals.MetricDef{Name: "gate_open", Type: evals.MetricBoolean}
+
+	// MetricValue set, Score deliberately nil: the old code saw no Score and
+	// recorded 0 regardless of the gauge value it was handed.
+	if err := ctx.Record(evals.EvalResult{MetricValue: float64Ptr(1.0)}, metric); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	output := gatherMetrics(t, reg)
+	if !strings.Contains(output, "test_eval_gate_open 1") {
+		t.Errorf("a boolean metric must honor MetricValue, got:\n%s", output)
+	}
+}
+
+// TestMetricContext_EvalGaugeSkippedWhenNoValue is the dashboard-facing half of
+// the ExtractValue change: an eval that produced no scalar records NO sample,
+// rather than a zero that is indistinguishable from a real measurement.
+func TestMetricContext_EvalGaugeSkippedWhenNoValue(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	metric := &evals.MetricDef{Name: "reasoning_payload", Type: evals.MetricGauge}
+
+	// A complex eval: the substance is in Value, there is no scalar.
+	err := ctx.Record(evals.EvalResult{
+		Value: map[string]any{"findings": []any{"a", "b"}},
+	}, metric)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	output := gatherMetrics(t, reg)
+	if strings.Contains(output, "test_eval_reasoning_payload") {
+		t.Errorf("no series should exist for an eval with no scalar, got:\n%s", output)
+	}
+}

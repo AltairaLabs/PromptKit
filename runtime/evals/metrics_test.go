@@ -9,25 +9,31 @@ func TestExtractValue_PrefersMetricValue(t *testing.T) {
 		Score:       float64Ptr(0.5),
 		MetricValue: float64Ptr(0.9),
 	}
-	got := ExtractValue(result, nil)
-	if got != 0.9 {
-		t.Errorf("expected 0.9, got %v", got)
+	got, ok := ExtractValue(result, nil)
+	if !ok || got != 0.9 {
+		t.Errorf("expected 0.9 present, got %v (ok=%v)", got, ok)
 	}
 }
 
 func TestExtractValue_FallsBackToScore(t *testing.T) {
 	result := EvalResult{Score: float64Ptr(0.7)}
-	got := ExtractValue(result, nil)
-	if got != 0.7 {
-		t.Errorf("expected 0.7, got %v", got)
+	got, ok := ExtractValue(result, nil)
+	if !ok || got != 0.7 {
+		t.Errorf("expected 0.7 present, got %v (ok=%v)", got, ok)
 	}
 }
 
-func TestExtractValue_DefaultsToZero(t *testing.T) {
+// TestExtractValue_AbsentWhenNothingToRecord asserts the OPPOSITE of what this
+// test did when it was named DefaultsToZero.
+//
+// Defaulting to zero meant an eval with no scalar was recorded as a gauge
+// reading of 0 — a flatline indistinguishable from a real measurement. Absence
+// is now reported as absence and the caller skips the sample.
+func TestExtractValue_AbsentWhenNothingToRecord(t *testing.T) {
 	result := EvalResult{}
-	got := ExtractValue(result, nil)
-	if got != 0 {
-		t.Errorf("expected 0, got %v", got)
+	got, ok := ExtractValue(result, nil)
+	if ok {
+		t.Errorf("expected no value, got %v", got)
 	}
 }
 
