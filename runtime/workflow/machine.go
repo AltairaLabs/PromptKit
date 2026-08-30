@@ -229,16 +229,16 @@ func (sm *StateMachine) artifactMode(name string) string {
 	// Check current state first
 	if state := sm.spec.States[sm.context.CurrentState]; state != nil {
 		if def := state.Artifacts[name]; def != nil {
-			return def.Mode
+			return ArtifactMode(def)
 		}
 	}
 	// Fall back to any state that declares this artifact
 	for _, state := range sm.spec.States {
 		if def := state.Artifacts[name]; def != nil {
-			return def.Mode
+			return ArtifactMode(def)
 		}
 	}
-	return "" // default = replace
+	return ArtifactModeReplace
 }
 
 // checkBudgetLocked checks workflow-level budget limits.

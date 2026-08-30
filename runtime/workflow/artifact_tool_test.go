@@ -47,7 +47,7 @@ func TestArtifactExecutor_AppendMode(t *testing.T) {
 		States: map[string]*State{
 			"a": {
 				PromptTask: "t",
-				Artifacts:  map[string]*ArtifactDef{"log": {Type: "text/plain", Mode: "append"}},
+				Artifacts:  map[string]*ArtifactDef{"log": {Type: "text/plain", Mode: ptrTo("append")}},
 			},
 		},
 	}

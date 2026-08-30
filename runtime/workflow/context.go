@@ -160,7 +160,7 @@ func (ctx *Context) SetArtifact(name, value, mode string) {
 	if ctx.Artifacts == nil {
 		ctx.Artifacts = make(map[string]string)
 	}
-	if mode == "append" {
+	if mode == ArtifactModeAppend {
 		ctx.Artifacts[name] += value
 	} else {
 		ctx.Artifacts[name] = value

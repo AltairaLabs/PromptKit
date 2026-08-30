@@ -80,15 +80,17 @@ type Termination struct {
 type Reducer = packspec.Reducer
 
 // StepModifiers are optional per-step behaviors (RFC 0010 v1: retry, eval).
-type StepModifiers struct {
-	Retry *RetryModifier `json:"retry,omitempty"`
-	Eval  []string       `json:"eval,omitempty"` // references to pack eval keys (observability)
-}
+//
+// Generated from the schema: an ALIAS for packspec.StepModifiers.
+type StepModifiers = packspec.StepModifiers
 
 // RetryModifier re-runs a step on error up to MaxAttempts.
-type RetryModifier struct {
-	MaxAttempts int `json:"max_attempts,omitempty"`
-}
+//
+// An ALIAS for the generated packspec.StepModifiersRetry — the schema nests
+// this shape inside StepModifiers rather than naming it, so the generator
+// hoists it under a derived name. Field-for-field identical; the alias keeps
+// the local name every call site already uses.
+type RetryModifier = packspec.StepModifiersRetry
 
 // Predicate is the constrained predicate language. Exactly one variant is set:
 // compare (path+op+value), exists (path+exists), or a composite (all_of/any_of/not).
