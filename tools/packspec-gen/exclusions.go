@@ -29,9 +29,6 @@ func NewExclusions() *Exclusions {
 			// generating them keeps them under the coverage gate instead.
 			"StepInput": "presents no properties — a '${ref}' string or a free-form object; " +
 				"`any` is the complete representation, not a lossy one",
-			"ProviderRequirement": "presents no properties — a provider name string or a " +
-				"capability object. RFC 0012 is also unimplemented in promptkit; that is a " +
-				"real gap, tracked separately, not a generation gap",
 		},
 		props: map[string]string{},
 	}

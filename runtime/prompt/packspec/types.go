@@ -569,9 +569,31 @@ type ProviderCapabilities struct {
 	ToolUse bool `json:"tool_use,omitempty" yaml:"tool_use,omitempty"`
 }
 
-// ProviderRequirement is NOT generated: presents no properties — a provider name string or a capability object. RFC 0012 is
-// also unimplemented in promptkit; that is a real gap, tracked separately, not a generation
-// gap
+// ProviderRequirement a logical model-provider requirement (RFC 0012). A bare string is shorthand for an 'llm'
+// requirement with that key.
+//
+// Flattened from a oneOf/anyOf union: every field any variant can present,
+// all optional. Which combination is legal for a given discriminator is a
+// validation concern the schema enforces, not a shape this type can express.
+type ProviderRequirement struct {
+	Capabilities *ProviderCapabilities `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+
+	// Description human-readable explanation of the provider's purpose and the capabilities it should have.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Key logical name the runtime resolves this provider by (e.g. 'default', 'embeddings',
+	// 'judge'). 'default' is reserved for the primary LLM.
+	Key string `json:"key,omitempty" yaml:"key,omitempty"`
+
+	// Required whether the pack cannot run without this provider. Optional requirements degrade features
+	// rather than blocking startup.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+
+	// Role the kind of model required. Open set; runtimes MAY extend (validators must not reject
+	// unknown roles). Suggested values (PromptKit roles): 'llm', 'embedding', 'tts', 'stt',
+	// 'image', 'inference'.
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+}
 
 // Reducer names how a parallel block's branch outputs are merged into a single value (RFC 0010).
 type Reducer struct {
@@ -1090,7 +1112,7 @@ type PackMetadataCostEstimate struct {
 type PackRequires struct {
 	// Providers logical model-provider requirements. Each entry is a string shorthand (an 'llm'
 	// requirement with that key) or a ProviderRequirement object.
-	Providers []any /* ProviderRequirement: presents no properties — a provider name string or a capability object. RFC 0012 is also unimplemented in promptkit; that is a real gap, tracked separately, not a generation gap */ `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Providers []ProviderRequirement `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 // PackTemplateEngine is an inline object hoisted from the spec so its fields stay named.
