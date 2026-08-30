@@ -160,29 +160,40 @@ func TestValidatorJSONRejectsForbiddenFields(t *testing.T) {
 // property at the schema boundary and not carrying it on the compiled struct are
 // separate decisions; see the deliberateOmission entry in
 // runtime/prompt/validator_spec_parity_test.go.
+// The two assertions are a matched pair and neither is redundant. The accept
+// catches the schema losing `message` (the historical fork). The reject catches
+// the opposite failure — Validator.additionalProperties being opened, which
+// would make the accept pass for the wrong reason and stop meaning anything.
 func TestValidatorJSONAcceptsSpecMessageField(t *testing.T) {
-	packJSON := []byte(`{
-		"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
-		"id": "test-pack",
-		"name": "Test Pack",
-		"version": "1.0.0",
-		"description": "test",
-		"template_engine": {"version": "v1", "syntax": "{{variable}}"},
-		"prompts": {
-			"default": {
-				"id": "default",
-				"name": "Default",
-				"description": "test prompt",
-				"version": "1.0.0",
-				"system_template": "hi",
-				"validators": [
-					{"type": "max_length", "enabled": true, "message": "too long"}
-				]
+	packWithValidatorField := func(field string) []byte {
+		return []byte(`{
+			"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+			"id": "test-pack",
+			"name": "Test Pack",
+			"version": "1.0.0",
+			"description": "test",
+			"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+			"prompts": {
+				"default": {
+					"id": "default",
+					"name": "Default",
+					"description": "test prompt",
+					"version": "1.0.0",
+					"system_template": "hi",
+					"validators": [
+						{"type": "max_length", "enabled": true, ` + field + `}
+					]
+				}
 			}
-		}
-	}`)
+		}`)
+	}
 
-	require.NoError(t, ValidateAgainstSchema(packJSON),
+	require.NoError(t, ValidateAgainstSchema(packWithValidatorField(`"message": "too long"`)),
 		"validators[].message is valid per the published PromptPack spec — "+
 			"a rejection here means the embedded schema has drifted from the release again")
+
+	require.Error(t, ValidateAgainstSchema(packWithValidatorField(`"not_in_the_spec": true`)),
+		"Validator is additionalProperties:false in the spec — accepting an unknown "+
+			"property means the schema has been loosened, and the assertion above is "+
+			"no longer evidence that `message` is genuinely defined")
 }
