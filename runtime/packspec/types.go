@@ -103,8 +103,8 @@ type AudioConfig struct {
 	// MaxDurationSec maximum audio duration in seconds
 	MaxDurationSec int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
 
-	// MaxSizeMb maximum file size in megabytes
-	MaxSizeMb int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	// MaxSizeMB maximum file size in megabytes
+	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether audio metadata (title, description) is required
 	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
@@ -190,8 +190,8 @@ type DocumentConfig struct {
 	// MaxPages maximum number of pages/sheets for paginated documents
 	MaxPages int `json:"max_pages,omitempty" yaml:"max_pages,omitempty"`
 
-	// MaxSizeMb maximum file size in megabytes
-	MaxSizeMb int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	// MaxSizeMB maximum file size in megabytes
+	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether document metadata (title, author, description) is required
 	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
@@ -255,8 +255,8 @@ type GenericMediaTypeConfig struct {
 	// AllowedFormats list of allowed file formats/extensions
 	AllowedFormats []string `json:"allowed_formats,omitempty" yaml:"allowed_formats,omitempty"`
 
-	// MaxSizeMb maximum file size in megabytes
-	MaxSizeMb int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	// MaxSizeMB maximum file size in megabytes
+	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether metadata is required for this media type
 	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
@@ -277,8 +277,8 @@ type ImageConfig struct {
 	// MaxImagesPerMsg maximum number of images allowed per message
 	MaxImagesPerMsg int `json:"max_images_per_msg,omitempty" yaml:"max_images_per_msg,omitempty"`
 
-	// MaxSizeMb maximum file size in megabytes
-	MaxSizeMb int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	// MaxSizeMB maximum file size in megabytes
+	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireCaption whether image captions are required
 	RequireCaption bool `json:"require_caption,omitempty" yaml:"require_caption,omitempty"`
@@ -966,8 +966,8 @@ type VideoConfig struct {
 	// MaxDurationSec maximum video duration in seconds
 	MaxDurationSec int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
 
-	// MaxSizeMb maximum file size in megabytes
-	MaxSizeMb int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	// MaxSizeMB maximum file size in megabytes
+	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether video metadata (title, description) is required
 	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`

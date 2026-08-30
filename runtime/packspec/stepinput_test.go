@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // TestStepInputRoundTripsBothShapes exercises the generated variant wrapper.

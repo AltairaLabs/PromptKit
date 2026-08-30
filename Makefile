@@ -267,15 +267,15 @@ promptpack-schema-check: ## Check the embedded PromptPack schema IS the publishe
 		rm -f "$$tmp"; exit 1; \
 	fi
 
-packspec: ## Regenerate runtime/prompt/packspec from the embedded PromptPack schema
+packspec: ## Regenerate runtime/packspec from the embedded PromptPack schema
 	@go -C tools/packspec-gen run . \
 		-schema ../../runtime/prompt/schema/promptpack.schema.json \
-		-out ../../runtime/prompt/packspec/types.go
+		-out ../../runtime/packspec/types.go
 
 packspec-check: ## Check the generated pack types are current (for CI)
 	@go -C tools/packspec-gen run . \
 		-schema ../../runtime/prompt/schema/promptpack.schema.json \
-		-out ../../runtime/prompt/packspec/types.go -check
+		-out ../../runtime/packspec/types.go -check
 
 schemas-copy: schemas ## Copy schemas to docs/public for hosting (+ latest refs)
 	@echo "Copying schemas to docs/public/schemas..."

@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
@@ -197,16 +198,15 @@ type AgentsConfig struct {
 }
 
 // AgentDef provides A2A Agent Card metadata for a single prompt.
-type AgentDef struct {
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	InputModes  []string `json:"input_modes,omitempty"`
-	OutputModes []string `json:"output_modes,omitempty"`
-	// State (RFC 0011) optionally backs this agent with a workflow state instead
-	// of its member prompt. When set, invoking the agent runs the pack's workflow
-	// starting at the named state. Requires a top-level workflow.
-	State string `json:"state,omitempty"`
-}
+//
+// Generated from the schema: this is an ALIAS for packspec.AgentDef, not a copy.
+// An alias keeps every call site, tag and behavior identical while making the
+// schema the single source of the shape — a defined type would not, and the
+// two would be free to drift again.
+//
+// The hand-written struct it replaced was already field-for-field identical to
+// $defs/AgentDef, which is why it is first: the switch is provably a no-op.
+type AgentDef = packspec.AgentDef
 
 // CompileOption configures optional fields for CompileFromRegistryWithOptions.
 type CompileOption func(*compileOptions)

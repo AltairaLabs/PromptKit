@@ -12,6 +12,8 @@ var initialisms = map[string]string{
 	"id": "ID", "url": "URL", "usd": "USD", "api": "API", "json": "JSON",
 	"http": "HTTP", "uri": "URI", "ms": "Ms", "ttl": "TTL", "a2a": "A2A",
 	"mcp": "MCP", "ai": "AI", "p95": "P95",
+	// Size units follow the repo spelling (MaxSizeMB, not MaxSizeMb).
+	"mb": "MB", "kb": "KB", "gb": "GB",
 }
 
 // rootTypeName is the Go name for the schema's root object.

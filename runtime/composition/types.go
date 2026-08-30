@@ -3,6 +3,8 @@
 // runtime/workflow, so workflow.State can reference these types without a cycle.
 package composition
 
+import "github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 // StepKind identifies a composition step's kind.
 type StepKind string
 
@@ -73,10 +75,9 @@ type Termination struct {
 }
 
 // Reducer declares how parallel branch outputs merge. Both fields required.
-type Reducer struct {
-	Strategy string `json:"strategy"` // append | replace | barrier
-	Into     string `json:"into"`     // variable name the merged result is exposed under
-}
+// Generated from the schema: an ALIAS for packspec.Reducer, not a copy. The
+// hand-written struct was field-for-field identical to $defs/Reducer.
+type Reducer = packspec.Reducer
 
 // StepModifiers are optional per-step behaviors (RFC 0010 v1: retry, eval).
 type StepModifiers struct {

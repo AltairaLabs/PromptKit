@@ -42,7 +42,7 @@ func run(args []string) error {
 	var (
 		schemaPath = fs.String("schema", "runtime/prompt/schema/promptpack.schema.json",
 			"path to the PromptPack schema")
-		outPath = fs.String("out", "runtime/prompt/packspec/types.go", "file to write")
+		outPath = fs.String("out", "runtime/packspec/types.go", "file to write")
 		pkgName = fs.String("package", "packspec", "generated package name")
 		check   = fs.Bool("check", false, "verify the committed output is current; write nothing")
 	)

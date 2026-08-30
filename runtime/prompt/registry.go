@@ -37,6 +37,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/template"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -160,16 +161,10 @@ type ImageConfig struct {
 }
 
 // AudioConfig contains audio-specific configuration
-type AudioConfig struct {
-	// Maximum audio size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["mp3", "wav", "ogg", "webm"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Max duration in seconds (0 = unlimited)
-	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
-	// Whether metadata (duration, bitrate) is required
-	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
-}
+// AudioConfig is generated from the schema: an ALIAS for packspec.AudioConfig,
+// not a copy. The hand-written struct was field-for-field identical to
+// $defs/AudioConfig.
+type AudioConfig = packspec.AudioConfig
 
 // VideoConfig contains video-specific configuration
 type VideoConfig struct {
