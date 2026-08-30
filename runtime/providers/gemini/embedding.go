@@ -9,20 +9,47 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
-// Embedding model constants
+// Embedding model constants.
+//
+// Checked against the live model list (v1beta ListModels, 2026-08-30): the only
+// models advertising embedContent are gemini-embedding-001, gemini-embedding-2
+// and gemini-embedding-2-preview. The two older ids below are gone.
 const (
-	// DefaultGeminiEmbeddingModel is the default model for embeddings
-	DefaultGeminiEmbeddingModel = "text-embedding-004"
+	// EmbeddingModelGemini001 is the current stable embedding model.
+	EmbeddingModelGemini001 = "gemini-embedding-001"
 
-	// EmbeddingModel004 is the current recommended model
+	// EmbeddingModelGemini2 is the newer generation, also live.
+	EmbeddingModelGemini2 = "gemini-embedding-2"
+
+	// DefaultGeminiEmbeddingModel is the default model for embeddings.
+	DefaultGeminiEmbeddingModel = EmbeddingModelGemini001
+
+	// EmbeddingModel004 is retired.
+	//
+	// Deprecated: the API no longer serves it — v1beta embedContent returns
+	// NOT_FOUND ("models/text-embedding-004 is not found for API version
+	// v1beta, or is not supported for embedContent"). It was this package's
+	// DEFAULT until 2026-08-30, so every caller that did not override the model
+	// got a 404. Kept so existing code still compiles; use
+	// EmbeddingModelGemini001.
 	EmbeddingModel004 = "text-embedding-004"
 
-	// EmbeddingModel001 is the legacy embedding model
+	// EmbeddingModel001 is retired.
+	//
+	// Deprecated: absent from the live model list alongside text-embedding-004.
+	// Use EmbeddingModelGemini001.
 	EmbeddingModel001 = "embedding-001"
 )
 
-// Embedding dimensions
+// Embedding dimensions, measured against the live API rather than assumed.
 const (
+	// dimensionsGeminiEmbedding is what gemini-embedding-001 and
+	// gemini-embedding-2 both return. The previous code claimed 768 for every
+	// model — true of the retired ones, and wrong for every model that exists.
+	dimensionsGeminiEmbedding = 3072
+
+	// dimensionsEmbedding004 and dimensionsEmbedding001 describe the retired
+	// models. Retained so the mapping stays honest about what they were.
 	dimensionsEmbedding004 = 768
 	dimensionsEmbedding001 = 768
 )
@@ -95,7 +122,7 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 			"gemini-embedding",
 			DefaultGeminiEmbeddingModel,
 			geminiEmbeddingBaseURL,
-			dimensionsEmbedding004,
+			dimensionsGeminiEmbedding,
 			maxGeminiBatch,
 			geminiEmbeddingTimeoutSec*time.Second,
 		),
@@ -362,9 +389,11 @@ func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 }
 
 // geminiDimensionsForModel returns the embedding dimensions for a given model.
-// Currently all Gemini models use 768 dimensions, but kept for future extensibility.
 //
-//nolint:unparam // returns constant for now, but will vary with future models
+// The live models return 3072, verified against the API. The two 768 entries
+// are the retired models, kept accurate rather than removed. Defaulting to 3072
+// is the right guess for anything new, since that is what the current
+// generation returns.
 func geminiDimensionsForModel(model string) int {
 	switch model {
 	case EmbeddingModel001:
@@ -372,7 +401,7 @@ func geminiDimensionsForModel(model string) int {
 	case EmbeddingModel004:
 		return dimensionsEmbedding004
 	default:
-		return dimensionsEmbedding004
+		return dimensionsGeminiEmbedding
 	}
 }
 

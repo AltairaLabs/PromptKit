@@ -21,14 +21,16 @@ import (
 // separate thing that can break on its own — and unit tests cannot tell a
 // header the API accepts from one it ignores.
 //
-// Uses gemini-embedding-001 rather than the package default: text-embedding-004
-// returns NOT_FOUND on v1beta embedContent (filed separately).
+// Uses the package DEFAULT deliberately. That default was text-embedding-004,
+// a model the endpoint no longer serves, so this test would have 404d — which
+// is how #1881 was found. Pinning the default here means a future retirement
+// fails a test rather than every caller.
 func TestGeminiEmbedding_AuthenticatesByHeader_Live(t *testing.T) {
 	if os.Getenv("GEMINI_API_KEY") == "" {
 		t.Skip("set GEMINI_API_KEY to run the live embedding auth test")
 	}
 
-	p, err := NewEmbeddingProvider(WithGeminiEmbeddingModel("gemini-embedding-001"))
+	p, err := NewEmbeddingProvider()
 	require.NoError(t, err)
 
 	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{

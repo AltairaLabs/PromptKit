@@ -22,7 +22,9 @@ func TestNewGeminiEmbeddingProvider(t *testing.T) {
 
 		assert.Equal(t, DefaultGeminiEmbeddingModel, p.Model())
 		assert.Equal(t, geminiEmbeddingBaseURL, p.BaseURL)
-		assert.Equal(t, dimensionsEmbedding004, p.EmbeddingDimensions())
+		// 3072, measured against the live API — not 768, which was the figure
+		// for models the endpoint no longer serves.
+		assert.Equal(t, dimensionsGeminiEmbedding, p.EmbeddingDimensions())
 		assert.Equal(t, "gemini-embedding", p.ID())
 	})
 
@@ -377,13 +379,22 @@ func TestGeminiEmbeddingProvider_Batching(t *testing.T) {
 }
 
 func TestGeminiEmbeddingProvider_EmbeddingDimensions(t *testing.T) {
+	// Figures verified against the live API (2026-08-30): gemini-embedding-001
+	// and gemini-embedding-2 both return 3072. The 768 rows describe the two
+	// RETIRED models, kept so the mapping stays honest about what they were —
+	// the endpoint returns NOT_FOUND for both now.
+	//
+	// An unknown model defaults to the current generation's 3072 rather than
+	// the retired 768, since that is the better guess for anything new.
 	tests := []struct {
 		model    string
 		expected int
 	}{
+		{EmbeddingModelGemini001, 3072},
+		{EmbeddingModelGemini2, 3072},
 		{EmbeddingModel001, 768},
 		{EmbeddingModel004, 768},
-		{"unknown-model", 768},
+		{"unknown-model", 3072},
 	}
 
 	for _, tt := range tests {
@@ -441,14 +452,19 @@ func TestGeminiEmbeddingProvider_WithHTTPClient(t *testing.T) {
 }
 
 func TestGeminiDimensionsForModel(t *testing.T) {
+	// See TestGeminiEmbeddingProvider_EmbeddingDimensions: 3072 is measured
+	// against the live API, 768 describes the two retired models, and anything
+	// unrecognized defaults to the current generation.
 	tests := []struct {
 		model    string
 		expected int
 	}{
+		{EmbeddingModelGemini001, 3072},
+		{EmbeddingModelGemini2, 3072},
 		{EmbeddingModel001, 768},
 		{EmbeddingModel004, 768},
-		{"custom-model", 768},
-		{"", 768},
+		{"custom-model", 3072},
+		{"", 3072},
 	}
 
 	for _, tt := range tests {

@@ -49,15 +49,20 @@ func TestRecordingIndex_IsTranscriptAbsolute(t *testing.T) {
 	for range out { //nolint:revive // draining
 	}
 
+	// Only the two NEW messages are recorded — replayed history is counted for
+	// position but not re-recorded (#1879) — and they carry the transcript
+	// positions that follow the history, not 0 and 1.
 	recorded := store.filterByType(events.EventMessageCreated)
-	require.Len(t, recorded, len(msgs))
+	require.Len(t, recorded, 2)
 
+	wantIndex := []int{2, 3}
+	wantText := []string{"turn 2 question", "turn 2 answer"}
 	for i, evt := range recorded {
 		data, ok := evt.Data.(*events.MessageCreatedData)
 		require.Truef(t, ok, "event %d: want *MessageCreatedData, got %T", i, evt.Data)
-		assert.Equalf(t, i, data.Index,
-			"event %d (%q) must carry its transcript-absolute index", i, data.Content)
-		assert.Equal(t, msgs[i].GetContent(), data.GetContent(),
+		assert.Equalf(t, wantIndex[i], data.Index,
+			"event %d (%q) must carry its transcript-absolute index", i, data.GetContent())
+		assert.Equal(t, wantText[i], data.GetContent(),
 			"the recorded event must carry the same readable text as the message")
 	}
 }
@@ -130,19 +135,22 @@ func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
 		realMessage("user", "second"),
 	})
 
+	// One new message per turn: turn 1's "first", then turn 2's "second".
+	// History is not re-recorded, so two events total.
 	recorded := store.filterByType(events.EventMessageCreated)
-	require.Len(t, recorded, 4)
+	require.Len(t, recorded, 2)
 
-	// Turn 2's three events are the last three, and must be indices 0,1,2 —
-	// their real transcript positions — not 1,2,3 continuing from turn 1.
-	turn2 := recorded[1:]
-	for i, evt := range turn2 {
-		data, ok := evt.Data.(*events.MessageCreatedData)
-		require.True(t, ok)
-		assert.Equalf(t, i, data.Index,
-			"turn 2 event %d (%q) must index from the transcript, not from turn 1",
-			i, data.GetContent())
-	}
+	// The counter is per-execution, so turn 2's message indexes from the
+	// transcript (position 2, after the two replayed) rather than continuing
+	// from turn 1's high-water mark.
+	turn1, ok := recorded[0].Data.(*events.MessageCreatedData)
+	require.True(t, ok)
+	turn2, ok := recorded[1].Data.(*events.MessageCreatedData)
+	require.True(t, ok)
+
+	assert.Equal(t, 0, turn1.Index, "turn 1's message is at transcript position 0")
+	assert.Equal(t, 2, turn2.Index,
+		"turn 2's message must index from the transcript, not from turn 1")
 }
 
 // historyOf marks a message as replayed from the state store, the way
@@ -150,4 +158,62 @@ func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
 func historyOf(m types.Message) types.Message {
 	m.Source = "statestore"
 	return m
+}
+
+// TestRecordingStage_DoesNotReRecordHistory is the fix for #1879.
+//
+// The load stage runs before the input RecordingStage (builder.go), so replayed
+// history flowed through it every turn and was appended again. An N-turn
+// recording held turn 1 N times, and recording/replay.go appends every
+// message.created in time order — so a replayed transcript repeated its early
+// messages.
+//
+// Each message is recorded once, on the turn it was new. The union across turns
+// is still the complete transcript, so replay reconstructs it correctly without
+// any change to the readers.
+func TestRecordingStage_DoesNotReRecordHistory(t *testing.T) {
+	store := &fakeEventStore{}
+	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionInput})
+
+	runTurn := func(msgs []types.Message) {
+		in := make(chan StreamElement, len(msgs)+1)
+		for i := range msgs {
+			in <- NewMessageElement(&msgs[i])
+		}
+		close(in)
+		out := make(chan StreamElement, len(msgs)+4)
+		require.NoError(t, rs.Process(context.Background(), in, out))
+		for range out { //nolint:revive // draining
+		}
+	}
+
+	// Turn 1: one new user message.
+	runTurn([]types.Message{realMessage("user", "first")})
+
+	// Turn 2: turn 1 replayed as history, plus one new message.
+	runTurn([]types.Message{
+		historyOf(realMessage("user", "first")),
+		historyOf(realMessage("assistant", "answer")),
+		realMessage("user", "second"),
+	})
+
+	recorded := store.filterByType(events.EventMessageCreated)
+
+	var contents []string
+	for _, evt := range recorded {
+		data, ok := evt.Data.(*events.MessageCreatedData)
+		require.True(t, ok)
+		contents = append(contents, data.GetContent())
+	}
+
+	assert.Equal(t, []string{"first", "second"}, contents,
+		"each message must be recorded once, on the turn it was new")
+
+	// Index still counts history, so positions stay transcript-absolute.
+	require.Len(t, recorded, 2)
+	first, _ := recorded[0].Data.(*events.MessageCreatedData)
+	second, _ := recorded[1].Data.(*events.MessageCreatedData)
+	assert.Equal(t, 0, first.Index)
+	assert.Equal(t, 2, second.Index,
+		"the new message sits at transcript position 2, after the two replayed")
 }

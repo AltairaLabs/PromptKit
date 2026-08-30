@@ -6,6 +6,7 @@ package tts
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -36,11 +37,22 @@ func (s *CartesiaService) SynthesizeStream(
 		model = s.Model
 	}
 
-	// Connect to WebSocket
-	wsURL := fmt.Sprintf("%s?api_key=%s&cartesia_version=2024-06-10", s.wsURL, s.APIKey)
+	// Connect to WebSocket.
+	//
+	// The key travels in the X-API-Key header, not a ?api_key= query parameter.
+	// A credential in a URL ends up inside *url.Error on any dial failure, and
+	// that error is wrapped into a SynthesisError and logged — the same leak
+	// shape as #1871. Verified live: this endpoint accepts the header, with the
+	// version left in the query where it is harmless.
+	wsURL := fmt.Sprintf("%s?cartesia_version=%s", s.wsURL, cartesiaAPIVersion)
+
+	header := http.Header{}
+	if s.APIKey != "" {
+		header.Set(cartesiaAPIKeyHeader, s.APIKey)
+	}
 
 	dialer := websocket.DefaultDialer
-	conn, resp, err := dialer.DialContext(ctx, wsURL, nil)
+	conn, resp, err := dialer.DialContext(ctx, wsURL, header)
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}

@@ -193,12 +193,24 @@ only difference. `Index` is transcript-absolute on both. Because the bus makes
 no ordering promise — it dispatches through a worker pool — subscribers should
 order by `Index` rather than by arrival.
 
-:::caution[RecordingStage reuses this type for non-messages]
-On the recording route only, `recordTextElement` emits a streaming token
-fragment as `message.created`, and `recordImageElement` / `recordVideoElement`
-emit a JSON blob of media metadata, each with only `Role` and `Content` set.
-These shapes predate the live route and are tracked for retyping. Until then, a
-`Content` value read from a recording is not necessarily message text.
+:::tip[Read `GetContent()`, not `.Content`]
+A user message carries its text in `Parts` with `Content` empty; an assistant
+reply is the reverse. `GetContent()` applies the canonical precedence — tool
+result, then text parts, then `Content`.
+:::
+
+:::note[Fragments have their own types]
+`message.created` once doubled as the carrier for things that are not messages.
+Those now have dedicated types on the recording route:
+
+| Recorded thing | Event |
+|---|---|
+| streaming text fragment | `message.text.delta` |
+| image | `image.input` / `image.output` |
+| video frame | `video.frame` |
+
+Recordings written before this change still hold the old shapes, so a reader
+that must handle historical sessions should tolerate both.
 :::
 
 #### Custom Events
@@ -387,30 +399,54 @@ if err != nil {
 
 ## Design Principles
 
-### Asynchronous by Default
+### Asynchronous, and lossy on purpose
 
-Events are delivered asynchronously to avoid impacting pipeline performance:
+`Publish` hands the event to a buffered channel drained by a worker pool. It
+never blocks the pipeline, and it **returns `false` when the event was dropped**
+because the buffer was full:
 
 ```go
-func (eb *EventBus) Publish(event *Event) {
-    // Copy listeners while holding lock
-    eb.mu.RLock()
-    listeners := make([]Listener, len(eb.listeners[event.Type]))
-    copy(listeners, eb.listeners[event.Type])
-    eb.mu.RUnlock()
+func (eb *EventBus) Publish(event *Event) bool {
+    event.Sequence = eb.seq.Add(1)
 
-    // Execute asynchronously
-    go func() {
-        for _, listener := range listeners {
-            safeInvoke(listener, event)
-        }
-    }()
+    select {
+    case eb.eventCh <- event:
+        return true
+    default:
+        // Buffer full: drop rather than block the caller. Logged, rate-limited.
+        return false
+    }
 }
 ```
 
-### Lightweight Payloads
+Two consequences a consumer must design around:
 
-Events contain metadata and metrics, not full message payloads, to minimize memory overhead.
+- **Delivery is not guaranteed.** Under burst, events are dropped so
+  observability never stalls the pipeline. Anything that must be complete —
+  a transcript, an audit trail — reads the state store or a recording, not the
+  bus.
+- **Arrival order is not publish order.** A pool of workers drains the channel,
+  so listeners can receive out of order. `Event.Sequence` is a monotonic
+  per-bus counter for reassembling that; for conversation position use
+  `MessageCreatedData.Index`, which is transcript-absolute.
+
+### Lightweight payloads — no bytes on the bus, ever
+
+Events carry metadata and metrics, never payload bytes. This is a hard rule,
+not a preference: a megabyte of base64 per turn would swamp a bus whose whole
+job is to stay out of the pipeline's way.
+
+Handling binary is precisely what the **opt-in recording route** exists for.
+`RecordingStage` writes straight to an `EventStore` and never publishes, so
+turning recording on does not start putting payloads on the bus.
+
+The API enforces it structurally: `events.Emitter` — the only thing that
+publishes — has no method that accepts raw bytes, and `BinaryPayload` is
+constructed only by the recording stage and the blob store. A bus subscriber
+sees MIME type, dimensions, size and URL references; never the bytes.
+
+Guarded by `TestMessageBroadcastStage_NeverPutsBinaryOnTheBus`, its
+recording-side sibling, and `TestAudioTelemetry_NeverPublishesToBus`.
 
 ### Fail-Safe
 
@@ -430,6 +466,52 @@ func safeInvoke(listener Listener, event *Event) {
 ### Opt-In
 
 The event system is optional - if no `EventEmitter` is provided, no events are emitted (zero overhead).
+
+## Adding a new event
+
+Four decisions, in order. Each of them has been got wrong at least once, and
+each mistake was silent — the code compiled, the tests passed, and a consumer
+received nothing or the wrong thing.
+
+### 1. Which route does it take?
+
+| | Bus (`Emitter` → `EventBus`) | Recording (`RecordingStage` → `EventStore`) |
+|---|---|---|
+| Delivery | async, worker-pooled, **lossy** | synchronous, **lossless** |
+| Payload | metadata only | full binary retained |
+| Availability | wherever an emitter is configured | opt-in: `WithRecording` + an `EventStore` |
+| Purpose | observability, live views | replay, audit |
+
+An event may take **both** — `message.created` does — but then both producers
+must build the payload through **one shared constructor**, so the two cannot
+drift. `events.NewMessageCreatedData` is the worked example; before it existed,
+the recording route silently omitted `Index` while the bus route set it.
+
+### 2. Does it carry bytes?
+
+Then it does not go on the bus. See *Lightweight payloads* above.
+
+### 3. Is it actually the thing the type name says?
+
+A fragment is not a message. `message.created` once carried a streaming token,
+and JSON blobs of image and video metadata, alongside real messages — so a
+consumer reading `Content` got message text, half a word, or a description of a
+JPEG, with no way to tell which. Worse, `media_timeline` filters on
+`video.frame`, so frames recorded under the wrong type were invisible to it.
+
+Give it its own type. `message.text.delta`, `image.input` / `image.output` and
+`video.frame` exist for exactly this reason.
+
+### 4. Who can actually receive it?
+
+`runtime/pipeline/stage/event_route_boundary_test.go` holds two lists: the types
+an ordinary consumer receives, and the types that reach only a store. Adding a
+type without listing it, or listing it on the wrong side, fails that test.
+
+Check the list before assuming a consumer can subscribe to your event. And note
+that "nothing in this repo calls it" is **not** evidence a producer or consumer
+is unused — PromptKit ships libraries, and its largest consumer is a separate
+repository.
 
 ## Performance Considerations
 

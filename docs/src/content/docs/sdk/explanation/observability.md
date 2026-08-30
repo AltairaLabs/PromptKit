@@ -163,6 +163,16 @@ type BlobStore interface {
 
 **RecordingStage** writes the same event type **directly to the EventStore, bypassing the EventBus**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
 
+:::caution[Payload bytes never go on the bus]
+Not "usually", and not "only when recording is off" — always. Handling binary is
+what the opt-in recording route is *for*, and that route never publishes, so
+enabling recording does not start putting payloads on the bus.
+
+If you are adding an event, read
+[Adding a new event](/architecture/runtime-events/#adding-a-new-event) first —
+it covers this and the three other decisions that have been got wrong silently.
+:::
+
 :::note[Two routes, different guarantees]
 Events reach consumers two ways, and which route a type takes is not visible
 from its name:

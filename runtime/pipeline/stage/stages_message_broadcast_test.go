@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -300,4 +301,125 @@ func TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage(t *te
 	defer mu.Unlock()
 	assert.Equal(t, map[string]int{"a1": 1, "a2": 1, "b1": 1}, seen,
 		"every message from both branches is published exactly once")
+}
+
+// binaryBearingMessage carries inline bytes in every place a message can hold
+// them: content parts, and a tool result's parts.
+func binaryBearingMessage() types.Message {
+	img := "AAAABBBBCCCCDDDDEEEEFFFF"
+	aud := "ZZZZYYYYXXXXWWWWVVVVUUUU"
+	return types.Message{
+		Role:    "assistant",
+		Content: "here is the image you asked for",
+		Parts: []types.ContentPart{{
+			Type:  "image",
+			Media: &types.MediaContent{Data: &img, MIMEType: "image/png"},
+		}},
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_1",
+			Name: "record_audio",
+			Parts: []types.ContentPart{{
+				Type:  "audio",
+				Media: &types.MediaContent{Data: &aud, MIMEType: "audio/pcm"},
+			}},
+		},
+	}
+}
+
+// inlineBinaryIn reports every place the payload still holds raw bytes.
+func inlineBinaryIn(d *events.MessageCreatedData) []string {
+	var found []string
+	check := func(where string, parts []types.ContentPart) {
+		for i, p := range parts {
+			if p.Media != nil && p.Media.Data != nil && *p.Media.Data != "" {
+				found = append(found, where+"["+string(rune('0'+i))+"]")
+			}
+			if p.Media != nil && p.Media.FilePath != nil && *p.Media.FilePath != "" {
+				found = append(found, where+"["+string(rune('0'+i))+"].FilePath")
+			}
+		}
+	}
+	check("Parts", d.Parts)
+	if d.ToolResult != nil {
+		check("ToolResult.Parts", d.ToolResult.Parts)
+	}
+	return found
+}
+
+// TestMessageBroadcastStage_NeverPutsBinaryOnTheBus pins the invariant the whole
+// two-route split exists for: the bus is for observability and must not carry
+// payloads, whether or not a recording stage is configured.
+//
+// RecordingStage is the opt-in route that deals with binary, and it writes
+// straight to an EventStore — it never publishes. So a bus subscriber must see
+// metadata only, ALWAYS: MIME type, dimensions, size, URL references, never the
+// bytes. Sibling of the #853 audio guard above.
+func TestMessageBroadcastStage_NeverPutsBinaryOnTheBus(t *testing.T) {
+	msg := binaryBearingMessage()
+	got := runBroadcast(t, []StreamElement{NewMessageElement(&msg)}, 1)
+
+	require.Len(t, got, 1)
+	assert.Emptyf(t, inlineBinaryIn(got[0]),
+		"inline binary reached a bus subscriber at %v — the bus must carry metadata only",
+		inlineBinaryIn(got[0]))
+
+	// Metadata survives, or the event is useless to a live consumer.
+	require.Len(t, got[0].Parts, 1)
+	require.NotNil(t, got[0].Parts[0].Media)
+	assert.Equal(t, "image/png", got[0].Parts[0].Media.MIMEType)
+	require.NotNil(t, got[0].ToolResult)
+	require.Len(t, got[0].ToolResult.Parts, 1)
+	assert.Equal(t, "audio/pcm", got[0].ToolResult.Parts[0].Media.MIMEType)
+
+	// And the caller's own message is untouched — the bus copy is a copy.
+	require.NotNil(t, msg.Parts[0].Media.Data)
+}
+
+// TestRecordingStage_KeepsBinaryOffTheBusButInTheStore is the other half of the
+// same invariant, from the recording side.
+//
+// With a recording stage wired, the binary goes to the STORE and still not to
+// the bus — the two routes are not two copies of the same thing.
+func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+
+	var busEvents int32
+	var busBinary []string
+	var mu sync.Mutex
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		atomic.AddInt32(&busEvents, 1)
+		if d, ok := e.Data.(*events.MessageCreatedData); ok {
+			busBinary = append(busBinary, inlineBinaryIn(d)...)
+		}
+	})
+
+	store := &fakeEventStore{}
+	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionOutput})
+
+	msg := binaryBearingMessage()
+	in := make(chan StreamElement, 2)
+	in <- NewMessageElement(&msg)
+	close(in)
+	out := make(chan StreamElement, 4)
+	require.NoError(t, rs.Process(context.Background(), in, out))
+	for range out { //nolint:revive // draining
+	}
+
+	time.Sleep(150 * time.Millisecond) // let any stray publish land
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Zero(t, atomic.LoadInt32(&busEvents),
+		"RecordingStage must never publish — it writes straight to the EventStore")
+	assert.Empty(t, busBinary)
+
+	recorded := store.filterByType(events.EventMessageCreated)
+	require.Len(t, recorded, 1)
+	data, ok := recorded[0].Data.(*events.MessageCreatedData)
+	require.True(t, ok)
+	require.NotEmpty(t, inlineBinaryIn(data),
+		"the STORE is where binary belongs — recording is lossless by design")
 }

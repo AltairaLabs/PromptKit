@@ -17,7 +17,16 @@ import (
 const (
 	cartesiaBaseURL = "https://api.cartesia.ai"
 	cartesiaWSURL   = "wss://api.cartesia.ai/tts/websocket"
-	cartesiaRESTURL = "/tts/bytes"
+
+	// cartesiaAPIKeyHeader carries the credential. Preferred over a ?api_key=
+	// query parameter so the key never enters a URL, and therefore never enters
+	// a dial error or the logs that format one.
+	cartesiaAPIKeyHeader = "X-API-Key" //nolint:gosec // G101: header name, not a secret
+
+	// cartesiaAPIVersion is the wire version pinned on every request. Not a
+	// secret, so it stays in the query string.
+	cartesiaAPIVersion = "2024-06-10"
+	cartesiaRESTURL    = "/tts/bytes"
 
 	// CartesiaModelSonic is the current Sonic model alias for Cartesia
 	// TTS. Cartesia retired the dated `sonic-YYYY-MM-DD` IDs; "sonic-3"

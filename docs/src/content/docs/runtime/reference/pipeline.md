@@ -3245,6 +3245,8 @@ This is the LIVE route for messages: async, lossy, binary stripped. It is what a
 
 RecordingStage is the FIDELITY route for the same event type: synchronous, lossless, full binary, opt\-in, straight to an EventStore. Both build their payload with events.NewMessageCreatedData, so they carry the same data for the same message except Parts.
 
+INVARIANT: no payload bytes ever reach the bus. Not "usually", and not "only when recording is off" — always. The bus is for observability, and a megabyte of base64 per turn would swamp it; dealing with binary is exactly what the opt\-in recording route exists for, and that route never publishes. A bus subscriber sees MIME type, dimensions, size and URL references, never the bytes. Held by TestMessageBroadcastStage\_NeverPutsBinaryOnTheBus and its recording\-side sibling, alongside the audio guard for \#853.
+
 Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
 
 Index is transcript\-absolute, and history is never re\-published, so a subscriber sees each message once at the position the persisted transcript will hold it.
@@ -4090,7 +4092,7 @@ It is NOT the only producer of message.created. MessageBroadcastStage publishes 
 
 Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in — it exists only when a RecordingConfig and an EventStore are both set — but the live route is not, so a consumer without recording still sees messages.
 
-Note this stage re\-records replayed history on every turn, since the load stage runs ahead of it: an N\-turn recording holds turn 1 N times.
+Replayed history is counted for position but not re\-recorded: the load stage runs ahead of this one, so history flows through every turn, and appending it again made an N\-turn recording hold turn 1 N times \(\#1879\). Each message is recorded once, on the turn it was new.
 
 See the routing note on events.Emitter.emit for the other side.
 
