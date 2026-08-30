@@ -36,10 +36,14 @@ type Composition struct {
 // Step is a single node in a composition graph. Only the fields legal for Kind
 // are set; per-kind legality is enforced by Validate.
 type Step struct {
-	ID        string         `json:"id"`
-	Kind      StepKind       `json:"kind"`
-	DependsOn []string       `json:"depends_on,omitempty"`
-	Modifiers *StepModifiers `json:"modifiers,omitempty"`
+	ID   string   `json:"id"`
+	Kind StepKind `json:"kind"`
+	// Description is spec vocabulary (RFC 0010 $defs/Step) that had no Go field,
+	// so it was dropped on load and never round-tripped. Carried metadata, not
+	// behavior. Found by TestHandWrittenUnionsCoverTheSpec.
+	Description string         `json:"description,omitempty"`
+	DependsOn   []string       `json:"depends_on,omitempty"`
+	Modifiers   *StepModifiers `json:"modifiers,omitempty"`
 
 	// prompt, agent
 	PromptTask   string       `json:"prompt_task,omitempty"`

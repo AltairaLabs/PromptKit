@@ -123,18 +123,62 @@ func TestUnhandledTypeIsAnError(t *testing.T) {
 	}
 }
 
-// TestUnionDefMustBeExcluded — a new oneOf union is the realistic way the spec
-// grows a construct Go cannot express. It must stop the build and say so rather
-// than emit `any`.
-func TestUnionDefMustBeExcluded(t *testing.T) {
+// TestUnionIsGeneratedFlattened replaces TestUnionDefMustBeExcluded, which
+// asserted that a union $def stops the build. It no longer does, and that was
+// the wrong bar: Go has no sum type, but flattening a union into one struct with
+// every variant's fields is a representation CHOICE, not an impossibility — and
+// it is the choice the hand-written types already made. Excluding unions left 16
+// of 49 defs unchecked; generating them keeps them under the coverage gate.
+//
+// The discriminator must survive, since it is what tells the variants apart.
+func TestUnionIsGeneratedFlattened(t *testing.T) {
+	src, err := generate(t, minimalRoot(map[string]any{
+		"Leg": map[string]any{"type": "object", "properties": map[string]any{
+			"kind":  map[string]any{"const": "leg"},
+			"only":  map[string]any{"type": "string"},
+			"count": map[string]any{"type": "integer"},
+		}},
+		"Arm": map[string]any{"type": "object", "properties": map[string]any{
+			"kind":  map[string]any{"const": "arm"},
+			"other": map[string]any{"type": "boolean"},
+		}},
+		"Limb": map[string]any{"oneOf": []any{
+			map[string]any{"$ref": "#/$defs/Leg"},
+			map[string]any{"$ref": "#/$defs/Arm"},
+		}},
+	}))
+	if err != nil {
+		t.Fatalf("a union with properties must generate, not fail: %v", err)
+	}
+	if !strings.Contains(src, "type Limb struct") {
+		t.Fatalf("union must produce a flattened struct:\n%s", src)
+	}
+	limb := src[strings.Index(src, "type Limb struct"):]
+	limb = limb[:strings.Index(limb, "\n}")]
+	for _, want := range []string{"Only string", "Count int", "Other bool", "Kind"} {
+		if !strings.Contains(limb, want) {
+			t.Errorf("flattened union missing %q — every variant's fields, and the "+
+				"discriminator, must survive:\n%s", want, limb)
+		}
+	}
+	// Every field is optional: no variant supplies them all.
+	if strings.Contains(limb, "`json:\"only\"`") {
+		t.Error("flattened union fields must all be omitempty; no variant carries every field")
+	}
+}
+
+// TestPropertylessUnionStillNeedsExclusion — a union that presents NO properties
+// (a string-or-object, like StepInput) flattens to nothing, so there is no
+// struct to generate and it must still be declared.
+func TestPropertylessUnionStillNeedsExclusion(t *testing.T) {
 	_, err := generate(t, minimalRoot(map[string]any{
-		"Choice": map[string]any{"oneOf": []any{
+		"Scalar": map[string]any{"oneOf": []any{
 			map[string]any{"type": "string"},
 			map[string]any{"type": "object"},
 		}},
 	}))
 	if err == nil {
-		t.Fatal("expected an error for an unexcluded union def")
+		t.Fatal("a property-less union must still require an explicit exclusion")
 	}
 	if !strings.Contains(err.Error(), "exclusions.go") {
 		t.Errorf("error should point at the exclusion mechanism; got: %v", err)
@@ -362,13 +406,16 @@ func TestSummaryReportsExclusions(t *testing.T) {
 	cov.EmitDef("A")
 	cov.DeclareProp("A.x")
 	cov.EmitProp("A.x")
-	got := NewExclusions().Count()
-	if got == 0 {
+	if NewExclusions().Count() == 0 {
 		t.Fatal("production exclusions must not be empty")
 	}
-	if s := cov.Summary(NewExclusions()); !strings.Contains(s, "1/1 $defs") ||
-		!strings.Contains(s, "deliberate exclusions") {
-		t.Errorf("unexpected summary: %q", s)
+	s := cov.Summary(NewExclusions())
+	if !strings.Contains(s, "1/1 $defs") || !strings.Contains(s, "1/1 properties") {
+		t.Errorf("summary must report the honest denominator, not a ratio over a "+
+			"shrunken one: %q", s)
+	}
+	if !strings.Contains(s, "excluded") {
+		t.Errorf("summary must surface the exclusion count: %q", s)
 	}
 }
 

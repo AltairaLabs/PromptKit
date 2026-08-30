@@ -57,6 +57,9 @@ const (
 	kwProperties = "properties"
 	kwDefs       = "$defs"
 	kwConst      = "const"
+	kwOneOf      = "oneOf"
+	kwAnyOf      = "anyOf"
+	kwAllOf      = "allOf"
 	kwDefault    = "default"
 	kwEnum       = "enum"
 	kwExamples   = "examples"
@@ -66,7 +69,7 @@ const (
 var shapeKeywords = map[string]bool{
 	"type": true, kwProperties: true, "$ref": true, "items": true,
 	"required": true, "additionalProperties": true, kwDefs: true,
-	"oneOf": true, "anyOf": true, "allOf": true, "if": true, "then": true, "else": true,
+	kwOneOf: true, kwAnyOf: true, kwAllOf: true, "if": true, "then": true, "else": true,
 }
 
 // validationKeywords constrain values the schema validator already enforces at
@@ -159,10 +162,15 @@ func (c *Coverage) missingPropProblem(ex *Exclusions) string {
 // becoming a file nobody opens.
 func (c *Coverage) Summary(ex *Exclusions) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "covered %d/%d $defs, %d/%d properties",
+	// declaredDefs already includes the excluded ones — DeclareDef runs before
+	// the exclusion check — so it is the honest denominator on its own. An
+	// excluded def contributes no properties, and the only remaining exclusions
+	// present none, so the property counts are complete rather than a ratio over
+	// a shrunken denominator.
+	fmt.Fprintf(&b, "%d/%d $defs generated, %d/%d properties",
 		len(c.emittedDefs), len(c.declaredDefs), len(c.emittedProps), len(c.declaredProps))
 	if n := ex.Count(); n > 0 {
-		fmt.Fprintf(&b, "; %d deliberate exclusions", n)
+		fmt.Fprintf(&b, "; %d excluded (no properties to lose)", n)
 	}
 	return b.String()
 }

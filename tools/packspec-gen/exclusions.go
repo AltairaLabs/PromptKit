@@ -17,46 +17,21 @@ type Exclusions struct {
 	used  map[string]bool
 }
 
-// Reasons shared by the union-variant exclusions.
-const (
-	reasonStepVariant      = "variant of the Step union; see Step"
-	reasonPredicateVariant = "variant of the Predicate union; see Predicate"
-)
-
 func NewExclusions() *Exclusions {
 	e := &Exclusions{
 		used: map[string]bool{},
 		defs: map[string]string{
-			// The six oneOf/anyOf unions. Go has no sum type, so a generator can
-			// only emit `any` (which loses every field name) or a flattened
-			// struct guessing at which variants may combine. The hand-written
-			// types in runtime/composition already flatten these deliberately,
-			// with the discriminator (`kind`) modeled — that is a better
-			// artifact than anything generated here would be.
-			//
-			// Evaluated, not assumed: atombender/go-jsonschema emits
-			// `interface{}` for four of these six.
-			"Predicate":            "oneOf union — hand-written as composition.Predicate; a generator can only emit `any`",
-			"ProviderRequirement":  "oneOf union — RFC 0012; not implemented in promptkit at all yet, see #TODO",
-			"SkillSource":          "oneOf union — hand-written as prompt.SkillSourceConfig with a custom UnmarshalJSON",
-			"Step":                 "oneOf union over the five *Step kinds — hand-written as composition.Step",
-			"StepInput":            "oneOf union — hand-written as composition.StepInput",
-			"TerminationPredicate": "anyOf union — hand-written as composition.Termination",
-
-			// The five Step variants exist only as members of the Step union.
-			// Emitting them standalone would produce types nothing references.
-			"PromptStep":   reasonStepVariant,
-			"AgentStep":    reasonStepVariant,
-			"ToolStep":     reasonStepVariant,
-			"BranchStep":   reasonStepVariant,
-			"ParallelStep": reasonStepVariant,
-
-			// Predicate variants, likewise.
-			"ComparePredicate": reasonPredicateVariant,
-			"ExistsPredicate":  reasonPredicateVariant,
-			"AllOfPredicate":   reasonPredicateVariant,
-			"AnyOfPredicate":   reasonPredicateVariant,
-			"NotPredicate":     reasonPredicateVariant,
+			// Only defs that present NO properties remain excluded. A union with
+			// properties is generated as a flattened struct — Go has no sum
+			// type, but flattening is a representation choice, not an
+			// impossibility, and it is the choice the hand-written types
+			// already made. Excluding them meant 16 of 49 defs went unchecked;
+			// generating them keeps them under the coverage gate instead.
+			"StepInput": "presents no properties — a '${ref}' string or a free-form object; " +
+				"`any` is the complete representation, not a lossy one",
+			"ProviderRequirement": "presents no properties — a provider name string or a " +
+				"capability object. RFC 0012 is also unimplemented in promptkit; that is a " +
+				"real gap, tracked separately, not a generation gap",
 		},
 		props: map[string]string{},
 	}

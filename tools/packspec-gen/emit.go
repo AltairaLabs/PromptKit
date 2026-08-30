@@ -97,7 +97,13 @@ func (e *Emitter) Generate() (string, error) {
 			continue
 		}
 
-		src, err := e.emitDef(name, def)
+		var src string
+		var err error
+		if def.isUnion() {
+			src, err = e.emitFlattenedUnion(name, def)
+		} else {
+			src, err = e.emitDef(name, def)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -203,7 +209,7 @@ func (e *Emitter) goTypeNamed(n Node, where, hoistAs string) (string, error) {
 	case typeObject:
 		return e.objectType(n, where, hoistAs)
 	case "":
-		if n.Has("oneOf") || n.Has("anyOf") || n.Has("allOf") {
+		if n.Has(kwOneOf) || n.Has(kwAnyOf) || n.Has(kwAllOf) {
 			return "", fmt.Errorf("%s: union (oneOf/anyOf/allOf) with no named $def — "+
 				"hoist it to a $def and exclude it, so the hand-written type stays authoritative", where)
 		}

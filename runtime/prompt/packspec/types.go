@@ -31,7 +31,25 @@ type AgentDef struct {
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
-// AgentStep is NOT generated: variant of the Step union; see Step
+// AgentStep step kind 'agent': a bounded LLM-tool loop. Internal to a single composition; distinct
+// from RFC 0007 agents.
+type AgentStep struct {
+	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+
+	Kind any `json:"kind" yaml:"kind"`
+
+	OutputSchema string `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+
+	PromptTask string `json:"prompt_task" yaml:"prompt_task"`
+
+	// Termination REQUIRED. The condition under which the bounded loop exits. Without an explicit
+	// termination predicate, an agent step is invalid.
+	Termination *TerminationPredicate `json:"termination" yaml:"termination"`
+
+	// Tools subset of the pack's tools available to this agent step. Acts as a per-step scoped tool
+	// registry.
+	Tools []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+}
 
 // AgentsConfig agent configuration that maps prompts to A2A-compatible agent definitions. Enables
 // multi-agent orchestration via the Agent-to-Agent protocol.
@@ -44,9 +62,13 @@ type AgentsConfig struct {
 	Members map[string]AgentDef `json:"members" yaml:"members"`
 }
 
-// AllOfPredicate is NOT generated: variant of the Predicate union; see Predicate
+type AllOfPredicate struct {
+	AllOf []Predicate `json:"all_of" yaml:"all_of"`
+}
 
-// AnyOfPredicate is NOT generated: variant of the Predicate union; see Predicate
+type AnyOfPredicate struct {
+	AnyOf []Predicate `json:"any_of" yaml:"any_of"`
+}
 
 // ArtifactDef declares a named artifact slot for carrying lightweight, structured metadata across
 // workflow state visits. Artifacts are typically pointers (commit SHAs, file paths, URIs),
@@ -83,9 +105,30 @@ type AudioConfig struct {
 	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
 }
 
-// BranchStep is NOT generated: variant of the Step union; see Step
+// BranchStep step kind 'branch': a conditional that picks a successor step based on a constrained
+// predicate.
+type BranchStep struct {
+	// Else step ID to execute when the predicate evaluates false.
+	Else string `json:"else,omitempty" yaml:"else,omitempty"`
 
-// ComparePredicate is NOT generated: variant of the Predicate union; see Predicate
+	Kind any `json:"kind" yaml:"kind"`
+
+	Predicate *Predicate `json:"predicate" yaml:"predicate"`
+
+	// Then step ID to execute when the predicate evaluates true.
+	Then string `json:"then" yaml:"then"`
+}
+
+type ComparePredicate struct {
+	Op string `json:"op" yaml:"op"`
+
+	// Path reference to a value via dot-notation against the composition's input and step outputs.
+	// Example: '${classify.output.intent}'.
+	Path string `json:"path" yaml:"path"`
+
+	// Value literal comparison value (string, number, boolean, or array for in/not_in).
+	Value any `json:"value" yaml:"value"`
+}
 
 // Composition a named step graph defining a procedural composition over the pack's prompts, tools, and
 // evals (RFC 0010). Reached through a workflow state whose orchestration is 'composition'.
@@ -110,7 +153,7 @@ type Composition struct {
 
 	// Steps ordered array of step definitions. Order is logical; control flow is determined by the
 	// steps themselves (sequential by default; branches and parallels alter flow).
-	Steps []any/* Step: oneOf union over the five *Step kinds — hand-written as composition.Step */ `json:"steps" yaml:"steps"`
+	Steps []Step `json:"steps" yaml:"steps"`
 
 	// Version composition format version. Currently 1.
 	Version int `json:"version" yaml:"version"`
@@ -194,7 +237,11 @@ type Eval struct {
 	When map[string]any `json:"when,omitempty" yaml:"when,omitempty"`
 }
 
-// ExistsPredicate is NOT generated: variant of the Predicate union; see Predicate
+type ExistsPredicate struct {
+	Exists bool `json:"exists" yaml:"exists"`
+
+	Path string `json:"path" yaml:"path"`
+}
 
 // GenericMediaTypeConfig generic configuration for custom media types. Use this for types not covered by specific
 // configs (ImageConfig, AudioConfig, etc.). Provides common validation properties that
@@ -351,9 +398,19 @@ type MultimodalExample struct {
 	Role string `json:"role" yaml:"role"`
 }
 
-// NotPredicate is NOT generated: variant of the Predicate union; see Predicate
+type NotPredicate struct {
+	Not *Predicate `json:"not" yaml:"not"`
+}
 
-// ParallelStep is NOT generated: variant of the Step union; see Step
+// ParallelStep step kind 'parallel': a static fan-out block whose branches execute concurrently and are
+// merged by a declared reducer.
+type ParallelStep struct {
+	Branches []Step `json:"branches" yaml:"branches"`
+
+	Kind any `json:"kind" yaml:"kind"`
+
+	Reduce *Reducer `json:"reduce" yaml:"reduce"`
+}
 
 // Parameters LLM generation parameters controlling the model's behavior and output characteristics
 type Parameters struct {
@@ -388,7 +445,29 @@ type PipelineConfig struct {
 	Stages []string `json:"stages" yaml:"stages"`
 }
 
-// Predicate is NOT generated: oneOf union — hand-written as composition.Predicate; a generator can only emit `any`
+// Predicate a constrained, declarative branch predicate (RFC 0010). Not an expression language.
+//
+// Flattened from a oneOf/anyOf union: every field any variant can present,
+// all optional. Which combination is legal for a given discriminator is a
+// validation concern the schema enforces, not a shape this type can express.
+type Predicate struct {
+	AllOf []Predicate `json:"all_of,omitempty" yaml:"all_of,omitempty"`
+
+	AnyOf []Predicate `json:"any_of,omitempty" yaml:"any_of,omitempty"`
+
+	Exists bool `json:"exists,omitempty" yaml:"exists,omitempty"`
+
+	Not *Predicate `json:"not,omitempty" yaml:"not,omitempty"`
+
+	Op string `json:"op,omitempty" yaml:"op,omitempty"`
+
+	// Path reference to a value via dot-notation against the composition's input and step outputs.
+	// Example: '${classify.output.intent}'.
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
+
+	// Value literal comparison value (string, number, boolean, or array for in/not_in).
+	Value any `json:"value,omitempty" yaml:"value,omitempty"`
+}
 
 // Prompt a single prompt configuration within a pack. Each prompt represents a specific task type
 // (e.g., 'support', 'sales') with its own template, variables, tools, and validation rules.
@@ -449,7 +528,22 @@ type Prompt struct {
 	Version string `json:"version" yaml:"version"`
 }
 
-// PromptStep is NOT generated: variant of the Step union; see Step
+// PromptStep step kind 'prompt': a one-shot LLM invocation against a declared prompt task with an
+// optional output schema. No tool calls.
+type PromptStep struct {
+	// Input optional input binding. Variables resolved against the composition's input and prior
+	// steps' outputs.
+	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+
+	Kind any `json:"kind" yaml:"kind"`
+
+	// OutputSchema reference to a JSON Schema for the expected output shape. Runtimes parse the LLM response
+	// against this schema.
+	OutputSchema string `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+
+	// PromptTask reference to a prompt key defined in the pack's prompts object.
+	PromptTask string `json:"prompt_task" yaml:"prompt_task"`
+}
 
 // ProviderCapabilities structured, advisory capabilities the satisfying provider should have (RFC 0012). The
 // well-known fields below are validated when present, but the object is OPEN: provider- or
@@ -475,7 +569,9 @@ type ProviderCapabilities struct {
 	ToolUse bool `json:"tool_use,omitempty" yaml:"tool_use,omitempty"`
 }
 
-// ProviderRequirement is NOT generated: oneOf union — RFC 0012; not implemented in promptkit at all yet, see #TODO
+// ProviderRequirement is NOT generated: presents no properties — a provider name string or a capability object. RFC 0012 is
+// also unimplemented in promptkit; that is a real gap, tracked separately, not a generation
+// gap
 
 // Reducer names how a parallel block's branch outputs are merged into a single value (RFC 0010).
 type Reducer struct {
@@ -498,11 +594,98 @@ type SkillPathSource struct {
 	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
 }
 
-// SkillSource is NOT generated: oneOf union — hand-written as prompt.SkillSourceConfig with a custom UnmarshalJSON
+// SkillSource a skill source for progressive-disclosure knowledge loading. Can be a simple string path,
+// a path object with preload config, or an inline skill definition.
+//
+// Flattened from a oneOf/anyOf union: every field any variant can present,
+// all optional. Which combination is legal for a given discriminator is a
+// validation concern the schema enforces, not a shape this type can express.
+type SkillSource struct {
+	// Description brief description of what this skill provides.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
-// Step is NOT generated: oneOf union over the five *Step kinds — hand-written as composition.Step
+	// Instructions the skill's instructions or knowledge content. Loaded into the agent's context when the
+	// skill is activated.
+	Instructions string `json:"instructions,omitempty" yaml:"instructions,omitempty"`
 
-// StepInput is NOT generated: oneOf union — hand-written as composition.StepInput
+	// Name human-readable name for this skill.
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+
+	// Path path to a skill directory, file, or package reference.
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
+
+	// Preload if true, load this skill source eagerly at pack initialization rather than on demand.
+	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
+}
+
+// Step a single step in a composition's step graph. The 'kind' discriminator selects the step
+// shape (RFC 0010).
+//
+// Flattened from a oneOf/anyOf union: every field any variant can present,
+// all optional. Which combination is legal for a given discriminator is a
+// validation concern the schema enforces, not a shape this type can express.
+type Step struct {
+	// Args argument bindings. Variables resolved against the composition's input and prior steps'
+	// outputs.
+	Args map[string]any `json:"args,omitempty" yaml:"args,omitempty"`
+
+	Branches []Step `json:"branches,omitempty" yaml:"branches,omitempty"`
+
+	// DependsOn optional explicit predecessor step IDs. If omitted, the step sequentially follows the
+	// prior step in steps[]. Required when steps run after a branch or parallel and need to
+	// declare a join point.
+	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Else step ID to execute when the predicate evaluates false.
+	Else string `json:"else,omitempty" yaml:"else,omitempty"`
+
+	// ID stable identifier for this step. Must be unique within the composition. Used for output
+	// references, eval attachment, and trace records.
+	ID string `json:"id,omitempty" yaml:"id,omitempty"`
+
+	// Input optional input binding. Variables resolved against the composition's input and prior
+	// steps' outputs.
+	Input any/* StepInput: presents no properties — a '${ref}' string or a free-form object; `any` is the complete representation, not a lossy one */ `json:"input,omitempty" yaml:"input,omitempty"`
+
+	// Kind step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'.
+	// Free-form string with documented conventional values; runtimes may support additional
+	// vendor-namespaced kinds (e.g. 'omnia.judge').
+	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
+
+	// Modifiers optional declarative modifiers (retry, eval attachment). Modifier semantics are
+	// runtime-defined.
+	Modifiers *StepModifiers `json:"modifiers,omitempty" yaml:"modifiers,omitempty"`
+
+	// OutputSchema reference to a JSON Schema for the expected output shape. Runtimes parse the LLM response
+	// against this schema.
+	OutputSchema string `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+
+	Predicate *Predicate `json:"predicate,omitempty" yaml:"predicate,omitempty"`
+
+	// PromptTask reference to a prompt key defined in the pack's prompts object.
+	PromptTask string `json:"prompt_task,omitempty" yaml:"prompt_task,omitempty"`
+
+	Reduce *Reducer `json:"reduce,omitempty" yaml:"reduce,omitempty"`
+
+	// Termination REQUIRED. The condition under which the bounded loop exits. Without an explicit
+	// termination predicate, an agent step is invalid.
+	Termination *TerminationPredicate `json:"termination,omitempty" yaml:"termination,omitempty"`
+
+	// Then step ID to execute when the predicate evaluates true.
+	Then string `json:"then,omitempty" yaml:"then,omitempty"`
+
+	// Tool reference to a tool key defined in the pack's tools object.
+	Tool string `json:"tool,omitempty" yaml:"tool,omitempty"`
+
+	// Tools subset of the pack's tools available to this agent step. Acts as a per-step scoped tool
+	// registry.
+	Tools []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+}
+
+// StepInput is NOT generated: presents no properties — a '${ref}' string or a free-form object; `any` is the complete
+// representation, not a lossy one
 
 // StepModifiers declarative annotations on a step. Semantics are runtime-defined.
 type StepModifiers struct {
@@ -513,7 +696,17 @@ type StepModifiers struct {
 	Retry *StepModifiersRetry `json:"retry,omitempty" yaml:"retry,omitempty"`
 }
 
-// TerminationPredicate is NOT generated: anyOf union — hand-written as composition.Termination
+// TerminationPredicate termination condition for an agent step's bounded loop (RFC 0010).
+//
+// Flattened from a oneOf/anyOf union: every field any variant can present,
+// all optional. Which combination is legal for a given discriminator is a
+// validation concern the schema enforces, not a shape this type can express.
+type TerminationPredicate struct {
+	MaxSteps int `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
+
+	// ToolCalled tool name; agent terminates when the LLM successfully invokes this tool.
+	ToolCalled string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
+}
 
 // TestedModel testing results for a specific model. Documents which models have been tested with this
 // prompt and their performance metrics.
@@ -573,7 +766,18 @@ type ToolPolicy struct {
 	ToolChoice string `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
 }
 
-// ToolStep is NOT generated: variant of the Step union; see Step
+// ToolStep step kind 'tool': a deterministic tool invocation called directly by the runtime, not via
+// an LLM tool-call decision.
+type ToolStep struct {
+	// Args argument bindings. Variables resolved against the composition's input and prior steps'
+	// outputs.
+	Args map[string]any `json:"args,omitempty" yaml:"args,omitempty"`
+
+	Kind any `json:"kind" yaml:"kind"`
+
+	// Tool reference to a tool key defined in the pack's tools object.
+	Tool string `json:"tool" yaml:"tool"`
+}
 
 // Validator a validation rule (guardrail) applied to LLM responses. Validators can check content,
 // length, format, and other constraints to ensure response quality and safety.
@@ -792,7 +996,7 @@ type Pack struct {
 
 	// Skills skill sources for progressive-disclosure knowledge loading. Each entry is either a string
 	// (path or package reference), a SkillPathSource object, or an InlineSkill object.
-	Skills []any/* SkillSource: oneOf union — hand-written as prompt.SkillSourceConfig with a custom UnmarshalJSON */ `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Skills []SkillSource `json:"skills,omitempty" yaml:"skills,omitempty"`
 
 	// TemplateEngine template engine configuration shared across all prompts in the pack. Defines how
 	// variables are substituted and fragments are resolved.
@@ -886,7 +1090,7 @@ type PackMetadataCostEstimate struct {
 type PackRequires struct {
 	// Providers logical model-provider requirements. Each entry is a string shorthand (an 'llm'
 	// requirement with that key) or a ProviderRequirement object.
-	Providers []any /* ProviderRequirement: oneOf union — RFC 0012; not implemented in promptkit at all yet, see #TODO */ `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Providers []any /* ProviderRequirement: presents no properties — a provider name string or a capability object. RFC 0012 is also unimplemented in promptkit; that is a real gap, tracked separately, not a generation gap */ `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 // PackTemplateEngine is an inline object hoisted from the spec so its fields stay named.
