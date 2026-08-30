@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 )
 
@@ -189,8 +191,8 @@ func (e *Engine) execWithRetry(
 	ctx context.Context, step *composition.Step, input json.RawMessage,
 ) (json.RawMessage, int, error) {
 	attempts := 1
-	if step.Modifiers != nil && step.Modifiers.Retry != nil && step.Modifiers.Retry.MaxAttempts > 1 {
-		attempts = step.Modifiers.Retry.MaxAttempts
+	if step.Modifiers != nil && step.Modifiers.Retry != nil && packspec.Deref(step.Modifiers.Retry.MaxAttempts, 0) > 1 {
+		attempts = packspec.Deref(step.Modifiers.Retry.MaxAttempts, 0)
 	}
 	var lastErr error
 	for i := 0; i < attempts; i++ {

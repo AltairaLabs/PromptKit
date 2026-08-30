@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"strings"
 	"sync"
 	"testing"
@@ -566,7 +567,7 @@ func TestExecute_RetrySucceedsAfterFailures(t *testing.T) {
 		Version: 1, Output: "flaky",
 		Steps: []*composition.Step{
 			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
-				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 3}}},
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(3)}}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"flaky": "ok"})
@@ -588,7 +589,7 @@ func TestExecute_RetryExhaustedPropagatesError(t *testing.T) {
 		Version: 1, Output: "flaky",
 		Steps: []*composition.Step{
 			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
-				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(2)}}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"flaky": "ok"})
@@ -626,7 +627,7 @@ func TestExecute_ParallelBranchRetry(t *testing.T) {
 			{ID: "meta", Kind: composition.KindParallel,
 				Branches: []*composition.Step{
 					{ID: "a", Kind: composition.KindTool, Tool: "t.a", Args: map[string]any{"c": "${input.x}"},
-						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(2)}}},
 					{ID: "b", Kind: composition.KindTool, Tool: "t.b", Args: map[string]any{"c": "${input.x}"}},
 				},
 				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"}},
@@ -783,7 +784,7 @@ func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
 			{ID: "enrich", Kind: composition.KindParallel,
 				Branches: []*composition.Step{
 					{ID: "structure", Kind: composition.KindTool, Tool: "t.s", Args: map[string]any{"c": "${input.text}"},
-						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 3}}},
+						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(3)}}},
 					{ID: "citations", Kind: composition.KindTool, Tool: "t.c", Args: map[string]any{"c": "${input.text}"}},
 				},
 				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "meta"}},
@@ -791,7 +792,7 @@ func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
 			{ID: "synth", Kind: composition.KindAgent, PromptTask: "a",
 				DependsOn: []string{"enrich", "skip_path"},
 				Input:     "${enrich.output.meta}",
-				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: packspec.Ptr(2)}}},
 		},
 	}
 	fe := newFakeExec(map[string]any{

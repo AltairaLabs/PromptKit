@@ -11,9 +11,9 @@ func TestShouldRun_EveryTurn(t *testing.T) {
 
 func TestShouldRun_OnSessionComplete(t *testing.T) {
 	tests := []struct {
-		name      string
-		complete  bool
-		wantRun   bool
+		name     string
+		complete bool
+		wantRun  bool
 	}{
 		{"session complete", true, true},
 		{"session not complete", false, false},

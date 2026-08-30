@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"testing"
 )
 
@@ -48,10 +49,10 @@ func TestValidateMediaConfig(t *testing.T) {
 				Enabled:        true,
 				SupportedTypes: []string{"image"},
 				Image: &ImageConfig{
-					MaxSizeMB:       20,
+					MaxSizeMB:       packspec.Ptr(20),
 					AllowedFormats:  []string{"jpeg", "png"},
-					DefaultDetail:   "high",
-					MaxImagesPerMsg: 5,
+					DefaultDetail:   packspec.Ptr("high"),
+					MaxImagesPerMsg: packspec.Ptr(5),
 				},
 			},
 			wantErr: false,
@@ -62,10 +63,10 @@ func TestValidateMediaConfig(t *testing.T) {
 				Enabled:        true,
 				SupportedTypes: []string{"audio"},
 				Audio: &AudioConfig{
-					MaxSizeMB:       25,
+					MaxSizeMB:       packspec.Ptr(25),
 					AllowedFormats:  []string{"mp3", "wav"},
-					MaxDurationSec:  600,
-					RequireMetadata: false,
+					MaxDurationSec:  packspec.Ptr(600),
+					RequireMetadata: packspec.Ptr(false),
 				},
 			},
 			wantErr: false,
@@ -90,11 +91,11 @@ func TestValidateMediaConfig(t *testing.T) {
 				Enabled:        true,
 				SupportedTypes: []string{"image", "audio", "video"},
 				Image: &ImageConfig{
-					MaxSizeMB:      20,
+					MaxSizeMB:      packspec.Ptr(20),
 					AllowedFormats: []string{"jpeg"},
 				},
 				Audio: &AudioConfig{
-					MaxSizeMB:      25,
+					MaxSizeMB:      packspec.Ptr(25),
 					AllowedFormats: []string{"mp3"},
 				},
 				Video: &VideoConfig{
@@ -110,7 +111,7 @@ func TestValidateMediaConfig(t *testing.T) {
 				Enabled:        true,
 				SupportedTypes: []string{"image"},
 				Image: &ImageConfig{
-					MaxSizeMB:      20,
+					MaxSizeMB:      packspec.Ptr(20),
 					AllowedFormats: []string{"jpeg"},
 				},
 				Examples: []MultimodalExample{
@@ -159,17 +160,17 @@ func TestValidateImageConfig(t *testing.T) {
 		{
 			name: "valid config",
 			config: &ImageConfig{
-				MaxSizeMB:       20,
+				MaxSizeMB:       packspec.Ptr(20),
 				AllowedFormats:  []string{"jpeg", "png", "webp"},
-				DefaultDetail:   "high",
-				MaxImagesPerMsg: 5,
+				DefaultDetail:   packspec.Ptr("high"),
+				MaxImagesPerMsg: packspec.Ptr(5),
 			},
 			wantErr: false,
 		},
 		{
 			name: "negative max size",
 			config: &ImageConfig{
-				MaxSizeMB: -1,
+				MaxSizeMB: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_size_mb cannot be negative",
@@ -177,7 +178,7 @@ func TestValidateImageConfig(t *testing.T) {
 		{
 			name: "invalid format",
 			config: &ImageConfig{
-				MaxSizeMB:      20,
+				MaxSizeMB:      packspec.Ptr(20),
 				AllowedFormats: []string{"invalid"},
 			},
 			wantErr: true,
@@ -186,8 +187,8 @@ func TestValidateImageConfig(t *testing.T) {
 		{
 			name: "invalid detail level",
 			config: &ImageConfig{
-				MaxSizeMB:     20,
-				DefaultDetail: "invalid",
+				MaxSizeMB:     packspec.Ptr(20),
+				DefaultDetail: packspec.Ptr("invalid"),
 			},
 			wantErr: true,
 			errMsg:  "invalid default_detail",
@@ -195,8 +196,8 @@ func TestValidateImageConfig(t *testing.T) {
 		{
 			name: "negative max images",
 			config: &ImageConfig{
-				MaxSizeMB:       20,
-				MaxImagesPerMsg: -1,
+				MaxSizeMB:       packspec.Ptr(20),
+				MaxImagesPerMsg: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_images_per_msg cannot be negative",
@@ -204,8 +205,8 @@ func TestValidateImageConfig(t *testing.T) {
 		{
 			name: "zero values allowed",
 			config: &ImageConfig{
-				MaxSizeMB:       0,
-				MaxImagesPerMsg: 0,
+				MaxSizeMB:       packspec.Ptr(0),
+				MaxImagesPerMsg: packspec.Ptr(0),
 			},
 			wantErr: false,
 		},
@@ -238,17 +239,17 @@ func TestValidateAudioConfig(t *testing.T) {
 		{
 			name: "valid config",
 			config: &AudioConfig{
-				MaxSizeMB:       25,
+				MaxSizeMB:       packspec.Ptr(25),
 				AllowedFormats:  []string{"mp3", "wav", "ogg"},
-				MaxDurationSec:  600,
-				RequireMetadata: false,
+				MaxDurationSec:  packspec.Ptr(600),
+				RequireMetadata: packspec.Ptr(false),
 			},
 			wantErr: false,
 		},
 		{
 			name: "negative max size",
 			config: &AudioConfig{
-				MaxSizeMB: -1,
+				MaxSizeMB: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_size_mb cannot be negative",
@@ -256,7 +257,7 @@ func TestValidateAudioConfig(t *testing.T) {
 		{
 			name: "invalid format",
 			config: &AudioConfig{
-				MaxSizeMB:      25,
+				MaxSizeMB:      packspec.Ptr(25),
 				AllowedFormats: []string{"invalid"},
 			},
 			wantErr: true,
@@ -265,8 +266,8 @@ func TestValidateAudioConfig(t *testing.T) {
 		{
 			name: "negative duration",
 			config: &AudioConfig{
-				MaxSizeMB:      25,
-				MaxDurationSec: -1,
+				MaxSizeMB:      packspec.Ptr(25),
+				MaxDurationSec: packspec.Ptr(-1),
 			},
 			wantErr: true,
 			errMsg:  "max_duration_sec cannot be negative",
@@ -691,8 +692,8 @@ func TestSupportsMediaType(t *testing.T) {
 
 // TestGetMediaConfigs tests the getter functions
 func TestGetMediaConfigs(t *testing.T) {
-	imageConfig := &ImageConfig{MaxSizeMB: 20}
-	audioConfig := &AudioConfig{MaxSizeMB: 25}
+	imageConfig := &ImageConfig{MaxSizeMB: packspec.Ptr(20)}
+	audioConfig := &AudioConfig{MaxSizeMB: packspec.Ptr(25)}
 	videoConfig := &VideoConfig{MaxSizeMB: 100}
 
 	config := &MediaConfig{

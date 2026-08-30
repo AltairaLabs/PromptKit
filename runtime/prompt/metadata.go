@@ -3,6 +3,8 @@ package prompt
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -144,13 +146,16 @@ func AggregateTestResults(results []TestResultSummary, provider, model string) *
 
 	n := len(results)
 	return &ModelTestResultRef{
-		Provider:     provider,
-		Model:        model,
-		Date:         time.Now().Format("2006-01-02"),
-		SuccessRate:  float64(successCount) / float64(n),
-		AvgTokens:    totalTokens / n,
-		AvgCost:      totalCost / float64(n),
-		AvgLatencyMs: totalLatency / n,
+		Provider: provider,
+		Model:    model,
+		Date:     time.Now().Format("2006-01-02"),
+		// These are optional numbers in the spec, so the generated fields are
+		// pointers: an absent measurement is a different fact from a measured
+		// zero. Building one here means we measured, so all four are set.
+		SuccessRate:  packspec.Ptr(float64(successCount) / float64(n)),
+		AvgTokens:    packspec.Ptr(float64(totalTokens) / float64(n)),
+		AvgCost:      packspec.Ptr(totalCost / float64(n)),
+		AvgLatencyMs: packspec.Ptr(float64(totalLatency) / float64(n)),
 	}
 }
 

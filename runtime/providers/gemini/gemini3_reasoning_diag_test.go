@@ -39,8 +39,8 @@ func TestGemini_ReasoningAcrossPaths_Live(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			spec := providers.ProviderSpec{
 				ID: "gem", Type: "gemini", Model: model,
-				BaseURL:  "https://generativelanguage.googleapis.com/v1beta",
-				Defaults: providers.ProviderDefaults{MaxTokens: 4096},
+				BaseURL:          "https://generativelanguage.googleapis.com/v1beta",
+				Defaults:         providers.ProviderDefaults{MaxTokens: 4096},
 				AdditionalConfig: thinkingConfigFor(model),
 			}
 			p, err := providers.CreateProviderFromSpec(spec)

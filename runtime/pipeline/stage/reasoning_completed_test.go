@@ -166,9 +166,9 @@ func TestReasoningCompleted_SilentWhenRoundDidNotReason(t *testing.T) {
 	loop := &toolLoop{stage: stage}
 
 	cases := []*types.ReasoningTrace{
-		nil,                        // provider returned no reasoning
-		{Text: ""},                 // present but empty
-		{Text: "", Opaque: nil},    // explicitly empty
+		nil,                     // provider returned no reasoning
+		{Text: ""},              // present but empty
+		{Text: "", Opaque: nil}, // explicitly empty
 	}
 	for _, tr := range cases {
 		resp := types.Message{Role: roleAssistant, Reasoning: tr}

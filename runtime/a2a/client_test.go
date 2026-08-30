@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"

@@ -191,8 +191,8 @@ func TestMediaConvertStage_Process_NoTargetFormats(t *testing.T) {
 	output := make(chan StreamElement, 1)
 
 	audioData := &AudioData{
-		Samples:    []byte("test audio"),
-		Format:     AudioFormatMP3,
+		Samples: []byte("test audio"),
+		Format:  AudioFormatMP3,
 	}
 	input <- NewAudioElement(audioData)
 	close(input)

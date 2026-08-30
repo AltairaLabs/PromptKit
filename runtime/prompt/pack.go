@@ -279,20 +279,14 @@ type PackPrompt struct {
 }
 
 // ToolPolicyPack represents tool policy in pack format
-type ToolPolicyPack struct {
-	ToolChoice          string   `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
-	MaxRounds           int      `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
-	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn,omitempty" yaml:"max_tool_calls_per_turn,omitempty"`
-	Blocklist           []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ToolPolicy.
+// max_rounds, max_tool_calls_per_turn and tool_choice are pointers for the same reason.
+type ToolPolicyPack = packspec.ToolPolicy
 
 // ParametersPack represents model parameters in pack format
-type ParametersPack struct {
-	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
-	TopK        *int     `json:"top_k,omitempty" yaml:"top_k,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.Parameters.
+// Gains frequency_penalty and presence_penalty, which the spec defines and the hand-written type omitted.
+type ParametersPack = packspec.Parameters
 
 // PackCompiler compiles Config to Pack format
 type PackCompiler struct {

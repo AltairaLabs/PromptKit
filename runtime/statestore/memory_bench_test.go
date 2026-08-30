@@ -400,9 +400,9 @@ func BenchmarkCloneMessage_WithMeta(b *testing.B) {
 			"score":      0.95,
 		},
 		CostInfo: &types.CostInfo{
-			InputTokens:   100,
-			OutputTokens:  50,
-			TotalCost:     0.003,
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalCost:    0.003,
 		},
 	}
 

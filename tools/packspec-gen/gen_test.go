@@ -155,7 +155,7 @@ func TestUnionIsGeneratedFlattened(t *testing.T) {
 	}
 	limb := src[strings.Index(src, "type Limb struct"):]
 	limb = limb[:strings.Index(limb, "\n}")]
-	for _, want := range []string{"Only string", "Count int", "Other bool", "Kind"} {
+	for _, want := range []string{"Only string", "Count *int", "Other *bool", "Kind"} {
 		if !strings.Contains(limb, want) {
 			t.Errorf("flattened union missing %q — every variant's fields, and the "+
 				"discriminator, must survive:\n%s", want, limb)
@@ -299,29 +299,51 @@ func TestRequiredFieldsHaveNoOmitEmpty(t *testing.T) {
 	}
 }
 
-// TestOptionalScalarsAreValuesNotPointers pins the decision that makes the
-// output alias-compatible with the hand-written types. An off-the-shelf
-// generator makes 42% of fields pointers, which would change every read site.
-func TestOptionalScalarsAreValuesNotPointers(t *testing.T) {
+// TestOptionalScalarPointerRule replaces TestOptionalScalarsAreValuesNotPointers,
+// which asserted that optional scalars are always values. That was wrong, and
+// the compiler proved it: aliasing Parameters turned MaxTokens from the
+// hand-written *int into a plain int, and the SDK reads it as a pointer —
+// conversation.go only applies max_tokens when non-nil. A plain int cannot say
+// "unset", so `max_tokens: 0` and "no max_tokens" become the same pack.
+//
+// The rule is: an optional property is a pointer when its zero value is a
+// legitimate setting (numbers and booleans) or when the spec gives it a
+// non-zero default. Strings and containers stay values — absent and empty are
+// interchangeable for them, and blanket pointers were the main reason an
+// off-the-shelf generator was unusable here.
+func TestOptionalScalarPointerRule(t *testing.T) {
 	src, err := generate(t, minimalRoot(map[string]any{
 		"Thing": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"count":    map[string]any{"type": "integer"},
-				"rate":     map[string]any{"type": "number"},
+				// Zero is a real setting for these.
+				"count":  map[string]any{"type": "integer"},
+				"rate":   map[string]any{"type": "number"},
+				"toggle": map[string]any{"type": "boolean"},
+				// Absent and empty are interchangeable.
+				"label": map[string]any{"type": "string"},
+				"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				// Nullable in the spec: pointer regardless.
 				"nullable": map[string]any{"type": []any{"integer", "null"}},
+				// A non-zero default on a string still needs the distinction.
+				"detail": map[string]any{"type": "string", "default": "auto"},
+				// Required: always serialized, so absent cannot arise.
+				"needed": map[string]any{"type": "integer"},
 			},
+			"required": []any{"needed"},
 		},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(src, "Count int ") || !strings.Contains(src, "Rate float64 ") {
-		t.Errorf("optional scalars must be value types:\n%s", src)
-	}
-	// The one exception: type: [x, "null"] is how the spec says "nullable".
-	if !strings.Contains(src, "Nullable *int ") {
-		t.Errorf("a nullable integer must be a pointer:\n%s", src)
+	for _, want := range []string{
+		"Count *int", "Rate *float64", "Toggle *bool",
+		"Label string", "Tags []string",
+		"Nullable *int", "Detail *string", "Needed int",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("expected %q in:\n%s", want, src)
+		}
 	}
 }
 
@@ -549,7 +571,8 @@ func TestRunWithIOFailures(t *testing.T) {
 	}
 }
 
-// TestNonZeroDefaultBecomesAPointer pins the three-state rule.
+// TestNonZeroDefaultBecomesAPointer pins the default half of the pointer rule;
+// TestOptionalScalarPointerRule pins the zero-value-is-meaningful half.
 //
 // A property whose spec default is not the Go zero value has three meanings:
 // absent (use the default), explicitly the zero value, and explicitly something
@@ -580,10 +603,9 @@ func TestNonZeroDefaultBecomesAPointer(t *testing.T) {
 		"Enabled *bool", "MaxRounds *int", "Choice *string",
 		// Already nilable — a pointer would add nothing.
 		"Modes []string",
-		// A default equal to the zero value loses nothing to omitempty.
-		"Off bool",
-		// No default at all: absent and zero mean the same thing.
-		"Plain bool",
+		// Booleans are pointers regardless of default: false is a real setting.
+		"Off *bool",
+		"Plain *bool",
 		// Required properties are always serialized, so absent cannot arise.
 		"Req bool",
 	} {

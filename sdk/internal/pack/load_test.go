@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,9 +233,13 @@ func TestPackWithToolPolicy(t *testing.T) {
 	prompt := p.GetPrompt("agent")
 	require.NotNil(t, prompt)
 	require.NotNil(t, prompt.ToolPolicy)
-	assert.Equal(t, "auto", prompt.ToolPolicy.ToolChoice)
-	assert.Equal(t, 5, prompt.ToolPolicy.MaxRounds)
-	assert.Equal(t, 3, prompt.ToolPolicy.MaxToolCallsPerTurn)
+	// These are pointers because the spec gives them defaults ("auto", 5, 10):
+	// nil means "not set, use the default", which is a different fact from an
+	// explicit zero. Asserting through Deref keeps the test reading as intent
+	// while still failing if the value is lost.
+	assert.Equal(t, "auto", packspec.Deref(prompt.ToolPolicy.ToolChoice, ""))
+	assert.Equal(t, 5, packspec.Deref(prompt.ToolPolicy.MaxRounds, 0))
+	assert.Equal(t, 3, packspec.Deref(prompt.ToolPolicy.MaxToolCallsPerTurn, 0))
 	assert.Contains(t, prompt.ToolPolicy.Blocklist, "dangerous_tool")
 }
 

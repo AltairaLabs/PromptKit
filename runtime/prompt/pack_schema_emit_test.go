@@ -2,6 +2,7 @@ package prompt_test
 
 import (
 	"encoding/json"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,10 +67,10 @@ func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
 					Provider:     "openai",
 					Model:        "gpt-4",
 					Date:         "2026-01-01",
-					SuccessRate:  0.98,
-					AvgTokens:    120,
-					AvgCost:      0.02,
-					AvgLatencyMs: 850,
+					SuccessRate:  packspec.Ptr(0.98),
+					AvgTokens:    packspec.Ptr(120.0),
+					AvgCost:      packspec.Ptr(0.02),
+					AvgLatencyMs: packspec.Ptr(850.0),
 					Notes:        "nightly run",
 				}},
 				ModelOverrides: map[string]prompt.ModelOverride{

@@ -101,13 +101,13 @@ type AudioConfig struct {
 	AllowedFormats []string `json:"allowed_formats,omitempty" yaml:"allowed_formats,omitempty"`
 
 	// MaxDurationSec maximum audio duration in seconds
-	MaxDurationSec int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
+	MaxDurationSec *int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
 
 	// MaxSizeMB maximum file size in megabytes
-	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	MaxSizeMB *int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether audio metadata (title, description) is required
-	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
+	RequireMetadata *bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
 }
 
 // BranchStep step kind 'branch': a conditional that picks a successor step based on a constrained
@@ -188,13 +188,13 @@ type DocumentConfig struct {
 	ExtractionMode *string `json:"extraction_mode,omitempty" yaml:"extraction_mode,omitempty"`
 
 	// MaxPages maximum number of pages/sheets for paginated documents
-	MaxPages int `json:"max_pages,omitempty" yaml:"max_pages,omitempty"`
+	MaxPages *int `json:"max_pages,omitempty" yaml:"max_pages,omitempty"`
 
 	// MaxSizeMB maximum file size in megabytes
-	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	MaxSizeMB *int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether document metadata (title, author, description) is required
-	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
+	RequireMetadata *bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
 }
 
 // Eval an eval definition that declares how to assess LLM output quality. Evals run
@@ -256,10 +256,10 @@ type GenericMediaTypeConfig struct {
 	AllowedFormats []string `json:"allowed_formats,omitempty" yaml:"allowed_formats,omitempty"`
 
 	// MaxSizeMB maximum file size in megabytes
-	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	MaxSizeMB *int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether metadata is required for this media type
-	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
+	RequireMetadata *bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
 
 	// ValidationParams custom validation parameters specific to this media type. Structure depends on the type.
 	ValidationParams map[string]any `json:"validation_params,omitempty" yaml:"validation_params,omitempty"`
@@ -275,13 +275,13 @@ type ImageConfig struct {
 	DefaultDetail *string `json:"default_detail,omitempty" yaml:"default_detail,omitempty"`
 
 	// MaxImagesPerMsg maximum number of images allowed per message
-	MaxImagesPerMsg int `json:"max_images_per_msg,omitempty" yaml:"max_images_per_msg,omitempty"`
+	MaxImagesPerMsg *int `json:"max_images_per_msg,omitempty" yaml:"max_images_per_msg,omitempty"`
 
 	// MaxSizeMB maximum file size in megabytes
-	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	MaxSizeMB *int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireCaption whether image captions are required
-	RequireCaption bool `json:"require_caption,omitempty" yaml:"require_caption,omitempty"`
+	RequireCaption *bool `json:"require_caption,omitempty" yaml:"require_caption,omitempty"`
 }
 
 // InlineSkill a skill defined inline within the pack. Useful for small, pack-specific skills that don't
@@ -420,23 +420,23 @@ type ParallelStep struct {
 // Parameters LLM generation parameters controlling the model's behavior and output characteristics
 type Parameters struct {
 	// FrequencyPenalty penalty for token frequency (-2 to 2). Positive values reduce repetition.
-	FrequencyPenalty float64 `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
 
 	// MaxTokens maximum number of tokens to generate in the response
-	MaxTokens int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxTokens *int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 
 	// PresencePenalty penalty for token presence (-2 to 2). Positive values encourage new topics.
-	PresencePenalty float64 `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
+	PresencePenalty *float64 `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
 
 	// Temperature sampling temperature (0-2). Higher values make output more random, lower values more
 	// deterministic.
-	Temperature float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
 
 	// TopK top-k sampling parameter. Limits to top K tokens. Null means no limit.
 	TopK *int `json:"top_k,omitempty" yaml:"top_k,omitempty"`
 
 	// TopP nucleus sampling parameter (0-1). Alternative to temperature for controlling randomness.
-	TopP float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+	TopP *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
 }
 
 // PipelineConfig pipeline configuration defining the processing stages and middleware applied to prompts
@@ -460,7 +460,7 @@ type Predicate struct {
 
 	AnyOf []Predicate `json:"any_of,omitempty" yaml:"any_of,omitempty"`
 
-	Exists bool `json:"exists,omitempty" yaml:"exists,omitempty"`
+	Exists *bool `json:"exists,omitempty" yaml:"exists,omitempty"`
 
 	Not *Predicate `json:"not,omitempty" yaml:"not,omitempty"`
 
@@ -557,10 +557,10 @@ type PromptStep struct {
 // to avoid clashing with fields the spec may define later. All listed fields are optional.
 type ProviderCapabilities struct {
 	// EmbeddingDimensions required embedding vector dimensionality (for role 'embedding').
-	EmbeddingDimensions int `json:"embedding_dimensions,omitempty" yaml:"embedding_dimensions,omitempty"`
+	EmbeddingDimensions *int `json:"embedding_dimensions,omitempty" yaml:"embedding_dimensions,omitempty"`
 
 	// MinContextTokens minimum context window, in tokens, the provider must support.
-	MinContextTokens int `json:"min_context_tokens,omitempty" yaml:"min_context_tokens,omitempty"`
+	MinContextTokens *int `json:"min_context_tokens,omitempty" yaml:"min_context_tokens,omitempty"`
 
 	// Modalities media types the provider must handle. Reuses the media-type vocabulary
 	// (MediaConfig.supported_types, RFC 0004). Common: 'text', 'image', 'audio', 'video',
@@ -568,10 +568,10 @@ type ProviderCapabilities struct {
 	Modalities []string `json:"modalities,omitempty" yaml:"modalities,omitempty"`
 
 	// StructuredOutput whether the provider must support structured/JSON output.
-	StructuredOutput bool `json:"structured_output,omitempty" yaml:"structured_output,omitempty"`
+	StructuredOutput *bool `json:"structured_output,omitempty" yaml:"structured_output,omitempty"`
 
 	// ToolUse whether the provider must support tool/function calling.
-	ToolUse bool `json:"tool_use,omitempty" yaml:"tool_use,omitempty"`
+	ToolUse *bool `json:"tool_use,omitempty" yaml:"tool_use,omitempty"`
 }
 
 // ProviderRequirement a logical model-provider requirement (RFC 0012). A bare string is shorthand for an 'llm'
@@ -650,7 +650,7 @@ type SkillPathSource struct {
 	Path string `json:"path" yaml:"path"`
 
 	// Preload if true, load this skill source eagerly at pack initialization rather than on demand.
-	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
+	Preload *bool `json:"preload,omitempty" yaml:"preload,omitempty"`
 }
 
 // SkillSource a skill source for progressive-disclosure knowledge loading. Can be a simple string path,
@@ -674,7 +674,7 @@ type SkillSource struct {
 	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
 	// Preload if true, load this skill source eagerly at pack initialization rather than on demand.
-	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
+	Preload *bool `json:"preload,omitempty" yaml:"preload,omitempty"`
 
 	// Shorthand holds the scalar form of this union when the pack used it
 	// instead of the object form. The spec defines what it expands to; this
@@ -831,7 +831,7 @@ type StepModifiers struct {
 // all optional. Which combination is legal for a given discriminator is a
 // validation concern the schema enforces, not a shape this type can express.
 type TerminationPredicate struct {
-	MaxSteps int `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
+	MaxSteps *int `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
 
 	// ToolCalled tool name; agent terminates when the LLM successfully invokes this tool.
 	ToolCalled string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
@@ -841,13 +841,13 @@ type TerminationPredicate struct {
 // prompt and their performance metrics.
 type TestedModel struct {
 	// AvgCost average cost per execution in USD
-	AvgCost float64 `json:"avg_cost,omitempty" yaml:"avg_cost,omitempty"`
+	AvgCost *float64 `json:"avg_cost,omitempty" yaml:"avg_cost,omitempty"`
 
 	// AvgLatencyMs average response latency in milliseconds
-	AvgLatencyMs float64 `json:"avg_latency_ms,omitempty" yaml:"avg_latency_ms,omitempty"`
+	AvgLatencyMs *float64 `json:"avg_latency_ms,omitempty" yaml:"avg_latency_ms,omitempty"`
 
 	// AvgTokens average number of tokens used per response
-	AvgTokens float64 `json:"avg_tokens,omitempty" yaml:"avg_tokens,omitempty"`
+	AvgTokens *float64 `json:"avg_tokens,omitempty" yaml:"avg_tokens,omitempty"`
 
 	// Date date when the model was tested (YYYY-MM-DD)
 	Date string `json:"date" yaml:"date"`
@@ -862,7 +862,7 @@ type TestedModel struct {
 	Provider string `json:"provider" yaml:"provider"`
 
 	// SuccessRate success rate (0-1) from test runs
-	SuccessRate float64 `json:"success_rate,omitempty" yaml:"success_rate,omitempty"`
+	SuccessRate *float64 `json:"success_rate,omitempty" yaml:"success_rate,omitempty"`
 }
 
 // Tool a tool definition following OpenAI's function calling format. Tools enable the LLM to
@@ -916,7 +916,7 @@ type Validator struct {
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// FailOnViolation if true, validation failures cause an error. If false, violations are logged but allowed.
-	FailOnViolation bool `json:"fail_on_violation,omitempty" yaml:"fail_on_violation,omitempty"`
+	FailOnViolation *bool `json:"fail_on_violation,omitempty" yaml:"fail_on_violation,omitempty"`
 
 	// Message user-facing message returned when the validator blocks content.
 	Message string `json:"message,omitempty" yaml:"message,omitempty"`
@@ -964,13 +964,13 @@ type VideoConfig struct {
 	AllowedFormats []string `json:"allowed_formats,omitempty" yaml:"allowed_formats,omitempty"`
 
 	// MaxDurationSec maximum video duration in seconds
-	MaxDurationSec int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
+	MaxDurationSec *int `json:"max_duration_sec,omitempty" yaml:"max_duration_sec,omitempty"`
 
 	// MaxSizeMB maximum file size in megabytes
-	MaxSizeMB int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
+	MaxSizeMB *int `json:"max_size_mb,omitempty" yaml:"max_size_mb,omitempty"`
 
 	// RequireMetadata whether video metadata (title, description) is required
-	RequireMetadata bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
+	RequireMetadata *bool `json:"require_metadata,omitempty" yaml:"require_metadata,omitempty"`
 }
 
 // WorkflowBudget resource budget for workflow execution. Provides a safety net to prevent unbounded loops.
@@ -978,14 +978,14 @@ type VideoConfig struct {
 // All fields are optional — omitting a field means no limit for that resource.
 type WorkflowBudget struct {
 	// MaxToolCalls maximum total tool calls across all states in the workflow.
-	MaxToolCalls int `json:"max_tool_calls,omitempty" yaml:"max_tool_calls,omitempty"`
+	MaxToolCalls *int `json:"max_tool_calls,omitempty" yaml:"max_tool_calls,omitempty"`
 
 	// MaxTotalVisits maximum total state visits across all states in the workflow. This is a global safety net
 	// independent of per-state max_visits.
-	MaxTotalVisits int `json:"max_total_visits,omitempty" yaml:"max_total_visits,omitempty"`
+	MaxTotalVisits *int `json:"max_total_visits,omitempty" yaml:"max_total_visits,omitempty"`
 
 	// MaxWallTimeSec maximum wall-clock time in seconds for the entire workflow execution.
-	MaxWallTimeSec int `json:"max_wall_time_sec,omitempty" yaml:"max_wall_time_sec,omitempty"`
+	MaxWallTimeSec *int `json:"max_wall_time_sec,omitempty" yaml:"max_wall_time_sec,omitempty"`
 }
 
 // WorkflowConfig state-machine workflow over the pack's prompts. Defines an entry state and event-driven
@@ -1030,7 +1030,7 @@ type WorkflowState struct {
 	// MaxVisits maximum number of times this state can be entered during a single workflow execution.
 	// When the limit is reached, the workflow transitions to the state named in on_max_visits.
 	// If on_max_visits is not set, the workflow terminates.
-	MaxVisits int `json:"max_visits,omitempty" yaml:"max_visits,omitempty"`
+	MaxVisits *int `json:"max_visits,omitempty" yaml:"max_visits,omitempty"`
 
 	// OnEvent map of event name to target state name. When the named event fires, the workflow
 	// transitions to the target state.
@@ -1063,7 +1063,7 @@ type WorkflowState struct {
 
 	// Terminal if true, this state is a terminal state. The workflow completes after this state's prompt
 	// executes. Terminal states should not declare on_event transitions.
-	Terminal bool `json:"terminal,omitempty" yaml:"terminal,omitempty"`
+	Terminal *bool `json:"terminal,omitempty" yaml:"terminal,omitempty"`
 }
 
 // Pack schema for packaging, testing, and running multi-prompt conversational systems with
@@ -1154,17 +1154,17 @@ type EvalThreshold struct {
 	Operator string `json:"operator,omitempty" yaml:"operator,omitempty"`
 
 	// Value the threshold value to compare against.
-	Value float64 `json:"value,omitempty" yaml:"value,omitempty"`
+	Value *float64 `json:"value,omitempty" yaml:"value,omitempty"`
 }
 
 // MetricDefRange is an inline object hoisted from the spec so its fields stay named.
 // MetricDefRange optional value bounds. Useful for gauge metrics with known ranges.
 type MetricDefRange struct {
 	// Max maximum expected value
-	Max float64 `json:"max,omitempty" yaml:"max,omitempty"`
+	Max *float64 `json:"max,omitempty" yaml:"max,omitempty"`
 
 	// Min minimum expected value
-	Min float64 `json:"min,omitempty" yaml:"min,omitempty"`
+	Min *float64 `json:"min,omitempty" yaml:"min,omitempty"`
 }
 
 // PackCompilation is an inline object hoisted from the spec so its fields stay named.
@@ -1204,13 +1204,13 @@ type PackMetadata struct {
 // PackMetadataCostEstimate cost estimation for using this pack
 type PackMetadataCostEstimate struct {
 	// AvgCostUSD average cost per execution in USD
-	AvgCostUSD float64 `json:"avg_cost_usd,omitempty" yaml:"avg_cost_usd,omitempty"`
+	AvgCostUSD *float64 `json:"avg_cost_usd,omitempty" yaml:"avg_cost_usd,omitempty"`
 
 	// MaxCostUSD maximum cost per execution in USD
-	MaxCostUSD float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd,omitempty"`
+	MaxCostUSD *float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd,omitempty"`
 
 	// MinCostUSD minimum cost per execution in USD
-	MinCostUSD float64 `json:"min_cost_usd,omitempty" yaml:"min_cost_usd,omitempty"`
+	MinCostUSD *float64 `json:"min_cost_usd,omitempty" yaml:"min_cost_usd,omitempty"`
 }
 
 // PackRequires is an inline object hoisted from the spec so its fields stay named.
@@ -1238,7 +1238,7 @@ type PackTemplateEngine struct {
 
 // StepModifiersRetry is an inline object hoisted from the spec so its fields stay named.
 type StepModifiersRetry struct {
-	MaxAttempts int `json:"max_attempts,omitempty" yaml:"max_attempts,omitempty"`
+	MaxAttempts *int `json:"max_attempts,omitempty" yaml:"max_attempts,omitempty"`
 }
 
 // ToolParameters is an inline object hoisted from the spec so its fields stay named.
@@ -1258,7 +1258,7 @@ type ToolParameters struct {
 // VariableBinding declares how this variable is automatically populated from runtime context.
 type VariableBinding struct {
 	// AutoPopulate whether this variable is automatically populated at runtime without caller input.
-	AutoPopulate bool `json:"auto_populate,omitempty" yaml:"auto_populate,omitempty"`
+	AutoPopulate *bool `json:"auto_populate,omitempty" yaml:"auto_populate,omitempty"`
 
 	// Field the field name within the binding source to extract.
 	Field string `json:"field,omitempty" yaml:"field,omitempty"`
@@ -1277,16 +1277,16 @@ type VariableValidation struct {
 	Enum []any `json:"enum,omitempty" yaml:"enum,omitempty"`
 
 	// MaxLength maximum string length (for string types)
-	MaxLength int `json:"max_length,omitempty" yaml:"max_length,omitempty"`
+	MaxLength *int `json:"max_length,omitempty" yaml:"max_length,omitempty"`
 
 	// Maximum maximum numeric value (for number types)
-	Maximum float64 `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	Maximum *float64 `json:"maximum,omitempty" yaml:"maximum,omitempty"`
 
 	// MinLength minimum string length (for string types)
-	MinLength int `json:"min_length,omitempty" yaml:"min_length,omitempty"`
+	MinLength *int `json:"min_length,omitempty" yaml:"min_length,omitempty"`
 
 	// Minimum minimum numeric value (for number types)
-	Minimum float64 `json:"minimum,omitempty" yaml:"minimum,omitempty"`
+	Minimum *float64 `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 
 	// Pattern regular expression pattern (for string types)
 	Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`

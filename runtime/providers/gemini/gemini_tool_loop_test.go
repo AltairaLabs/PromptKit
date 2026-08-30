@@ -166,8 +166,8 @@ func TestToolProvider_ToolLoopDetection(t *testing.T) {
 
 	// Add assistant message with tool calls to history
 	messages = append(messages, types.Message{
-		Role:      "assistant",
-		Parts:     []types.ContentPart{types.NewTextPart(resp1.Content)},
+		Role:  "assistant",
+		Parts: []types.ContentPart{types.NewTextPart(resp1.Content)},
 
 		ToolCalls: toolCalls1,
 	})
@@ -175,14 +175,13 @@ func TestToolProvider_ToolLoopDetection(t *testing.T) {
 	// Add tool result messages
 	resultContent := `{"status":"active","next_billing":"2025-11-01"}`
 	messages = append(messages, types.Message{
-		Role:    "tool",
-		Parts:     []types.ContentPart{types.NewTextPart(resultContent)},
+		Role:  "tool",
+		Parts: []types.ContentPart{types.NewTextPart(resultContent)},
 
 		ToolResult: &types.MessageToolResult{
-			ID:      toolCalls1[0].ID,
-			Name:    toolCalls1[0].Name,
-			Parts:     []types.ContentPart{types.NewTextPart(resultContent)},
-
+			ID:    toolCalls1[0].ID,
+			Name:  toolCalls1[0].Name,
+			Parts: []types.ContentPart{types.NewTextPart(resultContent)},
 		},
 	})
 

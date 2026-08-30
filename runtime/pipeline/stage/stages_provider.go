@@ -86,8 +86,8 @@ type ProviderConfig struct {
 	// issue #1853. Ignored when ResponseFormat is nil or the turn uses no
 	// tools, where there is no loop to protect.
 	StructuredOutputMode StructuredOutputMode
-	Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
-	Source         string                    // Origin of the call: "agent" (default), "judge", "selfplay"
+	Labels               map[string]string // Optional labels propagated to events, metrics, and traces
+	Source               string            // Origin of the call: "agent" (default), "judge", "selfplay"
 
 	// MessageLog enables per-round write-through persistence during tool loops.
 	// When set, messages are appended to the log after each tool-loop round

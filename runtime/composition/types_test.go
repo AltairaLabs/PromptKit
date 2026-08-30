@@ -2,6 +2,7 @@ package composition
 
 import (
 	"encoding/json"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"testing"
 )
 
@@ -57,7 +58,7 @@ func TestComposition_JSONRoundTrip(t *testing.T) {
 	if len(c.Steps[2].Branches) != 2 {
 		t.Errorf("branches = %d", len(c.Steps[2].Branches))
 	}
-	if c.Steps[3].Termination.MaxSteps != 10 || c.Steps[3].Modifiers.Retry.MaxAttempts != 3 {
+	if c.Steps[3].Termination.MaxSteps != 10 || packspec.Deref(c.Steps[3].Modifiers.Retry.MaxAttempts, 0) != 3 {
 		t.Errorf("agent = %+v", c.Steps[3])
 	}
 	if len(c.Steps[3].Modifiers.Eval) != 1 || c.Steps[3].Modifiers.Eval[0] != "analysis_quality" {

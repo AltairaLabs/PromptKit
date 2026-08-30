@@ -349,13 +349,43 @@ func writeField(b *strings.Builder, prop, typ string, node Node, isRequired bool
 	tag := prop
 	if !isRequired {
 		tag = prop + ",omitempty"
-		// An optional property with a non-zero default must distinguish
-		// "absent" from "explicitly the zero value"; see hasMeaningfulDefault.
-		if hasMeaningfulDefault(node) && needsPointerForDefault(typ) {
+		if needsPointer(node, typ) {
 			typ = "*" + typ
 		}
 	}
 	fmt.Fprintf(b, "\t%s %s `json:%q yaml:%q`\n", goName(prop), typ, tag, tag)
+}
+
+// needsPointer decides whether an optional property must be a pointer to keep
+// "absent" distinct from "explicitly the zero value".
+//
+// Two cases require it:
+//
+//   - a non-zero default, where a plain field silently reverses the default.
+//     `enabled: false` on a validator would serialize to nothing and reload as
+//     enabled, turning a disabled guardrail back on.
+//   - a numeric or boolean type, where the zero value is a legitimate setting.
+//     `temperature: 0` and `max_tokens: 0` mean something; "unset" means
+//     something else. The SDK relies on exactly this — conversation.go reads
+//     Parameters.MaxTokens as a pointer and only applies it when non-nil.
+//
+// Strings and containers are deliberately NOT pointerized. Absent and empty are
+// interchangeable for them in practice, and blanket pointers were the main
+// reason an off-the-shelf generator was unusable here: it made 42% of fields
+// pointers and would have changed every read site in the repo.
+func needsPointer(n Node, typ string) bool {
+	if !needsPointerForDefault(typ) {
+		return false
+	}
+	if hasMeaningfulDefault(n) {
+		return true
+	}
+	switch n.PrimaryType() {
+	case typeInt, typeNum, typeBool:
+		return true
+	default:
+		return false
+	}
 }
 
 // hasMeaningfulDefault reports whether a property declares a default that is not

@@ -31,11 +31,11 @@ type scriptedRoundProvider struct {
 	calls int
 }
 
-func (p *scriptedRoundProvider) ID() string                { return "scripted" }
-func (p *scriptedRoundProvider) Name() string              { return "scripted" }
-func (p *scriptedRoundProvider) Model() string             { return "scripted-model" }
-func (p *scriptedRoundProvider) Type() base.ProviderType   { return base.ProviderTypeInference }
-func (p *scriptedRoundProvider) Close() error              { return nil }
+func (p *scriptedRoundProvider) ID() string              { return "scripted" }
+func (p *scriptedRoundProvider) Name() string            { return "scripted" }
+func (p *scriptedRoundProvider) Model() string           { return "scripted-model" }
+func (p *scriptedRoundProvider) Type() base.ProviderType { return base.ProviderTypeInference }
+func (p *scriptedRoundProvider) Close() error            { return nil }
 
 // SupportsStreaming reports false so the stage takes the unary round path.
 func (p *scriptedRoundProvider) SupportsStreaming() bool { return false }
@@ -83,12 +83,12 @@ func (p *scriptedRoundProvider) PredictWithTools(
 	// provider-call ID can. Arguments differ per round because identical ones
 	// trip the stage's repeated-call breaker.
 	return providers.PredictionResponse{
-		Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I still need data; calling probe.", n)},
-	}, []types.MessageToolCall{{
-		ID:   "call_" + string(rune('A'+n-1)),
-		Name: "probe",
-		Args: json.RawMessage(fmt.Sprintf(`{"q":"attempt-%d"}`, n)),
-	}}, nil
+			Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I still need data; calling probe.", n)},
+		}, []types.MessageToolCall{{
+			ID:   "call_" + string(rune('A'+n-1)),
+			Name: "probe",
+			Args: json.RawMessage(fmt.Sprintf(`{"q":"attempt-%d"}`, n)),
+		}}, nil
 }
 
 // staticExecutor answers any tool call with a fixed result.

@@ -117,18 +117,9 @@ type Spec struct {
 // provider, model and date are required by the spec, so they carry no omitempty
 // — a required field that vanishes on serialize produces a pack that fails its
 // own validation.
-type ModelTestResultRef struct {
-	Provider     string  `yaml:"provider" json:"provider"`
-	Model        string  `yaml:"model" json:"model"`
-	Date         string  `yaml:"date" json:"date"`
-	SuccessRate  float64 `yaml:"success_rate" json:"success_rate"`
-	AvgTokens    int     `yaml:"avg_tokens,omitempty" json:"avg_tokens,omitempty"`
-	AvgCost      float64 `yaml:"avg_cost,omitempty" json:"avg_cost,omitempty"`
-	AvgLatencyMs int     `yaml:"avg_latency_ms,omitempty" json:"avg_latency_ms,omitempty"`
-	// Notes is spec vocabulary that had no Go field, so it was dropped on load
-	// and never round-tripped. It is carried metadata, not behavior.
-	Notes string `yaml:"notes,omitempty" json:"notes,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.TestedModel.
+// avg_tokens/avg_latency_ms are float64: the spec types them as number, not integer.
+type ModelTestResultRef = packspec.TestedModel
 
 // MediaConfig defines multimodal media support configuration for a prompt
 type MediaConfig struct {
@@ -147,18 +138,9 @@ type MediaConfig struct {
 }
 
 // ImageConfig contains image-specific configuration
-type ImageConfig struct {
-	// Maximum image size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["jpeg", "png", "webp", "gif"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Default detail level: "low", "high", "auto"
-	DefaultDetail string `yaml:"default_detail,omitempty" json:"default_detail,omitempty"`
-	// Whether captions are required
-	RequireCaption bool `yaml:"require_caption,omitempty" json:"require_caption,omitempty"`
-	// Max images per message (0 = unlimited)
-	MaxImagesPerMsg int `yaml:"max_images_per_msg,omitempty" json:"max_images_per_msg,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ImageConfig.
+// default_detail is *string: the spec defaults it to "auto", so absent and empty differ.
+type ImageConfig = packspec.ImageConfig
 
 // AudioConfig contains audio-specific configuration
 // AudioConfig is generated from the schema: an ALIAS for packspec.AudioConfig,
@@ -420,10 +402,9 @@ type Fragment struct {
 // or applies per-model parameters, so declaring them would be vocabulary with a
 // consumer and no producer. They are recorded as codegen candidates in
 // docs/local-backlog/PACK_TYPES_FROM_SCHEMA_CODEGEN.md rather than added blind.
-type ModelOverride struct {
-	SystemTemplate       string `yaml:"system_template,omitempty" json:"system_template,omitempty"`
-	SystemTemplateSuffix string `yaml:"system_template_suffix,omitempty" json:"system_template_suffix,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ModelOverride.
+// Gains system_template_prefix and parameters from the spec.
+type ModelOverride = packspec.ModelOverride
 
 // Repository interface defines methods for loading prompts (to avoid import cycles)
 // This should match persistence.Repository interface

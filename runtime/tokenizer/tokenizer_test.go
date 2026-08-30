@@ -510,8 +510,8 @@ func TestCountMessageTokens_ToolCalls(t *testing.T) {
 	counter := NewHeuristicTokenCounter(ModelFamilyDefault)
 	messages := []types.Message{
 		{
-			Role:    "assistant",
-			Parts:     []types.ContentPart{types.NewTextPart("Let me check that for you.")},
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("Let me check that for you.")},
 
 			ToolCalls: []types.MessageToolCall{
 				{
@@ -532,10 +532,9 @@ func TestCountMessageTokens_ToolResult(t *testing.T) {
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID:      "call_1",
-				Name:    "get_weather",
-				Parts:     []types.ContentPart{types.NewTextPart("The temperature in San Francisco is 18C")},
-
+				ID:    "call_1",
+				Name:  "get_weather",
+				Parts: []types.ContentPart{types.NewTextPart("The temperature in San Francisco is 18C")},
 			},
 		},
 	}
@@ -572,9 +571,8 @@ func TestCountMessageTokens_LargeConversation(t *testing.T) {
 			role = "assistant"
 		}
 		messages[i] = types.Message{
-			Role:    role,
-			Parts:     []types.ContentPart{types.NewTextPart("This is a test message with some content for counting tokens.")},
-
+			Role:  role,
+			Parts: []types.ContentPart{types.NewTextPart("This is a test message with some content for counting tokens.")},
 		}
 	}
 	tokens := counter.CountMessageTokens(messages)
