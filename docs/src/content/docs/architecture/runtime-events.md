@@ -193,12 +193,24 @@ only difference. `Index` is transcript-absolute on both. Because the bus makes
 no ordering promise — it dispatches through a worker pool — subscribers should
 order by `Index` rather than by arrival.
 
-:::caution[RecordingStage reuses this type for non-messages]
-On the recording route only, `recordTextElement` emits a streaming token
-fragment as `message.created`, and `recordImageElement` / `recordVideoElement`
-emit a JSON blob of media metadata, each with only `Role` and `Content` set.
-These shapes predate the live route and are tracked for retyping. Until then, a
-`Content` value read from a recording is not necessarily message text.
+:::tip[Read `GetContent()`, not `.Content`]
+A user message carries its text in `Parts` with `Content` empty; an assistant
+reply is the reverse. `GetContent()` applies the canonical precedence — tool
+result, then text parts, then `Content`.
+:::
+
+:::note[Fragments have their own types]
+`message.created` once doubled as the carrier for things that are not messages.
+Those now have dedicated types on the recording route:
+
+| Recorded thing | Event |
+|---|---|
+| streaming text fragment | `message.text.delta` |
+| image | `image.input` / `image.output` |
+| video frame | `video.frame` |
+
+Recordings written before this change still hold the old shapes, so a reader
+that must handle historical sessions should tolerate both.
 :::
 
 #### Custom Events

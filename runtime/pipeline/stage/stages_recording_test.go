@@ -370,15 +370,23 @@ func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
 	for range output {
 	}
 
-	// With IncludeStreamingText enabled, each chunk produces an event
-	captured := store.filterByType(events.EventMessageCreated)
+	// With IncludeStreamingText enabled, each chunk produces a message.text.delta
+	// — NOT message.created (#1878). A token fragment is not a complete message,
+	// and recording it as one meant a reader could not tell the two apart and
+	// replay counted the text twice, since the complete message arrives as well.
+	assert.Empty(t, store.filterByType(events.EventMessageCreated),
+		"a streaming fragment must not be recorded as a complete message")
+
+	captured := store.filterByType(events.EventMessageTextDelta)
 	require.Len(t, captured, 3, "each chunk should produce an event")
-	// Verify all are assistant role with non-empty content (order is FIFO append)
+
+	// Order is FIFO append; the set is what matters here.
 	contents := make(map[string]bool)
 	for _, e := range captured {
-		data := e.Data.(*events.MessageCreatedData)
+		data, ok := e.Data.(*events.MessageTextDeltaData)
+		require.True(t, ok, "want *MessageTextDeltaData, got %T", e.Data)
 		assert.Equal(t, "assistant", data.Role)
-		contents[data.Content] = true
+		contents[data.Text] = true
 	}
 	assert.True(t, contents["Hello"])
 	assert.True(t, contents[" world"])
@@ -586,11 +594,25 @@ func TestRecordingStage_ImageElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	captured := store.filterByType(events.EventMessageCreated)
+	// An image is recorded as an IMAGE event, not as message.created carrying a
+	// JSON blob in Content (#1878). The old assertion checked that blob, which
+	// pinned the defect: a consumer reading Content off message.created got a
+	// JSON object where it expected message text.
+	assert.Empty(t, store.filterByType(events.EventMessageCreated),
+		"an image is not a message")
+
+	captured := store.filterByType(events.EventImageOutput)
 	require.Len(t, captured, 1)
-	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "assistant", data.Role)
-	assert.Contains(t, data.Content, "image/png")
+	data, ok := captured[0].Data.(*events.ImageEventData)
+	require.True(t, ok, "want *ImageEventData, got %T", captured[0].Data)
+
+	assert.Equal(t, "output", data.Direction)
+	assert.Equal(t, "image/png", data.Payload.MIMEType)
+	assert.Equal(t, int64(512), data.Payload.Size)
+	assert.Len(t, data.Payload.InlineData, 512, "recording keeps the bytes")
+	assert.Equal(t, 100, data.Metadata.Width)
+	assert.Equal(t, 100, data.Metadata.Height)
+	assert.Equal(t, "png", data.Metadata.Encoding)
 }
 
 func TestRecordingStage_VideoElement(t *testing.T) {
@@ -621,12 +643,24 @@ func TestRecordingStage_VideoElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	captured := store.filterByType(events.EventMessageCreated)
+	// A video frame is recorded as EventVideoFrame — the type media_timeline
+	// actually filters on. Recorded as message.created, these frames were
+	// invisible to it (#1878).
+	assert.Empty(t, store.filterByType(events.EventMessageCreated),
+		"a video frame is not a message")
+
+	captured := store.filterByType(events.EventVideoFrame)
 	require.Len(t, captured, 1)
-	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "assistant", data.Role)
-	assert.Contains(t, data.Content, "video/mp4")
-	assert.Contains(t, data.Content, "640")
+	data, ok := captured[0].Data.(*events.VideoFrameData)
+	require.True(t, ok, "want *VideoFrameData, got %T", captured[0].Data)
+
+	assert.Equal(t, "video/mp4", data.Payload.MIMEType)
+	assert.Equal(t, int64(1024), data.Payload.Size)
+	assert.Len(t, data.Payload.InlineData, 1024, "recording keeps the bytes")
+	assert.Equal(t, 640, data.Metadata.Width)
+	assert.Equal(t, 480, data.Metadata.Height)
+	assert.Equal(t, float64(30), data.Metadata.FrameRate)
+	assert.Equal(t, int64(1000), data.Metadata.DurationMs)
 }
 
 func TestRecordingStage_MessageWithToolResult(t *testing.T) {

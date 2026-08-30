@@ -85,6 +85,16 @@ const (
 	// it as a user/assistant message.
 	EventReasoningCompleted EventType = "reasoning.completed"
 
+	// EventMessageTextDelta carries one streaming text fragment recorded by
+	// RecordingStage when IncludeStreamingText is on.
+	//
+	// It exists because these fragments used to be recorded as message.created,
+	// which is a COMPLETE message. That made a recording ambiguous — a reader
+	// could not tell a token from a turn — and doubled the text on replay,
+	// since recording/replay.go appends every message.created and the complete
+	// message arrives as well. Named for its sibling reasoning.delta.
+	EventMessageTextDelta EventType = "message.text.delta"
+
 	// EventMessageCreated marks message creation.
 	EventMessageCreated EventType = "message.created"
 	// EventMessageUpdated marks message update (e.g., cost/latency after completion).
@@ -535,12 +545,15 @@ type MessageToolResult struct {
 // ToolCalls, ToolResult, Reasoning — is identical, because both build through
 // NewMessageCreatedData.
 //
-// Caveat worth knowing before reading Content: RecordingStage ALSO reuses this
-// type for things that are not messages. recordTextElement emits a streaming
-// token fragment, and recordImageElement/recordVideoElement emit a JSON blob of
-// media metadata, each with only Role and Content set. Those shapes predate the
-// live route and are tracked for retyping; until then, a Content value on a
-// recording-sourced event is not necessarily message text.
+// Read GetContent rather than Content directly: a user message carries its text
+// in Parts with Content empty, while an assistant reply is the reverse.
+//
+// This type once carried things that were not messages — a streaming token
+// fragment, and JSON blobs of image/video metadata, each with only Role and
+// Content set. Those now have their own types (message.text.delta,
+// image.input/output, video.frame), so a message.created is a complete message
+// on both routes. Recordings written before that change still hold the old
+// shapes.
 type MessageCreatedData struct {
 	baseEventData
 	Role       string
@@ -556,6 +569,18 @@ type MessageCreatedData struct {
 	// persistence stays opt-in via the save stage's PersistReasoning, default
 	// off. Live consumers read the Go struct directly, so they still receive it.
 	Reasoning *types.ReasoningTrace `json:"-"`
+}
+
+// MessageTextDeltaData carries one streaming text fragment.
+//
+// Deliberately NOT MessageCreatedData: a fragment is not a message, and reusing
+// that type is what made a recording unable to distinguish the two.
+type MessageTextDeltaData struct {
+	baseEventData
+	// Role is the actor the fragment belongs to.
+	Role string `json:"role"`
+	// Text is the fragment itself, not the accumulated content.
+	Text string `json:"text"`
 }
 
 // MessageUpdatedData contains data for message update events.

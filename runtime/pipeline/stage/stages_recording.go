@@ -3,7 +3,6 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -220,15 +219,21 @@ func (rs *RecordingStage) appendOrWarn(ctx context.Context, evt *events.Event) {
 }
 
 // recordTextElement records a streaming text delta.
+//
+// Emits message.text.delta, not message.created: a token fragment is not a
+// message (#1878). Recording it as one made the recording ambiguous — a reader
+// could not tell a token from a turn — and doubled the text on replay, since
+// recording/replay.go appends every message.created and the complete message
+// arrives too.
 func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamElement, role string) {
 	rs.appendOrWarn(ctx, &events.Event{
-		Type:           events.EventMessageCreated,
+		Type:           events.EventMessageTextDelta,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data: &events.MessageCreatedData{
-			Role:    role,
-			Content: *elem.Text,
+		Data: &events.MessageTextDeltaData{
+			Role: role,
+			Text: *elem.Text,
 		},
 	})
 }
@@ -330,58 +335,75 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 	})
 }
 
-// recordImageElement records an image element.
+// recordImageElement records an image element as an image event.
+//
+// It used to emit message.created carrying a JSON blob of metadata in the
+// Content field — not a message, and not readable as one (#1878). Two costs:
+// a consumer reading Content off message.created got a JSON object where it
+// expected text, and nothing looking for image events saw these at all.
+//
+// ImageEventData is the type the rest of the system already uses, and the audio
+// sibling below has always used its equivalent.
 func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamElement, role string) {
 	img := elem.Image
 
-	data := map[string]interface{}{
-		"role":       role,
-		"mime_type":  img.MIMEType,
-		"width":      img.Width,
-		"height":     img.Height,
-		"format":     img.Format,
-		"size_bytes": len(img.Data),
+	eventType := events.EventImageOutput
+	direction := audioDirectionOutput
+	actor := ""
+	if role == roleUser {
+		eventType = events.EventImageInput
+		direction = audioDirectionInput
+		actor = "user"
 	}
 
-	dataJSON, _ := json.Marshal(data)
-
 	rs.appendOrWarn(ctx, &events.Event{
-		Type:           events.EventMessageCreated,
+		Type:           eventType,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data: &events.MessageCreatedData{
-			Role:    role,
-			Content: string(dataJSON),
+		Data: &events.ImageEventData{
+			Direction: direction,
+			Actor:     actor,
+			Payload: events.BinaryPayload{
+				InlineData: img.Data,
+				MIMEType:   img.MIMEType,
+				Size:       int64(len(img.Data)),
+			},
+			Metadata: events.VideoMetadata{
+				Width:    img.Width,
+				Height:   img.Height,
+				Encoding: img.Format,
+			},
 		},
 	})
 }
 
-// recordVideoElement records a video element.
-func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamElement, role string) {
+// recordVideoElement records a video element as a video frame event.
+//
+// Same defect as recordImageElement, with a sharper consequence: media_timeline
+// filters on EventVideoFrame, so frames recorded as message.created were
+// invisible to it (#1878).
+func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamElement, _ string) {
 	video := elem.Video
 
-	data := map[string]interface{}{
-		"role":        role,
-		"mime_type":   video.MIMEType,
-		"width":       video.Width,
-		"height":      video.Height,
-		"frame_rate":  video.FrameRate,
-		"duration_ms": video.Duration.Milliseconds(),
-		"format":      video.Format,
-		"size_bytes":  len(video.Data),
-	}
-
-	dataJSON, _ := json.Marshal(data)
-
 	rs.appendOrWarn(ctx, &events.Event{
-		Type:           events.EventMessageCreated,
+		Type:           events.EventVideoFrame,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data: &events.MessageCreatedData{
-			Role:    role,
-			Content: string(dataJSON),
+		Data: &events.VideoFrameData{
+			Payload: events.BinaryPayload{
+				InlineData: video.Data,
+				MIMEType:   video.MIMEType,
+				Size:       int64(len(video.Data)),
+			},
+			Metadata: events.VideoMetadata{
+				Width:      video.Width,
+				Height:     video.Height,
+				Encoding:   video.Format,
+				FrameRate:  video.FrameRate,
+				DurationMs: video.Duration.Milliseconds(),
+			},
 		},
 	})
 }
