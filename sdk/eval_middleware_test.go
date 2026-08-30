@@ -1064,9 +1064,12 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 		t.Fatal("expected non-nil metricWriter when MetricContext is configured")
 	}
 
-	// Simulate emitting a result — metric should be recorded.
+	// A real contains eval always sets Score — an empty EvalResult is not a
+	// shape the system produces, and since ExtractValue began reporting absence
+	// instead of substituting 0, an empty one correctly records nothing.
+	score := 1.0
 	mw.recordMetrics([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains"},
+		{EvalID: "e1", Type: "contains", Score: &score},
 	})
 
 	families, err := reg.Gather()
@@ -1082,6 +1085,51 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected metric 'test_eval_greeting' in registry")
+	}
+}
+
+// TestEvalMiddleware_NoMetricForResultWithoutValue is the complement: an eval
+// that produced no scalar writes no series at all, rather than a zero that
+// looks like a measurement.
+func TestEvalMiddleware_NoMetricForResultWithoutValue(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "test",
+		DisablePipelineMetrics: true,
+	})
+
+	conv := &Conversation{
+		config: &config{metricContext: collector.Bind(nil)},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{{
+				ID:      "e2",
+				Type:    "llm_judge",
+				Trigger: evals.TriggerEveryTurn,
+				Metric:  &evals.MetricDef{Name: "payload", Type: evals.MetricGauge},
+			}},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil || mw.metricWriter == nil {
+		t.Fatal("test premise: middleware and metric writer must be wired")
+	}
+	mw.recordMetrics([]evals.EvalResult{{
+		EvalID: "e2",
+		Type:   "llm_judge",
+		Value:  map[string]any{"findings": []any{"a"}},
+	}})
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather failed: %v", err)
+	}
+	for _, fam := range families {
+		if fam.GetName() == "test_eval_payload" {
+			t.Error("an eval with no scalar must produce no series")
+		}
 	}
 }
 

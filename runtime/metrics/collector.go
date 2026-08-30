@@ -834,6 +834,18 @@ func (mc *MetricContext) handleSTTCallFailed(event *events.Event) {
 	)
 }
 
+// booleanTrueThreshold is the score at or above which a boolean metric reads
+// true. 1.0 matches boolScore, which every handler uses to express a pass:
+// exactly 1.0 for true, 0.0 for false. A graded score feeding a boolean metric
+// is a pack-authoring choice, and `range` on the metric is where that belongs.
+const booleanTrueThreshold = 1.0
+
+// recordCounter increments an eval counter, which counts occurrences rather
+// than magnitudes and so records even when the eval produced no scalar.
+func (mc *MetricContext) recordCounter(entry evalMetricEntry, metric *evals.MetricDef) {
+	entry.counter.WithLabelValues(mc.evalLabelValues(metric)...).Inc()
+}
+
 // Record implements evals.MetricRecorder. It records an eval result into the
 // Prometheus registry using the metric definition from the pack.
 //
@@ -862,7 +874,24 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 		}
 	}
 
-	value := evals.ExtractValue(result, metric)
+	value, ok := evals.ExtractValue(result, metric)
+	if !ok {
+		// No scalar to record. Skipping is the point: writing 0 here made an
+		// eval that deliberately produced no number — a rubric, a JSON payload
+		// from a reasoning service — indistinguishable from one that measured
+		// zero, and put a false flatline on the dashboard.
+		//
+		// A counter is the exception: it counts occurrences of the eval, not a
+		// magnitude, so it has something to record either way.
+		if metric.Type == evals.MetricCounter {
+			mc.recordCounter(entry, metric)
+			return nil
+		}
+		logger.Debug("eval metric skipped: no value to record",
+			"metric", metric.Name, "eval_id", result.EvalID)
+		return nil
+	}
+
 	labelValues := mc.evalLabelValues(metric)
 
 	switch metric.Type {
@@ -873,8 +902,13 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 	case evals.MetricHistogram:
 		entry.histogram.WithLabelValues(labelValues...).Observe(value)
 	case evals.MetricBoolean:
+		// Routed through ExtractValue like every other type, so a boolean
+		// metric can use MetricValue and honors a declared expression. It
+		// previously read result.Score directly with `>= 1.0` — a fourth copy
+		// of the coercion #1861 removed from the runtime, which also meant a
+		// boolean metric could never use the field meant to be the gauge value.
 		v := 0.0
-		if result.Score != nil && *result.Score >= 1.0 {
+		if value >= booleanTrueThreshold {
 			v = 1.0
 		}
 		entry.gauge.WithLabelValues(labelValues...).Set(v)

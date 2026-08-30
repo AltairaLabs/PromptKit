@@ -2,6 +2,11 @@ package evals
 
 import (
 	"context"
+	"encoding/json"
+
+	"github.com/jmespath/go-jmespath"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // MetricRecorder records eval results as metrics. This interface is
@@ -70,16 +75,93 @@ func (w *MetricResultWriter) metricForEval(evalID string) *MetricDef {
 	return m
 }
 
-// ExtractValue extracts the numeric value from an EvalResult.
-// Prefers MetricValue, falls back to Score, then defaults to 0.
+// MetricExpressionKey is the metric property naming a JMESPath expression that
+// selects this metric's value out of EvalResult.Value.
 //
-//nolint:gocritic // EvalResult passed by value to match MetricRecorder.Record signature
-func ExtractValue(result EvalResult, _ *MetricDef) float64 {
+// It lives in MetricDef.Extra rather than a typed field because the PromptPack
+// schema declares MetricDef with additionalProperties: true, so a pack may
+// carry it today without a spec change. The name matches the json_path eval
+// handler's parameter so there is one expression vocabulary, not two.
+const MetricExpressionKey = "jmespath_expression"
+
+// ExtractValue returns the number to record for this metric, and whether there
+// is one at all.
+//
+// The bool is the point. This used to return a bare float64 ending in
+// `return 0`, so an eval that produced no scalar — a judge answering with a
+// rubric, an eval calling a service and getting back a JSON object — was
+// recorded as a gauge reading of ZERO: a flatline indistinguishable from a real
+// measurement of zero. Callers must skip the sample when ok is false rather
+// than substituting anything.
+//
+// Precedence:
+//
+//  1. A JMESPath expression declared on the metric, evaluated against
+//     result.Value. This is the author's explicit choice, so it wins — it is
+//     how one complex value becomes several series, with the names authored in
+//     the pack rather than taken from a model's JSON keys.
+//  2. result.MetricValue — the gauge number.
+//  3. result.Score — the normalized 0..1, as a fallback.
+//
+// An expression that does not resolve, or resolves to something non-numeric,
+// yields no sample. Guessing would reintroduce the fabricated zero.
+func ExtractValue(result EvalResult, metric *MetricDef) (float64, bool) {
+	if expr := metricExpression(metric); expr != "" {
+		return evaluateMetricExpression(expr, result.Value)
+	}
 	if result.MetricValue != nil {
-		return *result.MetricValue
+		return *result.MetricValue, true
 	}
 	if result.Score != nil {
-		return *result.Score
+		return *result.Score, true
 	}
-	return 0
+	return 0, false
+}
+
+// metricExpression returns the declared JMESPath expression, or "" when the
+// metric declares none.
+func metricExpression(metric *MetricDef) string {
+	if metric == nil || metric.Extra == nil {
+		return ""
+	}
+	expr, _ := metric.Extra[MetricExpressionKey].(string)
+	return expr
+}
+
+// evaluateMetricExpression runs expr against value and coerces the result to a
+// float. Anything that does not resolve to a number is reported as absent.
+func evaluateMetricExpression(expr string, value any) (float64, bool) {
+	if value == nil {
+		return 0, false
+	}
+	found, err := jmespath.Search(expr, value)
+	if err != nil {
+		logger.Warn("eval metric expression failed",
+			"expression", expr, "error", err)
+		return 0, false
+	}
+	return toFloat(found)
+}
+
+// toFloat coerces the numeric types a decoded JSON document can produce. A
+// dimension of 1 may arrive as int, int64 or json.Number depending on the
+// decoder, and dropping those as "non-numeric" would silently lose series.
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
