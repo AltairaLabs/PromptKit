@@ -101,11 +101,6 @@ func TestValidatorJSONRejectsForbiddenFields(t *testing.T) {
 			extra:   `"config": {"foo": "bar"}`,
 			wantErr: "config",
 		},
-		{
-			name:    "message field forbidden",
-			extra:   `"message": "custom"`,
-			wantErr: "message",
-		},
 	}
 
 	for _, tc := range cases {
@@ -148,4 +143,46 @@ func TestValidatorJSONRejectsForbiddenFields(t *testing.T) {
 				tc.wantErr, schemaErr.Errors)
 		})
 	}
+}
+
+// TestValidatorJSONAcceptsSpecMessageField pins the un-forking of the embedded
+// schema. `message` is a Validator property in the published PromptPack spec
+// (added by promptpack-spec#29, "resolve 8 blocking schema-vs-runtime
+// mismatches"), but promptkit's embedded copy had silently dropped it, so this
+// pack — valid against promptpack.org — was rejected here.
+//
+// It replaces the "message field forbidden" case that TestValidatorJSONRejects-
+// ForbiddenFields used to assert, which encoded the fork as if it were the spec.
+// Keep it: it fails if anyone re-edits the embedded schema to remove `message`.
+//
+// Note the compiled prompt.Validator deliberately has no Message field —
+// foldValidatorMessages folds it into params at compile time. Accepting the
+// property at the schema boundary and not carrying it on the compiled struct are
+// separate decisions; see the deliberateOmission entry in
+// runtime/prompt/validator_spec_parity_test.go.
+func TestValidatorJSONAcceptsSpecMessageField(t *testing.T) {
+	packJSON := []byte(`{
+		"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+		"id": "test-pack",
+		"name": "Test Pack",
+		"version": "1.0.0",
+		"description": "test",
+		"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+		"prompts": {
+			"default": {
+				"id": "default",
+				"name": "Default",
+				"description": "test prompt",
+				"version": "1.0.0",
+				"system_template": "hi",
+				"validators": [
+					{"type": "max_length", "enabled": true, "message": "too long"}
+				]
+			}
+		}
+	}`)
+
+	require.NoError(t, ValidateAgainstSchema(packJSON),
+		"validators[].message is valid per the published PromptPack spec — "+
+			"a rejection here means the embedded schema has drifted from the release again")
 }

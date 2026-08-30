@@ -44,27 +44,21 @@ jobs:
       run: make schemas-check
 
   check-promptpack-schema:
-    name: Check PromptPack Schema Freshness
+    name: Check PromptPack Schema Is The Published Release
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Fetch upstream PromptPack schema
-      run: |
-        curl -sf --max-time 30 \
-          https://promptpack.org/schema/latest/promptpack.schema.json \
-          -o /tmp/upstream-schema.json
-
-    - name: Compare with embedded schema
-      run: |
-        EMBEDDED="runtime/prompt/schema/promptpack.schema.json"
-        if ! diff -q "$EMBEDDED" /tmp/upstream-schema.json > /dev/null 2>&1; then
-          EMBEDDED_VER=$(python3 -c "import json; print(json.load(open('$EMBEDDED')).get('version','unknown'))")
-          UPSTREAM_VER=$(python3 -c "import json; print(json.load(open('/tmp/upstream-schema.json')).get('version','unknown'))")
-          echo "::warning::Embedded PromptPack schema ($EMBEDDED_VER) differs from upstream ($UPSTREAM_VER). Run: curl -o $EMBEDDED https://promptpack.org/schema/latest/promptpack.schema.json"
-        else
-          echo "✓ Embedded PromptPack schema is up to date"
-        fi
+    # The embedded schema is a verbatim mirror of the published PromptPack
+    # release — never a promptkit-owned document. This step FAILS on any
+    # difference.
+    #
+    # It used to emit ::warning:: and pass, which is why the copy drifted 143
+    # leaves from the spec between 2026-06 and 2026-08 while still claiming to be
+    # v1.5.0, and why promptkit spent that time rejecting packs that were valid
+    # against promptpack.org. A warning nobody is required to read is not a gate.
+    - name: Check embedded schema matches the published release
+      run: make promptpack-schema-check
 

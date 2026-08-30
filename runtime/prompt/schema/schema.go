@@ -1,4 +1,24 @@
 // Package schema provides embedded PromptPack schema for offline validation.
+//
+// # promptpack.schema.json is a verbatim mirror — never edit it
+//
+// The embedded promptpack.schema.json is a byte-for-byte copy of the published
+// PromptPack release at https://promptpack.org/schema/latest/. PromptKit does not
+// own it and must never hand-edit it: not to add a field the runtime wants, not
+// to delete one the runtime doesn't implement, not to tighten an enum the spec
+// leaves open.
+//
+// The only sanctioned way to change it is scripts/fetch-promptpack-schema.sh
+// (make promptpack-schema). CI fails on any difference (make
+// promptpack-schema-check).
+//
+// Where the runtime deliberately declines to carry a spec property, record it as
+// a deliberateOmission in runtime/prompt/validator_spec_parity_test.go, in Go,
+// where a reviewer sees it. Editing the schema to make a parity test pass makes
+// the guard circular — it grades promptkit's types against a document promptkit
+// edits — and that is exactly how this file drifted 143 leaves from the spec
+// between 2026-06 and 2026-08 while still claiming to be v1.5.0, silently
+// rejecting packs that were valid against promptpack.org.
 package schema
 
 import (
