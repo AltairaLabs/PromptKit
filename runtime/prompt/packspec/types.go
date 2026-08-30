@@ -598,6 +598,38 @@ type ProviderRequirement struct {
 	// unknown roles). Suggested values (PromptKit roles): 'llm', 'embedding', 'tts', 'stt',
 	// 'image', 'inference'.
 	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+
+	// Shorthand holds the scalar form of this union when the pack used it
+	// instead of the object form. The spec defines what it expands to; this
+	// type preserves it verbatim rather than inventing the expansion.
+	Shorthand string `json:"-" yaml:"-"`
+}
+
+// MarshalJSON writes the shorthand when it is set, otherwise the object.
+func (v ProviderRequirement) MarshalJSON() ([]byte, error) {
+	if v.Shorthand != "" {
+		return json.Marshal(v.Shorthand)
+	}
+	type plain ProviderRequirement
+	return json.Marshal(plain(v))
+}
+
+// UnmarshalJSON accepts either the scalar shorthand or the object form.
+// Without this the scalar form fails to load — which is how the spec's own
+// primary example for this def was silently rejected.
+func (v *ProviderRequirement) UnmarshalJSON(data []byte) error {
+	var shorthand string
+	if err := json.Unmarshal(data, &shorthand); err == nil {
+		*v = ProviderRequirement{Shorthand: shorthand}
+		return nil
+	}
+	type plain ProviderRequirement
+	var obj plain
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*v = ProviderRequirement(obj)
+	return nil
 }
 
 // Reducer names how a parallel block's branch outputs are merged into a single value (RFC 0010).
@@ -643,6 +675,38 @@ type SkillSource struct {
 
 	// Preload if true, load this skill source eagerly at pack initialization rather than on demand.
 	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
+
+	// Shorthand holds the scalar form of this union when the pack used it
+	// instead of the object form. The spec defines what it expands to; this
+	// type preserves it verbatim rather than inventing the expansion.
+	Shorthand string `json:"-" yaml:"-"`
+}
+
+// MarshalJSON writes the shorthand when it is set, otherwise the object.
+func (v SkillSource) MarshalJSON() ([]byte, error) {
+	if v.Shorthand != "" {
+		return json.Marshal(v.Shorthand)
+	}
+	type plain SkillSource
+	return json.Marshal(plain(v))
+}
+
+// UnmarshalJSON accepts either the scalar shorthand or the object form.
+// Without this the scalar form fails to load — which is how the spec's own
+// primary example for this def was silently rejected.
+func (v *SkillSource) UnmarshalJSON(data []byte) error {
+	var shorthand string
+	if err := json.Unmarshal(data, &shorthand); err == nil {
+		*v = SkillSource{Shorthand: shorthand}
+		return nil
+	}
+	type plain SkillSource
+	var obj plain
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*v = SkillSource(obj)
+	return nil
 }
 
 // Step a single step in a composition's step graph. The 'kind' discriminator selects the step

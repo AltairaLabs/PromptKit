@@ -127,8 +127,44 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 		fmt.Fprintf(&b, "\t%s %s `json:%q yaml:%q`\n", goName(prop), typ, tag, tag)
 		e.cov.EmitProp(qualified)
 	}
+
+	shorthand := e.schema.scalarVariants(def)
+	if len(shorthand) == 1 {
+		fmt.Fprintf(&b, "\n\t// Shorthand holds the scalar form of this union when the pack used it\n")
+		fmt.Fprintf(&b, "\t// instead of the object form. The spec defines what it expands to; this\n")
+		fmt.Fprintf(&b, "\t// type preserves it verbatim rather than inventing the expansion.\n")
+		fmt.Fprintf(&b, "\tShorthand %s `json:\"-\" yaml:\"-\"`\n", shorthand[0])
+	}
 	b.WriteString("}\n")
+
+	if len(shorthand) == 1 {
+		e.needsJSON = true
+		b.WriteString(mixedUnionJSON(name, shorthand[0]))
+	}
 	return b.String(), nil
+}
+
+// mixedUnionJSON emits marshaling for a union that accepts a scalar shorthand
+// as well as its object form.
+func mixedUnionJSON(name, scalarType string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n// MarshalJSON writes the shorthand when it is set, otherwise the object.\n")
+	fmt.Fprintf(&b, "func (v %s) MarshalJSON() ([]byte, error) {\n", name)
+	fmt.Fprintf(&b, "\tif %s {\n\t\treturn json.Marshal(v.Shorthand)\n\t}\n", populated("v", "Shorthand", scalarType))
+	fmt.Fprintf(&b, "\ttype plain %s\n", name)
+	fmt.Fprintf(&b, "\treturn json.Marshal(plain(v))\n}\n")
+
+	fmt.Fprintf(&b, "\n// UnmarshalJSON accepts either the scalar shorthand or the object form.\n")
+	fmt.Fprintf(&b, "// Without this the scalar form fails to load — which is how the spec's own\n")
+	fmt.Fprintf(&b, "// primary example for this def was silently rejected.\n")
+	fmt.Fprintf(&b, "func (v *%s) UnmarshalJSON(data []byte) error {\n", name)
+	fmt.Fprintf(&b, "\tvar shorthand %s\n", scalarType)
+	fmt.Fprintf(&b, "\tif err := json.Unmarshal(data, &shorthand); err == nil {\n")
+	fmt.Fprintf(&b, "\t\t*v = %s{Shorthand: shorthand}\n\t\treturn nil\n\t}\n", name)
+	fmt.Fprintf(&b, "\ttype plain %s\n\tvar obj plain\n", name)
+	fmt.Fprintf(&b, "\tif err := json.Unmarshal(data, &obj); err != nil {\n\t\treturn err\n\t}\n")
+	fmt.Fprintf(&b, "\t*v = %s(obj)\n\treturn nil\n}\n", name)
+	return b.String()
 }
 
 // scalarVariantField maps a JSON-Schema type to the Go field that holds it in a
@@ -140,6 +176,52 @@ var scalarVariantField = map[string]struct{ name, typ string }{
 	typeBool:   {"Bool", goBool},
 	typeObject: {"Object", goAnyMap},
 	typeArray:  {"Array", goAnySlice},
+}
+
+// scalarVariants returns the bare scalar shapes a union allows ALONGSIDE its
+// object variants — the mixed case.
+//
+// ProviderRequirement is the spec's example: a bare string is shorthand for
+// {key: <string>, role: "llm", required: true}, or the full object may be
+// given. Flattening alone silently drops the string form: the generated struct
+// rejected `- default`, the RFC's own primary example, with "cannot unmarshal
+// string into Go value". A union is not modeled until BOTH shapes load.
+//
+// The expansion rule itself is spec semantics the generator cannot derive, so
+// the scalar is preserved verbatim in Shorthand and the consumer applies the
+// rule. Preserving it is the generator's job; interpreting it is not.
+func (s *Schema) scalarVariants(n Node) []string {
+	var kinds []string
+	seen := map[string]bool{}
+	hasObject := false
+	for _, kw := range []string{kwOneOf, kwAnyOf} {
+		for _, v := range n.variantNodes(kw) {
+			if v.isObjectVariant() {
+				hasObject = true
+				continue
+			}
+			t := v.PrimaryType()
+			f, ok := scalarVariantField[t]
+			if !ok || t == typeObject || seen[t] {
+				continue
+			}
+			seen[t] = true
+			kinds = append(kinds, f.typ)
+		}
+	}
+	if !hasObject || len(kinds) != 1 {
+		// Only the single-scalar-plus-object case is handled. Anything else
+		// would need a shape this generator does not emit, and must say so
+		// rather than quietly dropping a variant.
+		return nil
+	}
+	return kinds
+}
+
+// isObjectVariant reports whether a union member is a structured object rather
+// than a bare shape.
+func (n Node) isObjectVariant() bool {
+	return n.Has(kwProperties) || n.Str("$ref") != ""
 }
 
 // variantKinds returns the distinct scalar/free-form types a union can be, or
@@ -155,7 +237,7 @@ func (s *Schema) variantKinds(n Node) []string {
 	seen := map[string]bool{}
 	for _, kw := range []string{kwOneOf, kwAnyOf} {
 		for _, v := range n.variantNodes(kw) {
-			if v.Has(kwProperties) || v.Str("$ref") != "" {
+			if v.isObjectVariant() {
 				return nil // richer than a bare shape; flattening applies instead
 			}
 			t := v.PrimaryType()
