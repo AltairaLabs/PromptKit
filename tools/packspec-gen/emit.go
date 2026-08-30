@@ -28,6 +28,7 @@ const (
 	typeNum    = "number"
 	goFloat    = "float64"
 	typeArray  = "array"
+	goAny      = "any"
 	goAnySlice = "[]any"
 	goAnyMap   = "map[string]any"
 )
@@ -196,14 +197,7 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		if d := node.Str("description"); d != "" {
-			fmt.Fprintf(&b, "\t// %s %s\n", goName(prop), wrapComment(lowerFirst(d), "\t// "))
-		}
-		tag := prop
-		if !required[prop] {
-			tag = prop + ",omitempty"
-		}
-		fmt.Fprintf(&b, "\t%s %s `json:%q yaml:%q`\n", goName(prop), typ, tag, tag)
+		writeField(&b, prop, typ, node, required[prop])
 		e.cov.EmitProp(qualified)
 	}
 	b.WriteString("}\n")
@@ -240,7 +234,7 @@ func (e *Emitter) goTypeNamed(n Node, where, hoistAs string) (string, error) {
 			return "", fmt.Errorf("%s: union (oneOf/anyOf/allOf) with no named $def — "+
 				"hoist it to a $def and exclude it, so the hand-written type stays authoritative", where)
 		}
-		return "any", nil
+		return goAny, nil
 	default:
 		return "", fmt.Errorf("%s: unhandled JSON-Schema type %q", where, t)
 	}
@@ -339,4 +333,70 @@ func wrapComment(s, prefix string) string {
 		lines = append(lines, s)
 	}
 	return strings.Join(lines, "\n"+prefix)
+}
+
+// writeField emits one struct field: its doc comment, Go type and tags.
+//
+// Shared by the object and union emitters so the omitempty and pointer rules
+// cannot drift between them — they did briefly, and a rule applied in one place
+// and not the other is the same silent gap in miniature.
+func writeField(b *strings.Builder, prop, typ string, node Node, isRequired bool) {
+	if d := node.Str("description"); d != "" {
+		fmt.Fprintf(b, "\t// %s %s\n", goName(prop), wrapComment(lowerFirst(d), "\t// "))
+	}
+	tag := prop
+	if !isRequired {
+		tag = prop + ",omitempty"
+		// An optional property with a non-zero default must distinguish
+		// "absent" from "explicitly the zero value"; see hasMeaningfulDefault.
+		if hasMeaningfulDefault(node) && needsPointerForDefault(typ) {
+			typ = "*" + typ
+		}
+	}
+	fmt.Fprintf(b, "\t%s %s `json:%q yaml:%q`\n", goName(prop), typ, tag, tag)
+}
+
+// hasMeaningfulDefault reports whether a property declares a default that is not
+// the Go zero value for its type.
+//
+// Such a property needs THREE states, not two: absent (use the spec default),
+// explicitly set to the zero value, and explicitly set to something else. A
+// plain field with omitempty collapses the first two, which silently reverses
+// the default — `enabled: false` on a validator would serialize to nothing and
+// reload as enabled, turning a disabled guardrail back on. Dropping omitempty
+// instead collapses it the other way, asserting `max_rounds: 0` where the author
+// said nothing.
+//
+// A pointer is the only representation that keeps all three apart. The
+// hand-written types reached the same conclusion independently — evals.EvalDef
+// uses *bool for exactly this.
+func hasMeaningfulDefault(n Node) bool {
+	d, ok := n.Raw[kwDefault]
+	if !ok {
+		return false
+	}
+	switch v := d.(type) {
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case string:
+		return v != ""
+	case nil:
+		return false
+	default: // arrays and objects
+		return true
+	}
+}
+
+// needsPointerForDefault reports whether a Go type should be made a pointer to
+// preserve the absent/zero distinction. Slices, maps and any are already
+// nilable, so they carry it without help.
+func needsPointerForDefault(typ string) bool {
+	for _, p := range []string{"*", "[]", "map[", goAny} {
+		if strings.HasPrefix(typ, p) {
+			return false
+		}
+	}
+	return true
 }

@@ -88,7 +88,7 @@ type ArtifactDef struct {
 	// Mode how the artifact is updated across visits. 'replace' overwrites the previous value on
 	// each visit. 'append' accumulates content across visits (e.g., a log). Defaults to
 	// 'replace'.
-	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Mode *string `json:"mode,omitempty" yaml:"mode,omitempty"`
 
 	// Type MIME type indicating the artifact's content type. Used by runtimes to determine
 	// serialization and presentation.
@@ -185,7 +185,7 @@ type DocumentConfig struct {
 
 	// ExtractionMode how to extract content from documents. 'text' extracts text only, 'structured' preserves
 	// formatting, 'raw' keeps original binary format.
-	ExtractionMode string `json:"extraction_mode,omitempty" yaml:"extraction_mode,omitempty"`
+	ExtractionMode *string `json:"extraction_mode,omitempty" yaml:"extraction_mode,omitempty"`
 
 	// MaxPages maximum number of pages/sheets for paginated documents
 	MaxPages int `json:"max_pages,omitempty" yaml:"max_pages,omitempty"`
@@ -205,7 +205,7 @@ type Eval struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
 	// Enabled whether this eval is active. Allows temporarily disabling evals without removing them.
-	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// Groups eval group tags for organizing and filtering evals.
 	Groups []string `json:"groups,omitempty" yaml:"groups,omitempty"`
@@ -226,7 +226,7 @@ type Eval struct {
 
 	// SamplePercentage percentage of turns or sessions to sample when trigger is sample_turns or
 	// sample_sessions. Ignored for other trigger types.
-	SamplePercentage float64 `json:"sample_percentage,omitempty" yaml:"sample_percentage,omitempty"`
+	SamplePercentage *float64 `json:"sample_percentage,omitempty" yaml:"sample_percentage,omitempty"`
 
 	// Threshold pass/fail threshold for the eval score.
 	Threshold *EvalThreshold `json:"threshold,omitempty" yaml:"threshold,omitempty"`
@@ -272,7 +272,7 @@ type ImageConfig struct {
 
 	// DefaultDetail default detail level for image processing. 'low' uses fewer tokens, 'high' provides more
 	// detail, 'auto' lets the model decide.
-	DefaultDetail string `json:"default_detail,omitempty" yaml:"default_detail,omitempty"`
+	DefaultDetail *string `json:"default_detail,omitempty" yaml:"default_detail,omitempty"`
 
 	// MaxImagesPerMsg maximum number of images allowed per message
 	MaxImagesPerMsg int `json:"max_images_per_msg,omitempty" yaml:"max_images_per_msg,omitempty"`
@@ -592,7 +592,7 @@ type ProviderRequirement struct {
 
 	// Required whether the pack cannot run without this provider. Optional requirements degrade features
 	// rather than blocking startup.
-	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+	Required *bool `json:"required,omitempty" yaml:"required,omitempty"`
 
 	// Role the kind of model required. Open set; runtimes MAY extend (validators must not reject
 	// unknown roles). Suggested values (PromptKit roles): 'llm', 'embedding', 'tts', 'stt',
@@ -885,14 +885,14 @@ type ToolPolicy struct {
 	Blocklist []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
 
 	// MaxRounds maximum number of LLM → tool → LLM cycles allowed per turn
-	MaxRounds int `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
+	MaxRounds *int `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
 
 	// MaxToolCallsPerTurn maximum number of tool calls allowed in a single turn
-	MaxToolCallsPerTurn int `json:"max_tool_calls_per_turn,omitempty" yaml:"max_tool_calls_per_turn,omitempty"`
+	MaxToolCallsPerTurn *int `json:"max_tool_calls_per_turn,omitempty" yaml:"max_tool_calls_per_turn,omitempty"`
 
 	// ToolChoice 'auto' lets the LLM decide when to use tools, 'required' forces tool use, 'none' disables
 	// tools
-	ToolChoice string `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
+	ToolChoice *string `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
 }
 
 // ToolStep step kind 'tool': a deterministic tool invocation called directly by the runtime, not via
@@ -913,7 +913,7 @@ type ToolStep struct {
 type Validator struct {
 	// Enabled whether this validator is active. Allows temporarily disabling validators without
 	// removing them.
-	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// FailOnViolation if true, validation failures cause an error. If false, violations are logged but allowed.
 	FailOnViolation bool `json:"fail_on_violation,omitempty" yaml:"fail_on_violation,omitempty"`
@@ -1047,7 +1047,7 @@ type WorkflowState struct {
 	// runs end-to-end, and on completion its output may map to on_event transitions or
 	// terminate the state. The composition mode is exclusive; it is not mixed with
 	// internal/external/hybrid on the same state.
-	Orchestration string `json:"orchestration,omitempty" yaml:"orchestration,omitempty"`
+	Orchestration *string `json:"orchestration,omitempty" yaml:"orchestration,omitempty"`
 
 	// Persistence whether conversation context is kept (persistent) or reset (transient) on entry.
 	Persistence string `json:"persistence,omitempty" yaml:"persistence,omitempty"`
@@ -1074,7 +1074,7 @@ type WorkflowState struct {
 // 'requires.providers' block (RFC 0012).
 type Pack struct {
 	// Schema JSON Schema reference for validation and IDE support
-	Schema string `json:"$schema,omitempty" yaml:"$schema,omitempty"`
+	Schema *string `json:"$schema,omitempty" yaml:"$schema,omitempty"`
 
 	// Agents agent configuration mapping prompts to A2A-compatible agent definitions. Enables
 	// multi-agent orchestration via the Agent-to-Agent protocol.

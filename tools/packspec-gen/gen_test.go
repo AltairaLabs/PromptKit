@@ -548,3 +548,47 @@ func TestRunWithIOFailures(t *testing.T) {
 		t.Fatalf("expected a read error pointing at 'make packspec'; got %v", err)
 	}
 }
+
+// TestNonZeroDefaultBecomesAPointer pins the three-state rule.
+//
+// A property whose spec default is not the Go zero value has three meanings:
+// absent (use the default), explicitly the zero value, and explicitly something
+// else. A plain field with omitempty collapses the first two and silently
+// reverses the default — `enabled: false` on a validator serializes to nothing
+// and reloads as enabled, turning a disabled guardrail back on. The schema has
+// 14 such properties, including Validator.enabled and Eval.enabled.
+func TestNonZeroDefaultBecomesAPointer(t *testing.T) {
+	src, err := generate(t, minimalRoot(map[string]any{
+		"Thing": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"enabled":    map[string]any{"type": "boolean", "default": true},
+				"max_rounds": map[string]any{"type": "integer", "default": 5},
+				"choice":     map[string]any{"type": "string", "default": "auto"},
+				"modes":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "default": []any{"a"}},
+				"off":        map[string]any{"type": "boolean", "default": false},
+				"plain":      map[string]any{"type": "boolean"},
+				"req":        map[string]any{"type": "boolean", "default": true},
+			},
+			"required": []any{"req"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Enabled *bool", "MaxRounds *int", "Choice *string",
+		// Already nilable — a pointer would add nothing.
+		"Modes []string",
+		// A default equal to the zero value loses nothing to omitempty.
+		"Off bool",
+		// No default at all: absent and zero mean the same thing.
+		"Plain bool",
+		// Required properties are always serialized, so absent cannot arise.
+		"Req bool",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("expected %q in:\n%s", want, src)
+		}
+	}
+}

@@ -47,8 +47,15 @@ func TestProviderRequirementAcceptsBothForms(t *testing.T) {
 		if err := json.Unmarshal([]byte(src), &r); err != nil {
 			t.Fatal(err)
 		}
-		if r.Key != "embeddings" || r.Role != "embedding" || !r.Required {
+		if r.Key != "embeddings" || r.Role != "embedding" {
 			t.Errorf("object form lost fields: %+v", r)
+		}
+		// Required is a pointer because the spec defaults it to true: nil means
+		// "absent, use the default", which is a different fact from an explicit
+		// false. A plain bool would make `required: false` unrepresentable after
+		// a round trip.
+		if r.Required == nil || !*r.Required {
+			t.Errorf("explicit required:true must survive as a non-nil true, got %v", r.Required)
 		}
 		if r.Shorthand != "" {
 			t.Errorf("Shorthand must stay empty for the object form, got %q", r.Shorthand)
@@ -80,6 +87,14 @@ func TestProviderRequirementAcceptsBothForms(t *testing.T) {
 		}
 		if p.Requires.Providers[1].Key != "judge" {
 			t.Errorf("second entry should be the object, got %+v", p.Requires.Providers[1])
+		}
+		// The tri-state that a plain bool would lose: an explicit false.
+		if req := p.Requires.Providers[1].Required; req == nil || *req {
+			t.Errorf("explicit required:false must survive, got %v", req)
+		}
+		if p.Requires.Providers[0].Required != nil {
+			t.Error("the shorthand declares nothing about `required`; it must stay nil " +
+				"so the consumer applies the spec default rather than reading a fabricated false")
 		}
 	})
 }

@@ -120,11 +120,7 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		if d := props[prop].Str("description"); d != "" {
-			fmt.Fprintf(&b, "\t// %s %s\n", goName(prop), wrapComment(lowerFirst(d), "\t// "))
-		}
-		tag := prop + ",omitempty"
-		fmt.Fprintf(&b, "\t%s %s `json:%q yaml:%q`\n", goName(prop), typ, tag, tag)
+		writeField(&b, prop, typ, props[prop], false)
 		e.cov.EmitProp(qualified)
 	}
 
