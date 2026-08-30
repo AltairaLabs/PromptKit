@@ -849,16 +849,21 @@ type EvalEventData struct {
 	// runtime derived a verdict from `score >= 1.0`.
 	//
 	// Read alongside Kind: EvalKindEval always has this nil.
-	Passed      *bool               `json:"passed,omitempty"`
-	Score       *float64            `json:"score,omitempty"`
-	Explanation string              `json:"explanation,omitempty"`
-	DurationMs  int64               `json:"duration_ms"`
-	Error       string              `json:"error,omitempty"`
-	Message     string              `json:"message,omitempty"`
-	Details     map[string]any      `json:"details,omitempty"`    // handler-specific structured detail
-	Violations  []EvalViolationData `json:"violations,omitempty"` // structured (was []string before #1028)
-	Skipped     bool                `json:"skipped,omitempty"`
-	SkipReason  string              `json:"skip_reason,omitempty"`
+	Passed      *bool    `json:"passed,omitempty"`
+	Score       *float64 `json:"score,omitempty"`
+	Explanation string   `json:"explanation,omitempty"`
+	DurationMs  int64    `json:"duration_ms"`
+	Error       string   `json:"error,omitempty"`
+
+	// Message mirrors EvalResult.Message: the author-configured message, as
+	// distinct from the handler-computed Explanation. Nothing in this repo
+	// populates it — see the note on evals.EvalResult.Message before concluding
+	// it is dead and removing it.
+	Message    string              `json:"message,omitempty"`
+	Details    map[string]any      `json:"details,omitempty"`    // handler-specific structured detail
+	Violations []EvalViolationData `json:"violations,omitempty"` // structured (was []string before #1028)
+	Skipped    bool                `json:"skipped,omitempty"`
+	SkipReason string              `json:"skip_reason,omitempty"`
 }
 
 type (
