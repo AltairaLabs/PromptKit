@@ -355,6 +355,7 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		Details:     result.Details,
 		Skipped:     result.Skipped,
 		SkipReason:  result.SkipReason,
+		TurnIndex:   result.TurnIndex,
 	}
 	// SetValue, not an assignment: it applies the size bound that keeps one
 	// oversized handler output from evicting a turn's other events.

@@ -841,6 +841,18 @@ type EvalEventData struct {
 	// Kind is the role: eval, assertion or guardrail. See EvalKind.
 	Kind    EvalKind `json:"kind,omitempty"`
 	Trigger string   `json:"trigger"` // "every_turn", "on_session_complete", etc.
+
+	// TurnIndex is the turn this eval evaluated.
+	//
+	// No omitempty: turn 0 is a real turn, and dropping it would make the
+	// first turn of every session indistinguishable from "not set".
+	//
+	// evals.EvalResult has carried this all along, so a caller of
+	// sdk.Evaluate could tell which turn a result belonged to while a bus
+	// subscriber could not — for an every_turn eval, the single fact needed to
+	// place the result. It was reachable only when the eval produced
+	// violations, since EvalViolationData carries its own.
+	TurnIndex int `json:"turn_index"`
 	// Passed is the VERDICT, and is nil when none was reached.
 	//
 	// Evals return values; they do not pass or fail. Only an assertion — an
