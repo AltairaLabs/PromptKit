@@ -144,3 +144,44 @@ func mustSynth(t *testing.T, ctx context.Context, svc *tts.CartesiaService, text
 // tests that want to pin sonic-3 vs sonic-3.5 etc. Currently unused, but
 // keeps the import warm so editors don't strip it on the next refactor.
 var _ = base.WithModel
+
+// TestCartesia_HeaderAuth_Live guards the auth change from the #1880 audit.
+//
+// The key moved out of the WebSocket URL into X-API-Key so a dial failure
+// cannot write it to the log. That makes authentication a separate thing that
+// can break on its own, and a unit test cannot tell a header the service
+// accepts from one it ignores.
+//
+// Tagged cartesia_integration alongside the emotion guard above: both spend
+// real Cartesia credit.
+func TestCartesia_HeaderAuth_Live(t *testing.T) {
+	apiKey := os.Getenv("CARTESIA_API_KEY")
+	if apiKey == "" {
+		t.Skip("CARTESIA_API_KEY not set; skipping live Cartesia auth test")
+	}
+
+	s := tts.NewCartesia(apiKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch, err := s.SynthesizeStream(ctx, "Hello.", tts.SynthesisConfig{})
+	if err != nil {
+		t.Fatalf("the WebSocket must authenticate with X-API-Key now that the key "+
+			"is not in the URL: %v", err)
+	}
+
+	var bytesReceived int
+	for chunk := range ch {
+		if chunk.Error != nil {
+			t.Fatalf("stream error: %v", chunk.Error)
+		}
+		bytesReceived += len(chunk.Data)
+		if bytesReceived > 0 {
+			break
+		}
+	}
+	if bytesReceived == 0 {
+		t.Fatal("real audio must come back, not just a successful dial")
+	}
+}
