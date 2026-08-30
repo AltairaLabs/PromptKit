@@ -169,7 +169,7 @@ defaults := providers.ProviderDefaults{
 - JSON mode
 - Vision (image inputs)
 - Streaming
-- Reproducible outputs (seed)
+- Reproducible outputs (seed) — Chat Completions only; the Responses API has no `seed` parameter, and a seed set on that path is dropped with a warning
 
 **Pricing**: Per-token, varies by model
 
