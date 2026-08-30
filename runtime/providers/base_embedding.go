@@ -124,6 +124,11 @@ type HTTPRequestConfig struct {
 	Body        []byte
 	UseAPIKey   bool   // If true, adds Authorization: Bearer <APIKey> header
 	ContentType string // Defaults to application/json
+	// Headers are set on the request before it is sent. Providers that
+	// authenticate with a non-Bearer scheme use this — notably Gemini, whose
+	// key goes in x-goog-api-key so it never enters the URL and therefore
+	// never reaches a log through *url.Error.
+	Headers map[string]string
 }
 
 // DoEmbeddingRequest performs a common HTTP POST request for embeddings.
@@ -145,13 +150,23 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 	}
 	httpReq.Header.Set(ContentTypeHeader, contentType)
 
+	for k, v := range cfg.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
 	if cfg.UseAPIKey && b.APIKey != "" {
 		httpReq.Header.Set(AuthorizationHeader, BearerPrefix+b.APIKey)
 	}
 
 	resp, err := b.HTTPClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("embedding request failed: %w", err)
+		// Wrapped as ProviderTransportError, not a bare fmt.Errorf: that is the
+		// type whose Error() redacts credential-bearing query parameters. A
+		// plain wrap formats the raw *url.Error — full URL included — straight
+		// into the message, which is how a live key reached the logs in #1871.
+		// It also makes embedding transport failures classifiable by
+		// IsTransient, like every other provider path.
+		return nil, &ProviderTransportError{Cause: err, Provider: b.ProviderID}
 	}
 	defer resp.Body.Close()
 

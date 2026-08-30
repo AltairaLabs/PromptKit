@@ -310,8 +310,9 @@ func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
 }
 
 // CachedContent endpoints differ by platform. AI Studio (direct) uses
-// generativelanguage.googleapis.com/v1beta/cachedContents with the API key in
-// the query string and a "models/<model>" model field. Vertex uses the regional
+// generativelanguage.googleapis.com/v1beta/cachedContents with a
+// "models/<model>" model field; the API key goes in the x-goog-api-key header
+// (applyAuth), never in the query string. Vertex uses the regional
 // aiplatform host under the project/location, Bearer auth (applied separately),
 // and a full publishers/google/models path; created resources are referenced by
 // their full returned resource name.
@@ -322,7 +323,7 @@ func (p *Provider) cachedContentsCreateURL() string {
 		// baseURL: .../projects/{proj}/locations/{loc}/publishers/google/models
 		return strings.TrimSuffix(p.baseURL, "/publishers/google/models") + "/cachedContents"
 	}
-	return fmt.Sprintf("%s/cachedContents?key=%s", p.baseURL, p.apiKey)
+	return p.baseURL + "/cachedContents"
 }
 
 // cachedContentModelField returns the create-body "model" value.
@@ -343,5 +344,5 @@ func (p *Provider) cachedContentDeleteURL(name string) string {
 			return p.baseURL[:i+len("/v1/")] + name
 		}
 	}
-	return fmt.Sprintf("%s/%s?key=%s", p.baseURL, name, p.apiKey)
+	return fmt.Sprintf("%s/%s", p.baseURL, name)
 }

@@ -825,6 +825,16 @@ func WithPendingStore(store sdktools.PendingStore) Option {
 //	    sdk.WithStateStore(store),
 //	    sdk.WithConversationID("user-123-session-456"),
 //	)
+//
+// Needs somewhere durable to be resumable. Without a state store or an event
+// store, each Open creates its own private in-memory store, so the same id
+// passed to a second Open resolves to a different, empty conversation — turns
+// accumulate within a single Conversation, but nothing survives it. Setting an
+// id with neither logs a warning saying so, once per process.
+//
+// WithStateStore makes the conversation itself resumable. WithEventStore is
+// enough if the id is only a recording session key: session recordings are
+// stored and replayed by conversation id (see sdk/examples/session-recording).
 func WithConversationID(id string) Option {
 	return func(c *config) error {
 		c.conversationID = id

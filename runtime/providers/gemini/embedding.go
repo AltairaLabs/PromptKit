@@ -197,11 +197,18 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	start := time.Now()
-	url := fmt.Sprintf("%s"+embedContentPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	url := fmt.Sprintf("%s"+embedContentPath, p.BaseURL, model)
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
-		URL:       url,
-		Body:      jsonBody,
-		UseAPIKey: false, // Gemini uses API key in URL
+		URL:  url,
+		Body: jsonBody,
+		// Key by header, never in the URL — see gemini.applyAuth.
+		//
+		// Guarded like applyAuth: under WithGeminiEmbeddingPlatformAuth the key
+		// is deliberately empty because the transport supplies the credential,
+		// and sending a PRESENT but empty x-goog-api-key is rejected as an
+		// invalid key rather than falling through to the transport.
+		UseAPIKey: false,
+		Headers:   apiKeyHeaders(p.APIKey),
 	})
 	if err != nil {
 		return providers.EmbeddingResponse{}, err
@@ -266,11 +273,18 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	}
 
 	start := time.Now()
-	url := fmt.Sprintf("%s"+batchEmbedContentsPath+"?key=%s", p.BaseURL, model, p.APIKey)
+	url := fmt.Sprintf("%s"+batchEmbedContentsPath, p.BaseURL, model)
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
-		URL:       url,
-		Body:      jsonBody,
-		UseAPIKey: false, // Gemini uses API key in URL
+		URL:  url,
+		Body: jsonBody,
+		// Key by header, never in the URL — see gemini.applyAuth.
+		//
+		// Guarded like applyAuth: under WithGeminiEmbeddingPlatformAuth the key
+		// is deliberately empty because the transport supplies the credential,
+		// and sending a PRESENT but empty x-goog-api-key is rejected as an
+		// invalid key rather than falling through to the transport.
+		UseAPIKey: false,
+		Headers:   apiKeyHeaders(p.APIKey),
 	})
 	if err != nil {
 		return providers.EmbeddingResponse{}, err
@@ -364,3 +378,14 @@ func geminiDimensionsForModel(model string) int {
 
 // Verify interface compliance
 var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
+
+// apiKeyHeaders returns the AI Studio auth header, or nil when there is no key
+// to send. Nil matters: an empty x-goog-api-key is an invalid key, not an
+// absent one, so it must not be set on the platform-auth path where the
+// transport carries the credential instead.
+func apiKeyHeaders(key string) map[string]string {
+	if key == "" {
+		return nil
+	}
+	return map[string]string{apiKeyHeader: key}
+}

@@ -19,6 +19,11 @@ import (
 // HTTP constants
 const (
 	contentTypeHeader = "Content-Type"
+	// apiKeyHeader carries the AI Studio credential. Preferred over a ?key=
+	// query parameter so the key never enters a URL, and therefore never
+	// enters a *url.Error or the logs that format one.
+	// apiKeyHeader is a header NAME, not a credential.
+	apiKeyHeader      = "x-goog-api-key" //nolint:gosec // G101: header name, not a secret
 	applicationJSON   = "application/json"
 	httpClientTimeout = 60 * time.Second
 )
@@ -146,8 +151,12 @@ func (p *Provider) isVertex() bool {
 // generateContentURL returns the full URL for a generateContent-style call.
 // action is typically "generateContent" or "streamGenerateContent".
 //
-// Vertex:    {baseURL}/{model}:{action}                — auth via Bearer header
-// AI Studio: {baseURL}/models/{model}:{action}?key={k} — auth via query param
+// Vertex:    {baseURL}/{model}:{action}          — auth via Bearer header
+// AI Studio: {baseURL}/models/{model}:{action}   — auth via x-goog-api-key header
+//
+// Neither shape carries a credential. The API key used to travel as a ?key=
+// query parameter, which put it inside *url.Error on any transport failure and
+// so into the logs. See applyAuth.
 //
 // The Vertex URL shape relies on baseURL ending in `/publishers/google/models`,
 // which vertexGeminiEndpoint produces and which the SDK platformBaseURL also
@@ -156,18 +165,32 @@ func (p *Provider) generateContentURL(action string) string {
 	if p.isVertex() {
 		return fmt.Sprintf("%s/%s:%s", p.baseURL, p.model, action)
 	}
-	return fmt.Sprintf("%s/models/%s:%s?key=%s", p.baseURL, p.model, action, p.apiKey)
+	return fmt.Sprintf("%s/models/%s:%s", p.baseURL, p.model, action)
 }
 
 // applyAuth attaches platform-appropriate authentication to a request.
 //
 // Vertex requires an OAuth Bearer token in the Authorization header (sourced
-// from the GCP credential chain). Direct Google AI Studio uses the API key in
-// the URL, so applyAuth is a no-op for that path — callers still embed the
-// key via generateContentURL.
+// from the GCP credential chain). Direct Google AI Studio sends the API key in
+// the x-goog-api-key header — the same header websocket_manager.go has always
+// used — rather than a ?key= query parameter.
+//
+// The header matters for more than tidiness: a credential in the URL ends up
+// inside *url.Error on any transport failure, and every layer that wraps that
+// error reformats it, so a single network blip wrote a live key to the log
+// several times over. Error-string redaction is the backstop; keeping the
+// credential out of the URL is the fix.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
-	if p.isVertex() && p.credential != nil {
-		return p.credential.Apply(ctx, req)
+	if p.isVertex() {
+		if p.credential != nil {
+			return p.credential.Apply(ctx, req)
+		}
+		// Vertex authenticates by OAuth only. Falling back to the API-key
+		// header here would send an AI Studio credential to Vertex.
+		return nil
+	}
+	if p.apiKey != "" {
+		req.Header.Set(apiKeyHeader, p.apiKey)
 	}
 	return nil
 }

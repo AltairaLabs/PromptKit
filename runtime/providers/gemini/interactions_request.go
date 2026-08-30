@@ -14,10 +14,9 @@ import (
 // Unlike generateContent the model is a request field rather than part of the
 // path, so this is a single collection endpoint.
 func (p *Provider) interactionsURL() string {
-	if p.isVertex() {
-		return p.baseURL + interactionsPath
-	}
-	return fmt.Sprintf("%s%s?key=%s", p.baseURL, interactionsPath, p.apiKey)
+	// No credential in the URL on either platform — auth is applied as a
+	// header by applyAuth.
+	return p.baseURL + interactionsPath
 }
 
 // buildInteractionsRequest assembles one stateless Interactions call: the whole

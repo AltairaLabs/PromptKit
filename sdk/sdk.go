@@ -686,12 +686,54 @@ func skipEventTypes(next func(*events.Event), skip ...events.EventType) func(*ev
 	}
 }
 
+// warnInertOnce keeps the inert-conversation-id warning to once per process.
+//
+// It is a warning about CONFIGURATION, not about a conversation, so once is the
+// right granularity: a workflow re-Opens per state transition (workflow.go) and
+// a server may open thousands of conversations, and repeating the same
+// misconfiguration notice for each would be noise. Reset by tests.
+var warnInertOnce sync.Once
+
+// warnIfConversationIDInert says so when a caller has set a conversation id
+// that cannot do what they almost certainly want.
+//
+// Without somewhere durable to key it against, every Open gets its own private
+// memory store, so two Opens with the SAME id hold two isolated conversations,
+// neither able to see the other. Turns still accumulate within a single
+// Conversation — the id is not useless — but resuming in a later process, or in
+// a second Open, needs storage that outlives the Conversation.
+//
+// An event store counts. Session recording keys recordings by conversation id
+// and replays them by it (see sdk/examples/session-recording), so the id is
+// durable there even with no state store — warning about it would be wrong.
+//
+// A warning rather than an error: the single-Conversation case is legitimate
+// and common, so failing here would break working code. The complaint in #1838
+// was that it is SILENT, not that it is invalid.
+func warnIfConversationIDInert(cfg *config) {
+	if cfg.conversationID == "" || cfg.stateStore != nil || cfg.eventStore != nil {
+		return
+	}
+	warnInertOnce.Do(func() {
+		logger.Warn(
+			"WithConversationID has no cross-process effect without a state store",
+			"conversation_id", cfg.conversationID,
+			"detail", "each Open without WithStateStore gets its own private in-memory store, "+
+				"so the same id in another Open resolves to a different, empty conversation. "+
+				"Supply WithStateStore to make the id resumable, or WithEventStore if you only "+
+				"need it as a recording session key.",
+		)
+	})
+}
+
 // initInternalStateStore initializes the internal state store for conversation history.
 // If a state store is provided via options, use that. Otherwise, create a MemoryStore.
 // This enables the StateStoreLoad/Save middleware to manage conversation history.
 // Also generates a unique conversation ID if not already set.
 // Finally, creates a TextSession wrapping a pre-configured pipeline.
 func initInternalStateStore(conv *Conversation, cfg *config) error {
+	warnIfConversationIDInert(cfg)
+
 	var store statestore.Store
 	if cfg.stateStore != nil {
 		// User provided a state store (e.g., Redis for persistence)
@@ -744,6 +786,11 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 
 // initDuplexSession initializes a duplex streaming session.
 func initDuplexSession(conv *Conversation, cfg *config) error {
+	// Same private-store fallback as the unary path, so the same trap applies —
+	// and it applies harder here, since ResumeDuplex exists and resumption is
+	// the likely intent.
+	warnIfConversationIDInert(cfg)
+
 	var store statestore.Store
 	if cfg.stateStore != nil {
 		store = cfg.stateStore
