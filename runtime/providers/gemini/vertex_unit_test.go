@@ -80,7 +80,12 @@ func TestProvider_GenerateContentURL(t *testing.T) {
 		}
 	})
 
-	t.Run("ai studio embeds api key in query string", func(t *testing.T) {
+	t.Run("ai studio keeps the api key out of the query string", func(t *testing.T) {
+		// This assertion is inverted from what it once was: the URL used to
+		// embed ?key=<credential>, which put a live key inside *url.Error on
+		// any transport failure and so into the logs. The key now travels in
+		// the x-goog-api-key header — see applyAuth. The URL shape is otherwise
+		// unchanged, which is what this still pins.
 		p := &Provider{
 			platform: "",
 			baseURL:  "https://generativelanguage.googleapis.com/v1beta",
@@ -88,9 +93,12 @@ func TestProvider_GenerateContentURL(t *testing.T) {
 			model:    "gemini-2.5-flash",
 		}
 		got := p.generateContentURL("generateContent")
-		want := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-api-key"
+		want := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 		if got != want {
 			t.Errorf("ai studio URL = %q, want %q", got, want)
+		}
+		if strings.Contains(got, "test-api-key") {
+			t.Errorf("ai studio URL must not embed the API key: %s", got)
 		}
 	})
 }

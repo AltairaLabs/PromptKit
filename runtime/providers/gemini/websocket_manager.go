@@ -42,7 +42,7 @@ type WebSocketManager struct {
 // NewWebSocketManager creates a new WebSocket manager
 func NewWebSocketManager(url, apiKey string) *WebSocketManager {
 	headers := http.Header{}
-	headers.Set("x-goog-api-key", apiKey)
+	headers.Set(apiKeyHeader, apiKey)
 
 	return &WebSocketManager{
 		url:    url,
