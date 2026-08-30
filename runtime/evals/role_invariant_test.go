@@ -2,6 +2,8 @@ package evals
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -206,4 +208,52 @@ func TestEmitResult_BoundsAnOversizedValue(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out")
 	}
+}
+
+// TestEmitResult_CarriesTurnIndex closes the last divergence between the two
+// representations of an eval result.
+//
+// evals.EvalResult carries TurnIndex, set by runEvals from the EvalContext. The
+// event did not, so a caller of sdk.Evaluate could place a result on a turn
+// while a bus subscriber could not — for an every_turn eval, the single fact
+// needed to make the result mean anything. It was reachable only when the eval
+// happened to produce violations, since EvalViolationData carries its own.
+//
+// Turn 0 is deliberately one of the cases: the field must not be omitempty, or
+// the first turn of every session is indistinguishable from "not set".
+func TestEmitResult_CarriesTurnIndex(t *testing.T) {
+	for _, turn := range []int{0, 3} {
+		t.Run(fmt.Sprintf("turn %d", turn), func(t *testing.T) {
+			bus := events.NewEventBus()
+			defer bus.Close()
+
+			received := make(chan *events.Event, 4)
+			bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) { received <- e })
+
+			runner := NewEvalRunner(NewEvalTypeRegistry(),
+				WithEmitter(events.NewEmitter(bus, "", "", "")))
+			runner.emitResult(nil, &EvalResult{
+				EvalID: "e1", Type: "contains", Kind: events.EvalKindEval, TurnIndex: turn,
+			})
+
+			select {
+			case e := <-received:
+				data := e.Data.(*events.EvalCompletedData)
+				assert.Equal(t, turn, data.TurnIndex,
+					"a subscriber cannot place this result on a turn")
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+		})
+	}
+}
+
+// TestEmitResult_TurnIndexSurvivesJSON guards the omitempty trap specifically:
+// the struct field can be right while the wire form drops turn 0.
+func TestEmitResult_TurnIndexSurvivesJSON(t *testing.T) {
+	encoded, err := json.Marshal(&events.EvalEventData{EvalID: "e1", TurnIndex: 0})
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"turn_index":0`,
+		"turn 0 vanished from the wire form; omitempty makes the first turn of "+
+			"every session look like an unset field")
 }

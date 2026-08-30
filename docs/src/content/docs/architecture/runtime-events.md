@@ -147,6 +147,7 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 | `Kind` | The ROLE: `eval`, `assertion` or `guardrail` |
 | `Passed` | The boolean — **only** ever set for an assertion or a guardrail |
 | `Value` / `MetricValue` / `Score` | What the eval measured |
+| `TurnIndex` | The turn it evaluated (turn 0 is real — the field has no `omitempty`) |
 
 An **eval** measures and returns a value; it does not pass or fail, and its
 `Passed` is always nil. Only a role that coerces that measurement to a
