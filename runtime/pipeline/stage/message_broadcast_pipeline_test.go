@@ -87,7 +87,7 @@ func runTurnThroughProvider(
 		elem.Meta.FromHistory = true
 		in <- elem
 	}
-	userMsg := types.Message{Role: "user", Content: ask}
+	userMsg := realMessage("user", ask)
 	in <- NewMessageElement(&userMsg)
 	close(in)
 
@@ -109,7 +109,9 @@ func persistedHistory(pairs ...string) []types.Message {
 		if i%2 == 1 {
 			role = "assistant"
 		}
-		msgs = append(msgs, types.Message{Role: role, Content: c, Source: "statestore"})
+		m := realMessage(role, c)
+		m.Source = "statestore"
+		msgs = append(msgs, m)
 	}
 	return msgs
 }
@@ -131,8 +133,8 @@ func TestMessageBroadcast_DoesNotRepublishHistoryThroughProvider(t *testing.T) {
 
 	got := probe.drain(2)
 	for _, d := range got {
-		assert.NotEqualf(t, "old q", d.Content, "replayed history was re-broadcast")
-		assert.NotEqualf(t, "old a", d.Content, "replayed history was re-broadcast")
+		assert.NotEqualf(t, "old q", d.GetContent(), "replayed history was re-broadcast")
+		assert.NotEqualf(t, "old a", d.GetContent(), "replayed history was re-broadcast")
 	}
 }
 
@@ -162,7 +164,7 @@ func TestMessageBroadcast_IndexIsAbsoluteAcrossTurns(t *testing.T) {
 
 	var user *events.MessageCreatedData
 	for _, d := range got {
-		if d.Content == "second" {
+		if d.GetContent() == "second" {
 			user = d
 		}
 	}

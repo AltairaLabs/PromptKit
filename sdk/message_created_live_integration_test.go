@@ -4,6 +4,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 const liveBusPackJSON = `{
@@ -29,10 +31,33 @@ const liveBusPackJSON = `{
       "id": "chat",
       "name": "Chat",
       "version": "1.0.0",
-      "system_template": "Answer in one short word."
+      "system_template": "Use the get_weather tool when asked about weather.",
+      "tools": ["get_weather"]
+    }
+  },
+  "tools": {
+    "get_weather": {
+      "name": "get_weather",
+      "description": "Get the weather for a city",
+      "parameters": {
+        "type": "object",
+        "properties": {"city": {"type": "string"}},
+        "required": ["city"]
+      }
     }
   }
 }`
+
+// liveWeatherExecutor answers the tool call deterministically, so the turn
+// exercises a full tool round without depending on an external service.
+type liveWeatherExecutor struct{}
+
+func (*liveWeatherExecutor) Name() string { return "live-weather" }
+func (*liveWeatherExecutor) Execute(
+	_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, error) {
+	return json.RawMessage(`{"tempC":11,"sky":"rain"}`), nil
+}
 
 // TestMessageCreated_ReachesTheBusLive drives a REAL provider turn and asserts
 // message.created arrives on the bus with no EventStore, no WithRecording and
@@ -64,14 +89,28 @@ func TestMessageCreated_ReachesTheBusLive(t *testing.T) {
 	packPath := filepath.Join(dir, "live-bus.pack.json")
 	require.NoError(t, os.WriteFile(packPath, []byte(liveBusPackJSON), 0o600))
 
+	reg := tools.NewRegistry()
+	exec := &liveWeatherExecutor{}
+	reg.RegisterExecutor(exec)
+	require.NoError(t, reg.Register(&tools.ToolDescriptor{
+		Name:        "get_weather",
+		Description: "Get the weather for a city",
+		Mode:        exec.Name(),
+		InputSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+	}))
+
 	conv, err := Open(packPath, "chat",
 		WithModel("claude-sonnet-4-5-20250929"),
 		WithEventBus(bus),
+		WithToolRegistry(reg),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conv.Close() })
 
-	resp, err := conv.Send(context.Background(), "Reply with the single word OK")
+	// A TOOL-CALLING turn deliberately: it produces all four message shapes,
+	// and the assistant's tool-call round is the one with no text at all —
+	// the shape a text-only turn cannot exercise.
+	resp, err := conv.Send(context.Background(), "What is the weather in Leeds?")
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Text())
 
@@ -103,24 +142,41 @@ func TestMessageCreated_ReachesTheBusLive(t *testing.T) {
 			d.Index, d.Role, d.Content, parts, len(d.Parts))
 	}
 
-	// Every published message must yield text through GetContent, whichever
-	// field carries it. Reading .Content alone shows a BLANK user turn: the SDK
-	// builds the user message with Parts and the provider returns the reply in
-	// Content. Only a live turn exposes that split.
+	// Observed shapes on a real tool-calling turn — every one differs, which is
+	// why fixtures must come from here rather than from what the struct allows:
+	//
+	//   user      Content=""    Parts=[text]   -> text is in Parts
+	//   assistant Content=""    ToolCalls=[1]  -> NO text at all, legitimately
+	//   tool      Content=json  ToolResult set
+	//   assistant Content=text                 -> text is in Content
+	//
+	// So the rule is not "everything has text". It is: a message either yields
+	// text, or it is a tool-call round. Reading .Content directly fails the
+	// first row — a blank user turn, every conversation.
 	for _, d := range got {
-		assert.NotEmptyf(t, d.GetContent(),
-			"message at index %d (role %s) published no readable text", d.Index, d.Role)
+		if d.GetContent() != "" {
+			continue
+		}
+		assert.NotEmptyf(t, d.ToolCalls,
+			"message at index %d (role %s) yielded no text and made no tool call, "+
+				"so a consumer has nothing to render", d.Index, d.Role)
 	}
 
-	var sawUser, sawAssistant bool
+	var sawUserText, sawToolCall, sawToolResult, sawAssistantText bool
 	for _, d := range got {
-		switch d.Role {
-		case "user":
-			sawUser = true
-		case "assistant":
-			sawAssistant = true
+		switch {
+		case d.Role == "user" && d.GetContent() != "":
+			sawUserText = true
+		case d.Role == "assistant" && len(d.ToolCalls) > 0:
+			sawToolCall = true
+		case d.Role == "tool" && d.ToolResult != nil:
+			sawToolResult = true
+		case d.Role == "assistant" && d.GetContent() != "":
+			sawAssistantText = true
 		}
 	}
-	assert.True(t, sawUser, "the user turn must reach the bus")
-	assert.True(t, sawAssistant, "the model's own reply must reach the bus")
+	assert.True(t, sawUserText, "the user turn must reach the bus WITH readable text")
+	assert.True(t, sawToolCall, "the tool-calling round must reach the bus")
+	assert.True(t, sawToolResult, "the tool result must reach the bus")
+	assert.True(t, sawAssistantText, "the model's final reply must reach the bus")
 }

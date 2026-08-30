@@ -27,11 +27,13 @@ func TestRecordingIndex_IsTranscriptAbsolute(t *testing.T) {
 		ConversationID: "conv",
 	})
 
+	// Built with realMessage so the user turns carry text in Parts with Content
+	// empty, as real ones do — see the note on realMessage.
 	msgs := []types.Message{
-		{Role: "user", Content: "turn 1 question", Source: "statestore"},
-		{Role: "assistant", Content: "turn 1 answer", Source: "statestore"},
-		{Role: "user", Content: "turn 2 question"},
-		{Role: "assistant", Content: "turn 2 answer"},
+		historyOf(realMessage("user", "turn 1 question")),
+		historyOf(realMessage("assistant", "turn 1 answer")),
+		realMessage("user", "turn 2 question"),
+		realMessage("assistant", "turn 2 answer"),
 	}
 
 	in := make(chan StreamElement, len(msgs)+1)
@@ -55,7 +57,8 @@ func TestRecordingIndex_IsTranscriptAbsolute(t *testing.T) {
 		require.Truef(t, ok, "event %d: want *MessageCreatedData, got %T", i, evt.Data)
 		assert.Equalf(t, i, data.Index,
 			"event %d (%q) must carry its transcript-absolute index", i, data.Content)
-		assert.Equal(t, msgs[i].Content, data.Content)
+		assert.Equal(t, msgs[i].GetContent(), data.GetContent(),
+			"the recorded event must carry the same readable text as the message")
 	}
 }
 
@@ -118,13 +121,13 @@ func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
 	}
 
 	// Turn 1: one user message.
-	runTurn([]types.Message{{Role: "user", Content: "first"}})
+	runTurn([]types.Message{realMessage("user", "first")})
 
 	// Turn 2: turn 1 replayed as history, plus a new message.
 	runTurn([]types.Message{
-		{Role: "user", Content: "first", Source: "statestore"},
-		{Role: "assistant", Content: "answer", Source: "statestore"},
-		{Role: "user", Content: "second"},
+		historyOf(realMessage("user", "first")),
+		historyOf(realMessage("assistant", "answer")),
+		realMessage("user", "second"),
 	})
 
 	recorded := store.filterByType(events.EventMessageCreated)
@@ -138,6 +141,13 @@ func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
 		require.True(t, ok)
 		assert.Equalf(t, i, data.Index,
 			"turn 2 event %d (%q) must index from the transcript, not from turn 1",
-			i, data.Content)
+			i, data.GetContent())
 	}
+}
+
+// historyOf marks a message as replayed from the state store, the way
+// StateStoreLoadStage stamps it.
+func historyOf(m types.Message) types.Message {
+	m.Source = "statestore"
+	return m
 }

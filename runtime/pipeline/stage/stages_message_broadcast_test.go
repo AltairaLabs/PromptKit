@@ -72,15 +72,35 @@ func runBroadcast(t *testing.T, elems []StreamElement, want int) []*events.Messa
 	return out2
 }
 
+// realMessage builds a message the way the system actually produces one.
+//
+// Observed on a live tool-calling turn (see
+// sdk/message_created_live_integration_test.go): a USER message carries its
+// text in Parts with Content EMPTY, while an assistant reply carries it in
+// Content with no Parts. Fixtures that set Content on both — as these once did
+// — agree with the code under test and with nothing else, which is how a live
+// route shipped with a blank user turn.
+func realMessage(role, text string) types.Message {
+	if role == roleUser {
+		t := text
+		return types.Message{
+			Role:  role,
+			Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &t}},
+		}
+	}
+	return types.Message{Role: role, Content: text}
+}
+
 func historyMsgElem(role, content string) StreamElement {
-	m := types.Message{Role: role, Content: content, Source: "statestore"}
+	m := realMessage(role, content)
+	m.Source = "statestore"
 	e := NewMessageElement(&m)
 	e.Meta.FromHistory = true
 	return e
 }
 
 func liveMsgElem(role, content string) StreamElement {
-	m := types.Message{Role: role, Content: content}
+	m := realMessage(role, content)
 	return NewMessageElement(&m)
 }
 
@@ -97,9 +117,9 @@ func TestMessageBroadcastStage_SkipsHistoryAndIndexesAbsolutely(t *testing.T) {
 	}, 2)
 
 	require.Len(t, got, 2, "replayed history must not be re-published")
-	assert.Equal(t, "new q", got[0].Content)
+	assert.Equal(t, "new q", got[0].GetContent())
 	assert.Equal(t, 2, got[0].Index, "index continues from the replayed transcript")
-	assert.Equal(t, "new a", got[1].Content)
+	assert.Equal(t, "new a", got[1].GetContent())
 	assert.Equal(t, 3, got[1].Index)
 }
 
@@ -174,7 +194,7 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 	require.Len(t, got[1].ToolCalls, 1, "the tool-calling round is its own event")
 	assert.Equal(t, "lookup", got[1].ToolCalls[0].Name)
 	require.NotNil(t, got[2].ToolResult, "the tool result is its own event")
-	assert.Equal(t, "the answer", got[3].Content, "the final answer is a separate event")
+	assert.Equal(t, "the answer", got[3].GetContent(), "the final answer is a separate event")
 }
 
 // TestMessageBroadcastStage_IndexIsArrivalPosition pins the precondition the
@@ -198,11 +218,11 @@ func TestMessageBroadcastStage_IndexIsArrivalPosition(t *testing.T) {
 
 	require.Len(t, got, 3)
 	// runBroadcast sorts by Index, so got[0] is whatever arrived first.
-	assert.Equal(t, "third", got[0].Content,
+	assert.Equal(t, "third", got[0].GetContent(),
 		"Index tracks arrival position; a reordering path yields a wrong transcript index")
 	assert.Equal(t, 0, got[0].Index)
-	assert.Equal(t, "first", got[1].Content)
-	assert.Equal(t, "second", got[2].Content)
+	assert.Equal(t, "first", got[1].GetContent())
+	assert.Equal(t, "second", got[2].GetContent())
 }
 
 // TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage places
