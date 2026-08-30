@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, skills, and composition support. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010).",
-  "version": "1.5.0",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012).",
+  "version": "1.5.1",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -214,14 +214,96 @@
         "$ref": "#/$defs/SkillSource"
       }
     },
+
     "compositions": {
       "type": "object",
-      "description": "Map of composition name to composition definition (RFC 0010). Each composition declares a named step graph that a runtime may invoke as a structured-input/structured-output unit. Reached through a workflow state whose orchestration is 'composition'. Optional; packs without it are unaffected.",
+      "description": "Map of composition name to composition definition (RFC 0010). Each composition declares a named step graph that a runtime may invoke as a structured-input/structured-output unit. Compositions are reached only through workflow states whose orchestration is 'composition'. Optional; packs without it are unaffected.",
       "additionalProperties": { "$ref": "#/$defs/Composition" }
+    },
+
+    "requires": {
+      "type": "object",
+      "description": "External resources the pack needs to run (RFC 0012). Optional; when present, validated strictly. Reserved for future requirement categories (e.g. tools, skills).",
+      "additionalProperties": false,
+      "properties": {
+        "providers": {
+          "type": "array",
+          "description": "Logical model-provider requirements. Each entry is a string shorthand (an 'llm' requirement with that key) or a ProviderRequirement object.",
+          "items": { "$ref": "#/$defs/ProviderRequirement" }
+        }
+      }
     }
   },
-
+  
   "$defs": {
+    "ProviderRequirement": {
+      "description": "A logical model-provider requirement (RFC 0012). A bare string is shorthand for an 'llm' requirement with that key.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Shorthand: the requirement key. Expands to a required 'llm' requirement with that key (role 'llm', required true)."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "role"],
+          "properties": {
+            "key": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]+$",
+              "description": "Logical name the runtime resolves this provider by (e.g. 'default', 'embeddings', 'judge'). 'default' is reserved for the primary LLM."
+            },
+            "role": {
+              "type": "string",
+              "description": "The kind of model required. Open set; runtimes MAY extend (validators must not reject unknown roles). Suggested values (PromptKit roles): 'llm', 'embedding', 'tts', 'stt', 'image', 'inference'.",
+              "examples": ["llm", "embedding", "tts", "stt", "image", "inference"]
+            },
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether the pack cannot run without this provider. Optional requirements degrade features rather than blocking startup."
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable explanation of the provider's purpose and the capabilities it should have."
+            },
+            "capabilities": { "$ref": "#/$defs/ProviderCapabilities" }
+          }
+        }
+      ]
+    },
+
+    "ProviderCapabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Structured, advisory capabilities the satisfying provider should have (RFC 0012). The well-known fields below are validated when present, but the object is OPEN: provider- or role-specific capabilities (a 'role: inference' provider may expose anything) may be added as extra keys with any shape. Custom keys SHOULD be namespaced (e.g. 'x-' prefix) to avoid clashing with fields the spec may define later. All listed fields are optional.",
+      "properties": {
+        "modalities": {
+          "type": "array",
+          "description": "Media types the provider must handle. Reuses the media-type vocabulary (MediaConfig.supported_types, RFC 0004). Common: 'text', 'image', 'audio', 'video', 'document'.",
+          "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+        },
+        "min_context_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum context window, in tokens, the provider must support."
+        },
+        "tool_use": {
+          "type": "boolean",
+          "description": "Whether the provider must support tool/function calling."
+        },
+        "structured_output": {
+          "type": "boolean",
+          "description": "Whether the provider must support structured/JSON output."
+        },
+        "embedding_dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required embedding vector dimensionality (for role 'embedding')."
+        }
+      }
+    },
+
     "Prompt": {
       "type": "object",
       "description": "A single prompt configuration within a pack. Each prompt represents a specific task type (e.g., 'support', 'sales') with its own template, variables, tools, and validation rules. Prompts within a pack can evolve independently with their own version numbers.",
@@ -352,8 +434,7 @@
         "type": {
           "type": "string",
           "description": "Data type of the variable",
-          "enum": ["string", "number", "boolean", "object", "array"],
-          "examples": ["string", "number"]
+          "examples": ["string", "number", "boolean", "object", "array"]
         },
         
         "required": {
@@ -414,6 +495,34 @@
               "description": "List of allowed values",
               "items": {},
               "examples": [["low", "medium", "high"], [1, 2, 3]]
+            }
+          }
+        },
+
+        "binding": {
+          "type": "object",
+          "description": "Declares how this variable is automatically populated from runtime context.",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "description": "The binding source kind.",
+              "examples": ["context", "session", "env", "header"]
+            },
+            "field": {
+              "type": "string",
+              "description": "The field name within the binding source to extract.",
+              "examples": ["user_id", "session_id", "locale"]
+            },
+            "auto_populate": {
+              "type": "boolean",
+              "description": "Whether this variable is automatically populated at runtime without caller input.",
+              "default": false
+            },
+            "filter": {
+              "type": "string",
+              "description": "Optional filter expression applied to the bound value.",
+              "examples": ["lowercase", "trim"]
             }
           }
         }
@@ -613,7 +722,7 @@
     "Validator": {
       "type": "object",
       "description": "A validation rule (guardrail) applied to LLM responses. Validators can check content, length, format, and other constraints to ensure response quality and safety.",
-      "required": ["type", "enabled"],
+      "required": ["type"],
       "additionalProperties": false,
       "properties": {
         "type": {
@@ -622,10 +731,17 @@
           "minLength": 1,
           "examples": ["banned_words", "max_length", "length", "max_sentences", "regex_match", "sentiment", "custom"]
         },
-        
+
         "enabled": {
           "type": "boolean",
-          "description": "Whether this validator is active. Allows temporarily disabling validators without removing them."
+          "description": "Whether this validator is active. Allows temporarily disabling validators without removing them.",
+          "default": true
+        },
+
+        "message": {
+          "type": "string",
+          "description": "User-facing message returned when the validator blocks content.",
+          "examples": ["Response contains banned words", "Response exceeds maximum length"]
         },
 
         "fail_on_violation": {
@@ -811,18 +927,16 @@
           "type": "array",
           "description": "List of allowed image formats",
           "items": {
-            "type": "string",
-            "enum": ["jpeg", "jpg", "png", "webp", "gif", "bmp"]
+            "type": "string"
           },
-          "examples": [["jpeg", "png", "webp"]]
+          "examples": [["jpeg", "png", "webp"], ["jpeg", "jpg", "png", "webp", "gif", "bmp"]]
         },
         
         "default_detail": {
           "type": "string",
           "description": "Default detail level for image processing. 'low' uses fewer tokens, 'high' provides more detail, 'auto' lets the model decide.",
-          "enum": ["low", "high", "auto"],
           "default": "auto",
-          "examples": ["high", "auto"]
+          "examples": ["low", "high", "auto"]
         },
         
         "require_caption": {
@@ -856,10 +970,9 @@
           "type": "array",
           "description": "List of allowed audio formats",
           "items": {
-            "type": "string",
-            "enum": ["mp3", "wav", "opus", "flac", "m4a", "aac", "ogg"]
+            "type": "string"
           },
-          "examples": [["mp3", "wav", "opus"]]
+          "examples": [["mp3", "wav", "ogg"], ["mp3", "wav", "opus", "flac", "m4a", "aac", "ogg", "webm"]]
         },
         
         "max_duration_sec": {
@@ -893,10 +1006,9 @@
           "type": "array",
           "description": "List of allowed video formats",
           "items": {
-            "type": "string",
-            "enum": ["mp4", "webm", "mov", "avi", "mkv"]
+            "type": "string"
           },
-          "examples": [["mp4", "webm"]]
+          "examples": [["mp4", "webm"], ["mp4", "webm", "mov", "avi", "mkv", "ogg"]]
         },
         
         "max_duration_sec": {
@@ -1129,7 +1241,7 @@
         "trigger": {
           "type": "string",
           "description": "When this eval should be triggered.",
-          "enum": ["every_turn", "on_session_complete", "sample_turns", "sample_sessions"]
+          "examples": ["every_turn", "on_session_complete", "on_conversation_complete", "on_workflow_step", "sample_turns", "sample_sessions"]
         },
         "sample_percentage": {
           "type": "number",
@@ -1162,6 +1274,42 @@
         "metric": {
           "$ref": "#/$defs/MetricDef",
           "description": "Prometheus-style metric declaration describing the output shape of this eval. Runtimes use this to expose results to monitoring systems."
+        },
+        "threshold": {
+          "type": "object",
+          "description": "Pass/fail threshold for the eval score.",
+          "additionalProperties": false,
+          "properties": {
+            "operator": {
+              "type": "string",
+              "description": "Comparison operator for the threshold.",
+              "examples": ["gte", "lte", "gt", "lt", "eq"]
+            },
+            "value": {
+              "type": "number",
+              "description": "The threshold value to compare against.",
+              "examples": [0.8, 4, 0.95]
+            }
+          }
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message describing the eval result or failure reason.",
+          "examples": ["Tone score below threshold", "Response failed brand consistency check"]
+        },
+        "when": {
+          "type": "object",
+          "description": "Conditional expression that determines whether this eval runs for a given turn or session.",
+          "additionalProperties": true,
+          "examples": [{"has_variable": "customer_tier"}, {"turn_count_gte": 3}]
+        },
+        "groups": {
+          "type": "array",
+          "description": "Eval group tags for organizing and filtering evals.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["quality", "tone"], ["safety", "compliance"]]
         }
       }
     },
@@ -1227,7 +1375,13 @@
         },
         "engine": {
           "type": "object",
-          "description": "Optional runtime engine hints for workflow execution (e.g., timeout, concurrency settings).",
+          "description": "Optional runtime engine configuration for workflow execution. Hosts standardized fields like 'budget' for resource limits, alongside runtime-specific hints (timeout, concurrency, etc.).",
+          "properties": {
+            "budget": {
+              "$ref": "#/$defs/WorkflowBudget",
+              "description": "Resource budget for workflow execution. Provides safety limits to prevent unbounded loops."
+            }
+          },
           "additionalProperties": true
         }
       }
@@ -1235,31 +1389,12 @@
 
     "WorkflowState": {
       "type": "object",
-      "description": "A single state in the workflow state machine. References a prompt task and declares event-driven transitions to other states.",
+      "description": "A single state in the workflow state machine. The orchestration mode determines how the state's work is driven: 'internal'/'external'/'hybrid' reference a prompt task and declare event-driven transitions; 'composition' (RFC 0010) runs a declarative step graph in place of a prompt. May be marked as terminal to indicate workflow completion, or guarded with max_visits to bound loop iterations.",
       "additionalProperties": false,
-      "if": {
-        "not": {
-          "properties": { "terminal": { "const": true } },
-          "required": ["terminal"]
-        }
-      },
-      "then": {
-        "required": ["on_event"]
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": { "orchestration": { "const": "composition" } },
-            "required": ["orchestration"]
-          },
-          "then": { "required": ["composition"] },
-          "else": { "required": ["prompt_task"] }
-        }
-      ],
       "properties": {
         "prompt_task": {
           "type": "string",
-          "description": "Reference to a prompt key defined in the pack's prompts object. Required for orchestration modes 'internal', 'external', 'hybrid' (or when omitted); not used in 'composition' mode.",
+          "description": "Reference to a prompt key defined in the pack's prompts object. Required for orchestration modes 'internal', 'external', 'hybrid' (or when orchestration is omitted, default 'internal'); not used in 'composition' mode.",
           "examples": ["support", "sales", "triage"]
         },
         "description": {
@@ -1277,12 +1412,13 @@
         "persistence": {
           "type": "string",
           "description": "Whether conversation context is kept (persistent) or reset (transient) on entry.",
-          "enum": ["transient", "persistent"]
+          "examples": ["transient", "persistent"]
         },
         "orchestration": {
           "type": "string",
-          "description": "How the state is orchestrated. 'internal' = agent controls transitions (default). 'external' = system controls. 'hybrid' = both. 'composition' = the referenced composition fully handles the state's orchestration via a declarative step graph (RFC 0010).",
-          "enum": ["internal", "external", "hybrid", "composition"]
+          "description": "How the state is orchestrated. 'internal' = agent controls transitions (default). 'external' = system controls transitions. 'hybrid' = both. 'composition' = the referenced composition fully handles the state's orchestration (work + transitions): the composition runs end-to-end, and on completion its output may map to on_event transitions or terminate the state. The composition mode is exclusive; it is not mixed with internal/external/hybrid on the same state.",
+          "enum": ["internal", "external", "hybrid", "composition"],
+          "default": "internal"
         },
         "composition": {
           "type": "string",
@@ -1296,24 +1432,222 @@
         },
         "terminal": {
           "type": "boolean",
-          "description": "When true, marks this state as terminal. Terminal states do not require on_event and will reject any transition attempts."
+          "description": "If true, this state is a terminal state. The workflow completes after this state's prompt executes. Terminal states should not declare on_event transitions.",
+          "default": false,
+          "examples": [true]
         },
         "max_visits": {
           "type": "integer",
-          "description": "Maximum number of times this state can be entered. When exceeded, the workflow redirects to on_max_visits if set, or returns an error.",
-          "minimum": 1
+          "description": "Maximum number of times this state can be entered during a single workflow execution. When the limit is reached, the workflow transitions to the state named in on_max_visits. If on_max_visits is not set, the workflow terminates.",
+          "minimum": 1,
+          "examples": [5, 10, 20]
         },
         "on_max_visits": {
           "type": "string",
-          "description": "Target state to redirect to when max_visits is exceeded. Must reference a valid state name.",
-          "examples": ["escalation", "fallback"]
+          "description": "Target state to transition to when max_visits is reached. Must reference a key in the states object. If omitted and max_visits is reached, the workflow terminates with a budget-exhausted status.",
+          "examples": ["review", "summarize", "error_handler"]
         },
         "artifacts": {
           "type": "object",
-          "description": "Named artifact slot declarations for this state. Artifacts are workflow-scoped: if two states declare the same name, they reference the same artifact.",
+          "description": "Named artifact slots for lightweight, structured metadata that flows across state visits. Artifacts should be pointers (commit SHAs, URIs), compact representations (schemas, summaries, diffs), or small structured results — not bulk data. Artifact values are available to the prompt as template variables under the 'artifacts' namespace (e.g., {{artifacts.commit_sha}}).",
           "additionalProperties": {
-            "$ref": "#/$defs/WorkflowArtifactDef"
+            "$ref": "#/$defs/ArtifactDef"
+          },
+          "examples": [
+            {
+              "commit_sha": { "type": "text/plain", "description": "Git commit of the latest generated code" },
+              "test_report": { "type": "application/json", "description": "Structured test runner summary" }
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": { "orchestration": { "const": "composition" } },
+        "required": ["orchestration"]
+      },
+      "then": {
+        "required": ["composition"]
+      },
+      "else": {
+        "required": ["prompt_task"]
+      }
+    },
+
+    "ArtifactDef": {
+      "type": "object",
+      "description": "Declares a named artifact slot for carrying lightweight, structured metadata across workflow state visits. Artifacts are typically pointers (commit SHAs, file paths, URIs), compact representations (schemas, summaries, diffs), or small structured results — not bulk data. Values are captured at each state transition, forming an observable trace that enables time-travel debugging and workflow audit. They persist across loop iterations and are accessible to prompts as template variables.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "MIME type indicating the artifact's content type. Used by runtimes to determine serialization and presentation.",
+          "examples": ["text/plain", "application/json", "text/markdown", "text/x-python"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this artifact contains and how it's used."
+        },
+        "mode": {
+          "type": "string",
+          "description": "How the artifact is updated across visits. 'replace' overwrites the previous value on each visit. 'append' accumulates content across visits (e.g., a log). Defaults to 'replace'.",
+          "enum": ["replace", "append"],
+          "default": "replace",
+          "examples": ["replace", "append"]
+        }
+      }
+    },
+
+    "WorkflowBudget": {
+      "type": "object",
+      "description": "Resource budget for workflow execution. Provides a safety net to prevent unbounded loops. When any budget limit is reached, the workflow terminates with a budget-exhausted status. All fields are optional — omitting a field means no limit for that resource.",
+      "additionalProperties": false,
+      "properties": {
+        "max_total_visits": {
+          "type": "integer",
+          "description": "Maximum total state visits across all states in the workflow. This is a global safety net independent of per-state max_visits.",
+          "minimum": 1,
+          "examples": [50, 100, 200]
+        },
+        "max_tool_calls": {
+          "type": "integer",
+          "description": "Maximum total tool calls across all states in the workflow.",
+          "minimum": 1,
+          "examples": [100, 500]
+        },
+        "max_wall_time_sec": {
+          "type": "integer",
+          "description": "Maximum wall-clock time in seconds for the entire workflow execution.",
+          "minimum": 1,
+          "examples": [300, 600, 3600]
+        }
+      }
+    },
+
+    "AgentsConfig": {
+      "type": "object",
+      "description": "Agent configuration that maps prompts to A2A-compatible agent definitions. Enables multi-agent orchestration via the Agent-to-Agent protocol.",
+      "required": ["entry", "members"],
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string",
+          "description": "Prompt key of the entry agent — the default agent that receives incoming requests.",
+          "examples": ["triage", "router", "main"]
+        },
+        "members": {
+          "type": "object",
+          "description": "Map of prompt key to agent definition. Each key must match a prompt defined in the pack's prompts object.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentDef"
           }
+        }
+      }
+    },
+
+    "AgentDef": {
+      "type": "object",
+      "description": "Agent definition for a single prompt, providing A2A Agent Card metadata. Overrides or extends the prompt's own metadata for agent discovery.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Agent description published in the A2A Agent Card. Overrides the prompt's description if set."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Discovery tags for the agent, used by A2A registries and routers.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["support", "billing"], ["sales", "enterprise"]]
+        },
+        "input_modes": {
+          "type": "array",
+          "description": "MIME types the agent accepts as input. Defaults to [\"text/plain\"] if omitted.",
+          "items": {
+            "type": "string"
+          },
+          "default": ["text/plain"],
+          "examples": [["text/plain"], ["text/plain", "image/png"]]
+        },
+        "output_modes": {
+          "type": "array",
+          "description": "MIME types the agent can produce as output. Defaults to [\"text/plain\"] if omitted.",
+          "items": {
+            "type": "string"
+          },
+          "default": ["text/plain"],
+          "examples": [["text/plain"], ["text/plain", "application/json"]]
+        },
+        "state": {
+          "type": "string",
+          "description": "Reference to a state key in the pack's workflow.states. When set, invoking this agent runs the pack workflow starting at the named state (following its transitions and loops) instead of executing the member-key prompt once. Requires a top-level workflow. If omitted, the agent is a single-prompt agent.",
+          "examples": ["triage", "diagnose"]
+        }
+      }
+    },
+
+    "SkillSource": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to a skill directory/file or a package reference (e.g., './skills', '@acme/billing-skills')."
+        },
+        {
+          "$ref": "#/$defs/SkillPathSource"
+        },
+        {
+          "$ref": "#/$defs/InlineSkill"
+        }
+      ],
+      "description": "A skill source for progressive-disclosure knowledge loading. Can be a simple string path, a path object with preload config, or an inline skill definition."
+    },
+
+    "SkillPathSource": {
+      "type": "object",
+      "description": "A skill source with a path and optional preload configuration.",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to a skill directory, file, or package reference.",
+          "examples": ["./skills/billing", "@acme/billing-skills"]
+        },
+        "preload": {
+          "type": "boolean",
+          "description": "If true, load this skill source eagerly at pack initialization rather than on demand.",
+          "default": false,
+          "examples": [true, false]
+        }
+      }
+    },
+
+    "InlineSkill": {
+      "type": "object",
+      "description": "A skill defined inline within the pack. Useful for small, pack-specific skills that don't warrant a separate file.",
+      "required": ["name", "description", "instructions"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for this skill.",
+          "minLength": 1,
+          "examples": ["escalation-protocol", "refund-policy"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of what this skill provides.",
+          "minLength": 1,
+          "examples": ["Steps for escalating unresolved customer issues"]
+        },
+        "instructions": {
+          "type": "string",
+          "description": "The skill's instructions or knowledge content. Loaded into the agent's context when the skill is activated.",
+          "minLength": 1,
+          "examples": ["When a customer issue cannot be resolved within 3 exchanges:\n1. Acknowledge the complexity\n2. Collect case details\n3. Create an escalation ticket"]
         }
       }
     },
@@ -1591,159 +1925,9 @@
         { "type": "string", "description": "Reference of the form '${path.to.value}'." },
         { "type": "object", "additionalProperties": true }
       ]
-    },
-
-    "WorkflowArtifactDef": {
-      "type": "object",
-      "description": "Declares a named artifact slot on a workflow state. Artifacts are workflow-scoped and accessible as {{artifacts.<name>}}.",
-      "required": ["type"],
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "type": "string",
-          "description": "MIME type of the artifact (e.g., text/plain, application/json).",
-          "examples": ["text/plain", "application/json"]
-        },
-        "description": {
-          "type": "string",
-          "description": "What the artifact contains."
-        },
-        "mode": {
-          "type": "string",
-          "description": "How new values are applied: replace (default) or append.",
-          "enum": ["replace", "append"]
-        }
-      }
-    },
-
-    "AgentsConfig": {
-      "type": "object",
-      "description": "Agent configuration that maps prompts to A2A-compatible agent definitions. Enables multi-agent orchestration via the Agent-to-Agent protocol.",
-      "required": ["entry", "members"],
-      "additionalProperties": false,
-      "properties": {
-        "entry": {
-          "type": "string",
-          "description": "Prompt key of the entry agent — the default agent that receives incoming requests.",
-          "examples": ["triage", "router", "main"]
-        },
-        "members": {
-          "type": "object",
-          "description": "Map of prompt key to agent definition. Each key must match a prompt defined in the pack's prompts object.",
-          "minProperties": 1,
-          "additionalProperties": {
-            "$ref": "#/$defs/AgentDef"
-          }
-        }
-      }
-    },
-
-    "AgentDef": {
-      "type": "object",
-      "description": "Agent definition for a single prompt, providing A2A Agent Card metadata. Overrides or extends the prompt's own metadata for agent discovery.",
-      "additionalProperties": false,
-      "properties": {
-        "description": {
-          "type": "string",
-          "description": "Agent description published in the A2A Agent Card. Overrides the prompt's description if set."
-        },
-        "tags": {
-          "type": "array",
-          "description": "Discovery tags for the agent, used by A2A registries and routers.",
-          "items": {
-            "type": "string"
-          },
-          "examples": [["support", "billing"], ["sales", "enterprise"]]
-        },
-        "input_modes": {
-          "type": "array",
-          "description": "MIME types the agent accepts as input. Defaults to [\"text/plain\"] if omitted.",
-          "items": {
-            "type": "string"
-          },
-          "default": ["text/plain"],
-          "examples": [["text/plain"], ["text/plain", "image/png"]]
-        },
-        "output_modes": {
-          "type": "array",
-          "description": "MIME types the agent can produce as output. Defaults to [\"text/plain\"] if omitted.",
-          "items": {
-            "type": "string"
-          },
-          "default": ["text/plain"],
-          "examples": [["text/plain"], ["text/plain", "application/json"]]
-        },
-        "state": {
-          "type": "string",
-          "description": "RFC 0011: reference to a state key in the pack's workflow.states. When set, invoking this agent runs the pack workflow starting at the named state (following its transitions and loops) instead of executing the member-key prompt once. Requires a top-level workflow. If omitted, the agent is a single-prompt agent (RFC 0007)."
-        }
-      }
-    },
-
-    "SkillSource": {
-      "oneOf": [
-        {
-          "type": "string",
-          "description": "Path to a skill directory/file or a package reference (e.g., './skills', '@acme/billing-skills')."
-        },
-        {
-          "$ref": "#/$defs/SkillPathSource"
-        },
-        {
-          "$ref": "#/$defs/InlineSkill"
-        }
-      ],
-      "description": "A skill source for progressive-disclosure knowledge loading. Can be a simple string path, a path object with preload config, or an inline skill definition."
-    },
-
-    "SkillPathSource": {
-      "type": "object",
-      "description": "A skill source with a path and optional preload configuration.",
-      "required": ["path"],
-      "additionalProperties": false,
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "Path to a skill directory, file, or package reference.",
-          "examples": ["./skills/billing", "@acme/billing-skills"]
-        },
-        "preload": {
-          "type": "boolean",
-          "description": "If true, load this skill source eagerly at pack initialization rather than on demand.",
-          "default": false,
-          "examples": [true, false]
-        }
-      }
-    },
-
-    "InlineSkill": {
-      "type": "object",
-      "description": "A skill defined inline within the pack. Useful for small, pack-specific skills that don't warrant a separate file.",
-      "required": ["name", "description", "instructions"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Human-readable name for this skill.",
-          "minLength": 1,
-          "examples": ["escalation-protocol", "refund-policy"]
-        },
-        "description": {
-          "type": "string",
-          "description": "Brief description of what this skill provides.",
-          "minLength": 1,
-          "examples": ["Steps for escalating unresolved customer issues"]
-        },
-        "instructions": {
-          "type": "string",
-          "description": "The skill's instructions or knowledge content. Loaded into the agent's context when the skill is activated.",
-          "minLength": 1,
-          "examples": ["When a customer issue cannot be resolved within 3 exchanges:\n1. Acknowledge the complexity\n2. Collect case details\n3. Create an escalation ticket"]
-        }
-      }
     }
   },
-  
+
   "examples": [
     {
       "$schema": "https://promptpack.org/schema/v1/promptpack.schema.json",

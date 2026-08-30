@@ -2,10 +2,13 @@ name: Schema Validation
 
 on:
   # The path filters below only fire on OUR edits. Drift is caused by the
-  # upstream repos regenerating (promptarena for schemas/v1alpha1, promptpack.org
-  # for the embedded PromptPack schema), which touches nothing here — so without
-  # a scheduled run this workflow is blind to the exact failure it exists to
-  # catch. See #1700.
+  # upstream repos regenerating (promptarena for schemas/v1alpha1), which touches
+  # nothing here — so without a scheduled run this workflow is blind to the exact
+  # failure it exists to catch. See #1700.
+  #
+  # The embedded PromptPack schema is handled differently: its check runs on
+  # push/PR only (to catch a hand-edit), and upstream releases are picked up by
+  # promptpack-schema-sync.yml, which raises a PR rather than failing main.
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
@@ -44,27 +47,27 @@ jobs:
       run: make schemas-check
 
   check-promptpack-schema:
-    name: Check PromptPack Schema Freshness
+    name: Check PromptPack Schema Is The Published Release
     runs-on: ubuntu-latest
+    # Push/PR only. This job guards against a HAND-EDIT of the embedded copy, so
+    # it must hard-fail on a branch. It deliberately does not run on the
+    # schedule: a new upstream release is not a defect in this repo, and failing
+    # main for it teaches people to ignore a red main. promptpack-schema-sync.yml
+    # picks up releases and raises a PR instead.
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
 
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Fetch upstream PromptPack schema
-      run: |
-        curl -sf --max-time 30 \
-          https://promptpack.org/schema/latest/promptpack.schema.json \
-          -o /tmp/upstream-schema.json
-
-    - name: Compare with embedded schema
-      run: |
-        EMBEDDED="runtime/prompt/schema/promptpack.schema.json"
-        if ! diff -q "$EMBEDDED" /tmp/upstream-schema.json > /dev/null 2>&1; then
-          EMBEDDED_VER=$(python3 -c "import json; print(json.load(open('$EMBEDDED')).get('version','unknown'))")
-          UPSTREAM_VER=$(python3 -c "import json; print(json.load(open('/tmp/upstream-schema.json')).get('version','unknown'))")
-          echo "::warning::Embedded PromptPack schema ($EMBEDDED_VER) differs from upstream ($UPSTREAM_VER). Run: curl -o $EMBEDDED https://promptpack.org/schema/latest/promptpack.schema.json"
-        else
-          echo "✓ Embedded PromptPack schema is up to date"
-        fi
+    # The embedded schema is a verbatim mirror of the published PromptPack
+    # release — never a promptkit-owned document. This step FAILS on any
+    # difference.
+    #
+    # It used to emit ::warning:: and pass, which is why the copy drifted 143
+    # leaves from the spec between 2026-06 and 2026-08 while still claiming to be
+    # v1.5.0, and why promptkit spent that time rejecting packs that were valid
+    # against promptpack.org. A warning nobody is required to read is not a gate.
+    - name: Check embedded schema matches the published release
+      run: make promptpack-schema-check
 

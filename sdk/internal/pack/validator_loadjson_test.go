@@ -101,11 +101,6 @@ func TestValidatorJSONRejectsForbiddenFields(t *testing.T) {
 			extra:   `"config": {"foo": "bar"}`,
 			wantErr: "config",
 		},
-		{
-			name:    "message field forbidden",
-			extra:   `"message": "custom"`,
-			wantErr: "message",
-		},
 	}
 
 	for _, tc := range cases {

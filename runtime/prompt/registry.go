@@ -110,14 +110,23 @@ type Spec struct {
 
 // ModelTestResultRef is a simplified reference to model test results
 // The full ModelTestResult type is in pkg/engine for tracking test execution
+// ModelTestResultRef is the Go form of the spec's $defs/TestedModel. It is
+// pinned to that def by TestedModelStructMatchesPromptPackSpec.
+//
+// provider, model and date are required by the spec, so they carry no omitempty
+// — a required field that vanishes on serialize produces a pack that fails its
+// own validation.
 type ModelTestResultRef struct {
-	Provider     string  `yaml:"provider"`
-	Model        string  `yaml:"model"`
-	Date         string  `yaml:"date"`
-	SuccessRate  float64 `yaml:"success_rate"`
-	AvgTokens    int     `yaml:"avg_tokens,omitempty"`
-	AvgCost      float64 `yaml:"avg_cost,omitempty"`
-	AvgLatencyMs int     `yaml:"avg_latency_ms,omitempty"`
+	Provider     string  `yaml:"provider" json:"provider"`
+	Model        string  `yaml:"model" json:"model"`
+	Date         string  `yaml:"date" json:"date"`
+	SuccessRate  float64 `yaml:"success_rate" json:"success_rate"`
+	AvgTokens    int     `yaml:"avg_tokens,omitempty" json:"avg_tokens,omitempty"`
+	AvgCost      float64 `yaml:"avg_cost,omitempty" json:"avg_cost,omitempty"`
+	AvgLatencyMs int     `yaml:"avg_latency_ms,omitempty" json:"avg_latency_ms,omitempty"`
+	// Notes is spec vocabulary that had no Go field, so it was dropped on load
+	// and never round-tripped. It is carried metadata, not behavior.
+	Notes string `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
 
 // MediaConfig defines multimodal media support configuration for a prompt
@@ -326,37 +335,61 @@ type Variable struct {
 	Validation  map[string]interface{} `json:"validation,omitempty"`
 }
 
-// Metadata contains additional metadata for the pack format
+// Metadata contains additional metadata for the pack format.
+//
+// Every field needs a json tag as well as a yaml one: Pack.ToJSON marshals with
+// encoding/json, which ignores yaml tags and falls back to the Go field name. A
+// missing json tag here does not fail validation — the spec's metadata is
+// additionalProperties:true, so "Domain" is accepted as an unknown property
+// while "domain" is simply absent — it silently drops the value instead.
 type Metadata struct {
-	Domain       string              `yaml:"domain,omitempty"`        // Domain/category (e.g., "customer-support")
-	Language     string              `yaml:"language,omitempty"`      // Primary language (e.g., "en")
-	Tags         []string            `yaml:"tags,omitempty"`          // Tags for categorization
-	CostEstimate *CostEstimate       `yaml:"cost_estimate,omitempty"` // Estimated cost per execution
-	Performance  *PerformanceMetrics `yaml:"performance,omitempty"`   // Performance benchmarks
-	Changelog    []ChangelogEntry    `yaml:"changelog,omitempty"`     // Version history
+	// Domain/category (e.g., "customer-support")
+	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	// Primary language (e.g., "en")
+	Language string `yaml:"language,omitempty" json:"language,omitempty"`
+	// Tags for categorization
+	Tags []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	// Estimated cost per execution
+	CostEstimate *CostEstimate `yaml:"cost_estimate,omitempty" json:"cost_estimate,omitempty"`
+	// Performance benchmarks. Not in the PromptPack spec; carried as an
+	// additional property, which metadata permits.
+	Performance *PerformanceMetrics `yaml:"performance,omitempty" json:"performance,omitempty"`
+	// Version history. Not in the PromptPack spec; see Performance.
+	Changelog []ChangelogEntry `yaml:"changelog,omitempty" json:"changelog,omitempty"`
 }
 
 // CostEstimate provides estimated costs for prompt execution
 type CostEstimate struct {
-	MinCostUSD float64 `yaml:"min_cost_usd"` // Minimum cost per execution
-	MaxCostUSD float64 `yaml:"max_cost_usd"` // Maximum cost per execution
-	AvgCostUSD float64 `yaml:"avg_cost_usd"` // Average cost per execution
+	// Minimum cost per execution
+	MinCostUSD float64 `yaml:"min_cost_usd" json:"min_cost_usd"`
+	// Maximum cost per execution
+	MaxCostUSD float64 `yaml:"max_cost_usd" json:"max_cost_usd"`
+	// Average cost per execution
+	AvgCostUSD float64 `yaml:"avg_cost_usd" json:"avg_cost_usd"`
 }
 
 // PerformanceMetrics provides performance benchmarks
 type PerformanceMetrics struct {
-	AvgLatencyMs int     `yaml:"avg_latency_ms"` // Average latency in milliseconds
-	P95LatencyMs int     `yaml:"p95_latency_ms"` // 95th percentile latency
-	AvgTokens    int     `yaml:"avg_tokens"`     // Average tokens used
-	SuccessRate  float64 `yaml:"success_rate"`   // Success rate (0.0-1.0)
+	// Average latency in milliseconds
+	AvgLatencyMs int `yaml:"avg_latency_ms" json:"avg_latency_ms"`
+	// 95th percentile latency
+	P95LatencyMs int `yaml:"p95_latency_ms" json:"p95_latency_ms"`
+	// Average tokens used
+	AvgTokens int `yaml:"avg_tokens" json:"avg_tokens"`
+	// Success rate (0.0-1.0)
+	SuccessRate float64 `yaml:"success_rate" json:"success_rate"`
 }
 
 // ChangelogEntry records a change in the prompt configuration
 type ChangelogEntry struct {
-	Version     string `yaml:"version"`          // Version number
-	Date        string `yaml:"date"`             // Date of change (YYYY-MM-DD)
-	Author      string `yaml:"author,omitempty"` // Author of change
-	Description string `yaml:"description"`      // Description of change
+	// Version number
+	Version string `yaml:"version" json:"version"`
+	// Date of change (YYYY-MM-DD)
+	Date string `yaml:"date" json:"date"`
+	// Author of change
+	Author string `yaml:"author,omitempty" json:"author,omitempty"`
+	// Description of change
+	Description string `yaml:"description" json:"description"`
 }
 
 // CompilationInfo contains information about prompt compilation
@@ -386,9 +419,15 @@ type Fragment struct {
 // ModelOverride contains model-specific template modifications.
 // Note: Temperature and MaxTokens should be configured at the scenario or provider level,
 // not in the prompt configuration.
+//
+// The spec's $defs/ModelOverride also defines system_template_prefix and
+// parameters. Neither is added here: nothing in the runtime assembles a prefix
+// or applies per-model parameters, so declaring them would be vocabulary with a
+// consumer and no producer. They are recorded as codegen candidates in
+// docs/local-backlog/PACK_TYPES_FROM_SCHEMA_CODEGEN.md rather than added blind.
 type ModelOverride struct {
-	SystemTemplate       string `yaml:"system_template,omitempty"`
-	SystemTemplateSuffix string `yaml:"system_template_suffix,omitempty"`
+	SystemTemplate       string `yaml:"system_template,omitempty" json:"system_template,omitempty"`
+	SystemTemplateSuffix string `yaml:"system_template_suffix,omitempty" json:"system_template_suffix,omitempty"`
 }
 
 // Repository interface defines methods for loading prompts (to avoid import cycles)

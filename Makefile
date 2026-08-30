@@ -249,6 +249,24 @@ schemas-check: ## Check committed schemas match promptarena (for CI)
 		diff -rq "$$tmp" schemas/v1alpha1 || true; rm -rf "$$tmp"; exit 1; \
 	fi
 
+promptpack-schema: ## Refresh the embedded PromptPack schema from the published release
+	@./scripts/fetch-promptpack-schema.sh
+
+promptpack-schema-check: ## Check the embedded PromptPack schema IS the published release (for CI)
+	@echo "Checking embedded PromptPack schema matches the published release..."
+	@tmp=$$(mktemp); \
+	./scripts/fetch-promptpack-schema.sh "$$tmp" >/dev/null; \
+	if diff -q "$$tmp" runtime/prompt/schema/promptpack.schema.json >/dev/null 2>&1; then \
+		echo "✓ Embedded PromptPack schema is the published release"; rm -f "$$tmp"; \
+	else \
+		echo "::error::runtime/prompt/schema/promptpack.schema.json is not the published PromptPack release."; \
+		echo "::error::The embedded copy is a verbatim mirror and must never be hand-edited."; \
+		echo "::error::Run 'make promptpack-schema' and commit. If that breaks a spec-parity test,"; \
+		echo "::error::change the Go type or record a deliberateOmission — never the schema."; \
+		diff "$$tmp" runtime/prompt/schema/promptpack.schema.json | head -40 || true; \
+		rm -f "$$tmp"; exit 1; \
+	fi
+
 schemas-copy: schemas ## Copy schemas to docs/public for hosting (+ latest refs)
 	@echo "Copying schemas to docs/public/schemas..."
 	@mkdir -p docs/public/schemas
