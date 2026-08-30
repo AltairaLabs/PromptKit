@@ -142,3 +142,58 @@ func TestNewMessageCreatedData_StripsToolResultBinary(t *testing.T) {
 	require.NotNil(t, msg.ToolResult.Parts[0].Media.Data,
 		"stripping must not clear the caller's message")
 }
+
+// TestMessageCreatedData_GetContent_ReadsWhicheverFieldCarriesTheText is the
+// regression for something only a live turn exposed.
+//
+// A real Claude turn published a user message with Content "" and the text in
+// Parts[0].Text, and an assistant message with Content set and no Parts. A
+// consumer reading .Content — which the docs for this route originally said to
+// do — renders a blank user turn for every conversation.
+func TestMessageCreatedData_GetContent_ReadsWhicheverFieldCarriesTheText(t *testing.T) {
+	cases := []struct {
+		name string
+		data *MessageCreatedData
+		want string
+	}{
+		{
+			name: "user message carries text in Parts, as the SDK builds it",
+			data: &MessageCreatedData{Role: "user", Parts: []types.ContentPart{textPart("hello")}},
+			want: "hello",
+		},
+		{
+			name: "assistant reply carries text in Content",
+			data: &MessageCreatedData{Role: "assistant", Content: "OK"},
+			want: "OK",
+		},
+		{
+			name: "tool message reads its result",
+			data: &MessageCreatedData{
+				Role:       "tool",
+				ToolResult: &MessageToolResult{Parts: []types.ContentPart{textPart("42")}},
+			},
+			want: "42",
+		},
+		{
+			name: "Parts win over Content when both are set",
+			data: &MessageCreatedData{Role: "user", Content: "legacy", Parts: []types.ContentPart{textPart("modern")}},
+			want: "modern",
+		},
+		{
+			name: "media-only parts fall back to Content rather than returning empty",
+			data: &MessageCreatedData{
+				Role:    "user",
+				Content: "caption",
+				Parts:   []types.ContentPart{{Type: "image", Media: &types.MediaContent{MIMEType: "image/png"}}},
+			},
+			want: "caption",
+		},
+		{name: "nil is empty, not a panic", data: nil, want: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.data.GetContent())
+		})
+	}
+}

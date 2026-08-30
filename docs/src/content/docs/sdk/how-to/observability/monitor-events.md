@@ -46,6 +46,17 @@ pass `sdk.WithEventBus(...)`, the handler is never called and no error is
 raised.
 :::
 
+:::caution[Read `GetContent()`, not `.Content`]
+The two carry text in different fields depending on who produced the message.
+Observed on a real turn: the **user** message arrives with `Content` empty and
+its text in `Parts[0].Text`, while the **assistant** reply arrives with
+`Content` set and no `Parts`. A consumer reading `.Content` directly renders a
+blank user turn for every conversation.
+
+`GetContent()` applies the canonical precedence — tool result, then text parts,
+then the legacy `Content` field — matching `types.Message.GetContent`.
+:::
+
 Three things to know before you rely on it:
 
 - **`Index` is transcript-absolute**, continuing across turns rather than
