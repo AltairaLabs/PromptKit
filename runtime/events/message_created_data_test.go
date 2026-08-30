@@ -94,8 +94,20 @@ func TestNewMessageCreatedData_IndexIsCarried(t *testing.T) {
 	assert.Equal(t, 42, d.Index)
 }
 
+// TestNewMessageCreatedData_NilMessage pins both halves of the nil contract:
+// a nil message produces no payload, AND that nil result is safe to read.
+//
+// Both matter. RecordingStage and MessageBroadcastStage each build from
+// elem.Message, and a control element carries none — so nil reaches here in
+// normal operation. Returning nil is only useful if consuming it is safe, which
+// is why GetContent tolerates a nil receiver rather than leaving every consumer
+// to nil-check before reading.
 func TestNewMessageCreatedData_NilMessage(t *testing.T) {
-	assert.Nil(t, NewMessageCreatedData(nil, 0, true))
+	d := NewMessageCreatedData(nil, 7, true)
+
+	require.Nil(t, d, "a nil message must not produce a payload")
+	assert.Equal(t, "", d.GetContent(),
+		"the nil result must be readable by a consumer, not a panic")
 }
 
 // TestNewMessageCreatedData_ToolCallArgsAreStringified pins the conversion the
