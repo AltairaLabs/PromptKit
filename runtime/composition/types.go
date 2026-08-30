@@ -51,10 +51,11 @@ func StepInputValue(s *Step) any {
 	if s.Input.Object != nil {
 		return s.Input.Object
 	}
-	if s.Input.String != "" {
-		return s.Input.String
-	}
-	return nil
+	// An explicitly empty string is still an input. Returning nil for it would
+	// hide the field from validateKind's allowed-field check, so a step kind
+	// that may not carry `input` could declare an empty one and pass — a
+	// validation guard weakened by the representation change, not by intent.
+	return s.Input.String
 }
 
 // Termination bounds an agent step's tool loop. anyOf max_steps | tool_called.

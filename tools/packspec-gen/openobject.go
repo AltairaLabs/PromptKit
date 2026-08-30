@@ -55,7 +55,32 @@ func emitExtraField(b *strings.Builder) {
 
 // emitOpenObjectJSON emits marshaling that lifts Extra to top-level properties
 // on the way out and captures unknown keys on the way in.
-func emitOpenObjectJSON(name string, jsonNames []string) string {
+// emitRequiredContainerInit emits marshaling that replaces a nil REQUIRED map or
+// slice with an empty one.
+//
+// A required property must be present, and `null` is not an object or an array.
+// ToolParameters.properties is the live case: a parameterless tool declared as
+// {"type":"object"} marshaled to {"properties":null,"type":"object"}, and that
+// document is forwarded verbatim to OpenAI and Anthropic as the function's
+// parameter schema. It is invalid there and invalid against PromptPack's own
+// Tool.parameters. The hand-written interface{} field preserved the author's
+// bytes and never produced it.
+func emitRequiredContainerInit(fields []requiredContainer) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, f := range fields {
+		fmt.Fprintf(&b, "\tif v.%s == nil {\n\t\tv.%s = %s{}\n\t}\n", f.goName, f.goName, f.goType)
+	}
+	return b.String()
+}
+
+// requiredContainer is a required map/slice field, which must never marshal as
+// null.
+type requiredContainer struct{ goName, goType string }
+
+func emitOpenObjectJSON(name string, jsonNames []string, reqContainers []requiredContainer) string {
 	sort.Strings(jsonNames)
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n// %sKnownFields are the properties the schema names. Anything else in the\n", name)
@@ -70,6 +95,7 @@ func emitOpenObjectJSON(name string, jsonNames []string) string {
 	fmt.Fprintf(&b, "// to top level. A key in Extra that collides with a named property is dropped:\n")
 	fmt.Fprintf(&b, "// the typed field is authoritative.\n")
 	fmt.Fprintf(&b, "func (v %s) MarshalJSON() ([]byte, error) {\n", name)
+	b.WriteString(emitRequiredContainerInit(reqContainers))
 	fmt.Fprintf(&b, "\ttype plain %s\n", name)
 	fmt.Fprintf(&b, "\tdata, err := json.Marshal(plain(v))\n")
 	fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
@@ -119,5 +145,35 @@ func emitOpenObjectRegistry(names []string) string {
 		fmt.Fprintf(&b, "\t\t%q: &%s{},\n", n, n)
 	}
 	b.WriteString("\t}\n}\n")
+	return b.String()
+}
+
+// emitYAMLCodec emits YAML marshaling for a type that carries custom JSON
+// codecs, by routing YAML through them.
+//
+// Required because the repo decodes YAML DIRECTLY into these structs —
+// prompt.ParseConfig does yaml.Unmarshal into Config, whose Evals carry
+// MetricDef — and a yaml library does not consult MarshalJSON/UnmarshalJSON.
+// Without this, a generated type silently loses everything its JSON codec
+// handles: metric.labels vanished from YAML configs, and a `requires` block or
+// a composition step failed to parse at all. Both regressions were introduced by
+// generating the types and were invisible until a YAML path was exercised.
+//
+// The signature `UnmarshalYAML(unmarshal func(any) error) error` is the
+// obsolete-but-supported form in yaml.v3, chosen deliberately: it needs no yaml
+// import, so packspec stays stdlib-only.
+//
+// Routing through JSON rather than reimplementing means the union, shorthand
+// and extension rules have exactly one definition. A second implementation is
+// how the two formats drift.
+func emitYAMLCodec(name string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n// UnmarshalYAML decodes YAML through the JSON codec above, so unions,\n")
+	fmt.Fprintf(&b, "// shorthands and extensions behave identically in both formats.\n")
+	fmt.Fprintf(&b, "func (v *%s) UnmarshalYAML(unmarshal func(any) error) error {\n", name)
+	fmt.Fprintf(&b, "\treturn DecodeYAMLViaJSON(unmarshal, v)\n}\n")
+	fmt.Fprintf(&b, "\n// MarshalYAML encodes through the JSON codec above, for the same reason.\n")
+	fmt.Fprintf(&b, "func (v %s) MarshalYAML() (any, error) {\n", name)
+	fmt.Fprintf(&b, "\treturn EncodeYAMLViaJSON(v)\n}\n")
 	return b.String()
 }

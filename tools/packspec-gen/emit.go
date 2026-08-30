@@ -190,6 +190,7 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 
 	required := def.Required()
 	var jsonNames []string
+	var reqContainers []requiredContainer
 	for i, prop := range def.PropertyNames() {
 		qualified := name + "." + prop
 		// Declared here rather than in the caller so hoisted inline objects are
@@ -208,6 +209,9 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 			b.WriteString("\n")
 		}
 		writeField(&b, prop, typ, node, required[prop])
+		if required[prop] && nilableContainer(typ) {
+			reqContainers = append(reqContainers, requiredContainer{goName: goName(prop), goType: typ})
+		}
 		jsonNames = append(jsonNames, prop)
 		e.cov.EmitProp(qualified)
 	}
@@ -218,7 +222,8 @@ func (e *Emitter) emitDef(name string, def Node) (string, error) {
 	if def.isOpenObject() {
 		e.needsJSON = true
 		e.openNames = append(e.openNames, name)
-		b.WriteString(emitOpenObjectJSON(name, jsonNames))
+		b.WriteString(emitOpenObjectJSON(name, jsonNames, reqContainers))
+		b.WriteString(emitYAMLCodec(name))
 	}
 	return b.String(), nil
 }
@@ -324,9 +329,6 @@ func (e *Emitter) objectType(n Node, where, hoistAs string) (string, error) {
 		// (Pack.Prompts, AgentsConfig.Members are both map[string]*T), and
 		// avoids rewriting every `if def := m[k]; def != nil` in the repo for
 		// no gain. Scalar values stay values.
-		if strings.HasPrefix(inner, "*") {
-			return "map[string]" + inner, nil
-		}
 		return "map[string]" + inner, nil
 	}
 	return goAnyMap, nil
@@ -371,6 +373,11 @@ func wrapComment(s, prefix string) string {
 // Shared by the object and union emitters so the omitempty and pointer rules
 // cannot drift between them — they did briefly, and a rule applied in one place
 // and not the other is the same silent gap in miniature.
+// nilableContainer reports whether a Go type marshals to JSON null when unset.
+func nilableContainer(typ string) bool {
+	return strings.HasPrefix(typ, "map[") || strings.HasPrefix(typ, "[]")
+}
+
 func writeField(b *strings.Builder, prop, typ string, node Node, isRequired bool) {
 	if d := node.Str("description"); d != "" {
 		fmt.Fprintf(b, "\t// %s %s\n", goName(prop), wrapComment(lowerFirst(d), "\t// "))

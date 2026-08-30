@@ -121,7 +121,6 @@ type Spec struct {
 // avg_tokens/avg_latency_ms are float64: the spec types them as number, not integer.
 type ModelTestResultRef = packspec.TestedModel
 
-// MediaConfig defines multimodal media support configuration for a prompt
 // MediaConfig defines multimodal media support configuration for a prompt.
 //
 // NOT yet generated. Aliasing it requires MultimodalExample, which requires
@@ -142,8 +141,6 @@ type MediaConfig struct {
 	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
 	// Video-specific configuration
 	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
-	// Maximum total media items per message
-	MaxItemsPerMessage int `yaml:"max_items_per_message,omitempty" json:"max_items_per_message,omitempty"`
 	// Multimodal few-shot examples
 	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
 }

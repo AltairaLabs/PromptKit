@@ -105,3 +105,30 @@ func TestInventoryOmitsRolesWithNoProviders(t *testing.T) {
 		t.Errorf("an unconfigured host should report no roles, got %v", inv)
 	}
 }
+
+// TestProgrammaticProvidersSatisfyRequirements — the ID slices are populated
+// only by the spec-based options; WithContextRetrieval, WithTTS and WithVADMode
+// set a live service and never touch them. Reading only the slices made this
+// gate reject a host that had wired a working provider the documented way.
+//
+// A false failure at Open is worse than no check: it blocks a correct setup
+// rather than an incorrect one. sdk/examples/long-conversation uses
+// WithContextRetrieval, so this was not hypothetical.
+func TestProgrammaticProvidersSatisfyRequirements(t *testing.T) {
+	p := requiring(&packspec.ProviderRequirement{Key: "embeddings", Role: "embedding"})
+	cfg := &config{retrievalProvider: &fakeEmbedderForTests{}}
+	if err := checkProviderRequirements(p, cfg); err != nil {
+		t.Errorf("a programmatically wired provider must satisfy a requirement: %v", err)
+	}
+}
+
+// TestProgrammaticProviderDoesNotSatisfyAnotherRole — being lenient about the
+// KEY must not make the check lenient about the ROLE, or the gate stops meaning
+// anything.
+func TestProgrammaticProviderDoesNotSatisfyAnotherRole(t *testing.T) {
+	p := requiring(&packspec.ProviderRequirement{Key: "embeddings", Role: "embedding"})
+	cfg := &config{ttsProviderIDs: []string{"voice"}}
+	if err := checkProviderRequirements(p, cfg); err == nil {
+		t.Error("a TTS provider must not satisfy an embedding requirement")
+	}
+}

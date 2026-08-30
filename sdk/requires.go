@@ -76,14 +76,29 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 		inv[prompt.RequirementRoleLLM] = llm
 	}
 
-	if len(c.embeddingProviderIDs) > 0 {
-		inv["embedding"] = c.embeddingProviderIDs
-	}
-	if len(c.ttsProviderIDs) > 0 {
-		inv["tts"] = c.ttsProviderIDs
-	}
-	if len(c.sttProviderIDs) > 0 {
-		inv["stt"] = c.sttProviderIDs
-	}
+	// Both wiring styles count. The ID slices are populated only by the
+	// spec-based options (WithEmbeddingProvider, WithTTSProvider,
+	// WithSTTProvider) and WithRuntimeConfig; the programmatic options
+	// (WithContextRetrieval, WithTTS, WithVADMode) set a live service and never
+	// touch them. Reading only the slices made this gate reject a host that had
+	// wired a working provider the documented way — a false failure at Open is
+	// worse than no check at all, because it blocks a correct setup.
+	//
+	// A programmatically-supplied service has no key of its own, so it answers
+	// to any key the pack names for that role: the host supplied exactly one, and
+	// the pack asked for exactly one. anyKey marks that.
+	addRole(inv, "embedding", c.embeddingProviderIDs, c.retrievalProvider != nil)
+	addRole(inv, "tts", c.ttsProviderIDs, c.ttsService != nil)
+	addRole(inv, "stt", c.sttProviderIDs, c.sttService != nil)
 	return inv
+}
+
+func addRole(inv prompt.ProviderInventory, role string, ids []string, programmatic bool) {
+	keys := ids
+	if programmatic {
+		keys = append(append([]string{}, ids...), prompt.AnyKey)
+	}
+	if len(keys) > 0 {
+		inv[role] = keys
+	}
 }

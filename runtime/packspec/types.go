@@ -127,6 +127,17 @@ func (v *AgentStep) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *AgentStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v AgentStep) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // AgentsConfig agent configuration that maps prompts to A2A-compatible agent definitions. Enables
 // multi-agent orchestration via the Agent-to-Agent protocol.
 type AgentsConfig struct {
@@ -158,6 +169,9 @@ var AllOfPredicateKnownFields = map[string]bool{
 // to top level. A key in Extra that collides with a named property is dropped:
 // the typed field is authoritative.
 func (v AllOfPredicate) MarshalJSON() ([]byte, error) {
+	if v.AllOf == nil {
+		v.AllOf = []*Predicate{}
+	}
 	type plain AllOfPredicate
 	data, err := json.Marshal(plain(v))
 	if err != nil {
@@ -208,6 +222,17 @@ func (v *AllOfPredicate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *AllOfPredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v AllOfPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 type AnyOfPredicate struct {
 	AnyOf []*Predicate `json:"any_of" yaml:"any_of"`
 
@@ -228,6 +253,9 @@ var AnyOfPredicateKnownFields = map[string]bool{
 // to top level. A key in Extra that collides with a named property is dropped:
 // the typed field is authoritative.
 func (v AnyOfPredicate) MarshalJSON() ([]byte, error) {
+	if v.AnyOf == nil {
+		v.AnyOf = []*Predicate{}
+	}
 	type plain AnyOfPredicate
 	data, err := json.Marshal(plain(v))
 	if err != nil {
@@ -276,6 +304,17 @@ func (v *AnyOfPredicate) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *AnyOfPredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v AnyOfPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // ArtifactDef declares a named artifact slot for carrying lightweight, structured metadata across
@@ -396,6 +435,17 @@ func (v *BranchStep) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *BranchStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v BranchStep) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 type ComparePredicate struct {
 	Op string `json:"op" yaml:"op"`
 
@@ -473,6 +523,17 @@ func (v *ComparePredicate) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ComparePredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ComparePredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // Composition a named step graph defining a procedural composition over the pack's prompts, tools, and
@@ -655,6 +716,17 @@ func (v *ExistsPredicate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ExistsPredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ExistsPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // GenericMediaTypeConfig generic configuration for custom media types. Use this for types not covered by specific
 // configs (ImageConfig, AudioConfig, etc.). Provides common validation properties that
 // apply to most media types.
@@ -739,6 +811,17 @@ func (v *GenericMediaTypeConfig) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *GenericMediaTypeConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v GenericMediaTypeConfig) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // ImageConfig configuration and validation rules for image content
@@ -907,6 +990,17 @@ func (v *MetricDef) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *MetricDef) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v MetricDef) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // MiddlewareConfig configuration for a single middleware component in the pipeline
 type MiddlewareConfig struct {
 	// Config type-specific configuration for the middleware
@@ -1017,6 +1111,17 @@ func (v *NotPredicate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *NotPredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v NotPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // ParallelStep step kind 'parallel': a static fan-out block whose branches execute concurrently and are
 // merged by a declared reducer.
 type ParallelStep struct {
@@ -1045,6 +1150,9 @@ var ParallelStepKnownFields = map[string]bool{
 // to top level. A key in Extra that collides with a named property is dropped:
 // the typed field is authoritative.
 func (v ParallelStep) MarshalJSON() ([]byte, error) {
+	if v.Branches == nil {
+		v.Branches = []*Step{}
+	}
 	type plain ParallelStep
 	data, err := json.Marshal(plain(v))
 	if err != nil {
@@ -1093,6 +1201,17 @@ func (v *ParallelStep) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ParallelStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ParallelStep) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // Parameters LLM generation parameters controlling the model's behavior and output characteristics
@@ -1297,6 +1416,17 @@ func (v *PromptStep) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *PromptStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v PromptStep) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // ProviderCapabilities structured, advisory capabilities the satisfying provider should have (RFC 0012). The
 // well-known fields below are validated when present, but the object is OPEN: provider- or
 // role-specific capabilities (a 'role: inference' provider may expose anything) may be
@@ -1391,6 +1521,17 @@ func (v *ProviderCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ProviderCapabilities) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ProviderCapabilities) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // ProviderRequirement a logical model-provider requirement (RFC 0012). A bare string is shorthand for an 'llm'
 // requirement with that key.
 //
@@ -1447,6 +1588,17 @@ func (v *ProviderRequirement) UnmarshalJSON(data []byte) error {
 	}
 	*v = ProviderRequirement(obj)
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ProviderRequirement) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ProviderRequirement) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // Reducer names how a parallel block's branch outputs are merged into a single value (RFC 0010).
@@ -1528,6 +1680,17 @@ func (v *Reducer) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *Reducer) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v Reducer) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // SkillPathSource a skill source with a path and optional preload configuration.
 type SkillPathSource struct {
 	// Path path to a skill directory, file, or package reference.
@@ -1591,6 +1754,17 @@ func (v *SkillSource) UnmarshalJSON(data []byte) error {
 	}
 	*v = SkillSource(obj)
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *SkillSource) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v SkillSource) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // Step a single step in a composition's step graph. The 'kind' discriminator selects the step
@@ -1657,6 +1831,99 @@ type Step struct {
 	// Tools subset of the pack's tools available to this agent step. Acts as a per-step scoped tool
 	// registry.
 	Tools []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// StepKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var StepKnownFields = map[string]bool{
+	"args":          true,
+	"branches":      true,
+	"depends_on":    true,
+	"description":   true,
+	"else":          true,
+	"id":            true,
+	"input":         true,
+	"kind":          true,
+	"modifiers":     true,
+	"output_schema": true,
+	"predicate":     true,
+	"prompt_task":   true,
+	"reduce":        true,
+	"termination":   true,
+	"then":          true,
+	"tool":          true,
+	"tools":         true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v Step) MarshalJSON() ([]byte, error) {
+	type plain Step
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !StepKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *Step) UnmarshalJSON(data []byte) error {
+	type plain Step
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = Step(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if StepKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *Step) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v Step) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // StepInput input binding for a step (RFC 0010). May be a reference of the form '${path.to.value}'
@@ -1698,6 +1965,17 @@ func (v *StepInput) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return fmt.Errorf("StepInput: expected object or string, got %s", string(data))
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *StepInput) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v StepInput) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // StepModifiers declarative annotations on a step. Semantics are runtime-defined.
@@ -1776,6 +2054,17 @@ func (v *StepModifiers) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *StepModifiers) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v StepModifiers) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // TerminationPredicate termination condition for an agent step's bounded loop (RFC 0010).
 //
 // Flattened from a oneOf/anyOf union: every field any variant can present,
@@ -1786,6 +2075,84 @@ type TerminationPredicate struct {
 
 	// ToolCalled tool name; agent terminates when the LLM successfully invokes this tool.
 	ToolCalled string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// TerminationPredicateKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var TerminationPredicateKnownFields = map[string]bool{
+	"max_steps":   true,
+	"tool_called": true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v TerminationPredicate) MarshalJSON() ([]byte, error) {
+	type plain TerminationPredicate
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !TerminationPredicateKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *TerminationPredicate) UnmarshalJSON(data []byte) error {
+	type plain TerminationPredicate
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = TerminationPredicate(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if TerminationPredicateKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *TerminationPredicate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v TerminationPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // TestedModel testing results for a specific model. Documents which models have been tested with this
@@ -1925,6 +2292,17 @@ func (v *ToolStep) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ToolStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ToolStep) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // Validator a validation rule (guardrail) applied to LLM responses. Validators can check content,
@@ -2253,6 +2631,17 @@ func (v *MetricDefRange) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *MetricDefRange) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v MetricDefRange) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // PackCompilation is an inline object hoisted from the spec so its fields stay named.
 // PackCompilation information about when and how this pack was compiled. Generated automatically by the
 // packc compiler.
@@ -2337,6 +2726,17 @@ func (v *PackCompilation) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *PackCompilation) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v PackCompilation) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // PackMetadata is an inline object hoisted from the spec so its fields stay named.
@@ -2424,6 +2824,17 @@ func (v *PackMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *PackMetadata) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v PackMetadata) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // PackMetadataCostEstimate is an inline object hoisted from the spec so its fields stay named.
 // PackMetadataCostEstimate cost estimation for using this pack
 type PackMetadataCostEstimate struct {
@@ -2503,6 +2914,17 @@ func (v *PackMetadataCostEstimate) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *PackMetadataCostEstimate) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v PackMetadataCostEstimate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // PackRequires is an inline object hoisted from the spec so its fields stay named.
@@ -2599,6 +3021,17 @@ func (v *StepModifiersRetry) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *StepModifiersRetry) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v StepModifiersRetry) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // ToolParameters is an inline object hoisted from the spec so its fields stay named.
 // ToolParameters JSON Schema defining the tool's parameters. Follows JSON Schema specification.
 type ToolParameters struct {
@@ -2630,6 +3063,9 @@ var ToolParametersKnownFields = map[string]bool{
 // to top level. A key in Extra that collides with a named property is dropped:
 // the typed field is authoritative.
 func (v ToolParameters) MarshalJSON() ([]byte, error) {
+	if v.Properties == nil {
+		v.Properties = map[string]map[string]any{}
+	}
 	type plain ToolParameters
 	data, err := json.Marshal(plain(v))
 	if err != nil {
@@ -2678,6 +3114,17 @@ func (v *ToolParameters) UnmarshalJSON(data []byte) error {
 		v.Extra[k] = val
 	}
 	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ToolParameters) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ToolParameters) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
 }
 
 // VariableBinding is an inline object hoisted from the spec so its fields stay named.
@@ -2793,6 +3240,17 @@ func (v *WorkflowConfigEngine) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *WorkflowConfigEngine) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v WorkflowConfigEngine) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
 // OpenObjectPrototypes returns a zero value of every type that accepts
 // properties the schema does not name (additionalProperties is true, or
 // absent, which JSON Schema defines as true).
@@ -2818,8 +3276,10 @@ func OpenObjectPrototypes() map[string]any {
 		"PromptStep":               &PromptStep{},
 		"ProviderCapabilities":     &ProviderCapabilities{},
 		"Reducer":                  &Reducer{},
+		"Step":                     &Step{},
 		"StepModifiers":            &StepModifiers{},
 		"StepModifiersRetry":       &StepModifiersRetry{},
+		"TerminationPredicate":     &TerminationPredicate{},
 		"ToolParameters":           &ToolParameters{},
 		"ToolStep":                 &ToolStep{},
 		"WorkflowConfigEngine":     &WorkflowConfigEngine{},

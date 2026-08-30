@@ -171,8 +171,8 @@ func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
 	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackPrompt{}), "Prompt")
 }
 
-// ModelTestResultRef and ModelOverride had cases here until they became
-// aliases for their generated types. A parity test on an alias is tautological
+// PackTool, ModelTestResultRef and ModelOverride had cases here until they
+// became aliases for their generated types. A parity test on an alias is tautological
 // — it compares the generated type to the schema it was generated from — so the
 // cases were removed rather than left as reassuring noise. The generator's own
 // coverage check and `make packspec-check` cover those types now, and more
@@ -180,8 +180,3 @@ func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
 // on a tag mismatch.
 //
 // The cases below remain because their types are still hand-written.
-
-// TestToolStructMatchesPromptPackSpec pins prompt.PackTool to $defs/Tool.
-func TestToolStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackTool{}), "Tool")
-}

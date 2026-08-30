@@ -36,6 +36,9 @@ const (
 	RequirementKeyDefault = "default"
 	// RequirementRoleLLM is the role a bare string shorthand expands to.
 	RequirementRoleLLM = "llm"
+	// AnyKey marks a role the host can satisfy under any key, for providers
+	// supplied without an identifier to match on.
+	AnyKey = "*"
 )
 
 // ResolvedRequirement is a requirement with the spec's defaults applied, so
@@ -121,9 +124,16 @@ type ProviderInventory map[string][]string
 // is not satisfied by an `llm` named "judge". Resolution beyond that — which
 // concrete model, from where — is explicitly the host's business, not the
 // spec's.
+//
+// A host may list AnyKey for a role to mean "one provider of this role is
+// wired, but it has no name to match on". That covers providers supplied
+// programmatically rather than by key; without it the check rejects a host that
+// has wired a working provider, and a false failure at Open is worse than no
+// check, because it blocks a correct setup rather than an incorrect one.
 func Unsatisfied(reqs []ResolvedRequirement, have ProviderInventory) (required, optional []ResolvedRequirement) {
 	for _, r := range reqs {
-		if slicesContains(have[r.Role], r.Key) {
+		keys := have[r.Role]
+		if slicesContains(keys, r.Key) || slicesContains(keys, AnyKey) {
 			continue
 		}
 		if r.Required {

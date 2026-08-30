@@ -89,7 +89,7 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 		// free-form object) is a wrapper with a custom unmarshaller.
 		if kinds := e.schema.variantKinds(def); len(kinds) > 0 {
 			e.needsJSON = true
-			return e.emitVariantWrapper(name, def, kinds), nil
+			return e.emitVariantWrapper(name, def, kinds) + emitYAMLCodec(name), nil
 		}
 		return "", fmt.Errorf("$defs/%s: union has no properties to flatten and no recognizable "+
 			"variant shapes — teach variantKinds about it, or add an exclusion with a reason", name)
@@ -110,8 +110,10 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 	b.WriteString("// validation concern the schema enforces, not a shape this type can express.\n")
 	fmt.Fprintf(&b, "type %s struct {\n", name)
 
+	var jsonNames []string
 	for i, prop := range names {
 		qualified := name + "." + prop
+		jsonNames = append(jsonNames, prop)
 		e.cov.DeclareProp(qualified)
 		typ, err := e.goTypeNamed(props[prop], qualified, name+goName(prop))
 		if err != nil {
@@ -124,6 +126,18 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 		e.cov.EmitProp(qualified)
 	}
 
+	// A union is an object like any other: if the schema leaves it open — and
+	// every union in the spec omits additionalProperties, which JSON Schema
+	// defines as open — unknown keys must survive. Skipping this meant Step and
+	// Predicate dropped extensions while their own variant types preserved
+	// them, which is the open-object machinery applied inconsistently. Step.kind
+	// is documented as accepting vendor-namespaced kinds, and the fields such a
+	// kind carries are exactly what was being lost.
+	openUnion := def.isOpenObject()
+	if openUnion {
+		emitExtraField(&b)
+	}
+
 	shorthand := e.schema.scalarVariants(def)
 	if len(shorthand) == 1 {
 		fmt.Fprintf(&b, "\n\t// Shorthand holds the scalar form of this union when the pack used it\n")
@@ -133,9 +147,16 @@ func (e *Emitter) emitFlattenedUnion(name string, def Node) (string, error) {
 	}
 	b.WriteString("}\n")
 
-	if len(shorthand) == 1 {
+	switch {
+	case len(shorthand) == 1:
 		e.needsJSON = true
 		b.WriteString(mixedUnionJSON(name, shorthand[0]))
+		b.WriteString(emitYAMLCodec(name))
+	case openUnion:
+		e.needsJSON = true
+		e.openNames = append(e.openNames, name)
+		b.WriteString(emitOpenObjectJSON(name, jsonNames, nil))
+		b.WriteString(emitYAMLCodec(name))
 	}
 	return b.String(), nil
 }

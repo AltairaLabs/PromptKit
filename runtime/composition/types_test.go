@@ -105,8 +105,10 @@ func TestStepInputValueUnwrapsBothShapes(t *testing.T) {
 		if got := StepInputValue(&Step{}); got != nil {
 			t.Errorf("a step with no input must yield nil, got %v", got)
 		}
-		if got := StepInputValue(&Step{Input: &packspec.StepInput{}}); got != nil {
-			t.Errorf("an empty union must yield nil, got %v", got)
+		// An explicitly empty string is NOT absent: it is an input the author
+		// wrote, and validateKind's allowed-field check has to see it.
+		if got := StepInputValue(&Step{Input: &packspec.StepInput{}}); got != "" {
+			t.Errorf("an empty string input must stay an empty string, got %v", got)
 		}
 		if got := StepInputValue(nil); got != nil {
 			t.Errorf("a nil step must yield nil, got %v", got)

@@ -54,3 +54,77 @@ func TestPtrRoundTrips(t *testing.T) {
 		t.Error("Ptr must allocate; two calls returned the same pointer")
 	}
 }
+
+// failingUnmarshaler and friends exercise the error paths of the YAML bridge.
+// Extracting the bridge from 54 generated copies is what made these reachable
+// at all: an error branch repeated in every generated method is an error branch
+// nothing tests.
+type failingUnmarshaler struct{}
+
+func (failingUnmarshaler) UnmarshalJSON([]byte) error { return errBoom }
+
+type failingMarshaler struct{}
+
+func (failingMarshaler) MarshalJSON() ([]byte, error) { return nil, errBoom }
+
+type badJSONMarshaler struct{}
+
+func (badJSONMarshaler) MarshalJSON() ([]byte, error) { return []byte(`{"unterminated":`), nil }
+
+type okMarshaler struct{}
+
+func (okMarshaler) MarshalJSON() ([]byte, error) { return []byte(`{"a":1}`), nil }
+
+var errBoom = errorString("boom")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+func TestDecodeYAMLViaJSONPropagatesErrors(t *testing.T) {
+	t.Run("the yaml decode fails", func(t *testing.T) {
+		unmarshal := func(any) error { return errBoom }
+		if err := packspec.DecodeYAMLViaJSON(unmarshal, &packspec.MetricDef{}); err == nil {
+			t.Error("a failing yaml decode must propagate, not be swallowed")
+		}
+	})
+
+	t.Run("the target rejects the document", func(t *testing.T) {
+		unmarshal := func(v any) error {
+			*(v.(*any)) = map[string]any{"a": 1}
+			return nil
+		}
+		if err := packspec.DecodeYAMLViaJSON(unmarshal, failingUnmarshaler{}); err == nil {
+			t.Error("the target's own UnmarshalJSON error must propagate")
+		}
+	})
+
+	t.Run("a value that cannot be re-encoded", func(t *testing.T) {
+		// A channel has no JSON representation, so the bridge's json.Marshal
+		// fails. Without propagation the caller would see a silently empty value.
+		unmarshal := func(v any) error {
+			*(v.(*any)) = make(chan int)
+			return nil
+		}
+		if err := packspec.DecodeYAMLViaJSON(unmarshal, &packspec.MetricDef{}); err == nil {
+			t.Error("a value with no JSON representation must error")
+		}
+	})
+}
+
+func TestEncodeYAMLViaJSONPropagatesErrors(t *testing.T) {
+	if _, err := packspec.EncodeYAMLViaJSON(failingMarshaler{}); err == nil {
+		t.Error("a failing MarshalJSON must propagate")
+	}
+	if _, err := packspec.EncodeYAMLViaJSON(badJSONMarshaler{}); err == nil {
+		t.Error("output that is not valid JSON must error rather than yield a partial value")
+	}
+	out, err := packspec.EncodeYAMLViaJSON(okMarshaler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := out.(map[string]any)
+	if !ok || m["a"] != float64(1) {
+		t.Errorf("a valid marshaler must yield the decoded value, got %#v", out)
+	}
+}
