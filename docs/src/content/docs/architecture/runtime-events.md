@@ -135,6 +135,36 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 - `Enforced` — whether content was modified (truncated or replaced) or the call was blocked
 - `Score` — evaluation score (0.0–1.0)
 
+#### Eval Results
+
+- `eval.completed` - An eval, assertion or guardrail produced a result
+- `eval.failed` - The handler errored
+
+`EvalEventData` carries three things a consumer must not conflate:
+
+| Field | Meaning |
+|-------|---------|
+| `Kind` | The ROLE: `eval`, `assertion` or `guardrail` |
+| `Passed` | The boolean — **only** ever set for an assertion or a guardrail |
+| `Value` / `MetricValue` / `Score` | What the eval measured |
+
+An **eval** measures and returns a value; it does not pass or fail, and its
+`Passed` is always nil. Only a role that coerces that measurement to a
+boolean — an **assertion** (score against thresholds) or a **guardrail** (the
+same shape, used to gate rather than to report) — states one.
+
+Do not derive the boolean yourself. `Passed` was once computed from
+`score >= 1.0`, which reported an `llm_judge` scoring 0.9 as FAILED: that
+threshold is the *assertion's default*, applied to something nobody asserted on.
+A nil `Passed` on `Kind: eval` means "this kind of thing has no pass/fail", not
+"it failed" and not "we don't know".
+
+`Value` is the handler's own output — a rubric's per-criterion map, a
+classifier's label, a reasoning service's JSON. It is bounded by
+`events.MaxEvalValueBytes`; a value too large to carry is dropped and
+`ValueOmitted` is set, so a consumer can tell that from an eval that produced
+none. Producers set it with `SetValue`, never by assignment.
+
 #### Prompt Template
 
 - `prompt.template.started` - Template rendering begins (includes raw template, variable count, model override)
@@ -430,11 +460,19 @@ Two consequences a consumer must design around:
   per-bus counter for reassembling that; for conversation position use
   `MessageCreatedData.Index`, which is transcript-absolute.
 
-### Lightweight payloads — no bytes on the bus, ever
+### No BINARY on the bus, ever
 
-Events carry metadata and metrics, never payload bytes. This is a hard rule,
-not a preference: a megabyte of base64 per turn would swamp a bus whose whole
-job is to stay out of the pipeline's way.
+Events never carry binary payloads — audio samples, image and video bytes,
+base64 blobs. This is a hard rule, not a preference: a megabyte of base64 per
+turn would swamp a bus whose whole job is to stay out of the pipeline's way.
+
+**Text and structured content are a different matter.** Message content, an
+eval's structured value, a judge's reasoning — these are the substance a live
+consumer needs, and withholding them would make the bus useless for the things
+it exists to serve. They travel, subject to two conditions: a size bound, so one
+pathological payload cannot swamp the channel, and redaction, because they carry
+customer data. An omitted-because-too-large payload always says so, so a
+consumer can tell it from one that was never there.
 
 Handling binary is precisely what the **opt-in recording route** exists for.
 `RecordingStage` writes straight to an `EventStore` and never publishes, so
@@ -487,9 +525,11 @@ must build the payload through **one shared constructor**, so the two cannot
 drift. `events.NewMessageCreatedData` is the worked example; before it existed,
 the recording route silently omitted `Index` while the bus route set it.
 
-### 2. Does it carry bytes?
+### 2. Does it carry binary?
 
-Then it does not go on the bus. See *Lightweight payloads* above.
+Then it does not go on the bus — see *No binary on the bus* above. Text and
+structured content may, bounded and redactable; raw bytes may not, and the
+recording route exists for them.
 
 ### 3. Is it actually the thing the type name says?
 

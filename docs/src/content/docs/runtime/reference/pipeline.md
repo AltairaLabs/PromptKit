@@ -3245,7 +3245,9 @@ This is the LIVE route for messages: async, lossy, binary stripped. It is what a
 
 RecordingStage is the FIDELITY route for the same event type: synchronous, lossless, full binary, opt\-in, straight to an EventStore. Both build their payload with events.NewMessageCreatedData, so they carry the same data for the same message except Parts.
 
-INVARIANT: no payload bytes ever reach the bus. Not "usually", and not "only when recording is off" — always. The bus is for observability, and a megabyte of base64 per turn would swamp it; dealing with binary is exactly what the opt\-in recording route exists for, and that route never publishes. A bus subscriber sees MIME type, dimensions, size and URL references, never the bytes. Held by TestMessageBroadcastStage\_NeverPutsBinaryOnTheBus and its recording\-side sibling, alongside the audio guard for \#853.
+INVARIANT: no BINARY ever reaches the bus. Not "usually", and not "only when recording is off" — always. A megabyte of base64 per turn would swamp a channel whose whole job is to stay out of the pipeline's way, and handling binary is exactly what the opt\-in recording route exists for.
+
+This is about bytes, not about content. A subscriber gets the message TEXT — that is the point of a live route — along with MIME type, dimensions, size and URL references for any media. What it never gets is the media itself. Held by TestMessageBroadcastStage\_NeverPutsBinaryOnTheBus and its recording\-side sibling, alongside the audio guard for \#853.
 
 Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
 

@@ -163,10 +163,16 @@ type BlobStore interface {
 
 **RecordingStage** writes the same event type **directly to the EventStore, bypassing the EventBus**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
 
-:::caution[Payload bytes never go on the bus]
+:::caution[Binary never goes on the bus]
 Not "usually", and not "only when recording is off" — always. Handling binary is
 what the opt-in recording route is *for*, and that route never publishes, so
-enabling recording does not start putting payloads on the bus.
+enabling recording does not start putting media on the bus.
+
+This is about **bytes, not content**. Message text, an eval's structured value,
+a judge's reasoning all travel on the bus — a live consumer that received a
+score with no idea what was measured would be useless. What they do not carry is
+audio samples or image data: for media you get the MIME type, dimensions, size
+and a URL reference, and the payload stays behind the recording route.
 
 If you are adding an event, read
 [Adding a new event](/architecture/runtime-events/#adding-a-new-event) first —
@@ -258,7 +264,8 @@ This pattern enables evals without explicit SDK middleware — events from Recor
 ### Content and redaction
 
 Events carry customer data — tool arguments the model composed, tool results,
-message text. Two controls, doing different jobs:
+message text, and the output of any eval that judged them. Two controls, doing
+different jobs:
 
 | Option | Scope | Default |
 |--------|-------|---------|
@@ -273,6 +280,19 @@ sdk.WithEventRedactor(func(field, value string) string {
     return value
 }),
 ```
+
+The redactor is handed a field name, so a policy can be as coarse or as narrow
+as it needs: `FieldMessageContent`, `FieldToolCallArgs`, `FieldToolResult`,
+`FieldContentPart`, and — for eval events — `FieldEvalValue`,
+`FieldEvalExplanation`, `FieldEvalDetails` and `FieldEvalEvidence`. An eval's
+output quotes what it judged (a judge restates the answer, a violation's
+evidence *is* the offending span), so it is redacted like any other content.
+Nested strings inside a value or a details map are rewritten too, which is where
+the quoted text usually lives.
+
+Measurements are left alone: score, metric value, pass/fail, kind and timings
+are facts *about* content rather than content, and scrubbing them would leave an
+audit unable to tell a blocked guardrail from a passing one.
 
 `Redacting` wraps each subscriber and hands it its own **copy**, so redacting
 for the tracer does not strip a store that should keep the original. Redaction
