@@ -160,7 +160,13 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 
 	resp, err := b.HTTPClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("embedding request failed: %w", err)
+		// Wrapped as ProviderTransportError, not a bare fmt.Errorf: that is the
+		// type whose Error() redacts credential-bearing query parameters. A
+		// plain wrap formats the raw *url.Error — full URL included — straight
+		// into the message, which is how a live key reached the logs in #1871.
+		// It also makes embedding transport failures classifiable by
+		// IsTransient, like every other provider path.
+		return nil, &ProviderTransportError{Cause: err, Provider: b.ProviderID}
 	}
 	defer resp.Body.Close()
 

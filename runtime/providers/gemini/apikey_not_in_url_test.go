@@ -88,3 +88,19 @@ func TestApplyAuth_VertexUnaffected(t *testing.T) {
 	assert.Empty(t, req.Header.Get("x-goog-api-key"),
 		"Vertex must never authenticate with the AI Studio API key")
 }
+
+// TestEmbeddingHeaders_OmittedWhenKeyIsEmpty guards the platform-auth path.
+//
+// Under WithGeminiEmbeddingPlatformAuth the API key is deliberately empty
+// because the HTTP transport supplies the credential. Setting a PRESENT but
+// empty x-goog-api-key is rejected by Google's front end as an invalid key
+// rather than falling through to the transport, so the header must be absent
+// rather than blank — the same guard applyAuth has.
+func TestEmbeddingHeaders_OmittedWhenKeyIsEmpty(t *testing.T) {
+	assert.Nil(t, apiKeyHeaders(""),
+		"an empty key must send no header at all, not an empty one")
+
+	got := apiKeyHeaders(urlProbeKey)
+	require.NotNil(t, got)
+	assert.Equal(t, urlProbeKey, got[apiKeyHeader])
+}

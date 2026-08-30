@@ -8,12 +8,22 @@ const redactedValue = "REDACTED"
 // urlSecretParams matches a query parameter whose VALUE is a credential,
 // capturing the separator and name so both survive the substitution.
 //
+// The name is matched on TOKEN boundaries, not as a substring. An earlier
+// version tested for "key" anywhere in the name and so redacted ?keyword=,
+// ?monkey=, ?assignee= and ?design= — destroying exactly the diagnostic context
+// this function promises to preserve — while still missing ?pwd=, ?auth=,
+// ?code= and ?sas=. A parameter name is treated as `-`/`_`-separated segments
+// and matches only when one whole segment is a credential word.
+//
 // The value is terminated by anything that cannot appear inside one: another
 // parameter, whitespace, or the quote/bracket characters error formatters wrap
 // URLs in. Go's *url.Error renders as `Post "https://…?key=X": read tcp …`, so
 // the closing quote matters.
 var urlSecretParams = regexp.MustCompile(
-	`(?i)([?&][^?&=\s]*(?:key|token|secret|password|passwd|signature|sig|credential)[^?&=\s]*=)[^&\s"'` + "`" + `<>\\]+`,
+	`(?i)([?&](?:[a-z0-9]+[-_])*` +
+		`(?:key|token|secret|password|passwd|pwd|credential|credentials|` +
+		`signature|sig|sas|auth|authorization|code)` +
+		`(?:[-_][a-z0-9]+)*=)[^&\s"'` + "`" + `<>\\]+`,
 )
 
 // RedactURLSecrets masks credential-bearing query parameters in any URLs found
