@@ -430,12 +430,12 @@ type ChangelogEntry struct {
 	Description string `yaml:"description" json:"description"`
 }
 
-// CompilationInfo contains information about prompt compilation
-type CompilationInfo struct {
-	CompiledWith string `yaml:"compiled_with" json:"compiled_with"`       // Compiler version
-	CreatedAt    string `yaml:"created_at" json:"created_at"`             // Timestamp (RFC3339)
-	Schema       string `yaml:"schema,omitempty" json:"schema,omitempty"` // Pack schema version (e.g., "v1")
-}
+// CompilationInfo records when and how a pack was compiled.
+//
+// Generated. `compilation` is a spec property with a defined shape
+// (compiled_with, created_at and schema are all required), not a promptkit
+// extension — it was hand-written here on the false premise that it was one.
+type CompilationInfo = packspec.PackCompilation
 
 // FragmentRef references a prompt fragment for assembly
 type FragmentRef struct {

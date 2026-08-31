@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
@@ -83,14 +82,6 @@ var packStructPins = []pinnedStruct{
 	// Not spec types. Each carries data the PromptPack format does not define.
 	{value: prompt.Pack{}, notSpec: "the pack root itself; its properties are pinned " +
 		"through the structs below and through the generated types it embeds"},
-	{value: prompt.CompilationInfo{}, notSpec: "promptkit's own build provenance " +
-		"(compiler version, timestamp), carried in the compilation envelope the spec " +
-		"leaves open rather than describing spec data"},
-	{value: evals.EvalWhen{}, notSpec: "gating on runtime conditions (turn index, " +
-		"tool outcome) — evaluation scheduling, not pack data"},
-	{value: evals.Threshold{}, notSpec: "guardrail enforcement thresholds; an eval " +
-		"never states a pass/fail, so a threshold is the enforcing wrapper's, not the " +
-		"eval's, and is not part of the portable pack"},
 
 	// Blocked on ONE Go constraint: a type alias cannot carry methods
 	// ("cannot define new methods on non-local type"). These types have
@@ -121,10 +112,6 @@ var packStructPins = []pinnedStruct{
 	// mostly documentation. Where the schema actually closes an enum
 	// (WorkflowState.orchestration does; trigger and persistence do not), the
 	// real fix is for the generator to emit named constants.
-	{value: evals.EvalDef{}, schemaRef: "$defs/Eval",
-		notGenerated: "would change trigger to string and when to map[string]any, " +
-			"losing evals.EvalTrigger and *evals.EvalWhen. Weak reason (see above); " +
-			"blocked mainly by the blast radius across runtime/evals"},
 	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig",
 		notGenerated: "its states map holds *workflow.State, so it follows that type"},
 	{value: workflow.State{}, schemaRef: "$defs/WorkflowState",

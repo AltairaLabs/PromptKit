@@ -168,11 +168,11 @@ func TestResolveEvals_OverridePreservesFields(t *testing.T) {
 	if e.Trigger != TriggerSampleTurns {
 		t.Errorf("trigger: got %q, want %q", e.Trigger, TriggerSampleTurns)
 	}
-	if e.IsEnabled() {
+	if IsEnabled(&e) {
 		t.Error("expected eval to be disabled after override")
 	}
-	if e.GetSamplePercentage() != 50.0 {
-		t.Errorf("sample percentage: got %f, want 50.0", e.GetSamplePercentage())
+	if SamplePercentage(&e) != 50.0 {
+		t.Errorf("sample percentage: got %f, want 50.0", SamplePercentage(&e))
 	}
 	if e.Params["model"] != "claude-3" {
 		t.Errorf("params model: got %v, want claude-3", e.Params["model"])
@@ -301,7 +301,7 @@ func TestGetGroups_WithTypeClassification(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.def.GetGroups()
+			got := Groups(&tt.def)
 			if len(got) != len(tt.wantGroups) {
 				t.Fatalf("length mismatch: got %v, want %v", got, tt.wantGroups)
 			}

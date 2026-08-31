@@ -125,8 +125,8 @@ func TestPack_PromptLevelEvals(t *testing.T) {
 	assert.Equal(t, "deterministic", eval.Type)
 	assert.Equal(t, evals.TriggerEveryTurn, eval.Trigger)
 	assert.Equal(t, float64(500), eval.Params["max_length"])
-	assert.False(t, eval.IsEnabled())
-	assert.Equal(t, 10.0, eval.GetSamplePercentage())
+	assert.False(t, evals.IsEnabled(&eval))
+	assert.Equal(t, 10.0, evals.SamplePercentage(&eval))
 }
 
 func TestPack_EvalsRoundTrip(t *testing.T) {
@@ -184,8 +184,8 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 	assert.Equal(t, "pack-eval", restored.Evals[0].ID)
 	assert.Equal(t, "llm_judge", restored.Evals[0].Type)
 	assert.Equal(t, evals.TriggerSampleTurns, restored.Evals[0].Trigger)
-	assert.True(t, restored.Evals[0].IsEnabled())
-	assert.Equal(t, 25.0, restored.Evals[0].GetSamplePercentage())
+	assert.True(t, evals.IsEnabled(&restored.Evals[0]))
+	assert.Equal(t, 25.0, evals.SamplePercentage(&restored.Evals[0]))
 	require.NotNil(t, restored.Evals[0].Metric)
 	assert.Equal(t, "helpfulness", restored.Evals[0].Metric.Name)
 	assert.Equal(t, evals.MetricGauge, restored.Evals[0].Metric.Type)

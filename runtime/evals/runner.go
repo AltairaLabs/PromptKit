@@ -195,25 +195,25 @@ func (r *EvalRunner) runOne(
 	allowedTriggers map[EvalTrigger]bool,
 ) *EvalResult {
 	// Skip disabled evals
-	if !def.IsEnabled() {
+	if !IsEnabled(def) {
 		logger.Debug("evals: skipping disabled eval", "eval_id", def.ID)
 		return nil
 	}
 
 	// Skip evals whose trigger doesn't match this execution mode
-	if !allowedTriggers[def.Trigger] {
+	if !allowedTriggers[EvalTrigger(def.Trigger)] {
 		logger.Debug("evals: skipping eval, trigger mismatch", "eval_id", def.ID, "trigger", def.Trigger)
 		return nil
 	}
 
 	// Check sampling
-	if !ShouldRun(def.Trigger, def.GetSamplePercentage(), trigCtx) {
+	if !ShouldRun(EvalTrigger(def.Trigger), SamplePercentage(def), trigCtx) {
 		logger.Debug("evals: skipping eval, sampling excluded", "eval_id", def.ID)
 		return nil
 	}
 
 	// Check when-conditions (tool call preconditions)
-	if def.When != nil {
+	if len(def.When) > 0 {
 		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
 			logger.Debug("evals: skipping eval, when-condition not met", "eval_id", def.ID, "reason", reason)
 			return &EvalResult{
