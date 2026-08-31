@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
@@ -119,12 +120,12 @@ func TestWorkflowStateResolver_CommitsButDoesNotContinue(t *testing.T) {
 	}{
 		{
 			name: "external orchestration",
-			dest: &workflow.State{PromptTask: "dest", Orchestration: workflow.OrchestrationExternal},
+			dest: &workflow.State{PromptTask: "dest", Orchestration: packspec.Ptr(workflow.OrchestrationExternal)},
 			why:  "RFC 0009: the runtime pauses for an externally injected event",
 		},
 		{
 			name: "composition orchestration",
-			dest: &workflow.State{PromptTask: "dest", Orchestration: workflow.OrchestrationComposition},
+			dest: &workflow.State{PromptTask: "dest", Orchestration: packspec.Ptr(workflow.OrchestrationComposition)},
 			why:  "CompositionStage runs the state itself",
 		},
 	}
@@ -255,7 +256,7 @@ func TestWorkflowStateResolver_NoPromptTaskLeavesTurnAlone(t *testing.T) {
 // ends a plain Send with no rounds and an empty response.
 func TestWorkflowStateResolver_ExternalStateStillServesItsOwnTurns(t *testing.T) {
 	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
-	spec.States["origin"].Orchestration = workflow.OrchestrationExternal
+	spec.States["origin"].Orchestration = packspec.Ptr(workflow.OrchestrationExternal)
 	machine := workflow.NewStateMachine(spec)
 	registry := testRegistry(t, map[string]string{"origin": "ORIGIN PROMPT"})
 	resolver := newWorkflowStateResolver(machine, spec, nil, registry)

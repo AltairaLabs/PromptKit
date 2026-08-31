@@ -3,12 +3,13 @@ package prompt
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -1554,7 +1555,7 @@ func TestValidateCompositions_UnresolvedStateRefErrors(t *testing.T) {
 		Prompts: map[string]*PackPrompt{}, Tools: map[string]*PackTool{},
 		Compositions: map[string]*composition.Composition{},
 		Workflow: &workflow.Spec{Version: 1, Entry: "a", States: map[string]*workflow.State{
-			"a": {Orchestration: workflow.OrchestrationComposition, Composition: "nope", Terminal: true}}},
+			"a": {Orchestration: packspec.Ptr(workflow.OrchestrationComposition), Composition: "nope", Terminal: packspec.Ptr(true)}}},
 	}
 	if !p.ValidateCompositions().HasErrors() {
 		t.Error("composition state referencing a missing composition must error")

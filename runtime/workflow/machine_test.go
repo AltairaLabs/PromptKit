@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func linearSpec() *Spec {
@@ -411,7 +413,7 @@ func TestTerminal_ExplicitField(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*State{
 			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Next": "b"}},
-			"b": {PromptTask: "task_b", Terminal: true},
+			"b": {PromptTask: "task_b", Terminal: packspec.Ptr(true)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -443,7 +445,7 @@ func TestTerminal_BackwardCompat(t *testing.T) {
 }
 
 func TestTerminal_WithOnEvent_BlocksTransitions(t *testing.T) {
-	// A state with Terminal: true blocks ProcessEvent even if OnEvent is set.
+	// A state with Terminal: packspec.Ptr(true) blocks ProcessEvent even if OnEvent is set.
 	// This ensures consistency between IsTerminal() and ProcessEvent().
 	spec := &Spec{
 		Version: 2,
@@ -451,7 +453,7 @@ func TestTerminal_WithOnEvent_BlocksTransitions(t *testing.T) {
 		States: map[string]*State{
 			"a": {
 				PromptTask: "task_a",
-				Terminal:   true,
+				Terminal:   packspec.Ptr(true),
 				OnEvent:    map[string]string{"Next": "b"},
 			},
 			"b": {PromptTask: "task_b"},
@@ -459,7 +461,7 @@ func TestTerminal_WithOnEvent_BlocksTransitions(t *testing.T) {
 	}
 	sm := NewStateMachine(spec)
 	if !sm.IsTerminal() {
-		t.Error("state a with Terminal: true should be terminal")
+		t.Error("state a with Terminal: packspec.Ptr(true) should be terminal")
 	}
 	_, err := sm.ProcessEvent("Next")
 	if !errors.Is(err, ErrTerminalState) {
@@ -475,7 +477,7 @@ func TestMaxVisits_RedirectOnExceeded(t *testing.T) {
 			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
 			"b": {
 				PromptTask:  "task_b",
-				MaxVisits:   2,
+				MaxVisits:   packspec.Ptr(2),
 				OnMaxVisits: "c",
 				OnEvent:     map[string]string{"Back": "a"},
 			},
@@ -528,7 +530,7 @@ func TestMaxVisits_ErrorWhenNoFallback(t *testing.T) {
 			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
 			"b": {
 				PromptTask: "task_b",
-				MaxVisits:  1,
+				MaxVisits:  packspec.Ptr(1),
 				OnEvent:    map[string]string{"Back": "a"},
 			},
 		},
@@ -579,7 +581,7 @@ func TestMaxVisits_RedirectTargetVisitCounted(t *testing.T) {
 			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
 			"b": {
 				PromptTask:  "task_b",
-				MaxVisits:   1,
+				MaxVisits:   packspec.Ptr(1),
 				OnMaxVisits: "c",
 				OnEvent:     map[string]string{"Back": "a"},
 			},
@@ -662,8 +664,8 @@ func TestBudget_MaxTotalVisitsExhausted(t *testing.T) {
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
 			"b": {PromptTask: "t", OnEvent: map[string]string{"Back": "a"}},
 		},
-		Engine: map[string]any{
-			"budget": map[string]any{"max_total_visits": 3},
+		Engine: &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxTotalVisits: packspec.Ptr(3)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -728,8 +730,8 @@ func TestBudget_ReturnsStructuredError(t *testing.T) {
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
 			"b": {PromptTask: "t", OnEvent: map[string]string{"Back": "a"}},
 		},
-		Engine: map[string]any{
-			"budget": map[string]any{"max_total_visits": 3},
+		Engine: &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxTotalVisits: packspec.Ptr(3)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -765,7 +767,7 @@ func TestMaxVisits_ReturnsStructuredError(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*State{
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
-			"b": {PromptTask: "t", MaxVisits: 1, OnEvent: map[string]string{"Back": "a"}},
+			"b": {PromptTask: "t", MaxVisits: packspec.Ptr(1), OnEvent: map[string]string{"Back": "a"}},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -806,8 +808,8 @@ func TestBudget_MaxToolCallsExhausted(t *testing.T) {
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
 			"b": {PromptTask: "t"},
 		},
-		Engine: map[string]any{
-			"budget": map[string]any{"max_tool_calls": 5},
+		Engine: &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxToolCalls: packspec.Ptr(5)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -827,8 +829,8 @@ func TestBudget_MaxWallTimeExhausted(t *testing.T) {
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
 			"b": {PromptTask: "t"},
 		},
-		Engine: map[string]any{
-			"budget": map[string]any{"max_wall_time_sec": 10},
+		Engine: &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxWallTimeSec: packspec.Ptr(10)},
 		},
 	}
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -867,12 +869,12 @@ func TestBudget_PrecedesMaxVisits(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "t", MaxVisits: 100, OnMaxVisits: "fallback",
+			"a": {PromptTask: "t", MaxVisits: packspec.Ptr(100), OnMaxVisits: "fallback",
 				OnEvent: map[string]string{"Go": "a"}},
 			"fallback": {PromptTask: "t"},
 		},
-		Engine: map[string]any{
-			"budget": map[string]any{"max_total_visits": 2},
+		Engine: &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxTotalVisits: packspec.Ptr(2)},
 		},
 	}
 	sm := NewStateMachine(spec)

@@ -3,6 +3,7 @@ package sdk
 import (
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -43,7 +44,7 @@ func TestRegisterToolsForState_InternalOrchestration(t *testing.T) {
 			"Escalate": "escalation",
 			"Resolve":  "resolved",
 		},
-		Orchestration: workflow.OrchestrationInternal,
+		Orchestration: packspec.Ptr(workflow.OrchestrationInternal),
 	}
 
 	cap.RegisterToolsForState(registry, state)
@@ -63,7 +64,7 @@ func TestRegisterToolsForState_HybridOrchestration(t *testing.T) {
 		OnEvent: map[string]string{
 			"Escalate": "escalation",
 		},
-		Orchestration: workflow.OrchestrationHybrid,
+		Orchestration: packspec.Ptr(workflow.OrchestrationHybrid),
 	}
 
 	cap.RegisterToolsForState(registry, state)
@@ -81,7 +82,7 @@ func TestRegisterToolsForState_ExternalOrchestration(t *testing.T) {
 		OnEvent: map[string]string{
 			"Escalate": "escalation",
 		},
-		Orchestration: workflow.OrchestrationExternal,
+		Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 	}
 
 	cap.RegisterToolsForState(registry, state)

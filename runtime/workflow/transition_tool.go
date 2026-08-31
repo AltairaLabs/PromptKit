@@ -45,7 +45,7 @@ func RegisterTransitionTool(registry *tools.Registry, state *State) {
 	if registry == nil || state == nil || len(state.OnEvent) == 0 {
 		return
 	}
-	if state.Orchestration == OrchestrationExternal {
+	if OrchestrationOf(state) == OrchestrationExternal {
 		return
 	}
 	evts := SortedEvents(state.OnEvent)

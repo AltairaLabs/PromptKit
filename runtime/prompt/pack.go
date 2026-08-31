@@ -813,7 +813,7 @@ func (p *Pack) ValidateCompositions() *composition.ValidationResult {
 	referenced := map[string]bool{}
 	if p.Workflow != nil {
 		for name, st := range p.Workflow.States {
-			if st.Orchestration != workflow.OrchestrationComposition {
+			if workflow.OrchestrationOf(st) != workflow.OrchestrationComposition {
 				continue
 			}
 			referenced[st.Composition] = true

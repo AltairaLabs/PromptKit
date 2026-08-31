@@ -197,7 +197,7 @@ func resolveCompositionForState(p *pack.Pack, stateName string) (Option, error) 
 		return nil, nil
 	}
 	state, ok := p.Workflow.States[stateName]
-	if !ok || state.Orchestration != orchestrationComposition {
+	if !ok || workflow.OrchestrationOf(state) != orchestrationComposition {
 		return nil, nil
 	}
 	compName := state.Composition
@@ -669,7 +669,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context {
 // OrchestrationMode returns the orchestration mode of the current state.
 // External orchestration means transitions are driven by outside callers
 // (e.g., HTTP handlers, message queues) rather than from within the conversation loop.
-func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration {
+func (wc *WorkflowConversation) OrchestrationMode() string {
 	wc.mu.RLock()
 	defer wc.mu.RUnlock()
 
@@ -677,10 +677,9 @@ func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration {
 		return workflow.OrchestrationInternal
 	}
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
-	if state == nil || state.Orchestration == "" {
-		return workflow.OrchestrationInternal
-	}
-	return state.Orchestration
+	// OrchestrationOf already resolves the default, so this is just a
+	// nil-safe pass-through now.
+	return workflow.OrchestrationOf(state)
 }
 
 // ActiveConversation returns the current state's Conversation.

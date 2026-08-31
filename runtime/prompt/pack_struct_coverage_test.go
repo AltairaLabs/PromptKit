@@ -8,7 +8,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
 // This file answers a question the per-type parity tests could not: which pack
@@ -112,13 +111,6 @@ var packStructPins = []pinnedStruct{
 	// mostly documentation. Where the schema actually closes an enum
 	// (WorkflowState.orchestration does; trigger and persistence do not), the
 	// real fix is for the generator to emit named constants.
-	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig",
-		notGenerated: "its states map holds *workflow.State, so it follows that type"},
-	{value: workflow.State{}, schemaRef: "$defs/WorkflowState",
-		notGenerated: "would change persistence and orchestration to string/*string. " +
-			"orchestration IS a closed enum in the schema, so the generator could emit " +
-			"named constants for it — a generator gap, not a reason to hand-write"},
-
 	// Tracked. Mechanical but wide.
 	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt",
 		notGenerated: "TRACKED: seven fields change shape (validators, evals, variables, " +
@@ -175,6 +167,12 @@ func TestEveryPackStructIsAccountedFor(t *testing.T) {
 			t.Errorf("duplicate pin for %s", rt)
 		}
 		pinned[rt] = true
+
+		if rt.PkgPath() == generatedPkg {
+			t.Errorf("stale pin: %s is the generated type now, so packspec-check "+
+				"covers it — drop the entry", rt)
+			continue
+		}
 
 		switch {
 		case p.schemaRef == "" && p.notSpec == "":
