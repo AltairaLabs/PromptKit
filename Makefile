@@ -252,6 +252,9 @@ schemas-check: ## Check committed schemas match promptarena (for CI)
 promptpack-schema: ## Refresh the embedded PromptPack schema from the published release
 	@./scripts/fetch-promptpack-schema.sh
 
+spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
+	@./scripts/check-spec-version.sh
+
 promptpack-schema-check: ## Check the embedded PromptPack schema IS the published release (for CI)
 	@echo "Checking embedded PromptPack schema matches the published release..."
 	@tmp=$$(mktemp); \

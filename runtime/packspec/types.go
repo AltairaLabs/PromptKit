@@ -13,12 +13,38 @@ import (
 	"fmt"
 )
 
+// ActionScope what a tool can affect (RFC 0013). Describes consequence; does not gate anything. Absence
+// means undeclared, not safe.
+type ActionScope struct {
+	// DataClasses classes of data the tool touches, as vocabulary terms or free strings.
+	DataClasses []string `json:"data_classes,omitempty" yaml:"data_classes,omitempty"`
+
+	// Effect 'read': retrieves, changes nothing. 'write': changes state the operator controls.
+	// 'external': causes an effect outside the operator's systems (implies write).
+	Effect string `json:"effect,omitempty" yaml:"effect,omitempty"`
+
+	// Extensions opaque annotations about this tool's consequence — a blast radius, a severity score,
+	// anything that qualifies what it affects. Never interpreted by this specification. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
+	// Reversibility 'reversible': the prior state can be restored. 'compensable': it cannot, but a defined
+	// compensating action limits the harm. 'irreversible': nothing restores the state and
+	// nothing compensates. Declare against the world, not the API.
+	Reversibility string `json:"reversibility,omitempty" yaml:"reversibility,omitempty"`
+}
+
 // AgentDef agent definition for a single prompt, providing A2A Agent Card metadata. Overrides or
 // extends the prompt's own metadata for agent discovery.
 type AgentDef struct {
 	// Description agent description published in the A2A Agent Card. Overrides the prompt's description if
 	// set.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Governance governance facts for this agent, overriding metadata.governance by per-field replacement:
+	// a field present here replaces the pack value for that field, a field absent inherits.
+	// Arrays and extensions replace whole (RFC 0013).
+	Governance *Governance `json:"governance,omitempty" yaml:"governance,omitempty"`
 
 	// InputModes MIME types the agent accepts as input. Defaults to ["text/plain"] if omitted.
 	InputModes []string `json:"input_modes,omitempty" yaml:"input_modes,omitempty"`
@@ -822,6 +848,62 @@ func (v *GenericMediaTypeConfig) UnmarshalYAML(unmarshal func(any) error) error 
 // MarshalYAML encodes through the JSON codec above, for the same reason.
 func (v GenericMediaTypeConfig) MarshalYAML() (any, error) {
 	return EncodeYAMLViaJSON(v)
+}
+
+// Governance governance facts about the agent this pack defines (RFC 0013). Human-declared: a
+// conforming implementation MUST NOT infer, compute or default these values, nor present a
+// generated value as if it had been declared.
+type Governance struct {
+	// AccountableOwner the role, team or function answerable for this agent. Prefer a durable identifier over a
+	// named individual.
+	AccountableOwner string `json:"accountable_owner,omitempty" yaml:"accountable_owner,omitempty"`
+
+	// ApprovedEnvironments environments this pack has been cleared to run in. Open strings, because environment
+	// names are organisation-specific. Absence means undeclared, not cleared everywhere and not
+	// cleared nowhere.
+	ApprovedEnvironments []string `json:"approved_environments,omitempty" yaml:"approved_environments,omitempty"`
+
+	// AutonomyLevel how far the agent acts without a human in the loop, as designed and tested. 'suggests':
+	// produces output, a human performs any action. 'acts_with_approval': acts, but each
+	// consequential action is approved first. 'acts_with_oversight': acts on its own, a human
+	// monitors and can intervene or reverse. 'acts_autonomously': acts without a human in the
+	// loop.
+	AutonomyLevel string `json:"autonomy_level,omitempty" yaml:"autonomy_level,omitempty"`
+
+	// Capabilities capabilities the agent exercises, as vocabulary terms or free strings. Some capabilities
+	// carry obligations regardless of sector, so this is not covered by
+	// intended_deployment_contexts.
+	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+
+	// Extensions opaque annotations for external tooling. Never interpreted by this specification. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
+	// ForeseeableMisuse uses the author considers out of bounds and reasonably foreseeable.
+	ForeseeableMisuse []string `json:"foreseeable_misuse,omitempty" yaml:"foreseeable_misuse,omitempty"`
+
+	// IntendedDeploymentContexts sectors or settings the agent is built for, as vocabulary terms or free strings. Distinct
+	// from metadata.domain, which is a discovery tag.
+	IntendedDeploymentContexts []string `json:"intended_deployment_contexts,omitempty" yaml:"intended_deployment_contexts,omitempty"`
+
+	// IntendedPurpose what the agent is built to do, stated by its author. Free text.
+	IntendedPurpose string `json:"intended_purpose,omitempty" yaml:"intended_purpose,omitempty"`
+
+	// OperatorRole the declaring organisation's role for this agent, as a vocabulary term or free string.
+	OperatorRole string `json:"operator_role,omitempty" yaml:"operator_role,omitempty"`
+
+	// RequiresAIDisclosure whether the agent must disclose that it is an AI to the people interacting with it. The
+	// runtime decides which of its interfaces this applies to.
+	RequiresAIDisclosure *bool `json:"requires_ai_disclosure,omitempty" yaml:"requires_ai_disclosure,omitempty"`
+
+	// RiskClassification the risk classification assigned to this agent, as a vocabulary term or free string. A
+	// namespaced term carries both the framework and the value, so no separate framework field
+	// is needed; a second classification under another framework belongs in extensions.
+	RiskClassification string `json:"risk_classification,omitempty" yaml:"risk_classification,omitempty"`
+
+	// Vocabularies prefix to IRI map for CURIE values used in this block. The dpv, eu-aiact and ai prefixes
+	// are well-known defaults and need not be declared.
+	Vocabularies map[string]string `json:"vocabularies,omitempty" yaml:"vocabularies,omitempty"`
 }
 
 // ImageConfig configuration and validation rules for image content
@@ -2186,9 +2268,16 @@ type TestedModel struct {
 // Tool a tool definition following OpenAI's function calling format. Tools enable the LLM to
 // call external functions to retrieve data or perform actions.
 type Tool struct {
+	// ActionScope what this tool can affect (RFC 0013). Describes consequence; does not gate anything.
+	ActionScope *ActionScope `json:"action_scope,omitempty" yaml:"action_scope,omitempty"`
+
 	// Description clear description of what the tool does. The LLM uses this to decide when to call the
 	// tool.
 	Description string `json:"description" yaml:"description"`
+
+	// Extensions opaque annotations about this tool. Never interpreted by this specification. Keys SHOULD
+	// be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 
 	// Name tool name used for referencing and calling
 	Name string `json:"name" yaml:"name"`
@@ -2468,7 +2557,9 @@ type WorkflowState struct {
 // backed by a workflow state (AgentDef.state) to expose stateful, looping behavior.
 // Workflow states may use 'composition' orchestration to run a declarative step graph (RFC
 // 0010). A pack may declare the model providers it needs to run via the optional
-// 'requires.providers' block (RFC 0012).
+// 'requires.providers' block (RFC 0012). Packs may declare governance facts
+// (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is
+// recorded alongside capability.
 type Pack struct {
 	// Schema JSON Schema reference for validation and IDE support
 	Schema *string `json:"$schema,omitempty" yaml:"$schema,omitempty"`
@@ -2748,6 +2839,9 @@ type PackMetadata struct {
 	// Domain domain or category for this pack
 	Domain string `json:"domain,omitempty" yaml:"domain,omitempty"`
 
+	// Governance governance facts about the agent this pack defines (RFC 0013).
+	Governance *Governance `json:"governance,omitempty" yaml:"governance,omitempty"`
+
 	// Language primary language code (ISO 639-1)
 	Language string `json:"language,omitempty" yaml:"language,omitempty"`
 
@@ -2766,6 +2860,7 @@ type PackMetadata struct {
 var PackMetadataKnownFields = map[string]bool{
 	"cost_estimate": true,
 	"domain":        true,
+	"governance":    true,
 	"language":      true,
 	"tags":          true,
 }

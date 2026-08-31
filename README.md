@@ -4,6 +4,7 @@
 [![Docs](https://github.com/AltairaLabs/PromptKit/actions/workflows/docs.yml/badge.svg)](https://github.com/AltairaLabs/PromptKit/actions/workflows/docs.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=AltairaLabs_PromptKit&metric=coverage)](https://sonarcloud.io/summary/new_code?id=AltairaLabs_PromptKit)
+[![PromptPack Spec](https://img.shields.io/badge/PromptPack%20Spec-v1.6.0-blue)](https://promptpack.org/docs/spec/overview)
 [![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 

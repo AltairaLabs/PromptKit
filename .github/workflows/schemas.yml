@@ -93,3 +93,8 @@ jobs:
     - name: Check generated pack types
       run: make packspec-check
 
+    # The version PromptKit claims to implement must match the one it embeds.
+    # Stating it anywhere creates a second place to be wrong; this is the pin.
+    - name: Check the README spec badge matches the embedded schema
+      run: make spec-version-check
+
