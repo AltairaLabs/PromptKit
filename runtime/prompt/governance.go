@@ -161,17 +161,19 @@ func overlayGovernance(base, overlay *Governance) *Governance {
 		base.Extensions = copyAnyMap(overlay.Extensions)
 	}
 
-	// vocabularies is not named in the "arrays and extensions replace whole"
-	// sentence, but it is a field, and the general rule is that a field present
-	// replaces the pack value for that field. So it replaces.
+	// vocabularies MERGES, and is the one field here that does.
 	//
-	// Worth knowing when authoring: an agent that declares vocabularies must
-	// redeclare every prefix it uses, including ones the pack already defined,
-	// because it does not inherit them. The dpv, eu-aiact and ai prefixes are
-	// well-known defaults and never need declaring.
-	if len(overlay.Vocabularies) > 0 {
-		base.Vocabularies = copyStringMap(overlay.Vocabularies)
-	}
+	// The spec's rule enumerates what replaces whole — "arrays and extensions" —
+	// and vocabularies is a container that is not in that list. It is a prefix
+	// to IRI map that makes CURIEs resolvable, so replacing it would put an
+	// agent's inherited values out of scope: a pack declaring `acme:` and an
+	// agent declaring only `other:` would leave the pack's own
+	// `risk_classification: acme:tier-3` unresolvable on that agent. Prefix maps
+	// accumulate in every other CURIE system for the same reason.
+	//
+	// An agent still wins on a prefix it redeclares, which is what lets it point
+	// a name at a different IRI.
+	base.Vocabularies = mergeVocabularies(base.Vocabularies, overlay.Vocabularies)
 
 	return base
 }
@@ -241,6 +243,22 @@ func DescribeGovernance(g *Governance) string {
 	add("capabilities", strings.Join(g.Capabilities, "/"))
 
 	return strings.Join(parts, "; ")
+}
+
+// mergeVocabularies layers an agent's prefix map over the pack's. Prefixes the
+// agent does not mention are inherited; ones it does are rebound to its IRI.
+func mergeVocabularies(base, overlay map[string]string) map[string]string {
+	if len(overlay) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	for prefix, iri := range base {
+		out[prefix] = iri
+	}
+	for prefix, iri := range overlay {
+		out[prefix] = iri
+	}
+	return out
 }
 
 func copyGovernance(g *Governance) *Governance {

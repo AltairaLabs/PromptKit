@@ -65,7 +65,8 @@ An agent's governance overrides the pack's **per field**:
 
 - A field present on the agent replaces the pack value for that field.
 - A field absent inherits.
-- **Arrays and objects replace whole. They are not merged or appended.**
+- **Arrays and `extensions` replace whole. They are not merged or appended.**
+- **`vocabularies` is the exception: prefixes merge.**
 
 The last point is the one that catches people, because appending is the intuitive guess. It is worth being concrete about why replacement is right:
 
@@ -83,7 +84,35 @@ agents:
 
 The `refunds` agent is cleared for **staging only**. If arrays merged, narrowing an agent's approved environments would be impossible — every attempt to restrict would silently re-grant everything the pack allowed. The same applies to `capabilities`, `foreseeable_misuse`, `intended_deployment_contexts`, `extensions` and `vocabularies`.
 
-One consequence to know when authoring: because `vocabularies` replaces whole, an agent that declares any vocabulary prefix must declare every prefix it uses, including ones the pack already defined. The `dpv`, `eu-aiact` and `ai` prefixes are well-known defaults and never need declaring.
+### `vocabularies` merges, and only it
+
+`vocabularies` maps a prefix to an IRI so CURIE values like `acme:tier-3` resolve. It is the one container that accumulates rather than replaces, and the reason is what it would break:
+
+```yaml
+metadata:
+  governance:
+    vocabularies:
+      acme: https://acme.example/ns#
+    risk_classification: acme:tier-3     # a CURIE against the pack's prefix
+
+agents:
+  members:
+    refunds:
+      governance:
+        vocabularies:
+          other: https://other.example/ns#
+```
+
+The `refunds` agent inherits `risk_classification: acme:tier-3`. If its own `vocabularies` replaced the pack's, the `acme` prefix would leave scope and that inherited value would become unresolvable — an agent would break a field it never touched. So prefixes accumulate, exactly as they do in every other CURIE system.
+
+An agent that redeclares a prefix still wins on it, which is how you point a name at a different IRI:
+
+```yaml
+# pack:  acme -> https://acme.example/v1#
+# agent: acme -> https://acme.example/v2#   → the agent's IRI applies
+```
+
+The `dpv`, `eu-aiact` and `ai` prefixes are well-known defaults and never need declaring.
 
 ---
 

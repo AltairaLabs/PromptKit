@@ -186,13 +186,20 @@ func TestResolvedGovernanceIsACopy(t *testing.T) {
 		"the slice must be copied, not shared")
 }
 
-// TestExtensionsAndVocabulariesReplaceWhole — extensions is named in the spec's
-// replace-whole sentence. vocabularies is not, but it is a field, and the
-// general rule is that a field present replaces the pack value for that field.
-func TestExtensionsAndVocabulariesReplaceWhole(t *testing.T) {
+// TestExtensionsReplaceWholeButVocabulariesMerge — the two containers behave
+// differently, which is the whole reason this test names both.
+//
+// extensions is in the spec's "arrays and extensions replace whole" list.
+// vocabularies is not, and it is a prefix map that makes CURIEs resolvable:
+// replacing it would put an agent's INHERITED values out of scope, because the
+// pack's risk_classification below is written as a CURIE against the pack's own
+// prefix. Prefix maps accumulate in every other CURIE system for the reason
+// this test demonstrates.
+func TestExtensionsReplaceWholeButVocabulariesMerge(t *testing.T) {
 	p := packWithGovernance(t,
 		`{"extensions":{"acme:tier":"gold","acme:region":"eu"},
-		  "vocabularies":{"acme":"https://acme.example/ns#"}}`,
+		  "vocabularies":{"acme":"https://acme.example/ns#"},
+		  "risk_classification":"acme:tier-3"}`,
 		`{"extensions":{"acme:tier":"silver"},
 		  "vocabularies":{"other":"https://other.example/ns#"}}`)
 
@@ -201,8 +208,31 @@ func TestExtensionsAndVocabulariesReplaceWhole(t *testing.T) {
 
 	require.Equal(t, map[string]any{"acme:tier": "silver"}, got.Extensions,
 		"extensions replace whole; merging would leave acme:region behind")
-	require.Equal(t, map[string]string{"other": "https://other.example/ns#"}, got.Vocabularies,
-		"vocabularies replace whole, by the same per-field rule")
+
+	require.Equal(t, map[string]string{
+		"acme":  "https://acme.example/ns#",
+		"other": "https://other.example/ns#",
+	}, got.Vocabularies, "prefixes accumulate")
+
+	require.Equal(t, "acme:tier-3", got.RiskClassification)
+	require.Contains(t, got.Vocabularies, "acme",
+		"the inherited risk_classification is a CURIE against the pack's prefix, "+
+			"so dropping that prefix would leave an inherited value unresolvable")
+}
+
+// TestAnAgentCanRebindAPrefix — merging must still let an agent point an
+// existing prefix at a different IRI, or it could never override a vocabulary.
+func TestAnAgentCanRebindAPrefix(t *testing.T) {
+	p := packWithGovernance(t,
+		`{"vocabularies":{"acme":"https://acme.example/v1#","shared":"https://s.example#"}}`,
+		`{"vocabularies":{"acme":"https://acme.example/v2#"}}`)
+
+	got, err := prompt.ResolveGovernance(p, "billing")
+	require.NoError(t, err)
+	require.Equal(t, "https://acme.example/v2#", got.Vocabularies["acme"],
+		"a prefix the agent redeclares takes the agent's IRI")
+	require.Equal(t, "https://s.example#", got.Vocabularies["shared"],
+		"one it does not mention is inherited")
 }
 
 // TestAgentGovernanceReportsWhatIsWritten — AgentGovernance is for showing what
