@@ -724,9 +724,12 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 				params["message"] = vc.Message
 			}
 		}
+		// enabled defaults to true when the authoring config omits it; the
+		// generated type keeps it a *bool, so the resolved default is written
+		// back as an explicit value rather than collapsing to the zero.
 		out[i] = Validator{
 			Type:            vc.Type,
-			Enabled:         vc.Enabled == nil || *vc.Enabled,
+			Enabled:         packspec.Ptr(vc.Enabled == nil || *vc.Enabled),
 			FailOnViolation: vc.FailOnViolation,
 			Params:          params,
 		}

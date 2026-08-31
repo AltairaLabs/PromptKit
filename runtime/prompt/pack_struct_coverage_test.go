@@ -29,9 +29,19 @@ import (
 //
 // Generated types (runtime/packspec) are exempt: `make packspec-check` already
 // proves they match the schema they came from, and more strictly than reflection
-// can. The best fix for a struct listed below is usually to delete it and alias
-// the generated type instead, which is what Metadata, CostEstimate, Tool,
-// TestedModel and ModelOverride now do.
+// can.
+//
+// The goal is that this list empties. A hand-written type beside a generated
+// one is two definitions of the same thing that WILL drift, which is the
+// problem this whole file exists to catch — so notGenerated records why a type
+// has not been adopted YET, not a standing justification for keeping it.
+//
+// Four reasons were recorded here before anyone checked them, and three were
+// wrong: TemplateEngineInfo "had no generated type" (packspec.PackTemplateEngine
+// existed, field-for-field identical), SkillSource's union "could not be
+// expressed" (the generator flattens it), and typed strings "gave safety"
+// (a Go named string type accepts any literal). Those three are adopted or
+// re-stated now. Check the reason before trusting it.
 
 const generatedPkg = "github.com/AltairaLabs/PromptKit/runtime/packspec"
 
@@ -82,62 +92,53 @@ var packStructPins = []pinnedStruct{
 		"never states a pass/fail, so a threshold is the enforcing wrapper's, not the " +
 		"eval's, and is not part of the portable pack"},
 
-	// Hand-written by decision. Adopting the generated type would LOSE type
-	// safety here: the generator emits what the schema says, and the schema
-	// says "string".
-	{value: evals.EvalDef{}, schemaRef: "$defs/Eval",
-		notGenerated: "packspec.Eval types trigger as string and when as " +
-			"map[string]any; the hand-written type uses evals.EvalTrigger and " +
-			"*evals.EvalWhen, so a bad trigger fails to compile rather than at run " +
-			"time. Adopting it would be a downgrade, not a cleanup"},
-	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig",
-		notGenerated: "its states map holds *workflow.State, which is hand-written " +
-			"for the reason below; adopting this without that would gain nothing"},
-	{value: workflow.State{}, schemaRef: "$defs/WorkflowState",
-		notGenerated: "packspec.WorkflowState types persistence and orchestration as " +
-			"string/*string; the hand-written type uses workflow.Persistence and " +
-			"workflow.Orchestration. Same downgrade as evals.EvalDef"},
-
-	// Hand-written for a structural reason the generator cannot express.
-	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource",
-		notGenerated: "$defs/SkillSource is a oneOf over a bare string, a " +
-			"SkillPathSource and an InlineSkill. This type is the FLATTENING of that " +
-			"union plus the legacy `dir` input alias, and carries the custom " +
-			"unmarshallers both require. packspec.SkillSource is the union itself"},
-	{value: prompt.TemplateEngineInfo{}, schemaRef: "properties/template_engine",
-		notGenerated: "template_engine is an inline object under the root's " +
-			"properties, not a $def, so the generator emits no type for it at all"},
-
-	// Hand-written because the compiled form deliberately differs from the
-	// authoring form. Both omissions are recorded below.
-	{value: prompt.Validator{}, schemaRef: "$defs/Validator",
-		notGenerated: "packspec.Validator carries `message`, which this compiled type " +
-			"must not — see the omission below. Adopting it would reintroduce the " +
-			"field that foldValidatorMessages exists to remove",
-		omissions: []deliberateOmission{{
-			property: "message",
-			reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
-				"foldValidatorMessages folds it into params at compile, so the compiled " +
-				"validator never carries it",
-		}}},
+	// Blocked on ONE Go constraint: a type alias cannot carry methods
+	// ("cannot define new methods on non-local type"). These types have
+	// behavior attached, so aliasing them to packspec does not compile until
+	// the behavior moves to free functions or the generator emits it.
+	//
+	// This is the only structural reason left in this list. It is a reason to
+	// FIX something, not to keep a second definition — see the file header.
 	{value: prompt.Variable{}, schemaRef: "$defs/Variable",
-		notGenerated: "packspec.Variable carries `binding`, which the compiled variable " +
-			"must not — see the omission below",
+		notGenerated: "carries toMetadata(); a type alias cannot have methods. Also " +
+			"needs validation map[string]any -> *packspec.VariableValidation. Four " +
+			"compile errors, all in pack.go",
 		omissions: []deliberateOmission{{
 			property: "binding",
 			reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
 				"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
 				"compileVariables drops it, so it is not part of the portable pack",
 		}}},
+	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource",
+		notGenerated: "carries UnmarshalJSON/UnmarshalYAML for the bare-string shorthand " +
+			"and the legacy `dir` alias; a type alias cannot have methods. Note the " +
+			"generated packspec.SkillSource DOES flatten the oneOf and keeps the " +
+			"shorthand, so the shape is not the obstacle — only the `dir` alias is"},
 
-	// Hand-written, and it should not stay that way.
+	// Adoption changes typed values to bare strings. Worth stating plainly:
+	// this is a WEAK reason. A Go named string type accepts any string literal,
+	// so `var t EvalTrigger = "nonsense"` compiles either way and the safety is
+	// mostly documentation. Where the schema actually closes an enum
+	// (WorkflowState.orchestration does; trigger and persistence do not), the
+	// real fix is for the generator to emit named constants.
+	{value: evals.EvalDef{}, schemaRef: "$defs/Eval",
+		notGenerated: "would change trigger to string and when to map[string]any, " +
+			"losing evals.EvalTrigger and *evals.EvalWhen. Weak reason (see above); " +
+			"blocked mainly by the blast radius across runtime/evals"},
+	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig",
+		notGenerated: "its states map holds *workflow.State, so it follows that type"},
+	{value: workflow.State{}, schemaRef: "$defs/WorkflowState",
+		notGenerated: "would change persistence and orchestration to string/*string. " +
+			"orchestration IS a closed enum in the schema, so the generator could emit " +
+			"named constants for it — a generator gap, not a reason to hand-write"},
+
+	// Tracked. Mechanical but wide.
 	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt",
-		notGenerated: "TRACKED, not decided: adoption is mechanical but wide. Seven " +
-			"fields change shape (validators, evals, variables, tested_models and " +
-			"model_overrides all become slices/maps of pointers; pipeline and media " +
-			"become typed rather than map[string]any), and this is the type every " +
-			"prompt hangs off. Everything reachable from it was adopted first so that " +
-			"this is the only step left"},
+		notGenerated: "TRACKED: seven fields change shape (validators, evals, variables, " +
+			"tested_models and model_overrides become slices/maps of pointers; pipeline " +
+			"and media become typed rather than map[string]any), and this is the type " +
+			"every prompt hangs off. Everything reachable from it was adopted first so " +
+			"that this is the only step left"},
 }
 
 // reachableStructs walks the type graph from rt, collecting every named struct

@@ -187,32 +187,24 @@ type ValidatorConfig struct {
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
-// Validator is the spec-exact, compiled form of a validator as it appears in a
-// PromptPack on disk (PackPrompt.Validators). It mirrors the promptpack schema's
-// $defs/Validator exactly (additionalProperties:false) and is pinned to that
-// schema by TestValidatorStructMatchesPromptPackSpec.
+// Validator is a compiled pack validator.
 //
-// It deliberately has NO Message field: the on-disk spec carries a user-facing
-// message inside Params["message"], not as a top-level property. The authoring
-// type ValidatorConfig keeps Message (it also backs Arena assertions, which are
-// test-only and never compiled into a pack); foldValidatorMessages converts a
-// ValidatorConfig into this compiled Validator.
-type Validator struct {
-	Type            string                 `json:"type"`
-	Enabled         bool                   `json:"enabled"`
-	FailOnViolation *bool                  `json:"fail_on_violation,omitempty"`
-	Params          map[string]interface{} `json:"params,omitempty"`
-}
+// Generated. It carries the spec's `message`, which the COMPILED form does not
+// use — foldValidatorMessages folds it into params at compile time, so nothing
+// populates it and omitempty keeps it out of the emitted pack. Carrying an
+// unused field is cheaper than maintaining a second definition of this type.
+type Validator = packspec.Validator
 
 // DefaultBlockedMessage is the user-facing message shown when a content guardrail blocks output.
 const DefaultBlockedMessage = "Sorry, we can't provide this response as it would violate our content policy."
 
-// TemplateEngineInfo describes the template engine used for variable substitution
-type TemplateEngineInfo struct {
-	Version  string   `yaml:"version" json:"version"`                       // Template engine version (e.g., "v1")
-	Syntax   string   `yaml:"syntax" json:"syntax"`                         // Template syntax (e.g., "{{variable}}")
-	Features []string `yaml:"features,omitempty" json:"features,omitempty"` // Supported features
-}
+// TemplateEngineInfo is the pack's template engine configuration.
+//
+// Generated. template_engine is an inline object under the root's properties
+// rather than a $def, but the generator emits types for those too — this is
+// packspec.PackTemplateEngine, and it was field-for-field identical to the
+// hand-written struct it replaced.
+type TemplateEngineInfo = packspec.PackTemplateEngine
 
 // VariableBindingKind defines the type of resource a variable binds to.
 type VariableBindingKind string

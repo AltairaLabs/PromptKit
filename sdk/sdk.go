@@ -1340,11 +1340,10 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	}
 	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
 	for _, v := range p.Validators {
-		enabled := v.Enabled
 		specs = append(specs, rtprompt.ValidatorConfig{
 			Type:    v.Type,
 			Params:  v.Params,
-			Enabled: &enabled,
+			Enabled: v.Enabled,
 		})
 	}
 	packHooks, err := guardrails.CompileValidatorsWithRegistry(specs, cfg.evalRegistry)

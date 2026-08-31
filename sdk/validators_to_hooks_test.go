@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	promptpkg "github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -26,7 +27,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -42,7 +43,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: false,
+					Enabled: packspec.Ptr(false),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -55,7 +56,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 	t.Run("skips unknown validator type", func(t *testing.T) {
 		prompt := &pack.Prompt{
 			Validators: []pack.Validator{
-				{Type: "nonexistent", Enabled: true, Params: map[string]any{}},
+				{Type: "nonexistent", Enabled: packspec.Ptr(true), Params: map[string]any{}},
 			},
 		}
 		cfg := &config{}
@@ -68,7 +69,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -88,12 +89,12 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 				{
 					Type:    "max_length",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"max_characters": 100},
 				},
 			},
@@ -110,7 +111,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -133,7 +134,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params: map[string]any{
 						"patterns": []any{"bad"},
 						"message":  "Custom blocked response",
@@ -162,7 +163,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			Validators: []pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},

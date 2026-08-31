@@ -158,7 +158,9 @@ func validatePromptValidators(
 ) []PackIssue {
 	var issues []PackIssue
 	for i, v := range vs {
-		if !v.Enabled {
+		// Enabled is *bool on the generated type: absent means enabled, which
+		// is what the compiler resolves. Only an explicit false skips.
+		if v.Enabled != nil && !*v.Enabled {
 			continue
 		}
 		if _, err := guardrails.NewGuardrailHookFromRegistry(v.Type, v.Params, registry); err != nil {
