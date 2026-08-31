@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
@@ -111,6 +112,11 @@ type Pack struct {
 	// Skills - Skill sources for dynamic capability loading
 	Skills []SkillSourceConfig `json:"skills,omitempty" yaml:"skills,omitempty"`
 
+	// Requires - External resources the pack needs to run (RFC 0012).
+	// Read it through ResolveRequirements, which applies the string shorthand
+	// and the required-defaults-to-true rule.
+	Requires *Requires `json:"requires,omitempty" yaml:"requires,omitempty"`
+
 	// FilePath is the on-disk path this pack was loaded from, if any. It is
 	// never serialized; loaders set it so schema/fragment resolution can
 	// resolve paths relative to the pack file.
@@ -176,13 +182,18 @@ func (s *SkillSourceConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
-// Tools are defined at pack level and referenced by prompts via the tools array
-type PackTool struct {
-	Name        string      `json:"name"`        // Tool function name (required)
-	Description string      `json:"description"` // Tool description (required)
-	Parameters  interface{} `json:"parameters"`  // JSON Schema for input parameters (required)
-}
+// PackTool represents a tool definition in the pack (per PromptPack spec Section 9).
+// Tools are defined at pack level and referenced by prompts via the tools array.
+//
+// Generated from the schema: an ALIAS for packspec.Tool.
+//
+// Parameters is *ToolParameters rather than the interface{} the hand-written
+// type used. The spec defines a shape here (type/properties/required) and
+// interface{} ignored it; the generated type keeps that shape while remaining
+// extensible, since Tool.parameters omits additionalProperties and JSON Schema
+// defaults it to true. So a tool schema using $defs, oneOf or any other keyword
+// still round-trips, through ToolParameters.Extra.
+type PackTool = packspec.Tool
 
 // WorkflowConfig is an alias for workflow.Spec for backward compatibility.
 type WorkflowConfig = workflow.Spec
@@ -191,22 +202,20 @@ type WorkflowConfig = workflow.Spec
 type WorkflowState = workflow.State
 
 // AgentsConfig maps prompts to A2A-compatible agent definitions.
-type AgentsConfig struct {
-	Entry   string               `json:"entry"`
-	Members map[string]*AgentDef `json:"members"`
-}
+//
+// Generated from the schema: an ALIAS for packspec.AgentsConfig.
+type AgentsConfig = packspec.AgentsConfig
 
 // AgentDef provides A2A Agent Card metadata for a single prompt.
-type AgentDef struct {
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	InputModes  []string `json:"input_modes,omitempty"`
-	OutputModes []string `json:"output_modes,omitempty"`
-	// State (RFC 0011) optionally backs this agent with a workflow state instead
-	// of its member prompt. When set, invoking the agent runs the pack's workflow
-	// starting at the named state. Requires a top-level workflow.
-	State string `json:"state,omitempty"`
-}
+//
+// Generated from the schema: this is an ALIAS for packspec.AgentDef, not a copy.
+// An alias keeps every call site, tag and behavior identical while making the
+// schema the single source of the shape — a defined type would not, and the
+// two would be free to drift again.
+//
+// The hand-written struct it replaced was already field-for-field identical to
+// $defs/AgentDef, which is why it is first: the switch is provably a no-op.
+type AgentDef = packspec.AgentDef
 
 // CompileOption configures optional fields for CompileFromRegistryWithOptions.
 type CompileOption func(*compileOptions)
@@ -279,20 +288,14 @@ type PackPrompt struct {
 }
 
 // ToolPolicyPack represents tool policy in pack format
-type ToolPolicyPack struct {
-	ToolChoice          string   `json:"tool_choice,omitempty" yaml:"tool_choice,omitempty"`
-	MaxRounds           int      `json:"max_rounds,omitempty" yaml:"max_rounds,omitempty"`
-	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn,omitempty" yaml:"max_tool_calls_per_turn,omitempty"`
-	Blocklist           []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ToolPolicy.
+// max_rounds, max_tool_calls_per_turn and tool_choice are pointers for the same reason.
+type ToolPolicyPack = packspec.ToolPolicy
 
 // ParametersPack represents model parameters in pack format
-type ParametersPack struct {
-	Temperature *float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens   *int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
-	TopK        *int     `json:"top_k,omitempty" yaml:"top_k,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.Parameters.
+// Gains frequency_penalty and presence_penalty, which the spec defines and the hand-written type omitted.
+type ParametersPack = packspec.Parameters
 
 // PackCompiler compiles Config to Pack format
 type PackCompiler struct {
@@ -551,12 +554,16 @@ func parseToolData(data []byte) (*PackTool, error) {
 		return nil, nil // Not a tool, skip
 	}
 
-	// Convert input_schema to parameters
-	var params interface{}
+	// Convert input_schema to parameters. Keywords the spec does not name are
+	// preserved by ToolParameters.Extra, so an author's full JSON Schema
+	// survives the conversion.
+	var params *packspec.ToolParameters
 	if len(raw.Spec.InputSchema) > 0 {
-		if err := json.Unmarshal(raw.Spec.InputSchema, &params); err != nil {
+		var parsed packspec.ToolParameters
+		if err := json.Unmarshal(raw.Spec.InputSchema, &parsed); err != nil {
 			return nil, fmt.Errorf("failed to parse input_schema as JSON: %w", err)
 		}
+		params = &parsed
 	}
 
 	return &PackTool{
@@ -583,9 +590,16 @@ func parseYAMLConfig(data []byte, v interface{}) error {
 // ConvertToolToPackTool converts a tool descriptor to a PackTool
 // This is the preferred method when tool parsing happens externally
 func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage) *PackTool {
-	var params interface{}
+	var params *packspec.ToolParameters
 	if len(inputSchema) > 0 {
-		_ = json.Unmarshal(inputSchema, &params)
+		var parsed packspec.ToolParameters
+		// A tool's input schema is author-supplied JSON Schema. Anything the
+		// spec does not name is preserved by ToolParameters.Extra, so a parse
+		// failure here means the document is not an object at all — keep the
+		// prior behavior of tolerating it rather than failing the compile.
+		if err := json.Unmarshal(inputSchema, &parsed); err == nil {
+			params = &parsed
+		}
 	}
 	return &PackTool{
 		Name:        name,

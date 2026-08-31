@@ -319,9 +319,11 @@ func TestValidateEvals_MetricLabelValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			metric := &MetricDef{Name: "test_metric", Type: MetricGauge}
+			SetMetricLabels(metric, tt.labels)
 			defs := []EvalDef{{
 				ID: "test", Type: "custom", Trigger: TriggerEveryTurn,
-				Metric: &MetricDef{Name: "test_metric", Type: MetricGauge, Labels: tt.labels},
+				Metric: metric,
 			}}
 			errs := ValidateEvals(defs, "pack")
 			if len(errs) != tt.wantCount {

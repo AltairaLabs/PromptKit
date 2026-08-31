@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // Error messages
@@ -94,7 +96,7 @@ func validateExamples(examples []MultimodalExample) error {
 
 // validateImageConfig validates image-specific configuration
 func validateImageConfig(config *ImageConfig) error {
-	if config.MaxSizeMB < 0 {
+	if packspec.Deref(config.MaxSizeMB, 0) < 0 {
 		return errMaxSizeMBNegative
 	}
 
@@ -114,19 +116,22 @@ func validateImageConfig(config *ImageConfig) error {
 		}
 	}
 
-	// Validate detail level
-	if config.DefaultDetail != "" {
+	// Validate detail level. DefaultDetail is a pointer because the spec
+	// defaults it to "auto" — nil means "not set", which is valid, and is a
+	// different fact from an explicit empty string.
+	if config.DefaultDetail != nil {
 		validDetails := map[string]bool{
 			"low":  true,
 			"high": true,
 			"auto": true,
 		}
-		if !validDetails[config.DefaultDetail] {
-			return fmt.Errorf("invalid default_detail '%s': must be one of low, high, auto", config.DefaultDetail)
+		if !validDetails[*config.DefaultDetail] {
+			return fmt.Errorf("invalid default_detail '%s': must be one of low, high, auto",
+				*config.DefaultDetail)
 		}
 	}
 
-	if config.MaxImagesPerMsg < 0 {
+	if packspec.Deref(config.MaxImagesPerMsg, 0) < 0 {
 		return fmt.Errorf("max_images_per_msg cannot be negative")
 	}
 
@@ -135,7 +140,7 @@ func validateImageConfig(config *ImageConfig) error {
 
 // validateAudioConfig validates audio-specific configuration
 func validateAudioConfig(config *AudioConfig) error {
-	if config.MaxSizeMB < 0 {
+	if packspec.Deref(config.MaxSizeMB, 0) < 0 {
 		return errMaxSizeMBNegative
 	}
 
@@ -156,7 +161,7 @@ func validateAudioConfig(config *AudioConfig) error {
 		}
 	}
 
-	if config.MaxDurationSec < 0 {
+	if packspec.Deref(config.MaxDurationSec, 0) < 0 {
 		return errMaxDurationSecNegative
 	}
 
@@ -165,7 +170,7 @@ func validateAudioConfig(config *AudioConfig) error {
 
 // validateVideoConfig validates video-specific configuration
 func validateVideoConfig(config *VideoConfig) error {
-	if config.MaxSizeMB < 0 {
+	if packspec.Deref(config.MaxSizeMB, 0) < 0 {
 		return errMaxSizeMBNegative
 	}
 
@@ -185,7 +190,7 @@ func validateVideoConfig(config *VideoConfig) error {
 		}
 	}
 
-	if config.MaxDurationSec < 0 {
+	if packspec.Deref(config.MaxDurationSec, 0) < 0 {
 		return errMaxDurationSecNegative
 	}
 

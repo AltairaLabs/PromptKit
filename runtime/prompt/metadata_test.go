@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"os"
 	"path/filepath"
 	"testing"
@@ -226,18 +227,26 @@ func TestAggregateTestResults(t *testing.T) {
 	}
 
 	expectedSuccessRate := 2.0 / 3.0
-	if testResult.SuccessRate != expectedSuccessRate {
-		t.Errorf("Expected success rate %.2f, got %.2f", expectedSuccessRate, testResult.SuccessRate)
+	if packspec.Deref(testResult.SuccessRate, 0) != expectedSuccessRate {
+		t.Errorf("Expected success rate %.2f, got %.2f", expectedSuccessRate,
+			packspec.Deref(testResult.SuccessRate, 0))
 	}
 
-	expectedAvgTokens := (500 + 600 + 300) / 3
-	if testResult.AvgTokens != expectedAvgTokens {
-		t.Errorf("Expected avg tokens %d, got %d", expectedAvgTokens, testResult.AvgTokens)
+	// Float arithmetic, not integer. The spec types avg_tokens and
+	// avg_latency_ms as `number`; the old code divided ints and truncated, so
+	// (500+600+300)/3 was recorded as 466 rather than 466.67. The expectations
+	// below changed because the truncation was the defect, not because the test
+	// was bent to fit new behavior.
+	expectedAvgTokens := (500.0 + 600.0 + 300.0) / 3.0
+	if packspec.Deref(testResult.AvgTokens, 0) != expectedAvgTokens {
+		t.Errorf("Expected avg tokens %.2f, got %.2f",
+			expectedAvgTokens, packspec.Deref(testResult.AvgTokens, 0))
 	}
 
-	expectedAvgLatency := (1000 + 1200 + 800) / 3
-	if testResult.AvgLatencyMs != expectedAvgLatency {
-		t.Errorf("Expected avg latency %d, got %d", expectedAvgLatency, testResult.AvgLatencyMs)
+	expectedAvgLatency := (1000.0 + 1200.0 + 800.0) / 3.0
+	if packspec.Deref(testResult.AvgLatencyMs, 0) != expectedAvgLatency {
+		t.Errorf("Expected avg latency %.2f, got %.2f",
+			expectedAvgLatency, packspec.Deref(testResult.AvgLatencyMs, 0))
 	}
 }
 

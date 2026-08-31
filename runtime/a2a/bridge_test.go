@@ -227,8 +227,8 @@ func TestToolBridge_RegisterAgent_MultipleSkills(t *testing.T) {
 
 func TestToolBridge_RegisterAgent_InheritsModes(t *testing.T) {
 	srv := serveAgentCard(t, AgentCard{
-		Name:              "default_modes",
-		DefaultInputModes: []string{"text/plain", "image/*"},
+		Name:               "default_modes",
+		DefaultInputModes:  []string{"text/plain", "image/*"},
 		DefaultOutputModes: []string{"text/plain", "audio/wav"},
 		Skills: []AgentSkill{
 			{

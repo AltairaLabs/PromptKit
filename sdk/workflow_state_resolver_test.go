@@ -127,7 +127,6 @@ func TestWorkflowStateResolver_CommitsButDoesNotContinue(t *testing.T) {
 			dest: &workflow.State{PromptTask: "dest", Orchestration: workflow.OrchestrationComposition},
 			why:  "CompositionStage runs the state itself",
 		},
-
 	}
 
 	for _, tc := range cases {

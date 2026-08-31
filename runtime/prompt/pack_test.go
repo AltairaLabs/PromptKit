@@ -3,6 +3,7 @@ package prompt
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"os"
 	"path/filepath"
 	"strings"
@@ -459,9 +460,9 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 						Enabled:        true,
 						SupportedTypes: []string{"image"},
 						Image: &ImageConfig{
-							MaxSizeMB:      20,
+							MaxSizeMB:      packspec.Ptr(20),
 							AllowedFormats: []string{"jpeg", "png", "webp"},
-							DefaultDetail:  "high",
+							DefaultDetail:  packspec.Ptr("high"),
 						},
 					},
 				},
@@ -484,9 +485,9 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 		assert.True(t, prompt.MediaConfig.Enabled)
 		assert.Equal(t, []string{"image"}, prompt.MediaConfig.SupportedTypes)
 		assert.NotNil(t, prompt.MediaConfig.Image)
-		assert.Equal(t, 20, prompt.MediaConfig.Image.MaxSizeMB)
+		assert.Equal(t, 20, packspec.Deref(prompt.MediaConfig.Image.MaxSizeMB, 0))
 		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.MediaConfig.Image.AllowedFormats)
-		assert.Equal(t, "high", prompt.MediaConfig.Image.DefaultDetail)
+		assert.Equal(t, "high", packspec.Deref(prompt.MediaConfig.Image.DefaultDetail, ""))
 	})
 
 	t.Run("pack without media config", func(t *testing.T) {
@@ -867,9 +868,9 @@ func TestCreatePackPrompt_ToolPolicyParametersEvals(t *testing.T) {
 				{Name: "name", Required: true, Type: "string"},
 			},
 			ToolPolicy: &ToolPolicyPack{
-				ToolChoice:          "auto",
-				MaxRounds:           5,
-				MaxToolCallsPerTurn: 3,
+				ToolChoice:          packspec.Ptr("auto"),
+				MaxRounds:           packspec.Ptr(5),
+				MaxToolCallsPerTurn: packspec.Ptr(3),
 				Blocklist:           []string{"dangerous_tool"},
 			},
 			Parameters: &ParametersPack{
@@ -906,9 +907,9 @@ func TestCreatePackPrompt_ToolPolicyParametersEvals(t *testing.T) {
 
 		// ToolPolicy
 		require.NotNil(t, prompt.ToolPolicy)
-		assert.Equal(t, "auto", prompt.ToolPolicy.ToolChoice)
-		assert.Equal(t, 5, prompt.ToolPolicy.MaxRounds)
-		assert.Equal(t, 3, prompt.ToolPolicy.MaxToolCallsPerTurn)
+		assert.Equal(t, "auto", packspec.Deref(prompt.ToolPolicy.ToolChoice, ""))
+		assert.Equal(t, 5, packspec.Deref(prompt.ToolPolicy.MaxRounds, 0))
+		assert.Equal(t, 3, packspec.Deref(prompt.ToolPolicy.MaxToolCallsPerTurn, 0))
 		assert.Equal(t, []string{"dangerous_tool"}, prompt.ToolPolicy.Blocklist)
 
 		// Parameters
@@ -940,7 +941,7 @@ func TestCreatePackPrompt_ToolPolicyParametersEvals(t *testing.T) {
 		prompt := loaded.Prompts["test-v12"]
 		require.NotNil(t, prompt)
 		require.NotNil(t, prompt.ToolPolicy)
-		assert.Equal(t, "auto", prompt.ToolPolicy.ToolChoice)
+		assert.Equal(t, "auto", packspec.Deref(prompt.ToolPolicy.ToolChoice, ""))
 		require.NotNil(t, prompt.Parameters)
 		require.NotNil(t, prompt.Parameters.Temperature)
 		assert.InDelta(t, 0.7, *prompt.Parameters.Temperature, 0.001)

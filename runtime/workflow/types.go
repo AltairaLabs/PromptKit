@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -85,11 +87,9 @@ func (e *BudgetExhaustedError) Error() string {
 func (e *BudgetExhaustedError) Unwrap() error { return ErrBudgetExhausted }
 
 // Budget defines workflow-level resource limits from the engine block.
-type Budget struct {
-	MaxTotalVisits int `json:"max_total_visits,omitempty"`
-	MaxToolCalls   int `json:"max_tool_calls,omitempty"`
-	MaxWallTimeSec int `json:"max_wall_time_sec,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.WorkflowBudget.
+// Optional limits are pointers so "no limit" is distinct from a limit of zero.
+type Budget = packspec.WorkflowBudget
 
 // ParseConfig parses an untyped workflow config (typically from config.Workflow
 // which is stored as interface{}) into a typed Spec. Returns nil, nil when
@@ -135,13 +135,28 @@ type State struct {
 }
 
 // ArtifactDef declares a named artifact slot on a workflow state.
-// Artifacts are workflow-scoped: if two states declare the same name, they
-// reference the same artifact. Values are accessible as {{artifacts.<name>}}.
-type ArtifactDef struct {
-	Type        string `json:"type"`                  // MIME type (e.g., "text/plain", "application/json")
-	Description string `json:"description,omitempty"` // What the artifact contains
-	Mode        string `json:"mode,omitempty"`        // "replace" (default) or "append"
+//
+// Generated from the schema: an ALIAS for packspec.ArtifactDef.
+//
+// Mode is a *string, not a string: the spec defaults it to "replace", so
+// "absent" and "explicitly empty" are different facts and a plain field would
+// collapse them. Read it through ArtifactMode, which applies the default.
+type ArtifactDef = packspec.ArtifactDef
+
+// ArtifactMode returns an artifact slot's merge mode, applying the spec default
+// of "replace" when the pack did not set one.
+func ArtifactMode(def *ArtifactDef) string {
+	if def == nil || def.Mode == nil {
+		return ArtifactModeReplace
+	}
+	return *def.Mode
 }
+
+// Artifact merge modes (schema $defs/ArtifactDef.mode).
+const (
+	ArtifactModeReplace = "replace"
+	ArtifactModeAppend  = "append"
+)
 
 // TransitionResult is returned by ProcessEvent to communicate what happened.
 // Redirects (e.g., max_visits exceeded → on_max_visits) are successful

@@ -922,8 +922,11 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 // evalLabelValues returns instance label values + pack-author label values
 // for an eval metric observation.
 func (mc *MetricContext) evalLabelValues(metric *evals.MetricDef) []string {
-	// Pack-author label names sorted for deterministic ordering.
-	defLabelNames := sortedKeys(metric.Labels)
+	// Pack-author label names sorted for deterministic ordering. Labels are a
+	// runtime extension carried in MetricDef.Extra, not a spec field — see
+	// evals.MetricLabels.
+	declared := evals.MetricLabels(metric)
+	defLabelNames := sortedKeys(declared)
 
 	vals := make([]string, 0, len(mc.collector.instanceLabels)+len(defLabelNames))
 	// Instance labels first (sorted).
@@ -932,7 +935,7 @@ func (mc *MetricContext) evalLabelValues(metric *evals.MetricDef) []string {
 	}
 	// Pack-author labels.
 	for _, name := range defLabelNames {
-		vals = append(vals, metric.Labels[name])
+		vals = append(vals, declared[name])
 	}
 	return vals
 }
@@ -950,7 +953,7 @@ func (c *Collector) registerEvalMetric(
 		return entry, nil
 	}
 
-	defLabelNames := sortedKeys(metric.Labels)
+	defLabelNames := sortedKeys(evals.MetricLabels(metric))
 	allLabelNames := c.allLabels(defLabelNames)
 
 	var entry evalMetricEntry

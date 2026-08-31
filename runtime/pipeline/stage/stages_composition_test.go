@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"sync"
 	"testing"
 	"time"
@@ -485,7 +486,7 @@ func TestCompositionStage_EndToEnd_MixedKinds(t *testing.T) {
 				ID:         "classify",
 				Kind:       composition.KindPrompt,
 				PromptTask: "classify",
-				Input:      "${input.text}",
+				Input:      &packspec.StepInput{String: "${input.text}"},
 			},
 			// Step 2: parallel step — two echo-tool branches, barrier-merged into "m".
 			{
@@ -503,8 +504,8 @@ func TestCompositionStage_EndToEnd_MixedKinds(t *testing.T) {
 				Kind:        composition.KindAgent,
 				PromptTask:  "analyze",
 				DependsOn:   []string{"classify", "meta"},
-				Input:       "${meta.output.m}",
-				Termination: &composition.Termination{MaxSteps: 3},
+				Input:       &packspec.StepInput{String: "${meta.output.m}"},
+				Termination: &composition.Termination{MaxSteps: packspec.Ptr(3)},
 			},
 		},
 	}

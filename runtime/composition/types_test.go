@@ -3,6 +3,8 @@ package composition
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestComposition_JSONRoundTrip(t *testing.T) {
@@ -57,7 +59,7 @@ func TestComposition_JSONRoundTrip(t *testing.T) {
 	if len(c.Steps[2].Branches) != 2 {
 		t.Errorf("branches = %d", len(c.Steps[2].Branches))
 	}
-	if c.Steps[3].Termination.MaxSteps != 10 || c.Steps[3].Modifiers.Retry.MaxAttempts != 3 {
+	if packspec.Deref(c.Steps[3].Termination.MaxSteps, 0) != 10 || packspec.Deref(c.Steps[3].Modifiers.Retry.MaxAttempts, 0) != 3 {
 		t.Errorf("agent = %+v", c.Steps[3])
 	}
 	if len(c.Steps[3].Modifiers.Eval) != 1 || c.Steps[3].Modifiers.Eval[0] != "analysis_quality" {
@@ -73,4 +75,43 @@ func TestPredicate_ExistsVariant(t *testing.T) {
 	if p.Exists == nil || !*p.Exists {
 		t.Fatalf("exists not parsed: %+v", p)
 	}
+}
+
+// TestStepInputValueUnwrapsBothShapes — the spec models a step's input as a
+// union: a "${...}" reference string, or an object of literals and references.
+// The resolver wants whichever was written, so this unwraps in one place
+// instead of a type switch at each call site.
+func TestStepInputValueUnwrapsBothShapes(t *testing.T) {
+	t.Run("reference string", func(t *testing.T) {
+		s := &Step{Input: &packspec.StepInput{String: "${input.order_id}"}}
+		if got := StepInputValue(s); got != "${input.order_id}" {
+			t.Errorf("got %v, want the reference string", got)
+		}
+	})
+
+	t.Run("object of literals and references", func(t *testing.T) {
+		obj := map[string]any{"id": "${input.id}", "limit": 5}
+		s := &Step{Input: &packspec.StepInput{Object: obj}}
+		got, ok := StepInputValue(s).(map[string]any)
+		if !ok || got["id"] != "${input.id}" {
+			t.Errorf("got %v, want the object", StepInputValue(s))
+		}
+	})
+
+	// Absent input must be nil, not an empty string or empty map — the resolver
+	// distinguishes "no input" from "empty input", and returning a zero value
+	// would silently turn one into the other.
+	t.Run("absent", func(t *testing.T) {
+		if got := StepInputValue(&Step{}); got != nil {
+			t.Errorf("a step with no input must yield nil, got %v", got)
+		}
+		// An explicitly empty string is NOT absent: it is an input the author
+		// wrote, and validateKind's allowed-field check has to see it.
+		if got := StepInputValue(&Step{Input: &packspec.StepInput{}}); got != "" {
+			t.Errorf("an empty string input must stay an empty string, got %v", got)
+		}
+		if got := StepInputValue(nil); got != nil {
+			t.Errorf("a nil step must yield nil, got %v", got)
+		}
+	})
 }

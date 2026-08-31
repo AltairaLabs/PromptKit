@@ -27,7 +27,7 @@ func TestApplyThinkingConfig_ReadsThinkingLevel(t *testing.T) {
 		{"medium", "medium", "medium"},
 		{"high", "high", "high"},
 		{"uppercase is normalized", "HIGH", "high"},
-		{"unknown level ignored", "minimal", ""},  // rejected by the API with 400
+		{"unknown level ignored", "minimal", ""}, // rejected by the API with 400
 		{"non-string ignored", 3, ""},
 	}
 	for _, tc := range cases {

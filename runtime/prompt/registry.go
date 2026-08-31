@@ -37,6 +37,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/template"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -116,20 +117,19 @@ type Spec struct {
 // provider, model and date are required by the spec, so they carry no omitempty
 // — a required field that vanishes on serialize produces a pack that fails its
 // own validation.
-type ModelTestResultRef struct {
-	Provider     string  `yaml:"provider" json:"provider"`
-	Model        string  `yaml:"model" json:"model"`
-	Date         string  `yaml:"date" json:"date"`
-	SuccessRate  float64 `yaml:"success_rate" json:"success_rate"`
-	AvgTokens    int     `yaml:"avg_tokens,omitempty" json:"avg_tokens,omitempty"`
-	AvgCost      float64 `yaml:"avg_cost,omitempty" json:"avg_cost,omitempty"`
-	AvgLatencyMs int     `yaml:"avg_latency_ms,omitempty" json:"avg_latency_ms,omitempty"`
-	// Notes is spec vocabulary that had no Go field, so it was dropped on load
-	// and never round-tripped. It is carried metadata, not behavior.
-	Notes string `yaml:"notes,omitempty" json:"notes,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.TestedModel.
+// avg_tokens/avg_latency_ms are float64: the spec types them as number, not integer.
+type ModelTestResultRef = packspec.TestedModel
 
-// MediaConfig defines multimodal media support configuration for a prompt
+// MediaConfig defines multimodal media support configuration for a prompt.
+//
+// NOT yet generated. Aliasing it requires MultimodalExample, which requires
+// ContentPart — 773 use sites and a real semantic difference (the spec's `text`
+// is a plain string; the hand-written one is *string). That chain is its own
+// piece of work.
+//
+// Cost of the delay: the spec's `document` media config still has no Go field,
+// so a pack configuring document media has it silently dropped.
 type MediaConfig struct {
 	// Enable multimodal support for this prompt
 	Enabled bool `yaml:"enabled" json:"enabled"`
@@ -141,47 +141,25 @@ type MediaConfig struct {
 	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
 	// Video-specific configuration
 	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
-	// Example multimodal messages
+	// Multimodal few-shot examples
 	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
 }
 
 // ImageConfig contains image-specific configuration
-type ImageConfig struct {
-	// Maximum image size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["jpeg", "png", "webp", "gif"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Default detail level: "low", "high", "auto"
-	DefaultDetail string `yaml:"default_detail,omitempty" json:"default_detail,omitempty"`
-	// Whether captions are required
-	RequireCaption bool `yaml:"require_caption,omitempty" json:"require_caption,omitempty"`
-	// Max images per message (0 = unlimited)
-	MaxImagesPerMsg int `yaml:"max_images_per_msg,omitempty" json:"max_images_per_msg,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ImageConfig.
+// default_detail is *string: the spec defaults it to "auto", so absent and empty differ.
+type ImageConfig = packspec.ImageConfig
 
 // AudioConfig contains audio-specific configuration
-type AudioConfig struct {
-	// Maximum audio size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["mp3", "wav", "ogg", "webm"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Max duration in seconds (0 = unlimited)
-	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
-	// Whether metadata (duration, bitrate) is required
-	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
-}
+// AudioConfig is generated from the schema: an ALIAS for packspec.AudioConfig,
+// not a copy. The hand-written struct was field-for-field identical to
+// $defs/AudioConfig.
+type AudioConfig = packspec.AudioConfig
 
 // VideoConfig contains video-specific configuration
-type VideoConfig struct {
-	// Maximum video size in MB (0 = unlimited)
-	MaxSizeMB int `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
-	// Allowed formats: ["mp4", "webm", "ogg"]
-	AllowedFormats []string `yaml:"allowed_formats,omitempty" json:"allowed_formats,omitempty"`
-	// Max duration in seconds (0 = unlimited)
-	MaxDurationSec int `yaml:"max_duration_sec,omitempty" json:"max_duration_sec,omitempty"`
-	// Whether metadata (resolution, fps) is required
-	RequireMetadata bool `yaml:"require_metadata,omitempty" json:"require_metadata,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.VideoConfig.
+// Optional numeric and boolean fields are pointers: zero is a real setting.
+type VideoConfig = packspec.VideoConfig
 
 // MultimodalExample represents an example multimodal message for testing/documentation
 type MultimodalExample struct {
@@ -425,10 +403,9 @@ type Fragment struct {
 // or applies per-model parameters, so declaring them would be vocabulary with a
 // consumer and no producer. They are recorded as codegen candidates in
 // docs/local-backlog/PACK_TYPES_FROM_SCHEMA_CODEGEN.md rather than added blind.
-type ModelOverride struct {
-	SystemTemplate       string `yaml:"system_template,omitempty" json:"system_template,omitempty"`
-	SystemTemplateSuffix string `yaml:"system_template_suffix,omitempty" json:"system_template_suffix,omitempty"`
-}
+// Generated from the schema: an ALIAS for packspec.ModelOverride.
+// Gains system_template_prefix and parameters from the spec.
+type ModelOverride = packspec.ModelOverride
 
 // Repository interface defines methods for loading prompts (to avoid import cycles)
 // This should match persistence.Repository interface

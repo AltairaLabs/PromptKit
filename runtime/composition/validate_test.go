@@ -1,6 +1,7 @@
 package composition
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"strings"
 	"testing"
 )
@@ -77,7 +78,7 @@ func TestValidate_UnknownPromptTask(t *testing.T) {
 func TestValidate_UnknownAgentToolAndEval(t *testing.T) {
 	c := &Composition{Version: 1, Steps: []*Step{
 		{ID: "a", Kind: KindAgent, PromptTask: "p", Tools: []string{"nope"},
-			Termination: &Termination{MaxSteps: 1},
+			Termination: &Termination{MaxSteps: packspec.Ptr(1)},
 			Modifiers:   &StepModifiers{Eval: []string{"noeval"}}},
 	}}
 	r := Validate("comp", c, av([]string{"p"}, []string{"real"}, []string{"realeval"}))
@@ -91,7 +92,7 @@ func TestValidate_UnknownAgentToolAndEval(t *testing.T) {
 
 func TestValidate_UnknownRefRoot(t *testing.T) {
 	c := &Composition{Version: 1, Steps: []*Step{
-		{ID: "a", Kind: KindPrompt, PromptTask: "p", Input: "${ghost.output.x}"},
+		{ID: "a", Kind: KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${ghost.output.x}"}},
 	}}
 	r := Validate("comp", c, av([]string{"p"}, nil, nil))
 	if !hasErr(r, `references unknown "ghost"`) {
@@ -101,8 +102,8 @@ func TestValidate_UnknownRefRoot(t *testing.T) {
 
 func TestValidate_InputAndPriorStepRefsOK(t *testing.T) {
 	c := &Composition{Version: 1, Steps: []*Step{
-		{ID: "first", Kind: KindPrompt, PromptTask: "p", Input: "${input.text}"},
-		{ID: "second", Kind: KindPrompt, PromptTask: "p", Input: "${first.output.y}"},
+		{ID: "first", Kind: KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${input.text}"}},
+		{ID: "second", Kind: KindPrompt, PromptTask: "p", Input: &packspec.StepInput{String: "${first.output.y}"}},
 	}}
 	r := Validate("comp", c, av([]string{"p"}, nil, nil))
 	if r.HasErrors() {
@@ -347,20 +348,20 @@ func TestValidate_FullValidCompositionNoErrors(t *testing.T) {
 	c := &Composition{
 		Version: 1, Output: "synthesize",
 		Steps: []*Step{
-			{ID: "classify", Kind: KindPrompt, PromptTask: "doc_classifier", Input: "${input.text}"},
+			{ID: "classify", Kind: KindPrompt, PromptTask: "doc_classifier", Input: &packspec.StepInput{String: "${input.text}"}},
 			{ID: "route", Kind: KindBranch,
 				Predicate: &Predicate{Path: "${classify.output.type}", Op: "equals", Value: "paper"},
 				Then:      "paper", Else: "general"},
-			{ID: "paper", Kind: KindPrompt, PromptTask: "paper_extractor", Input: "${input.text}", DependsOn: []string{"route"}},
-			{ID: "general", Kind: KindPrompt, PromptTask: "general_extractor", Input: "${input.text}", DependsOn: []string{"route"}},
+			{ID: "paper", Kind: KindPrompt, PromptTask: "paper_extractor", Input: &packspec.StepInput{String: "${input.text}"}, DependsOn: []string{"route"}},
+			{ID: "general", Kind: KindPrompt, PromptTask: "general_extractor", Input: &packspec.StepInput{String: "${input.text}"}, DependsOn: []string{"route"}},
 			{ID: "meta", Kind: KindParallel, DependsOn: []string{"paper", "general"},
 				Branches: []*Step{
 					{ID: "structure", Kind: KindTool, Tool: "doc.parse", Args: map[string]any{"content": "${input.text}"}},
 					{ID: "citations", Kind: KindTool, Tool: "doc.cite", Args: map[string]any{"content": "${input.text}"}},
 				},
 				Reduce: &Reducer{Strategy: ReduceBarrier, Into: "metadata"}},
-			{ID: "synthesize", Kind: KindAgent, PromptTask: "doc_analyzer", Input: "${meta.output.metadata}",
-				Tools: []string{"ref.search"}, Termination: &Termination{MaxSteps: 10}, DependsOn: []string{"meta"},
+			{ID: "synthesize", Kind: KindAgent, PromptTask: "doc_analyzer", Input: &packspec.StepInput{String: "${meta.output.metadata}"},
+				Tools: []string{"ref.search"}, Termination: &Termination{MaxSteps: packspec.Ptr(10)}, DependsOn: []string{"meta"},
 				Modifiers: &StepModifiers{Eval: []string{"analysis_quality"}}},
 		},
 	}

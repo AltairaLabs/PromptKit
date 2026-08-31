@@ -171,31 +171,12 @@ func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
 	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackPrompt{}), "Prompt")
 }
 
-// TestToolStructMatchesPromptPackSpec pins prompt.PackTool to $defs/Tool.
-func TestToolStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackTool{}), "Tool")
-}
-
-// TestTestedModelStructMatchesPromptPackSpec pins prompt.ModelTestResultRef to
-// $defs/TestedModel. The name does not match the def — one of several such
-// mismatches across the pack types.
-func TestTestedModelStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.ModelTestResultRef{}), "TestedModel")
-}
-
-// TestModelOverrideStructMatchesPromptPackSpec pins prompt.ModelOverride to
-// $defs/ModelOverride.
-func TestModelOverrideStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.ModelOverride{}), "ModelOverride",
-		deliberateOmission{
-			property: "system_template_prefix",
-			reason: "nothing in the runtime assembles a per-model template prefix; adding " +
-				"the field would be vocabulary with a consumer and no producer",
-		},
-		deliberateOmission{
-			property: "parameters",
-			reason: "per-model parameter overrides are not applied by the runtime — " +
-				"parameters are resolved at the prompt or provider level",
-		},
-	)
-}
+// PackTool, ModelTestResultRef and ModelOverride had cases here until they
+// became aliases for their generated types. A parity test on an alias is tautological
+// — it compares the generated type to the schema it was generated from — so the
+// cases were removed rather than left as reassuring noise. The generator's own
+// coverage check and `make packspec-check` cover those types now, and more
+// strictly: they fail on any schema construct that is unaccounted for, not just
+// on a tag mismatch.
+//
+// The cases below remain because their types are still hand-written.

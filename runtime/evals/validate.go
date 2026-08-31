@@ -170,7 +170,7 @@ func validateMetric(m *MetricDef, prefix string) []string {
 		}
 	}
 
-	for labelName := range m.Labels {
+	for labelName := range MetricLabels(m) {
 		if !prometheusLabelRe.MatchString(labelName) {
 			errs = append(errs, fmt.Sprintf(
 				"%s: metric.labels key %q must match Prometheus label naming: %s",

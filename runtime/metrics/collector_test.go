@@ -583,11 +583,8 @@ func TestMetricContext_EvalWithLabels(t *testing.T) {
 	c, reg := newTestCollector()
 	ctx := c.Bind(nil)
 
-	metric := &evals.MetricDef{
-		Name:   "quality",
-		Type:   evals.MetricGauge,
-		Labels: map[string]string{"category": "tone", "eval_type": "llm_judge"},
-	}
+	metric := &evals.MetricDef{Name: "quality", Type: evals.MetricGauge}
+	evals.SetMetricLabels(metric, map[string]string{"category": "tone", "eval_type": "llm_judge"})
 
 	if err := ctx.Record(evals.EvalResult{Score: float64Ptr(0.9)}, metric); err != nil {
 		t.Fatalf("Record: %v", err)

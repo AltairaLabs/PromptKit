@@ -715,7 +715,7 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 
 	t.Run("filter by ExecutionID", func(t *testing.T) {
 		result, err := store.Query(context.Background(), &EventFilter{
-			SessionID: sessionID,
+			SessionID:   sessionID,
 			ExecutionID: "run-1",
 		})
 		require.NoError(t, err)

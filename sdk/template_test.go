@@ -258,10 +258,10 @@ func TestPackTemplateOpenDuplex(t *testing.T) {
 // failingCapability is a test capability that always fails during Init.
 type failingCapability struct{}
 
-func (f *failingCapability) Name() string                          { return "failing" }
-func (f *failingCapability) Init(_ CapabilityContext) error         { return assert.AnError }
-func (f *failingCapability) RegisterTools(_ *tools.Registry)        {}
-func (f *failingCapability) Close() error                            { return nil }
+func (f *failingCapability) Name() string                    { return "failing" }
+func (f *failingCapability) Init(_ CapabilityContext) error  { return assert.AnError }
+func (f *failingCapability) RegisterTools(_ *tools.Registry) {}
+func (f *failingCapability) Close() error                    { return nil }
 
 func TestPackTemplateOpenInitConversationError(t *testing.T) {
 	packFile := writeTestPack(t)

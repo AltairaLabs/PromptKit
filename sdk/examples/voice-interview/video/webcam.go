@@ -394,11 +394,11 @@ func (wc *WebcamCapture) buildStreamingArgs(targetFPS int) []string {
 
 	// Output settings: MJPEG stream at target FPS
 	args = append(args,
-		"-an",                                    // No audio
+		"-an",                                   // No audio
 		"-vf", fmt.Sprintf("fps=%d", targetFPS), // Reduce to target FPS
-		"-f", "mjpeg",                            // MJPEG format
-		"-q:v", "10",                             // Quality (lower = better, 10 is decent for streaming)
-		"-",                                      // Output to stdout
+		"-f", "mjpeg", // MJPEG format
+		"-q:v", "10", // Quality (lower = better, 10 is decent for streaming)
+		"-", // Output to stdout
 	)
 
 	return args

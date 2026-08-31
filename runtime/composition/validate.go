@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 var stepIDRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -179,7 +181,7 @@ func forEachStep(steps []*Step, fn func(*Step)) {
 
 // validateRefRoots checks rule 4: every ${...} root is "input" or a known step id.
 func validateRefRoots(name string, s *Step, stepIDs map[string]bool, r *ValidationResult) {
-	roots := collectRefRoots(s.Input)
+	roots := collectRefRoots(StepInputValue(s))
 	roots = append(roots, collectRefRoots(s.Args)...)
 	roots = append(roots, collectRefRoots(predicatePaths(s.Predicate))...)
 	for _, root := range roots {
@@ -237,7 +239,7 @@ func validateKind(name string, s *Step, r *ValidationResult) {
 	case KindPrompt, KindTool:
 		// no additional structural checks beyond the allowed-field set
 	case KindAgent:
-		if s.Termination == nil || (s.Termination.MaxSteps == 0 && s.Termination.ToolCalled == "") {
+		if s.Termination == nil || (packspec.Deref(s.Termination.MaxSteps, 0) == 0 && s.Termination.ToolCalled == "") {
 			r.Errors = append(r.Errors, fmt.Sprintf("%s: agent step must declare termination (max_steps or tool_called)", pfx))
 		}
 	case KindParallel:
@@ -259,7 +261,7 @@ func presentKindFields(s *Step) []string {
 	if s.PromptTask != "" {
 		f = append(f, fieldPromptTask)
 	}
-	if s.Input != nil {
+	if StepInputValue(s) != nil {
 		f = append(f, fieldInput)
 	}
 	if s.OutputSchema != "" {

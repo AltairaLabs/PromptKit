@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,10 +38,10 @@ func TestConvertToolToPackTool(t *testing.T) {
 		assert.Equal(t, "List all devices", result.Description)
 		assert.NotNil(t, result.Parameters)
 
-		// Verify parameters is a map with the expected structure
-		params, ok := result.Parameters.(map[string]interface{})
-		require.True(t, ok, "Parameters should be a map")
-		assert.Equal(t, "object", params["type"])
+		// Parameters is a typed shape now, not an untyped map: the spec defines
+		// type/properties/required on Tool.parameters.
+		assert.Equal(t, "object", result.Parameters.Type)
+		assert.Contains(t, result.Parameters.Properties, "device_id")
 	})
 
 	t.Run("converts tool with empty input schema", func(t *testing.T) {
@@ -301,12 +303,10 @@ func TestPackToolsInJSON(t *testing.T) {
 				"my_tool": {
 					Name:        "my_tool",
 					Description: "A tool for testing",
-					Parameters: map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"id": map[string]interface{}{
-								"type": "string",
-							},
+					Parameters: &packspec.ToolParameters{
+						Type: "object",
+						Properties: map[string]map[string]any{
+							"id": {"type": "string"},
 						},
 					},
 				},

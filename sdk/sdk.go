@@ -275,6 +275,12 @@ func initConversation(
 		return nil, nil, err
 	}
 
+	// RFC 0012: fail here if the pack declares providers the host has not
+	// supplied, rather than at the first request that needs one.
+	if err := checkProviderRequirements(p, cfg); err != nil {
+		return nil, nil, err
+	}
+
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
 	allCaps = ensureA2ACapability(allCaps, cfg)

@@ -949,7 +949,7 @@ func TestArtifact_AppendMode(t *testing.T) {
 			"a": {
 				PromptTask: "t",
 				Artifacts: map[string]*ArtifactDef{
-					"log": {Type: "text/plain", Mode: "append"},
+					"log": {Type: "text/plain", Mode: ptrTo("append")},
 				},
 			},
 		},
@@ -1094,3 +1094,7 @@ func TestArtifact_CrossStateScope(t *testing.T) {
 		t.Errorf("artifact sha = %q after transition, want %q", arts["sha"], "abc123")
 	}
 }
+
+// ptrTo is a local helper for the optional-with-default fields the schema
+// models as pointers (see workflow.ArtifactMode).
+func ptrTo[T any](v T) *T { return &v }

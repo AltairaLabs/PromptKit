@@ -144,3 +144,6 @@ sdk/e2e-results/
 benchmarks/results/*.json
 benchmarks/results/*.csv
 benchmarks/results/*.md
+
+# packspec-gen build artifact
+tools/packspec-gen/packspec-gen
