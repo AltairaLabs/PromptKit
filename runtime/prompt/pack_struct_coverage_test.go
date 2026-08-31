@@ -46,28 +46,30 @@ type pinnedStruct struct {
 	schemaRef string
 	notSpec   string
 	omissions []deliberateOmission
+
+	// notGenerated says why this type is hand-written when the generator has
+	// already emitted an equivalent for its $def. Required on every pin with a
+	// schemaRef, and the reason this field exists at all:
+	//
+	// `make packspec` emits a type for all 52 $defs, but the runtime adopts
+	// only some of them. That gap was invisible — the pins recorded WHERE a
+	// type maps in the schema and said nothing about why it was not the
+	// generated one, so "we generate code and do not use it" could sit
+	// unexamined behind a passing property check.
+	//
+	// A property check is weaker than generation. It verifies that every schema
+	// property exists, that no extra fields appear when additionalProperties is
+	// false, and that required fields do not carry omitempty. It does NOT
+	// verify Go types: a value where absence matters, or a string where the
+	// spec means an integer, passes it. So a hand-written type needs a reason,
+	// not just a passing test.
+	notGenerated string
 }
 
 // packStructPins accounts for every hand-written struct reachable from
 // prompt.Pack. TestEveryPackStructIsAccountedFor fails if the type graph
 // contains one that is not here.
 var packStructPins = []pinnedStruct{
-	// Pinned to the spec. These are checked property-by-property by
-	// TestPinnedPackStructsMatchTheSpec below.
-	{value: prompt.Validator{}, schemaRef: "$defs/Validator", omissions: []deliberateOmission{{
-		property: "message",
-		reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
-			"foldValidatorMessages folds it into params at compile, so the compiled " +
-			"validator never carries it",
-	}}},
-	{value: prompt.Variable{}, schemaRef: "$defs/Variable", omissions: []deliberateOmission{{
-		property: "binding",
-		reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
-			"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
-			"compileVariables drops it, so it is not part of the portable pack",
-	}}},
-	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt"},
-
 	// Not spec types. Each carries data the PromptPack format does not define.
 	{value: prompt.Pack{}, notSpec: "the pack root itself; its properties are pinned " +
 		"through the structs below and through the generated types it embeds"},
@@ -80,22 +82,62 @@ var packStructPins = []pinnedStruct{
 		"never states a pass/fail, so a threshold is the enforcing wrapper's, not the " +
 		"eval's, and is not part of the portable pack"},
 
-	// The rest of the pack format. Every one of these is property-checked; two
-	// were found wrong the moment the check was switched on (see the tests in
-	// media_test.go and pack_test.go for base64 and the `dir` alias).
-	{value: prompt.MediaConfig{}, schemaRef: "$defs/MediaConfig", omissions: []deliberateOmission{{
-		property: "document",
-		reason: "document media is not carried on the compiled pack: prompt.MediaConfig " +
-			"has no document field because types.ContentPart cannot represent one yet",
-	}}},
-	{value: prompt.MultimodalExample{}, schemaRef: "$defs/MultimodalExample"},
-	{value: prompt.ExampleContentPart{}, schemaRef: "$defs/ContentPart"},
-	{value: prompt.ExampleMedia{}, schemaRef: "$defs/MediaReference"},
-	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource"},
-	{value: prompt.TemplateEngineInfo{}, schemaRef: "properties/template_engine"},
-	{value: evals.EvalDef{}, schemaRef: "$defs/Eval"},
-	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig"},
-	{value: workflow.State{}, schemaRef: "$defs/WorkflowState"},
+	// Hand-written by decision. Adopting the generated type would LOSE type
+	// safety here: the generator emits what the schema says, and the schema
+	// says "string".
+	{value: evals.EvalDef{}, schemaRef: "$defs/Eval",
+		notGenerated: "packspec.Eval types trigger as string and when as " +
+			"map[string]any; the hand-written type uses evals.EvalTrigger and " +
+			"*evals.EvalWhen, so a bad trigger fails to compile rather than at run " +
+			"time. Adopting it would be a downgrade, not a cleanup"},
+	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig",
+		notGenerated: "its states map holds *workflow.State, which is hand-written " +
+			"for the reason below; adopting this without that would gain nothing"},
+	{value: workflow.State{}, schemaRef: "$defs/WorkflowState",
+		notGenerated: "packspec.WorkflowState types persistence and orchestration as " +
+			"string/*string; the hand-written type uses workflow.Persistence and " +
+			"workflow.Orchestration. Same downgrade as evals.EvalDef"},
+
+	// Hand-written for a structural reason the generator cannot express.
+	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource",
+		notGenerated: "$defs/SkillSource is a oneOf over a bare string, a " +
+			"SkillPathSource and an InlineSkill. This type is the FLATTENING of that " +
+			"union plus the legacy `dir` input alias, and carries the custom " +
+			"unmarshallers both require. packspec.SkillSource is the union itself"},
+	{value: prompt.TemplateEngineInfo{}, schemaRef: "properties/template_engine",
+		notGenerated: "template_engine is an inline object under the root's " +
+			"properties, not a $def, so the generator emits no type for it at all"},
+
+	// Hand-written because the compiled form deliberately differs from the
+	// authoring form. Both omissions are recorded below.
+	{value: prompt.Validator{}, schemaRef: "$defs/Validator",
+		notGenerated: "packspec.Validator carries `message`, which this compiled type " +
+			"must not — see the omission below. Adopting it would reintroduce the " +
+			"field that foldValidatorMessages exists to remove",
+		omissions: []deliberateOmission{{
+			property: "message",
+			reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
+				"foldValidatorMessages folds it into params at compile, so the compiled " +
+				"validator never carries it",
+		}}},
+	{value: prompt.Variable{}, schemaRef: "$defs/Variable",
+		notGenerated: "packspec.Variable carries `binding`, which the compiled variable " +
+			"must not — see the omission below",
+		omissions: []deliberateOmission{{
+			property: "binding",
+			reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
+				"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
+				"compileVariables drops it, so it is not part of the portable pack",
+		}}},
+
+	// Hand-written, and it should not stay that way.
+	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt",
+		notGenerated: "TRACKED, not decided: adoption is mechanical but wide. Seven " +
+			"fields change shape (validators, evals, variables, tested_models and " +
+			"model_overrides all become slices/maps of pointers; pipeline and media " +
+			"become typed rather than map[string]any), and this is the type every " +
+			"prompt hangs off. Everything reachable from it was adopted first so that " +
+			"this is the only step left"},
 }
 
 // reachableStructs walks the type graph from rt, collecting every named struct
@@ -152,6 +194,16 @@ func TestEveryPackStructIsAccountedFor(t *testing.T) {
 		case p.schemaRef != "" && p.notSpec != "":
 			t.Errorf("%s is pinned with both a schemaRef and a notSpec reason; it is one "+
 				"or the other", rt)
+		case p.schemaRef != "" && p.notGenerated == "":
+			t.Errorf("%s is pinned to %s but does not say why it is hand-written when "+
+				"the generator has emitted a type for that $def.\n\n"+
+				"`make packspec` emits all 52; the runtime adopts only some. Leaving "+
+				"that gap unstated is how it went unexamined behind a passing property "+
+				"check. Set notGenerated: either the reason adopting would be wrong, "+
+				"or that it is tracked work.", rt, p.schemaRef)
+		case p.notSpec != "" && p.notGenerated != "":
+			t.Errorf("%s is notSpec, so there is no generated type to explain away; "+
+				"drop its notGenerated reason", rt)
 		}
 	}
 

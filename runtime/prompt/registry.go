@@ -123,29 +123,16 @@ type Spec struct {
 // avg_tokens/avg_latency_ms are float64: the spec types them as number, not integer.
 type ModelTestResultRef = packspec.TestedModel
 
-// MediaConfig defines multimodal media support configuration for a prompt.
+// MediaConfig configures multimodal support for a prompt.
 //
-// NOT yet generated. Aliasing it requires MultimodalExample, which requires
-// ContentPart — 773 use sites and a real semantic difference (the spec's `text`
-// is a plain string; the hand-written one is *string). That chain is its own
-// piece of work.
-//
-// Cost of the delay: the spec's `document` media config still has no Go field,
-// so a pack configuring document media has it silently dropped.
-type MediaConfig struct {
-	// Enable multimodal support for this prompt
-	Enabled bool `yaml:"enabled" json:"enabled"`
-	// Supported content types: "image", "audio", "video"
-	SupportedTypes []string `yaml:"supported_types,omitempty" json:"supported_types,omitempty"`
-	// Image-specific configuration
-	Image *ImageConfig `yaml:"image,omitempty" json:"image,omitempty"`
-	// Audio-specific configuration
-	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
-	// Video-specific configuration
-	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
-	// Multimodal few-shot examples
-	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
-}
+// Generated. It was hand-written, and dropped $defs/MediaConfig's `document`
+// property entirely — a prompt declaring document media round-tripped to
+// nothing. Same failure as metadata.governance, same fix.
+type MediaConfig = packspec.MediaConfig
+
+// DocumentConfig configures document media (PDFs, CAD files, spreadsheets).
+// Reachable now that MediaConfig is the generated type.
+type DocumentConfig = packspec.DocumentConfig
 
 // ImageConfig contains image-specific configuration
 // Generated from the schema: an ALIAS for packspec.ImageConfig.
@@ -163,45 +150,26 @@ type AudioConfig = packspec.AudioConfig
 // Optional numeric and boolean fields are pointers: zero is a real setting.
 type VideoConfig = packspec.VideoConfig
 
-// MultimodalExample represents an example multimodal message for testing/documentation
-type MultimodalExample struct {
-	// Example name/identifier
-	Name string `yaml:"name" json:"name"`
-	// Human-readable description
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-	// Message role: "user", "assistant"
-	Role string `yaml:"role" json:"role"`
-	// Content parts for this example
-	Parts []ExampleContentPart `yaml:"parts" json:"parts"`
-}
+// MultimodalExample is a few-shot example carrying media.
+//
+// Generated, so that MediaConfig.Examples is the generated slice type.
+type MultimodalExample = packspec.MultimodalExample
 
-// ExampleContentPart represents a content part in an example (simplified for YAML)
-type ExampleContentPart struct {
-	// Content type: "text", "image", "audio", "video"
-	Type string `yaml:"type" json:"type"`
-	// Text content (for type=text)
-	Text string `yaml:"text,omitempty" json:"text,omitempty"`
-	// For media content
-	Media *ExampleMedia `yaml:"media,omitempty" json:"media,omitempty"`
-}
+// ExampleContentPart is one content part of a multimodal example.
+//
+// Generated. This is $defs/ContentPart, the PACK authoring type — distinct from
+// types.ContentPart, which is the runtime message type and a different graph.
+type ExampleContentPart = packspec.ContentPart
 
-// ExampleMedia represents media references in examples
-type ExampleMedia struct {
-	// Relative path to media file
-	FilePath string `yaml:"file_path,omitempty" json:"file_path,omitempty"`
-	// External URL
-	URL string `yaml:"url,omitempty" json:"url,omitempty"`
-	// Base64-encoded media data, for small files or when embedding is preferred.
-	// types.MediaContent.Data has always been able to carry this; the pack
-	// authoring struct could not, so a pack embedding media inline lost it.
-	Base64 string `yaml:"base64,omitempty" json:"base64,omitempty"`
-	// MIME type
-	MIMEType string `yaml:"mime_type" json:"mime_type"`
-	// Detail level for images
-	Detail string `yaml:"detail,omitempty" json:"detail,omitempty"`
-	// Optional caption
-	Caption string `yaml:"caption,omitempty" json:"caption,omitempty"`
-}
+// ExampleMedia is a media reference inside a multimodal example.
+//
+// Generated. The hand-written version was identical property-for-property
+// except that it lacked `base64`, so a pack embedding media inline lost it.
+//
+// Note the Go field is MimeType, not MIMEType: the generator derives names from
+// the schema, and renaming it by hand would put this type back outside the
+// generated guarantee for the sake of two characters.
+type ExampleMedia = packspec.MediaReference
 
 // ValidatorConfig describes a validator/guardrail configuration from a prompt pack.
 type ValidatorConfig struct {
