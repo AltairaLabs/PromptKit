@@ -52,7 +52,7 @@ func main() {
 		ConstLabels: prometheus.Labels{"env": "demo", "tenant": "acme"},
 	})
 	metricCtx := collector.Bind(nil)
-	metricWriter := evals.NewMetricResultWriter(metricCtx, pack.Evals)
+	metricWriter := evals.NewMetricResultWriter(metricCtx, evals.Values(pack.Evals))
 
 	// 3. Create an EvalRunner with the default handler registry.
 	//    Eval results are emitted as events on the EventBus; the
