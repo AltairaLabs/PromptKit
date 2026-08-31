@@ -139,6 +139,7 @@ type compileOptions struct {
 	agents       *AgentsConfig
 	skills       []SkillSourceConfig
 	compositions map[string]*composition.Composition
+	metadata     *Metadata
 }
 
 // WithWorkflow sets the workflow config on the compiled pack.
@@ -159,6 +160,16 @@ func WithSkills(s []SkillSourceConfig) CompileOption {
 // WithCompositions sets the compositions map on the compiled pack.
 func WithCompositions(c map[string]*composition.Composition) CompileOption {
 	return func(o *compileOptions) { o.compositions = c }
+}
+
+// WithMetadata sets the pack-level metadata block — domain, language, tags,
+// cost_estimate and governance (RFC 0013).
+//
+// Governance had no authoring route before this: metadata.governance could be
+// carried in a compiled pack and never written by an author, which is the same
+// as not existing.
+func WithMetadata(m *Metadata) CompileOption {
+	return func(o *compileOptions) { o.metadata = m }
 }
 
 // PackPrompt is a single prompt definition within a pack.
@@ -412,6 +423,9 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	if copts.skills != nil {
 		pack.Skills = ptrSlice(copts.skills)
 	}
+	if copts.metadata != nil {
+		pack.Metadata = copts.metadata
+	}
 	if copts.compositions != nil {
 		pack.Compositions = copts.compositions
 	}
@@ -429,6 +443,9 @@ func parseToolData(data []byte) (*PackTool, error) {
 			Name        string          `yaml:"name" json:"name"`
 			Description string          `yaml:"description" json:"description"`
 			InputSchema json.RawMessage `yaml:"input_schema" json:"input_schema"`
+			// RFC 0013. Carried, never interpreted — see config.ToolSpec.
+			ActionScope *packspec.ActionScope `yaml:"action_scope" json:"action_scope"`
+			Extensions  map[string]any        `yaml:"extensions" json:"extensions"`
 		} `yaml:"spec" json:"spec"`
 	}
 
@@ -456,6 +473,8 @@ func parseToolData(data []byte) (*PackTool, error) {
 		Name:        raw.Spec.Name,
 		Description: raw.Spec.Description,
 		Parameters:  params,
+		ActionScope: raw.Spec.ActionScope,
+		Extensions:  raw.Spec.Extensions,
 	}, nil
 }
 
@@ -473,8 +492,12 @@ func parseYAMLConfig(data []byte, v interface{}) error {
 	return fmt.Errorf("YAML parsing not available in this package, use ConvertToolToPackTool instead")
 }
 
-// ConvertToolToPackTool converts a tool descriptor to a PackTool
-// This is the preferred method when tool parsing happens externally
+// ConvertToolToPackTool converts a tool descriptor to a PackTool.
+// This is the preferred method when tool parsing happens externally.
+//
+// It does not take action_scope or extensions: PackTool is the generated type,
+// so a caller sets those fields on the result directly rather than growing this
+// signature every time the spec adds a tool property.
 func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage) *PackTool {
 	var params *packspec.ToolParameters
 	if len(inputSchema) > 0 {

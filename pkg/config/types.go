@@ -6,6 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -379,6 +380,22 @@ type ToolSpec struct {
 	ExecConfig *ExecBinding `json:"exec,omitempty" yaml:"exec,omitempty"`
 	// Client-side execution configuration
 	ClientConfig *ToolClientConfig `json:"client,omitempty" yaml:"client,omitempty"`
+
+	// ActionScope declares what calling this tool can AFFECT — read/write/external,
+	// how reversible it is, and which data classes it touches (RFC 0013).
+	//
+	// Unlike every other field here, this is not an implementation binding. It
+	// describes consequence, and nothing in the runtime acts on it: PromptKit
+	// carries it so an external policy can. It is the authoring route for
+	// $defs/Tool.action_scope, which had none — the property shipped in
+	// PromptPack v1.6.0 and could be carried in a compiled pack but not written
+	// by an author.
+	ActionScope *packspec.ActionScope `json:"action_scope,omitempty" yaml:"action_scope,omitempty"`
+
+	// Extensions carries opaque namespaced annotations about this tool. Never
+	// interpreted by the specification; the promotion path for a key that
+	// appears across independent authors with a consistent meaning.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 }
 
 // MockPartSpec describes a single multimodal content part in mock_parts (schema generation).
