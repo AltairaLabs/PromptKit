@@ -5,7 +5,7 @@ go 1.26.0
 retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.2.0
+	github.com/AltairaLabs/PromptKit/runtime v1.9.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
@@ -55,5 +55,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
