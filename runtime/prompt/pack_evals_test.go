@@ -8,6 +8,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 var (
@@ -130,7 +132,7 @@ func TestPack_PromptLevelEvals(t *testing.T) {
 }
 
 func TestPack_EvalsRoundTrip(t *testing.T) {
-	original := &Pack{
+	original := &Pack{Pack: packspec.Pack{
 		ID:          "round-trip",
 		Name:        "Round Trip",
 		Version:     "v1.0.0",
@@ -156,7 +158,7 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 				},
 			},
 		},
-		Evals: []evals.EvalDef{
+		Evals: []*evals.EvalDef{
 			{
 				ID:               "pack-eval",
 				Type:             "llm_judge",
@@ -170,7 +172,7 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	data, err := json.Marshal(original)
 	require.NoError(t, err)
@@ -184,8 +186,8 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 	assert.Equal(t, "pack-eval", restored.Evals[0].ID)
 	assert.Equal(t, "llm_judge", restored.Evals[0].Type)
 	assert.Equal(t, evals.TriggerSampleTurns, restored.Evals[0].Trigger)
-	assert.True(t, evals.IsEnabled(&restored.Evals[0]))
-	assert.Equal(t, 25.0, evals.SamplePercentage(&restored.Evals[0]))
+	assert.True(t, evals.IsEnabled(restored.Evals[0]))
+	assert.Equal(t, 25.0, evals.SamplePercentage(restored.Evals[0]))
 	require.NotNil(t, restored.Evals[0].Metric)
 	assert.Equal(t, "helpfulness", restored.Evals[0].Metric.Name)
 	assert.Equal(t, evals.MetricGauge, restored.Evals[0].Metric.Type)
@@ -199,7 +201,7 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 }
 
 func TestPack_EvalsOmittedWhenEmpty(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		ID:      "no-evals",
 		Name:    "No Evals",
 		Version: "v1.0.0",
@@ -211,7 +213,7 @@ func TestPack_EvalsOmittedWhenEmpty(t *testing.T) {
 				SystemTemplate: "Hello",
 			},
 		},
-	}
+	}}
 
 	data, err := json.Marshal(pack)
 	require.NoError(t, err)

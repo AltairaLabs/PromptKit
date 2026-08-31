@@ -5,11 +5,13 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/deploy"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // multiAgentPack returns a two-member pack used across several tests.
 func multiAgentPack() *prompt.Pack {
-	return &prompt.Pack{
+	return &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "v1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -38,7 +40,7 @@ func multiAgentPack() *prompt.Pack {
 				},
 			},
 		},
-	}
+	}}
 }
 
 func TestIsMultiAgent(t *testing.T) {
@@ -54,11 +56,11 @@ func TestIsMultiAgent(t *testing.T) {
 		},
 		{
 			name: "empty members",
-			pack: &prompt.Pack{
+			pack: &prompt.Pack{Pack: packspec.Pack{
 				Agents: &prompt.AgentsConfig{
 					Members: map[string]*prompt.AgentDef{},
 				},
-			},
+			}},
 			want: false,
 		},
 		{

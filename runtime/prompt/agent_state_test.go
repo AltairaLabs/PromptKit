@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func stateBackedPack(workflowSpec *workflow.Spec, state string) *Pack {
-	return &Pack{
+	return &Pack{Pack: packspec.Pack{
 		Prompts:  map[string]*PackPrompt{"triage": {}, "analyst": {}},
 		Workflow: workflowSpec,
 		Agents: &AgentsConfig{
@@ -19,7 +21,7 @@ func stateBackedPack(workflowSpec *workflow.Spec, state string) *Pack {
 				"triage":  {State: state},
 			},
 		},
-	}
+	}}
 }
 
 func triageWorkflow() *workflow.Spec {

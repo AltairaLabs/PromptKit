@@ -55,6 +55,20 @@ type pinnedStruct struct {
 	notSpec   string
 	omissions []deliberateOmission
 
+	// embedsGenerated names the generated type this struct embeds, when it does.
+	//
+	// Go has no partial classes and a type alias cannot carry methods, so a pack
+	// type WITH behavior embeds the generated type rather than aliasing it. The
+	// spec properties are then promoted from the embedded type and cannot drift;
+	// only the methods and any non-spec fields live locally. That is strictly
+	// better than hand-writing and is the answer wherever the method set is the
+	// type's API.
+	//
+	// An alias is still preferable where the methods are few enough to become
+	// free functions, because an alias gives true identity with the generated
+	// type. Embedding needs .Pack to extract it.
+	embedsGenerated string
+
 	// notGenerated says why this type is hand-written when the generator has
 	// already emitted an equivalent for its $def. Required on every pin with a
 	// schemaRef, and the reason this field exists at all:
@@ -78,29 +92,13 @@ type pinnedStruct struct {
 // prompt.Pack. TestEveryPackStructIsAccountedFor fails if the type graph
 // contains one that is not here.
 var packStructPins = []pinnedStruct{
-	// Not spec types. Each carries data the PromptPack format does not define.
-	{value: prompt.Pack{}, notSpec: "the pack root itself; its properties are pinned " +
-		"through the structs below and through the generated types it embeds"},
-
-	// Blocked on ONE Go constraint: a type alias cannot carry methods
-	// ("cannot define new methods on non-local type"). These types have
-	// behavior attached, so aliasing them to packspec does not compile until
-	// the behavior moves to free functions or the generator emits it.
-	//
-	// This is the only structural reason left in this list. It is a reason to
-	// FIX something, not to keep a second definition — see the file header.
-	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource",
-		notGenerated: "carries UnmarshalJSON/UnmarshalYAML for the bare-string shorthand " +
-			"and the legacy `dir` alias; a type alias cannot have methods. Note the " +
-			"generated packspec.SkillSource DOES flatten the oneOf and keeps the " +
-			"shorthand, so the shape is not the obstacle — only the `dir` alias is"},
-
-	// Adoption changes typed values to bare strings. Worth stating plainly:
-	// this is a WEAK reason. A Go named string type accepts any string literal,
-	// so `var t EvalTrigger = "nonsense"` compiles either way and the safety is
-	// mostly documentation. Where the schema actually closes an enum
-	// (WorkflowState.orchestration does; trigger and persistence do not), the
-	// real fix is for the generator to emit named constants.
+	{value: prompt.Pack{}, embedsGenerated: "packspec.Pack",
+		notGenerated: "carries eighteen methods (Validate, ValidateWorkflow, " +
+			"ValidateAgents, GetPrompt, ...) and FilePath, the on-disk path a loader " +
+			"sets so schema and fragment resolution work relative to the pack file. " +
+			"A type alias can hold neither, so this EMBEDS packspec.Pack instead: " +
+			"every spec property is promoted from the generated type and cannot " +
+			"drift, while the methods and FilePath live here"},
 }
 
 // reachableStructs walks the type graph from rt, collecting every named struct
@@ -154,6 +152,21 @@ func TestEveryPackStructIsAccountedFor(t *testing.T) {
 		if rt.PkgPath() == generatedPkg {
 			t.Errorf("stale pin: %s is the generated type now, so packspec-check "+
 				"covers it — drop the entry", rt)
+			continue
+		}
+
+		if p.embedsGenerated != "" {
+			// Properties come from the embedded generated type, so a schemaRef
+			// would compare against fields reflection sees as one anonymous
+			// field. packspec-check covers them instead.
+			if p.schemaRef != "" {
+				t.Errorf("%s embeds %s, so its properties are already generated; "+
+					"drop the schemaRef", rt, p.embedsGenerated)
+			}
+			if p.notGenerated == "" {
+				t.Errorf("%s embeds %s but does not say why it is not a plain alias",
+					rt, p.embedsGenerated)
+			}
 			continue
 		}
 

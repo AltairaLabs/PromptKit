@@ -40,7 +40,7 @@ import (
 // Populate every field you add to a pack type here. An unpopulated field is not
 // covered: omitempty means it never reaches the document.
 func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:          "emit-pack",
 		Name:        "Emit Pack",
 		Version:     "1.0.0",
@@ -91,7 +91,7 @@ func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	// Serialize through the production path, not json.Marshal directly.
 	data, err := prompt.NewPackCompiler(nil).MarshalPack(pack)

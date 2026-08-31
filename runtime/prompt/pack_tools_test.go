@@ -296,7 +296,7 @@ func TestParseYAMLConfig(t *testing.T) {
 // TestPackToolsInJSON tests that tools are properly serialized in pack JSON
 func TestPackToolsInJSON(t *testing.T) {
 	t.Run("tools serialize correctly to JSON", func(t *testing.T) {
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			ID:      "test-pack",
 			Version: "v1.0.0",
 			Tools: map[string]*PackTool{
@@ -318,7 +318,7 @@ func TestPackToolsInJSON(t *testing.T) {
 					Version:        "1.0.0",
 				},
 			},
-		}
+		}}
 
 		data, err := json.Marshal(pack)
 		require.NoError(t, err)

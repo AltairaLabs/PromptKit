@@ -5,6 +5,8 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestGenerateAgentCards_NilPack(t *testing.T) {
@@ -21,7 +23,7 @@ func TestGenerateAgentCards_NilAgents(t *testing.T) {
 }
 
 func TestGenerateAgentCards_ThreeAgents(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		Version: "v1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
 			"coordinator": {
@@ -54,7 +56,7 @@ func TestGenerateAgentCards_ThreeAgents(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	cards := GenerateAgentCards(pack)
 	if cards == nil {
@@ -88,7 +90,7 @@ func TestGenerateAgentCards_ThreeAgents(t *testing.T) {
 }
 
 func TestGenerateAgentCards_AgentWithoutMatchingPrompt(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		Version: "v2.0.0",
 		Prompts: map[string]*prompt.PackPrompt{},
 		Agents: &prompt.AgentsConfig{
@@ -100,7 +102,7 @@ func TestGenerateAgentCards_AgentWithoutMatchingPrompt(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	cards := GenerateAgentCards(pack)
 	if cards == nil {

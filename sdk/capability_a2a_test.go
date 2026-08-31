@@ -7,6 +7,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestA2ACapability_Name(t *testing.T) {
@@ -16,10 +18,10 @@ func TestA2ACapability_Name(t *testing.T) {
 
 func TestA2ACapability_Init_NilAgents(t *testing.T) {
 	cap := NewA2ACapability()
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
 	require.NoError(t, err)
 	assert.Nil(t, cap.agentResolver)
@@ -28,7 +30,7 @@ func TestA2ACapability_Init_NilAgents(t *testing.T) {
 
 func TestA2ACapability_Init_WithAgents(t *testing.T) {
 	cap := NewA2ACapability()
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test",
 		Prompts: map[string]*pack.Prompt{
 			"orchestrator": {
@@ -44,7 +46,7 @@ func TestA2ACapability_Init_WithAgents(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"})
 	require.NoError(t, err)
 	assert.NotNil(t, cap.agentResolver)
@@ -69,7 +71,7 @@ func TestA2ACapability_RegisterTools_BridgePath(t *testing.T) {
 
 func TestA2ACapability_RegisterTools_PackPath(t *testing.T) {
 	cap := NewA2ACapability()
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test",
 		Prompts: map[string]*pack.Prompt{
 			"orchestrator": {
@@ -85,7 +87,7 @@ func TestA2ACapability_RegisterTools_PackPath(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 	resolver := &StaticEndpointResolver{BaseURL: "http://localhost:9000"}
 	cap.endpointResolver = resolver
 
@@ -106,7 +108,7 @@ func TestA2ACapability_RegisterTools_LocalExecutor(t *testing.T) {
 	localExec := NewLocalAgentExecutor(nil)
 	cap.localExecutor = localExec
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test",
 		Prompts: map[string]*pack.Prompt{
 			"orchestrator": {
@@ -122,7 +124,7 @@ func TestA2ACapability_RegisterTools_LocalExecutor(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"})
 	require.NoError(t, err)

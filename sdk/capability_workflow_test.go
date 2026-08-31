@@ -18,12 +18,12 @@ func TestWorkflowCapability_Name(t *testing.T) {
 
 func TestWorkflowCapability_Init(t *testing.T) {
 	cap := NewWorkflowCapability()
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		Workflow: &pack.WorkflowSpec{
 			Version: 1,
 			Entry:   "start",
 		},
-	}
+	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "test"})
 	require.NoError(t, err)
 	assert.Equal(t, p.Workflow, cap.workflowSpec)

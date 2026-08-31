@@ -6,6 +6,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 const logCapabilityInferred = "capability inferred from pack"
@@ -77,18 +80,24 @@ func inferCapabilities(p *pack.Pack) []Capability {
 	return caps
 }
 
-// convertSkillSources converts SDK internal pack skill configs to runtime SkillSource.
-func convertSkillSources(configs []pack.SkillSourceConfig) []skills.SkillSource {
-	sources := make([]skills.SkillSource, len(configs))
-	for i, cfg := range configs {
-		sources[i] = skills.SkillSource{
-			Dir:          cfg.Dir,
-			Path:         cfg.Path,
+// convertSkillSources converts pack skill declarations to runtime SkillSource.
+//
+// prompt.SkillPath resolves the bare-string shorthand, which the pack type keeps
+// separate from Path; skills.SkillSource has no such distinction. The runtime
+// type's Dir is left unset — it is that type's own legacy alias, not the pack's.
+func convertSkillSources(configs []*pack.SkillSourceConfig) []skills.SkillSource {
+	sources := make([]skills.SkillSource, 0, len(configs))
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+		sources = append(sources, skills.SkillSource{
+			Path:         rtprompt.SkillPath(cfg),
 			Name:         cfg.Name,
 			Description:  cfg.Description,
 			Instructions: cfg.Instructions,
-			Preload:      cfg.Preload,
-		}
+			Preload:      packspec.Deref(cfg.Preload, false),
+		})
 	}
 	return sources
 }

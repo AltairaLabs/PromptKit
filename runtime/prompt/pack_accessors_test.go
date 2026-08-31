@@ -5,15 +5,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestPack_GetToolAndListTools(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Tools: map[string]*PackTool{
 			"search": {Name: "search", Description: "Search"},
 			"lookup": {Name: "lookup", Description: "Look up"},
 		},
-	}
+	}}
 	require.NotNil(t, p.GetTool("search"))
 	assert.Equal(t, "search", p.GetTool("search").Name)
 	assert.Nil(t, p.GetTool("missing"))

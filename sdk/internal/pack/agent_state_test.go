@@ -3,17 +3,19 @@ package pack
 import (
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func stateBackedSDKPack(wf *WorkflowSpec, state string) *Pack {
-	return &Pack{
+	return &Pack{Pack: packspec.Pack{
 		Prompts:  map[string]*Prompt{"triage": {}, "analyst": {}},
 		Workflow: wf,
 		Agents: &AgentsConfig{Entry: "analyst", Members: map[string]*AgentDef{
 			"analyst": {},
 			"triage":  {State: state},
 		}},
-	}
+	}}
 }
 
 func triageSDKWorkflow() *WorkflowSpec {
@@ -26,13 +28,13 @@ func triageSDKWorkflow() *WorkflowSpec {
 // The SDK validator must accept workflow version 2 (RFC 0009), matching the
 // runtime validator. Surfaced because RFC 0011 loads workflows via the SDK.
 func TestSDKValidateWorkflow_AcceptsVersion2(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"a": {}},
 		Workflow: &WorkflowSpec{
 			Version: 2, Entry: "s",
 			States: map[string]*WorkflowState{"s": {PromptTask: "a"}},
 		},
-	}
+	}}
 	if err := validateWorkflowSection(p); err != nil {
 		t.Fatalf("workflow version 2 should validate, got %v", err)
 	}

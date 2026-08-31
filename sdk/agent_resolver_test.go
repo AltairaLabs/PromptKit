@@ -7,6 +7,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestNewAgentToolResolver_NilPack(t *testing.T) {
@@ -15,16 +17,16 @@ func TestNewAgentToolResolver_NilPack(t *testing.T) {
 }
 
 func TestNewAgentToolResolver_NoAgents(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
-	}
+	}}
 	r := NewAgentToolResolver(pack)
 	assert.Nil(t, r)
 }
 
 func TestAgentToolResolver_IsAgentTool(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -41,7 +43,7 @@ func TestAgentToolResolver_IsAgentTool(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -57,7 +59,7 @@ func TestAgentToolResolver_IsAgentTool_NilReceiver(t *testing.T) {
 }
 
 func TestAgentToolResolver_ResolveAgentTools(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -83,7 +85,7 @@ func TestAgentToolResolver_ResolveAgentTools(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -105,7 +107,7 @@ func TestAgentToolResolver_ResolveAgentTools(t *testing.T) {
 }
 
 func TestAgentToolResolver_ResolveAgentTools_Empty(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Agents: &prompt.AgentsConfig{
@@ -116,7 +118,7 @@ func TestAgentToolResolver_ResolveAgentTools_Empty(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -134,7 +136,7 @@ func TestAgentToolResolver_ResolveAgentTools_NilReceiver(t *testing.T) {
 // --- New tests for endpoint resolution, schemas, and wiring ---
 
 func TestAgentToolResolver_InputOutputSchemas(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -149,7 +151,7 @@ func TestAgentToolResolver_InputOutputSchemas(t *testing.T) {
 				"summarizer": {Description: "Summarizes text"},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -204,7 +206,7 @@ func TestMapEndpointResolver(t *testing.T) {
 }
 
 func TestAgentToolResolver_WithStaticEndpoint(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -219,7 +221,7 @@ func TestAgentToolResolver_WithStaticEndpoint(t *testing.T) {
 				"summarizer": {Description: "Summarizes text"},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -235,7 +237,7 @@ func TestAgentToolResolver_WithStaticEndpoint(t *testing.T) {
 }
 
 func TestAgentToolResolver_WithMapEndpoints(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -255,7 +257,7 @@ func TestAgentToolResolver_WithMapEndpoints(t *testing.T) {
 				"translator": {Description: "Translates text"},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -279,7 +281,7 @@ func TestAgentToolResolver_WithMapEndpoints(t *testing.T) {
 }
 
 func TestAgentToolResolver_NoEndpointResolver(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -294,7 +296,7 @@ func TestAgentToolResolver_NoEndpointResolver(t *testing.T) {
 				"summarizer": {Description: "Summarizes text"},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -312,7 +314,7 @@ func TestAgentToolResolver_SetEndpointResolver_NilReceiver(t *testing.T) {
 }
 
 func TestAgentToolResolver_MemberNames(t *testing.T) {
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -326,7 +328,7 @@ func TestAgentToolResolver_MemberNames(t *testing.T) {
 				"translator": {},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)
@@ -343,7 +345,7 @@ func TestAgentToolResolver_MemberNames_NilReceiver(t *testing.T) {
 
 func TestAgentToolResolver_NonAgentToolsUnaffected(t *testing.T) {
 	// Verify that tool names NOT in agents.members are ignored by the resolver
-	pack := &prompt.Pack{
+	pack := &prompt.Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "1.0.0",
 		Prompts: map[string]*prompt.PackPrompt{
@@ -355,7 +357,7 @@ func TestAgentToolResolver_NonAgentToolsUnaffected(t *testing.T) {
 				"summarizer": {Description: "Summarizes text"},
 			},
 		},
-	}
+	}}
 
 	r := NewAgentToolResolver(pack)
 	require.NotNil(t, r)

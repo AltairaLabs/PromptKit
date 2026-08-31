@@ -123,7 +123,7 @@ func ValidatePackWithRegistry(
 	}
 
 	// Pack-level evals (apply to all prompts, PromptID="").
-	issues = append(issues, validateEvalDefs("", loaded.Evals, reg)...)
+	issues = append(issues, validateEvalDefs("", evals.Values(loaded.Evals), reg)...)
 
 	// Per-prompt evals.
 	for promptID, promptDef := range loaded.Prompts {

@@ -253,7 +253,7 @@ func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
 		}
 	}
 
-	return evals.ResolveEvals(p.Evals, promptEvals), nil
+	return evals.ResolveEvals(evals.Values(p.Evals), promptEvals), nil
 }
 
 // buildEvalMetadata assembles the metadata map for the EvalContext.
