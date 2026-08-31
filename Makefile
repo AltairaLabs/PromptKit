@@ -252,6 +252,15 @@ schemas-check: ## Check committed schemas match promptarena (for CI)
 promptpack-schema: ## Refresh the embedded PromptPack schema from the published release
 	@./scripts/fetch-promptpack-schema.sh
 
+module-dep-skew-check: ## Check the published modules agree on shared dependency versions (for CI)
+	@./scripts/check-module-dep-skew.sh
+
+modules-standalone-check: ## Build every module with GOWORK=off, as a consumer gets it
+	@./scripts/check-modules-without-workspace.sh
+
+api-compat-check: ## Check the API changes fit a claimed version (usage: make api-compat-check VERSION=v1.8.1)
+	@./scripts/check-api-compatibility.sh "$(VERSION)"
+
 spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
 	@./scripts/check-spec-version.sh
 

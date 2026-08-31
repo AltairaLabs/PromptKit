@@ -208,6 +208,32 @@ jobs:
         make test-race
         echo "✓ All tests passed"
 
+    # The three gates below exist because v1.8.0 shipped past all of them and
+    # Omnia filed the tickets. `make test` above runs inside the Go workspace,
+    # which unifies the four modules into one build list — so it is structurally
+    # incapable of seeing either problem.
+
+    # #1920: runtime required apimachinery v0.36.4 against sdk's v0.37.0. MVS
+    # hands a consumer taking both the higher one, and the build dies inside
+    # k8s.io/api.
+    - name: Check the modules agree on shared dependency versions
+      run: make module-dep-skew-check
+
+    # The shape the workspace hides: each module resolved on its own, the way a
+    # consumer gets it.
+    - name: Build every module outside the workspace
+      run: make modules-standalone-check
+
+    # #1921: v1.8.0 removed nine exported symbols and shipped as a MINOR, so the
+    # released PromptArena could not build against it. gorelease exits non-zero
+    # when the claimed version cannot carry the API changes found.
+    #
+    # This is a hard gate on purpose. A breaking change in a minor is a bug, not
+    # a policy — if the API must break, that is a major, and the Go module-path
+    # change it forces is the friction that stops it happening by accident.
+    - name: Check the API changes fit the version
+      run: ./scripts/check-api-compatibility.sh "${{ inputs.version }}"
+
   tag-dependencies:
     name: Tag Libraries
     runs-on: ubuntu-latest

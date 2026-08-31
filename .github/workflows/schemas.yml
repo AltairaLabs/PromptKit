@@ -93,6 +93,19 @@ jobs:
     - name: Check generated pack types
       run: make packspec-check
 
+    # v1.8.0 shipped with runtime and sdk requiring different apimachinery
+    # versions (#1920). Every check ran inside the Go workspace, which unifies
+    # the build list, so nothing could see it — the skew exists only for a
+    # consumer taking the modules separately.
+    - name: Check the modules agree on shared dependency versions
+      run: make module-dep-skew-check
+
+    # The shape the Go workspace hides: each module resolved on its own, as a
+    # consumer gets it. Runs here as well as at release so main cannot drift
+    # into a state the release then has to catch.
+    - name: Build every module outside the workspace
+      run: make modules-standalone-check
+
     # The version PromptKit claims to implement must match the one it embeds.
     # Stating it anywhere creates a second place to be wrong; this is the pin.
     - name: Check the README spec badge matches the embedded schema
