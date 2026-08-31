@@ -2,6 +2,8 @@ module github.com/AltairaLabs/PromptKit/server/a2a
 
 go 1.26.0
 
+retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
+
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.2.0
 	github.com/stretchr/testify v1.12.1

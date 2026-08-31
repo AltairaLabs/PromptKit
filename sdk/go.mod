@@ -2,6 +2,8 @@ module github.com/AltairaLabs/PromptKit/sdk
 
 go 1.26.0
 
+retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
+
 require (
 	github.com/AltairaLabs/PromptKit/pkg v1.5.3
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5
