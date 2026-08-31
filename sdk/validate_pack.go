@@ -119,7 +119,7 @@ func ValidatePackWithRegistry(
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validatePromptValidators(promptID, promptDef.Validators, reg)...)
+		issues = append(issues, validatePromptValidators(promptID, pack.ValidatorValues(promptDef.Validators), reg)...)
 	}
 
 	// Pack-level evals (apply to all prompts, PromptID="").
@@ -130,7 +130,7 @@ func ValidatePackWithRegistry(
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validateEvalDefs(promptID, promptDef.Evals, reg)...)
+		issues = append(issues, validateEvalDefs(promptID, evals.Values(promptDef.Evals), reg)...)
 	}
 
 	return issues, nil

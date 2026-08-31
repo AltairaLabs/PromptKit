@@ -40,7 +40,7 @@ func TestPack_Validate(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "1.0.0", // Add version
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -172,7 +172,7 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 			prompt: &PackPrompt{
 				SystemTemplate: "Hello {{name}}",
 				Version:        "1.0.0",
-				Variables:      []Variable{{Name: "name", Required: true}},
+				Variables:      []*Variable{{Name: "name", Required: true}},
 			},
 			expectWarn: false,
 		},
@@ -252,7 +252,7 @@ func TestPack_GetRequiredVariables(t *testing.T) {
 	pack := &Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []Variable{
+				Variables: []*Variable{
 					{Name: "name", Required: true},
 					{Name: "age", Required: true},
 					{Name: "city", Required: false},
@@ -279,7 +279,7 @@ func TestPack_GetOptionalVariables(t *testing.T) {
 	pack := &Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []Variable{
+				Variables: []*Variable{
 					{Name: "name", Required: true, Default: "John"},
 					{Name: "city", Required: false, Default: "NYC"},
 					{Name: "country", Required: false, Default: "USA"},
@@ -369,7 +369,7 @@ func TestLoadPack(t *testing.T) {
 				"greeting": {
 					ID:             "greeting",
 					SystemTemplate: "Hello {{name}}",
-					Variables: []Variable{
+					Variables: []*Variable{
 						{Name: "name", Required: true},
 					},
 				},
@@ -457,7 +457,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 					ID:             "image-analysis",
 					Name:           "Image Analyzer",
 					SystemTemplate: "Analyze the provided image",
-					MediaConfig: &MediaConfig{
+					Media: &MediaConfig{
 						Enabled:        true,
 						SupportedTypes: []string{"image"},
 						Image: &ImageConfig{
@@ -482,13 +482,13 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 
 		prompt := loaded.Prompts["image-analysis"]
 		require.NotNil(t, prompt)
-		require.NotNil(t, prompt.MediaConfig)
-		assert.True(t, prompt.MediaConfig.Enabled)
-		assert.Equal(t, []string{"image"}, prompt.MediaConfig.SupportedTypes)
-		assert.NotNil(t, prompt.MediaConfig.Image)
-		assert.Equal(t, 20, packspec.Deref(prompt.MediaConfig.Image.MaxSizeMB, 0))
-		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.MediaConfig.Image.AllowedFormats)
-		assert.Equal(t, "high", packspec.Deref(prompt.MediaConfig.Image.DefaultDetail, ""))
+		require.NotNil(t, prompt.Media)
+		assert.True(t, prompt.Media.Enabled)
+		assert.Equal(t, []string{"image"}, prompt.Media.SupportedTypes)
+		assert.NotNil(t, prompt.Media.Image)
+		assert.Equal(t, 20, packspec.Deref(prompt.Media.Image.MaxSizeMB, 0))
+		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.Media.Image.AllowedFormats)
+		assert.Equal(t, "high", packspec.Deref(prompt.Media.Image.DefaultDetail, ""))
 	})
 
 	t.Run("pack without media config", func(t *testing.T) {
@@ -517,7 +517,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 
 		prompt := loaded.Prompts["greeting"]
 		require.NotNil(t, prompt)
-		assert.Nil(t, prompt.MediaConfig) // Should be nil for non-multimodal prompts
+		assert.Nil(t, prompt.Media) // Should be nil for non-multimodal prompts
 	})
 }
 
@@ -1230,9 +1230,9 @@ func TestPack_ValidateWorkflow(t *testing.T) {
 			Version: "v1.0.0",
 			Prompts: map[string]*PackPrompt{
 				"gather": {ID: "gather", SystemTemplate: "Gather", Version: "1.0.0",
-					Variables: []Variable{{Name: "x", Required: true}}},
+					Variables: []*Variable{{Name: "x", Required: true}}},
 				"solve": {ID: "solve", SystemTemplate: "Solve", Version: "1.0.0",
-					Variables: []Variable{{Name: "x", Required: true}}},
+					Variables: []*Variable{{Name: "x", Required: true}}},
 			},
 			TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 			Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
@@ -1289,9 +1289,9 @@ func TestPack_ValidateWorkflowDetailed(t *testing.T) {
 		Version: "v1.0.0",
 		Prompts: map[string]*PackPrompt{
 			"gather": {ID: "gather", SystemTemplate: "G", Version: "1.0.0",
-				Variables: []Variable{{Name: "x", Required: true}}},
+				Variables: []*Variable{{Name: "x", Required: true}}},
 			"solve": {ID: "solve", SystemTemplate: "S", Version: "1.0.0",
-				Variables: []Variable{{Name: "x", Required: true}}},
+				Variables: []*Variable{{Name: "x", Required: true}}},
 		},
 		TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 		Compilation:    &CompilationInfo{CompiledWith: "packc v1"},

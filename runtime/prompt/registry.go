@@ -260,24 +260,36 @@ type VariableMetadata struct {
 	Binding *VariableBinding `yaml:"binding,omitempty" json:"binding,omitempty"`
 }
 
-// Variable is the spec-exact, compiled form of a template variable as it appears
-// in a PromptPack on disk (PackPrompt.Variables). It mirrors the promptpack
-// schema's $defs/Variable exactly (additionalProperties:false) and is pinned to
-// it by TestVariableStructMatchesPromptPackSpec.
+// Variable is a spec-exact compiled prompt template variable.
 //
-// It deliberately omits Binding: variable binding (auto-population from platform
-// resources: project/provider/workspace/secret/configmap) is a runtime concern,
-// resolved before/at compile time — not part of the portable pack. The authoring
-// type VariableMetadata carries Binding; compileVariables drops it.
-type Variable struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Required    bool                   `json:"required"`
-	Default     interface{}            `json:"default,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Example     interface{}            `json:"example,omitempty"`
-	Validation  map[string]interface{} `json:"validation,omitempty"`
+// Generated. It deliberately omits nothing of its own: Binding IS on the
+// generated type, but compileVariables never populates it, because variable
+// binding (auto-population from platform resources) is a runtime concern
+// resolved at compile time and not part of the portable pack. The authoring
+// type VariableMetadata carries it; omitempty keeps it out of the emitted pack.
+//
+// toMetadata() was a method. A type alias cannot carry methods, so it is
+// VariableToMetadata below.
+type Variable = packspec.Variable
+
+// ValidatorValues dereferences a slice of validator pointers into values, at
+// the boundary between the generated Prompt (which holds pointers) and the
+// APIs that take values. A nil entry is skipped.
+func ValidatorValues(in []*Validator) []Validator {
+	if in == nil {
+		return nil
+	}
+	out := make([]Validator, 0, len(in))
+	for _, v := range in {
+		if v != nil {
+			out = append(out, *v)
+		}
+	}
+	return out
 }
+
+// VariableValidation is the validation rule set on a Variable.
+type VariableValidation = packspec.VariableValidation
 
 // Metadata contains additional metadata for the pack format.
 //

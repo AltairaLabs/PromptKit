@@ -24,7 +24,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("converts enabled known validator to hook", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),
@@ -40,7 +40,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("skips disabled validator", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(false),
@@ -55,7 +55,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("skips unknown validator type", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{Type: "nonexistent", Enabled: packspec.Ptr(true), Params: map[string]any{}},
 			},
 		}
@@ -66,7 +66,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("pack validators prepended before user hooks", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),
@@ -86,7 +86,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("multiple enabled validators", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),
@@ -108,7 +108,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("guardrail always enforces — observe-only is the eval path", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),
@@ -131,7 +131,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("passes params message to guardrail hook", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),
@@ -160,7 +160,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("default message used when params has no message", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
 					Enabled: packspec.Ptr(true),

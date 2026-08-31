@@ -89,16 +89,6 @@ var packStructPins = []pinnedStruct{
 	//
 	// This is the only structural reason left in this list. It is a reason to
 	// FIX something, not to keep a second definition — see the file header.
-	{value: prompt.Variable{}, schemaRef: "$defs/Variable",
-		notGenerated: "carries toMetadata(); a type alias cannot have methods. Also " +
-			"needs validation map[string]any -> *packspec.VariableValidation. Four " +
-			"compile errors, all in pack.go",
-		omissions: []deliberateOmission{{
-			property: "binding",
-			reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
-				"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
-				"compileVariables drops it, so it is not part of the portable pack",
-		}}},
 	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource",
 		notGenerated: "carries UnmarshalJSON/UnmarshalYAML for the bare-string shorthand " +
 			"and the legacy `dir` alias; a type alias cannot have methods. Note the " +
@@ -111,13 +101,6 @@ var packStructPins = []pinnedStruct{
 	// mostly documentation. Where the schema actually closes an enum
 	// (WorkflowState.orchestration does; trigger and persistence do not), the
 	// real fix is for the generator to emit named constants.
-	// Tracked. Mechanical but wide.
-	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt",
-		notGenerated: "TRACKED: seven fields change shape (validators, evals, variables, " +
-			"tested_models and model_overrides become slices/maps of pointers; pipeline " +
-			"and media become typed rather than map[string]any), and this is the type " +
-			"every prompt hangs off. Everything reachable from it was adopted first so " +
-			"that this is the only step left"},
 }
 
 // reachableStructs walks the type graph from rt, collecting every named struct

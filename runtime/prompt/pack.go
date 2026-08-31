@@ -285,45 +285,17 @@ func WithCompositions(c map[string]*composition.Composition) CompileOption {
 	return func(o *compileOptions) { o.compositions = c }
 }
 
-// PackPrompt represents a single prompt configuration within a pack
-type PackPrompt struct {
-	// Identity
-	ID          string `json:"id"`          // Prompt ID (task_type)
-	Name        string `json:"name"`        // Human-readable name
-	Description string `json:"description"` // Prompt description
-	Version     string `json:"version"`     // Prompt version
-
-	// Prompt
-	SystemTemplate string `json:"system_template"`
-
-	// Variables — spec-exact compiled variables (see prompt.Variable).
-	Variables []Variable `json:"variables,omitempty"`
-
-	// Tools
-	Tools      []string        `json:"tools,omitempty"`       // Allowed tool names
-	ToolPolicy *ToolPolicyPack `json:"tool_policy,omitempty"` // Tool usage policy
-
-	// Multimodal media configuration
-	MediaConfig *MediaConfig `json:"media,omitempty"`
-
-	// Pipeline
-	Pipeline map[string]interface{} `json:"pipeline,omitempty"` // Pipeline configuration
-
-	// Parameters
-	Parameters *ParametersPack `json:"parameters,omitempty"` // Model-specific parameters
-
-	// Validators — spec-exact compiled validators (see prompt.Validator).
-	Validators []Validator `json:"validators,omitempty"`
-
-	// Evals - Prompt-level eval definitions (override pack-level evals by ID)
-	Evals []evals.EvalDef `json:"evals,omitempty"`
-
-	// Model Testing
-	TestedModels []ModelTestResultRef `json:"tested_models,omitempty"`
-
-	// Model Overrides
-	ModelOverrides map[string]ModelOverride `json:"model_overrides,omitempty"`
-}
+// PackPrompt is a single prompt definition within a pack.
+//
+// Generated. It is the hub every prompt hangs off, so adopting it was left
+// until everything reachable from it was generated first — validators, evals,
+// variables, tested_models, model_overrides, media and parameters are all
+// packspec types now, and the generated Prompt holds them as slices and maps of
+// POINTERS, which is the shape the schema implies for optional objects.
+//
+// ToPromptConfig() was a method. A type alias cannot carry methods, so it is
+// the free function ToConfig below.
+type PackPrompt = packspec.Prompt
 
 // ToolPolicyPack represents tool policy in pack format
 // Generated from the schema: an ALIAS for packspec.ToolPolicy.
@@ -415,12 +387,12 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		Description:    config.Spec.Description,
 		Version:        config.Spec.Version,
 		SystemTemplate: config.Spec.SystemTemplate,
-		Variables:      compileVariables(config.Spec.Variables),
+		Variables:      ptrSlice(compileVariables(config.Spec.Variables)),
 		Tools:          config.Spec.AllowedTools,
-		Validators:     foldValidatorMessages(config.Spec.Validators),
-		MediaConfig:    config.Spec.MediaConfig,
-		TestedModels:   config.Spec.TestedModels,
-		ModelOverrides: config.Spec.ModelOverrides,
+		Validators:     ptrSlice(foldValidatorMessages(config.Spec.Validators)),
+		Media:          config.Spec.MediaConfig,
+		TestedModels:   ptrSlice(config.Spec.TestedModels),
+		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
 	}
 
@@ -681,9 +653,9 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 	// Compile variables to their spec-exact form (defaults type to "string",
 	// drops the runtime-only Binding).
-	variables := compileVariables(config.Spec.Variables)
+	variables := ptrSlice(compileVariables(config.Spec.Variables))
 
-	validators := foldValidatorMessages(config.Spec.Validators)
+	validators := ptrSlice(foldValidatorMessages(config.Spec.Validators))
 
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
@@ -695,11 +667,11 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		Tools:          config.Spec.AllowedTools,
 		ToolPolicy:     config.Spec.ToolPolicy,
 		Parameters:     config.Spec.Parameters,
-		Evals:          config.Spec.Evals,
+		Evals:          ptrSlice(config.Spec.Evals),
 		Validators:     validators,
-		MediaConfig:    config.Spec.MediaConfig,
-		TestedModels:   config.Spec.TestedModels,
-		ModelOverrides: config.Spec.ModelOverrides,
+		Media:          config.Spec.MediaConfig,
+		TestedModels:   ptrSlice(config.Spec.TestedModels),
+		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
 	}
 }
@@ -1037,12 +1009,12 @@ func (p *Pack) ListTools() []string {
 // ToPromptConfig converts a pack prompt into a prompt.Config suitable for
 // registration in a prompt.Registry. It carries the fields the prompt-assembly
 // pipeline needs; tools and validators are wired separately by the caller.
-func (pr *PackPrompt) ToPromptConfig(taskType string) *Config {
+func ToConfig(pr *PackPrompt, taskType string) *Config {
 	var vars []VariableMetadata
 	if len(pr.Variables) > 0 {
 		vars = make([]VariableMetadata, len(pr.Variables))
 		for i, v := range pr.Variables {
-			vars[i] = v.toMetadata()
+			vars[i] = VariableToMetadata(*v)
 		}
 	}
 	return &Config{
@@ -1079,15 +1051,45 @@ func compileVariables(vars []VariableMetadata) []Variable {
 			Default:     v.Default,
 			Description: v.Description,
 			Example:     v.Example,
-			Validation:  v.Validation,
+			Validation:  validationFromMap(v.Validation),
 		}
 	}
 	return out
 }
 
-// toMetadata converts a compiled variable back to the authoring metadata form.
-// Binding is always nil — it is not carried in the pack.
-func (v Variable) toMetadata() VariableMetadata {
+// ptrSlice converts a value slice to the pointer slice the generated types use
+// for optional object arrays.
+func ptrSlice[T any](in []T) []*T {
+	if in == nil {
+		return nil
+	}
+	out := make([]*T, len(in))
+	for i := range in {
+		v := in[i]
+		out[i] = &v
+	}
+	return out
+}
+
+// ptrMap is ptrSlice for string-keyed maps.
+func ptrMap[T any](in map[string]T) map[string]*T {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*T, len(in))
+	for k := range in {
+		v := in[k]
+		out[k] = &v
+	}
+	return out
+}
+
+// VariableToMetadata converts a compiled variable back to the authoring
+// metadata form. Binding is always nil — it is not carried in the pack.
+//
+// A free function rather than a method: Variable is the generated type now, and
+// a type alias cannot carry methods.
+func VariableToMetadata(v Variable) VariableMetadata {
 	return VariableMetadata{
 		Name:        v.Name,
 		Type:        v.Type,
@@ -1095,8 +1097,45 @@ func (v Variable) toMetadata() VariableMetadata {
 		Default:     v.Default,
 		Description: v.Description,
 		Example:     v.Example,
-		Validation:  v.Validation,
+		Validation:  validationToMap(v.Validation),
 	}
+}
+
+// validationToMap renders the generated validation struct back into the
+// authoring map form. The authoring type predates the typed shape and is
+// consumed as a map by the template layer.
+func validationToMap(v *VariableValidation) map[string]any {
+	if v == nil {
+		return nil
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// validationFromMap is the inverse, for compiling an authoring variable.
+func validationFromMap(m map[string]any) *VariableValidation {
+	if len(m) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	var out VariableValidation
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return &out
 }
 
 // GetRequiredVariables returns all required variable names for a specific prompt

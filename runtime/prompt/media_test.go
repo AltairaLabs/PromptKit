@@ -815,7 +815,7 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
-// TestDocumentMediaSurvivesARoundTrip — prompt.MediaConfig was hand-written and
+// TestDocumentMediaSurvivesARoundTrip — prompt.Media was hand-written and
 // had no `document` field, so a prompt declaring document media round-tripped to
 // nothing at all: `{"media":{"document":{...}}}` came back as
 // `{"media":{"enabled":false}}`. Same failure as metadata.governance, and found
@@ -839,7 +839,7 @@ func TestDocumentMediaSurvivesARoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	media := p.Prompts["c"].MediaConfig
+	media := p.Prompts["c"].Media
 	if media == nil || media.Document == nil {
 		t.Fatal("document config dropped on load")
 	}

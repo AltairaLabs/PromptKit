@@ -30,12 +30,12 @@ func TestPackPrompt_ToPromptConfig(t *testing.T) {
 		Description:    "desc",
 		SystemTemplate: "Hello {{name}}",
 		Tools:          []string{"a", "b"},
-		Variables: []Variable{
+		Variables: []*Variable{
 			{Name: "name", Type: "string", Required: true, Default: "world", Description: "the name"},
 		},
 	}
 
-	cfg := pr.ToPromptConfig("chat")
+	cfg := ToConfig(pr, "chat")
 	require.NotNil(t, cfg)
 	assert.Equal(t, "promptkit.io/v1alpha1", cfg.APIVersion)
 	assert.Equal(t, "Prompt", cfg.Kind)
@@ -56,6 +56,6 @@ func TestPackPrompt_ToPromptConfig(t *testing.T) {
 	assert.Nil(t, v.Binding)
 
 	// Empty-variables path.
-	empty := (&PackPrompt{Version: "1"}).ToPromptConfig("t")
+	empty := ToConfig(&PackPrompt{Version: "1"}, "t")
 	assert.Empty(t, empty.Spec.Variables)
 }

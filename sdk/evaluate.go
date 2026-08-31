@@ -249,7 +249,7 @@ func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
 	var promptEvals []evals.EvalDef
 	if opts.PromptName != "" {
 		if prompt := p.GetPrompt(opts.PromptName); prompt != nil {
-			promptEvals = prompt.Evals
+			promptEvals = evals.Values(prompt.Evals)
 		}
 	}
 

@@ -295,7 +295,7 @@ func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 			},
 		},
 		prompt: &pack.Prompt{
-			Evals: []evals.EvalDef{
+			Evals: []*evals.EvalDef{
 				{ID: "b", Type: "json_valid", Trigger: evals.TriggerEveryTurn}, // Override
 				{ID: "c", Type: "contains", Trigger: evals.TriggerOnSessionComplete},
 			},

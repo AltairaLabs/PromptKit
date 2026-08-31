@@ -212,6 +212,25 @@ func Groups(e *EvalDef) []string {
 	return e.Groups
 }
 
+// Values dereferences a slice of eval pointers into values.
+//
+// The generated Prompt holds []*Eval because the schema implies pointers for
+// optional object arrays, while the eval APIs take values. This converts at
+// that boundary rather than pointerizing every signature behind it. A nil entry
+// is skipped rather than dereferenced.
+func Values(in []*EvalDef) []EvalDef {
+	if in == nil {
+		return nil
+	}
+	out := make([]EvalDef, 0, len(in))
+	for _, e := range in {
+		if e != nil {
+			out = append(out, *e)
+		}
+	}
+	return out
+}
+
 // Threshold is an eval's pass/fail threshold, as the spec defines it:
 // {operator, value}. See EvalDef for why this replaced a divergent shape.
 type Threshold = packspec.EvalThreshold
@@ -221,7 +240,6 @@ type Threshold = packspec.EvalThreshold
 // The schema nests the bounds inside MetricDef rather than naming them, so the
 // generator hoists the shape under a derived name.
 type Range = packspec.MetricDefRange
-
 
 // EvalWhen specifies preconditions that must be met for an eval to run.
 type EvalWhen struct {

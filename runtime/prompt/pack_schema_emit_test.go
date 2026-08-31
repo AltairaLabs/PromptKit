@@ -73,7 +73,7 @@ func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
 				Version:        "1.0.0",
 				Description:    "a prompt",
 				SystemTemplate: "You are helpful.",
-				TestedModels: []prompt.ModelTestResultRef{{
+				TestedModels: []*prompt.ModelTestResultRef{{
 					Provider:     "openai",
 					Model:        "gpt-4",
 					Date:         "2026-01-01",
@@ -83,7 +83,7 @@ func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
 					AvgLatencyMs: packspec.Ptr(850.0),
 					Notes:        "nightly run",
 				}},
-				ModelOverrides: map[string]prompt.ModelOverride{
+				ModelOverrides: map[string]*prompt.ModelOverride{
 					"gpt-4": {
 						SystemTemplate:       "You are helpful.",
 						SystemTemplateSuffix: " Be brief.",

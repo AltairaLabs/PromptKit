@@ -142,7 +142,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		packEvals = conv.pack.Evals
 	}
 	if conv.prompt != nil {
-		promptEvals = conv.prompt.Evals
+		promptEvals = evals.Values(conv.prompt.Evals)
 	}
 
 	logger.Debug("evals: resolving defs",

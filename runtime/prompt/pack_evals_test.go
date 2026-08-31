@@ -125,8 +125,8 @@ func TestPack_PromptLevelEvals(t *testing.T) {
 	assert.Equal(t, "deterministic", eval.Type)
 	assert.Equal(t, evals.TriggerEveryTurn, eval.Trigger)
 	assert.Equal(t, float64(500), eval.Params["max_length"])
-	assert.False(t, evals.IsEnabled(&eval))
-	assert.Equal(t, 10.0, evals.SamplePercentage(&eval))
+	assert.False(t, evals.IsEnabled(eval))
+	assert.Equal(t, 10.0, evals.SamplePercentage(eval))
 }
 
 func TestPack_EvalsRoundTrip(t *testing.T) {
@@ -146,7 +146,7 @@ func TestPack_EvalsRoundTrip(t *testing.T) {
 				Description:    "Chat prompt",
 				Version:        "1.0.0",
 				SystemTemplate: "You are a helper",
-				Evals: []evals.EvalDef{
+				Evals: []*evals.EvalDef{
 					{
 						ID:      "prompt-eval",
 						Type:    "deterministic",
