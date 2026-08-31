@@ -2,8 +2,9 @@ package prompt_test
 
 import (
 	"encoding/json"
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
@@ -53,7 +54,16 @@ func TestPackToJSONValidatesAgainstEmbeddedSchema(t *testing.T) {
 			Language: "en",
 			Tags:     []string{"support"},
 			CostEstimate: &prompt.CostEstimate{
-				MinCostUSD: 0.01, MaxCostUSD: 0.10, AvgCostUSD: 0.04,
+				MinCostUSD: packspec.Ptr(0.01),
+				MaxCostUSD: packspec.Ptr(0.10),
+				AvgCostUSD: packspec.Ptr(0.04),
+			},
+			// RFC 0013. Emitted here so the governance a pack declares is
+			// proved to validate against the real schema, not just to compile.
+			Governance: &packspec.Governance{
+				AutonomyLevel:        "acts_with_approval",
+				AccountableOwner:     "risk@example.com",
+				RequiresAIDisclosure: packspec.Ptr(true),
 			},
 		},
 		Prompts: map[string]*prompt.PackPrompt{

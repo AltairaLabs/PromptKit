@@ -600,7 +600,30 @@ func TestValidateExampleMedia(t *testing.T) {
 			},
 			contentType: "image",
 			wantErr:     true,
-			errMsg:      "either file_path or url",
+			errMsg:      "one of file_path, url or base64",
+		},
+		{
+			// base64 is a spec source ($defs/MediaReference) that the pack
+			// authoring struct did not carry, so an inline-embedded example
+			// was silently dropped on load.
+			name: "valid base64",
+			media: &ExampleMedia{
+				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAUA",
+				MIMEType: "image/png",
+			},
+			contentType: "image",
+			wantErr:     false,
+		},
+		{
+			name: "base64 conflicts with another source",
+			media: &ExampleMedia{
+				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAUA",
+				URL:      "https://example.com/image.jpg",
+				MIMEType: "image/png",
+			},
+			contentType: "image",
+			wantErr:     true,
+			errMsg:      "exactly one source",
 		},
 		{
 			name: "multiple sources",

@@ -278,12 +278,15 @@ func validateExampleMedia(media *ExampleMedia, contentType string) error {
 	if media.URL != "" {
 		sourceCount++
 	}
+	if media.Base64 != "" {
+		sourceCount++
+	}
 
 	if sourceCount == 0 {
-		return fmt.Errorf("media must have either file_path or url")
+		return fmt.Errorf("media must have one of file_path, url or base64")
 	}
 	if sourceCount > 1 {
-		return fmt.Errorf("media must have exactly one source (file_path or url), found %d", sourceCount)
+		return fmt.Errorf("media must have exactly one source (file_path, url or base64), found %d", sourceCount)
 	}
 
 	// MIME type is required

@@ -1,10 +1,11 @@
 package prompt
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -355,11 +356,11 @@ func TestMetadataBuilder_AddChangelogEntry(t *testing.T) {
 	if spec.Metadata == nil {
 		t.Fatal("Metadata should be initialized")
 	}
-	if len(spec.Metadata.Changelog) != 2 {
-		t.Fatalf("Expected 2 changelog entries, got %d", len(spec.Metadata.Changelog))
+	if len(MetadataChangelog(spec.Metadata)) != 2 {
+		t.Fatalf("Expected 2 changelog entries, got %d", len(MetadataChangelog(spec.Metadata)))
 	}
 
-	first := spec.Metadata.Changelog[0]
+	first := MetadataChangelog(spec.Metadata)[0]
 	if first.Version != "1.0.0" {
 		t.Errorf("Expected version '1.0.0', got '%s'", first.Version)
 	}
@@ -424,34 +425,34 @@ func TestMetadataBuilder_BuildMetadata(t *testing.T) {
 		if metadata.CostEstimate == nil {
 			t.Fatal("Expected cost estimate")
 		}
-		if metadata.CostEstimate.MinCostUSD != 0.01 {
-			t.Errorf("Expected min cost 0.01, got %.2f", metadata.CostEstimate.MinCostUSD)
+		if packspec.Deref(metadata.CostEstimate.MinCostUSD, 0) != 0.01 {
+			t.Errorf("Expected min cost 0.01, got %.2f", packspec.Deref(metadata.CostEstimate.MinCostUSD, 0))
 		}
-		if metadata.CostEstimate.MaxCostUSD != 0.03 {
-			t.Errorf("Expected max cost 0.03, got %.2f", metadata.CostEstimate.MaxCostUSD)
+		if packspec.Deref(metadata.CostEstimate.MaxCostUSD, 0) != 0.03 {
+			t.Errorf("Expected max cost 0.03, got %.2f", packspec.Deref(metadata.CostEstimate.MaxCostUSD, 0))
 		}
 		expectedAvg := (0.01 + 0.02 + 0.015 + 0.03) / 4.0
-		if metadata.CostEstimate.AvgCostUSD != expectedAvg {
-			t.Errorf("Expected avg cost %.4f, got %.4f", expectedAvg, metadata.CostEstimate.AvgCostUSD)
+		if packspec.Deref(metadata.CostEstimate.AvgCostUSD, 0) != expectedAvg {
+			t.Errorf("Expected avg cost %.4f, got %.4f", expectedAvg, packspec.Deref(metadata.CostEstimate.AvgCostUSD, 0))
 		}
 
-		if metadata.Performance == nil {
+		if MetadataPerformance(metadata) == nil {
 			t.Fatal("Expected performance metrics")
 		}
 		expectedAvgLatency := (800 + 1000 + 900 + 1200) / 4
-		if metadata.Performance.AvgLatencyMs != expectedAvgLatency {
-			t.Errorf("Expected avg latency %d, got %d", expectedAvgLatency, metadata.Performance.AvgLatencyMs)
+		if MetadataPerformance(metadata).AvgLatencyMs != expectedAvgLatency {
+			t.Errorf("Expected avg latency %d, got %d", expectedAvgLatency, MetadataPerformance(metadata).AvgLatencyMs)
 		}
 		expectedAvgTokens := (400 + 500 + 450 + 600) / 4
-		if metadata.Performance.AvgTokens != expectedAvgTokens {
-			t.Errorf("Expected avg tokens %d, got %d", expectedAvgTokens, metadata.Performance.AvgTokens)
+		if MetadataPerformance(metadata).AvgTokens != expectedAvgTokens {
+			t.Errorf("Expected avg tokens %d, got %d", expectedAvgTokens, MetadataPerformance(metadata).AvgTokens)
 		}
 		expectedSuccessRate := 3.0 / 4.0
-		if metadata.Performance.SuccessRate != expectedSuccessRate {
-			t.Errorf("Expected success rate %.2f, got %.2f", expectedSuccessRate, metadata.Performance.SuccessRate)
+		if MetadataPerformance(metadata).SuccessRate != expectedSuccessRate {
+			t.Errorf("Expected success rate %.2f, got %.2f", expectedSuccessRate, MetadataPerformance(metadata).SuccessRate)
 		}
-		if metadata.Performance.P95LatencyMs != 1200 {
-			t.Errorf("Expected P95 latency 1200, got %d", metadata.Performance.P95LatencyMs)
+		if MetadataPerformance(metadata).P95LatencyMs != 1200 {
+			t.Errorf("Expected P95 latency 1200, got %d", MetadataPerformance(metadata).P95LatencyMs)
 		}
 	})
 
@@ -464,7 +465,7 @@ func TestMetadataBuilder_BuildMetadata(t *testing.T) {
 		if metadata.CostEstimate != nil {
 			t.Error("Expected nil cost estimate for empty results")
 		}
-		if metadata.Performance != nil {
+		if MetadataPerformance(metadata) != nil {
 			t.Error("Expected nil performance metrics for empty results")
 		}
 	})
@@ -572,11 +573,11 @@ func TestMetadataBuilder_UpdateFromCostInfo(t *testing.T) {
 			t.Fatal("CostEstimate should be populated")
 		}
 
-		if spec.Metadata.CostEstimate.MinCostUSD != 0.02 {
-			t.Errorf("Expected min cost 0.02, got %.3f", spec.Metadata.CostEstimate.MinCostUSD)
+		if packspec.Deref(spec.Metadata.CostEstimate.MinCostUSD, 0) != 0.02 {
+			t.Errorf("Expected min cost 0.02, got %.3f", packspec.Deref(spec.Metadata.CostEstimate.MinCostUSD, 0))
 		}
-		if spec.Metadata.CostEstimate.MaxCostUSD != 0.04 {
-			t.Errorf("Expected max cost 0.04, got %.3f", spec.Metadata.CostEstimate.MaxCostUSD)
+		if packspec.Deref(spec.Metadata.CostEstimate.MaxCostUSD, 0) != 0.04 {
+			t.Errorf("Expected max cost 0.04, got %.3f", packspec.Deref(spec.Metadata.CostEstimate.MaxCostUSD, 0))
 		}
 	})
 

@@ -124,10 +124,21 @@ type Pack struct {
 }
 
 // SkillSourceConfig represents a skill source in the pack YAML.
+//
+// Flattens $defs/SkillSource, which is a oneOf over a bare string, a
+// SkillPathSource (path + preload) and an InlineSkill (name + description +
+// instructions). Go has no sum type, so one struct carries every branch.
 type SkillSourceConfig struct {
-	// Directory path for filesystem-based skills
-	Dir  string `json:"dir,omitempty" yaml:"dir,omitempty"`
-	Path string `json:"path,omitempty" yaml:"path,omitempty"` // schema alias for dir
+	// Dir is a promptkit-only input alias for Path, accepted because packs in
+	// the wild were authored with it.
+	//
+	// It must never SERIALIZE: $defs/SkillPathSource is additionalProperties
+	// false and requires `path`, so a pack emitted with `dir` fails validation
+	// on all three counts — unknown property, missing required property, and
+	// therefore matching no branch of the oneOf. Both unmarshallers below fold
+	// it into Path, and the missing json/yaml tags stop it coming back out.
+	Dir  string `json:"-" yaml:"-"`
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
 	// Inline skill fields
 	Name         string `json:"name,omitempty" yaml:"name,omitempty"`
@@ -139,11 +150,22 @@ type SkillSourceConfig struct {
 }
 
 // EffectiveDir returns the directory path, preferring Dir over Path.
+//
+// normalizeDir folds Dir into Path on load, so the two agree by the time
+// anything reads them; the preference is kept for a struct built in Go.
 func (s *SkillSourceConfig) EffectiveDir() string {
 	if s.Dir != "" {
 		return s.Dir
 	}
 	return s.Path
+}
+
+// normalizeDir folds the legacy `dir` alias into the spec's `path`, so that
+// everything downstream — including serialization — sees only `path`.
+func (s *SkillSourceConfig) normalizeDir() {
+	if s.Dir != "" && s.Path == "" {
+		s.Path = s.Dir
+	}
 }
 
 // UnmarshalYAML supports bare string shorthand: "skills/" → {Path: "skills/"}.
@@ -154,12 +176,20 @@ func (s *SkillSourceConfig) UnmarshalYAML(unmarshal func(interface{}) error) err
 		return nil
 	}
 	// Fall back to struct unmarshaling (use alias to avoid recursion).
-	type alias SkillSourceConfig
+	type alias struct {
+		Dir          string `yaml:"dir,omitempty"`
+		Path         string `yaml:"path,omitempty"`
+		Name         string `yaml:"name,omitempty"`
+		Description  string `yaml:"description,omitempty"`
+		Instructions string `yaml:"instructions,omitempty"`
+		Preload      bool   `yaml:"preload,omitempty"`
+	}
 	var a alias
 	if err := unmarshal(&a); err != nil {
 		return err
 	}
 	*s = SkillSourceConfig(a)
+	s.normalizeDir()
 	return nil
 }
 
@@ -173,12 +203,20 @@ func (s *SkillSourceConfig) UnmarshalJSON(data []byte) error {
 		s.Path = str
 		return nil
 	}
-	type alias SkillSourceConfig
+	type alias struct {
+		Dir          string `json:"dir,omitempty"`
+		Path         string `json:"path,omitempty"`
+		Name         string `json:"name,omitempty"`
+		Description  string `json:"description,omitempty"`
+		Instructions string `json:"instructions,omitempty"`
+		Preload      bool   `json:"preload,omitempty"`
+	}
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
 		return err
 	}
 	*s = SkillSourceConfig(a)
+	s.normalizeDir()
 	return nil
 }
 

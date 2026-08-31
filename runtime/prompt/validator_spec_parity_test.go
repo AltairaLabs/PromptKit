@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
@@ -42,8 +41,128 @@ type deliberateOmission struct {
 // These guards live in runtime because the runtime is the source of truth for
 // the pack format — Arena and packc build/test packs through the runtime, so the
 // spec-parity guarantee must be runtime-owned, not stranded in the SDK.
+// resolveSchemaRef walks a slash-separated path into the embedded schema and
+// follows a $ref if the destination is one.
+//
+// Not every part of the pack format is a $def. metadata, compilation and
+// template_engine are inline objects under the root's properties, which is
+// exactly where governance landed in v1.6.0 — so a helper that could only
+// address $defs could not have pinned the struct that dropped it.
+func resolveSchemaRef(t *testing.T, root map[string]any, ref string) map[string]any {
+	t.Helper()
+
+	node := root
+	for _, seg := range strings.Split(ref, "/") {
+		next, ok := node[seg].(map[string]any)
+		require.Truef(t, ok, "embedded schema has no %q (resolving %q)", seg, ref)
+		node = next
+	}
+	if target, ok := node["$ref"].(string); ok {
+		return resolveSchemaRef(t, root, strings.TrimPrefix(target, "#/"))
+	}
+	return node
+}
+
+// schemaProperties reads the properties, required set and openness of a schema
+// node, resolving a union if the node is one.
+//
+// A oneOf/anyOf def has no properties of its own — SkillSource is a bare string,
+// a SkillPathSource or an InlineSkill. Go has no sum type, so the runtime
+// represents such a def as one flattened struct carrying every branch's fields,
+// and the check has to compare against the same flattening: the union of the
+// branches' properties. Only a property required by EVERY branch is required
+// overall, because a document satisfying one branch need not carry the others'.
+// Non-object branches (the bare string form) contribute nothing.
+func schemaProperties(
+	t *testing.T, root, def map[string]any, defName string,
+) (expected, required map[string]bool, addlProps bool) {
+	t.Helper()
+
+	readInto := func(node map[string]any) (map[string]bool, map[string]bool, bool) {
+		props, _ := node["properties"].(map[string]any)
+		exp := make(map[string]bool, len(props))
+		for name := range props {
+			exp[name] = true
+		}
+		req := map[string]bool{}
+		if reqList, ok := node["required"].([]any); ok {
+			for _, r := range reqList {
+				if name, ok := r.(string); ok {
+					req[name] = true
+				}
+			}
+		}
+		open := true
+		if v, ok := node["additionalProperties"].(bool); ok {
+			open = v
+		}
+		return exp, req, open
+	}
+
+	if _, hasProps := def["properties"]; hasProps {
+		return readInto(def)
+	}
+
+	var branches []any
+	for _, key := range []string{"oneOf", "anyOf"} {
+		if list, ok := def[key].([]any); ok {
+			branches = list
+			break
+		}
+	}
+	require.NotEmptyf(t, branches, "%s must have properties or a oneOf/anyOf", defName)
+
+	expected = map[string]bool{}
+	var requiredInAll map[string]bool
+	objectBranches := 0
+
+	for _, raw := range branches {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if target, isRef := node["$ref"].(string); isRef {
+			node = resolveSchemaRef(t, root, strings.TrimPrefix(target, "#/"))
+		}
+		if _, hasProps := node["properties"]; !hasProps {
+			continue // a scalar branch, e.g. the bare-string form
+		}
+		objectBranches++
+
+		exp, req, open := readInto(node)
+		for name := range exp {
+			expected[name] = true
+		}
+		if open {
+			addlProps = true
+		}
+		if requiredInAll == nil {
+			requiredInAll = req
+			continue
+		}
+		for name := range requiredInAll {
+			if !req[name] {
+				delete(requiredInAll, name)
+			}
+		}
+	}
+
+	require.NotZerof(t, objectBranches, "%s has no object branch to compare against", defName)
+	return expected, requiredInAll, addlProps
+}
+
 func assertStructMatchesSchemaDef(
 	t *testing.T, structType reflect.Type, defName string, omissions ...deliberateOmission,
+) {
+	t.Helper()
+	assertStructMatchesSchemaAt(t, structType, "$defs/"+defName, omissions...)
+}
+
+// assertStructMatchesSchemaAt is assertStructMatchesSchemaDef against an
+// arbitrary location, given as a slash path from the schema root
+// ("$defs/Tool", "properties/metadata").
+func assertStructMatchesSchemaAt(
+	t *testing.T, structType reflect.Type, ref string, omissions ...deliberateOmission,
 ) {
 	t.Helper()
 
@@ -53,33 +172,10 @@ func assertStructMatchesSchemaDef(
 	var root map[string]any
 	require.NoError(t, json.Unmarshal([]byte(raw), &root))
 
-	defs, ok := root["$defs"].(map[string]any)
-	require.True(t, ok, "embedded schema must have $defs")
+	def := resolveSchemaRef(t, root, ref)
+	defName := ref
 
-	def, ok := defs[defName].(map[string]any)
-	require.True(t, ok, "embedded schema must define $defs/"+defName)
-
-	props, ok := def["properties"].(map[string]any)
-	require.True(t, ok, defName+" must have properties")
-
-	expected := make(map[string]bool, len(props))
-	for name := range props {
-		expected[name] = true
-	}
-
-	required := map[string]bool{}
-	if reqList, ok := def["required"].([]any); ok {
-		for _, r := range reqList {
-			if name, ok := r.(string); ok {
-				required[name] = true
-			}
-		}
-	}
-
-	addlProps := true
-	if v, ok := def["additionalProperties"].(bool); ok {
-		addlProps = v
-	}
+	expected, required, addlProps := schemaProperties(t, root, def, defName)
 
 	actual := make(map[string]bool, structType.NumField())
 	omitEmpty := make(map[string]bool, structType.NumField())
@@ -139,44 +235,18 @@ func assertStructMatchesSchemaDef(
 	}
 }
 
-// TestValidatorStructMatchesPromptPackSpec pins prompt.Validator (the compiled
-// validator; no top-level Message — that lives on the authoring ValidatorConfig).
-func TestValidatorStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.Validator{}), "Validator",
-		deliberateOmission{
-			property: "message",
-			reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
-				"foldValidatorMessages folds it into params at compile, so the compiled " +
-				"validator never carries it",
-		},
-	)
-}
-
-// TestVariableStructMatchesPromptPackSpec pins prompt.Variable (the compiled
-// variable; no Binding — variable binding is a runtime concern on the authoring
-// VariableMetadata, not part of the portable pack).
-func TestVariableStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.Variable{}), "Variable",
-		deliberateOmission{
-			property: "binding",
-			reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
-				"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
-				"compileVariables drops it, so it is not part of the portable pack",
-		},
-	)
-}
-
-// TestPromptStructMatchesPromptPackSpec pins prompt.PackPrompt to $defs/Prompt.
-func TestPromptStructMatchesPromptPackSpec(t *testing.T) {
-	assertStructMatchesSchemaDef(t, reflect.TypeOf(prompt.PackPrompt{}), "Prompt")
-}
-
-// PackTool, ModelTestResultRef and ModelOverride had cases here until they
-// became aliases for their generated types. A parity test on an alias is tautological
-// — it compares the generated type to the schema it was generated from — so the
-// cases were removed rather than left as reassuring noise. The generator's own
-// coverage check and `make packspec-check` cover those types now, and more
-// strictly: they fail on any schema construct that is unaccounted for, not just
-// on a tag mismatch.
+// The per-type cases that used to live here — Validator, Variable and
+// PackPrompt — are now entries in packStructPins in pack_struct_coverage_test.go,
+// checked by TestPinnedPackStructsMatchTheSpec over exactly the same schema defs
+// and the same omissions. They moved rather than being dropped: a standalone
+// case only covers the type someone remembered to write it for, and the pins
+// list is enumerable, so a struct with no entry now fails instead of being
+// quietly unwatched. That gap is what lost metadata.governance in v1.6.0.
 //
-// The cases below remain because their types are still hand-written.
+// PackTool, ModelTestResultRef and ModelOverride had cases here until they
+// became aliases for their generated types. A parity test on an alias is
+// tautological — it compares the generated type to the schema it was generated
+// from — so those were removed rather than left as reassuring noise. The
+// generator's own coverage check and `make packspec-check` cover them now, and
+// more strictly: they fail on any schema construct that is unaccounted for, not
+// just on a tag mismatch.

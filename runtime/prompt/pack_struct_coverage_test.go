@@ -1,0 +1,222 @@
+package prompt_test
+
+import (
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+)
+
+// This file answers a question the per-type parity tests could not: which pack
+// structs is nobody checking?
+//
+// The parity tests are opt-in. A struct with no case is not reported as
+// unchecked — it is simply absent, and absence looks like success. That is how
+// v1.6.0's metadata.governance was lost: prompt.Metadata was hand-written, had
+// no parity case, and dropped the property silently. Adding a case for Metadata
+// fixes that one field. It does not stop the next one.
+//
+// So the rule here is coverage, not correctness: walk the type graph reachable
+// from prompt.Pack and require every hand-written struct in it to be accounted
+// for — either pinned to a place in the schema, or recorded as deliberately not
+// a spec type. A new struct, or a new struct-shaped field on an existing one,
+// fails until someone says which it is.
+//
+// Generated types (runtime/packspec) are exempt: `make packspec-check` already
+// proves they match the schema they came from, and more strictly than reflection
+// can. The best fix for a struct listed below is usually to delete it and alias
+// the generated type instead, which is what Metadata, CostEstimate, Tool,
+// TestedModel and ModelOverride now do.
+
+const generatedPkg = "github.com/AltairaLabs/PromptKit/runtime/packspec"
+
+// pinnedStruct records what a hand-written pack struct corresponds to in the
+// PromptPack schema.
+//
+// Exactly one of schemaRef and notSpec is set. schemaRef is a slash path from
+// the schema root ("$defs/Tool", "properties/metadata"); notSpec means the type
+// carries no spec-defined data and must say why.
+type pinnedStruct struct {
+	value     any
+	schemaRef string
+	notSpec   string
+	omissions []deliberateOmission
+}
+
+// packStructPins accounts for every hand-written struct reachable from
+// prompt.Pack. TestEveryPackStructIsAccountedFor fails if the type graph
+// contains one that is not here.
+var packStructPins = []pinnedStruct{
+	// Pinned to the spec. These are checked property-by-property by
+	// TestPinnedPackStructsMatchTheSpec below.
+	{value: prompt.Validator{}, schemaRef: "$defs/Validator", omissions: []deliberateOmission{{
+		property: "message",
+		reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
+			"foldValidatorMessages folds it into params at compile, so the compiled " +
+			"validator never carries it",
+	}}},
+	{value: prompt.Variable{}, schemaRef: "$defs/Variable", omissions: []deliberateOmission{{
+		property: "binding",
+		reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
+			"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
+			"compileVariables drops it, so it is not part of the portable pack",
+	}}},
+	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt"},
+
+	// Not spec types. Each carries data the PromptPack format does not define.
+	{value: prompt.Pack{}, notSpec: "the pack root itself; its properties are pinned " +
+		"through the structs below and through the generated types it embeds"},
+	{value: prompt.CompilationInfo{}, notSpec: "promptkit's own build provenance " +
+		"(compiler version, timestamp), carried in the compilation envelope the spec " +
+		"leaves open rather than describing spec data"},
+	{value: evals.EvalWhen{}, notSpec: "gating on runtime conditions (turn index, " +
+		"tool outcome) — evaluation scheduling, not pack data"},
+	{value: evals.Threshold{}, notSpec: "guardrail enforcement thresholds; an eval " +
+		"never states a pass/fail, so a threshold is the enforcing wrapper's, not the " +
+		"eval's, and is not part of the portable pack"},
+
+	// The rest of the pack format. Every one of these is property-checked; two
+	// were found wrong the moment the check was switched on (see the tests in
+	// media_test.go and pack_test.go for base64 and the `dir` alias).
+	{value: prompt.MediaConfig{}, schemaRef: "$defs/MediaConfig", omissions: []deliberateOmission{{
+		property: "document",
+		reason: "document media is not carried on the compiled pack: prompt.MediaConfig " +
+			"has no document field because types.ContentPart cannot represent one yet",
+	}}},
+	{value: prompt.MultimodalExample{}, schemaRef: "$defs/MultimodalExample"},
+	{value: prompt.ExampleContentPart{}, schemaRef: "$defs/ContentPart"},
+	{value: prompt.ExampleMedia{}, schemaRef: "$defs/MediaReference"},
+	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource"},
+	{value: prompt.TemplateEngineInfo{}, schemaRef: "properties/template_engine"},
+	{value: evals.EvalDef{}, schemaRef: "$defs/Eval"},
+	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig"},
+	{value: workflow.State{}, schemaRef: "$defs/WorkflowState"},
+}
+
+// reachableStructs walks the type graph from rt, collecting every named struct
+// type it can reach through fields, pointers, slices, arrays and maps.
+func reachableStructs(rt reflect.Type) map[reflect.Type]bool {
+	found := map[reflect.Type]bool{}
+	seen := map[reflect.Type]bool{}
+
+	var walk func(reflect.Type)
+	walk = func(rt reflect.Type) {
+		for {
+			switch rt.Kind() {
+			case reflect.Ptr, reflect.Slice, reflect.Array:
+				rt = rt.Elem()
+			case reflect.Map:
+				walk(rt.Key())
+				rt = rt.Elem()
+			default:
+				goto done
+			}
+		}
+	done:
+		if rt.Kind() != reflect.Struct || seen[rt] || rt.PkgPath() == "" {
+			return
+		}
+		seen[rt] = true
+		found[rt] = true
+		for i := 0; i < rt.NumField(); i++ {
+			walk(rt.Field(i).Type)
+		}
+	}
+	walk(rt)
+	return found
+}
+
+// TestEveryPackStructIsAccountedFor is the guard that makes a silently dropped
+// spec property hard to ship.
+//
+// It does not check that a struct is correct — the pins below do that. It checks
+// that no hand-written struct in the pack format is unwatched, which is the
+// state that let governance disappear.
+func TestEveryPackStructIsAccountedFor(t *testing.T) {
+	pinned := make(map[reflect.Type]bool, len(packStructPins))
+	for _, p := range packStructPins {
+		rt := reflect.TypeOf(p.value)
+		if pinned[rt] {
+			t.Errorf("duplicate pin for %s", rt)
+		}
+		pinned[rt] = true
+
+		switch {
+		case p.schemaRef == "" && p.notSpec == "":
+			t.Errorf("%s is pinned with neither a schemaRef nor a notSpec reason", rt)
+		case p.schemaRef != "" && p.notSpec != "":
+			t.Errorf("%s is pinned with both a schemaRef and a notSpec reason; it is one "+
+				"or the other", rt)
+		}
+	}
+
+	var unpinned []string
+	for rt := range reachableStructs(reflect.TypeOf(prompt.Pack{})) {
+		if rt.PkgPath() == generatedPkg || pinned[rt] {
+			continue
+		}
+		unpinned = append(unpinned, rt.PkgPath()+"."+rt.Name())
+	}
+	sort.Strings(unpinned)
+
+	if len(unpinned) > 0 {
+		t.Errorf("these hand-written structs are reachable from prompt.Pack but nothing "+
+			"checks them against the PromptPack spec:\n  %s\n\n"+
+			"Nothing here is failing yet — that is the problem. A struct with no pin "+
+			"drops a new spec property silently, which is how metadata.governance was "+
+			"lost in v1.6.0.\n\n"+
+			"Fix it one of three ways, best first:\n"+
+			"  1. Delete the struct and alias the generated type "+
+			"(type X = packspec.Y). It then tracks the schema by regeneration.\n"+
+			"  2. Add a pin with a schemaRef in packStructPins, so its properties are "+
+			"checked against the schema.\n"+
+			"  3. Add a pin with a notSpec reason, if it genuinely carries no "+
+			"spec-defined data.",
+			strings.Join(unpinned, "\n  "))
+	}
+
+	// A pin for a type that is no longer reachable is dead weight that will
+	// mislead the next reader, so it fails too.
+	reachable := reachableStructs(reflect.TypeOf(prompt.Pack{}))
+	for _, p := range packStructPins {
+		rt := reflect.TypeOf(p.value)
+		if !reachable[rt] {
+			t.Errorf("stale pin: %s is no longer reachable from prompt.Pack — drop it", rt)
+		}
+	}
+}
+
+// TestPinnedPackStructsMatchTheSpec runs the property-level parity check for
+// every pin that names a schema location. There is no opt-out list: a pin with
+// a schemaRef is checked, which is what stops a pin becoming a place to park a
+// type and forget it.
+func TestPinnedPackStructsMatchTheSpec(t *testing.T) {
+	for _, p := range packStructPins {
+		if p.schemaRef == "" {
+			continue
+		}
+		rt := reflect.TypeOf(p.value)
+		t.Run(rt.Name(), func(t *testing.T) {
+			assertStructMatchesSchemaAt(t, rt, p.schemaRef, p.omissions...)
+		})
+	}
+}
+
+// TestGeneratedTypesAreReachedDirectly guards the shortcut this whole file
+// depends on: generated types are exempt from pinning because packspec-check
+// covers them. That only holds while they are genuinely the generated types and
+// not copies, so assert the package they come from is the generated one.
+func TestGeneratedTypesAreReachedDirectly(t *testing.T) {
+	if got := reflect.TypeOf(packspec.PackMetadata{}).PkgPath(); got != generatedPkg {
+		t.Fatalf("generated types moved to %q; update generatedPkg", got)
+	}
+	if reflect.TypeOf(prompt.Metadata{}).PkgPath() != generatedPkg {
+		t.Error("prompt.Metadata is no longer the generated type — it was hand-written " +
+			"when it dropped metadata.governance in v1.6.0; keep it an alias")
+	}
+}
