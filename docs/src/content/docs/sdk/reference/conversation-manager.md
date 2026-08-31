@@ -115,12 +115,13 @@ Key runtime types: \[types.Message\], \[types.ContentPart\], \[types.MediaConten
 
 ### Schema Reference
 
-All pack examples conform to the PromptPack Specification v1.1.0: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
+All pack examples conform to the PromptPack Specification v1.6.0: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
 
 ## Index
 
 - [Constants](<#constants>)
 - [Variables](<#variables>)
+- [func DescribeGovernance\(g \*Governance\) string](<#DescribeGovernance>)
 - [func Evaluate\(ctx context.Context, opts EvaluateOpts\) \(\[\]evals.EvalResult, error\)](<#Evaluate>)
 - [func GracefulShutdown\(mgr \*ShutdownManager, timeout time.Duration\)](<#GracefulShutdown>)
 - [func RegisteredProviderTypes\(\) map\[string\]\[\]string](<#RegisteredProviderTypes>)
@@ -188,6 +189,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(c \*Conversation\) EventBus\(\) events.Bus](<#Conversation.EventBus>)
   - [func \(c \*Conversation\) Fork\(\) \(\*Conversation, error\)](<#Conversation.Fork>)
   - [func \(c \*Conversation\) GetVar\(name string\) \(string, bool\)](<#Conversation.GetVar>)
+  - [func \(c \*Conversation\) Governance\(\) \*Governance](<#Conversation.Governance>)
   - [func \(c \*Conversation\) ID\(\) string](<#Conversation.ID>)
   - [func \(c \*Conversation\) Messages\(ctx context.Context\) \[\]types.Message](<#Conversation.Messages>)
   - [func \(c \*Conversation\) OnClientTool\(name string, handler ClientToolHandler\)](<#Conversation.OnClientTool>)
@@ -199,6 +201,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func \(c \*Conversation\) OnToolExecutor\(name string, executor tools.Executor\)](<#Conversation.OnToolExecutor>)
   - [func \(c \*Conversation\) OnToolHTTP\(name string, config \*sdktools.HTTPToolConfig\)](<#Conversation.OnToolHTTP>)
   - [func \(c \*Conversation\) OnTools\(handlers map\[string\]ToolHandler\)](<#Conversation.OnTools>)
+  - [func \(c \*Conversation\) PackGovernance\(\) \*Governance](<#Conversation.PackGovernance>)
   - [func \(c \*Conversation\) PendingTools\(ctx context.Context\) \(\[\]\*sdktools.PendingToolCall, error\)](<#Conversation.PendingTools>)
   - [func \(c \*Conversation\) RejectClientTool\(\_ context.Context, callID, reason string\)](<#Conversation.RejectClientTool>)
   - [func \(c \*Conversation\) RejectTool\(ctx context.Context, id, reason string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.RejectTool>)
@@ -230,6 +233,7 @@ All pack examples conform to the PromptPack Specification v1.1.0: https://github
   - [func WithCredentialFile\(path string\) CredentialOption](<#WithCredentialFile>)
 - [type EndpointResolver](<#EndpointResolver>)
 - [type EvaluateOpts](<#EvaluateOpts>)
+- [type Governance](<#Governance>)
 - [type InMemoryA2ATaskStore](<#InMemoryA2ATaskStore>)
 - [type IngestionFunc](<#IngestionFunc>)
   - [func MultiTrackIngestion\(cfg MultiTrackIngestionConfig\) IngestionFunc](<#MultiTrackIngestion>)
@@ -565,6 +569,15 @@ var (
 ```go
 var ErrShutdownManagerClosed = errors.New("shutdown manager is closed; cannot register new conversations")
 ```
+
+<a name="DescribeGovernance"></a>
+## func DescribeGovernance
+
+```go
+func DescribeGovernance(g *Governance) string
+```
+
+DescribeGovernance renders a declaration as a short human\-readable summary, listing only the fields the pack actually declares.
 
 <a name="Evaluate"></a>
 ## func Evaluate
@@ -1539,6 +1552,21 @@ func (c *Conversation) GetVar(name string) (string, bool)
 
 GetVar returns the current value of a template variable. Returns empty string and false if the variable is not set.
 
+<a name="Conversation.Governance"></a>
+### func \(\*Conversation\) Governance
+
+```go
+func (c *Conversation) Governance() *Governance
+```
+
+Governance returns the governance declared for this conversation, or nil if the pack declares none.
+
+When the conversation was opened as a named agent, this is the agent's governance resolved against the pack's — per\-field replacement, arrays and extensions replacing whole \(see prompt.ResolveGovernance\). For a plain single\-prompt conversation, which is not an agent, it is the pack\-level declaration.
+
+Nothing in PromptKit acts on the result. RFC 0013 is explicit that a governance block describes and does not gate: this is here so a host can SHOW what the pack claims — surface an AI disclosure in its UI, log the accountable owner beside a transcript, refuse to deploy a pack whose approved\_environments do not include the one it is being deployed to. Those are the host's decisions to make, on its own policy, with these facts.
+
+The result is a copy; adjusting it does not change the loaded pack.
+
 <a name="Conversation.ID"></a>
 ### func \(\*Conversation\) ID
 
@@ -1746,6 +1774,15 @@ conv.OnTools(map[string]sdk.ToolHandler{
     "send_email":    sendEmailHandler,
 })
 ```
+
+<a name="Conversation.PackGovernance"></a>
+### func \(\*Conversation\) PackGovernance
+
+```go
+func (c *Conversation) PackGovernance() *Governance
+```
+
+PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
 ### func \(\*Conversation\) PendingTools
@@ -2303,6 +2340,17 @@ type EvaluateOpts struct {
     // SkipSchemaValidation disables JSON schema validation when loading from PackPath.
     SkipSchemaValidation bool
 }
+```
+
+<a name="Governance"></a>
+## type Governance
+
+Governance is a pack's RFC 0013 governance declaration: who is accountable for the agent, how autonomously it acts, what it was built for, whether it must disclose itself as AI.
+
+Aliased here so a host reading these facts does not have to import the runtime package directly.
+
+```go
+type Governance = prompt.Governance
 ```
 
 <a name="InMemoryA2ATaskStore"></a>

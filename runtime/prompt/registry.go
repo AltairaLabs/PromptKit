@@ -31,7 +31,9 @@ package prompt
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -189,6 +191,10 @@ type ExampleMedia struct {
 	FilePath string `yaml:"file_path,omitempty" json:"file_path,omitempty"`
 	// External URL
 	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// Base64-encoded media data, for small files or when embedding is preferred.
+	// types.MediaContent.Data has always been able to carry this; the pack
+	// authoring struct could not, so a pack embedding media inline lost it.
+	Base64 string `yaml:"base64,omitempty" json:"base64,omitempty"`
 	// MIME type
 	MIMEType string `yaml:"mime_type" json:"mime_type"`
 	// Detail level for images
@@ -315,36 +321,130 @@ type Variable struct {
 
 // Metadata contains additional metadata for the pack format.
 //
-// Every field needs a json tag as well as a yaml one: Pack.ToJSON marshals with
-// encoding/json, which ignores yaml tags and falls back to the Go field name. A
-// missing json tag here does not fail validation — the spec's metadata is
-// additionalProperties:true, so "Domain" is accepted as an unknown property
-// while "domain" is simply absent — it silently drops the value instead.
-type Metadata struct {
-	// Domain/category (e.g., "customer-support")
-	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
-	// Primary language (e.g., "en")
-	Language string `yaml:"language,omitempty" json:"language,omitempty"`
-	// Tags for categorization
-	Tags []string `yaml:"tags,omitempty" json:"tags,omitempty"`
-	// Estimated cost per execution
-	CostEstimate *CostEstimate `yaml:"cost_estimate,omitempty" json:"cost_estimate,omitempty"`
-	// Performance benchmarks. Not in the PromptPack spec; carried as an
-	// additional property, which metadata permits.
-	Performance *PerformanceMetrics `yaml:"performance,omitempty" json:"performance,omitempty"`
-	// Version history. Not in the PromptPack spec; see Performance.
-	Changelog []ChangelogEntry `yaml:"changelog,omitempty" json:"changelog,omitempty"`
+// This is the generated type: metadata is where the PromptPack spec puts the
+// facts a pack declares ABOUT itself rather than about its execution, so it is
+// where formalization lands as the spec grows — v1.6.0 added `governance`
+// (RFC 0013: accountable owner, autonomy level, risk classification), and more
+// of that shape is coming. A hand-written struct here dropped `governance`
+// silently on load: the field validated, round-tripped clean, and vanished.
+//
+// Generated means new spec properties arrive by regeneration, and
+// `make packspec-check` fails if they have not.
+//
+// Performance and Changelog are NOT spec properties. They live in Extra, which
+// the spec permits (metadata is additionalProperties:true), and are reached
+// through the accessors below rather than as struct fields.
+type Metadata = packspec.PackMetadata
+
+// MetadataPerformance returns the performance benchmarks a pack declares, or nil.
+//
+// performance is not a PromptPack property — it is a PromptKit extension carried
+// in the metadata envelope the spec leaves open. Keeping the type assertion here
+// rather than at each call site is what stops a silent nil creeping in; a value
+// of the wrong shape yields nil rather than a half-populated struct.
+func MetadataPerformance(m *Metadata) *PerformanceMetrics {
+	if m == nil {
+		return nil
+	}
+	return decodeExtra[PerformanceMetrics](m.Extra, "performance")
 }
 
-// CostEstimate provides estimated costs for prompt execution
-type CostEstimate struct {
-	// Minimum cost per execution
-	MinCostUSD float64 `yaml:"min_cost_usd" json:"min_cost_usd"`
-	// Maximum cost per execution
-	MaxCostUSD float64 `yaml:"max_cost_usd" json:"max_cost_usd"`
-	// Average cost per execution
-	AvgCostUSD float64 `yaml:"avg_cost_usd" json:"avg_cost_usd"`
+// SetMetadataPerformance stores performance benchmarks in the metadata envelope.
+// A nil value removes the key rather than writing a null, so a pack does not
+// gain a meaningless `"performance": null`.
+func SetMetadataPerformance(m *Metadata, p *PerformanceMetrics) {
+	if m == nil {
+		return
+	}
+	m.Extra = setExtra(m.Extra, "performance", p)
 }
+
+// MetadataChangelog returns the version history a pack declares, or nil.
+// See MetadataPerformance for why this is not a struct field.
+func MetadataChangelog(m *Metadata) []ChangelogEntry {
+	if m == nil {
+		return nil
+	}
+	entries := decodeExtra[[]ChangelogEntry](m.Extra, "changelog")
+	if entries == nil {
+		return nil
+	}
+	return *entries
+}
+
+// SetMetadataChangelog stores the version history in the metadata envelope.
+// An empty changelog removes the key.
+func SetMetadataChangelog(m *Metadata, entries []ChangelogEntry) {
+	if m == nil {
+		return
+	}
+	if len(entries) == 0 {
+		m.Extra = setExtra(m.Extra, "changelog", nil)
+		return
+	}
+	m.Extra = setExtra(m.Extra, "changelog", entries)
+}
+
+// decodeExtra pulls a typed value out of an Extra bag.
+//
+// Extra holds whatever JSON or YAML decoding produced — map[string]any after a
+// load, but the concrete Go value when something set it in memory this run. So
+// this handles both: a direct type assertion first, then a JSON round-trip for
+// the decoded-document case. Anything that fits neither yields nil.
+func decodeExtra[T any](extra map[string]any, key string) *T {
+	raw, present := extra[key]
+	if !present || raw == nil {
+		return nil
+	}
+	if typed, ok := raw.(*T); ok {
+		return typed
+	}
+	if typed, ok := raw.(T); ok {
+		return &typed
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var out T
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return &out
+}
+
+// setExtra returns extra with key set to value, allocating the map if needed.
+// A nil value (including a typed nil pointer) deletes the key instead, so a
+// pack does not gain a meaningless `"performance": null`.
+func setExtra(extra map[string]any, key string, value any) map[string]any {
+	if isNil(value) {
+		delete(extra, key)
+		return extra
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	extra[key] = value
+	return extra
+}
+
+// isNil reports whether value is nil, including a non-nil interface holding a
+// nil pointer — which is what a caller passing a (*PerformanceMetrics)(nil)
+// produces, and what a plain `value == nil` misses.
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	rv := reflect.ValueOf(value)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
+}
+
+// CostEstimate provides estimated costs for prompt execution.
+//
+// Generated, for the same reason as Metadata. Note the fields are *float64:
+// the spec makes all three optional, and a plain float64 cannot tell "no
+// estimate" from "estimated at zero".
+type CostEstimate = packspec.PackMetadataCostEstimate
 
 // PerformanceMetrics provides performance benchmarks
 type PerformanceMetrics struct {

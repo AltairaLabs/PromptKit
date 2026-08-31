@@ -43,9 +43,9 @@ func (mb *MetadataBuilder) BuildMetadata(domain, language string, tags []string,
 		}
 
 		metadata.CostEstimate = &CostEstimate{
-			MinCostUSD: minCost,
-			MaxCostUSD: maxCost,
-			AvgCostUSD: totalCost / float64(len(testResults)),
+			MinCostUSD: packspec.Ptr(minCost),
+			MaxCostUSD: packspec.Ptr(maxCost),
+			AvgCostUSD: packspec.Ptr(totalCost / float64(len(testResults))),
 		}
 
 		// Calculate performance metrics
@@ -61,12 +61,12 @@ func (mb *MetadataBuilder) BuildMetadata(domain, language string, tags []string,
 			}
 		}
 
-		metadata.Performance = &PerformanceMetrics{
+		SetMetadataPerformance(metadata, &PerformanceMetrics{
 			AvgLatencyMs: totalLatency / len(testResults),
 			P95LatencyMs: calculateP95Latency(testResults),
 			AvgTokens:    totalTokens / len(testResults),
 			SuccessRate:  float64(successCount) / float64(len(testResults)),
-		}
+		})
 	}
 
 	return metadata
@@ -202,7 +202,7 @@ func (mb *MetadataBuilder) AddChangelogEntry(version, author, description string
 		Description: description,
 	}
 
-	mb.spec.Metadata.Changelog = append(mb.spec.Metadata.Changelog, entry)
+	SetMetadataChangelog(mb.spec.Metadata, append(MetadataChangelog(mb.spec.Metadata), entry))
 }
 
 // SetDomain sets the domain for the prompt metadata
@@ -323,8 +323,8 @@ func (mb *MetadataBuilder) UpdateFromCostInfo(costs []types.CostInfo) {
 	}
 
 	mb.spec.Metadata.CostEstimate = &CostEstimate{
-		MinCostUSD: minCost,
-		MaxCostUSD: maxCost,
-		AvgCostUSD: totalCost / float64(len(costs)),
+		MinCostUSD: packspec.Ptr(minCost),
+		MaxCostUSD: packspec.Ptr(maxCost),
+		AvgCostUSD: packspec.Ptr(totalCost / float64(len(costs))),
 	}
 }

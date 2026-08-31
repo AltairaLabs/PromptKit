@@ -73,13 +73,19 @@ jobs:
 
     # Regenerate the Go types and restate the spec version IN THE SAME commit.
     # The schema, the types generated from it and the version PromptKit claims
-    # to implement are one fact in three files: landing the schema alone leaves
-    # main failing packspec-check and spec-version-check until someone notices.
-    - name: Regenerate the pack types and the spec badge
+    # to implement are one fact spread over several files: landing the schema
+    # alone leaves main failing packspec-check and spec-version-check until
+    # someone notices. The version claims had gone five releases stale before
+    # the check existed, so they are regenerated here rather than by hand.
+    - name: Regenerate the pack types and restate the spec version
       if: steps.detect.outputs.changed == 'true'
       run: |
         make packspec
         ./scripts/check-spec-version.sh --write
+        # sdk/doc.go states the version and feeds the generated SDK reference,
+        # so the reference has to follow or the Reference Drift check fails on
+        # the PR this workflow just opened.
+        make docs-sdk-reference
 
     # Run the guards here as well as on the PR, so the PR body can say up front
     # whether this is a clean pickup or needs a decision.
@@ -122,16 +128,18 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git checkout -B "$BRANCH"
-        git add runtime/prompt/schema/promptpack.schema.json runtime/packspec/types.go README.md
+        git add runtime/prompt/schema/promptpack.schema.json runtime/packspec/types.go \
+          README.md sdk/doc.go sdk/README.md docs/src/content/docs/sdk/reference/
         git commit -s -m "chore(schema): sync embedded PromptPack schema to v${VERSION}
 
         Fetched verbatim from the published release by
         scripts/fetch-promptpack-schema.sh. The embedded copy is a mirror and is
         never hand-edited; see runtime/prompt/schema/schema.go.
 
-        Carries the regenerated packspec types and the README spec badge in the
-        same commit: they are one fact in three files, and landing the schema
-        alone leaves main failing packspec-check and spec-version-check."
+        Carries the regenerated packspec types, the restated spec version and the
+        regenerated SDK reference in the same commit: they are one fact spread
+        over several files, and landing the schema alone leaves main failing
+        packspec-check and spec-version-check."
         git push -f origin "$BRANCH"
 
         if [ "$CLEAN" = "true" ]; then

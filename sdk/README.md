@@ -235,7 +235,7 @@ Key runtime types: `types.Message`, `types.ContentPart`, `types.MediaContent`, `
 
 ## Schema Reference
 
-All pack examples conform to the PromptPack Specification v1.1.0. See the [PromptPack Schema](../runtime/prompt/schema/promptpack.schema.json) for the complete specification.
+All pack examples conform to the PromptPack Specification v1.6.0. See the [PromptPack Schema](../runtime/prompt/schema/promptpack.schema.json) for the complete specification.
 
 ## Related Documentation
 
