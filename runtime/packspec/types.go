@@ -2401,7 +2401,10 @@ type Validator struct {
 	// removing them.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
-	// FailOnViolation if true, validation failures cause an error. If false, violations are logged but allowed.
+	// FailOnViolation DEPRECATED as of v1.7.0, removed in v2.0.0 (RFC 0015). Ignored — validators always
+	// enforce. A triggered validator rewrites or blocks the assistant message regardless of
+	// this value. To disable a validator, use 'enabled: false'. For observation without
+	// enforcement, declare an eval and assert on its score instead.
 	FailOnViolation *bool `json:"fail_on_violation,omitempty" yaml:"fail_on_violation,omitempty"`
 
 	// Message user-facing message returned when the validator blocks content.
@@ -2510,6 +2513,15 @@ type WorkflowState struct {
 	// Required when orchestration is 'composition'; absent otherwise.
 	Composition string `json:"composition,omitempty" yaml:"composition,omitempty"`
 
+	// Control who holds the next turn after entering this state (RFC 0014). 'user' yields the
+	// conversation to the user (default, and the behavior of every state before v1.7.0).
+	// 'agent' runs another agent round in this state without yielding, for transient routing or
+	// processing states. Orthogonal to 'orchestration', which declares who initiates a
+	// transition rather than who holds the turn after one; inert on states reached via
+	// 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget
+	// — it introduces no new limits.
+	Control *string `json:"control,omitempty" yaml:"control,omitempty"`
+
 	// Description human-readable description of this state's purpose.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
@@ -2559,7 +2571,9 @@ type WorkflowState struct {
 // 0010). A pack may declare the model providers it needs to run via the optional
 // 'requires.providers' block (RFC 0012). Packs may declare governance facts
 // (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is
-// recorded alongside capability.
+// recorded alongside capability. Workflow states may declare who holds the next turn via
+// 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always
+// enforce (RFC 0015).
 type Pack struct {
 	// Schema JSON Schema reference for validation and IDE support
 	Schema *string `json:"$schema,omitempty" yaml:"$schema,omitempty"`

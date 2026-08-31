@@ -115,7 +115,7 @@ Key runtime types: \[types.Message\], \[types.ContentPart\], \[types.MediaConten
 
 ### Schema Reference
 
-All pack examples conform to the PromptPack Specification v1.6.0: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
+All pack examples conform to the PromptPack Specification v1.7.0: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
 
 ## Index
 
