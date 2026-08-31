@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability.",
-  "version": "1.6.0",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability. Workflow states may declare who holds the next turn via 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always enforce (RFC 0015).",
+  "version": "1.7.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -880,7 +880,8 @@
 
         "fail_on_violation": {
           "type": "boolean",
-          "description": "If true, validation failures cause an error. If false, violations are logged but allowed.",
+          "deprecated": true,
+          "description": "DEPRECATED as of v1.7.0, removed in v2.0.0 (RFC 0015). Ignored — validators always enforce. A triggered validator rewrites or blocks the assistant message regardless of this value. To disable a validator, use 'enabled: false'. For observation without enforcement, declare an eval and assert on its score instead.",
           "default": false
         },
 
@@ -1553,6 +1554,13 @@
           "description": "How the state is orchestrated. 'internal' = agent controls transitions (default). 'external' = system controls transitions. 'hybrid' = both. 'composition' = the referenced composition fully handles the state's orchestration (work + transitions): the composition runs end-to-end, and on completion its output may map to on_event transitions or terminate the state. The composition mode is exclusive; it is not mixed with internal/external/hybrid on the same state.",
           "enum": ["internal", "external", "hybrid", "composition"],
           "default": "internal"
+        },
+        "control": {
+          "type": "string",
+          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (default, and the behavior of every state before v1.7.0). 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits.",
+          "enum": ["user", "agent"],
+          "default": "user",
+          "examples": ["agent"]
         },
         "composition": {
           "type": "string",
