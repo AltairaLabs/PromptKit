@@ -101,6 +101,43 @@ var packStructPins = []pinnedStruct{
 			"drift, while the methods and FilePath live here"},
 }
 
+// assertOnlyEmbedSerializes pins the guarantee that makes embedding safe: the
+// embedding type contributes NO serializable field of its own.
+//
+// Without this, embedding is only as good as everyone's restraint. A field added
+// beside the embed passes every other check in this file — it is not a missing
+// spec property, and the type is pinned — and then leaks into every emitted
+// pack. Verified: a `SneakyField string json:"sneaky_field"` on prompt.Pack
+// showed up in MarshalPack output with all guards green.
+//
+// Local fields are still allowed, but they must be `json:"-"` AND `yaml:"-"`,
+// which is what FilePath is: state a loader needs, that no pack ever carries.
+func assertOnlyEmbedSerializes(t *testing.T, rt reflect.Type, embedded string) {
+	t.Helper()
+
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if f.Anonymous {
+			continue // the embed itself; its properties are generated
+		}
+		for _, tag := range []string{"json", "yaml"} {
+			name := strings.Split(f.Tag.Get(tag), ",")[0]
+			if name == "-" {
+				continue
+			}
+			t.Errorf("%s embeds %s but adds its own serializable field %q "+
+				"(%s tag %q).\n\n"+
+				"Embedding is safe only because every property comes from the "+
+				"generated type. A field beside the embed leaks into every emitted "+
+				"pack while passing all the other checks here — which is the exact "+
+				"drift this file exists to stop.\n\n"+
+				"Either put it in the spec and regenerate, or mark it "+
+				"`json:\"-\" yaml:\"-\"` if it is loader state the pack never carries.",
+				rt, embedded, f.Name, tag, name)
+		}
+	}
+}
+
 // reachableStructs walks the type graph from rt, collecting every named struct
 // type it can reach through fields, pointers, slices, arrays and maps.
 func reachableStructs(rt reflect.Type) map[reflect.Type]bool {
@@ -156,6 +193,7 @@ func TestEveryPackStructIsAccountedFor(t *testing.T) {
 		}
 
 		if p.embedsGenerated != "" {
+			assertOnlyEmbedSerializes(t, rt, p.embedsGenerated)
 			// Properties come from the embedded generated type, so a schemaRef
 			// would compare against fields reflection sees as one anonymous
 			// field. packspec-check covers them instead.
