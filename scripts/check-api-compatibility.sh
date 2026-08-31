@@ -39,13 +39,28 @@ failed=()
 
 for m in "${MODULES[@]}"; do
   echo "── ${m}"
-  # Each submodule is tagged with its path prefix, so its base tag is
-  # "<module>/<version>" while the root module's is bare.
-  if GOWORK=off go -C "$m" run golang.org/x/exp/cmd/gorelease@latest \
-       -base="$BASE" -version="$VERSION" 2>&1 | sed 's/^/   /'; then
+  out=$(GOWORK=off go -C "$m" run golang.org/x/exp/cmd/gorelease@latest \
+          -base="$BASE" -version="$VERSION" 2>&1 || true)
+  echo "$out" | sed 's/^/   /'
+
+  # Key on the verdict, NOT the exit code. gorelease also exits non-zero for
+  # DIAGNOSTICS — "the following requirements are needed" — which every module
+  # carrying a local `replace` to a sibling produces, because the sibling
+  # version cannot be resolved from the working tree. Treating that as a
+  # breaking change would fail every release for a reason that is not one.
+  if echo "$out" | grep -q "is not a valid semantic version"; then
+    failed+=("$m")
+  elif echo "$out" | grep -q "is a valid semantic version"; then
     echo "   ✓ ${m}: ${VERSION} carries these changes"
   else
-    failed+=("$m")
+    # No verdict is a FAILURE, not a warning. gorelease refuses to run on a
+    # dirty tree, among other things, and a gate that passes when it could not
+    # look is worse than no gate — it reports success for a release nobody
+    # checked.
+    echo "::error::${m}: gorelease reached no verdict, so the API is UNVERIFIED."
+    echo "::error::Commit or stash local changes and re-run; gorelease refuses"
+    echo "::error::to analyse a dirty tree."
+    failed+=("$m (unverified)")
   fi
   echo
 done
