@@ -13,11 +13,21 @@ help: ## Show this help message
 
 install: ## Install dependencies
 	@echo "Installing Go dependencies..."
-	@go work sync
-	@cd runtime && go mod download
-	@cd sdk && go mod download
-	@cd pkg && go mod download || echo "No pkg dependencies yet"
-	@cd server/a2a && go mod download
+#   NO `go work sync` here. It writes the WORKSPACE's unified MVS picks into
+#   every module's go.mod without adding the matching go.sum entries, so the
+#   modules stop building standalone immediately afterwards:
+#
+#     gojsonreference/reference.go:35:2: gojsonpointer@v0.0.0-20190905194746-...:
+#       missing go.sum entry for go.mod file
+#
+#   The workspace selects a NEWER gojsonpointer than any module does alone,
+#   because a benchmark module requires it. Syncing pushes that pick down and
+#   leaves the go.sum behind. It broke the v1.9.0 release in CI, and it is why
+#   `go work sync` is not a maintenance command to run casually.
+	@go -C runtime mod download
+	@go -C sdk mod download
+	@go -C pkg mod download || echo "No pkg dependencies yet"
+	@go -C server/a2a mod download
 
 build: ## Build current components
 	@echo "Building runtime..."
