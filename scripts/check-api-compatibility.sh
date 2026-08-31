@@ -37,15 +37,57 @@ echo
 MODULES=(runtime pkg sdk server/a2a)
 failed=()
 
+# gorelease has to run against a CLEAN tree whose sibling requires resolve.
+# Neither holds in the working copy: sdk and server/a2a pin their siblings at
+# placeholders (server/a2a@v0.0.0) that the release pipeline only rewrites at
+# tag time, so before tagging there is nothing to resolve them to.
+#
+# So each module is analysed in a throwaway worktree at HEAD, with sibling
+# requires rewritten to the BASE version and the local `replace` directives
+# dropped — which is what a consumer of the published modules actually sees.
+# The rewrite is committed inside the worktree so gorelease sees a clean tree.
+WORKTREE=$(mktemp -d)
+cleanup() {
+  git worktree remove --force "$WORKTREE" 2>/dev/null || true
+  rm -rf "$WORKTREE" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+git worktree add --quiet --detach "$WORKTREE" HEAD
+
 for m in "${MODULES[@]}"; do
   echo "── ${m}"
-  # Each submodule is tagged with its path prefix, so its base tag is
-  # "<module>/<version>" while the root module's is bare.
-  if GOWORK=off go -C "$m" run golang.org/x/exp/cmd/gorelease@latest \
-       -base="$BASE" -version="$VERSION" 2>&1 | sed 's/^/   /'; then
+
+  # Point sibling requires at the base release and drop the local replaces, so
+  # the module resolves the way a consumer resolves it.
+  (
+    cd "$WORKTREE/$m"
+    for sib in runtime pkg sdk server/a2a; do
+      [ "$sib" = "$m" ] && continue
+      mod="github.com/AltairaLabs/PromptKit/${sib}"
+      grep -q "$mod" go.mod || continue
+      go mod edit -dropreplace="$mod" 2>/dev/null || true
+      go mod edit -require="${mod}@${BASE}" 2>/dev/null || true
+    done
+  )
+
+  out=$(cd "$WORKTREE" && git -c user.email=ci@local -c user.name=ci \
+          commit --no-verify -aqm "resolve siblings to ${BASE}" 2>/dev/null;
+        GOWORK=off go -C "$WORKTREE/$m" run golang.org/x/exp/cmd/gorelease@latest \
+          -base="$BASE" -version="$VERSION" 2>&1 || true)
+  echo "$out" | sed 's/^/   /'
+
+  # Key on the VERDICT, not the exit code: gorelease exits non-zero for
+  # diagnostics too, and a diagnostic is not a breaking change.
+  if echo "$out" | grep -q "is not a valid semantic version"; then
+    failed+=("$m")
+  elif echo "$out" | grep -q "is a valid semantic version"; then
     echo "   ✓ ${m}: ${VERSION} carries these changes"
   else
-    failed+=("$m")
+    # No verdict is a FAILURE. A gate that passes when it could not look
+    # reports success for a release nobody checked.
+    echo "::error::${m}: gorelease reached no verdict, so the API is UNVERIFIED."
+    failed+=("$m (unverified)")
   fi
   echo
 done
