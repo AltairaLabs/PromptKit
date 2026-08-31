@@ -143,12 +143,25 @@ func TestAgentGovernanceStandsWithoutAPackDeclaration(t *testing.T) {
 	require.Equal(t, prompt.AutonomyLevelActsWithOversight, got.AutonomyLevel)
 }
 
+// TestNoGovernanceAnywhereResolvesToNothing — absence must resolve to nil, not
+// to a zero-valued declaration. A &Governance{} reads as "declared, with
+// everything empty" to anything rendering it, which is a different and worse
+// claim than "not declared".
+//
+// The declared case is asserted alongside it deliberately: on its own, the
+// absence half would pass an implementation that always returned nil, and a
+// resolver that never resolves anything is the more likely bug.
 func TestNoGovernanceAnywhereResolvesToNothing(t *testing.T) {
-	p := packWithGovernance(t, "", "")
-
-	got, err := prompt.ResolveGovernance(p, "billing")
+	absent := packWithGovernance(t, "", "")
+	got, err := prompt.ResolveGovernance(absent, "billing")
 	require.NoError(t, err)
 	require.Nil(t, got, "absence must resolve to nil, not to a zero-valued declaration")
+
+	declared := packWithGovernance(t, `{"autonomy_level":"suggests"}`, "")
+	got, err = prompt.ResolveGovernance(declared, "billing")
+	require.NoError(t, err)
+	require.Equal(t, prompt.AutonomyLevelSuggests, got.AutonomyLevel,
+		"the same call must return a declaration when there is one to return")
 
 	require.Nil(t, prompt.PackGovernance(nil))
 	require.Nil(t, prompt.PackGovernance(&prompt.Pack{}))
