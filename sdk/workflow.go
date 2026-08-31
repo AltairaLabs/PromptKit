@@ -669,7 +669,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context {
 // OrchestrationMode returns the orchestration mode of the current state.
 // External orchestration means transitions are driven by outside callers
 // (e.g., HTTP handlers, message queues) rather than from within the conversation loop.
-func (wc *WorkflowConversation) OrchestrationMode() string {
+func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration {
 	wc.mu.RLock()
 	defer wc.mu.RUnlock()
 
@@ -677,9 +677,10 @@ func (wc *WorkflowConversation) OrchestrationMode() string {
 		return workflow.OrchestrationInternal
 	}
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
-	// OrchestrationOf already resolves the default, so this is just a
-	// nil-safe pass-through now.
-	return workflow.OrchestrationOf(state)
+	// OrchestrationOf resolves the default and is nil-safe. The named type is
+	// kept on the way out: this is a published SDK signature, and the schema
+	// having no enum for orchestration is no reason to change it on callers.
+	return workflow.Orchestration(workflow.OrchestrationOf(state))
 }
 
 // ActiveConversation returns the current state's Conversation.

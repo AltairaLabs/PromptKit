@@ -175,7 +175,8 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 			return stage.Handoff{Stop: true}, nil
 		case workflow.OrchestrationInternal, workflow.OrchestrationHybrid:
 			// Both are runtime-driven: continue the turn as this state.
-			// (The zero value "" also lands here — it means internal.)
+			// An undeclared state arrives as internal — OrchestrationOf
+			// resolves the default, so "" never reaches here.
 		}
 	}
 

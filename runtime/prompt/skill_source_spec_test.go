@@ -111,3 +111,24 @@ func TestDirAliasIsGone(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"path":"./skills"}`), &s))
 	require.Equal(t, "./skills", prompt.SkillPath(&s))
 }
+
+// TestValidatorEnabledDefaultsToTrue pins a bug that adopting the generated
+// type fixed by accident, which is exactly the kind that comes back.
+//
+// $defs/Validator.enabled carries "default": true. The hand-written struct typed
+// it as a plain bool, so a compiled pack that omitted the key unmarshalled to
+// false — and sdk/sdk.go took its address, handing guardrails an explicit
+// "disabled". A validator the author never switched off was silently inactive.
+//
+// *bool distinguishes absent from false, and absent means enabled.
+func TestValidatorEnabledDefaultsToTrue(t *testing.T) {
+	var omitted prompt.Validator
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"max_length"}`), &omitted))
+	require.Nil(t, omitted.Enabled, "absent must stay absent, not become false")
+
+	var explicit prompt.Validator
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"max_length","enabled":false}`), &explicit))
+	require.NotNil(t, explicit.Enabled)
+	require.False(t, *explicit.Enabled,
+		"an explicit false must survive, or disabling a validator would stop working")
+}

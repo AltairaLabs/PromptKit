@@ -494,7 +494,7 @@ All pack examples conform to the PromptPack Specification v1.6.0: https://github
   - [func \(wc \*WorkflowConversation\) CurrentPromptTask\(\) string](<#WorkflowConversation.CurrentPromptTask>)
   - [func \(wc \*WorkflowConversation\) CurrentState\(\) string](<#WorkflowConversation.CurrentState>)
   - [func \(wc \*WorkflowConversation\) IsComplete\(\) bool](<#WorkflowConversation.IsComplete>)
-  - [func \(wc \*WorkflowConversation\) OrchestrationMode\(\) string](<#WorkflowConversation.OrchestrationMode>)
+  - [func \(wc \*WorkflowConversation\) OrchestrationMode\(\) workflow.Orchestration](<#WorkflowConversation.OrchestrationMode>)
   - [func \(wc \*WorkflowConversation\) Send\(ctx context.Context, message any, opts ...SendOption\) \(\*Response, error\)](<#WorkflowConversation.Send>)
   - [func \(wc \*WorkflowConversation\) Transition\(event string\) \(string, error\)](<#WorkflowConversation.Transition>)
 
@@ -6345,7 +6345,7 @@ IsComplete returns true if the workflow is in a terminal state \(no outgoing tra
 ### func \(\*WorkflowConversation\) OrchestrationMode
 
 ```go
-func (wc *WorkflowConversation) OrchestrationMode() string
+func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration
 ```
 
 OrchestrationMode returns the orchestration mode of the current state. External orchestration means transitions are driven by outside callers \(e.g., HTTP handlers, message queues\) rather than from within the conversation loop.

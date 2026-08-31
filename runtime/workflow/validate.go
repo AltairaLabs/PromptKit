@@ -108,8 +108,8 @@ func validatePersistence(name string, state *State, r *ValidationResult) {
 
 // validateOrchestration checks rule 9.
 func validateOrchestration(name string, state *State, r *ValidationResult) {
-	if OrchestrationOf(state) != "" &&
-		OrchestrationOf(state) != OrchestrationInternal &&
+	// No "" case: OrchestrationOf resolves an undeclared state to internal.
+	if OrchestrationOf(state) != OrchestrationInternal &&
 		OrchestrationOf(state) != OrchestrationExternal &&
 		OrchestrationOf(state) != OrchestrationHybrid &&
 		OrchestrationOf(state) != OrchestrationComposition {

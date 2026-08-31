@@ -852,7 +852,7 @@ func TestWorkflowConversation_OrchestrationMode_Default(t *testing.T) {
 	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
 
 	// No orchestration set, defaults to internal
-	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationInternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
@@ -871,7 +871,7 @@ func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
 	machine := workflow.NewStateMachine(spec)
 	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
 
-	assert.Equal(t, workflow.OrchestrationExternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationExternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
@@ -883,7 +883,7 @@ func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
 	machine := workflow.NewStateMachine(spec)
 	wc := &WorkflowConversation{machine: machine} // workflowSpec is nil
 
-	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationInternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_ConcurrentReads(t *testing.T) {

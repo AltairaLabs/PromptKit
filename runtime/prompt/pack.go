@@ -882,7 +882,7 @@ func (p *Pack) ListTools() []string {
 	return names
 }
 
-// ToPromptConfig converts a pack prompt into a prompt.Config suitable for
+// ToConfig converts a pack prompt into a prompt.Config suitable for
 // registration in a prompt.Registry. It carries the fields the prompt-assembly
 // pipeline needs; tools and validators are wired separately by the caller.
 func ToConfig(pr *PackPrompt, taskType string) *Config {
