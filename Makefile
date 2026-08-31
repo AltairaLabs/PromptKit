@@ -252,6 +252,9 @@ schemas-check: ## Check committed schemas match promptarena (for CI)
 promptpack-schema: ## Refresh the embedded PromptPack schema from the published release
 	@./scripts/fetch-promptpack-schema.sh
 
+module-dep-skew-check: ## Check the published modules agree on shared dependency versions (for CI)
+	@./scripts/check-module-dep-skew.sh
+
 spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
 	@./scripts/check-spec-version.sh
 
