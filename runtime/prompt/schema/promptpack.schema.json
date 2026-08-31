@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012).",
-  "version": "1.5.1",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability.",
+  "version": "1.6.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -156,6 +156,11 @@
               "minimum": 0
             }
           }
+        },
+        
+        "governance": {
+          "$ref": "#/$defs/Governance",
+          "description": "Governance facts about the agent this pack defines (RFC 0013)."
         }
       }
     },
@@ -529,6 +534,123 @@
       }
     },
     
+    "Governance": {
+      "type": "object",
+      "description": "Governance facts about the agent this pack defines (RFC 0013). Human-declared: a conforming implementation MUST NOT infer, compute or default these values, nor present a generated value as if it had been declared.",
+      "additionalProperties": false,
+      "properties": {
+        "vocabularies": {
+          "type": "object",
+          "description": "Prefix to IRI map for CURIE values used in this block. The dpv, eu-aiact and ai prefixes are well-known defaults and need not be declared.",
+          "additionalProperties": { "type": "string", "format": "uri" },
+          "examples": [{"acme": "https://acme.example/vocab#"}]
+        },
+        
+        "intended_purpose": {
+          "type": "string",
+          "description": "What the agent is built to do, stated by its author. Free text.",
+          "examples": ["Answers cardholder questions about settled transactions and raises disputes on the cardholder's explicit instruction."]
+        },
+        
+        "foreseeable_misuse": {
+          "type": "array",
+          "description": "Uses the author considers out of bounds and reasonably foreseeable.",
+          "items": { "type": "string" },
+          "examples": [["Credit, pricing or eligibility decisioning", "Adjudicating a dispute without a human reviewer"]]
+        },
+        
+        "autonomy_level": {
+          "type": "string",
+          "description": "How far the agent acts without a human in the loop, as designed and tested. 'suggests': produces output, a human performs any action. 'acts_with_approval': acts, but each consequential action is approved first. 'acts_with_oversight': acts on its own, a human monitors and can intervene or reverse. 'acts_autonomously': acts without a human in the loop.",
+          "enum": ["suggests", "acts_with_approval", "acts_with_oversight", "acts_autonomously"]
+        },
+        
+        "accountable_owner": {
+          "type": "string",
+          "description": "The role, team or function answerable for this agent. Prefer a durable identifier over a named individual.",
+          "examples": ["payments-risk", "Head of Customer Operations"]
+        },
+        
+        "operator_role": {
+          "type": "string",
+          "description": "The declaring organisation's role for this agent, as a vocabulary term or free string.",
+          "examples": ["eu-aiact:AIProvider", "eu-aiact:AIDeployer"]
+        },
+        
+        "risk_classification": {
+          "type": "string",
+          "description": "The risk classification assigned to this agent, as a vocabulary term or free string. A namespaced term carries both the framework and the value, so no separate framework field is needed; a second classification under another framework belongs in extensions.",
+          "examples": ["eu-aiact:HighRiskAI"]
+        },
+        
+        "intended_deployment_contexts": {
+          "type": "array",
+          "description": "Sectors or settings the agent is built for, as vocabulary terms or free strings. Distinct from metadata.domain, which is a discovery tag.",
+          "items": { "type": "string" },
+          "examples": [["eu-aiact:CriticalInfrastructure"]]
+        },
+        
+        "capabilities": {
+          "type": "array",
+          "description": "Capabilities the agent exercises, as vocabulary terms or free strings. Some capabilities carry obligations regardless of sector, so this is not covered by intended_deployment_contexts.",
+          "items": { "type": "string" },
+          "examples": [["eu-aiact:EmotionRecognition"], ["eu-aiact:DeepFake"]]
+        },
+        
+        "approved_environments": {
+          "type": "array",
+          "description": "Environments this pack has been cleared to run in. Open strings, because environment names are organisation-specific. Absence means undeclared, not cleared everywhere and not cleared nowhere.",
+          "items": { "type": "string" },
+          "examples": [["staging"], ["staging", "production"]]
+        },
+        
+        "requires_ai_disclosure": {
+          "type": "boolean",
+          "description": "Whether the agent must disclose that it is an AI to the people interacting with it. The runtime decides which of its interfaces this applies to."
+        },
+        
+        "extensions": {
+          "type": "object",
+          "description": "Opaque annotations for external tooling. Never interpreted by this specification. Keys SHOULD be namespaced.",
+          "additionalProperties": true,
+          "examples": [{"acme.example/control-set": "SOC2-CC7"}]
+        }
+      }
+    },
+    
+    "ActionScope": {
+      "type": "object",
+      "description": "What a tool can affect (RFC 0013). Describes consequence; does not gate anything. Absence means undeclared, not safe.",
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string",
+          "description": "'read': retrieves, changes nothing. 'write': changes state the operator controls. 'external': causes an effect outside the operator's systems (implies write).",
+          "enum": ["read", "write", "external"]
+        },
+        
+        "reversibility": {
+          "type": "string",
+          "description": "'reversible': the prior state can be restored. 'compensable': it cannot, but a defined compensating action limits the harm. 'irreversible': nothing restores the state and nothing compensates. Declare against the world, not the API.",
+          "enum": ["reversible", "compensable", "irreversible"]
+        },
+        
+        "data_classes": {
+          "type": "array",
+          "description": "Classes of data the tool touches, as vocabulary terms or free strings.",
+          "items": { "type": "string" },
+          "examples": [["dpv:FinancialData"]]
+        },
+        
+        "extensions": {
+          "type": "object",
+          "description": "Opaque annotations about this tool's consequence — a blast radius, a severity score, anything that qualifies what it affects. Never interpreted by this specification. Keys SHOULD be namespaced.",
+          "additionalProperties": true,
+          "examples": [{"acme.example/blast-radius": "fleet"}]
+        }
+      }
+    },
+    
     "Tool": {
       "type": "object",
       "description": "A tool definition following OpenAI's function calling format. Tools enable the LLM to call external functions to retrieve data or perform actions.",
@@ -577,6 +699,18 @@
               }
             }
           }
+        },
+        
+        "action_scope": {
+          "$ref": "#/$defs/ActionScope",
+          "description": "What this tool can affect (RFC 0013). Describes consequence; does not gate anything."
+        },
+        
+        "extensions": {
+          "type": "object",
+          "description": "Opaque annotations about this tool. Never interpreted by this specification. Keys SHOULD be namespaced.",
+          "additionalProperties": true,
+          "examples": [{"acme.example/approver-group": "platform-security-oncall"}]
         }
       }
     },
@@ -1585,6 +1719,11 @@
           "type": "string",
           "description": "Reference to a state key in the pack's workflow.states. When set, invoking this agent runs the pack workflow starting at the named state (following its transitions and loops) instead of executing the member-key prompt once. Requires a top-level workflow. If omitted, the agent is a single-prompt agent.",
           "examples": ["triage", "diagnose"]
+        },
+        
+        "governance": {
+          "$ref": "#/$defs/Governance",
+          "description": "Governance facts for this agent, overriding metadata.governance by per-field replacement: a field present here replaces the pack value for that field, a field absent inherits. Arrays and extensions replace whole (RFC 0013)."
         }
       }
     },

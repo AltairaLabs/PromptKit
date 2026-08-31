@@ -71,6 +71,16 @@ jobs:
           echo "Published release is v$VERSION; embedded copy differs."
         fi
 
+    # Regenerate the Go types and restate the spec version IN THE SAME commit.
+    # The schema, the types generated from it and the version PromptKit claims
+    # to implement are one fact in three files: landing the schema alone leaves
+    # main failing packspec-check and spec-version-check until someone notices.
+    - name: Regenerate the pack types and the spec badge
+      if: steps.detect.outputs.changed == 'true'
+      run: |
+        make packspec
+        ./scripts/check-spec-version.sh --write
+
     # Run the guards here as well as on the PR, so the PR body can say up front
     # whether this is a clean pickup or needs a decision.
     - name: Check spec-parity guards against the new schema
@@ -112,12 +122,16 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git checkout -B "$BRANCH"
-        git add runtime/prompt/schema/promptpack.schema.json
+        git add runtime/prompt/schema/promptpack.schema.json runtime/packspec/types.go README.md
         git commit -s -m "chore(schema): sync embedded PromptPack schema to v${VERSION}
 
         Fetched verbatim from the published release by
         scripts/fetch-promptpack-schema.sh. The embedded copy is a mirror and is
-        never hand-edited; see runtime/prompt/schema/schema.go."
+        never hand-edited; see runtime/prompt/schema/schema.go.
+
+        Carries the regenerated packspec types and the README spec badge in the
+        same commit: they are one fact in three files, and landing the schema
+        alone leaves main failing packspec-check and spec-version-check."
         git push -f origin "$BRANCH"
 
         if [ "$CLEAN" = "true" ]; then
@@ -136,7 +150,8 @@ jobs:
         ${GUARDS}
         \`\`\`
 
-        Raised by \`.github/workflows/promptpack-schema-sync.yml\`."
+        Raised by \`.github/workflows/promptpack-schema-sync.yml\`. **This PR is
+        opened, never merged, by automation** — a human approves and merges it."
 
         if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
           gh pr edit "$BRANCH" --body "$BODY"
@@ -145,5 +160,10 @@ jobs:
           gh pr create --head "$BRANCH" --base main \
             --title "chore(schema): sync embedded PromptPack schema to v${VERSION}" \
             --body "$BODY"
+          # Requested separately so a reviewer problem cannot fail the create and
+          # leave a branch pushed with no PR. Best-effort: CODEOWNERS already
+          # covers /runtime/, this just makes the request explicit on the PR.
+          gh pr edit "$BRANCH" --add-reviewer AltairaLabs/maintainers || \
+            echo "::warning::could not request a review from AltairaLabs/maintainers"
           echo "✓ Opened PR for $BRANCH"
         fi
