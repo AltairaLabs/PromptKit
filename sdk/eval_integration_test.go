@@ -9,6 +9,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // testEvalHandler is a simple handler for integration tests.
@@ -54,11 +56,11 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 			evalRunner: runner,
 			eventBus:   bus,
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt:     &pack.Prompt{},
 		promptName: "test-prompt",
 	}
@@ -124,11 +126,11 @@ func TestE2E_EvalMiddleware_DispatchesSessionEvalsOnClose(t *testing.T) {
 			evalRunner: runner,
 			eventBus:   bus,
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e2", Type: "summary", Trigger: evals.TriggerOnSessionComplete},
 			},
-		},
+		}},
 		prompt:     &pack.Prompt{},
 		promptName: "test-prompt",
 	}
@@ -179,11 +181,11 @@ func TestE2E_EvalMiddleware_TurnIndexIncrements(t *testing.T) {
 			evalRunner: runner,
 			eventBus:   bus,
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt:     &pack.Prompt{},
 		promptName: "test-prompt",
 	}

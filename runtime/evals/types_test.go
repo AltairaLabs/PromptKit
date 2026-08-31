@@ -21,7 +21,7 @@ func TestEvalDef_IsEnabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EvalDef{Enabled: tt.enabled}
-			if got := e.IsEnabled(); got != tt.want {
+			if got := IsEnabled(e); got != tt.want {
 				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
 			}
 		})
@@ -42,7 +42,7 @@ func TestEvalDef_GetSamplePercentage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EvalDef{SamplePercentage: tt.pct}
-			if got := e.GetSamplePercentage(); got != tt.want {
+			if got := SamplePercentage(e); got != tt.want {
 				t.Errorf("GetSamplePercentage() = %v, want %v", got, tt.want)
 			}
 		})
@@ -111,11 +111,11 @@ func TestEvalDef_JSONMinimal(t *testing.T) {
 	if e.ID != "check" {
 		t.Errorf("ID = %q, want %q", e.ID, "check")
 	}
-	if e.IsEnabled() != true {
+	if IsEnabled(&e) != true {
 		t.Error("IsEnabled() should default to true")
 	}
-	if e.GetSamplePercentage() != DefaultSamplePercentage {
-		t.Errorf("GetSamplePercentage() = %v, want %v", e.GetSamplePercentage(), DefaultSamplePercentage)
+	if SamplePercentage(&e) != DefaultSamplePercentage {
+		t.Errorf("GetSamplePercentage() = %v, want %v", SamplePercentage(&e), DefaultSamplePercentage)
 	}
 	if e.Metric != nil {
 		t.Error("Metric should be nil for minimal input")
@@ -403,33 +403,53 @@ func TestEvalDef_DisabledExplicit(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &e); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if e.IsEnabled() {
+	if IsEnabled(&e) {
 		t.Error("IsEnabled() should be false for explicit false")
 	}
 }
 
+// TestThreshold_JSON pins the threshold to the vocabulary the spec defines.
+//
+// This replaces a test that asserted {passed, min_score, max_score}, which was
+// promptkit's own invention: $defs/Eval.threshold is additionalProperties:false
+// with exactly {operator, value}, so the old shape emitted a document the schema
+// REJECTED, and a spec-authored threshold loaded as all-nil. The old test passed
+// throughout, because it only ever round-tripped promptkit's shape against
+// itself.
 func TestThreshold_JSON(t *testing.T) {
-	th := Threshold{
-		Passed:   testutil.Ptr(true),
-		MinScore: testutil.Ptr(0.7),
-		MaxScore: testutil.Ptr(0.95),
-	}
+	th := Threshold{Operator: "gte", Value: testutil.Ptr(0.7)}
+
 	data, err := json.Marshal(th)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
+	// The keys matter, not just the round trip — that is what the old test
+	// could not catch.
+	if got := string(data); got != `{"operator":"gte","value":0.7}` {
+		t.Errorf("threshold must emit the spec's keys, got %s", got)
+	}
+
 	var decoded Threshold
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if decoded.Passed == nil || !*decoded.Passed {
-		t.Error("Passed should be true")
+	if decoded.Operator != "gte" {
+		t.Errorf("Operator = %q, want gte", decoded.Operator)
 	}
-	if decoded.MinScore == nil || *decoded.MinScore != 0.7 {
-		t.Errorf("MinScore = %v, want 0.7", decoded.MinScore)
+	if decoded.Value == nil || *decoded.Value != 0.7 {
+		t.Errorf("Value = %v, want 0.7", decoded.Value)
 	}
-	if decoded.MaxScore == nil || *decoded.MaxScore != 0.95 {
-		t.Errorf("MaxScore = %v, want 0.95", decoded.MaxScore)
+}
+
+// TestThresholdLoadsTheSpecVocabulary — a pack authored against the spec must
+// arrive intact. It previously loaded as an all-nil Threshold, silently.
+func TestThresholdLoadsTheSpecVocabulary(t *testing.T) {
+	var th Threshold
+	if err := json.Unmarshal([]byte(`{"operator":"lte","value":0.25}`), &th); err != nil {
+		t.Fatal(err)
+	}
+	if th.Operator != "lte" || th.Value == nil || *th.Value != 0.25 {
+		t.Errorf("spec-authored threshold dropped: %+v", th)
 	}
 }
 
@@ -579,12 +599,10 @@ func TestEvalDef_ExtendedFieldsJSON(t *testing.T) {
 		Trigger: TriggerEveryTurn,
 		Params:  map[string]any{"text": "hello"},
 		Message: "should contain hello",
-		Threshold: &Threshold{
-			Passed: testutil.Ptr(true),
-		},
-		When: &EvalWhen{
-			ToolCalled: "search",
-		},
+		Threshold: &Threshold{Operator: "gte", Value: testutil.Ptr(0.8)},
+		// `when` is additionalProperties:true in the spec, so the field is the
+		// raw map and EvalWhen is promptkit's reading of it.
+		When: map[string]any{"tool_called": "search"},
 	}
 	data, err := json.Marshal(def)
 	if err != nil {
@@ -600,14 +618,16 @@ func TestEvalDef_ExtendedFieldsJSON(t *testing.T) {
 	if decoded.Threshold == nil {
 		t.Fatal("Threshold is nil")
 	}
-	if decoded.Threshold.Passed == nil || !*decoded.Threshold.Passed {
-		t.Error("Threshold.Passed should be true")
+	if decoded.Threshold.Operator != "gte" ||
+		decoded.Threshold.Value == nil || *decoded.Threshold.Value != 0.8 {
+		t.Errorf("Threshold = %+v, want {gte 0.8}", decoded.Threshold)
 	}
-	if decoded.When == nil {
+	when := DecodeEvalWhen(decoded.When)
+	if when == nil {
 		t.Fatal("When is nil")
 	}
-	if decoded.When.ToolCalled != "search" {
-		t.Errorf("When.ToolCalled = %q, want %q", decoded.When.ToolCalled, "search")
+	if when.ToolCalled != "search" {
+		t.Errorf("When.ToolCalled = %q, want %q", when.ToolCalled, "search")
 	}
 }
 

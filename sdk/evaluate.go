@@ -249,11 +249,11 @@ func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
 	var promptEvals []evals.EvalDef
 	if opts.PromptName != "" {
 		if prompt := p.GetPrompt(opts.PromptName); prompt != nil {
-			promptEvals = prompt.Evals
+			promptEvals = evals.Values(prompt.Evals)
 		}
 	}
 
-	return evals.ResolveEvals(p.Evals, promptEvals), nil
+	return evals.ResolveEvals(evals.Values(p.Evals), promptEvals), nil
 }
 
 // buildEvalMetadata assembles the metadata map for the EvalContext.

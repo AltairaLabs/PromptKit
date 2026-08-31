@@ -13,6 +13,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // probeToolCallRepo is a minimal ResponseRepository that:
@@ -62,7 +64,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 	// The prompt's Tools list is what PromptAssemblyStage writes into
 	// TurnState.AllowedTools; the ProviderStage only sends tools in that
 	// list to the provider, so "probe" must appear here.
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -71,7 +73,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 				Tools:          []string{"probe"},
 			},
 		},
-	}
+	}}
 
 	// Apply WithClassifier to wire the classify registry onto the config.
 	cfg := &config{}

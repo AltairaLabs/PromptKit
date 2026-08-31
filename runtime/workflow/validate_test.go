@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func validSpec() *Spec {
@@ -124,13 +126,13 @@ func TestValidate_Rule8_PersistenceEnum(t *testing.T) {
 
 func TestValidate_Rule9_OrchestrationEnum(t *testing.T) {
 	spec := validSpec()
-	spec.States["intake"].Orchestration = "invalid"
+	spec.States["intake"].Orchestration = packspec.Ptr("invalid")
 	r := Validate(spec, allPrompts)
 	assertContains(t, r.Errors, "orchestration")
 
 	// Valid values
-	for _, valid := range []Orchestration{OrchestrationInternal, OrchestrationExternal, OrchestrationHybrid} {
-		spec.States["intake"].Orchestration = valid
+	for _, valid := range []string{OrchestrationInternal, OrchestrationExternal, OrchestrationHybrid} {
+		spec.States["intake"].Orchestration = packspec.Ptr(valid)
 		r = Validate(spec, allPrompts)
 		for _, e := range r.Errors {
 			if contains(e, "orchestration") {
@@ -191,7 +193,7 @@ func TestValidate_OnMaxVisitsTargetMustExist(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "p1", MaxVisits: 3, OnMaxVisits: "ghost",
+			"a": {PromptTask: "p1", MaxVisits: packspec.Ptr(3), OnMaxVisits: "ghost",
 				OnEvent: map[string]string{"Next": "a"}},
 		},
 	}
@@ -208,7 +210,7 @@ func TestValidate_TerminalWithOnEventWarns(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "p1", Terminal: true,
+			"a": {PromptTask: "p1", Terminal: packspec.Ptr(true),
 				OnEvent: map[string]string{"Next": "a"}},
 		},
 	}
@@ -239,7 +241,7 @@ func TestValidate_NonTerminalWithoutExit_TerminalSilences(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "p1", Terminal: true},
+			"a": {PromptTask: "p1", Terminal: packspec.Ptr(true)},
 		},
 	}
 	r := Validate(spec, []string{"p1"})
@@ -273,9 +275,9 @@ func TestValidate_RedirectChainWarns(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "p1", MaxVisits: 2, OnMaxVisits: "b",
+			"a": {PromptTask: "p1", MaxVisits: packspec.Ptr(2), OnMaxVisits: "b",
 				OnEvent: map[string]string{"Next": "a"}},
-			"b": {PromptTask: "p2", MaxVisits: 2, OnMaxVisits: "c",
+			"b": {PromptTask: "p2", MaxVisits: packspec.Ptr(2), OnMaxVisits: "c",
 				OnEvent: map[string]string{"Next": "a"}},
 			"c": {PromptTask: "p3"},
 		},
@@ -291,7 +293,7 @@ func TestValidate_CompositionStateNoPromptTaskOK(t *testing.T) {
 	spec := &Spec{
 		Version: 1, Entry: "analyze",
 		States: map[string]*State{
-			"analyze": {Orchestration: OrchestrationComposition, Composition: "analyze_doc", Terminal: true},
+			"analyze": {Orchestration: packspec.Ptr(OrchestrationComposition), Composition: "analyze_doc", Terminal: packspec.Ptr(true)},
 		},
 	}
 	res := Validate(spec, []string{})
@@ -303,7 +305,7 @@ func TestValidate_CompositionStateNoPromptTaskOK(t *testing.T) {
 func TestValidate_CompositionStateMissingCompositionErrors(t *testing.T) {
 	spec := &Spec{
 		Version: 1, Entry: "analyze",
-		States: map[string]*State{"analyze": {Orchestration: OrchestrationComposition, Terminal: true}},
+		States: map[string]*State{"analyze": {Orchestration: packspec.Ptr(OrchestrationComposition), Terminal: packspec.Ptr(true)}},
 	}
 	res := Validate(spec, []string{})
 	if !res.HasErrors() {

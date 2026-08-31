@@ -13,6 +13,8 @@ import (
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestOnStreamEvent_TextDelta(t *testing.T) {
@@ -21,12 +23,12 @@ func TestOnStreamEvent_TextDelta(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {ID: "chat", SystemTemplate: "System"},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -79,12 +81,12 @@ func TestStreamWithCallback_NoHandler(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {ID: "chat", SystemTemplate: "System"},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,

@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -98,7 +97,7 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 			ErrInvalidEvent, sm.context.CurrentState)
 	}
 
-	if state.Terminal || len(state.OnEvent) == 0 {
+	if IsTerminal(state) {
 		return nil, fmt.Errorf("%w: state %q is terminal",
 			ErrTerminalState, sm.context.CurrentState)
 	}
@@ -114,9 +113,9 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 
 	// Loop guard: check max_visits on the target state before entering it.
 	targetState := sm.spec.States[target]
-	if targetState != nil && targetState.MaxVisits > 0 {
+	if targetState != nil && MaxVisitsOf(targetState) > 0 {
 		visits := sm.context.VisitCounts[target]
-		if visits >= targetState.MaxVisits {
+		if visits >= MaxVisitsOf(targetState) {
 			if targetState.OnMaxVisits != "" {
 				target = targetState.OnMaxVisits
 			} else {
@@ -125,7 +124,7 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 					OriginalTarget: originalTarget,
 					Event:          event,
 					VisitCount:     visits,
-					MaxVisits:      targetState.MaxVisits,
+					MaxVisits:      MaxVisitsOf(targetState),
 				}
 			}
 		}
@@ -141,7 +140,7 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 	if target != originalTarget {
 		result.Redirected = true
 		result.RedirectReason = fmt.Sprintf("max_visits (%d) reached for %q",
-			targetState.MaxVisits, originalTarget)
+			MaxVisitsOf(targetState), originalTarget)
 		result.OriginalTarget = originalTarget
 	}
 
@@ -161,7 +160,7 @@ func (sm *StateMachine) IsTerminal() bool {
 	if state == nil {
 		return true
 	}
-	return state.Terminal || len(state.OnEvent) == 0
+	return IsTerminal(state)
 }
 
 // AvailableEvents returns the set of valid events for the current state, sorted.
@@ -288,21 +287,12 @@ func (sm *StateMachine) checkBudgetLocked() error {
 
 // parseBudgetFromSpec extracts the Budget from Spec.Engine["budget"], if present.
 func (sm *StateMachine) parseBudgetFromSpec() *Budget {
-	if sm.spec.Engine == nil {
+	if sm.spec.Engine == nil || sm.spec.Engine.Budget == nil {
 		return nil
 	}
-	raw, ok := sm.spec.Engine["budget"]
-	if !ok || raw == nil {
-		return nil
-	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil
-	}
-	var b Budget
-	if err := json.Unmarshal(data, &b); err != nil {
-		return nil
-	}
+	// engine.budget is a typed field on the generated WorkflowConfigEngine, so
+	// this no longer round-trips through JSON to read it out of a map.
+	b := *sm.spec.Engine.Budget
 	if packspec.Deref(b.MaxTotalVisits, 0) == 0 &&
 		packspec.Deref(b.MaxToolCalls, 0) == 0 &&
 		packspec.Deref(b.MaxWallTimeSec, 0) == 0 {

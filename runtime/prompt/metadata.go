@@ -83,35 +83,34 @@ func (mb *MetadataBuilder) BuildCompilationInfo(compilerVersion string) *Compila
 
 // GetDefaultPipelineConfig returns the default Arena pipeline configuration
 // Returns as map to avoid import cycle with pipeline package
-func GetDefaultPipelineConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"stages": []string{"template", "provider", "validator"},
-		"middleware": []map[string]interface{}{
-			{
-				"type": "template",
-				"config": map[string]interface{}{
-					"strict_mode":     false,
-					"allow_undefined": true,
-				},
-			},
-			{
-				"type": "provider",
-				"config": map[string]interface{}{
-					"retry_policy": map[string]interface{}{
-						"max_retries":      3,
-						"backoff":          "exponential",
-						"initial_delay_ms": 100,
-					},
-					"timeout_ms": 30000,
-				},
-			},
-			{
-				"type": "validator",
-				"config": map[string]interface{}{
-					"fail_fast":          false,
-					"collect_all_errors": true,
-				},
-			},
+// GetDefaultPipelineConfig returns the pipeline a pack gets when it declares
+// none: template, provider and validator stages with their default middleware.
+//
+// Typed now that PackPrompt.Pipeline is the generated *PipelineConfig rather
+// than a map[string]any.
+func GetDefaultPipelineConfig() *packspec.PipelineConfig {
+	const (
+		stageTemplate  = "template"
+		stageProvider  = "provider"
+		stageValidator = "validator"
+
+		defaultRetryAttempts = 3
+		defaultTimeoutSec    = 30
+	)
+	return &packspec.PipelineConfig{
+		Stages: []string{stageTemplate, stageProvider, stageValidator},
+		Middleware: []*packspec.MiddlewareConfig{
+			{Type: stageTemplate, Config: map[string]any{
+				"strict_mode":     false,
+				"allow_undefined": true,
+			}},
+			{Type: stageProvider, Config: map[string]any{
+				"retry_attempts": defaultRetryAttempts,
+				"timeout":        defaultTimeoutSec,
+			}},
+			{Type: stageValidator, Config: map[string]any{
+				"fail_fast": false,
+			}},
 		},
 	}
 }

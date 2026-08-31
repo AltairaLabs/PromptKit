@@ -123,29 +123,16 @@ type Spec struct {
 // avg_tokens/avg_latency_ms are float64: the spec types them as number, not integer.
 type ModelTestResultRef = packspec.TestedModel
 
-// MediaConfig defines multimodal media support configuration for a prompt.
+// MediaConfig configures multimodal support for a prompt.
 //
-// NOT yet generated. Aliasing it requires MultimodalExample, which requires
-// ContentPart — 773 use sites and a real semantic difference (the spec's `text`
-// is a plain string; the hand-written one is *string). That chain is its own
-// piece of work.
-//
-// Cost of the delay: the spec's `document` media config still has no Go field,
-// so a pack configuring document media has it silently dropped.
-type MediaConfig struct {
-	// Enable multimodal support for this prompt
-	Enabled bool `yaml:"enabled" json:"enabled"`
-	// Supported content types: "image", "audio", "video"
-	SupportedTypes []string `yaml:"supported_types,omitempty" json:"supported_types,omitempty"`
-	// Image-specific configuration
-	Image *ImageConfig `yaml:"image,omitempty" json:"image,omitempty"`
-	// Audio-specific configuration
-	Audio *AudioConfig `yaml:"audio,omitempty" json:"audio,omitempty"`
-	// Video-specific configuration
-	Video *VideoConfig `yaml:"video,omitempty" json:"video,omitempty"`
-	// Multimodal few-shot examples
-	Examples []MultimodalExample `yaml:"examples,omitempty" json:"examples,omitempty"`
-}
+// Generated. It was hand-written, and dropped $defs/MediaConfig's `document`
+// property entirely — a prompt declaring document media round-tripped to
+// nothing. Same failure as metadata.governance, same fix.
+type MediaConfig = packspec.MediaConfig
+
+// DocumentConfig configures document media (PDFs, CAD files, spreadsheets).
+// Reachable now that MediaConfig is the generated type.
+type DocumentConfig = packspec.DocumentConfig
 
 // ImageConfig contains image-specific configuration
 // Generated from the schema: an ALIAS for packspec.ImageConfig.
@@ -163,45 +150,26 @@ type AudioConfig = packspec.AudioConfig
 // Optional numeric and boolean fields are pointers: zero is a real setting.
 type VideoConfig = packspec.VideoConfig
 
-// MultimodalExample represents an example multimodal message for testing/documentation
-type MultimodalExample struct {
-	// Example name/identifier
-	Name string `yaml:"name" json:"name"`
-	// Human-readable description
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-	// Message role: "user", "assistant"
-	Role string `yaml:"role" json:"role"`
-	// Content parts for this example
-	Parts []ExampleContentPart `yaml:"parts" json:"parts"`
-}
+// MultimodalExample is a few-shot example carrying media.
+//
+// Generated, so that MediaConfig.Examples is the generated slice type.
+type MultimodalExample = packspec.MultimodalExample
 
-// ExampleContentPart represents a content part in an example (simplified for YAML)
-type ExampleContentPart struct {
-	// Content type: "text", "image", "audio", "video"
-	Type string `yaml:"type" json:"type"`
-	// Text content (for type=text)
-	Text string `yaml:"text,omitempty" json:"text,omitempty"`
-	// For media content
-	Media *ExampleMedia `yaml:"media,omitempty" json:"media,omitempty"`
-}
+// ExampleContentPart is one content part of a multimodal example.
+//
+// Generated. This is $defs/ContentPart, the PACK authoring type — distinct from
+// types.ContentPart, which is the runtime message type and a different graph.
+type ExampleContentPart = packspec.ContentPart
 
-// ExampleMedia represents media references in examples
-type ExampleMedia struct {
-	// Relative path to media file
-	FilePath string `yaml:"file_path,omitempty" json:"file_path,omitempty"`
-	// External URL
-	URL string `yaml:"url,omitempty" json:"url,omitempty"`
-	// Base64-encoded media data, for small files or when embedding is preferred.
-	// types.MediaContent.Data has always been able to carry this; the pack
-	// authoring struct could not, so a pack embedding media inline lost it.
-	Base64 string `yaml:"base64,omitempty" json:"base64,omitempty"`
-	// MIME type
-	MIMEType string `yaml:"mime_type" json:"mime_type"`
-	// Detail level for images
-	Detail string `yaml:"detail,omitempty" json:"detail,omitempty"`
-	// Optional caption
-	Caption string `yaml:"caption,omitempty" json:"caption,omitempty"`
-}
+// ExampleMedia is a media reference inside a multimodal example.
+//
+// Generated. The hand-written version was identical property-for-property
+// except that it lacked `base64`, so a pack embedding media inline lost it.
+//
+// Note the Go field is MimeType, not MIMEType: the generator derives names from
+// the schema, and renaming it by hand would put this type back outside the
+// generated guarantee for the sake of two characters.
+type ExampleMedia = packspec.MediaReference
 
 // ValidatorConfig describes a validator/guardrail configuration from a prompt pack.
 type ValidatorConfig struct {
@@ -219,32 +187,24 @@ type ValidatorConfig struct {
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
-// Validator is the spec-exact, compiled form of a validator as it appears in a
-// PromptPack on disk (PackPrompt.Validators). It mirrors the promptpack schema's
-// $defs/Validator exactly (additionalProperties:false) and is pinned to that
-// schema by TestValidatorStructMatchesPromptPackSpec.
+// Validator is a compiled pack validator.
 //
-// It deliberately has NO Message field: the on-disk spec carries a user-facing
-// message inside Params["message"], not as a top-level property. The authoring
-// type ValidatorConfig keeps Message (it also backs Arena assertions, which are
-// test-only and never compiled into a pack); foldValidatorMessages converts a
-// ValidatorConfig into this compiled Validator.
-type Validator struct {
-	Type            string                 `json:"type"`
-	Enabled         bool                   `json:"enabled"`
-	FailOnViolation *bool                  `json:"fail_on_violation,omitempty"`
-	Params          map[string]interface{} `json:"params,omitempty"`
-}
+// Generated. It carries the spec's `message`, which the COMPILED form does not
+// use — foldValidatorMessages folds it into params at compile time, so nothing
+// populates it and omitempty keeps it out of the emitted pack. Carrying an
+// unused field is cheaper than maintaining a second definition of this type.
+type Validator = packspec.Validator
 
 // DefaultBlockedMessage is the user-facing message shown when a content guardrail blocks output.
 const DefaultBlockedMessage = "Sorry, we can't provide this response as it would violate our content policy."
 
-// TemplateEngineInfo describes the template engine used for variable substitution
-type TemplateEngineInfo struct {
-	Version  string   `yaml:"version" json:"version"`                       // Template engine version (e.g., "v1")
-	Syntax   string   `yaml:"syntax" json:"syntax"`                         // Template syntax (e.g., "{{variable}}")
-	Features []string `yaml:"features,omitempty" json:"features,omitempty"` // Supported features
-}
+// TemplateEngineInfo is the pack's template engine configuration.
+//
+// Generated. template_engine is an inline object under the root's properties
+// rather than a $def, but the generator emits types for those too — this is
+// packspec.PackTemplateEngine, and it was field-for-field identical to the
+// hand-written struct it replaced.
+type TemplateEngineInfo = packspec.PackTemplateEngine
 
 // VariableBindingKind defines the type of resource a variable binds to.
 type VariableBindingKind string
@@ -300,24 +260,36 @@ type VariableMetadata struct {
 	Binding *VariableBinding `yaml:"binding,omitempty" json:"binding,omitempty"`
 }
 
-// Variable is the spec-exact, compiled form of a template variable as it appears
-// in a PromptPack on disk (PackPrompt.Variables). It mirrors the promptpack
-// schema's $defs/Variable exactly (additionalProperties:false) and is pinned to
-// it by TestVariableStructMatchesPromptPackSpec.
+// Variable is a spec-exact compiled prompt template variable.
 //
-// It deliberately omits Binding: variable binding (auto-population from platform
-// resources: project/provider/workspace/secret/configmap) is a runtime concern,
-// resolved before/at compile time — not part of the portable pack. The authoring
-// type VariableMetadata carries Binding; compileVariables drops it.
-type Variable struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Required    bool                   `json:"required"`
-	Default     interface{}            `json:"default,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Example     interface{}            `json:"example,omitempty"`
-	Validation  map[string]interface{} `json:"validation,omitempty"`
+// Generated. It deliberately omits nothing of its own: Binding IS on the
+// generated type, but compileVariables never populates it, because variable
+// binding (auto-population from platform resources) is a runtime concern
+// resolved at compile time and not part of the portable pack. The authoring
+// type VariableMetadata carries it; omitempty keeps it out of the emitted pack.
+//
+// toMetadata() was a method. A type alias cannot carry methods, so it is
+// VariableToMetadata below.
+type Variable = packspec.Variable
+
+// ValidatorValues dereferences a slice of validator pointers into values, at
+// the boundary between the generated Prompt (which holds pointers) and the
+// APIs that take values. A nil entry is skipped.
+func ValidatorValues(in []*Validator) []Validator {
+	if in == nil {
+		return nil
+	}
+	out := make([]Validator, 0, len(in))
+	for _, v := range in {
+		if v != nil {
+			out = append(out, *v)
+		}
+	}
+	return out
 }
+
+// VariableValidation is the validation rule set on a Variable.
+type VariableValidation = packspec.VariableValidation
 
 // Metadata contains additional metadata for the pack format.
 //
@@ -470,12 +442,12 @@ type ChangelogEntry struct {
 	Description string `yaml:"description" json:"description"`
 }
 
-// CompilationInfo contains information about prompt compilation
-type CompilationInfo struct {
-	CompiledWith string `yaml:"compiled_with" json:"compiled_with"`       // Compiler version
-	CreatedAt    string `yaml:"created_at" json:"created_at"`             // Timestamp (RFC3339)
-	Schema       string `yaml:"schema,omitempty" json:"schema,omitempty"` // Pack schema version (e.g., "v1")
-}
+// CompilationInfo records when and how a pack was compiled.
+//
+// Generated. `compilation` is a spec property with a defined shape
+// (compiled_with, created_at and schema are all required), not a promptkit
+// extension — it was hand-written here on the false premise that it was one.
+type CompilationInfo = packspec.PackCompilation
 
 // FragmentRef references a prompt fragment for assembly
 type FragmentRef struct {

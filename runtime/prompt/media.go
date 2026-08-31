@@ -85,9 +85,9 @@ func validateTypeSpecificConfigs(config *MediaConfig) error {
 }
 
 // validateExamples validates multimodal examples
-func validateExamples(examples []MultimodalExample) error {
+func validateExamples(examples []*MultimodalExample) error {
 	for i, example := range examples {
-		if err := validateMultimodalExample(&example); err != nil {
+		if err := validateMultimodalExample(example); err != nil {
 			return fmt.Errorf("invalid example at index %d: %w", i, err)
 		}
 	}
@@ -223,7 +223,7 @@ func validateMultimodalExample(example *MultimodalExample) error {
 
 	// Validate each content part
 	for i, part := range example.Parts {
-		if err := validateExampleContentPart(&part); err != nil {
+		if err := validateExampleContentPart(part); err != nil {
 			return fmt.Errorf("invalid content part at index %d: %w", i, err)
 		}
 	}
@@ -290,7 +290,7 @@ func validateExampleMedia(media *ExampleMedia, contentType string) error {
 	}
 
 	// MIME type is required
-	if media.MIMEType == "" {
+	if media.MimeType == "" {
 		return fmt.Errorf("media must have mime_type")
 	}
 

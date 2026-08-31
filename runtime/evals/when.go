@@ -1,15 +1,22 @@
 package evals
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 )
 
-// ShouldRunWhen evaluates EvalWhen preconditions against the current eval context's
-// tool call records. Returns whether the eval should run and a reason string if skipped.
-// When toolCalls is nil (e.g. duplex path), returns true to let the handler itself
-// decide how to handle the missing data.
-func ShouldRunWhen(when *EvalWhen, toolCalls []ToolCallRecord) (shouldRun bool, reason string) {
+// ShouldRunWhen evaluates `when` preconditions against the current eval
+// context's tool call records. Returns whether the eval should run and a reason
+// string if skipped. When toolCalls is nil (e.g. duplex path), returns true to
+// let the handler itself decide how to handle the missing data.
+//
+// Takes the raw map because that is what the spec defines: $defs/Eval.when is
+// additionalProperties:true with no named properties, so the generated type is
+// map[string]any and EvalWhen is promptkit's own reading of it. Decoding here
+// keeps that reading in one place instead of at each call site.
+func ShouldRunWhen(raw map[string]any, toolCalls []ToolCallRecord) (shouldRun bool, reason string) {
+	when := DecodeEvalWhen(raw)
 	if when == nil {
 		return true, ""
 	}
@@ -33,6 +40,45 @@ func ShouldRunWhen(when *EvalWhen, toolCalls []ToolCallRecord) (shouldRun bool, 
 	}
 
 	return true, ""
+}
+
+// DecodeEvalWhen reads promptkit's when-conditions out of the spec's open
+// `when` object. A map that decodes to no conditions yields nil, so an
+// unrecognized shape does not silently gate an eval off.
+func DecodeEvalWhen(raw map[string]any) *EvalWhen {
+	if len(raw) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var when EvalWhen
+	if err := json.Unmarshal(data, &when); err != nil {
+		return nil
+	}
+	if when == (EvalWhen{}) {
+		return nil
+	}
+	return &when
+}
+
+// EncodeEvalWhen is the inverse of DecodeEvalWhen: it renders promptkit's
+// when-conditions into the spec's open `when` object, for anything building an
+// eval programmatically rather than loading one from a pack.
+func EncodeEvalWhen(when *EvalWhen) map[string]any {
+	if when == nil || *when == (EvalWhen{}) {
+		return nil
+	}
+	data, err := json.Marshal(when)
+	if err != nil {
+		return nil
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	return raw
 }
 
 // checkToolCalled checks if a specific tool name was called.

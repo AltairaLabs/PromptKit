@@ -12,6 +12,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestSkillsCapability_Name(t *testing.T) {
@@ -42,10 +44,10 @@ These are the instructions.`
 	sources := []skills.SkillSource{{Dir: dir}}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
 	require.NoError(t, err)
 	require.NotNil(t, cap.Executor())
@@ -69,10 +71,10 @@ Instructions here.`
 	sources := []skills.SkillSource{{Dir: dir}}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	registry := tools.NewRegistry()
@@ -124,7 +126,7 @@ func TestSkillsCapability_RefreshSkillIndex_WithSelector(t *testing.T) {
 	sel := &capTestSelector{name: "s", selected: []string{"beta"}}
 	cap := NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
 
-	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	p := &pack.Pack{Pack: packspec.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}}
 	require.NoError(t, cap.Init(CapabilityContext{
 		Pack: p, PromptName: "chat",
 		Selectors:          map[string]selection.Selector{"s": sel},
@@ -144,7 +146,7 @@ func TestSkillsCapability_RefreshSkillIndex_NoSelector_NoOp(t *testing.T) {
 	dir := t.TempDir()
 	writeSkillFile(t, dir, "alpha")
 	cap := NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
-	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	p := &pack.Pack{Pack: packspec.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	registry := tools.NewRegistry()
@@ -163,7 +165,7 @@ func TestSkillsCapability_RefreshSkillIndex_GuardRails(t *testing.T) {
 	dir := t.TempDir()
 	writeSkillFile(t, dir, "alpha")
 	cap = NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
-	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	p := &pack.Pack{Pack: packspec.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 	cap.RefreshSkillIndex(context.Background(), "q", nil)
 }
@@ -190,13 +192,13 @@ func TestSkillsCapability_WithMaxActiveSkills(t *testing.T) {
 }
 
 func TestSkillsCapability_InferCapabilities_DetectsSkills(t *testing.T) {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-		Skills: []pack.SkillSourceConfig{
+		Skills: []*pack.SkillSourceConfig{
 			{Name: "inline-skill", Description: "An inline skill"},
 		},
-	}
+	}}
 
 	caps := inferCapabilities(p)
 
@@ -211,10 +213,10 @@ func TestSkillsCapability_InferCapabilities_DetectsSkills(t *testing.T) {
 }
 
 func TestSkillsCapability_InferCapabilities_NoSkills(t *testing.T) {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 
 	caps := inferCapabilities(p)
 
@@ -234,10 +236,10 @@ func TestSkillsCapability_Init_InlineSkills(t *testing.T) {
 	}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
 	require.NoError(t, err)
 	require.NotNil(t, cap.Executor())
@@ -261,10 +263,10 @@ Preloaded instructions.`
 	sources := []skills.SkillSource{{Dir: dir, Preload: true}}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	// The preloaded skill should be active
@@ -282,10 +284,10 @@ func TestSkillsCapability_SkillExecutor_Activate(t *testing.T) {
 	}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	registry := tools.NewRegistry()
@@ -308,10 +310,10 @@ func TestSkillsCapability_SkillExecutor_Deactivate(t *testing.T) {
 	}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	registry := tools.NewRegistry()
@@ -347,10 +349,10 @@ Instructions.`
 	sources := []skills.SkillSource{{Dir: dir}}
 	cap := NewSkillsCapability(sources)
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
 	registry := tools.NewRegistry()
@@ -367,15 +369,18 @@ Instructions.`
 }
 
 func TestConvertSkillSources(t *testing.T) {
-	configs := []pack.SkillSourceConfig{
-		{Dir: "/skills", Preload: true},
+	configs := []*pack.SkillSourceConfig{
+		{Path: "/skills", Preload: packspec.Ptr(true)},
 		{Name: "inline", Description: "desc", Instructions: "inst"},
 	}
 
 	sources := convertSkillSources(configs)
 
 	require.Len(t, sources, 2)
-	assert.Equal(t, "/skills", sources[0].Dir)
+	// convertSkillSources fills the runtime type's Path; Dir is that type's own
+	// legacy alias and is deliberately left unset.
+	assert.Equal(t, "/skills", sources[0].Path)
+	assert.Empty(t, sources[0].Dir)
 	assert.True(t, sources[0].Preload)
 	assert.Equal(t, "inline", sources[1].Name)
 	assert.Equal(t, "desc", sources[1].Description)

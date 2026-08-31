@@ -3,6 +3,8 @@ package workflow
 import (
 	"fmt"
 	"regexp"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 var pascalCaseRe = regexp.MustCompile(`^[A-Z][a-zA-Z0-9]*$`)
@@ -54,7 +56,7 @@ func validateEntry(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 		return
 	}
 	state := spec.States[spec.Entry]
-	if state.Orchestration != OrchestrationComposition && !promptSet[state.PromptTask] {
+	if OrchestrationOf(state) != OrchestrationComposition && !promptSet[state.PromptTask] {
 		r.Errors = append(r.Errors, fmt.Sprintf(
 			"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 			spec.Entry, state.PromptTask))
@@ -64,7 +66,7 @@ func validateEntry(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 // validateStates checks rules 5-9 for each state.
 func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 	for name, state := range spec.States {
-		if name != spec.Entry && state.Orchestration != OrchestrationComposition && !promptSet[state.PromptTask] {
+		if name != spec.Entry && OrchestrationOf(state) != OrchestrationComposition && !promptSet[state.PromptTask] {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 				name, state.PromptTask))
@@ -106,15 +108,15 @@ func validatePersistence(name string, state *State, r *ValidationResult) {
 
 // validateOrchestration checks rule 9.
 func validateOrchestration(name string, state *State, r *ValidationResult) {
-	if state.Orchestration != "" &&
-		state.Orchestration != OrchestrationInternal &&
-		state.Orchestration != OrchestrationExternal &&
-		state.Orchestration != OrchestrationHybrid &&
-		state.Orchestration != OrchestrationComposition {
+	// No "" case: OrchestrationOf resolves an undeclared state to internal.
+	if OrchestrationOf(state) != OrchestrationInternal &&
+		OrchestrationOf(state) != OrchestrationExternal &&
+		OrchestrationOf(state) != OrchestrationHybrid &&
+		OrchestrationOf(state) != OrchestrationComposition {
 		r.Errors = append(r.Errors, fmt.Sprintf(
 			"workflow.states[%q].orchestration %q is not valid"+
 				" (must be \"internal\", \"external\", \"hybrid\", or \"composition\")",
-			name, state.Orchestration))
+			name, OrchestrationOf(state)))
 	}
 }
 
@@ -122,7 +124,7 @@ func validateOrchestration(name string, state *State, r *ValidationResult) {
 // - composition states must set Composition
 // - non-composition states must not set Composition
 func validateCompositionFields(name string, state *State, r *ValidationResult) {
-	if state.Orchestration == OrchestrationComposition {
+	if OrchestrationOf(state) == OrchestrationComposition {
 		if state.Composition == "" {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q]: orchestration composition requires a composition",
@@ -140,7 +142,7 @@ func validateCompositionFields(name string, state *State, r *ValidationResult) {
 // validateLoopGuards checks RFC 0009 loop guard fields.
 func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResult) {
 	// Terminal state with transitions is contradictory
-	if state.Terminal && len(state.OnEvent) > 0 {
+	if packspec.Deref(state.Terminal, false) && len(state.OnEvent) > 0 {
 		r.Warnings = append(r.Warnings, fmt.Sprintf(
 			"workflow.states[%q]: terminal state has on_event transitions (they will never fire)",
 			name))
@@ -153,7 +155,7 @@ func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResu
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].on_max_visits %q does not exist in states",
 				name, state.OnMaxVisits))
-		} else if target.MaxVisits > 0 {
+		} else if MaxVisitsOf(target) > 0 {
 			r.Warnings = append(r.Warnings, fmt.Sprintf(
 				"workflow.states[%q].on_max_visits target %q also has max_visits — potential redirect chain",
 				name, state.OnMaxVisits))
@@ -162,7 +164,8 @@ func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResu
 
 	// Reachability: v2 opts into explicit terminal semantics. A state with no
 	// transitions and no loop guard is a dead-end that should be marked terminal.
-	if spec.Version >= 2 && !state.Terminal && len(state.OnEvent) == 0 && state.MaxVisits == 0 {
+	if spec.Version >= 2 && !packspec.Deref(state.Terminal, false) &&
+		len(state.OnEvent) == 0 && MaxVisitsOf(state) == 0 {
 		r.Warnings = append(r.Warnings, fmt.Sprintf(
 			"workflow.states[%q]: non-terminal state has no on_event and no max_visits (mark terminal: true to silence)",
 			name))

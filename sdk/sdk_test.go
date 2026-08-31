@@ -740,7 +740,7 @@ func TestApplyDefaultVariables(t *testing.T) {
 			config: &config{},
 		}
 		prompt := &pack.Prompt{
-			Variables: []pack.Variable{
+			Variables: []*pack.Variable{
 				{Name: "var1", Default: "default1"},
 				{Name: "var2", Default: ""},
 				{Name: "var3", Default: "default3"},
@@ -764,7 +764,7 @@ func TestApplyDefaultVariables(t *testing.T) {
 			},
 		}
 		prompt := &pack.Prompt{
-			Variables: []pack.Variable{
+			Variables: []*pack.Variable{
 				{Name: "var1", Default: "default1"},
 				{Name: "var2", Default: "default2"},
 				{Name: "var3", Default: "default3"},
@@ -784,7 +784,7 @@ func TestApplyDefaultVariables(t *testing.T) {
 		// The spec allows any-typed defaults; template variables are strings.
 		conv := &Conversation{config: &config{}}
 		prompt := &pack.Prompt{
-			Variables: []pack.Variable{
+			Variables: []*pack.Variable{
 				{Name: "count", Default: float64(42)},
 				{Name: "enabled", Default: true},
 				{Name: "no_default"},

@@ -6,10 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
 // This file answers a question the per-type parity tests could not: which pack
@@ -29,9 +27,19 @@ import (
 //
 // Generated types (runtime/packspec) are exempt: `make packspec-check` already
 // proves they match the schema they came from, and more strictly than reflection
-// can. The best fix for a struct listed below is usually to delete it and alias
-// the generated type instead, which is what Metadata, CostEstimate, Tool,
-// TestedModel and ModelOverride now do.
+// can.
+//
+// The goal is that this list empties. A hand-written type beside a generated
+// one is two definitions of the same thing that WILL drift, which is the
+// problem this whole file exists to catch — so notGenerated records why a type
+// has not been adopted YET, not a standing justification for keeping it.
+//
+// Four reasons were recorded here before anyone checked them, and three were
+// wrong: TemplateEngineInfo "had no generated type" (packspec.PackTemplateEngine
+// existed, field-for-field identical), SkillSource's union "could not be
+// expressed" (the generator flattens it), and typed strings "gave safety"
+// (a Go named string type accepts any literal). Those three are adopted or
+// re-stated now. Check the reason before trusting it.
 
 const generatedPkg = "github.com/AltairaLabs/PromptKit/runtime/packspec"
 
@@ -46,56 +54,88 @@ type pinnedStruct struct {
 	schemaRef string
 	notSpec   string
 	omissions []deliberateOmission
+
+	// embedsGenerated names the generated type this struct embeds, when it does.
+	//
+	// Go has no partial classes and a type alias cannot carry methods, so a pack
+	// type WITH behavior embeds the generated type rather than aliasing it. The
+	// spec properties are then promoted from the embedded type and cannot drift;
+	// only the methods and any non-spec fields live locally. That is strictly
+	// better than hand-writing and is the answer wherever the method set is the
+	// type's API.
+	//
+	// An alias is still preferable where the methods are few enough to become
+	// free functions, because an alias gives true identity with the generated
+	// type. Embedding needs .Pack to extract it.
+	embedsGenerated string
+
+	// notGenerated says why this type is hand-written when the generator has
+	// already emitted an equivalent for its $def. Required on every pin with a
+	// schemaRef, and the reason this field exists at all:
+	//
+	// `make packspec` emits a type for all 52 $defs, but the runtime adopts
+	// only some of them. That gap was invisible — the pins recorded WHERE a
+	// type maps in the schema and said nothing about why it was not the
+	// generated one, so "we generate code and do not use it" could sit
+	// unexamined behind a passing property check.
+	//
+	// A property check is weaker than generation. It verifies that every schema
+	// property exists, that no extra fields appear when additionalProperties is
+	// false, and that required fields do not carry omitempty. It does NOT
+	// verify Go types: a value where absence matters, or a string where the
+	// spec means an integer, passes it. So a hand-written type needs a reason,
+	// not just a passing test.
+	notGenerated string
 }
 
 // packStructPins accounts for every hand-written struct reachable from
 // prompt.Pack. TestEveryPackStructIsAccountedFor fails if the type graph
 // contains one that is not here.
 var packStructPins = []pinnedStruct{
-	// Pinned to the spec. These are checked property-by-property by
-	// TestPinnedPackStructsMatchTheSpec below.
-	{value: prompt.Validator{}, schemaRef: "$defs/Validator", omissions: []deliberateOmission{{
-		property: "message",
-		reason: "message is an authoring-time field on prompt.ValidatorConfig; " +
-			"foldValidatorMessages folds it into params at compile, so the compiled " +
-			"validator never carries it",
-	}}},
-	{value: prompt.Variable{}, schemaRef: "$defs/Variable", omissions: []deliberateOmission{{
-		property: "binding",
-		reason: "variable binding (auto-populate from project/provider/workspace/secret/" +
-			"configmap) is a runtime concern on the authoring prompt.VariableMetadata; " +
-			"compileVariables drops it, so it is not part of the portable pack",
-	}}},
-	{value: prompt.PackPrompt{}, schemaRef: "$defs/Prompt"},
+	{value: prompt.Pack{}, embedsGenerated: "packspec.Pack",
+		notGenerated: "carries eighteen methods (Validate, ValidateWorkflow, " +
+			"ValidateAgents, GetPrompt, ...) and FilePath, the on-disk path a loader " +
+			"sets so schema and fragment resolution work relative to the pack file. " +
+			"A type alias can hold neither, so this EMBEDS packspec.Pack instead: " +
+			"every spec property is promoted from the generated type and cannot " +
+			"drift, while the methods and FilePath live here"},
+}
 
-	// Not spec types. Each carries data the PromptPack format does not define.
-	{value: prompt.Pack{}, notSpec: "the pack root itself; its properties are pinned " +
-		"through the structs below and through the generated types it embeds"},
-	{value: prompt.CompilationInfo{}, notSpec: "promptkit's own build provenance " +
-		"(compiler version, timestamp), carried in the compilation envelope the spec " +
-		"leaves open rather than describing spec data"},
-	{value: evals.EvalWhen{}, notSpec: "gating on runtime conditions (turn index, " +
-		"tool outcome) — evaluation scheduling, not pack data"},
-	{value: evals.Threshold{}, notSpec: "guardrail enforcement thresholds; an eval " +
-		"never states a pass/fail, so a threshold is the enforcing wrapper's, not the " +
-		"eval's, and is not part of the portable pack"},
+// assertOnlyEmbedSerializes pins the guarantee that makes embedding safe: the
+// embedding type contributes NO serializable field of its own.
+//
+// Without this, embedding is only as good as everyone's restraint. A field added
+// beside the embed passes every other check in this file — it is not a missing
+// spec property, and the type is pinned — and then leaks into every emitted
+// pack. Verified: a `SneakyField string json:"sneaky_field"` on prompt.Pack
+// showed up in MarshalPack output with all guards green.
+//
+// Local fields are still allowed, but they must be `json:"-"` AND `yaml:"-"`,
+// which is what FilePath is: state a loader needs, that no pack ever carries.
+func assertOnlyEmbedSerializes(t *testing.T, rt reflect.Type, embedded string) {
+	t.Helper()
 
-	// The rest of the pack format. Every one of these is property-checked; two
-	// were found wrong the moment the check was switched on (see the tests in
-	// media_test.go and pack_test.go for base64 and the `dir` alias).
-	{value: prompt.MediaConfig{}, schemaRef: "$defs/MediaConfig", omissions: []deliberateOmission{{
-		property: "document",
-		reason: "document media is not carried on the compiled pack: prompt.MediaConfig " +
-			"has no document field because types.ContentPart cannot represent one yet",
-	}}},
-	{value: prompt.MultimodalExample{}, schemaRef: "$defs/MultimodalExample"},
-	{value: prompt.ExampleContentPart{}, schemaRef: "$defs/ContentPart"},
-	{value: prompt.ExampleMedia{}, schemaRef: "$defs/MediaReference"},
-	{value: prompt.SkillSourceConfig{}, schemaRef: "$defs/SkillSource"},
-	{value: prompt.TemplateEngineInfo{}, schemaRef: "properties/template_engine"},
-	{value: evals.EvalDef{}, schemaRef: "$defs/Eval"},
-	{value: workflow.Spec{}, schemaRef: "$defs/WorkflowConfig"},
-	{value: workflow.State{}, schemaRef: "$defs/WorkflowState"},
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if f.Anonymous {
+			continue // the embed itself; its properties are generated
+		}
+		for _, tag := range []string{"json", "yaml"} {
+			name := strings.Split(f.Tag.Get(tag), ",")[0]
+			if name == "-" {
+				continue
+			}
+			t.Errorf("%s embeds %s but adds its own serializable field %q "+
+				"(%s tag %q).\n\n"+
+				"Embedding is safe only because every property comes from the "+
+				"generated type. A field beside the embed leaks into every emitted "+
+				"pack while passing all the other checks here — which is the exact "+
+				"drift this file exists to stop.\n\n"+
+				"Either put it in the spec and regenerate, or mark it "+
+				"`json:\"-\" yaml:\"-\"` if it is loader state the pack never carries.",
+				rt, embedded, f.Name, tag, name)
+		}
+	}
 }
 
 // reachableStructs walks the type graph from rt, collecting every named struct
@@ -146,12 +186,44 @@ func TestEveryPackStructIsAccountedFor(t *testing.T) {
 		}
 		pinned[rt] = true
 
+		if rt.PkgPath() == generatedPkg {
+			t.Errorf("stale pin: %s is the generated type now, so packspec-check "+
+				"covers it — drop the entry", rt)
+			continue
+		}
+
+		if p.embedsGenerated != "" {
+			assertOnlyEmbedSerializes(t, rt, p.embedsGenerated)
+			// Properties come from the embedded generated type, so a schemaRef
+			// would compare against fields reflection sees as one anonymous
+			// field. packspec-check covers them instead.
+			if p.schemaRef != "" {
+				t.Errorf("%s embeds %s, so its properties are already generated; "+
+					"drop the schemaRef", rt, p.embedsGenerated)
+			}
+			if p.notGenerated == "" {
+				t.Errorf("%s embeds %s but does not say why it is not a plain alias",
+					rt, p.embedsGenerated)
+			}
+			continue
+		}
+
 		switch {
 		case p.schemaRef == "" && p.notSpec == "":
 			t.Errorf("%s is pinned with neither a schemaRef nor a notSpec reason", rt)
 		case p.schemaRef != "" && p.notSpec != "":
 			t.Errorf("%s is pinned with both a schemaRef and a notSpec reason; it is one "+
 				"or the other", rt)
+		case p.schemaRef != "" && p.notGenerated == "":
+			t.Errorf("%s is pinned to %s but does not say why it is hand-written when "+
+				"the generator has emitted a type for that $def.\n\n"+
+				"`make packspec` emits all 52; the runtime adopts only some. Leaving "+
+				"that gap unstated is how it went unexamined behind a passing property "+
+				"check. Set notGenerated: either the reason adopting would be wrong, "+
+				"or that it is tracked work.", rt, p.schemaRef)
+		case p.notSpec != "" && p.notGenerated != "":
+			t.Errorf("%s is notSpec, so there is no generated type to explain away; "+
+				"drop its notGenerated reason", rt)
 		}
 	}
 

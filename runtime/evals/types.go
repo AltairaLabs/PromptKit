@@ -10,22 +10,33 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// EvalTrigger names when an eval fires.
+//
+// The constants below are deliberately UNTYPED. $defs/Eval types `trigger` as a
+// plain string with no enum, so the generated EvalDef.Trigger is a string; an
+// untyped constant assigns to both that and EvalTrigger, which keeps the
+// vocabulary in one place without forcing a conversion at every call site.
+//
+// EvalTrigger remains for the maps and signatures that key on it. It is not a
+// safety mechanism: a Go named string type accepts any literal, so
+// `var t EvalTrigger = "nonsense"` compiles. ValidTriggers is the actual check.
+//
 // EvalTrigger determines when an eval fires.
 type EvalTrigger string
 
 const (
 	// TriggerEveryTurn fires the eval after every assistant turn.
-	TriggerEveryTurn EvalTrigger = "every_turn"
+	TriggerEveryTurn = "every_turn"
 	// TriggerOnSessionComplete fires the eval when a session ends.
-	TriggerOnSessionComplete EvalTrigger = "on_session_complete"
+	TriggerOnSessionComplete = "on_session_complete"
 	// TriggerSampleTurns fires the eval on a percentage of turns (hash-based).
-	TriggerSampleTurns EvalTrigger = "sample_turns"
+	TriggerSampleTurns = "sample_turns"
 	// TriggerSampleSessions fires the eval on a percentage of sessions (hash-based).
-	TriggerSampleSessions EvalTrigger = "sample_sessions"
+	TriggerSampleSessions = "sample_sessions"
 	// TriggerOnConversationComplete fires the eval when a conversation ends.
-	TriggerOnConversationComplete EvalTrigger = "on_conversation_complete"
+	TriggerOnConversationComplete = "on_conversation_complete"
 	// TriggerOnWorkflowStep fires the eval after each workflow step.
-	TriggerOnWorkflowStep EvalTrigger = "on_workflow_step"
+	TriggerOnWorkflowStep = "on_workflow_step"
 )
 
 // DefaultSamplePercentage is the default sampling rate when not specified.
@@ -148,63 +159,87 @@ var ValidMetricTypes = map[MetricType]bool{
 // EvalDef defines a single evaluation within a PromptPack.
 // Evals are defined at pack level and/or prompt level. Prompt-level
 // evals override pack-level evals by ID.
-type EvalDef struct {
-	ID               string         `json:"id" yaml:"id"`
-	Type             string         `json:"type" yaml:"type"`
-	Trigger          EvalTrigger    `json:"trigger" yaml:"trigger"`
-	Params           map[string]any `json:"params" yaml:"params"`
-	Description      string         `json:"description,omitempty" yaml:"description,omitempty"`
-	Enabled          *bool          `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	SamplePercentage *float64       `json:"sample_percentage,omitempty" yaml:"sample_percentage,omitempty"`
-	Metric           *MetricDef     `json:"metric,omitempty" yaml:"metric,omitempty"`
-	Threshold        *Threshold     `json:"threshold,omitempty" yaml:"threshold,omitempty"`
-	Message          string         `json:"message,omitempty" yaml:"message,omitempty"`
-	When             *EvalWhen      `json:"when,omitempty" yaml:"when,omitempty"`
-	Groups           []string       `json:"groups,omitempty" yaml:"groups,omitempty"`
-}
+//
+// Generated. It was hand-written, and diverged from the spec in two ways that
+// only showed on disk:
+//
+//   - `params` lacked omitempty, so an eval without params emitted
+//     "params": null, which the schema rejects (Expected: object). EVERY pack
+//     containing an eval emitted an invalid document.
+//   - `threshold` used a promptkit vocabulary ({passed, min_score, max_score})
+//     where the spec defines {operator, value} with additionalProperties:false.
+//     A spec-authored threshold loaded as all-nil and emitted as {}; a
+//     promptkit one emitted a document the schema rejects. Nothing in promptkit
+//     reads the field — an eval never states a pass/fail, only an assertion or
+//     guardrail coerces one — so it existed solely to be serialized wrongly.
+//
+// The accessors below were methods. A type alias cannot carry methods
+// ("cannot define new methods on non-local type"), so they are free functions
+// now — which is the general shape for adopting any generated type that had
+// behavior attached.
+type EvalDef = packspec.Eval
 
-// IsEnabled returns whether this eval is enabled.
-// Defaults to true when Enabled is nil.
-func (e *EvalDef) IsEnabled() bool {
-	if e.Enabled == nil {
+// IsEnabled returns whether an eval is enabled. Defaults to true when Enabled
+// is nil, because absent means enabled.
+func IsEnabled(e *EvalDef) bool {
+	if e == nil || e.Enabled == nil {
 		return true
 	}
 	return *e.Enabled
 }
 
-// GetSamplePercentage returns the sampling percentage.
-// Defaults to DefaultSamplePercentage when SamplePercentage is nil.
-func (e *EvalDef) GetSamplePercentage() float64 {
-	if e.SamplePercentage == nil {
+// SamplePercentage returns the sampling percentage, defaulting to
+// DefaultSamplePercentage when unset.
+func SamplePercentage(e *EvalDef) float64 {
+	if e == nil || e.SamplePercentage == nil {
 		return DefaultSamplePercentage
 	}
 	return *e.SamplePercentage
 }
 
-// GetGroups returns the groups this eval belongs to.
-// When no explicit groups are configured, returns DefaultGroupsForType(e.Type)
+// Groups returns the groups an eval belongs to.
+// When no explicit groups are configured, returns DefaultGroupsForType(e.Type),
 // which includes DefaultEvalGroup plus well-known classification groups
 // (fast-running, long-running, external) based on the eval type.
 // When explicit groups are set, returns them as-is (overriding defaults).
-func (e *EvalDef) GetGroups() []string {
+func Groups(e *EvalDef) []string {
+	if e == nil {
+		return nil
+	}
 	if len(e.Groups) == 0 {
 		return DefaultGroupsForType(e.Type)
 	}
 	return e.Groups
 }
 
+// Values dereferences a slice of eval pointers into values.
+//
+// The generated Prompt holds []*Eval because the schema implies pointers for
+// optional object arrays, while the eval APIs take values. This converts at
+// that boundary rather than pointerizing every signature behind it. A nil entry
+// is skipped rather than dereferenced.
+func Values(in []*EvalDef) []EvalDef {
+	if in == nil {
+		return nil
+	}
+	out := make([]EvalDef, 0, len(in))
+	for _, e := range in {
+		if e != nil {
+			out = append(out, *e)
+		}
+	}
+	return out
+}
+
+// Threshold is an eval's pass/fail threshold, as the spec defines it:
+// {operator, value}. See EvalDef for why this replaced a divergent shape.
+type Threshold = packspec.EvalThreshold
+
 // Range defines the valid range for a metric value.
 // Range is generated from the schema: an ALIAS for packspec.MetricDefRange.
 // The schema nests the bounds inside MetricDef rather than naming them, so the
 // generator hoists the shape under a derived name.
 type Range = packspec.MetricDefRange
-
-// Threshold defines pass/fail criteria for an eval result.
-type Threshold struct {
-	Passed   *bool    `json:"passed,omitempty" yaml:"passed,omitempty"`
-	MinScore *float64 `json:"min_score,omitempty" yaml:"min_score,omitempty"`
-	MaxScore *float64 `json:"max_score,omitempty" yaml:"max_score,omitempty"`
-}
 
 // EvalWhen specifies preconditions that must be met for an eval to run.
 type EvalWhen struct {

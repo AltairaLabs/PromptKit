@@ -6,6 +6,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // stubCapability is a test capability.
@@ -22,13 +24,13 @@ func (s *stubCapability) RegisterTools(_ *tools.Registry) {}
 func (s *stubCapability) Close() error                    { s.closeCalls++; return nil }
 
 func TestInferCapabilities_WithWorkflow(t *testing.T) {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		Workflow: &pack.WorkflowSpec{
 			Version: 1,
 			Entry:   "start",
 			States:  map[string]*pack.WorkflowState{},
 		},
-	}
+	}}
 	caps := inferCapabilities(p)
 	assert.Len(t, caps, 1)
 	assert.Equal(t, "workflow", caps[0].Name())
@@ -41,21 +43,21 @@ func TestInferCapabilities_NoWorkflow(t *testing.T) {
 }
 
 func TestInferCapabilities_WithAgents(t *testing.T) {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		Agents: &pack.AgentsConfig{
 			Entry: "orchestrator",
 			Members: map[string]*pack.AgentDef{
 				"helper": {Description: "A helper"},
 			},
 		},
-	}
+	}}
 	caps := inferCapabilities(p)
 	assert.Len(t, caps, 1)
 	assert.Equal(t, "a2a", caps[0].Name())
 }
 
 func TestInferCapabilities_WithWorkflowAndAgents(t *testing.T) {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		Workflow: &pack.WorkflowSpec{
 			Version: 1,
 			Entry:   "start",
@@ -66,7 +68,7 @@ func TestInferCapabilities_WithWorkflowAndAgents(t *testing.T) {
 				"helper": {Description: "A helper"},
 			},
 		},
-	}
+	}}
 	caps := inferCapabilities(p)
 	assert.Len(t, caps, 2)
 	names := []string{caps[0].Name(), caps[1].Name()}

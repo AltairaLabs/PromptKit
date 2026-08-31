@@ -9,7 +9,7 @@ import (
 )
 
 func requiring(providers ...*packspec.ProviderRequirement) *prompt.Pack {
-	return &prompt.Pack{Requires: &prompt.Requires{Providers: providers}}
+	return &prompt.Pack{Pack: packspec.Pack{Requires: &prompt.Requires{Providers: providers}}}
 }
 
 func shorthand(key string) *packspec.ProviderRequirement {

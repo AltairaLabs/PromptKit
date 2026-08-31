@@ -3,12 +3,13 @@ package prompt
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -28,7 +29,7 @@ func TestPack_Validate(t *testing.T) {
 	}{
 		{
 			name: "valid pack",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "v1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -39,7 +40,7 @@ func TestPack_Validate(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "1.0.0", // Add version
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -47,12 +48,12 @@ func TestPack_Validate(t *testing.T) {
 				Compilation: &CompilationInfo{
 					CompiledWith: "packc v1.0.0",
 				},
-			},
+			}},
 			expectedErrors: 0,
 		},
 		{
 			name: "missing ID",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				Version: "v1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
 					Version: "v1",
@@ -61,13 +62,13 @@ func TestPack_Validate(t *testing.T) {
 				Prompts: map[string]*PackPrompt{
 					"test": {SystemTemplate: "test"},
 				},
-			},
+			}},
 			expectedErrors:  1,
 			expectedStrings: []string{"missing required field: id"},
 		},
 		{
 			name: "missing version",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID: "test-pack",
 				TemplateEngine: &TemplateEngineInfo{
 					Version: "v1",
@@ -76,13 +77,13 @@ func TestPack_Validate(t *testing.T) {
 				Prompts: map[string]*PackPrompt{
 					"test": {SystemTemplate: "test"},
 				},
-			},
+			}},
 			expectedErrors:  1,
 			expectedStrings: []string{"missing required field: version"},
 		},
 		{
 			name: "no prompts",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "v1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -90,30 +91,30 @@ func TestPack_Validate(t *testing.T) {
 					Syntax:  "handlebars",
 				},
 				Prompts: map[string]*PackPrompt{},
-			},
+			}},
 			expectedErrors:  1,
 			expectedStrings: []string{"no prompts defined in pack"},
 		},
 		{
 			name: "missing template engine",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "v1.0.0",
 				Prompts: map[string]*PackPrompt{
 					"test": {SystemTemplate: "test"},
 				},
-			},
+			}},
 			expectedErrors:  1,
 			expectedStrings: []string{"missing template_engine configuration"},
 		},
 		{
 			name: "multiple errors",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:             "",
 				Version:        "",
 				TemplateEngine: nil,
 				Prompts:        map[string]*PackPrompt{},
-			},
+			}},
 			expectedErrors: 4,
 			expectedStrings: []string{
 				"missing required field: id",
@@ -171,7 +172,7 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 			prompt: &PackPrompt{
 				SystemTemplate: "Hello {{name}}",
 				Version:        "1.0.0",
-				Variables:      []Variable{{Name: "name", Required: true}},
+				Variables:      []*Variable{{Name: "name", Required: true}},
 			},
 			expectWarn: false,
 		},
@@ -192,7 +193,7 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 }
 
 func TestPack_GetPrompt(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
 				ID:             "test",
@@ -205,7 +206,7 @@ func TestPack_GetPrompt(t *testing.T) {
 				SystemTemplate: "Goodbye {{name}}",
 			},
 		},
-	}
+	}}
 
 	t.Run("existing prompt", func(t *testing.T) {
 		prompt := pack.GetPrompt("test")
@@ -222,13 +223,13 @@ func TestPack_GetPrompt(t *testing.T) {
 
 func TestPack_ListPrompts(t *testing.T) {
 	t.Run("multiple prompts", func(t *testing.T) {
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			Prompts: map[string]*PackPrompt{
 				"test1": {ID: "test1"},
 				"test2": {ID: "test2"},
 				"test3": {ID: "test3"},
 			},
-		}
+		}}
 
 		prompts := pack.ListPrompts()
 		assert.Len(t, prompts, 3)
@@ -238,9 +239,9 @@ func TestPack_ListPrompts(t *testing.T) {
 	})
 
 	t.Run("empty prompts", func(t *testing.T) {
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			Prompts: map[string]*PackPrompt{},
-		}
+		}}
 
 		prompts := pack.ListPrompts()
 		assert.Len(t, prompts, 0)
@@ -248,17 +249,17 @@ func TestPack_ListPrompts(t *testing.T) {
 }
 
 func TestPack_GetRequiredVariables(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []Variable{
+				Variables: []*Variable{
 					{Name: "name", Required: true},
 					{Name: "age", Required: true},
 					{Name: "city", Required: false},
 				},
 			},
 		},
-	}
+	}}
 
 	t.Run("existing prompt", func(t *testing.T) {
 		vars := pack.GetRequiredVariables("test")
@@ -275,10 +276,10 @@ func TestPack_GetRequiredVariables(t *testing.T) {
 }
 
 func TestPack_GetOptionalVariables(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
-				Variables: []Variable{
+				Variables: []*Variable{
 					{Name: "name", Required: true, Default: "John"},
 					{Name: "city", Required: false, Default: "NYC"},
 					{Name: "country", Required: false, Default: "USA"},
@@ -286,7 +287,7 @@ func TestPack_GetOptionalVariables(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	t.Run("existing prompt", func(t *testing.T) {
 		vars := pack.GetOptionalVariables("test")
@@ -304,7 +305,7 @@ func TestPack_GetOptionalVariables(t *testing.T) {
 }
 
 func TestPack_GetToolNames(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{
 			"test": {
 				Tools: []string{"search", "calculator", "weather"},
@@ -313,7 +314,7 @@ func TestPack_GetToolNames(t *testing.T) {
 				Tools: []string{},
 			},
 		},
-	}
+	}}
 
 	t.Run("prompt with tools", func(t *testing.T) {
 		tools := pack.GetToolNames("test")
@@ -335,7 +336,7 @@ func TestPack_GetToolNames(t *testing.T) {
 }
 
 func TestPack_Summary(t *testing.T) {
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		Name:    "Customer Support",
 		Version: "v1.2.3",
 		Prompts: map[string]*PackPrompt{
@@ -343,7 +344,7 @@ func TestPack_Summary(t *testing.T) {
 			"farewell": {},
 			"help":     {},
 		},
-	}
+	}}
 
 	summary := pack.Summary()
 	assert.Contains(t, summary, "Customer Support")
@@ -356,7 +357,7 @@ func TestLoadPack(t *testing.T) {
 		tmpDir := t.TempDir()
 		packFile := filepath.Join(tmpDir, "test.pack.json")
 
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			ID:      "test-pack",
 			Name:    "Test Pack",
 			Version: "v1.0.0",
@@ -368,12 +369,12 @@ func TestLoadPack(t *testing.T) {
 				"greeting": {
 					ID:             "greeting",
 					SystemTemplate: "Hello {{name}}",
-					Variables: []Variable{
+					Variables: []*Variable{
 						{Name: "name", Required: true},
 					},
 				},
 			},
-		}
+		}}
 
 		data, err := json.MarshalIndent(pack, "", "  ")
 		require.NoError(t, err)
@@ -443,7 +444,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 		tmpDir := t.TempDir()
 		packFile := filepath.Join(tmpDir, "multimodal.pack.json")
 
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			ID:      "multimodal-pack",
 			Name:    "Multimodal Pack",
 			Version: "v1.0.0",
@@ -456,7 +457,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 					ID:             "image-analysis",
 					Name:           "Image Analyzer",
 					SystemTemplate: "Analyze the provided image",
-					MediaConfig: &MediaConfig{
+					Media: &MediaConfig{
 						Enabled:        true,
 						SupportedTypes: []string{"image"},
 						Image: &ImageConfig{
@@ -467,7 +468,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 					},
 				},
 			},
-		}
+		}}
 
 		data, err := json.MarshalIndent(pack, "", "  ")
 		require.NoError(t, err)
@@ -481,20 +482,20 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 
 		prompt := loaded.Prompts["image-analysis"]
 		require.NotNil(t, prompt)
-		require.NotNil(t, prompt.MediaConfig)
-		assert.True(t, prompt.MediaConfig.Enabled)
-		assert.Equal(t, []string{"image"}, prompt.MediaConfig.SupportedTypes)
-		assert.NotNil(t, prompt.MediaConfig.Image)
-		assert.Equal(t, 20, packspec.Deref(prompt.MediaConfig.Image.MaxSizeMB, 0))
-		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.MediaConfig.Image.AllowedFormats)
-		assert.Equal(t, "high", packspec.Deref(prompt.MediaConfig.Image.DefaultDetail, ""))
+		require.NotNil(t, prompt.Media)
+		assert.True(t, prompt.Media.Enabled)
+		assert.Equal(t, []string{"image"}, prompt.Media.SupportedTypes)
+		assert.NotNil(t, prompt.Media.Image)
+		assert.Equal(t, 20, packspec.Deref(prompt.Media.Image.MaxSizeMB, 0))
+		assert.Equal(t, []string{"jpeg", "png", "webp"}, prompt.Media.Image.AllowedFormats)
+		assert.Equal(t, "high", packspec.Deref(prompt.Media.Image.DefaultDetail, ""))
 	})
 
 	t.Run("pack without media config", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		packFile := filepath.Join(tmpDir, "simple.pack.json")
 
-		pack := &Pack{
+		pack := &Pack{Pack: packspec.Pack{
 			ID:      "simple-pack",
 			Version: "v1.0.0",
 			Prompts: map[string]*PackPrompt{
@@ -503,7 +504,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 					SystemTemplate: "Hello {{name}}",
 				},
 			},
-		}
+		}}
 
 		data, err := json.MarshalIndent(pack, "", "  ")
 		require.NoError(t, err)
@@ -516,7 +517,7 @@ func TestLoadPackWithMediaConfig(t *testing.T) {
 
 		prompt := loaded.Prompts["greeting"]
 		require.NotNil(t, prompt)
-		assert.Nil(t, prompt.MediaConfig) // Should be nil for non-multimodal prompts
+		assert.Nil(t, prompt.Media) // Should be nil for non-multimodal prompts
 	})
 }
 
@@ -796,7 +797,7 @@ func TestPackCompiler_CompileToFile(t *testing.T) {
 func TestPackCompiler_MarshalPack(t *testing.T) {
 	compiler := NewPackCompiler(createTestRegistryWithRepo())
 
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "v1.0.0",
 		Prompts: map[string]*PackPrompt{
@@ -805,7 +806,7 @@ func TestPackCompiler_MarshalPack(t *testing.T) {
 				SystemTemplate: "Hello",
 			},
 		},
-	}
+	}}
 
 	t.Run("marshals pack to JSON", func(t *testing.T) {
 		data, err := compiler.MarshalPack(pack)
@@ -829,7 +830,7 @@ func TestPackCompiler_WritePack(t *testing.T) {
 		fileWriter,
 	)
 
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "v1.0.0",
 		Prompts: map[string]*PackPrompt{
@@ -838,7 +839,7 @@ func TestPackCompiler_WritePack(t *testing.T) {
 				SystemTemplate: "Hello",
 			},
 		},
-	}
+	}}
 
 	t.Run("writes pack successfully", func(t *testing.T) {
 		err := compiler.WritePack(pack, "/tmp/output.pack.json")
@@ -1065,14 +1066,14 @@ func TestBackwardCompat_NoNewFields(t *testing.T) {
 
 func TestPack_ValidateAgents(t *testing.T) {
 	basePack := func() *Pack {
-		return &Pack{
+		return &Pack{Pack: packspec.Pack{
 			ID:      "test-pack",
 			Version: "v1.0.0",
 			Prompts: map[string]*PackPrompt{
 				"chat":      {ID: "chat", SystemTemplate: "Hello"},
 				"summarize": {ID: "summarize", SystemTemplate: "Summarize"},
 			},
-		}
+		}}
 	}
 
 	t.Run("valid agents config passes", func(t *testing.T) {
@@ -1224,18 +1225,18 @@ func TestPack_ValidateAgents(t *testing.T) {
 
 func TestPack_ValidateWorkflow(t *testing.T) {
 	basePack := func() *Pack {
-		return &Pack{
+		return &Pack{Pack: packspec.Pack{
 			ID:      "test-pack",
 			Version: "v1.0.0",
 			Prompts: map[string]*PackPrompt{
 				"gather": {ID: "gather", SystemTemplate: "Gather", Version: "1.0.0",
-					Variables: []Variable{{Name: "x", Required: true}}},
+					Variables: []*Variable{{Name: "x", Required: true}}},
 				"solve": {ID: "solve", SystemTemplate: "Solve", Version: "1.0.0",
-					Variables: []Variable{{Name: "x", Required: true}}},
+					Variables: []*Variable{{Name: "x", Required: true}}},
 			},
 			TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 			Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
-		}
+		}}
 	}
 
 	t.Run("nil workflow passes", func(t *testing.T) {
@@ -1283,18 +1284,18 @@ func TestPack_ValidateWorkflow(t *testing.T) {
 }
 
 func TestPack_ValidateWorkflowDetailed(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		ID:      "test-pack",
 		Version: "v1.0.0",
 		Prompts: map[string]*PackPrompt{
 			"gather": {ID: "gather", SystemTemplate: "G", Version: "1.0.0",
-				Variables: []Variable{{Name: "x", Required: true}}},
+				Variables: []*Variable{{Name: "x", Required: true}}},
 			"solve": {ID: "solve", SystemTemplate: "S", Version: "1.0.0",
-				Variables: []Variable{{Name: "x", Required: true}}},
+				Variables: []*Variable{{Name: "x", Required: true}}},
 		},
 		TemplateEngine: &TemplateEngineInfo{Version: "v1", Syntax: "handlebars"},
 		Compilation:    &CompilationInfo{CompiledWith: "packc v1"},
-	}
+	}}
 
 	t.Run("nil workflow returns empty result", func(t *testing.T) {
 		result := p.ValidateWorkflow()
@@ -1442,8 +1443,11 @@ func TestSkillSourceConfig_UnmarshalYAML_String(t *testing.T) {
 	var s SkillSourceConfig
 	err := yaml.Unmarshal([]byte(`"skills/billing"`), &s)
 	require.NoError(t, err)
-	assert.Equal(t, "skills/billing", s.Path)
-	assert.Equal(t, "skills/billing", s.EffectiveDir())
+	// The generated type keeps the scalar form in Shorthand rather than
+	// expanding it into Path, so the pack round-trips as the author wrote it.
+	assert.Empty(t, s.Path)
+	assert.Equal(t, "skills/billing", s.Shorthand)
+	assert.Equal(t, "skills/billing", SkillPath(&s))
 }
 
 func TestSkillSourceConfig_UnmarshalYAML_Object(t *testing.T) {
@@ -1451,7 +1455,7 @@ func TestSkillSourceConfig_UnmarshalYAML_Object(t *testing.T) {
 	err := yaml.Unmarshal([]byte("path: skills/billing\npreload: true\n"), &s)
 	require.NoError(t, err)
 	assert.Equal(t, "skills/billing", s.Path)
-	assert.True(t, s.Preload)
+	assert.True(t, packspec.Deref(s.Preload, false))
 }
 
 func TestSkillSourceConfig_UnmarshalYAML_Inline(t *testing.T) {
@@ -1467,7 +1471,9 @@ func TestSkillSourceConfig_UnmarshalJSON_String(t *testing.T) {
 	var s SkillSourceConfig
 	err := json.Unmarshal([]byte(`"skills/billing"`), &s)
 	require.NoError(t, err)
-	assert.Equal(t, "skills/billing", s.Path)
+	// Kept in Shorthand, not expanded into Path — see the YAML test above.
+	assert.Empty(t, s.Path)
+	assert.Equal(t, "skills/billing", SkillPath(&s))
 }
 
 func TestSkillSourceConfig_UnmarshalJSON_Object(t *testing.T) {
@@ -1475,7 +1481,7 @@ func TestSkillSourceConfig_UnmarshalJSON_Object(t *testing.T) {
 	err := json.Unmarshal([]byte(`{"path":"skills/billing","preload":true}`), &s)
 	require.NoError(t, err)
 	assert.Equal(t, "skills/billing", s.Path)
-	assert.True(t, s.Preload)
+	assert.True(t, packspec.Deref(s.Preload, false))
 }
 
 func TestSkillSourceConfig_UnmarshalYAML_ArrayInPack(t *testing.T) {
@@ -1494,9 +1500,9 @@ func TestSkillSourceConfig_UnmarshalYAML_ArrayInPack(t *testing.T) {
 	err := yaml.Unmarshal([]byte(yamlData), &w)
 	require.NoError(t, err)
 	require.Len(t, w.Skills, 3)
-	assert.Equal(t, "skills/", w.Skills[0].Path)
+	assert.Equal(t, "skills/", SkillPath(&w.Skills[0]))
 	assert.Equal(t, "skills/brand-voice", w.Skills[1].Path)
-	assert.True(t, w.Skills[1].Preload)
+	assert.True(t, packspec.Deref(w.Skills[1].Preload, false))
 	assert.Equal(t, "inline-skill", w.Skills[2].Name)
 }
 
@@ -1539,35 +1545,35 @@ func TestWithCompositions_SetsPackField(t *testing.T) {
 }
 
 func TestValidateCompositions_BadToolRefErrors(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{}, Tools: map[string]*PackTool{},
 		Compositions: map[string]*composition.Composition{
 			"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "missing_tool"}}}},
-	}
+	}}
 	if !p.ValidateCompositions().HasErrors() {
 		t.Error("composition referencing an unknown tool must error")
 	}
 }
 
 func TestValidateCompositions_UnresolvedStateRefErrors(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{}, Tools: map[string]*PackTool{},
 		Compositions: map[string]*composition.Composition{},
 		Workflow: &workflow.Spec{Version: 1, Entry: "a", States: map[string]*workflow.State{
-			"a": {Orchestration: workflow.OrchestrationComposition, Composition: "nope", Terminal: true}}},
-	}
+			"a": {Orchestration: packspec.Ptr(workflow.OrchestrationComposition), Composition: "nope", Terminal: packspec.Ptr(true)}}},
+	}}
 	if !p.ValidateCompositions().HasErrors() {
 		t.Error("composition state referencing a missing composition must error")
 	}
 }
 
 func TestValidateCompositions_UnreachableWarns(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*PackPrompt{},
 		Tools:   map[string]*PackTool{"echo": {}}, // tool exists so ValidateAll passes
 		Compositions: map[string]*composition.Composition{
 			"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "echo"}}}},
-	}
+	}}
 	res := p.ValidateCompositions()
 	if res.HasErrors() {
 		t.Errorf("unreachable composition should warn, not error: %v", res.Errors)

@@ -35,12 +35,12 @@ import (
 )
 
 func newTestConversation() *Conversation {
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
 		},
-	}
+	}}
 	// Create a minimal textSession for tests - requires a pipeline with at least one stage
 	promptRegistry := pack.ToPromptRegistry(p)
 	minimalPipeline, _ := stage.NewPipelineBuilder().
@@ -545,7 +545,7 @@ func TestOnToolExecutor(t *testing.T) {
 	t.Run("registers custom executor", func(t *testing.T) {
 		conv := newTestConversation()
 		// Add a tool to the pack so the executor can find it
-		conv.pack = &pack.Pack{
+		conv.pack = &pack.Pack{Pack: packspec.Pack{
 			Tools: map[string]*pack.Tool{
 				"custom_tool": {
 					Name:        "custom_tool",
@@ -553,7 +553,7 @@ func TestOnToolExecutor(t *testing.T) {
 					Parameters:  &packspec.ToolParameters{Type: "object", Properties: map[string]map[string]any{}},
 				},
 			},
-		}
+		}}
 
 		executor := &mockExecutor{
 			name:   "custom",
@@ -1413,7 +1413,7 @@ func TestSendWithMockProvider(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -1421,7 +1421,7 @@ func TestSendWithMockProvider(t *testing.T) {
 				SystemTemplate: "You are helpful.",
 			},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1469,12 +1469,12 @@ func TestBuildContextSummary_WithHistory(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "summary-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {ID: "chat", SystemTemplate: "You are helpful."},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1514,7 +1514,7 @@ func TestSendWithImageOptions(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -1522,7 +1522,7 @@ func TestSendWithImageOptions(t *testing.T) {
 				SystemTemplate: "You are helpful.",
 			},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1578,7 +1578,7 @@ func TestSendWithProviderError(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -1586,7 +1586,7 @@ func TestSendWithProviderError(t *testing.T) {
 				SystemTemplate: "You are helpful.",
 			},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1784,12 +1784,12 @@ func TestSendWithOptions(t *testing.T) {
 	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {ID: "chat", SystemTemplate: "System"},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1897,7 +1897,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 	// Test with prompt parameters set
 	maxTokens := 2000
 	temperature := 0.7
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -1909,7 +1909,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 
 	conv := &Conversation{
 		pack:           p,
@@ -1931,7 +1931,7 @@ func TestBuildPipelineWithParameters(t *testing.T) {
 func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"chat": {
@@ -1939,7 +1939,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				SystemTemplate: "You are helpful.",
 			},
 		},
-	}
+	}}
 
 	t.Run("wires MessageIndex from retrievalProvider", func(t *testing.T) {
 		conv := &Conversation{
@@ -2028,7 +2028,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 func TestBuildStreamPipelineWiresTurnDetector(t *testing.T) {
 	store := statestore.NewMemoryStore()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test-pack",
 		Prompts: map[string]*pack.Prompt{
 			"voice": {
@@ -2036,7 +2036,7 @@ func TestBuildStreamPipelineWiresTurnDetector(t *testing.T) {
 				SystemTemplate: "You are a voice assistant.",
 			},
 		},
-	}
+	}}
 
 	detector := &convMockTurnDetector{complete: false, userSpeak: true}
 

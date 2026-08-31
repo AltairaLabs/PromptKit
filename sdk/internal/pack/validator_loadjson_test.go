@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // TestValidatorLoadsFromPromptPackJSON is the regression test for issue #933.
@@ -49,7 +51,8 @@ func TestValidatorLoadsFromPromptPackJSON(t *testing.T) {
 
 	v := prompt.Validators[0]
 	assert.Equal(t, "max_length", v.Type)
-	assert.True(t, v.Enabled, "enabled should be true")
+	require.NotNil(t, v.Enabled, "enabled should be set")
+	assert.True(t, *v.Enabled, "enabled should be true")
 
 	// THIS IS THE BUG: params arrives as nil today because the struct tag
 	// is `json:"config"` instead of `json:"params"`.
@@ -63,7 +66,7 @@ func TestValidatorLoadsFromPromptPackJSON(t *testing.T) {
 func TestValidatorMarshalRoundTrip(t *testing.T) {
 	original := Validator{
 		Type:    "max_length",
-		Enabled: true,
+		Enabled: packspec.Ptr(true),
 		Params: map[string]any{
 			"max_characters": float64(2000),
 		},

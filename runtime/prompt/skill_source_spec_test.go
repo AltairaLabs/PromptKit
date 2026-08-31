@@ -55,9 +55,12 @@ func TestEverySkillSourceFormEmitsAValidPack(t *testing.T) {
 		in    string
 		wants string
 	}{
-		{"bare string shorthand", `"./skills"`, `[{"path":"./skills"}]`},
+		// The shorthand round-trips VERBATIM rather than being expanded into
+		// a path object: the generated type keeps the scalar form, so a pack
+		// comes back as its author wrote it.
+		{"bare string shorthand", `"./skills"`, `["./skills"]`},
 		{"path object", `{"path":"./skills"}`, `[{"path":"./skills"}]`},
-		{"legacy dir alias", `{"dir":"./skills"}`, `[{"path":"./skills"}]`},
+
 		{
 			"inline skill",
 			`{"name":"billing","description":"d","instructions":"i"}`,
@@ -79,20 +82,53 @@ func TestEverySkillSourceFormEmitsAValidPack(t *testing.T) {
 	}
 }
 
-// TestDirAliasStillResolves — folding `dir` into `path` must not break the packs
-// that use it. Both spellings still reach the loader through EffectiveDir.
-func TestDirAliasStillResolves(t *testing.T) {
-	for _, in := range []string{`{"dir":"./skills"}`, `{"path":"./skills"}`, `"./skills"`} {
+// TestSkillPathResolvesEverySpecForm — the generated type keeps the
+// bare-string shorthand in Shorthand rather than Path, so a reader that wants
+// "where does this skill live" has to consult both. SkillPath is that reader.
+func TestSkillPathResolvesEverySpecForm(t *testing.T) {
+	for _, in := range []string{`{"path":"./skills"}`, `"./skills"`} {
 		var s prompt.SkillSourceConfig
 		require.NoError(t, json.Unmarshal([]byte(in), &s))
-		require.Equal(t, "./skills", s.EffectiveDir(), in)
+		require.Equal(t, "./skills", prompt.SkillPath(&s), in)
 	}
+	require.Empty(t, prompt.SkillPath(nil))
 }
 
-// TestDirDoesNotOverridePath — a pack setting both is contradictory, and the
-// spec's spelling is the one that wins. Folding must not silently reverse that.
-func TestDirDoesNotOverridePath(t *testing.T) {
+// TestDirAliasIsGone replaces TestDirAliasStillResolves.
+//
+// `dir` was a promptkit-only alias for `path`. $defs/SkillPathSource is
+// additionalProperties:false and requires `path`, so a pack authored with `dir`
+// was written back failing validation three ways at once, and no shipped pack
+// used it. It is not accepted any more, and this pins that: a pack using `dir`
+// resolves to no path rather than silently half-working.
+func TestDirAliasIsGone(t *testing.T) {
 	var s prompt.SkillSourceConfig
-	require.NoError(t, json.Unmarshal([]byte(`{"dir":"./old","path":"./new"}`), &s))
-	require.Equal(t, "./new", s.Path, "path is the spec's spelling and must win")
+	require.NoError(t, json.Unmarshal([]byte(`{"dir":"./skills"}`), &s))
+	require.Empty(t, prompt.SkillPath(&s),
+		"`dir` is not a spec property and must not resolve to a path")
+
+	// The spec spelling still works, so the replacement is a rename not a loss.
+	require.NoError(t, json.Unmarshal([]byte(`{"path":"./skills"}`), &s))
+	require.Equal(t, "./skills", prompt.SkillPath(&s))
+}
+
+// TestValidatorEnabledDefaultsToTrue pins a bug that adopting the generated
+// type fixed by accident, which is exactly the kind that comes back.
+//
+// $defs/Validator.enabled carries "default": true. The hand-written struct typed
+// it as a plain bool, so a compiled pack that omitted the key unmarshalled to
+// false — and sdk/sdk.go took its address, handing guardrails an explicit
+// "disabled". A validator the author never switched off was silently inactive.
+//
+// *bool distinguishes absent from false, and absent means enabled.
+func TestValidatorEnabledDefaultsToTrue(t *testing.T) {
+	var omitted prompt.Validator
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"max_length"}`), &omitted))
+	require.Nil(t, omitted.Enabled, "absent must stay absent, not become false")
+
+	var explicit prompt.Validator
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"max_length","enabled":false}`), &explicit))
+	require.NotNil(t, explicit.Enabled)
+	require.False(t, *explicit.Enabled,
+		"an explicit false must survive, or disabling a validator would stop working")
 }

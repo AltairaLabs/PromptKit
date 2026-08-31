@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 func TestLoad(t *testing.T) {
@@ -327,10 +329,10 @@ func TestPackWithMediaConfig(t *testing.T) {
 
 	prompt := p.GetPrompt("vision")
 	require.NotNil(t, prompt)
-	require.NotNil(t, prompt.MediaConfig)
-	assert.True(t, prompt.MediaConfig.Enabled)
-	assert.Len(t, prompt.MediaConfig.SupportedTypes, 2)
-	assert.Contains(t, prompt.MediaConfig.SupportedTypes, "image")
+	require.NotNil(t, prompt.Media)
+	assert.True(t, prompt.Media.Enabled)
+	assert.Len(t, prompt.Media.SupportedTypes, 2)
+	assert.Contains(t, prompt.Media.SupportedTypes, "image")
 }
 
 func TestPackWithFragments(t *testing.T) {
@@ -433,12 +435,12 @@ func TestToPromptConfig(t *testing.T) {
 		Description:    "A test prompt",
 		SystemTemplate: "Hello {{name}}",
 		Tools:          []string{"tool1", "tool2"},
-		Variables: []Variable{
+		Variables: []*Variable{
 			{Name: "name", Type: "string", Required: true, Description: "User name"},
 		},
 	}
 
-	cfg := pr.ToPromptConfig("test-task")
+	cfg := prompt.ToConfig(pr, "test-task")
 	assert.Equal(t, "promptkit.io/v1alpha1", cfg.APIVersion)
 	assert.Equal(t, "Prompt", cfg.Kind)
 	assert.Equal(t, "test-task", cfg.Spec.TaskType)

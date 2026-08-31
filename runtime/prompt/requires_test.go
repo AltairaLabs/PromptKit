@@ -179,9 +179,9 @@ func TestRequiresRoundTrips(t *testing.T) {
 }
 
 func TestNullRequirementEntryIsRejected(t *testing.T) {
-	p := &prompt.Pack{Requires: &prompt.Requires{
+	p := &prompt.Pack{Pack: packspec.Pack{Requires: &prompt.Requires{
 		Providers: []*packspec.ProviderRequirement{nil},
-	}}
+	}}}
 	if _, err := prompt.ResolveRequirements(p); err == nil {
 		t.Error("a null entry must be rejected rather than panicking")
 	}

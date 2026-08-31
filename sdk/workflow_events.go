@@ -42,10 +42,7 @@ func maxVisitsForState(spec *workflow.Spec, name string) int {
 		return 0
 	}
 	s := spec.States[name]
-	if s == nil {
-		return 0
-	}
-	return s.MaxVisits
+	return workflow.MaxVisitsOf(s)
 }
 
 // emitWorkflowError emits a typed observability event for errors returned

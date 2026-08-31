@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	promptpkg "github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -23,10 +24,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("converts enabled known validator to hook", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -39,10 +40,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("skips disabled validator", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: false,
+					Enabled: packspec.Ptr(false),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -54,8 +55,8 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("skips unknown validator type", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
-				{Type: "nonexistent", Enabled: true, Params: map[string]any{}},
+			Validators: []*pack.Validator{
+				{Type: "nonexistent", Enabled: packspec.Ptr(true), Params: map[string]any{}},
 			},
 		}
 		cfg := &config{}
@@ -65,10 +66,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("pack validators prepended before user hooks", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -85,15 +86,15 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("multiple enabled validators", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 				{
 					Type:    "max_length",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"max_characters": 100},
 				},
 			},
@@ -107,10 +108,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("guardrail always enforces — observe-only is the eval path", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
@@ -130,10 +131,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("passes params message to guardrail hook", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params: map[string]any{
 						"patterns": []any{"bad"},
 						"message":  "Custom blocked response",
@@ -159,10 +160,10 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 
 	t.Run("default message used when params has no message", func(t *testing.T) {
 		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
+			Validators: []*pack.Validator{
 				{
 					Type:    "banned_words",
-					Enabled: true,
+					Enabled: packspec.Ptr(true),
 					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},

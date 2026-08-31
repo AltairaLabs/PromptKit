@@ -348,7 +348,7 @@ func TestValidateEvals_MetricLabelValidation(t *testing.T) {
 
 func TestValidateEvals_ValidAllTriggerTypes(t *testing.T) {
 	for trigger := range ValidTriggers {
-		defs := []EvalDef{{ID: "test", Type: "custom", Trigger: trigger}}
+		defs := []EvalDef{{ID: "test", Type: "custom", Trigger: string(trigger)}}
 		errs := ValidateEvals(defs, "pack")
 		if len(errs) != 0 {
 			t.Errorf("trigger %q should be valid, got errors: %v", trigger, errs)

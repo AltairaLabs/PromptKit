@@ -5,15 +5,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestPack_GetToolAndListTools(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Tools: map[string]*PackTool{
 			"search": {Name: "search", Description: "Search"},
 			"lookup": {Name: "lookup", Description: "Look up"},
 		},
-	}
+	}}
 	require.NotNil(t, p.GetTool("search"))
 	assert.Equal(t, "search", p.GetTool("search").Name)
 	assert.Nil(t, p.GetTool("missing"))
@@ -30,12 +32,12 @@ func TestPackPrompt_ToPromptConfig(t *testing.T) {
 		Description:    "desc",
 		SystemTemplate: "Hello {{name}}",
 		Tools:          []string{"a", "b"},
-		Variables: []Variable{
+		Variables: []*Variable{
 			{Name: "name", Type: "string", Required: true, Default: "world", Description: "the name"},
 		},
 	}
 
-	cfg := pr.ToPromptConfig("chat")
+	cfg := ToConfig(pr, "chat")
 	require.NotNil(t, cfg)
 	assert.Equal(t, "promptkit.io/v1alpha1", cfg.APIVersion)
 	assert.Equal(t, "Prompt", cfg.Kind)
@@ -56,6 +58,6 @@ func TestPackPrompt_ToPromptConfig(t *testing.T) {
 	assert.Nil(t, v.Binding)
 
 	// Empty-variables path.
-	empty := (&PackPrompt{Version: "1"}).ToPromptConfig("t")
+	empty := ToConfig(&PackPrompt{Version: "1"}, "t")
 	assert.Empty(t, empty.Spec.Variables)
 }

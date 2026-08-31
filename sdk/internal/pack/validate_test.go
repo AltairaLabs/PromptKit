@@ -5,6 +5,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
 func TestValidateAgainstSchema_Valid(t *testing.T) {
@@ -108,15 +112,15 @@ func TestLoad_SkipSchemaValidation(t *testing.T) {
 // --- Agents validation tests ---
 
 func TestValidateAgents_NilAgents(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	err := validateAgentsSection(p)
 	assert.NoError(t, err, "nil agents should pass validation")
 }
 
 func TestValidateAgents_Valid(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"chat":  {ID: "chat"},
 			"agent": {ID: "agent"},
@@ -135,19 +139,19 @@ func TestValidateAgents_Valid(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	assert.NoError(t, err)
 }
 
 func TestValidateAgents_EmptyMembers(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
 		Agents: &AgentsConfig{
 			Entry:   "chat",
 			Members: map[string]*AgentDef{},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -157,14 +161,14 @@ func TestValidateAgents_EmptyMembers(t *testing.T) {
 }
 
 func TestValidateAgents_MissingEntry(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
 		Agents: &AgentsConfig{
 			Members: map[string]*AgentDef{
 				"chat": {Description: "Chat agent"},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -174,7 +178,7 @@ func TestValidateAgents_MissingEntry(t *testing.T) {
 }
 
 func TestValidateAgents_EntryNotInMembers(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"chat":  {ID: "chat"},
 			"other": {ID: "other"},
@@ -185,7 +189,7 @@ func TestValidateAgents_EntryNotInMembers(t *testing.T) {
 				"chat": {Description: "Chat agent"},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -201,7 +205,7 @@ func TestValidateAgents_EntryNotInMembers(t *testing.T) {
 }
 
 func TestValidateAgents_MemberNotInPrompts(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"chat": {ID: "chat"},
 		},
@@ -212,7 +216,7 @@ func TestValidateAgents_MemberNotInPrompts(t *testing.T) {
 				"missing": {Description: "Missing agent"},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -228,7 +232,7 @@ func TestValidateAgents_MemberNotInPrompts(t *testing.T) {
 }
 
 func TestValidateAgents_InvalidInputMode(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"chat": {ID: "chat"},
 		},
@@ -240,7 +244,7 @@ func TestValidateAgents_InvalidInputMode(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -256,7 +260,7 @@ func TestValidateAgents_InvalidInputMode(t *testing.T) {
 }
 
 func TestValidateAgents_InvalidOutputMode(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"chat": {ID: "chat"},
 		},
@@ -268,7 +272,7 @@ func TestValidateAgents_InvalidOutputMode(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -284,13 +288,13 @@ func TestValidateAgents_InvalidOutputMode(t *testing.T) {
 }
 
 func TestValidateAgents_MultipleErrors(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{},
 		Agents: &AgentsConfig{
 			// Missing entry
 			Members: map[string]*AgentDef{},
 		},
-	}
+	}}
 	err := validateAgentsSection(p)
 	require.Error(t, err)
 
@@ -334,15 +338,15 @@ func TestIsValidMIMEFormat(t *testing.T) {
 }
 
 func TestValidateWorkflow_NilWorkflow(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"chat": {ID: "chat"}},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	assert.NoError(t, err, "nil workflow should pass validation")
 }
 
 func TestValidateWorkflow_Valid(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{
 			"gather": {ID: "gather"},
 			"solve":  {ID: "solve"},
@@ -357,35 +361,35 @@ func TestValidateWorkflow_Valid(t *testing.T) {
 				"end":     {PromptTask: "done"},
 			},
 		},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	assert.NoError(t, err)
 }
 
 func TestValidateWorkflow_InvalidVersion(t *testing.T) {
 	// Version 3 is invalid (only 1 and 2 are accepted, matching the runtime).
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"p": {ID: "p"}},
 		Workflow: &WorkflowSpec{
 			Version: 3,
 			Entry:   "s",
 			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
 		},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workflow validation failed")
 }
 
 func TestValidateWorkflow_EntryNotInStates(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"p": {ID: "p"}},
 		Workflow: &WorkflowSpec{
 			Version: 1,
 			Entry:   "nonexistent",
 			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
 		},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	require.Error(t, err)
 
@@ -395,21 +399,21 @@ func TestValidateWorkflow_EntryNotInStates(t *testing.T) {
 }
 
 func TestValidateWorkflow_PromptTaskNotInPrompts(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"p": {ID: "p"}},
 		Workflow: &WorkflowSpec{
 			Version: 1,
 			Entry:   "s",
 			States:  map[string]*WorkflowState{"s": {PromptTask: "missing"}},
 		},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not reference a valid prompt")
 }
 
 func TestValidateWorkflow_EventTargetNotInStates(t *testing.T) {
-	p := &Pack{
+	p := &Pack{Pack: packspec.Pack{
 		Prompts: map[string]*Prompt{"p": {ID: "p"}},
 		Workflow: &WorkflowSpec{
 			Version: 1,
@@ -418,7 +422,7 @@ func TestValidateWorkflow_EventTargetNotInStates(t *testing.T) {
 				"s": {PromptTask: "p", OnEvent: map[string]string{"Go": "ghost"}},
 			},
 		},
-	}
+	}}
 	err := validateWorkflowSection(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist in states")
@@ -456,7 +460,7 @@ func TestParseSkillSourcePath(t *testing.T) {
 		},
 		"skills": [
 			{"path": "skills/dir1"},
-			{"dir": "skills/dir2"},
+			"skills/dir2",
 			{"name": "inline", "description": "An inline skill", "instructions": "Do this."}
 		]
 	}`)
@@ -464,10 +468,13 @@ func TestParseSkillSourcePath(t *testing.T) {
 	p, err := Parse(data)
 	require.NoError(t, err)
 	require.Len(t, p.Skills, 3)
+	// The three spec forms: a path object, the bare-string shorthand, and an
+	// inline skill. The promptkit-only `dir` alias that used to be the second
+	// case is gone — it emitted packs that failed validation.
 	assert.Equal(t, "skills/dir1", p.Skills[0].Path)
-	assert.Equal(t, "skills/dir1", p.Skills[0].EffectiveDir())
-	assert.Equal(t, "skills/dir2", p.Skills[1].Dir)
-	assert.Equal(t, "skills/dir2", p.Skills[1].EffectiveDir())
+	assert.Equal(t, "skills/dir1", prompt.SkillPath(p.Skills[0]))
+	assert.Equal(t, "skills/dir2", p.Skills[1].Shorthand)
+	assert.Equal(t, "skills/dir2", prompt.SkillPath(p.Skills[1]))
 	assert.Equal(t, "inline", p.Skills[2].Name)
 }
 

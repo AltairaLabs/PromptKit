@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -851,7 +852,7 @@ func TestWorkflowConversation_OrchestrationMode_Default(t *testing.T) {
 	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
 
 	// No orchestration set, defaults to internal
-	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationInternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
@@ -861,7 +862,7 @@ func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
 		States: map[string]*workflow.State{
 			"start": {
 				PromptTask:    "p1",
-				Orchestration: workflow.OrchestrationExternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 				OnEvent:       map[string]string{"Next": "end"},
 			},
 			"end": {PromptTask: "p2"},
@@ -870,7 +871,7 @@ func TestWorkflowConversation_OrchestrationMode_External(t *testing.T) {
 	machine := workflow.NewStateMachine(spec)
 	wc := &WorkflowConversation{machine: machine, workflowSpec: spec}
 
-	assert.Equal(t, workflow.OrchestrationExternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationExternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
@@ -882,7 +883,7 @@ func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
 	machine := workflow.NewStateMachine(spec)
 	wc := &WorkflowConversation{machine: machine} // workflowSpec is nil
 
-	assert.Equal(t, workflow.OrchestrationInternal, wc.OrchestrationMode())
+	assert.Equal(t, workflow.OrchestrationInternal, string(wc.OrchestrationMode()))
 }
 
 func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
@@ -894,7 +895,7 @@ func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 		States: map[string]*workflow.State{
 			"start": {
 				PromptTask:    "p1",
-				Orchestration: workflow.OrchestrationExternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 				OnEvent:       map[string]string{"Next": "end"},
 			},
 			"end": {PromptTask: "p2"},
@@ -965,7 +966,7 @@ func TestRegisterWorkflowTools_InternalState(t *testing.T) {
 			"intake": {
 				PromptTask:    "gather_info",
 				OnEvent:       map[string]string{"InfoComplete": "processing"},
-				Orchestration: workflow.OrchestrationInternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationInternal),
 			},
 			"processing": {PromptTask: "process"},
 		},
@@ -1006,7 +1007,7 @@ func TestRegisterWorkflowTools_ExternalState(t *testing.T) {
 			"intake": {
 				PromptTask:    "gather_info",
 				OnEvent:       map[string]string{"InfoComplete": "processing"},
-				Orchestration: workflow.OrchestrationExternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 			},
 			"processing": {PromptTask: "process"},
 		},
@@ -1158,12 +1159,12 @@ func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {
 		States: map[string]*workflow.State{
 			"start": {
 				PromptTask:    "p1",
-				Orchestration: workflow.OrchestrationExternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 				OnEvent:       map[string]string{"Next": "mid"},
 			},
 			"mid": {
 				PromptTask:    "p2",
-				Orchestration: workflow.OrchestrationExternal,
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
 				OnEvent:       map[string]string{"Next": "end"},
 			},
 			"end": {PromptTask: "p3"},
@@ -1376,7 +1377,7 @@ func TestCommitDeferredTransition_FiresErrorEvent(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*workflow.State{
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
-			"b": {PromptTask: "t", MaxVisits: 1},
+			"b": {PromptTask: "t", MaxVisits: packspec.Ptr(1)},
 		},
 	}
 	// Pre-seed the context so b is at its visit cap before the test transition.
@@ -1429,7 +1430,7 @@ func TestEmitTransitionEvents_All(t *testing.T) {
 		Version: 2,
 		Entry:   "loop",
 		States: map[string]*workflow.State{
-			"loop": {PromptTask: "loop", MaxVisits: 1, OnMaxVisits: "exit",
+			"loop": {PromptTask: "loop", MaxVisits: packspec.Ptr(1), OnMaxVisits: "exit",
 				OnEvent: map[string]string{"Again": "loop"}},
 			"exit": {PromptTask: "exit"}, // terminal: no OnEvent
 		},
@@ -1490,7 +1491,7 @@ func TestEmitTransitionEvents_NilEmitterNoOp(t *testing.T) {
 func TestMaxVisitsForState(t *testing.T) {
 	assert.Equal(t, 0, maxVisitsForState(nil, "x"))
 	spec := &workflow.Spec{States: map[string]*workflow.State{
-		"a": {MaxVisits: 5},
+		"a": {MaxVisits: packspec.Ptr(5)},
 	}}
 	assert.Equal(t, 5, maxVisitsForState(spec, "a"))
 	assert.Equal(t, 0, maxVisitsForState(spec, "missing"))
@@ -1517,7 +1518,7 @@ func TestEmitWorkflowError_MaxVisits(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*workflow.State{
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
-			"b": {PromptTask: "t", MaxVisits: 1, OnEvent: map[string]string{"Back": "a"}},
+			"b": {PromptTask: "t", MaxVisits: packspec.Ptr(1), OnEvent: map[string]string{"Back": "a"}},
 		},
 	}
 	machine := workflow.NewStateMachine(spec)

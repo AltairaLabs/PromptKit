@@ -15,6 +15,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // evalTestConversation builds a conversation backed by a real store, seeded
@@ -23,10 +25,10 @@ import (
 func evalTestConversation(t *testing.T, msgs []types.Message) *Conversation {
 	t.Helper()
 
-	p := &pack.Pack{
+	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "eval-pack",
 		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat", SystemTemplate: "sys"}},
-	}
+	}}
 	promptRegistry := pack.ToPromptRegistry(p)
 	pipeline, err := stage.NewPipelineBuilder().
 		Chain(stage.NewPromptAssemblyStage(promptRegistry, "chat", nil)).

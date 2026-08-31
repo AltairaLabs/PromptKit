@@ -18,6 +18,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // captureLogs redirects the global logger to a buffer for the duration
@@ -104,11 +106,11 @@ func TestNewEvalMiddleware_NoDefsReturnsNil(t *testing.T) {
 func TestNewEvalMiddleware_WithDefs(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -127,11 +129,11 @@ func TestNewEvalMiddleware_WithExplicitRunner(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -205,12 +207,12 @@ func TestEvalMiddleware_DoesNotMutateSharedRunner(t *testing.T) {
 				evalRunner: sharedRunner,
 				evalHooks:  []evals.EvalHook{hook},
 			},
-			pack: &pack.Pack{
-				Evals: []evals.EvalDef{
+			pack: &pack.Pack{Pack: packspec.Pack{
+				Evals: []*evals.EvalDef{
 					{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
 						Params: map[string]any{"substring": "hi"}},
 				},
-			},
+			}},
 			prompt: &pack.Prompt{},
 		}
 	}
@@ -249,12 +251,12 @@ func TestEvalMiddleware_AttachesEvalHooksToRunner(t *testing.T) {
 			evalRunner: runner,
 			evalHooks:  []evals.EvalHook{hook},
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
 					Params: map[string]any{"substring": "hi"}},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -288,14 +290,14 @@ func TestEvalMiddleware_NilMiddlewareSafeNoOp(t *testing.T) {
 func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},
 				{ID: "b", Type: "regex", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{
-			Evals: []evals.EvalDef{
+			Evals: []*evals.EvalDef{
 				{ID: "b", Type: "json_valid", Trigger: evals.TriggerEveryTurn}, // Override
 				{ID: "c", Type: "contains", Trigger: evals.TriggerOnSessionComplete},
 			},
@@ -327,11 +329,11 @@ func TestEvalMiddleware_EmitterFromEventBus(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{eventBus: bus},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -347,11 +349,11 @@ func TestEvalMiddleware_EmitterFromEventBus(t *testing.T) {
 func TestEvalMiddleware_NoEventBusNilEmitter(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -391,11 +393,11 @@ func TestEvalMiddleware_NilPack(t *testing.T) {
 func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt:     &pack.Prompt{},
 		promptName: "my-prompt",
 	}
@@ -425,11 +427,11 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 func TestEvalMiddleware_DispatchTurnEvalsDoesNotPanic(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -446,11 +448,11 @@ func TestEvalMiddleware_DispatchTurnEvalsDoesNotPanic(t *testing.T) {
 func TestEvalMiddleware_DispatchSessionEvalsDoesNotPanic(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -466,11 +468,11 @@ func TestEvalMiddleware_DispatchSessionEvalsDoesNotPanic(t *testing.T) {
 func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -495,11 +497,11 @@ func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "blocking", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -539,11 +541,11 @@ func TestEvalMiddleware_CloseStopsInFlightEvals(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "cancellable", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -585,11 +587,11 @@ func TestEvalMiddleware_MultipleDispatchesAllTracked(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "counting", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -679,11 +681,11 @@ func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
 			evalRunner:         runner,
 			maxConcurrentEvals: 2, // Only allow 2 concurrent evals
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "gated", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -724,11 +726,11 @@ func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
 func TestEvalMiddleware_SemaphoreDefaultCapacity(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -758,11 +760,11 @@ func TestEvalMiddleware_SemaphoreReleasedAfterCompletion(t *testing.T) {
 			evalRunner:         runner,
 			maxConcurrentEvals: 1, // Only 1 at a time
 		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "counting", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -787,11 +789,11 @@ func TestEvalMiddleware_SemaphoreReleasedAfterCompletion(t *testing.T) {
 func TestEvalMiddleware_CustomMaxConcurrentEvals(t *testing.T) {
 	conv := &Conversation{
 		config: &config{maxConcurrentEvals: 5},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -807,11 +809,11 @@ func TestEvalMiddleware_CustomMaxConcurrentEvals(t *testing.T) {
 func TestEvalMiddleware_BuildEvalContext_CachesMessages(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt:     &pack.Prompt{},
 		promptName: "test-prompt",
 	}
@@ -844,11 +846,11 @@ func TestEvalMiddleware_BuildEvalContext_CachesMessages(t *testing.T) {
 func TestEvalMiddleware_TurnIndexAtomic(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -904,12 +906,12 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{eventBus: bus},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
 					Params: map[string]any{"substring": "hello"}},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -948,13 +950,13 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 func TestNewEvalMiddleware_WithEvalGroups(t *testing.T) {
 	conv := &Conversation{
 		config: &config{evalGroups: []string{"safety"}},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
 				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"quality"}},
 				{ID: "c", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety", "quality"}},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -973,11 +975,11 @@ func TestNewEvalMiddleware_WithEvalGroups(t *testing.T) {
 func TestNewEvalMiddleware_WithEvalGroupsNoMatch(t *testing.T) {
 	conv := &Conversation{
 		config: &config{evalGroups: []string{"latency"}},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -990,12 +992,12 @@ func TestNewEvalMiddleware_WithEvalGroupsNoMatch(t *testing.T) {
 func TestNewEvalMiddleware_WithEvalGroupsDefaultGroup(t *testing.T) {
 	conv := &Conversation{
 		config: &config{evalGroups: []string{evals.DefaultEvalGroup}},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},                             // no groups → default
 				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}}, // explicit
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1011,12 +1013,12 @@ func TestNewEvalMiddleware_WithEvalGroupsDefaultGroup(t *testing.T) {
 func TestNewEvalMiddleware_NilEvalGroupsRunsAll(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},
 				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1040,8 +1042,8 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{metricContext: metricCtx},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{
 					ID:      "e1",
 					Type:    "contains",
@@ -1052,7 +1054,7 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 					},
 				},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1101,14 +1103,14 @@ func TestEvalMiddleware_NoMetricForResultWithoutValue(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{metricContext: collector.Bind(nil)},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{{
 				ID:      "e2",
 				Type:    "llm_judge",
 				Trigger: evals.TriggerEveryTurn,
 				Metric:  &evals.MetricDef{Name: "payload", Type: evals.MetricGauge},
 			}},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1136,8 +1138,8 @@ func TestEvalMiddleware_NoMetricForResultWithoutValue(t *testing.T) {
 func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
 	conv := &Conversation{
 		config: &config{},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{
 					ID:      "e1",
 					Type:    "contains",
@@ -1148,7 +1150,7 @@ func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
 					},
 				},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1179,7 +1181,7 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 
 	conv := newTestConversation()
 	conv.config.eventBus = bus
-	conv.pack.Evals = []evals.EvalDef{
+	conv.pack.Evals = []*evals.EvalDef{
 		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
 			Params: map[string]any{"substring": "hello"}},
 	}
@@ -1249,11 +1251,11 @@ func TestEvalMiddleware_AttachesClassifyRegistry(t *testing.T) {
 
 	conv := &Conversation{
 		config: cfg,
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 
@@ -1282,11 +1284,11 @@ func TestEvalMiddleware_NoRegistryLeavesContextClean(t *testing.T) {
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
 				{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn},
 			},
-		},
+		}},
 		prompt: &pack.Prompt{},
 	}
 

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestValidateSemanticVersion(t *testing.T) {
@@ -145,7 +147,7 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 	}{
 		{
 			name: "valid pack with valid versions",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -156,14 +158,14 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "1.0.0",
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "name", Required: true},
 						},
 					},
 					"test2": {
 						SystemTemplate: "Goodbye {{name}}",
 						Version:        "v2.1.0",
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "name", Required: true},
 						},
 					},
@@ -171,12 +173,12 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 				Compilation: &CompilationInfo{
 					CompiledWith: "packc v1.0.0",
 				},
-			},
+			}},
 			shouldHaveError: false,
 		},
 		{
 			name: "invalid pack version",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "latest", // Invalid
 				TemplateEngine: &TemplateEngineInfo{
@@ -189,13 +191,13 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 						Version:        "1.0.0",
 					},
 				},
-			},
+			}},
 			shouldHaveError: true,
 			expectedStrings: []string{"invalid pack version"},
 		},
 		{
 			name: "invalid prompt version",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -206,18 +208,18 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello {{name}}",
 						Version:        "v1", // Invalid - missing minor and patch
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "name", Required: true},
 						},
 					},
 				},
-			},
+			}},
 			shouldHaveError: true,
 			expectedStrings: []string{"prompt 'test'", "invalid version"},
 		},
 		{
 			name: "multiple invalid prompt versions",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -228,19 +230,19 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test1": {
 						SystemTemplate: "Hello",
 						Version:        "version-1", // Invalid
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "test", Required: true},
 						},
 					},
 					"test2": {
 						SystemTemplate: "Goodbye",
 						Version:        "2.0", // Invalid - missing patch
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "test", Required: true},
 						},
 					},
 				},
-			},
+			}},
 			shouldHaveError: true,
 			expectedStrings: []string{
 				"prompt 'test1'",
@@ -249,7 +251,7 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 		},
 		{
 			name: "empty pack version",
-			pack: &Pack{
+			pack: &Pack{Pack: packspec.Pack{
 				ID:      "test-pack",
 				Version: "", // Empty - should be caught by existing validation
 				TemplateEngine: &TemplateEngineInfo{
@@ -260,12 +262,12 @@ func TestPack_Validate_WithVersionValidation(t *testing.T) {
 					"test": {
 						SystemTemplate: "Hello",
 						Version:        "1.0.0",
-						Variables: []Variable{
+						Variables: []*Variable{
 							{Name: "test", Required: true},
 						},
 					},
 				},
-			},
+			}},
 			shouldHaveError: true,
 			expectedStrings: []string{"missing required field: version"},
 		},
@@ -312,7 +314,7 @@ func TestPackPrompt_ValidateVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pack := &Pack{
+			pack := &Pack{Pack: packspec.Pack{
 				ID:      "test",
 				Version: "1.0.0",
 				TemplateEngine: &TemplateEngineInfo{
@@ -325,7 +327,7 @@ func TestPackPrompt_ValidateVersion(t *testing.T) {
 						Version:        tt.promptVersion,
 					},
 				},
-			}
+			}}
 
 			warnings := pack.Validate()
 

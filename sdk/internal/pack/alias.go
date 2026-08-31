@@ -27,6 +27,9 @@ type Variable = prompt.Variable
 // Validator is a compiled, spec-exact pack validator.
 type Validator = prompt.Validator
 
+// ValidatorValues dereferences the generated Prompt's []*Validator into values.
+var ValidatorValues = prompt.ValidatorValues
+
 // ToolPolicy governs how a prompt may use tools.
 type ToolPolicy = prompt.ToolPolicyPack
 

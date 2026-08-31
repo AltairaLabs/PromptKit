@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestSpecRoundTrip(t *testing.T) {
@@ -19,7 +21,7 @@ func TestSpecRoundTrip(t *testing.T) {
 					"NeedMoreInfo":    "intake",
 				},
 				Persistence:   PersistencePersistent,
-				Orchestration: OrchestrationInternal,
+				Orchestration: packspec.Ptr(OrchestrationInternal),
 			},
 			"solving": {
 				PromptTask: "create_solution",
@@ -33,8 +35,11 @@ func TestSpecRoundTrip(t *testing.T) {
 				Description: "Terminal state",
 			},
 		},
-		Engine: map[string]any{
-			"timeout": 300,
+		// timeout is not a named property of engine; the spec leaves engine open
+		// (additionalProperties:true), so it rides in the Extra envelope and is
+		// marshaled back as a top-level key.
+		Engine: &packspec.WorkflowConfigEngine{
+			Extra: map[string]any{"timeout": 300},
 		},
 	}
 
@@ -65,8 +70,8 @@ func TestSpecRoundTrip(t *testing.T) {
 	if intake.Persistence != PersistencePersistent {
 		t.Errorf("intake.Persistence = %q, want %q", intake.Persistence, PersistencePersistent)
 	}
-	if intake.Orchestration != OrchestrationInternal {
-		t.Errorf("intake.Orchestration = %q, want %q", intake.Orchestration, OrchestrationInternal)
+	if OrchestrationOf(intake) != OrchestrationInternal {
+		t.Errorf("intake.Orchestration = %q, want %q", OrchestrationOf(intake), OrchestrationInternal)
 	}
 	if intake.OnEvent["IssueUnderstood"] != "solving" {
 		t.Errorf("intake.OnEvent[IssueUnderstood] = %q, want %q", intake.OnEvent["IssueUnderstood"], "solving")
@@ -77,8 +82,10 @@ func TestSpecRoundTrip(t *testing.T) {
 		t.Errorf("confirmation.OnEvent should be empty, got %v", confirmation.OnEvent)
 	}
 
-	if got.Engine["timeout"] != float64(300) {
-		t.Errorf("Engine[timeout] = %v, want 300", got.Engine["timeout"])
+	// An unnamed engine key survives the round trip through the Extra envelope
+	// rather than being dropped.
+	if got.Engine == nil || got.Engine.Extra["timeout"] != float64(300) {
+		t.Errorf("Engine extra timeout = %v, want 300", got.Engine)
 	}
 }
 
@@ -366,8 +373,8 @@ func TestState_CompositionJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &s); err != nil {
 		t.Fatal(err)
 	}
-	if s.Orchestration != OrchestrationComposition {
-		t.Errorf("orchestration = %q, want composition", s.Orchestration)
+	if OrchestrationOf(&s) != OrchestrationComposition {
+		t.Errorf("orchestration = %q, want composition", OrchestrationOf(&s))
 	}
 	if s.Composition != "analyze_doc" {
 		t.Errorf("composition = %q, want analyze_doc", s.Composition)

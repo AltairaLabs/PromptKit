@@ -70,7 +70,7 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 		errs = append(errs, fmt.Sprintf(
 			"%s: trigger is required", prefix,
 		))
-	} else if !ValidTriggers[def.Trigger] {
+	} else if !ValidTriggers[EvalTrigger(def.Trigger)] {
 		errs = append(errs, fmt.Sprintf(
 			"%s: invalid trigger %q", prefix, def.Trigger,
 		))

@@ -7,6 +7,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestTransitionToolName(t *testing.T) {
@@ -92,7 +94,7 @@ func TestRegisterTransitionTool_ExternalOrchestration(t *testing.T) {
 	registry := tools.NewRegistry()
 	state := &State{
 		OnEvent:       map[string]string{"Escalate": "s2"},
-		Orchestration: OrchestrationExternal,
+		Orchestration: packspec.Ptr(OrchestrationExternal),
 	}
 	RegisterTransitionTool(registry, state)
 	assert.Nil(t, registry.Get(TransitionToolName))

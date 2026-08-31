@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // SchemaValidationError represents a schema validation error with details.
@@ -105,7 +107,7 @@ func validateWorkflowStateRefs(p *Pack) []string {
 	var errs []string
 	for name, state := range p.Workflow.States {
 		// Composition-orchestrated states run a sub-pipeline; prompt_task is not required.
-		if state.Orchestration != "composition" && !promptSet[state.PromptTask] {
+		if packspec.Deref(state.Orchestration, "") != "composition" && !promptSet[state.PromptTask] {
 			errs = append(errs, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 				name, state.PromptTask))

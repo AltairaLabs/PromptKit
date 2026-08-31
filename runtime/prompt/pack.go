@@ -46,76 +46,23 @@ func (w realFileWriter) WriteFile(path string, data []byte, perm os.FileMode) er
 	return os.WriteFile(path, data, perm)
 }
 
-// Pack represents the complete JSON pack format containing MULTIPLE prompts for different task types.
+// Pack represents a compiled PromptPack.
 //
-// DESIGN DECISION: Why separate Pack types in runtime vs sdk?
+// EMBEDS the generated type rather than aliasing it. Go has no partial classes,
+// and a type alias cannot carry methods — but an embedded type can, and Pack has
+// eighteen (Validate, ValidateWorkflow, ValidateAgents, GetPrompt, ...). Every
+// spec property is promoted from packspec.Pack, so the properties cannot drift
+// even though the methods live here.
 //
-// This runtime Pack is optimized for COMPILATION:
-//   - Created by PackCompiler from prompt registry
-//   - Includes Compilation and Metadata for tracking provenance
-//   - Returns validation warnings ([]string) for compiler feedback
-//   - No thread-safety needed (single-threaded compilation)
-//   - Simple types (VariableMetadata, ValidatorConfig) for JSON serialization
+// This is the general answer for a pack type with behavior attached. An alias is
+// still preferable where the methods are few enough to become free functions,
+// because an alias gives true identity with the generated type; embedding needs
+// .Pack to extract it. Types with a method set that IS their API embed instead.
 //
-// The sdk.Pack is optimized for LOADING & EXECUTION:
-//   - Loaded from .pack.json files for application use
-//   - Includes Tools map and filePath for execution context
-//   - Thread-safe with sync.RWMutex for concurrent access
-//   - Returns validation errors for application error handling
-//   - Rich types (*Variable, *Validator) with additional methods
-//   - Has CreateRegistry() to convert back to runtime.Registry for pipeline
-//
-// Both serialize to/from the SAME JSON format (.pack.json files), ensuring
-// full interoperability. The type duplication is intentional and prevents
-// circular dependencies while allowing each module to evolve independently.
-//
-// See sdk/pack.go for the corresponding SDK-side documentation.
+// FilePath is the only field of our own, and it is the reason a bare alias would
+// not do even without the methods.
 type Pack struct {
-	// Schema reference for validation
-	Schema string `json:"$schema,omitempty"` // JSON Schema URL for validation
-
-	// Identity
-	ID          string `json:"id"`          // Pack ID (e.g., "customer-support")
-	Name        string `json:"name"`        // Human-readable name
-	Version     string `json:"version"`     // Pack version
-	Description string `json:"description"` // Pack description
-
-	// Template Engine (shared across all prompts in pack)
-	TemplateEngine *TemplateEngineInfo `json:"template_engine"`
-
-	// Prompts - Map of task_type -> PackPrompt
-	Prompts map[string]*PackPrompt `json:"prompts"`
-
-	// Tools - Map of tool_name -> PackTool (per PromptPack spec Section 9)
-	// Tools are defined at pack level and referenced by name in prompts
-	Tools map[string]*PackTool `json:"tools,omitempty"`
-
-	// Shared fragments (can be referenced by any prompt)
-	Fragments map[string]string `json:"fragments,omitempty"` // Resolved fragments: name -> content
-
-	// Metadata
-	Metadata    *Metadata        `json:"metadata,omitempty"`
-	Compilation *CompilationInfo `json:"compilation,omitempty"`
-
-	// Evals - Pack-level eval definitions (applied to all prompts unless overridden)
-	Evals []evals.EvalDef `json:"evals,omitempty"`
-
-	// Workflow - State-machine workflow over the pack's prompts
-	Workflow *workflow.Spec `json:"workflow,omitempty"`
-
-	// Compositions - Named composition step-graphs (RFC 0010)
-	Compositions map[string]*composition.Composition `json:"compositions,omitempty"`
-
-	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
-	Agents *AgentsConfig `json:"agents,omitempty"`
-
-	// Skills - Skill sources for dynamic capability loading
-	Skills []SkillSourceConfig `json:"skills,omitempty" yaml:"skills,omitempty"`
-
-	// Requires - External resources the pack needs to run (RFC 0012).
-	// Read it through ResolveRequirements, which applies the string shorthand
-	// and the required-defaults-to-true rule.
-	Requires *Requires `json:"requires,omitempty" yaml:"requires,omitempty"`
+	packspec.Pack `yaml:",inline"`
 
 	// FilePath is the on-disk path this pack was loaded from, if any. It is
 	// never serialized; loaders set it so schema/fragment resolution can
@@ -123,101 +70,30 @@ type Pack struct {
 	FilePath string `json:"-" yaml:"-"`
 }
 
-// SkillSourceConfig represents a skill source in the pack YAML.
+// SkillSourceConfig declares a skill source for the pack.
 //
-// Flattens $defs/SkillSource, which is a oneOf over a bare string, a
-// SkillPathSource (path + preload) and an InlineSkill (name + description +
-// instructions). Go has no sum type, so one struct carries every branch.
-type SkillSourceConfig struct {
-	// Dir is a promptkit-only input alias for Path, accepted because packs in
-	// the wild were authored with it.
-	//
-	// It must never SERIALIZE: $defs/SkillPathSource is additionalProperties
-	// false and requires `path`, so a pack emitted with `dir` fails validation
-	// on all three counts — unknown property, missing required property, and
-	// therefore matching no branch of the oneOf. Both unmarshallers below fold
-	// it into Path, and the missing json/yaml tags stop it coming back out.
-	Dir  string `json:"-" yaml:"-"`
-	Path string `json:"path,omitempty" yaml:"path,omitempty"`
-
-	// Inline skill fields
-	Name         string `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string `json:"description,omitempty" yaml:"description,omitempty"`
-	Instructions string `json:"instructions,omitempty" yaml:"instructions,omitempty"`
-
-	// Options
-	Preload bool `json:"preload,omitempty" yaml:"preload,omitempty"`
-}
-
-// EffectiveDir returns the directory path, preferring Dir over Path.
+// Generated. $defs/SkillSource is a oneOf over a bare string, a SkillPathSource
+// and an InlineSkill; the generator flattens that into one struct AND emits the
+// Marshal/Unmarshal pair that keeps the scalar form in Shorthand, so the union
+// needed no hand-written code at all.
 //
-// normalizeDir folds Dir into Path on load, so the two agree by the time
-// anything reads them; the preference is kept for a struct built in Go.
-func (s *SkillSourceConfig) EffectiveDir() string {
-	if s.Dir != "" {
-		return s.Dir
-	}
-	return s.Path
-}
+// The legacy `dir` alias is GONE. It was promptkit-only, and because
+// $defs/SkillPathSource is additionalProperties:false and requires `path`, a
+// pack emitted from `dir` failed validation three ways at once. No shipped pack
+// used it. Author `path` instead, or the bare-string shorthand.
+type SkillSourceConfig = packspec.SkillSource
 
-// normalizeDir folds the legacy `dir` alias into the spec's `path`, so that
-// everything downstream — including serialization — sees only `path`.
-func (s *SkillSourceConfig) normalizeDir() {
-	if s.Dir != "" && s.Path == "" {
-		s.Path = s.Dir
+// SkillPath returns the path a skill source points at, resolving the
+// bare-string shorthand. A free function because SkillSourceConfig is the
+// generated type and an alias cannot carry methods.
+func SkillPath(s *SkillSourceConfig) string {
+	if s == nil {
+		return ""
 	}
-}
-
-// UnmarshalYAML supports bare string shorthand: "skills/" → {Path: "skills/"}.
-func (s *SkillSourceConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var str string
-	if err := unmarshal(&str); err == nil {
-		s.Path = str
-		return nil
+	if s.Path != "" {
+		return s.Path
 	}
-	// Fall back to struct unmarshaling (use alias to avoid recursion).
-	type alias struct {
-		Dir          string `yaml:"dir,omitempty"`
-		Path         string `yaml:"path,omitempty"`
-		Name         string `yaml:"name,omitempty"`
-		Description  string `yaml:"description,omitempty"`
-		Instructions string `yaml:"instructions,omitempty"`
-		Preload      bool   `yaml:"preload,omitempty"`
-	}
-	var a alias
-	if err := unmarshal(&a); err != nil {
-		return err
-	}
-	*s = SkillSourceConfig(a)
-	s.normalizeDir()
-	return nil
-}
-
-// UnmarshalJSON supports bare string shorthand: "skills/" → {Path: "skills/"}.
-func (s *SkillSourceConfig) UnmarshalJSON(data []byte) error {
-	if len(data) > 0 && data[0] == '"' {
-		var str string
-		if err := json.Unmarshal(data, &str); err != nil {
-			return err
-		}
-		s.Path = str
-		return nil
-	}
-	type alias struct {
-		Dir          string `json:"dir,omitempty"`
-		Path         string `json:"path,omitempty"`
-		Name         string `json:"name,omitempty"`
-		Description  string `json:"description,omitempty"`
-		Instructions string `json:"instructions,omitempty"`
-		Preload      bool   `json:"preload,omitempty"`
-	}
-	var a alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	*s = SkillSourceConfig(a)
-	s.normalizeDir()
-	return nil
+	return s.Shorthand
 }
 
 // PackTool represents a tool definition in the pack (per PromptPack spec Section 9).
@@ -285,45 +161,17 @@ func WithCompositions(c map[string]*composition.Composition) CompileOption {
 	return func(o *compileOptions) { o.compositions = c }
 }
 
-// PackPrompt represents a single prompt configuration within a pack
-type PackPrompt struct {
-	// Identity
-	ID          string `json:"id"`          // Prompt ID (task_type)
-	Name        string `json:"name"`        // Human-readable name
-	Description string `json:"description"` // Prompt description
-	Version     string `json:"version"`     // Prompt version
-
-	// Prompt
-	SystemTemplate string `json:"system_template"`
-
-	// Variables — spec-exact compiled variables (see prompt.Variable).
-	Variables []Variable `json:"variables,omitempty"`
-
-	// Tools
-	Tools      []string        `json:"tools,omitempty"`       // Allowed tool names
-	ToolPolicy *ToolPolicyPack `json:"tool_policy,omitempty"` // Tool usage policy
-
-	// Multimodal media configuration
-	MediaConfig *MediaConfig `json:"media,omitempty"`
-
-	// Pipeline
-	Pipeline map[string]interface{} `json:"pipeline,omitempty"` // Pipeline configuration
-
-	// Parameters
-	Parameters *ParametersPack `json:"parameters,omitempty"` // Model-specific parameters
-
-	// Validators — spec-exact compiled validators (see prompt.Validator).
-	Validators []Validator `json:"validators,omitempty"`
-
-	// Evals - Prompt-level eval definitions (override pack-level evals by ID)
-	Evals []evals.EvalDef `json:"evals,omitempty"`
-
-	// Model Testing
-	TestedModels []ModelTestResultRef `json:"tested_models,omitempty"`
-
-	// Model Overrides
-	ModelOverrides map[string]ModelOverride `json:"model_overrides,omitempty"`
-}
+// PackPrompt is a single prompt definition within a pack.
+//
+// Generated. It is the hub every prompt hangs off, so adopting it was left
+// until everything reachable from it was generated first — validators, evals,
+// variables, tested_models, model_overrides, media and parameters are all
+// packspec types now, and the generated Prompt holds them as slices and maps of
+// POINTERS, which is the shape the schema implies for optional objects.
+//
+// ToPromptConfig() was a method. A type alias cannot carry methods, so it is
+// the free function ToConfig below.
+type PackPrompt = packspec.Prompt
 
 // ToolPolicyPack represents tool policy in pack format
 // Generated from the schema: an ALIAS for packspec.ToolPolicy.
@@ -398,7 +246,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 	}
 
 	// Create a pack with a single prompt
-	pack := &Pack{
+	pack := &Pack{Pack: packspec.Pack{
 		ID:             config.Spec.TaskType,
 		Name:           config.Metadata.Name,
 		Version:        config.Spec.Version,
@@ -406,7 +254,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		TemplateEngine: config.Spec.TemplateEngine,
 		Prompts:        make(map[string]*PackPrompt),
 		Fragments:      make(map[string]string),
-	}
+	}}
 
 	// Add the prompt to the pack
 	packPrompt := &PackPrompt{
@@ -415,12 +263,12 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		Description:    config.Spec.Description,
 		Version:        config.Spec.Version,
 		SystemTemplate: config.Spec.SystemTemplate,
-		Variables:      compileVariables(config.Spec.Variables),
+		Variables:      ptrSlice(compileVariables(config.Spec.Variables)),
 		Tools:          config.Spec.AllowedTools,
-		Validators:     foldValidatorMessages(config.Spec.Validators),
-		MediaConfig:    config.Spec.MediaConfig,
-		TestedModels:   config.Spec.TestedModels,
-		ModelOverrides: config.Spec.ModelOverrides,
+		Validators:     ptrSlice(foldValidatorMessages(config.Spec.Validators)),
+		Media:          config.Spec.MediaConfig,
+		TestedModels:   ptrSlice(config.Spec.TestedModels),
+		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
 	}
 
@@ -547,7 +395,7 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 
 	// Add pack-level evals
 	if len(packEvals) > 0 {
-		pack.Evals = packEvals
+		pack.Evals = ptrSlice(packEvals)
 	}
 
 	// Apply compile options (workflow, agents, etc.)
@@ -562,7 +410,7 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 		pack.Agents = copts.agents
 	}
 	if copts.skills != nil {
-		pack.Skills = copts.skills
+		pack.Skills = ptrSlice(copts.skills)
 	}
 	if copts.compositions != nil {
 		pack.Compositions = copts.compositions
@@ -648,8 +496,8 @@ func ConvertToolToPackTool(name, description string, inputSchema json.RawMessage
 
 // createEmptyPack creates a new empty pack structure
 func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
-	return &Pack{
-		Schema:      PromptPackSchemaURL,
+	return &Pack{Pack: packspec.Pack{
+		Schema:      packspec.Ptr(PromptPackSchemaURL),
 		ID:          packID,
 		Name:        packID,
 		Version:     "v1.0.0",
@@ -657,7 +505,7 @@ func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
 		Prompts:     make(map[string]*PackPrompt),
 		Tools:       make(map[string]*PackTool),
 		Fragments:   make(map[string]string),
-	}
+	}}
 }
 
 // addPromptToPack loads a prompt config and adds it to the pack
@@ -681,9 +529,9 @@ func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
 func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 	// Compile variables to their spec-exact form (defaults type to "string",
 	// drops the runtime-only Binding).
-	variables := compileVariables(config.Spec.Variables)
+	variables := ptrSlice(compileVariables(config.Spec.Variables))
 
-	validators := foldValidatorMessages(config.Spec.Validators)
+	validators := ptrSlice(foldValidatorMessages(config.Spec.Validators))
 
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
@@ -695,11 +543,11 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		Tools:          config.Spec.AllowedTools,
 		ToolPolicy:     config.Spec.ToolPolicy,
 		Parameters:     config.Spec.Parameters,
-		Evals:          config.Spec.Evals,
+		Evals:          ptrSlice(config.Spec.Evals),
 		Validators:     validators,
-		MediaConfig:    config.Spec.MediaConfig,
-		TestedModels:   config.Spec.TestedModels,
-		ModelOverrides: config.Spec.ModelOverrides,
+		Media:          config.Spec.MediaConfig,
+		TestedModels:   ptrSlice(config.Spec.TestedModels),
+		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
 	}
 }
@@ -724,9 +572,12 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 				params["message"] = vc.Message
 			}
 		}
+		// enabled defaults to true when the authoring config omits it; the
+		// generated type keeps it a *bool, so the resolved default is written
+		// back as an explicit value rather than collapsing to the zero.
 		out[i] = Validator{
 			Type:            vc.Type,
-			Enabled:         vc.Enabled == nil || *vc.Enabled,
+			Enabled:         packspec.Ptr(vc.Enabled == nil || *vc.Enabled),
 			FailOnViolation: vc.FailOnViolation,
 			Params:          params,
 		}
@@ -810,7 +661,7 @@ func (p *Pack) ValidateCompositions() *composition.ValidationResult {
 	referenced := map[string]bool{}
 	if p.Workflow != nil {
 		for name, st := range p.Workflow.States {
-			if st.Orchestration != workflow.OrchestrationComposition {
+			if workflow.OrchestrationOf(st) != workflow.OrchestrationComposition {
 				continue
 			}
 			referenced[st.Composition] = true
@@ -1031,15 +882,15 @@ func (p *Pack) ListTools() []string {
 	return names
 }
 
-// ToPromptConfig converts a pack prompt into a prompt.Config suitable for
+// ToConfig converts a pack prompt into a prompt.Config suitable for
 // registration in a prompt.Registry. It carries the fields the prompt-assembly
 // pipeline needs; tools and validators are wired separately by the caller.
-func (pr *PackPrompt) ToPromptConfig(taskType string) *Config {
+func ToConfig(pr *PackPrompt, taskType string) *Config {
 	var vars []VariableMetadata
 	if len(pr.Variables) > 0 {
 		vars = make([]VariableMetadata, len(pr.Variables))
 		for i, v := range pr.Variables {
-			vars[i] = v.toMetadata()
+			vars[i] = VariableToMetadata(*v)
 		}
 	}
 	return &Config{
@@ -1076,15 +927,45 @@ func compileVariables(vars []VariableMetadata) []Variable {
 			Default:     v.Default,
 			Description: v.Description,
 			Example:     v.Example,
-			Validation:  v.Validation,
+			Validation:  validationFromMap(v.Validation),
 		}
 	}
 	return out
 }
 
-// toMetadata converts a compiled variable back to the authoring metadata form.
-// Binding is always nil — it is not carried in the pack.
-func (v Variable) toMetadata() VariableMetadata {
+// ptrSlice converts a value slice to the pointer slice the generated types use
+// for optional object arrays.
+func ptrSlice[T any](in []T) []*T {
+	if in == nil {
+		return nil
+	}
+	out := make([]*T, len(in))
+	for i := range in {
+		v := in[i]
+		out[i] = &v
+	}
+	return out
+}
+
+// ptrMap is ptrSlice for string-keyed maps.
+func ptrMap[T any](in map[string]T) map[string]*T {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*T, len(in))
+	for k := range in {
+		v := in[k]
+		out[k] = &v
+	}
+	return out
+}
+
+// VariableToMetadata converts a compiled variable back to the authoring
+// metadata form. Binding is always nil — it is not carried in the pack.
+//
+// A free function rather than a method: Variable is the generated type now, and
+// a type alias cannot carry methods.
+func VariableToMetadata(v Variable) VariableMetadata {
 	return VariableMetadata{
 		Name:        v.Name,
 		Type:        v.Type,
@@ -1092,8 +973,45 @@ func (v Variable) toMetadata() VariableMetadata {
 		Default:     v.Default,
 		Description: v.Description,
 		Example:     v.Example,
-		Validation:  v.Validation,
+		Validation:  validationToMap(v.Validation),
 	}
+}
+
+// validationToMap renders the generated validation struct back into the
+// authoring map form. The authoring type predates the typed shape and is
+// consumed as a map by the template layer.
+func validationToMap(v *VariableValidation) map[string]any {
+	if v == nil {
+		return nil
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// validationFromMap is the inverse, for compiling an authoring variable.
+func validationFromMap(m map[string]any) *VariableValidation {
+	if len(m) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	var out VariableValidation
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return &out
 }
 
 // GetRequiredVariables returns all required variable names for a specific prompt

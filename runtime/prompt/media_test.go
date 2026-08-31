@@ -1,8 +1,11 @@
 package prompt
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 // TestValidateMediaConfig tests the main media configuration validation
@@ -114,15 +117,15 @@ func TestValidateMediaConfig(t *testing.T) {
 					MaxSizeMB:      packspec.Ptr(20),
 					AllowedFormats: []string{"jpeg"},
 				},
-				Examples: []MultimodalExample{
+				Examples: []*MultimodalExample{
 					{
 						Name: "invalid-example",
-						Parts: []ExampleContentPart{
+						Parts: []*ExampleContentPart{
 							{
 								Text: "", // Empty text
 								Media: &ExampleMedia{
 									FilePath: "", // Empty path
-									MIMEType: "", // Empty MIME type
+									MimeType: "", // Empty MIME type
 								},
 							},
 						},
@@ -379,7 +382,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			example: &MultimodalExample{
 				Name: "test-example",
 				Role: "user",
-				Parts: []ExampleContentPart{
+				Parts: []*ExampleContentPart{
 					{
 						Type: "text",
 						Text: "Hello world",
@@ -392,7 +395,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			name: "missing name",
 			example: &MultimodalExample{
 				Role: "user",
-				Parts: []ExampleContentPart{
+				Parts: []*ExampleContentPart{
 					{Type: "text", Text: "test"},
 				},
 			},
@@ -403,7 +406,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			name: "missing role",
 			example: &MultimodalExample{
 				Name: "test",
-				Parts: []ExampleContentPart{
+				Parts: []*ExampleContentPart{
 					{Type: "text", Text: "test"},
 				},
 			},
@@ -415,7 +418,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			example: &MultimodalExample{
 				Name: "test",
 				Role: "invalid",
-				Parts: []ExampleContentPart{
+				Parts: []*ExampleContentPart{
 					{Type: "text", Text: "test"},
 				},
 			},
@@ -427,7 +430,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			example: &MultimodalExample{
 				Name:  "test",
 				Role:  "user",
-				Parts: []ExampleContentPart{},
+				Parts: []*ExampleContentPart{},
 			},
 			wantErr: true,
 			errMsg:  "at least one content part",
@@ -437,7 +440,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 			example: &MultimodalExample{
 				Name: "image-test",
 				Role: "user",
-				Parts: []ExampleContentPart{
+				Parts: []*ExampleContentPart{
 					{
 						Type: "text",
 						Text: "What's this?",
@@ -446,7 +449,7 @@ func TestValidateMultimodalExample(t *testing.T) {
 						Type: "image",
 						Media: &ExampleMedia{
 							FilePath: "./test.jpg",
-							MIMEType: "image/jpeg",
+							MimeType: "image/jpeg",
 							Detail:   "high",
 						},
 					},
@@ -522,7 +525,7 @@ func TestValidateExampleContentPart(t *testing.T) {
 				Text: "invalid",
 				Media: &ExampleMedia{
 					FilePath: "./test.jpg",
-					MIMEType: "image/jpeg",
+					MimeType: "image/jpeg",
 				},
 			},
 			wantErr: true,
@@ -534,7 +537,7 @@ func TestValidateExampleContentPart(t *testing.T) {
 				Type: "image",
 				Media: &ExampleMedia{
 					FilePath: "./test.jpg",
-					MIMEType: "image/jpeg",
+					MimeType: "image/jpeg",
 					Detail:   "high",
 				},
 			},
@@ -579,7 +582,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			name: "valid file path",
 			media: &ExampleMedia{
 				FilePath: "./test.jpg",
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 			},
 			contentType: "image",
 			wantErr:     false,
@@ -588,7 +591,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			name: "valid URL",
 			media: &ExampleMedia{
 				URL:      "https://example.com/image.jpg",
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 			},
 			contentType: "image",
 			wantErr:     false,
@@ -596,7 +599,7 @@ func TestValidateExampleMedia(t *testing.T) {
 		{
 			name: "no source",
 			media: &ExampleMedia{
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 			},
 			contentType: "image",
 			wantErr:     true,
@@ -609,7 +612,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			name: "valid base64",
 			media: &ExampleMedia{
 				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAUA",
-				MIMEType: "image/png",
+				MimeType: "image/png",
 			},
 			contentType: "image",
 			wantErr:     false,
@@ -619,7 +622,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			media: &ExampleMedia{
 				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAUA",
 				URL:      "https://example.com/image.jpg",
-				MIMEType: "image/png",
+				MimeType: "image/png",
 			},
 			contentType: "image",
 			wantErr:     true,
@@ -630,7 +633,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			media: &ExampleMedia{
 				FilePath: "./test.jpg",
 				URL:      "https://example.com/image.jpg",
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 			},
 			contentType: "image",
 			wantErr:     true,
@@ -649,7 +652,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			name: "invalid detail level",
 			media: &ExampleMedia{
 				FilePath: "./test.jpg",
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 				Detail:   "invalid",
 			},
 			contentType: "image",
@@ -660,7 +663,7 @@ func TestValidateExampleMedia(t *testing.T) {
 			name: "valid detail levels",
 			media: &ExampleMedia{
 				FilePath: "./test.jpg",
-				MIMEType: "image/jpeg",
+				MimeType: "image/jpeg",
 				Detail:   "high",
 			},
 			contentType: "image",
@@ -810,4 +813,50 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestDocumentMediaSurvivesARoundTrip — prompt.Media was hand-written and
+// had no `document` field, so a prompt declaring document media round-tripped to
+// nothing at all: `{"media":{"document":{...}}}` came back as
+// `{"media":{"enabled":false}}`. Same failure as metadata.governance, and found
+// the same way — by property-checking the struct against the schema.
+//
+// MediaConfig is the generated type now, so this covers the whole chain that
+// had to be adopted with it: MultimodalExample, ContentPart and MediaReference.
+func TestDocumentMediaSurvivesARoundTrip(t *testing.T) {
+	src := `{"id":"p","name":"P","version":"1.0.0","description":"d",
+	  "template_engine":{"version":"v1","syntax":"{{variable}}"},
+	  "prompts":{"c":{"id":"c","name":"C","version":"1.0.0","system_template":"hi",
+	    "media":{"enabled":true,"supported_types":["document","image"],
+	      "document":{"max_size_mb":10,"allowed_formats":["pdf"]},
+	      "examples":[{"name":"e","role":"user","parts":[
+	        {"type":"text","text":"what is in this?"},
+	        {"type":"document","media":{"file_path":"./spec.pdf",
+	           "mime_type":"application/pdf","caption":"the spec"}}]}]}}}}`
+
+	var p Pack
+	if err := json.Unmarshal([]byte(src), &p); err != nil {
+		t.Fatal(err)
+	}
+
+	media := p.Prompts["c"].Media
+	if media == nil || media.Document == nil {
+		t.Fatal("document config dropped on load")
+	}
+	if got := packspec.Deref(media.Document.MaxSizeMB, 0); got != 10 {
+		t.Errorf("document max_size_mb = %d, want 10", got)
+	}
+
+	out, err := NewPackCompiler(nil).MarshalPack(&p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"document", "allowed_formats", "pdf", "max_size_mb",
+		"application/pdf", "the spec", "what is in this?",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("%q dropped on emit:\n%s", want, out)
+		}
+	}
 }

@@ -119,18 +119,18 @@ func ValidatePackWithRegistry(
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validatePromptValidators(promptID, promptDef.Validators, reg)...)
+		issues = append(issues, validatePromptValidators(promptID, pack.ValidatorValues(promptDef.Validators), reg)...)
 	}
 
 	// Pack-level evals (apply to all prompts, PromptID="").
-	issues = append(issues, validateEvalDefs("", loaded.Evals, reg)...)
+	issues = append(issues, validateEvalDefs("", evals.Values(loaded.Evals), reg)...)
 
 	// Per-prompt evals.
 	for promptID, promptDef := range loaded.Prompts {
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validateEvalDefs(promptID, promptDef.Evals, reg)...)
+		issues = append(issues, validateEvalDefs(promptID, evals.Values(promptDef.Evals), reg)...)
 	}
 
 	return issues, nil
@@ -158,7 +158,9 @@ func validatePromptValidators(
 ) []PackIssue {
 	var issues []PackIssue
 	for i, v := range vs {
-		if !v.Enabled {
+		// Enabled is *bool on the generated type: absent means enabled, which
+		// is what the compiler resolves. Only an explicit false skips.
+		if v.Enabled != nil && !*v.Enabled {
 			continue
 		}
 		if _, err := guardrails.NewGuardrailHookFromRegistry(v.Type, v.Params, registry); err != nil {

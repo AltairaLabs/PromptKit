@@ -109,29 +109,51 @@ func ParseConfig(raw interface{}) (*Spec, error) {
 	return &spec, nil
 }
 
-// Spec is the top-level workflow definition from a PromptPack.
-type Spec struct {
-	Version int               `json:"version"`
-	Entry   string            `json:"entry"`
-	States  map[string]*State `json:"states"`
-	Engine  map[string]any    `json:"engine,omitempty"`
+// Spec is a pack's workflow state-machine specification.
+//
+// Generated. It was hand-written only because its states map held a
+// hand-written State; it carries no methods of its own.
+type Spec = packspec.WorkflowConfig
+
+// State is a single state within a workflow.
+//
+// Generated. terminal, max_visits and orchestration are pointers on the
+// generated type because the spec makes them optional — which is more correct
+// than the values they replaced, since absent is now distinguishable from the
+// zero. Use IsTerminal, MaxVisitsOf and OrchestrationOf rather than reading
+// them directly; they resolve the documented default in one place.
+type State = packspec.WorkflowState
+
+// IsTerminal reports whether a state ends the workflow.
+//
+// terminal is *bool on the generated type because the spec makes it optional,
+// and absent means "not terminal" rather than "unset". A state with no
+// outgoing events is terminal regardless of the flag.
+func IsTerminal(s *State) bool {
+	if s == nil {
+		return true
+	}
+	return packspec.Deref(s.Terminal, false) || len(s.OnEvent) == 0
 }
 
-// State defines a single state in the workflow state machine.
-type State struct {
-	PromptTask    string            `json:"prompt_task"`
-	Description   string            `json:"description,omitempty"`
-	OnEvent       map[string]string `json:"on_event,omitempty"`
-	Persistence   Persistence       `json:"persistence,omitempty"`
-	Orchestration Orchestration     `json:"orchestration,omitempty"`
-	Skills        string            `json:"skills,omitempty"`
-	// Composition names the composition (in the pack's compositions map) that a
-	// composition-orchestrated state runs. Required when Orchestration == composition.
-	Composition string                  `json:"composition,omitempty"`
-	Terminal    bool                    `json:"terminal,omitempty"`      // RFC 0009: explicit terminal marker
-	MaxVisits   int                     `json:"max_visits,omitempty"`    // RFC 0009: max times this state can be entered
-	OnMaxVisits string                  `json:"on_max_visits,omitempty"` // RFC 0009: redirect on max_visits
-	Artifacts   map[string]*ArtifactDef `json:"artifacts,omitempty"`     // RFC 0009: artifact slot declarations
+// MaxVisitsOf returns a state's visit cap, or 0 when uncapped.
+func MaxVisitsOf(s *State) int {
+	if s == nil {
+		return 0
+	}
+	return packspec.Deref(s.MaxVisits, 0)
+}
+
+// OrchestrationOf returns a state's control mode, defaulting to
+// OrchestrationInternal when the state does not declare one.
+func OrchestrationOf(s *State) string {
+	if s == nil {
+		return OrchestrationInternal
+	}
+	if s.Orchestration == nil || *s.Orchestration == "" {
+		return OrchestrationInternal
+	}
+	return *s.Orchestration
 }
 
 // ArtifactDef declares a named artifact slot on a workflow state.
@@ -176,8 +198,8 @@ type Persistence string
 
 // Persistence values.
 const (
-	PersistenceTransient  Persistence = "transient"
-	PersistencePersistent Persistence = "persistent"
+	PersistenceTransient  = "transient"
+	PersistencePersistent = "persistent"
 )
 
 // Orchestration is the control mode for a workflow state.
@@ -185,12 +207,12 @@ type Orchestration string
 
 // Orchestration values.
 const (
-	OrchestrationInternal Orchestration = "internal"
-	OrchestrationExternal Orchestration = "external"
-	OrchestrationHybrid   Orchestration = "hybrid"
+	OrchestrationInternal = "internal"
+	OrchestrationExternal = "external"
+	OrchestrationHybrid   = "hybrid"
 	// OrchestrationComposition runs a declarative composition step-graph for the
 	// state instead of an LLM-driven turn (RFC 0010).
-	OrchestrationComposition Orchestration = "composition"
+	OrchestrationComposition = "composition"
 )
 
 // Context holds the runtime state of a workflow execution.

@@ -168,10 +168,10 @@ func (e *TransitionExecutor) RegisterForState(registry *tools.Registry, state *S
 	if registry == nil || state == nil {
 		return
 	}
-	if state.Orchestration == OrchestrationExternal {
+	if OrchestrationOf(state) == OrchestrationExternal {
 		return
 	}
-	if state.Terminal || len(state.OnEvent) == 0 {
+	if IsTerminal(state) {
 		registry.Unregister(TransitionToolName)
 		return
 	}

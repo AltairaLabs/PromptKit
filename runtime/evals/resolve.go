@@ -64,7 +64,7 @@ func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
 
 	filtered := make([]EvalDef, 0, len(defs))
 	for i := range defs {
-		for _, g := range defs[i].GetGroups() {
+		for _, g := range Groups(&defs[i]) {
 			if allowed[g] {
 				filtered = append(filtered, defs[i])
 				break

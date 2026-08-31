@@ -379,18 +379,13 @@ func TestGetDefaultPipelineConfig(t *testing.T) {
 		t.Fatal("Expected non-nil config")
 	}
 
-	stages, ok := config["stages"].([]string)
-	if !ok {
-		t.Fatal("Expected stages to be []string")
-	}
+	// Typed now that Prompt.Pipeline is the generated *PipelineConfig.
+	stages := config.Stages
 	if len(stages) != 3 {
 		t.Errorf("Expected 3 stages, got %d", len(stages))
 	}
 
-	middleware, ok := config["middleware"].([]map[string]interface{})
-	if !ok {
-		t.Fatal("Expected middleware to be []map[string]interface{}")
-	}
+	middleware := config.Middleware
 	if len(middleware) != 3 {
 		t.Errorf("Expected 3 middleware configs, got %d", len(middleware))
 	}

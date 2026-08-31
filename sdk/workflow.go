@@ -197,7 +197,7 @@ func resolveCompositionForState(p *pack.Pack, stateName string) (Option, error) 
 		return nil, nil
 	}
 	state, ok := p.Workflow.States[stateName]
-	if !ok || state.Orchestration != orchestrationComposition {
+	if !ok || workflow.OrchestrationOf(state) != orchestrationComposition {
 		return nil, nil
 	}
 	compName := state.Composition
@@ -677,10 +677,10 @@ func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration {
 		return workflow.OrchestrationInternal
 	}
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
-	if state == nil || state.Orchestration == "" {
-		return workflow.OrchestrationInternal
-	}
-	return state.Orchestration
+	// OrchestrationOf resolves the default and is nil-safe. The named type is
+	// kept on the way out: this is a published SDK signature, and the schema
+	// having no enum for orchestration is no reason to change it on callers.
+	return workflow.Orchestration(workflow.OrchestrationOf(state))
 }
 
 // ActiveConversation returns the current state's Conversation.

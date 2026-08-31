@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+
+	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 )
 
 func TestTransitionExecutor_DeferredCommit(t *testing.T) {
@@ -174,7 +176,7 @@ func TestTransitionExecutor_SkipsTerminalState(t *testing.T) {
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
-			"a": {PromptTask: "t", Terminal: true},
+			"a": {PromptTask: "t", Terminal: packspec.Ptr(true)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -199,7 +201,7 @@ func TestTransitionExecutor_UnregistersOnTerminalEntry(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*State{
 			"a":    {PromptTask: "t", OnEvent: map[string]string{"Finish": "done"}},
-			"done": {PromptTask: "t", Terminal: true},
+			"done": {PromptTask: "t", Terminal: packspec.Ptr(true)},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -226,7 +228,7 @@ func TestTransitionExecutor_MaxVisitsRedirect(t *testing.T) {
 		Entry:   "a",
 		States: map[string]*State{
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Loop": "b"}},
-			"b": {PromptTask: "t", MaxVisits: 1, OnMaxVisits: "done",
+			"b": {PromptTask: "t", MaxVisits: packspec.Ptr(1), OnMaxVisits: "done",
 				OnEvent: map[string]string{"Loop": "b"}},
 			"done": {PromptTask: "t"},
 		},

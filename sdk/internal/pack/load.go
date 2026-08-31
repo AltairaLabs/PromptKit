@@ -94,7 +94,7 @@ func ToPromptRegistry(p *Pack) *prompt.Registry {
 	repo := memory.NewPromptRepository()
 
 	for taskType, packPrompt := range p.Prompts {
-		repo.RegisterPrompt(taskType, packPrompt.ToPromptConfig(taskType))
+		repo.RegisterPrompt(taskType, prompt.ToConfig(packPrompt, taskType))
 	}
 
 	for name, content := range p.Fragments {

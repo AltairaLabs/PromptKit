@@ -14,7 +14,7 @@ func TestShouldRunWhen_NilWhen(t *testing.T) {
 
 func TestShouldRunWhen_AnyToolCalled_NoTools(t *testing.T) {
 	when := &EvalWhen{AnyToolCalled: true}
-	ok, reason := ShouldRunWhen(when, nil)
+	ok, reason := ShouldRunWhen(EncodeEvalWhen(when), nil)
 	if ok {
 		t.Error("should skip when no tool calls")
 	}
@@ -26,7 +26,7 @@ func TestShouldRunWhen_AnyToolCalled_NoTools(t *testing.T) {
 func TestShouldRunWhen_AnyToolCalled_WithTools(t *testing.T) {
 	when := &EvalWhen{AnyToolCalled: true}
 	calls := []ToolCallRecord{{ToolName: "search"}}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if !ok {
 		t.Error("should run when tool calls present")
 	}
@@ -38,7 +38,7 @@ func TestShouldRunWhen_ToolCalled_Match(t *testing.T) {
 		{ToolName: "format"},
 		{ToolName: "search"},
 	}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if !ok {
 		t.Error("should run when named tool was called")
 	}
@@ -47,7 +47,7 @@ func TestShouldRunWhen_ToolCalled_Match(t *testing.T) {
 func TestShouldRunWhen_ToolCalled_NoMatch(t *testing.T) {
 	when := &EvalWhen{ToolCalled: "search"}
 	calls := []ToolCallRecord{{ToolName: "format"}}
-	ok, reason := ShouldRunWhen(when, calls)
+	ok, reason := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if ok {
 		t.Error("should skip when named tool not called")
 	}
@@ -59,7 +59,7 @@ func TestShouldRunWhen_ToolCalled_NoMatch(t *testing.T) {
 func TestShouldRunWhen_ToolCalledPattern_Match(t *testing.T) {
 	when := &EvalWhen{ToolCalledPattern: "workflow__.*"}
 	calls := []ToolCallRecord{{ToolName: "workflow__transition"}}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if !ok {
 		t.Error("should run when pattern matches")
 	}
@@ -68,7 +68,7 @@ func TestShouldRunWhen_ToolCalledPattern_Match(t *testing.T) {
 func TestShouldRunWhen_ToolCalledPattern_NoMatch(t *testing.T) {
 	when := &EvalWhen{ToolCalledPattern: "workflow__.*"}
 	calls := []ToolCallRecord{{ToolName: "search"}}
-	ok, reason := ShouldRunWhen(when, calls)
+	ok, reason := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if ok {
 		t.Error("should skip when pattern doesn't match")
 	}
@@ -80,7 +80,7 @@ func TestShouldRunWhen_ToolCalledPattern_NoMatch(t *testing.T) {
 func TestShouldRunWhen_ToolCalledPattern_InvalidRegex(t *testing.T) {
 	when := &EvalWhen{ToolCalledPattern: "[invalid"}
 	calls := []ToolCallRecord{{ToolName: "search"}}
-	ok, reason := ShouldRunWhen(when, calls)
+	ok, reason := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if ok {
 		t.Error("should skip on invalid regex")
 	}
@@ -95,7 +95,7 @@ func TestShouldRunWhen_MinToolCalls_Met(t *testing.T) {
 		{ToolName: "a"},
 		{ToolName: "b"},
 	}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if !ok {
 		t.Error("should run when min tool calls met")
 	}
@@ -104,7 +104,7 @@ func TestShouldRunWhen_MinToolCalls_Met(t *testing.T) {
 func TestShouldRunWhen_MinToolCalls_NotMet(t *testing.T) {
 	when := &EvalWhen{MinToolCalls: 3}
 	calls := []ToolCallRecord{{ToolName: "a"}}
-	ok, reason := ShouldRunWhen(when, calls)
+	ok, reason := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if ok {
 		t.Error("should skip when min tool calls not met")
 	}
@@ -123,7 +123,7 @@ func TestShouldRunWhen_CombinedConditions(t *testing.T) {
 		{ToolName: "search"},
 		{ToolName: "format"},
 	}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if !ok {
 		t.Error("should run when all conditions met")
 	}
@@ -136,7 +136,7 @@ func TestShouldRunWhen_CombinedConditions_PartialFail(t *testing.T) {
 		MinToolCalls:  1,
 	}
 	calls := []ToolCallRecord{{ToolName: "search"}}
-	ok, _ := ShouldRunWhen(when, calls)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), calls)
 	if ok {
 		t.Error("should skip when one condition fails")
 	}
@@ -144,7 +144,7 @@ func TestShouldRunWhen_CombinedConditions_PartialFail(t *testing.T) {
 
 func TestShouldRunWhen_EmptyWhen(t *testing.T) {
 	when := &EvalWhen{}
-	ok, _ := ShouldRunWhen(when, nil)
+	ok, _ := ShouldRunWhen(EncodeEvalWhen(when), nil)
 	if !ok {
 		t.Error("empty when (no conditions) should return true")
 	}
