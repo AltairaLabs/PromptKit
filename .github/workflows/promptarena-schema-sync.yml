@@ -1,0 +1,174 @@
+name: PromptArena Schema Sync
+
+# Keeps schemas/v1alpha1/ equal to the schemas promptarena generates, by raising
+# a PR when they move.
+#
+# promptarena owns these schemas: it holds the arena/arenaconfig types, imports
+# this repo's pkg/config, and its tools/schema-gen emits them. PromptKit keeps a
+# committed copy because pkg/config's validator loads it and docs hosts it at the
+# stable promptkit.altairalabs.ai/schemas URL.
+#
+# Two triggers, both wired, for the reason spelled out in
+# promptpack-schema-sync.yml: a dispatch is fire-and-forget, so the schedule is
+# what makes the sync self-healing when a dispatch is missed.
+#   - repository_dispatch (event_type=promptarena-schema-change), for promptarena
+#     to fire when it regenerates. NOT YET SENT by promptarena — until that is
+#     wired, the schedule is the only live trigger, which is why it is not
+#     optional.
+#   - the daily schedule, matching schemas.yml's cron.
+#
+# Deliberately opens a PR rather than pushing to main. Resyncing is NOT always
+# mechanical: the 2026-08-31 resync changed validation semantics in both
+# directions at once — repairing Eval.when (closed $ref -> open object, matching
+# the spec) while breaking spec.metadata.changelog and .performance
+# (promptarena#134). A human should see that diff.
+#
+# Before this existed, an upstream regeneration turned main red on the next cron
+# and stayed red until someone ran `make schemas` by hand (#1932).
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [promptarena-schema-change]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Raise PR if promptarena's schemas have moved
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # PAT so the branch push is attributed to it rather than GITHUB_TOKEN —
+        # see the note on "Open or update the sync PR".
+        token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Fetch the generated schemas
+      run: ./scripts/fetch-schemas.sh
+
+    # git status, not git diff: a schema file that is NEW upstream lands here
+    # untracked, and `git diff` does not list untracked files — so a new schema
+    # would be fetched, invisible to the check, and never committed. Same blind
+    # spot that let `make verify` pass without testing anything (#1938).
+    - name: Detect change
+      id: detect
+      run: |
+        CHANGES=$(git status --porcelain --untracked-files=all -- schemas/v1alpha1)
+        if [ -z "$CHANGES" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "✓ Committed schemas already match promptarena"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "files<<FILES_EOF"
+            echo "$CHANGES"
+            echo "FILES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "promptarena's schemas have moved:"
+          echo "$CHANGES"
+        fi
+
+    # The guard that matters for THIS mirror. pkg/config validates against the
+    # committed copy, but only when PROMPTKIT_SCHEMA_SOURCE=local — unset, it
+    # validates against the HOSTED schemas and passes regardless of what this PR
+    # changed. Running it here lets the PR body say up front whether the new
+    # schemas still accept the configs this repo ships.
+    - name: Check pkg/config against the new schemas
+      if: steps.detect.outputs.changed == 'true'
+      id: guards
+      continue-on-error: true
+      env:
+        PROMPTKIT_SCHEMA_SOURCE: local
+      run: |
+        set +e
+        OUT=$(go -C pkg test ./config/... -count=1 2>&1)
+        RC=$?
+        {
+          echo "output<<GUARDS_EOF"
+          echo "$OUT" | grep -E '^(---|FAIL|ok)' | head -40
+          echo "GUARDS_EOF"
+        } >> "$GITHUB_OUTPUT"
+        if [ $RC -eq 0 ]; then
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "clean=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # The PAT is required, not a preference. GitHub does not start workflow runs
+    # for events raised by GITHUB_TOKEN (a recursion guard), so a PR opened with
+    # it never gets CI, its required checks never report, and it sits
+    # mergeable-but-BLOCKED forever — hiding the very failures this PR exists to
+    # surface.
+    - name: Open or update the sync PR
+      if: steps.detect.outputs.changed == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        CLEAN: ${{ steps.guards.outputs.clean }}
+        GUARDS: ${{ steps.guards.outputs.output }}
+        FILES: ${{ steps.detect.outputs.files }}
+      run: |
+        # One rolling branch, force-pushed. These schemas carry no single
+        # version to name a branch after, and a branch per run would leave a
+        # trail of stale PRs for the same fact.
+        BRANCH="chore/promptarena-schema-sync"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -B "$BRANCH"
+        git add schemas/v1alpha1
+        git commit -s -m "chore(schema): sync committed schemas with promptarena
+
+        Fetched by scripts/fetch-schemas.sh from the schemas promptarena
+        generates. PromptKit hosts and validates against this copy but does not
+        own it — fix a wrong schema in promptarena, not here."
+        git push -f origin "$BRANCH"
+
+        if [ "$CLEAN" = "true" ]; then
+          STATUS="**Clean pickup.** \`pkg/config\` still validates against the new schemas."
+        else
+          STATUS="**Needs a decision.** \`pkg/config\` fails against the new schemas — they no longer accept something this repo ships, or they now accept something it rejects.
+
+        Do not hand-edit \`schemas/v1alpha1/\` to make this pass; it is a mirror of promptarena's generated output. Fix it in promptarena (its \`tools/schema-gen\`) and let this sync pick the fix up."
+        fi
+
+        BODY="Automated sync: promptarena's generated schemas have moved.
+
+        ${STATUS}
+
+        \`\`\`
+        ${FILES}
+        \`\`\`
+
+        \`\`\`
+        ${GUARDS}
+        \`\`\`
+
+        Raised by \`.github/workflows/promptarena-schema-sync.yml\`. **This PR is
+        opened, never merged, by automation** — a human approves and merges it,
+        because a resync can change validation semantics in both directions at
+        once (see #1932)."
+
+        if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+          gh pr edit "$BRANCH" --body "$BODY"
+          echo "✓ Updated existing PR for $BRANCH"
+        else
+          gh pr create --head "$BRANCH" --base main \
+            --title "chore(schema): sync committed schemas with promptarena" \
+            --body "$BODY"
+          # Requested separately so a reviewer problem cannot fail the create and
+          # leave a branch pushed with no PR.
+          gh pr edit "$BRANCH" --add-reviewer AltairaLabs/maintainers || \
+            echo "::warning::could not request a review from AltairaLabs/maintainers"
+          echo "✓ Opened PR for $BRANCH"
+        fi
