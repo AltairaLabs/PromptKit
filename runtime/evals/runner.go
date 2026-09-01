@@ -214,6 +214,17 @@ func (r *EvalRunner) runOne(
 
 	// Check when-conditions (tool call preconditions)
 	if len(def.When) > 0 {
+		// A gate this runtime cannot honor is an authoring fault, not a
+		// precondition that happened not to match, so it is reported as an
+		// error rather than folded into the skip path (#1931).
+		if err := ValidateEvalWhen(def.When); err != nil {
+			logger.Warn("evals: unusable when-condition", "eval_id", def.ID, "error", err)
+			return &EvalResult{
+				EvalID: def.ID,
+				Type:   def.Type,
+				Error:  err.Error(),
+			}
+		}
 		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
 			logger.Debug("evals: skipping eval, when-condition not met", "eval_id", def.ID, "reason", reason)
 			return &EvalResult{

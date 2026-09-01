@@ -947,3 +947,80 @@ func TestEvalRunner_EmitResult_KindStatesTheRole(t *testing.T) {
 		})
 	}
 }
+
+// countingHandler records how many times it was asked to evaluate.
+type countingHandler struct {
+	typeName string
+	calls    int
+}
+
+func (c *countingHandler) Type() string { return c.typeName }
+
+func (c *countingHandler) Eval(
+	_ context.Context, _ *EvalContext, _ map[string]any,
+) (*EvalResult, error) {
+	c.calls++
+	score := 1.0
+	return &EvalResult{Score: &score}, nil
+}
+
+// TestRunTurnEvals_UnsupportedWhenKeyIsAnError — a `when` promptkit cannot
+// honour is an authoring fault, not a precondition that happened not to match.
+// Reporting it as an error keeps it distinct from a legitimate skip, and stops
+// the eval running as though the author had written no gate at all (#1931).
+func TestRunTurnEvals_UnsupportedWhenKeyIsAnError(t *testing.T) {
+	handler := &countingHandler{typeName: "test"}
+	runner := NewEvalRunner(newTestRegistry(handler))
+
+	defs := []EvalDef{{
+		ID:      "e1",
+		Type:    "test",
+		Trigger: TriggerEveryTurn,
+		When:    map[string]any{"turn_count_gte": 3},
+	}}
+
+	results := runner.RunTurnEvals(context.Background(), defs, &EvalContext{SessionID: "s1"})
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if results[0].Error == "" {
+		t.Fatal("an unhonourable when must report an error, not run silently")
+	}
+	if !strings.Contains(results[0].Error, "turn_count_gte") {
+		t.Errorf("error must name the offending key, got %q", results[0].Error)
+	}
+	if results[0].Skipped {
+		t.Error("an authoring fault is not a precondition skip")
+	}
+	if handler.calls != 0 {
+		t.Errorf("handler ran %d times, want 0", handler.calls)
+	}
+}
+
+// TestRunTurnEvals_SupportedWhenKeyStillGates — the guard above must not have
+// broken the gate it is guarding: a supported condition still skips normally.
+func TestRunTurnEvals_SupportedWhenKeyStillGates(t *testing.T) {
+	handler := &countingHandler{typeName: "test"}
+	runner := NewEvalRunner(newTestRegistry(handler))
+
+	defs := []EvalDef{{
+		ID:      "e1",
+		Type:    "test",
+		Trigger: TriggerEveryTurn,
+		When:    map[string]any{"tool_called": "search"},
+	}}
+
+	results := runner.RunTurnEvals(context.Background(), defs, &EvalContext{SessionID: "s1"})
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !results[0].Skipped {
+		t.Error("an unmet supported condition must skip")
+	}
+	if results[0].Error != "" {
+		t.Errorf("a skip is not an error, got %q", results[0].Error)
+	}
+	if handler.calls != 0 {
+		t.Errorf("handler ran %d times, want 0", handler.calls)
+	}
+}

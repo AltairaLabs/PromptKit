@@ -3,19 +3,94 @@ package evals
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 )
+
+// supportedWhenKeys is the set of `when` conditions promptkit implements, and
+// supportedWhenKeyList the same set rendered for an error message. Both are
+// derived from EvalWhen's json tags rather than written out, so adding a
+// condition to the struct cannot leave this set behind.
+var supportedWhenKeys, supportedWhenKeyList = func() (map[string]bool, string) {
+	t := reflect.TypeFor[EvalWhen]()
+	keys := make(map[string]bool, t.NumField())
+	names := make([]string, 0, t.NumField())
+	for field := range t.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		keys[name] = true
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return keys, strings.Join(names, ", ")
+}()
+
+// ValidateEvalWhen reports an authoring fault in a `when` object: a condition
+// promptkit does not implement, or a recognized condition carrying a value of
+// the wrong type.
+//
+// The spec defines $defs/Eval.when as additionalProperties:true with no named
+// properties, and its own two examples — has_variable and turn_count_gte — are
+// conditions promptkit does not implement. So nothing upstream rejects a key
+// this runtime cannot honor, and until v1.8.0 opened promptconfig.json's `when`
+// to match the spec, the closed schema was the only thing catching a typo.
+// Neither running the eval as though no gate had been written nor skipping it
+// as though the gate had failed is a defensible reading of "the author asked
+// for something this runtime cannot do", so it is reported instead (#1931).
+func ValidateEvalWhen(raw map[string]any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	unsupported := make([]string, 0, len(raw))
+	for key := range raw {
+		if !supportedWhenKeys[key] {
+			unsupported = append(unsupported, strconv.Quote(key))
+		}
+	}
+	if len(unsupported) > 0 {
+		sort.Strings(unsupported)
+		return fmt.Errorf(
+			"unsupported when condition(s): %s (supported: %s)",
+			strings.Join(unsupported, ", "), supportedWhenKeyList,
+		)
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("when is not encodable: %w", err)
+	}
+	var when EvalWhen
+	if err := json.Unmarshal(data, &when); err != nil {
+		return fmt.Errorf("when has a value of the wrong type: %w", err)
+	}
+	return nil
+}
 
 // ShouldRunWhen evaluates `when` preconditions against the current eval
 // context's tool call records. Returns whether the eval should run and a reason
 // string if skipped. When toolCalls is nil (e.g. duplex path), returns true to
 // let the handler itself decide how to handle the missing data.
 //
+// A `when` this runtime cannot honor gates the eval off with the authoring
+// fault as its reason, rather than running it unconditionally. Callers that can
+// report an error rather than a skip — the eval runner does — should check
+// ValidateEvalWhen first and surface that instead.
+//
 // Takes the raw map because that is what the spec defines: $defs/Eval.when is
 // additionalProperties:true with no named properties, so the generated type is
 // map[string]any and EvalWhen is promptkit's own reading of it. Decoding here
 // keeps that reading in one place instead of at each call site.
 func ShouldRunWhen(raw map[string]any, toolCalls []ToolCallRecord) (shouldRun bool, reason string) {
+	if err := ValidateEvalWhen(raw); err != nil {
+		return false, err.Error()
+	}
+
 	when := DecodeEvalWhen(raw)
 	if when == nil {
 		return true, ""
@@ -43,8 +118,11 @@ func ShouldRunWhen(raw map[string]any, toolCalls []ToolCallRecord) (shouldRun bo
 }
 
 // DecodeEvalWhen reads promptkit's when-conditions out of the spec's open
-// `when` object. A map that decodes to no conditions yields nil, so an
-// unrecognized shape does not silently gate an eval off.
+// `when` object. A map that decodes to no conditions yields nil, meaning no
+// gate — which is correct only for a `when` that is empty or that sets its
+// conditions to their zero values. An unrecognized or wrongly typed `when` also
+// decodes to nothing, and is an authoring fault rather than an absent gate, so
+// callers must reject it with ValidateEvalWhen before reaching here.
 func DecodeEvalWhen(raw map[string]any) *EvalWhen {
 	if len(raw) == 0 {
 		return nil
