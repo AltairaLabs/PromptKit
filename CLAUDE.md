@@ -24,7 +24,7 @@ Install hooks once after cloning: `./scripts/install-hooks.sh` (sources are trac
 **NEVER use `--no-verify` or skip the hooks.** The pre-commit checks mirror what SonarCloud enforces in CI — if the hook fails, the PR will also fail. Fix all issues before committing, including pre-existing issues in files you've touched.
 
 ### Before committing
-1. Run `golangci-lint run ./...` and `go test ./... -count=1` first
+1. Run **`make verify`** — it is exactly what the pre-commit hook and CI run (`lint-diff` + `test-fast`). Do not reach for `golangci-lint run ./...` or `go test ./... -count=1` at the repo root; there is no root module and both fail.
 2. Fix ALL failures before attempting `git commit`
 3. If the pre-commit hook reports lint or coverage failures on pre-existing code in files you changed, fix those too — SonarCloud will flag them
 
@@ -50,24 +50,45 @@ the Go SDK/runtime libraries, keeps a committed copy of the schemas (its
 
 ## Build & Test Commands
 
+**Use the Makefile. `make help` lists every target.** There is no root `go.mod` — `go.work`
+lists the modules — so `go build ./...` and `go test ./...` from the repo root fail with
+*"directory prefix . does not contain modules listed in go.work"*. The make targets
+iterate the modules for you.
+
+| Target | What it does |
+|---|---|
+| `make build` / `make test` | Build / test all four modules |
+| `make test-race` / `make coverage` | Race detector; coverage report |
+| `make verify` | `lint-diff` + `test-fast` — what pre-commit and CI run |
+| `make lint` | `go vet` + `go fmt`. **Not golangci-lint** — that's `make lint-diff` |
+| `make lint-diff` | golangci-lint on changed code only (`--new-from-rev=HEAD`) |
+| `make modules-standalone-check` | Build each module with `GOWORK=off`, as a consumer resolves it — catches dep skew the workspace hides (#1920) |
+| `make api-compat-check VERSION=vX.Y.Z` | Check the API changes fit the claimed version |
+
+For a single package, use `go -C <module>` rather than a root-relative path:
+
 ```bash
-# Build everything
-go build ./...
-
-# Run all tests
-go test ./... -count=1
-
-# Run specific module tests
-go test ./sdk/... -v -race -count=1
-go test ./runtime/... -v -race -count=1
-
-# Lint
-golangci-lint run ./...
-
-# Refresh the JSON schemas from promptarena (the schema owner) and commit
-make schemas          # fetch schemas/v1alpha1 from AltairaLabs/promptarena
-make schemas-check    # CI gate: verify the committed copy matches promptarena
+go -C runtime test ./evals/... -count=1
 ```
+
+### Regenerating
+
+| Target | Regenerates | Check target |
+|---|---|---|
+| `make schemas` | `schemas/v1alpha1/` from promptarena | `make schemas-check` |
+| `make packspec` | `runtime/packspec` pack types from the embedded schema | `make packspec-check` |
+| `make promptpack-schema` | the embedded PromptPack schema from its release | `make promptpack-schema-check` |
+| `make docs-reference` / `make docs-sdk-reference` | generated API reference pages | `…-check` variants |
+
+### Two things the targets don't cover
+
+- **Schema-validating tests need `PROMPTKIT_SCHEMA_SOURCE=local`.** Unset, `pkg/config`
+  validates against the *hosted* schemas, so edits to `schemas/v1alpha1/` are invisible and
+  the suite passes regardless of whether the change is correct. CI sets it; local runs must
+  too: `env PROMPTKIT_SCHEMA_SOURCE=local go -C pkg test ./config/... -count=1`
+- **Nested example modules have their own `go.mod`.** `make build` covers the four
+  published modules; it does not compile `sdk/examples/*`, and neither does
+  `go -C sdk build ./...`. CI catches breakage there, so check them before claiming green.
 
 ## SDK Architecture
 
@@ -99,6 +120,29 @@ serves it at `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`.
 - Refresh the committed copy from promptarena: `make schemas` (fetches via `scripts/fetch-schemas.sh`), then commit.
 - CI (`schemas.yml`) runs `make schemas-check` — fails if the committed copy drifts from promptarena's generated schemas.
 - `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/`; a development-only tool that must not appear in shipped docs or example READMEs.
+
+### Generated artifacts — never hand-edit
+
+Three things here are generated, each with a `make` target to regenerate and a `-check`
+target CI runs. Editing the output instead of the source is reverted on the next
+regeneration and fails that check.
+
+| Artifact | Source of truth | Regenerate |
+|---|---|---|
+| `schemas/v1alpha1/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
+| `runtime/prompt/schema/promptpack.schema.json` | the PromptPack spec release — a **verbatim mirror**; runtime divergence belongs in `deliberateOmission`, never in the file | `make promptpack-schema` |
+| `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
+
+A generated schema can be **stricter than the spec it came from** — `schema-gen` closes
+every `$def` it emits, so where the spec says `additionalProperties: true` the generated
+copy may say `false`. Before concluding a rejected field was deliberately removed, check
+the spec:
+
+```bash
+jq '.properties.metadata.additionalProperties' runtime/prompt/schema/promptpack.schema.json
+```
+
+Spec open + generated closed is a generator bug (promptarena#134/#169), not spec alignment.
 
 ## Concurrent Agents and Worktrees
 
