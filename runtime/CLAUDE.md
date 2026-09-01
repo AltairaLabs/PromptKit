@@ -12,6 +12,8 @@ The runtime is PromptKit's core library. It defines all interfaces, executes LLM
 
 If runtime and `pkg/config` both need a declarative type, put it in `runtime/hooks/execconfig` (a stdlib-only leaf package) and re-export it from `pkg/config` as an **alias** — `type ExecHook = execconfig.ExecHook`. An alias keeps call sites, YAML tags and the generated JSON schema identical; a defined type does not.
 
+**Runtime must run on a `FROM scratch` image — always.** No cgo, no shelling out to external binaries (ffmpeg and friends), pure-Go decoders only. Check a new dependency's build constraints before reaching for it: anything needing cgo or a runtime executable belongs behind an interface a downstream consumer implements, not in runtime.
+
 ## Architecture Overview
 
 ```
@@ -73,7 +75,10 @@ The ProviderStage runs the LLM-tool loop:
 ## Testing
 
 ```bash
-go test ./runtime/... -v -race -count=1
+go -C runtime test ./... -race -count=1     # from the repo root
+go test ./... -race -count=1                # from inside runtime/
 ```
+
+`go test ./runtime/...` from the repo root does **not** work — there is no root `go.mod`. `make test` / `make test-race` cover every module; see the root `CLAUDE.md`.
 
 Runtime tests are self-contained — no external services needed. Mock providers and in-memory stores are used throughout.
