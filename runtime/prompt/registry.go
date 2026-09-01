@@ -177,11 +177,16 @@ type ValidatorConfig struct {
 	Params map[string]interface{} `yaml:"params" json:"params"`
 	// Enable/disable validator (default: true)
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	// FailOnViolation is part of the PromptPack spec but is ignored by
-	// this runtime — guardrails always enforce. Authors wanting
-	// observe-only behavior should declare an eval and assert on it
-	// instead. Tracked upstream:
-	// https://github.com/AltairaLabs/promptpack-spec/issues/46
+	// FailOnViolation is ignored — guardrails always enforce. This used to
+	// be a deviation from the spec; as of PromptPack v1.7.0 it is the
+	// conformant behavior and the field is the deprecated thing. RFC 0015
+	// keeps it schema-valid through v1.x and removes it in v2.0.0, no
+	// earlier than 2027-08-31.
+	//
+	// Disable a validator with enabled: false. For observation without
+	// enforcement, declare an eval and assert on its score.
+	//
+	// https://promptpack.org/docs/rfcs/deprecate-fail-on-violation
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
@@ -913,16 +918,57 @@ func (r *Registry) populateDefaults(config *Config) {
 
 	// Variables are now required in the new format - no auto-migration
 
-	// Enabled defaults to true. FailOnViolation defaults are not applied
-	// here — the field is part of the PromptPack spec but ignored by this
-	// runtime (guardrails always enforce). See ValidatorConfig.FailOnViolation
-	// for the deviation rationale.
+	// Enabled defaults to true. FailOnViolation is deliberately left alone —
+	// the spec deprecated it in v1.7.0 and validators always enforce, so
+	// defaulting it either way would imply it still decides something. See
+	// ValidatorConfig.FailOnViolation.
 	trueVal := true
 	for i := range config.Spec.Validators {
 		if config.Spec.Validators[i].Enabled == nil {
 			config.Spec.Validators[i].Enabled = &trueVal
 		}
 	}
+
+	for _, w := range deprecatedValidatorWarnings(config.Spec.Validators) {
+		logger.Warn(w)
+	}
+}
+
+// deprecatedValidatorWarnings reports one message per validator still
+// declaring fail_on_violation.
+//
+// RFC 0015 deprecated the field in PromptPack v1.7.0 and removes it in v2.0.0,
+// and asks validation tooling to warn while it is still schema-valid. Packs are
+// loaded here, so this is where an affected pack is cheapest to notice — well
+// ahead of the removal.
+//
+// `false` gets a longer message because it is the only value whose author is
+// actually surprised: they asked for observation without enforcement and have
+// been getting enforcement regardless, on every conformant runtime. `true`
+// merely restates what already happens.
+//
+// Returning strings rather than logging inline keeps the wording testable
+// without capturing a logger.
+func deprecatedValidatorWarnings(validators []ValidatorConfig) []string {
+	var warnings []string
+	for i := range validators {
+		v := validators[i]
+		if v.FailOnViolation == nil {
+			continue
+		}
+		msg := fmt.Sprintf(
+			"validator %q declares fail_on_violation: it is deprecated in PromptPack v1.7.0, "+
+				"removed in v2.0.0 (RFC 0015), and ignored — validators always enforce",
+			v.Type,
+		)
+		if !*v.FailOnViolation {
+			msg += ". Despite fail_on_violation: false this validator still enforces, " +
+				"rewriting or blocking the assistant message; use enabled: false to turn it off, " +
+				"or declare an eval to observe without enforcing"
+		}
+		warnings = append(warnings, msg)
+	}
+	return warnings
 }
 
 // ListTaskTypes returns all available task types from the repository.

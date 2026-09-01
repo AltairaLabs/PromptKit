@@ -598,6 +598,13 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 		// enabled defaults to true when the authoring config omits it; the
 		// generated type keeps it a *bool, so the resolved default is written
 		// back as an explicit value rather than collapsing to the zero.
+		//
+		// FailOnViolation decides nothing (RFC 0015 deprecated it and
+		// validators always enforce), but it is still carried rather than
+		// dropped here: this is the authored pack on its way to being emitted
+		// again, and silently discarding a field the author wrote — one that
+		// stays schema-valid until v2.0.0 — is data loss, not tidying. It goes
+		// when the spec removes it.
 		out[i] = Validator{
 			Type:            vc.Type,
 			Enabled:         packspec.Ptr(vc.Enabled == nil || *vc.Enabled),
