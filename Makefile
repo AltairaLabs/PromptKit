@@ -188,13 +188,20 @@ lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
 	@MODULES="runtime sdk pkg server/a2a"; \
 	CHANGED=0; \
+	FAILED=""; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
 			echo "Linting $$module (has changes)..."; \
-			cd $$module && golangci-lint run --new-from-rev=HEAD --timeout=3m ./... && cd ..; \
+			if ! (cd $$module && golangci-lint run --new-from-rev=HEAD --timeout=3m ./...); then \
+				FAILED="$$FAILED $$module"; \
+			fi; \
 			CHANGED=1; \
 		fi; \
 	done; \
+	if [ -n "$$FAILED" ]; then \
+		echo "✗ Lint FAILED in:$$FAILED"; \
+		exit 1; \
+	fi; \
 	if [ $$CHANGED -eq 0 ]; then \
 		echo "✓ No Go file changes detected"; \
 	else \
@@ -229,13 +236,20 @@ test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 	@echo "🧪 Testing changed packages..."
 	@MODULES="runtime sdk pkg server/a2a"; \
 	CHANGED=0; \
+	FAILED=""; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
 			echo "Testing $$module..."; \
-			cd $$module && go test ./... && cd ..; \
+			if ! (cd $$module && go test ./...); then \
+				FAILED="$$FAILED $$module"; \
+			fi; \
 			CHANGED=1; \
 		fi; \
 	done; \
+	if [ -n "$$FAILED" ]; then \
+		echo "✗ Tests FAILED in:$$FAILED"; \
+		exit 1; \
+	fi; \
 	if [ $$CHANGED -eq 0 ]; then \
 		echo "✓ No test modules to run"; \
 	else \
