@@ -380,3 +380,47 @@ func TestState_CompositionJSONRoundTrip(t *testing.T) {
 		t.Errorf("composition = %q, want analyze_doc", s.Composition)
 	}
 }
+
+func TestHoldsFloor(t *testing.T) {
+	tests := []struct {
+		name  string
+		state *State
+		want  bool
+	}{
+		{"nil state yields: nothing to run on into", nil, false},
+		{"explicit user yields", &State{Control: packspec.Ptr(ControlUser)}, false},
+		{"explicit agent keeps the turn", &State{Control: packspec.Ptr(ControlAgent)}, true},
+		{
+			// The documented divergence. RFC 0014 defaults this to "user";
+			// PromptKit ran the destination state 17 days before the RFC
+			// existed, and packs written since depend on it.
+			"absent keeps the turn (pre-RFC behavior)",
+			&State{},
+			true,
+		},
+		{"explicitly empty is absent, not user", &State{Control: packspec.Ptr("")}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HoldsFloor(tt.state); got != tt.want {
+				t.Errorf("HoldsFloor = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHoldsFloor_IsOrthogonalToOrchestration(t *testing.T) {
+	// control declares who holds the turn after a transition; orchestration
+	// declares who initiates one. Neither should read the other's field.
+	s := &State{
+		Control:       packspec.Ptr(ControlUser),
+		Orchestration: packspec.Ptr(OrchestrationInternal),
+	}
+	if HoldsFloor(s) {
+		t.Error("control user must yield regardless of internal orchestration")
+	}
+	if OrchestrationOf(s) != OrchestrationInternal {
+		t.Error("declaring control must not disturb orchestration")
+	}
+}

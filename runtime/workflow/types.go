@@ -156,6 +156,48 @@ func OrchestrationOf(s *State) string {
 	return *s.Orchestration
 }
 
+// HoldsFloor reports whether the agent keeps the turn on entering s, rather
+// than yielding the conversation to the user (RFC 0014's `control`).
+//
+// True means the turn runs on: the tool loop swaps to this state's prompt and
+// tools and takes another round, so a routing or processing state can speak
+// without waiting for a user message.
+//
+// # An absent control does NOT resolve to "user" here, and that is deliberate
+//
+// RFC 0014 defaults the field to "user" and describes that as "the behavior of
+// every state before v1.7.0". That is not true of this runtime. In-turn state
+// handoff shipped 2026-08-14 (#1747); RFC 0014 arrived with the v1.7.0 schema
+// on 2026-08-31, seventeen days later. Before it the spec said nothing about
+// who holds the turn after a transition — there was no default to deviate
+// from — and this runtime already ran the destination state, which is what
+// lets a pack route through several states and produce one reply.
+//
+// Honoring the RFC default would silently invert that for every pack written
+// before it, turning routing states into dead stops. So a DECLARED control is
+// honored exactly as specified, and an absent one keeps the behavior packs
+// already rely on.
+//
+// This is a permanent, deliberate divergence, confined to what absent means.
+// It is not an oversight and not a migration step, so do not "fix" it back to
+// the spec default: doing so changes the behavior of every pack that never
+// declares the field, which is all of them written before v1.7.0.
+//
+// The RFC's claim that "user" was the behavior of every state before v1.7.0 is
+// what this contradicts, and correcting that wording is
+// AltairaLabs/promptpack-spec#79. The default itself is not in dispute.
+//
+// A nil state yields: there is nothing to run on into.
+func HoldsFloor(s *State) bool {
+	if s == nil {
+		return false
+	}
+	// Anything but an explicit "user" runs on: "agent", absent, and — only in
+	// a pack that skipped validation — an unrecognized value, which
+	// validateControl rejects rather than quietly resolving to a default.
+	return packspec.Deref(s.Control, "") != ControlUser
+}
+
 // ArtifactDef declares a named artifact slot on a workflow state.
 //
 // Generated from the schema: an ALIAS for packspec.ArtifactDef.
@@ -213,6 +255,19 @@ const (
 	// OrchestrationComposition runs a declarative composition step-graph for the
 	// state instead of an LLM-driven turn (RFC 0010).
 	OrchestrationComposition = "composition"
+)
+
+// Turn control values (schema $defs/WorkflowState.control, RFC 0014).
+//
+// Orthogonal to Orchestration: that declares who INITIATES a transition, this
+// declares who holds the turn AFTER one. Read a state's value through
+// HoldsFloor, which documents how an absent value resolves here.
+const (
+	// ControlUser yields the conversation to the user on entering the state.
+	ControlUser = "user"
+	// ControlAgent runs another agent round in the state without yielding,
+	// for transient routing and processing states.
+	ControlAgent = "agent"
 )
 
 // Context holds the runtime state of a workflow execution.

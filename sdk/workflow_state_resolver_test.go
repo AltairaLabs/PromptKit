@@ -268,3 +268,61 @@ func TestWorkflowStateResolver_ExternalStateStillServesItsOwnTurns(t *testing.T)
 	require.True(t, handoff.Valid)
 	require.Equal(t, "ORIGIN PROMPT", handoff.SystemPrompt)
 }
+
+// RFC 0014: a destination declaring control: user hands the turn back instead
+// of speaking, and one declaring control: agent (or declaring nothing) runs on.
+func TestWorkflowStateResolver_ControlDecidesWhoHoldsTheTurn(t *testing.T) {
+	cases := []struct {
+		name     string
+		control  *string
+		wantStop bool
+		why      string
+	}{
+		{
+			name:     "control user yields the turn",
+			control:  packspec.Ptr(workflow.ControlUser),
+			wantStop: true,
+			why:      "RFC 0014: control user must end the turn rather than run the destination state",
+		},
+		{
+			name:     "control agent runs on",
+			control:  packspec.Ptr(workflow.ControlAgent),
+			wantStop: false,
+			why:      "RFC 0014: control agent takes another round in the destination state",
+		},
+		{
+			// The documented divergence from the RFC's default, and the
+			// behavior every pack written before v1.7.0 relies on.
+			name:     "absent control runs on, as it did before RFC 0014",
+			control:  nil,
+			wantStop: false,
+			why:      "an undeclared control must not silently start yielding",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := resolverSpec(&workflow.State{PromptTask: "dest", Control: tc.control})
+			machine := workflow.NewStateMachine(spec)
+			transExec := workflow.NewTransitionExecutor(machine, spec)
+
+			args := json.RawMessage(`{"event":"Go","context":"caller verified"}`)
+			_, err := transExec.Execute(context.Background(), nil, args)
+			require.NoError(t, err)
+			require.NotNil(t, transExec.Pending(), "transition must be pending before commit")
+
+			// A real registry either way: running on renders the destination
+			// prompt, and stopping must stop before it gets that far.
+			registry := testRegistry(t, map[string]string{
+				"origin": "ORIGIN PROMPT",
+				"dest":   "DEST PROMPT",
+			})
+			resolver := newWorkflowStateResolver(machine, spec, transExec, registry)
+
+			handoff, err := resolver.ResolveCurrentState(context.Background())
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStop, handoff.Stop, tc.why)
+		})
+	}
+}
