@@ -36,6 +36,7 @@ echo
 
 MODULES=(runtime pkg sdk server/a2a)
 failed=()
+deferred=()
 
 # gorelease has to run against a CLEAN tree whose sibling requires resolve.
 # Neither holds in the working copy: sdk and server/a2a pin their siblings at
@@ -58,16 +59,26 @@ git worktree add --quiet --detach "$WORKTREE" HEAD
 for m in "${MODULES[@]}"; do
   echo "── ${m}"
 
-  # Point sibling requires at the base release and drop the local replaces, so
-  # the module resolves the way a consumer resolves it.
+  # Make sibling requires resolvable. The local `replace` directives are KEPT:
+  # they point at the sibling in the same tree, which is the only thing that can
+  # resolve for a FIRST major release, where no sibling /vN tag exists yet to
+  # point at. Dropping them works for a minor and breaks entirely for a major,
+  # so the placeholder versions are simply replaced with something well-formed
+  # and the replace does the resolving.
   (
     cd "$WORKTREE/$m"
     for sib in runtime pkg sdk server/a2a; do
       [ "$sib" = "$m" ] && continue
-      mod="github.com/AltairaLabs/PromptKit/${sib}"
-      grep -q "$mod" go.mod || continue
-      go mod edit -dropreplace="$mod" 2>/dev/null || true
-      go mod edit -require="${mod}@${BASE}" 2>/dev/null || true
+      # Match the module path with or without a /vN suffix.
+      mod=$(grep -oE "github\.com/AltairaLabs/PromptKit/${sib}(/v[0-9]+)?" go.mod \
+            | head -1) || true
+      [ -z "$mod" ] && continue
+      case "$mod" in
+        */v[0-9]*) ;;                                   # a major module: leave the
+                                                        # version alone, the replace
+                                                        # resolves it
+        *) go mod edit -require="${mod}@${BASE}" 2>/dev/null || true ;;
+      esac
     done
   )
 
@@ -83,6 +94,22 @@ for m in "${MODULES[@]}"; do
     failed+=("$m")
   elif echo "$out" | grep -q "is a valid semantic version"; then
     echo "   ✓ ${m}: ${VERSION} carries these changes"
+  elif [[ "$VERSION" =~ ^v[0-9]+\.0\.0$ ]] \
+       && echo "$out" | grep -qE 'unknown revision [^ ]+/v[0-9]+\.0\.0'; then
+    # Bounded exception, for a FIRST MAJOR release only.
+    #
+    # gorelease deliberately ignores `replace` — it analyses what a consumer
+    # sees — so a module depending on a sibling at vN.0.0 cannot be checked
+    # until that sibling is tagged, and on a first major nothing is tagged yet.
+    # The release pipeline tags libraries before tools precisely because of this
+    # ordering, so these modules ARE verifiable, just later than this step runs.
+    #
+    # Narrow on purpose: it applies only when the claimed version is X.0.0 AND
+    # the sole obstacle is an unknown sibling revision at X.0.0. Any other
+    # no-verdict still fails.
+    echo "   ⚠ ${m}: cannot be verified until its sibling is tagged (first major)."
+    echo "   ⚠ Verified after the libraries phase, not here."
+    deferred+=("$m")
   else
     # No verdict is a FAILURE. A gate that passes when it could not look
     # reports success for a release nobody checked.
@@ -104,4 +131,7 @@ if [ ${#failed[@]} -gt 0 ]; then
   exit 1
 fi
 
-echo "✓ ${#MODULES[@]} modules: the API changes are compatible with ${VERSION}"
+if [ ${#deferred[@]} -gt 0 ]; then
+  echo "::warning::deferred to the libraries phase (first major): ${deferred[*]}"
+fi
+echo "✓ $(( ${#MODULES[@]} - ${#deferred[@]} ))/${#MODULES[@]} modules verified against ${VERSION}"
