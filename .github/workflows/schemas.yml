@@ -1,14 +1,15 @@
 name: Schema Validation
 
 on:
-  # The path filters below only fire on OUR edits. Drift is caused by the
-  # upstream repos regenerating (promptarena for schemas/v1alpha1), which touches
-  # nothing here — so without a scheduled run this workflow is blind to the exact
-  # failure it exists to catch. See #1700.
+  # The schedule stays, but only for the jobs that check THIS repo's generated
+  # output against THIS repo's sources (check-packspec and friends) — there a
+  # failure is always a defect here, so failing main is the right signal.
   #
-  # The embedded PromptPack schema is handled differently: its check runs on
-  # push/PR only (to catch a hand-edit), and upstream releases are picked up by
-  # promptpack-schema-sync.yml, which raises a PR rather than failing main.
+  # The two jobs that guard a MIRRORED file against a hand-edit
+  # (validate-schemas, check-promptpack-schema) are gated to push/PR. Upstream
+  # regeneration is not a defect in this repo, and it is picked up by
+  # promptarena-schema-sync.yml / promptpack-schema-sync.yml, which raise a PR
+  # on this same daily cron.
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
@@ -35,6 +36,17 @@ jobs:
   validate-schemas:
     name: Validate JSON Schemas
     runs-on: ubuntu-latest
+    # Push/PR only, for the same reason as check-promptpack-schema below: on a
+    # branch this catches a hand-edit of the mirror, which IS a defect here, but
+    # an upstream regeneration is not, and failing main for it teaches people to
+    # ignore a red main. promptarena-schema-sync.yml picks those up and raises a
+    # PR instead.
+    #
+    # The schedule that #1700 added was right to want detection — the path
+    # filters only fire on our edits, so nothing else sees upstream drift. It
+    # just reported by failing main, because the sync half was never built. It
+    # is built now, and it runs on the same schedule.
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
 
     steps:
     - name: Checkout code
