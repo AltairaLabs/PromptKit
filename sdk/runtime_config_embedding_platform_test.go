@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 )
 
 // A declarative embedding provider with platform=azure must build a

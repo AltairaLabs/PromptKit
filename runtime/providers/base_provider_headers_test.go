@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestApplyCustomHeaders_AddsHeaders(t *testing.T) {

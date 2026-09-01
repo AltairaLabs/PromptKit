@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // prometheusNameRe matches valid Prometheus metric names.

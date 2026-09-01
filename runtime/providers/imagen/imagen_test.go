@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // newTestProvider creates a test provider with default values

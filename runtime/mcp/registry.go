@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // DefaultMaxProcesses is the default maximum number of concurrent MCP processes.

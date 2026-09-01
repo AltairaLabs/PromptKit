@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // CosineSimilarityHandler computes cosine similarity between

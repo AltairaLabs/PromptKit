@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
 )
 
 func TestParsePack_Valid(t *testing.T) {

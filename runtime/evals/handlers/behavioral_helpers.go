@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // compareToolSets checks if the actual tool calls match the expected set and returns an EvalResult.

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 const errSerializeClientToolResult = "failed to serialize client tool result: %w"

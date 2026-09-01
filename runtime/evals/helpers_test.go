@@ -1,6 +1,6 @@
 package evals
 
-import "github.com/AltairaLabs/PromptKit/runtime/testutil"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 
 var (
 	float64Ptr = testutil.Ptr[float64]

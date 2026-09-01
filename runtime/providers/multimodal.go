@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Declared capability names used in a provider's Capabilities list. These are

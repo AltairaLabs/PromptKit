@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestContentConverter_convertAudioContent_SameFormatNoFFmpeg(t *testing.T) {

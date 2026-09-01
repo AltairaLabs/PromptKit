@@ -41,8 +41,8 @@ import (
     "os"
     "strings"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
 func main() {
@@ -168,7 +168,7 @@ import (
     "context"
     "regexp"
 
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 )
 
 // PIIHook blocks responses containing personally identifiable information.
@@ -227,8 +227,8 @@ import (
     "os"
     "strings"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
 func main() {

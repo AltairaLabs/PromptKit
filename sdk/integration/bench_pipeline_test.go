@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/sdk/integration/probes"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/integration/probes"
 )
 
 // BenchmarkPipeline_PerSend measures wall time and allocations of a single

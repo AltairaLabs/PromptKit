@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 )
 

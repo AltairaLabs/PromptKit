@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // warnCountHandler is a minimal slog.Handler that counts WARN-level records, so

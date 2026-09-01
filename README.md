@@ -105,7 +105,7 @@ throughput or memory regression fails the build.
 ## Install
 
 ```bash
-go get github.com/AltairaLabs/PromptKit/sdk
+go get github.com/AltairaLabs/PromptKit/sdk/v2
 ```
 
 Requires Go 1.26+.
@@ -124,7 +124,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // ErrEmptySpec is returned by Spec.Hook for a zero-value Spec — one that never

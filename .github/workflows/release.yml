@@ -324,14 +324,14 @@ jobs:
         echo "Updating pkg to use $VERSION..."
         cd pkg
 
-        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime/v2@$VERSION"
 
         # pkg keeps `replace .../runtime => ../runtime` on main so workspace and
         # GOWORK=off builds resolve the local tree. It must not ship in the tag:
         # Go ignores replace in a dependency module but honors require, so the
         # replace masked a stale `require runtime v1.3.5` for five releases
         # (issue #1713).
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime/v2
 
         if grep -q '^replace' go.mod; then
           echo "::error::pkg/go.mod still has replace directives after cleanup:"
@@ -449,10 +449,10 @@ jobs:
 
         # Update go.mod to require new versions
         echo "Setting required versions to $VERSION..."
-        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime/v2@$VERSION"
 
         # Remove local replace directives
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime/v2
 
         # Same guard as the sdk step below.
         if grep -q '^replace' go.mod; then
@@ -473,18 +473,18 @@ jobs:
 
         # Update go.mod to require new versions
         echo "Setting required versions to $VERSION..."
-        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
-        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
-        go mod edit -require="github.com/AltairaLabs/PromptKit/server/a2a@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime/v2@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg/v2@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/server/a2a/v2@$VERSION"
 
         # Remove local replace directives. All three must go: sdk replaces
         # runtime, server/a2a AND pkg locally, and a published module carrying a
         # relative-path replace is at best confusing to read. pkg was missing
         # here through v1.5.7, so every sdk tag up to that point shipped
-        # `replace github.com/AltairaLabs/PromptKit/pkg => ../pkg`.
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/server/a2a
-        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
+        # `replace github.com/AltairaLabs/PromptKit/pkg/v2 => ../pkg`.
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime/v2
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/server/a2a/v2
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg/v2
 
         # Fail loudly rather than shipping another tag with a dangling relative
         # path: this is exactly the class of defect that stayed invisible for
@@ -741,8 +741,8 @@ jobs:
 
         **SDK Library:**
         \`\`\`bash
-        go get github.com/AltairaLabs/PromptKit/sdk@$VERSION
-        go get github.com/AltairaLabs/PromptKit/runtime@$VERSION
+        go get github.com/AltairaLabs/PromptKit/sdk/v2@$VERSION
+        go get github.com/AltairaLabs/PromptKit/runtime/v2@$VERSION
         \`\`\`
 
         ## Next Steps

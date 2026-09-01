@@ -20,11 +20,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/replay"
-	"github.com/AltairaLabs/PromptKit/runtime/recording"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/replay"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/recording"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 	"github.com/google/uuid"
 )
 

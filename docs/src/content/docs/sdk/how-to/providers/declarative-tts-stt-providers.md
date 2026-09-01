@@ -72,7 +72,7 @@ The factory pattern is open: a per-provider package can self-register via `init(
 ```go
 package mytts
 
-import "github.com/AltairaLabs/PromptKit/runtime/tts"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 
 func init() {
     tts.RegisterFactory("my_tts", func(spec tts.ProviderSpec) (tts.Service, error) {

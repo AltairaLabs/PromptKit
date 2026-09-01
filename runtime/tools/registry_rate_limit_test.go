@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func TestRegistryExecute_RateLimitEnforced(t *testing.T) {

@@ -35,7 +35,7 @@ type Service interface {
 ### OpenAI TTS
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tts"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 
 // Create OpenAI TTS service
 ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
@@ -47,7 +47,7 @@ ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 ### ElevenLabs TTS
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tts"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 
 // Create ElevenLabs TTS service
 ttsService := tts.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
@@ -59,7 +59,7 @@ ttsService := tts.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
 ### Cartesia TTS
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tts"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 
 // Create Cartesia TTS service
 ttsService := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))

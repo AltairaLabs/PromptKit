@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // Compile-time interface checks: these break the build if any of the

@@ -5,15 +5,15 @@ package sdk
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
-	"github.com/AltairaLabs/PromptKit/sdk/session"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pipeline"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
 	"github.com/stretchr/testify/require"
 )
 

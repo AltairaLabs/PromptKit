@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Explicit caching on Vertex uses the regional aiplatform endpoints, Bearer

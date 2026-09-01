@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // applyGuardrailOption applies opt to a fresh config and resolves the deferred

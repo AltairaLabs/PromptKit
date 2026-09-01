@@ -3,10 +3,10 @@ package ollama_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 
 	// Side-effect import: trigger our embedding factory registration.
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
 )
 
 func TestEmbeddingRegister_AllOptions(t *testing.T) {

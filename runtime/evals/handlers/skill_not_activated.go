@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // SkillNotActivatedHandler checks that specific skills were NOT activated.

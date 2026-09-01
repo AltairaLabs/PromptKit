@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // subscriberBuffer is the channel buffer size for broadcast subscribers.

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // TestStream_ChunkSequence verifies that Stream returns at least one text chunk

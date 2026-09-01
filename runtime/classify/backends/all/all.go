@@ -4,5 +4,5 @@
 package all
 
 import (
-	_ "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf" // register "huggingface" factory
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf" // register "huggingface" factory
 )

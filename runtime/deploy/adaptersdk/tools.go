@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
 )
 
 // ToolInfo holds tool metadata extracted from ArenaConfig for deploy planning.

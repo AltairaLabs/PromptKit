@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestStreamingPaths_CustomHeaderCollision verifies that the streaming

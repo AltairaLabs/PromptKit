@@ -267,7 +267,7 @@ for {
 ### Log Structured Errors
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/logger"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 
 func executeWithLogging(pipe *pipeline.Pipeline, ctx context.Context, sessionID, role, content string) (*pipeline.PipelineResult, error) {
     start := time.Now()
@@ -359,10 +359,10 @@ import (
     "strings"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

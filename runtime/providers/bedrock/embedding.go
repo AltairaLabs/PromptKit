@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Model family prefixes used to select the wire format.

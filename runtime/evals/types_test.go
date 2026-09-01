@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestEvalDef_IsEnabled(t *testing.T) {

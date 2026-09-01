@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/lru"
 )
 
 func TestNewFileBlobStore(t *testing.T) {

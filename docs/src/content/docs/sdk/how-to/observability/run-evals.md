@@ -12,7 +12,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
@@ -60,7 +60,7 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 ### From explicit definitions
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
     EvalDefs: []evals.EvalDef{
@@ -156,7 +156,7 @@ Record eval results as Prometheus metrics by passing a `MetricsCollector` — th
 ```go
 import (
     "github.com/prometheus/client_golang/prometheus"
-    "github.com/AltairaLabs/PromptKit/runtime/metrics"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 )
 
 reg := prometheus.NewRegistry()

@@ -8,7 +8,7 @@ sidebar:
 # types
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 ```
 
 ## Index
@@ -463,7 +463,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -588,7 +588,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -861,7 +861,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -914,7 +914,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // ClassifyImage submits image bytes to the HF image-classification

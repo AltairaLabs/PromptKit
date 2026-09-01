@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 // testEvalHandler is a simple handler for integration tests.

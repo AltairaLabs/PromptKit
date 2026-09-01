@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // Store is the core memory persistence interface.

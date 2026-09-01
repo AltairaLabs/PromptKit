@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // feedSpeechThenTail runs 1s of speech at loudRMS, then tailChunks of tailRMS,

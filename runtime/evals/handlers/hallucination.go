@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // HallucinationHandler scores how free the answer is of claims that

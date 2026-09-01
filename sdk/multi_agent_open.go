@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // OpenMultiAgent loads a multi-agent pack and creates conversations for all

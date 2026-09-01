@@ -6,7 +6,7 @@ package a2aserver
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // SendResult is what the server needs from a completed conversation turn.

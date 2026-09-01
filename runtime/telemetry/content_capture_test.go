@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // A token shaped like the real thing, so a leak is greppable in the failure

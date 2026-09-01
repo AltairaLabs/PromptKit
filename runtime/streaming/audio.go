@@ -3,8 +3,8 @@ package streaming
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 // SendEndOfStream signals that audio input is complete for the current turn.

@@ -12,7 +12,7 @@ import (
 	"encoding/binary"
 	"log/slog"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // duplexBlockFrames is the per-tick mic/speaker block size: 480 samples = 10 ms

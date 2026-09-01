@@ -188,7 +188,7 @@ store := statestore.NewRedisStore(redisClient)
 append-only JSONL files, so it survives restarts like Redis but with no daemon to run:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/statestore/file"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/statestore/file"
 
 store, err := file.NewStore(file.Options{
     Root:  "/var/lib/promptkit/conversations",

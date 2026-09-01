@@ -14,7 +14,7 @@ Store and retrieve conversation state for continuity.
 ### Step 1: Create State Store
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/statestore"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 
 // In-memory store (dev/testing)
 store := statestore.NewMemoryStore()
@@ -149,9 +149,9 @@ import (
     "log"
     
     "github.com/redis/go-redis/v9"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
 func main() {
@@ -206,7 +206,7 @@ import (
     "log"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
 func cleanupOldSessions(store statestore.Store) {

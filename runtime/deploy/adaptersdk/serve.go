@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
 )
 
 // JSON-RPC method names recognized by the adapter protocol.

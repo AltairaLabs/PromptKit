@@ -1,14 +1,14 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/skills"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
-	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 const logCapabilityInferred = "capability inferred from pack"

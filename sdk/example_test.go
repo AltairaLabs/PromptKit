@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // ExampleAsValidationError shows unwrapping a validation failure returned by

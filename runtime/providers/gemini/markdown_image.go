@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Regex to match markdown images with base64 data URIs

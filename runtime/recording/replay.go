@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Playback timing constants.

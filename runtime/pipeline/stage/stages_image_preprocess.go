@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	medialib "github.com/AltairaLabs/PromptKit/runtime/media"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	medialib "github.com/AltairaLabs/PromptKit/runtime/v2/media"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ImagePreprocessConfig contains configuration for the image preprocessing stage.

@@ -8,7 +8,7 @@ sidebar:
 # logger
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/logger"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 ```
 
 Package logger provides structured logging with automatic PII redaction.

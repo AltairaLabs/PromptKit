@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
 )
 
 // AnnotatedSession represents a complete session with events, media, and annotations.

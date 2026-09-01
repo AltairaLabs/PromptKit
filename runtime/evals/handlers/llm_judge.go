@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // LLMJudgeHandler evaluates a single assistant turn using an LLM judge.

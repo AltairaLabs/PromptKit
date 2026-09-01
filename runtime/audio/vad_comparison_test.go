@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // Comparative characterization of the VAD implementations across realistic

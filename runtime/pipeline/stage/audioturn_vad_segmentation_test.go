@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 // vadSpeechPCM returns `samples` of 16-bit PCM sine at ~0.106 RMS (amplitude

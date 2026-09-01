@@ -1,8 +1,8 @@
 package hf
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // huggingFaceType is the provider `type` string for HF Inference API

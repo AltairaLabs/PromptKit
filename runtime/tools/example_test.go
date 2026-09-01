@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // ExampleRegistry shows registering a tool descriptor and executing it via

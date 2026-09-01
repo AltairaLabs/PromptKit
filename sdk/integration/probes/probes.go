@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Probes captures observed operation counts for a single Send window.

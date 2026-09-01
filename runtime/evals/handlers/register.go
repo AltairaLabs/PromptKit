@@ -1,6 +1,6 @@
 package handlers
 
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 //nolint:gochecknoinits // init registers handlers to avoid circular imports
 func init() {

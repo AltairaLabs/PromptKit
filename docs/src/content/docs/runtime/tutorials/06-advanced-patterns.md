@@ -34,7 +34,7 @@ import (
     "sync"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 type CacheEntry struct {
@@ -134,8 +134,8 @@ import (
     "fmt"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // LoggingWrapper wraps a provider to add logging
@@ -222,7 +222,7 @@ import (
     "strings"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 type StreamBuffer struct {
@@ -303,7 +303,7 @@ import (
     "sync"
     "sync/atomic"
     
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 type ProviderPool struct {
@@ -390,7 +390,7 @@ import (
     "context"
     "sync"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 type BatchRequest struct {
@@ -517,9 +517,9 @@ import (
     "fmt"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

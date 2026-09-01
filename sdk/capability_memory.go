@@ -1,9 +1,9 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // MemoryCapability registers memory tools and wires the memory executor.

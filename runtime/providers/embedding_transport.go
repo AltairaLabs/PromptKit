@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 )
 
 // Embedding platform identifiers and the provider type that speaks the

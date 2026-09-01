@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/AltairaLabs/PromptKit/runtime/version"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/version"
 )
 
 var (

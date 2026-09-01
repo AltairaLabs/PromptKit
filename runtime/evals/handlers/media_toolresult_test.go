@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestImageFormat_ToolResultPart guards that media produced by a tool (e.g.

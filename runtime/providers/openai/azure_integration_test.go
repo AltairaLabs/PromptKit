@@ -26,9 +26,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // azureEndpoint returns the configured Azure OpenAI / Foundry resource endpoint.

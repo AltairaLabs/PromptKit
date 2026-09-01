@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/persistence"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // UnmarshalFunc is a function that unmarshals data into a prompt config

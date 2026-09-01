@@ -3,7 +3,7 @@
 // runtime/workflow, so workflow.State can reference these types without a cycle.
 package composition
 
-import "github.com/AltairaLabs/PromptKit/runtime/packspec"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
 // StepKind identifies a composition step's kind.
 type StepKind = string

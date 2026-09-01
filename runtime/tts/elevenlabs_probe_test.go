@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 // TestElevenLabsLive_ExpressiveTagsProbe is a calibration harness for

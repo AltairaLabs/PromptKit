@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // StreamInputSession manages a bidirectional streaming session with a provider.

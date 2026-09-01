@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 func packWithRequires(t *testing.T, requiresJSON string) *prompt.Pack {

@@ -5,10 +5,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 func TestScriptedSTT_ReplaysSourceLinesInOrder(t *testing.T) {

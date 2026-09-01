@@ -73,7 +73,7 @@ func NewEmptyEvalTypeRegistry() *EvalTypeRegistry {
 // NewEvalTypeRegistry creates a registry pre-populated with all
 // built-in eval handlers. Call this in production code.
 // Handlers self-register via RegisterDefaults in the handlers package;
-// import _ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
+// import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 // or call handlers.RegisterDefaults(r) explicitly.
 func NewEvalTypeRegistry() *EvalTypeRegistry {
 	r := NewEmptyEvalTypeRegistry()

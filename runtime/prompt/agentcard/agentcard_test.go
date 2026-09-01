@@ -3,10 +3,10 @@ package agentcard
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 func TestGenerateAgentCards_NilPack(t *testing.T) {

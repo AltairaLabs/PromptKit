@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // Shared infrastructure for every classify-backed eval handler

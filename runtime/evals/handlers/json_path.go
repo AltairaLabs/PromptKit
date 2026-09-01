@@ -9,7 +9,7 @@ import (
 
 	"github.com/jmespath/go-jmespath"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // JSONPathHandler validates assistant output as JSON using JMESPath expressions.

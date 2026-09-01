@@ -13,12 +13,12 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // instrumentationTracerName is the OTel tracer name used for media storage spans.
-const instrumentationTracerName = "github.com/AltairaLabs/PromptKit/runtime/storage"
+const instrumentationTracerName = "github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 
 // InstrumentedStorage wraps any MediaStorageService with telemetry —
 // OTel spans on every call, runtime events on success/failure, and

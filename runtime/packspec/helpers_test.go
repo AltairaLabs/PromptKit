@@ -3,7 +3,7 @@ package packspec_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 // TestDerefAppliesTheFallbackOnlyWhenAbsent — Deref exists so the

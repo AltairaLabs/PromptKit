@@ -3,8 +3,8 @@ package hooks
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/execconfig"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/execconfig"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
 )
 
 // Hook type names as used in execconfig.ExecHook.Hook.

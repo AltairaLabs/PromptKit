@@ -8,7 +8,7 @@ sidebar:
 # a2aserver
 
 ```go
-import "github.com/AltairaLabs/PromptKit/server/a2a"
+import "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 ```
 
 Package a2aserver provides a standalone A2A\-protocol HTTP server that can be backed by any conversation implementation satisfying the interfaces defined here. It imports only runtime/ and has no dependency on sdk/.
@@ -205,7 +205,7 @@ package main
 import (
 	"fmt"
 
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 func main() {

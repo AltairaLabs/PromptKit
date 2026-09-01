@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/lru"
 )
 
 // DefaultMaxAnnotationFiles is the default maximum number of open annotation files

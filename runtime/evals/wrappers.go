@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // WrapperTypeAssertion is the eval type name for the assertion wrapper handler.

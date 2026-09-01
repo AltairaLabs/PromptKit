@@ -1,8 +1,8 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/mediagen"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mediagen"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // registerMediaGenTools wires the built-in image__generate and video__generate

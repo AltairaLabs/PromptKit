@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
 )
 
 // Existence is what a probe could determine about a resource.

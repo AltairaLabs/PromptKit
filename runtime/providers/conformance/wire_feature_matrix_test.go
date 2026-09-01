@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // A provider exposes four request paths — {tools, no tools} x {streaming,

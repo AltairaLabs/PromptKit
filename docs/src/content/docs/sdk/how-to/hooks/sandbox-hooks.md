@@ -49,9 +49,9 @@ Reference backends aren't wired in by default. Register them in consumer code:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/sandboxes/dockerrun"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/sandboxes/kubectlexec"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/sandboxes/dockerrun"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/sandboxes/kubectlexec"
 )
 
 conv, err := sdk.Open("./pack.json", "chat",
@@ -118,7 +118,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
 )
 
 const ModeName = "my_backend"

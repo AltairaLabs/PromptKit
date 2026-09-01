@@ -8,7 +8,7 @@ sidebar:
 # agui
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/agui"
+import "github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 ```
 
 Package agui provides bidirectional converters between PromptKit internal types and the AG\-UI Go SDK types, enabling interoperability between the two systems.
@@ -65,7 +65,7 @@ import (
 
 	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
-	"github.com/AltairaLabs/PromptKit/sdk/agui"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 )
 
 func main() {
@@ -107,8 +107,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/sdk/agui"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 )
 
 func main() {

@@ -8,7 +8,7 @@ sidebar:
 # tools
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tools"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 ```
 
 Package tools provides tool/function calling infrastructure for LLM testing.
@@ -1149,7 +1149,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func main() {

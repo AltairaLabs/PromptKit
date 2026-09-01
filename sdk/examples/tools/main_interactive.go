@@ -17,7 +17,7 @@ import (
 	"log"
 	"math/rand"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // Weather represents weather data.

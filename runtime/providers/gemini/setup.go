@@ -3,7 +3,7 @@ package gemini
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // Wire-protocol field keys and modality values for the Gemini Live setup message.

@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // staleEntryTimeout is the maximum age of an inflight or pendingEnd entry

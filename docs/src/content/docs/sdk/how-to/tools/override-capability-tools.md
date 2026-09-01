@@ -17,9 +17,9 @@ Capabilities like memory, workflow, and A2A register their tools with hard-coded
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/memory"
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 conv, err := sdk.Open(packPath, "chat",

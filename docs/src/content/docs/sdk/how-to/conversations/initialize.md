@@ -8,7 +8,7 @@ Learn how to start using the SDK with `sdk.Open()`.
 ## Basic Usage
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk"
+import "github.com/AltairaLabs/PromptKit/sdk/v2"
 
 conv, err := sdk.Open("./app.pack.json", "assistant")
 if err != nil {
@@ -58,8 +58,8 @@ Register hooks to intercept LLM calls, tool execution, or session lifecycle:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
 conv, _ := sdk.Open("./app.pack.json", "chat",
@@ -129,7 +129,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // unpricedWarnOnce dedupes the loud "nonzero unpriced unit" warning so a

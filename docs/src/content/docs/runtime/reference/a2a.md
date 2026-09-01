@@ -8,7 +8,7 @@ sidebar:
 # a2a
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/a2a"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 ```
 
 Package a2a provides types for the Agent\-to\-Agent \(A2A\) protocol.
@@ -193,7 +193,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
 
 func main() {

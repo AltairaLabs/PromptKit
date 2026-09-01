@@ -17,10 +17,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in eval handlers (audio_emotion)
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers" // register built-in eval handlers (audio_emotion)
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // printHook prints every eval result the runner produces.

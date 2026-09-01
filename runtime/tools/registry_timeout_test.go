@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // slowExecutor simulates a tool that takes a configurable amount of time.

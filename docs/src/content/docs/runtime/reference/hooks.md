@@ -8,7 +8,7 @@ sidebar:
 # hooks
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/hooks"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 ```
 
 Package hooks provides synchronous interception points for provider calls, tool execution, and session lifecycle in the PromptKit runtime.
@@ -588,7 +588,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 )
 
 // modelDenylist is a minimal hooks.ProviderHook that blocks calls to a

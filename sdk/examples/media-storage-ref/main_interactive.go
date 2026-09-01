@@ -34,10 +34,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage/local"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

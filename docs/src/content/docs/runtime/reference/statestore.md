@@ -8,7 +8,7 @@ sidebar:
 # statestore
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/statestore"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 ```
 
 Package statestore provides conversation state persistence and management.
@@ -370,8 +370,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

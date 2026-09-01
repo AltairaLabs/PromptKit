@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // Regression coverage for https://github.com/AltairaLabs/PromptKit/issues/1725.

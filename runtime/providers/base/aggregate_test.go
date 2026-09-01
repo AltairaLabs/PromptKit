@@ -3,8 +3,8 @@ package base_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 )
 

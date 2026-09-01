@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
 )
 
 // fakeProvider is a minimal deploy.Provider for testing.

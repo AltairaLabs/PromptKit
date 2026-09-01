@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (

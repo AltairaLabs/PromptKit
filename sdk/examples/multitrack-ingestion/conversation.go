@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // bytesPerFrame is 20ms of 8kHz 16-bit mono PCM (8000 * 0.02 * 2).

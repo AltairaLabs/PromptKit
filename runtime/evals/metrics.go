@@ -6,7 +6,7 @@ import (
 
 	"github.com/jmespath/go-jmespath"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // MetricRecorder records eval results as metrics. This interface is

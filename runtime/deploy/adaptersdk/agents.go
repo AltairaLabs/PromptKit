@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/deploy"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt/agentcard"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/deploy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt/agentcard"
 )
 
 // AgentInfo provides a simplified view of an agent member for deploy adapters.

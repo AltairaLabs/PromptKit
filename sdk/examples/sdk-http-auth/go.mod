@@ -1,24 +1,24 @@
-module github.com/AltairaLabs/PromptKit/sdk/examples/sdk-http-auth
+module github.com/AltairaLabs/PromptKit/sdk/v2/examples/sdk-http-auth
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/sdk => ../../
+replace github.com/AltairaLabs/PromptKit/sdk/v2 => ../../
 
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
+replace github.com/AltairaLabs/PromptKit/server/a2a/v2 => ../../../server/a2a
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
+replace github.com/AltairaLabs/PromptKit/pkg/v2 => ../../../pkg
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/sdk v0.0.0
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/sdk/v2 v2.0.0
 )
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/AltairaLabs/PromptKit/pkg v0.0.0 // indirect
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/pkg/v2 v2.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect

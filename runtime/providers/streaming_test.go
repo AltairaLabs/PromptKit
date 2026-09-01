@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestOpenAIStreaming(t *testing.T) {

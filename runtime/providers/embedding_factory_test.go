@@ -5,14 +5,14 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 
 	// Side-effect imports register the factories under test.
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/voyageai"
 )
 
 // TestRegisteredEmbeddingProviderTypes asserts the lister reads the live

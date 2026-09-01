@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // InMemoryStore is a test/development memory store. Substring matching

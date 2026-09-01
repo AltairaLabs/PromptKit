@@ -11,8 +11,8 @@ import (
 	"image/png"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/media"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/media"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // createMinimalWAV creates a minimal valid WAV file for testing.

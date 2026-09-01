@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ToolsCalledHandler checks if specific tools were called successfully.

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/sdk"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/audio"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/video"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/audio"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/video"
 )
 
 // Controller orchestrates the interview flow

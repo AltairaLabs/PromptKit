@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 // ErrSessionEnded is returned when the streaming session has ended.

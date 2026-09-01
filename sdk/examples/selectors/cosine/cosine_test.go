@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 // fakeEmbedder returns a deterministic embedding per text via a lookup

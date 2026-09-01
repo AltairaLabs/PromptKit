@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/variables"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
 // WithJSONInput binds a structured value to the prompt's template variables for

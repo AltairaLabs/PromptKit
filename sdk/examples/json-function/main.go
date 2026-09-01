@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // PlanRequest is the function input. Its top-level fields bind to the pack's

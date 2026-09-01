@@ -3,7 +3,7 @@ package audio_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // BenchmarkResamplePCM16 measures per-chunk allocation on the resample path.

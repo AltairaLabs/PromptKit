@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // azureFakeCredential stands in for a real Azure AD credential. It has to be

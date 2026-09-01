@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 var (

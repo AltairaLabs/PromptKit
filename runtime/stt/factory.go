@@ -3,8 +3,8 @@ package stt
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // ProviderSpec is the runtime form of an STT-provider declaration. It is a

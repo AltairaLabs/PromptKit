@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 )
 
 func TestNewTextPart(t *testing.T) {

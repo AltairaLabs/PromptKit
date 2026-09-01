@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 // Default retry constants.

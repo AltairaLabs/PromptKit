@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Store defines the interface for persistent conversation state storage.

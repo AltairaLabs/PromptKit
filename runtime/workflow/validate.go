@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 var pascalCaseRe = regexp.MustCompile(`^[A-Z][a-zA-Z0-9]*$`)

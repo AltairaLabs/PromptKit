@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // newTestExecutor creates an executor with short TTL/intervals for testing.

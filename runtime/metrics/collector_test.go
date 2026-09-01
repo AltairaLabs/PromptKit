@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/common/expfmt"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // newTestCollector creates a Collector with a fresh registry for test isolation.

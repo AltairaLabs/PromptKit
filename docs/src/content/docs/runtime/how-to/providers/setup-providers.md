@@ -14,7 +14,7 @@ Connect to LLM providers with proper configuration and authentication.
 ### Basic Setup
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 
 provider := openai.NewProvider(
     "openai",
@@ -72,7 +72,7 @@ provider := openai.NewProvider("openai", "gpt-4-turbo", "", defaults, false)
 ### Basic Setup
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
 
 provider := claude.NewProvider(
     "claude",
@@ -108,7 +108,7 @@ provider := claude.NewProvider("claude", "claude-3-opus-20240229", "", defaults,
 ### Basic Setup
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 
 provider := gemini.NewProvider(
     "gemini",
@@ -227,7 +227,7 @@ defaults := providers.ProviderDefaults{
 ## Testing with Mock Provider
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 
 // Create mock provider
 provider := mock.NewProvider("mock", "test-model", false)
@@ -247,7 +247,7 @@ result, err := provider.Predict(ctx, req)
 Use `NewProviderWithCredential` with the Azure platform and an `AzureCredential`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/credentials"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 
 cred, err := credentials.NewAzureCredential(ctx, "https://your-resource.openai.azure.com")
 if err != nil {
@@ -381,7 +381,7 @@ defer cancel()
 ### Ollama (Local Development)
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
 
 provider := ollama.NewProvider(
     "ollama",
@@ -412,7 +412,7 @@ ollama pull llama3.2:1b
 ### vLLM (High-Performance)
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/vllm"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
 
 provider := vllm.NewProvider(
     "vllm",

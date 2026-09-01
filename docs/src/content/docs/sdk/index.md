@@ -35,7 +35,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
@@ -126,7 +126,7 @@ resp, _ := conv.Send(ctx, "What's the weather in London?")
 For external API calls:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/tools"
+import "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 conv.OnToolHTTP("stock_price", tools.NewHTTPToolConfig(
     "https://api.stocks.example.com/v1/price",
@@ -162,7 +162,7 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 Approval workflows for sensitive operations:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/tools"
+import "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 conv.OnToolAsync(
     "process_refund",
@@ -202,8 +202,8 @@ Monitor events with hooks:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Subscribe to events

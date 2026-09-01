@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // Compile-time check: OpenAIService must satisfy base.STTProvider and Service.

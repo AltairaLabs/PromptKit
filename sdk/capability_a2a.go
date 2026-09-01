@@ -1,10 +1,10 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	sdka2a "github.com/AltairaLabs/PromptKit/sdk/internal/a2a"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	sdka2a "github.com/AltairaLabs/PromptKit/sdk/v2/internal/a2a"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // A2ACapability provides A2A agent tools to conversations.

@@ -16,8 +16,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

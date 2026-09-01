@@ -11,7 +11,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // templateCache caches compiled Go text/templates keyed by the raw template

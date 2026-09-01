@@ -21,9 +21,9 @@ hot-path latency, blast-radius isolation).
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/selectors/cosine"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/selectors/cosine"
 )
 
 emb, _ := openai.NewEmbeddingProvider()

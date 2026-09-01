@@ -3,7 +3,7 @@ package vllm
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 func TestFactoryRegistration(t *testing.T) {

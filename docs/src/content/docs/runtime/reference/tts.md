@@ -8,7 +8,7 @@ sidebar:
 # tts
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tts"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 ```
 
 Package tts provides text\-to\-speech services. This file contains WebSocket streaming implementation for Cartesia TTS. It is excluded from coverage testing due to the difficulty of mocking WebSocket connections.
@@ -897,7 +897,7 @@ Validate performs synchronous config validation \(no\-op for TTS services\).
 
 PersonaRubricProvider is an optional extension interface that TTS adapters implement to advertise the bracket\-tag rubric an upstream persona / script should splice into its system prompt. Implementations return the empty string when the configured model cannot consume characterization markup — callers MUST treat the empty string as "do not inject any rubric" so we do not waste persona tokens on tags that would be silently dropped.
 
-See [github.com/AltairaLabs/PromptKit/runtime/tts/markup](<https://pkg.go.dev/github.com/AltairaLabs/PromptKit/runtime/tts/markup/>) for the canonical rubric strings each adapter may return.
+See [github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup](<https://pkg.go.dev/github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup/>) for the canonical rubric strings each adapter may return.
 
 ```go
 type PersonaRubricProvider interface {

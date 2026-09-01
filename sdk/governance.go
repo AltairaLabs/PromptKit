@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // Governance is a pack's RFC 0013 governance declaration: who is accountable

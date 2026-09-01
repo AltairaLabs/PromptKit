@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // TestNewRegistryWithRepository verifies the new constructor works

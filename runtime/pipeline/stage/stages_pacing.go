@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // AudioPacingStage delays each audio element so that it is forwarded at

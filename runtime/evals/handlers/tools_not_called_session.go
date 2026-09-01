@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // ToolsNotCalledSessionHandler checks that specific tools were NOT

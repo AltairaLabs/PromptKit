@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // --- mock SDK response for adapter tests ---

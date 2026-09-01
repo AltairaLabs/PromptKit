@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox/direct"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // DefaultExecEvalHookTimeout bounds how long a single subprocess invocation

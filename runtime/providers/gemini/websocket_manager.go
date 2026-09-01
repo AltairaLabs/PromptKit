@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/internal/streaming"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/internal/streaming"
 )
 
 // Common error messages

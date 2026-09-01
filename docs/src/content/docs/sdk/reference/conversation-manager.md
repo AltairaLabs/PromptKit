@@ -8,7 +8,7 @@ sidebar:
 # sdk
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk"
+import "github.com/AltairaLabs/PromptKit/sdk/v2"
 ```
 
 Package sdk provides a simple API for LLM conversations using PromptPack files.
@@ -105,7 +105,7 @@ Most users only need to import the root sdk package.
 The SDK uses runtime types directly \- no duplication:
 
 ```
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 msg := &types.Message{Role: "user"}
 msg.AddTextPart("Hello")
@@ -6069,7 +6069,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

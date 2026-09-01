@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // resolveMemberName extracts the bare member name from a potentially qualified

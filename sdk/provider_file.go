@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 )
 
 // providerSpecFromConfig maps a loaded *pkgconfig.Provider onto the SDK's

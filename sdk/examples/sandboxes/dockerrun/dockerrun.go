@@ -8,8 +8,8 @@
 // Register the factory in your own init or via sdk.WithSandboxFactory:
 //
 //	import (
-//	    "github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-//	    "github.com/AltairaLabs/PromptKit/sdk/examples/sandboxes/dockerrun"
+//	    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+//	    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/sandboxes/dockerrun"
 //	)
 //
 //	func init() {
@@ -41,8 +41,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox/direct"
 )
 
 // ModeName is the identifier under which this backend registers with

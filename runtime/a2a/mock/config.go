@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
 
 // AgentConfig is the YAML-friendly configuration for a mock agent.

@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ResponseTestOption configures a Response created by NewResponseForTest.

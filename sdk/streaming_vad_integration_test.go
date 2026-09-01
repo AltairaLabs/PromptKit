@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // TestVADModeStreaming tests the VAD mode flow: text-based streaming with Gemini

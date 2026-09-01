@@ -2,7 +2,7 @@
 package openai
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Realtime API constants

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 func TestMaxLengthHandler_CharacterCount(t *testing.T) {

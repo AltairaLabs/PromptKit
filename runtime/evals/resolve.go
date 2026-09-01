@@ -1,6 +1,6 @@
 package evals
 
-import "github.com/AltairaLabs/PromptKit/runtime/logger"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 
 // ResolveEvals merges pack-level and prompt-level eval definitions.
 // Prompt-level evals override pack-level evals when they share the same ID.

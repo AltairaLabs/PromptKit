@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Ensure RealtimeSession implements ToolResponseSupport

@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Model constants for Voyage AI embeddings.

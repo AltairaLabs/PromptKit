@@ -12,7 +12,7 @@ Add [Model Context Protocol](https://modelcontextprotocol.io) servers to a conve
 ## Quick Start
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk"
+import "github.com/AltairaLabs/PromptKit/sdk/v2"
 
 conv, err := sdk.Open("./app.pack.json", "assistant",
     sdk.WithMCP("filesystem", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"),
@@ -33,8 +33,8 @@ Use `NewMCPServer` when you need environment variables, timeouts, working direct
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/mcp"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 server := sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
@@ -147,8 +147,8 @@ import (
     "log"
     "os"
 
-    "github.com/AltairaLabs/PromptKit/runtime/mcp"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

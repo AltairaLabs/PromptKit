@@ -17,7 +17,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
@@ -265,8 +265,8 @@ Documents can use many tokens:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Monitor provider calls for cost tracking

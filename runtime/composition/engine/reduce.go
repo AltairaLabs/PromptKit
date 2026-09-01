@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/AltairaLabs/PromptKit/runtime/composition"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 
 // NamedOutput pairs a parallel branch id with its decoded output, in branch order.
 type NamedOutput struct {

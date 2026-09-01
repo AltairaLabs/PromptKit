@@ -25,7 +25,7 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
 ### Step 1: Create MCP Registry
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/mcp"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 
 registry := mcp.NewRegistry()
 defer registry.Close()
@@ -143,11 +143,11 @@ import (
     "context"
     "log"
     
-    "github.com/AltairaLabs/PromptKit/runtime/mcp"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func main() {

@@ -242,11 +242,11 @@ func TestExtractModuleFromFunction(t *testing.T) {
 		expected string
 	}{
 		{
-			"github.com/AltairaLabs/PromptKit/runtime/pipeline.(*Executor).Run",
+			"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline.(*Executor).Run",
 			"runtime.pipeline",
 		},
 		{
-			"github.com/AltairaLabs/PromptKit/runtime/logger.Info",
+			"github.com/AltairaLabs/PromptKit/runtime/v2/logger.Info",
 			"runtime.logger",
 		},
 		{
@@ -350,5 +350,25 @@ func TestModuleHandler_Handle_FiltersLowLevelLogs(t *testing.T) {
 	}
 	if strings.Contains(output, "info message") {
 		t.Error("Info message should have been filtered")
+	}
+}
+
+// TestModuleNameDropsTheMajorVersionSegment — Go puts /v2 in the module path,
+// so "runtime/v2/pipeline" would log as "runtime.v2.pipeline" and every level
+// filter keyed on a module name would silently stop matching the moment the
+// major version moved. Found exactly that way during the v1 -> v2 migration:
+// TestModuleHandler_FiltersByLevel started failing because the filter no longer
+// recognised its own module.
+func TestModuleNameDropsTheMajorVersionSegment(t *testing.T) {
+	for _, tc := range []struct{ fn, want string }{
+		{"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline.(*Executor).Run", "runtime.pipeline"},
+		{"github.com/AltairaLabs/PromptKit/runtime/pipeline.(*Executor).Run", "runtime.pipeline"},
+		{"github.com/AltairaLabs/PromptKit/runtime/v10/logger.New", "runtime.logger"},
+		// Not a version segment: a package really named v1alpha1 must survive.
+		{"github.com/AltairaLabs/PromptKit/pkg/v2/config/v1alpha1.Load", "pkg.config.v1alpha1"},
+	} {
+		if got := extractModuleFromFunction(tc.fn); got != tc.want {
+			t.Errorf("extractModuleFromFunction(%q) = %q, want %q", tc.fn, got, tc.want)
+		}
 	}
 }

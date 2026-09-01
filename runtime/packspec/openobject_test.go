@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 // TestOpenObjectsPreserveExtensions covers every additionalProperties:true def

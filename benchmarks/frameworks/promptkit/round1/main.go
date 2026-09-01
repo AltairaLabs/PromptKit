@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 var (

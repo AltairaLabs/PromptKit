@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // SynthesizeStream converts text to audio with streaming output via WebSocket.

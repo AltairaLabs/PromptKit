@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

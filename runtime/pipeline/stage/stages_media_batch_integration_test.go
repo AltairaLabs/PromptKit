@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestBatchMediaPipeline_ExtractResizeCompose tests the full pipeline:

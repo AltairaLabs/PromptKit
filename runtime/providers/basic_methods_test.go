@@ -3,11 +3,11 @@ package providers_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
 
 func TestProvider_BasicMethods(t *testing.T) {

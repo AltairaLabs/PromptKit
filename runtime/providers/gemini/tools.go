@@ -3,7 +3,7 @@ package gemini
 import (
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Wire-protocol field keys for the Gemini Live tool-response message.

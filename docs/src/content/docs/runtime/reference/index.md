@@ -43,16 +43,16 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
-    "github.com/AltairaLabs/PromptKit/runtime/mcp"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
-    "github.com/AltairaLabs/PromptKit/runtime/logger"
-    "github.com/AltairaLabs/PromptKit/runtime/telemetry"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 )
 ```
 
@@ -63,9 +63,9 @@ import (
 ```go
 import (
     "context"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Create provider
@@ -98,7 +98,7 @@ fmt.Println(resp.Content)
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/mcp"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 )
 
 // Register MCP server

@@ -29,8 +29,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 const defaultTopK = 10

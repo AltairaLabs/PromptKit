@@ -2,8 +2,8 @@
 package agentcard
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // GenerateAgentCards generates A2A AgentCards from a compiled pack's agents section.

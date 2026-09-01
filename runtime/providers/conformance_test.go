@@ -5,7 +5,7 @@
 // (openai, claude, etc.) that themselves import providers.
 package providers
 
-import "github.com/AltairaLabs/PromptKit/runtime/providers/base"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 
 // Compile-time assertion: BaseProvider satisfies base.Provider via the
 // embedded *base.Implementation. If this fails, the embedding is broken.

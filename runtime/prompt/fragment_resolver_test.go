@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/template"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 )
 
 // mockFragmentRepository is a simple in-memory repository for testing

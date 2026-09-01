@@ -8,7 +8,7 @@ sidebar:
 # stage
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 ```
 
 Package stage provides the reactive streams architecture for pipeline execution.
@@ -2711,8 +2711,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -3411,8 +3411,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -3476,7 +3476,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 func main() {
@@ -4916,8 +4916,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

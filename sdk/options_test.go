@@ -10,17 +10,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestWithAudioMonitor_StoresOptions(t *testing.T) {

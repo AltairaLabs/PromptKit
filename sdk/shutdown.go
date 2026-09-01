@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // ErrShutdownManagerClosed is returned when Register is called after Shutdown.

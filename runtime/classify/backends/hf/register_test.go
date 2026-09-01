@@ -3,9 +3,9 @@ package hf_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	_ "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 )
 
 func TestHuggingFaceFactoryRegistered(t *testing.T) {

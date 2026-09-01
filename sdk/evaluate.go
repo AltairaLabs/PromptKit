@@ -8,14 +8,14 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // also registers built-in handlers via init()
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/metrics"
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers" // also registers built-in handlers via init()
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // EvaluateOpts configures standalone eval execution.

@@ -3,7 +3,7 @@ package hooks
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // ProviderHook intercepts LLM provider calls.

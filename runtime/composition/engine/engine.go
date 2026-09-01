@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 )
 
 // StepExecutor runs one leaf step (prompt|agent|tool) and returns its raw output.

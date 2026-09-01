@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // OnTool registers a handler for a tool defined in the pack.

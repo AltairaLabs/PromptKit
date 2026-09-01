@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // maxResponseBodySize is the maximum allowed response body size (10 MB).

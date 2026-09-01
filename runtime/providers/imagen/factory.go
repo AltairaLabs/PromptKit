@@ -4,7 +4,7 @@ package imagen
 import (
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 func init() {

@@ -2,7 +2,7 @@
 // compatibility. New code should import runtime/testutil directly.
 package testutil
 
-import rttestutil "github.com/AltairaLabs/PromptKit/runtime/testutil"
+import rttestutil "github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 
 // Ptr returns a pointer to v.
 func Ptr[T any](v T) *T { return rttestutil.Ptr(v) }

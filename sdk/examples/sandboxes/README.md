@@ -18,8 +18,8 @@ All three backends preserve the existing exec-hook wire protocol: PromptKit writ
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/sandboxes/dockerrun"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/sandboxes/dockerrun"
 )
 
 sb := dockerrun.New(dockerrun.Config{
@@ -41,8 +41,8 @@ hook := hooks.NewExecProviderHook(&hooks.ExecHookConfig{
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/sandboxes/kubectlexec"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/sandboxes/kubectlexec"
 )
 
 func init() {

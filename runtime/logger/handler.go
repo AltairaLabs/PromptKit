@@ -196,7 +196,7 @@ func getCallerModuleFromPC(pc uintptr) string {
 }
 
 // extractModuleFromFunction extracts a module name from a fully qualified function name.
-// For example, "github.com/AltairaLabs/PromptKit/runtime/pipeline.(*Executor).Run"
+// For example, "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline.(*Executor).Run"
 // becomes "runtime.pipeline".
 func extractModuleFromFunction(fn string) string {
 	if fn == "" {
@@ -223,10 +223,38 @@ func extractModuleFromFunction(fn string) string {
 		path = path[:dotIdx]
 	}
 
-	// Convert slashes to dots for hierarchical module names
-	path = strings.ReplaceAll(path, "/", ".")
+	// Drop the major-version segment. Go puts /v2 in the module path, so
+	// "runtime/v2/pipeline" would otherwise log as "runtime.v2.pipeline" and
+	// every level filter keyed on a module name would stop matching the moment
+	// the major version moved. The version is a distribution detail, not part
+	// of what a reader means by "the pipeline module".
+	segments := strings.Split(path, "/")
+	kept := segments[:0]
+	for _, seg := range segments {
+		if isMajorVersionSegment(seg) {
+			continue
+		}
+		kept = append(kept, seg)
+	}
 
-	return path
+	// Convert slashes to dots for hierarchical module names
+	return strings.Join(kept, ".")
+}
+
+// isMajorVersionSegment reports whether a path segment is a Go major-version
+// suffix — "v2", "v3", … . "v1" never appears in a module path, and a package
+// legitimately named e.g. "v1alpha1" is not one, because it is not all digits
+// after the v.
+func isMajorVersionSegment(seg string) bool {
+	if len(seg) < 2 || seg[0] != 'v' {
+		return false
+	}
+	for _, r := range seg[1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // compile-time check that ModuleHandler implements slog.Handler

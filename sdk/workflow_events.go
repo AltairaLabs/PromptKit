@@ -3,8 +3,8 @@ package sdk
 import (
 	"errors"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
 
 // emitTransitionEvents emits the workflow.transitioned event for a successful

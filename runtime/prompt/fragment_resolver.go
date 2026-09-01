@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/template"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 )
 
 // FragmentRepository interface for loading fragments (to avoid import cycles)

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
