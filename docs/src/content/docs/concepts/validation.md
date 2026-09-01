@@ -38,7 +38,7 @@ This means you write a check once and deploy it wherever you need it. A `content
 
 **"I want to test LLM behavior in CI"** -- use an **Assertion**. Define checks in your scenario YAML under `assertions:`. They run only in Arena. Use `when:` for conditional checks and `pass_threshold` for statistical testing across multiple runs.
 
-**"I want to enforce policies at runtime"** -- use a **Guardrail**. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Guardrails always enforce. `fail_on_violation` is accepted for spec compatibility but **ignored** by this runtime — for observe-only behavior, declare an eval and assert on it instead. Guardrails run before the LLM call, after it, or both, via `direction`.
+**"I want to enforce policies at runtime"** -- use a **Guardrail**. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Guardrails always enforce. `fail_on_violation` is **deprecated** as of PromptPack v1.7.0 ([RFC 0015](https://promptpack.org/docs/rfcs/deprecate-fail-on-violation)) and ignored — a triggered validator rewrites or blocks the message whatever its value. It stays schema-valid until v2.0.0. To switch a validator off use `enabled: false`; for observe-only behavior, declare an eval and assert on it instead. Guardrails run before the LLM call, after it, or both, via `direction`.
 
 **"I want to monitor quality in production"** -- use an **Eval**. Define checks in your pack file under `evals:`. They travel with the pack and run based on configurable triggers. Results are exported as Prometheus metrics and trace events.
 

@@ -1,10 +1,14 @@
 package prompt
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -612,4 +616,99 @@ func TestMetadataBuilder_UpdateFromCostInfo(t *testing.T) {
 			t.Fatal("CostEstimate should be populated")
 		}
 	})
+}
+
+func TestDeprecatedValidatorWarnings(t *testing.T) {
+	yes := true
+	no := false
+
+	tests := []struct {
+		name       string
+		validators []ValidatorConfig
+		wantCount  int
+		wantSubstr []string
+	}{
+		{
+			name:       "absent field is the common case and warns nothing",
+			validators: []ValidatorConfig{{Type: "banned_words"}},
+			wantCount:  0,
+		},
+		{
+			// Deprecated but harmless: the author asked for enforcement and
+			// gets it.
+			name:       "fail_on_violation true warns that the field is deprecated",
+			validators: []ValidatorConfig{{Type: "banned_words", FailOnViolation: &yes}},
+			wantCount:  1,
+			wantSubstr: []string{"banned_words", "fail_on_violation", "RFC 0015", "v2.0.0"},
+		},
+		{
+			// The population RFC 0015 asks tooling to flag specifically: these
+			// authors asked for observe-only and have been getting enforcement
+			// all along.
+			name:       "fail_on_violation false warns that the validator still enforces",
+			validators: []ValidatorConfig{{Type: "pii_filter", FailOnViolation: &no}},
+			wantCount:  1,
+			wantSubstr: []string{"pii_filter", "still enforces", "enabled: false"},
+		},
+		{
+			name: "one warning per declaring validator, quiet ones excluded",
+			validators: []ValidatorConfig{
+				{Type: "a", FailOnViolation: &yes},
+				{Type: "b"},
+				{Type: "c", FailOnViolation: &no},
+			},
+			wantCount: 2,
+		},
+		{
+			name:       "no validators",
+			validators: nil,
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deprecatedValidatorWarnings(tt.validators)
+			if len(got) != tt.wantCount {
+				t.Fatalf("want %d warnings, got %d: %v", tt.wantCount, len(got), got)
+			}
+			for _, want := range tt.wantSubstr {
+				if !strings.Contains(got[0], want) {
+					t.Errorf("warning %q must mention %q", got[0], want)
+				}
+			}
+		})
+	}
+}
+
+func TestPopulateDefaults_WarnsOnDeprecatedFailOnViolation(t *testing.T) {
+	// The helper's wording is covered by TestDeprecatedValidatorWarnings; what
+	// this pins is the wiring — that loading a pack actually emits the warning.
+	// Without it, dropping the call from populateDefaults would leave every
+	// other test green.
+	var buf bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+
+	no := false
+	registry := createTestRegistry()
+	config := &Config{
+		Spec: Spec{
+			TaskType: "test",
+			Validators: []ValidatorConfig{
+				{Type: "quiet_one"},
+				{Type: "pii_filter", FailOnViolation: &no},
+			},
+		},
+	}
+
+	registry.populateDefaults(config)
+
+	out := buf.String()
+	if !strings.Contains(out, "pii_filter") || !strings.Contains(out, "fail_on_violation") {
+		t.Errorf("loading a pack that declares fail_on_violation must warn; got %q", out)
+	}
+	if strings.Contains(out, "quiet_one") {
+		t.Errorf("a validator that does not declare the field must not warn; got %q", out)
+	}
 }
