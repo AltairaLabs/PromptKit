@@ -90,6 +90,10 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 		errs = append(errs, validateMetric(def.Metric, prefix)...)
 	}
 
+	if err := ValidateEvalWhen(def.When); err != nil {
+		errs = append(errs, fmt.Sprintf("%s: %s", prefix, err))
+	}
+
 	return errs
 }
 
@@ -110,6 +114,12 @@ func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 	var errs []string
 	for i := range defs {
 		def := &defs[i]
+		// `when` is checked here as well as in ValidateEvals because this is
+		// the wired path — ValidateEvals has no production caller in this repo,
+		// and a diagnostic only it raised would reach nobody (#1931).
+		if werr := ValidateEvalWhen(def.When); werr != nil {
+			errs = append(errs, fmt.Sprintf("eval %q: %s", def.ID, werr))
+		}
 		if def.Type == "" {
 			continue
 		}

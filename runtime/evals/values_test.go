@@ -83,14 +83,12 @@ func TestEvalWhenRoundTripsThroughTheOpenObject(t *testing.T) {
 	require.Equal(t, 2, back.MinToolCalls)
 }
 
-// TestEvalWhenAbsenceIsNotAGate — a `when` that decodes to no conditions must
-// yield nil so the eval RUNS. Returning a zero-valued EvalWhen would be
-// harmless today but is one field away from gating every eval off.
+// TestEvalWhenAbsenceIsNotAGate — a `when` that is genuinely absent must yield
+// nil so the eval RUNS. Returning a zero-valued EvalWhen would be harmless
+// today but is one field away from gating every eval off.
 func TestEvalWhenAbsenceIsNotAGate(t *testing.T) {
 	require.Nil(t, evals.DecodeEvalWhen(nil))
 	require.Nil(t, evals.DecodeEvalWhen(map[string]any{}))
-	require.Nil(t, evals.DecodeEvalWhen(map[string]any{"unrecognised": "key"}),
-		"a shape promptkit does not understand must not gate the eval")
 
 	require.Nil(t, evals.EncodeEvalWhen(nil))
 	require.Nil(t, evals.EncodeEvalWhen(&evals.EvalWhen{}),
@@ -102,14 +100,27 @@ func TestEvalWhenAbsenceIsNotAGate(t *testing.T) {
 	require.Empty(t, reason)
 }
 
-// TestDecodeEvalWhenRejectsAWrongShape — `when` comes from a pack, so its value
-// can be anything.
-func TestDecodeEvalWhenRejectsAWrongShape(t *testing.T) {
-	require.Nil(t, evals.DecodeEvalWhen(map[string]any{"min_tool_calls": "lots"}))
+// TestEvalWhenPromptkitCannotHonourIsNotAbsence — a `when` the author wrote but
+// promptkit cannot read is not the same as no `when` at all. DecodeEvalWhen
+// still yields nil for both, which is why the distinction has to be drawn
+// before decoding: reading an unimplemented condition as an absent gate ran the
+// eval unconditionally, silently discarding the gate (#1931).
+func TestEvalWhenPromptkitCannotHonourIsNotAbsence(t *testing.T) {
+	for _, raw := range []map[string]any{
+		{"unrecognised": "key"},
+		{"turn_count_gte": 3},      // the spec's own example, unimplemented
+		{"min_tool_calls": "lots"}, // recognised key, wrong type
+	} {
+		require.Error(t, evals.ValidateEvalWhen(raw))
 
-	// Asserted alongside, so the test distinguishes "rejects a bad shape" from
-	// "never decodes anything" — a decoder that always returned nil would gate
-	// no eval and pass the negative case on its own.
+		run, reason := evals.ShouldRunWhen(raw, []evals.ToolCallRecord{{ToolName: "search"}})
+		require.False(t, run, "a gate promptkit cannot honour must not run the eval")
+		require.NotEmpty(t, reason)
+	}
+
+	// Asserted alongside, so the cases above cannot pass by rejecting
+	// everything — a validator that always errored would gate every eval off.
+	require.NoError(t, evals.ValidateEvalWhen(map[string]any{"min_tool_calls": 2}))
 	good := evals.DecodeEvalWhen(map[string]any{"min_tool_calls": 2})
 	require.NotNil(t, good)
 	require.Equal(t, 2, good.MinToolCalls)

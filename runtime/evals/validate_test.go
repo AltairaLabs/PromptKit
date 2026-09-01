@@ -543,3 +543,50 @@ func TestValidateEvalTypesChecksParams(t *testing.T) {
 		assert.Empty(t, ValidateEvalTypes(defs, reg))
 	})
 }
+
+// TestValidateEvals_UnsupportedWhenKey — `Eval.when` is an open object in the
+// spec, so nothing upstream of promptkit rejects a key it does not implement.
+// Load-time validation is where the author should hear about it, rather than
+// discovering at runtime that the gate never existed (#1931).
+func TestValidateEvals_UnsupportedWhenKey(t *testing.T) {
+	defs := []EvalDef{{
+		ID: "gated", Type: "custom", Trigger: TriggerEveryTurn,
+		When: map[string]any{"turn_count_gte": 3},
+	}}
+
+	errs := ValidateEvals(defs, "pack")
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0], `id="gated"`)
+	assert.Contains(t, errs[0], "turn_count_gte")
+
+	ok := []EvalDef{{
+		ID: "gated", Type: "custom", Trigger: TriggerEveryTurn,
+		When: map[string]any{"tool_called": "search"},
+	}}
+	assert.Empty(t, ValidateEvals(ok, "pack"),
+		"a supported condition must still validate")
+}
+
+// TestValidateEvalTypes_UnsupportedWhenKey — ValidateEvalTypes is the wired
+// path: Arena treats its errors as fatal and the SDK warns and skips. A check
+// that only lived in ValidateEvals would reach no consumer today.
+func TestValidateEvalTypes_UnsupportedWhenKey(t *testing.T) {
+	registry := NewEmptyEvalTypeRegistry()
+	registry.Register(&stubHandler{typeName: "contains"})
+
+	defs := []EvalDef{{
+		ID: "gated", Type: "contains", Trigger: TriggerEveryTurn,
+		When: map[string]any{"has_variable": "customer_tier"},
+	}}
+
+	errs := ValidateEvalTypes(defs, registry)
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0], `eval "gated"`)
+	assert.Contains(t, errs[0], "has_variable")
+
+	ok := []EvalDef{{
+		ID: "gated", Type: "contains", Trigger: TriggerEveryTurn,
+		When: map[string]any{"any_tool_called": true},
+	}}
+	assert.Empty(t, ValidateEvalTypes(ok, registry))
+}
