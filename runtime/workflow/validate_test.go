@@ -361,3 +361,176 @@ func containsStr(s, sub string) bool {
 	}
 	return false
 }
+
+func TestValidateControl_RejectsUnrecognizedValue(t *testing.T) {
+	// An unhonorable gate must say so rather than resolve to a default. This
+	// is the #1931 failure in a different field: an unimplemented `when` key
+	// decoded to no conditions and the gate silently disappeared.
+	spec := validSpec()
+	spec.States["intake"].Control = packspec.Ptr("agent_but_typoed")
+
+	r := Validate(spec, []string{"gather_requirements", "create_solution", "confirm_resolution"})
+
+	if !r.HasErrors() {
+		t.Fatal("an unrecognized control value must be an error, not a silent default")
+	}
+	assertContains(t, r.Errors, "control")
+	assertContains(t, r.Errors, "agent_but_typoed")
+}
+
+func TestValidateControl_AcceptsSpecValues(t *testing.T) {
+	for _, v := range []string{ControlUser, ControlAgent} {
+		t.Run(v, func(t *testing.T) {
+			spec := validSpec()
+			spec.States["intake"].Control = packspec.Ptr(v)
+
+			r := Validate(spec, []string{"gather_requirements", "create_solution", "confirm_resolution"})
+
+			if r.HasErrors() {
+				t.Errorf("control %q must be valid, got %v", v, r.Errors)
+			}
+		})
+	}
+}
+
+func TestValidateControl_WarnsOnAgentPlusTerminal(t *testing.T) {
+	// RFC 0014 rule 3: terminal wins regardless, so the pair cannot do what
+	// the author is asking for.
+	spec := validSpec()
+	spec.States["solving"].Control = packspec.Ptr(ControlAgent)
+	spec.States["solving"].Terminal = packspec.Ptr(true)
+
+	r := Validate(spec, []string{"gather_requirements", "create_solution", "confirm_resolution"})
+
+	if r.HasErrors() {
+		t.Fatalf("agent + terminal is a warning, not an error: %v", r.Errors)
+	}
+	assertContains(t, r.Warnings, "has no effect")
+}
+
+func TestValidateAgentLoops(t *testing.T) {
+	// RFC 0014 rule 4. Two agent states pointing at each other never hand the
+	// turn back; the variants each add one thing that bounds the loop.
+	agentCycle := func() *Spec {
+		return &Spec{
+			Version: 1,
+			Entry:   "a",
+			States: map[string]*State{
+				"a": {
+					PromptTask: "p",
+					Control:    packspec.Ptr(ControlAgent),
+					OnEvent:    map[string]string{"Next": "b"},
+				},
+				"b": {
+					PromptTask: "p",
+					Control:    packspec.Ptr(ControlAgent),
+					OnEvent:    map[string]string{"Back": "a"},
+				},
+			},
+		}
+	}
+
+	t.Run("unbounded agent cycle warns", func(t *testing.T) {
+		r := Validate(agentCycle(), []string{"p"})
+		assertContains(t, r.Warnings, "agent-controlled cycle")
+	})
+
+	t.Run("a state that yields bounds it", func(t *testing.T) {
+		spec := agentCycle()
+		spec.States["b"].Control = packspec.Ptr(ControlUser)
+		r := Validate(spec, []string{"p"})
+		for _, w := range r.Warnings {
+			if contains(w, "agent-controlled cycle") {
+				t.Errorf("a state yielding to the user bounds the loop; got %q", w)
+			}
+		}
+	})
+
+	t.Run("max_visits bounds it", func(t *testing.T) {
+		spec := agentCycle()
+		spec.States["b"].MaxVisits = packspec.Ptr(3)
+		r := Validate(spec, []string{"p"})
+		for _, w := range r.Warnings {
+			if contains(w, "agent-controlled cycle") {
+				t.Errorf("max_visits bounds the loop; got %q", w)
+			}
+		}
+	})
+
+	t.Run("an agent chain that does not loop does not warn", func(t *testing.T) {
+		spec := agentCycle()
+		spec.States["b"].OnEvent = nil // b becomes terminal: no way back to a
+		r := Validate(spec, []string{"p"})
+		for _, w := range r.Warnings {
+			if contains(w, "agent-controlled cycle") {
+				t.Errorf("a chain with an end is bounded; got %q", w)
+			}
+		}
+	})
+
+	t.Run("a plain cycle with no control declared does not warn", func(t *testing.T) {
+		// Absent control keeps this runtime's pre-RFC behavior, so such a
+		// cycle is exactly as (un)bounded as it has always been. Warning here
+		// would fire on packs that predate the field entirely.
+		spec := agentCycle()
+		spec.States["a"].Control = nil
+		spec.States["b"].Control = nil
+		r := Validate(spec, []string{"p"})
+		for _, w := range r.Warnings {
+			if contains(w, "agent-controlled cycle") {
+				t.Errorf("undeclared control must not trip the RFC 0014 loop warning; got %q", w)
+			}
+		}
+	})
+}
+
+func TestValidateAgentLoops_BudgetBoundsTheLoop(t *testing.T) {
+	// A workflow budget is enforced on every transition, so a pack that
+	// declares one has already bounded its loops deliberately. Warning anyway
+	// would be a false positive on exactly the packs that did the right thing.
+	agentCycle := func() *Spec {
+		return &Spec{
+			Version: 1,
+			Entry:   "a",
+			States: map[string]*State{
+				"a": {PromptTask: "p", Control: packspec.Ptr(ControlAgent), OnEvent: map[string]string{"Next": "b"}},
+				"b": {PromptTask: "p", Control: packspec.Ptr(ControlAgent), OnEvent: map[string]string{"Back": "a"}},
+			},
+		}
+	}
+
+	assertNoLoopWarning := func(t *testing.T, spec *Spec) {
+		t.Helper()
+		for _, w := range Validate(spec, []string{"p"}).Warnings {
+			if contains(w, "agent-controlled cycle") {
+				t.Errorf("a declared budget bounds the loop; got %q", w)
+			}
+		}
+	}
+
+	t.Run("max_total_visits bounds it", func(t *testing.T) {
+		spec := agentCycle()
+		spec.Engine = &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxTotalVisits: packspec.Ptr(20)},
+		}
+		assertNoLoopWarning(t, spec)
+	})
+
+	t.Run("max_wall_time_sec bounds it", func(t *testing.T) {
+		spec := agentCycle()
+		spec.Engine = &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxWallTimeSec: packspec.Ptr(30)},
+		}
+		assertNoLoopWarning(t, spec)
+	})
+
+	t.Run("max_tool_calls alone still warns", func(t *testing.T) {
+		// Its per-round counting is #1785, so a pack relying on it alone is
+		// not demonstrably bounded.
+		spec := agentCycle()
+		spec.Engine = &packspec.WorkflowConfigEngine{
+			Budget: &packspec.WorkflowBudget{MaxToolCalls: packspec.Ptr(10)},
+		}
+		assertContains(t, Validate(spec, []string{"p"}).Warnings, "agent-controlled cycle")
+	})
+}
