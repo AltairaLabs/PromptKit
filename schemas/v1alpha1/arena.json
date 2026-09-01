@@ -210,6 +210,58 @@
       "type": "object",
       "description": "A2ASkillFilter controls which skills from an A2A agent are exposed."
     },
+    "AgentDef": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "governance": {
+          "$ref": "#/$defs/Governance"
+        },
+        "input_modes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "output_modes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "state": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AgentsConfig": {
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "members": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentDef"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "entry",
+        "members"
+      ]
+    },
     "AssertionConfig": {
       "properties": {
         "type": {
@@ -367,9 +419,6 @@
     },
     "AudioConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -377,6 +426,9 @@
           "type": "array"
         },
         "max_duration_sec": {
+          "type": "integer"
+        },
+        "max_size_mb": {
           "type": "integer"
         },
         "require_metadata": {
@@ -400,29 +452,6 @@
       "additionalProperties": false,
       "type": "object",
       "description": "AudioMonitorSection configures real-time audio monitoring for duplex scenarios."
-    },
-    "ChangelogEntry": {
-      "properties": {
-        "version": {
-          "type": "string"
-        },
-        "date": {
-          "type": "string"
-        },
-        "author": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "version",
-        "date",
-        "description"
-      ]
     },
     "ChaosConfig": {
       "properties": {
@@ -464,25 +493,6 @@
         "mode"
       ],
       "description": "ChaosToolFailure defines a failure injection rule for a specific tool."
-    },
-    "CompilationInfo": {
-      "properties": {
-        "compiled_with": {
-          "type": "string"
-        },
-        "created_at": {
-          "type": "string"
-        },
-        "schema": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "compiled_with",
-        "created_at"
-      ]
     },
     "Config": {
       "properties": {
@@ -534,14 +544,14 @@
         },
         "skills": {
           "items": {
-            "$ref": "#/$defs/SkillSourceConfig"
+            "$ref": "#/$defs/SkillSource"
           },
           "type": "array",
           "description": "Skills lists skill sources made available to the run."
         },
         "pack_evals": {
           "items": {
-            "$ref": "#/$defs/EvalDef"
+            "$ref": "#/$defs/PackspecEval"
           },
           "type": "array",
           "description": "PackEvals lists pack-level eval definitions."
@@ -564,7 +574,12 @@
           "description": "Memory configures the memory capability (auto-registers the memory tools)."
         },
         "agents": {
-          "description": "Agents configures named agents."
+          "$ref": "#/$defs/AgentsConfig",
+          "description": "Agents configures named agents: the entry agent and each member's\ndescription, tags and delegation rules."
+        },
+        "pack_metadata": {
+          "$ref": "#/$defs/PackMetadata",
+          "description": "PackMetadata describes the pack this config compiles to: domain,\nlanguage, tags, cost_estimate and governance."
         },
         "deploy": {
           "$ref": "#/$defs/DeployConfig",
@@ -678,6 +693,24 @@
       ],
       "description": "Config represents the main configuration structure"
     },
+    "ContentPart": {
+      "properties": {
+        "media": {
+          "$ref": "#/$defs/MediaReference"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
     "ContextMetadata": {
       "properties": {
         "domain": {
@@ -720,26 +753,6 @@
       "additionalProperties": false,
       "type": "object",
       "description": "ContextPolicy defines context management for a scenario"
-    },
-    "CostEstimate": {
-      "properties": {
-        "min_cost_usd": {
-          "type": "number"
-        },
-        "max_cost_usd": {
-          "type": "number"
-        },
-        "avg_cost_usd": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "min_cost_usd",
-        "max_cost_usd",
-        "avg_cost_usd"
-      ]
     },
     "CredentialConfig": {
       "properties": {
@@ -854,6 +867,30 @@
       "additionalProperties": false,
       "type": "object",
       "description": "DeployEnvironment defines environment-specific deployment configuration"
+    },
+    "DocumentConfig": {
+      "properties": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extraction_mode": {
+          "type": "string"
+        },
+        "max_pages": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "DuplexConfig": {
       "properties": {
@@ -1018,162 +1055,6 @@
       "type": "object",
       "description": "EvalAllTurnsConfig contains the assertions for all turns"
     },
-    "EvalDef": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "type": {
-          "anyOf": [
-            {
-              "enum": [
-                "a2a_eval",
-                "a2a_eval_session",
-                "agent_invoked",
-                "agent_not_invoked",
-                "agent_response_contains",
-                "answer_relevancy",
-                "assertion",
-                "audio_duration",
-                "audio_emotion",
-                "audio_format",
-                "banned_words",
-                "bias",
-                "composition_branch_taken",
-                "composition_output",
-                "composition_parallel_complete",
-                "composition_step_output",
-                "contains",
-                "contains_any",
-                "content_excludes",
-                "content_includes",
-                "content_includes_any",
-                "content_matches",
-                "content_not_includes",
-                "contextual_precision",
-                "contextual_recall",
-                "contextual_relevancy",
-                "cosine_similarity",
-                "cost_budget",
-                "directional",
-                "faithfulness",
-                "field_presence",
-                "guardrail",
-                "guardrail_triggered",
-                "hallucination",
-                "image_dimensions",
-                "image_format",
-                "image_moderation",
-                "invariant_fields_preserved",
-                "is_valid_json",
-                "json_path",
-                "json_schema",
-                "json_valid",
-                "latency_budget",
-                "length",
-                "llm_judge",
-                "llm_judge_conversation",
-                "llm_judge_session",
-                "llm_judge_tool_calls",
-                "max_length",
-                "max_sentences",
-                "min_length",
-                "no_tool_errors",
-                "outcome_equivalent",
-                "pii_leakage",
-                "regex",
-                "required_fields",
-                "rest_eval",
-                "rest_eval_session",
-                "role_violation",
-                "sentence_count",
-                "skill_activated",
-                "skill_activation_order",
-                "skill_not_activated",
-                "spoke_in_state",
-                "state_is",
-                "text_sentiment",
-                "text_toxicity",
-                "tool_anti_pattern",
-                "tool_args",
-                "tool_args_excluded_session",
-                "tool_args_session",
-                "tool_call_chain",
-                "tool_call_count",
-                "tool_call_sequence",
-                "tool_called",
-                "tool_calls_with_args",
-                "tool_efficiency",
-                "tool_exec",
-                "tool_no_repeat",
-                "tool_result_has_media",
-                "tool_result_includes",
-                "tool_result_matches",
-                "tool_result_media_type",
-                "tools_called",
-                "tools_called_session",
-                "tools_not_called",
-                "tools_not_called_session",
-                "tools_not_called_with_args",
-                "toxicity",
-                "transitioned_to",
-                "valid_json",
-                "video_duration",
-                "video_resolution",
-                "workflow_complete",
-                "workflow_tool_access",
-                "workflow_transition_order"
-              ]
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
-        },
-        "trigger": {
-          "type": "string"
-        },
-        "params": {
-          "type": "object"
-        },
-        "description": {
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "sample_percentage": {
-          "type": "number"
-        },
-        "metric": {
-          "$ref": "#/$defs/MetricDef"
-        },
-        "threshold": {
-          "$ref": "#/$defs/Threshold"
-        },
-        "message": {
-          "type": "string"
-        },
-        "when": {
-          "$ref": "#/$defs/EvalWhen"
-        },
-        "groups": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "type",
-        "trigger",
-        "params"
-      ]
-    },
     "EvalRef": {
       "properties": {
         "file": {
@@ -1187,6 +1068,18 @@
       ],
       "description": "EvalRef references an eval configuration file"
     },
+    "EvalThreshold": {
+      "properties": {
+        "operator": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "EvalTurnConfig": {
       "properties": {
         "all_turns": {
@@ -1197,66 +1090,6 @@
       "additionalProperties": false,
       "type": "object",
       "description": "EvalTurnConfig configures turn-level assertions for evaluations Uses a structure parallel to Scenario turns but with all_turns instead of role"
-    },
-    "EvalWhen": {
-      "properties": {
-        "tool_called": {
-          "type": "string"
-        },
-        "tool_called_pattern": {
-          "type": "string"
-        },
-        "any_tool_called": {
-          "type": "boolean"
-        },
-        "min_tool_calls": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "ExampleContentPart": {
-      "properties": {
-        "type": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        },
-        "media": {
-          "$ref": "#/$defs/ExampleMedia"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "type"
-      ]
-    },
-    "ExampleMedia": {
-      "properties": {
-        "file_path": {
-          "type": "string"
-        },
-        "url": {
-          "type": "string"
-        },
-        "mime_type": {
-          "type": "string"
-        },
-        "detail": {
-          "type": "string"
-        },
-        "caption": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "mime_type"
-      ]
     },
     "ExecBinding": {
       "properties": {
@@ -1448,6 +1281,69 @@
       "type": "object",
       "description": "Globals holds arena-level cross-cutting config that applies to every scenario in addition to its own definitions."
     },
+    "Governance": {
+      "properties": {
+        "accountable_owner": {
+          "type": "string"
+        },
+        "approved_environments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "autonomy_level": {
+          "type": "string",
+          "enum": [
+            "suggests",
+            "acts_with_approval",
+            "acts_with_oversight",
+            "acts_autonomously"
+          ]
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "foreseeable_misuse": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_deployment_contexts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_purpose": {
+          "type": "string"
+        },
+        "operator_role": {
+          "type": "string"
+        },
+        "requires_ai_disclosure": {
+          "type": "boolean"
+        },
+        "risk_classification": {
+          "type": "string"
+        },
+        "vocabularies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "HTMLOutputConfig": {
       "properties": {
         "file": {
@@ -1523,9 +1419,6 @@
     },
     "ImageConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -1535,11 +1428,14 @@
         "default_detail": {
           "type": "string"
         },
-        "require_caption": {
-          "type": "boolean"
-        },
         "max_images_per_msg": {
           "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_caption": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -1884,8 +1780,23 @@
     },
     "MediaConfig": {
       "properties": {
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "document": {
+          "$ref": "#/$defs/DocumentConfig"
+        },
         "enabled": {
           "type": "boolean"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
         },
         "supported_types": {
           "items": {
@@ -1893,20 +1804,8 @@
           },
           "type": "array"
         },
-        "image": {
-          "$ref": "#/$defs/ImageConfig"
-        },
-        "audio": {
-          "$ref": "#/$defs/AudioConfig"
-        },
         "video": {
           "$ref": "#/$defs/VideoConfig"
-        },
-        "examples": {
-          "items": {
-            "$ref": "#/$defs/MultimodalExample"
-          },
-          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -1915,60 +1814,63 @@
         "enabled"
       ]
     },
-    "Metadata": {
+    "MediaReference": {
       "properties": {
-        "domain": {
+        "base64": {
           "type": "string"
         },
-        "language": {
+        "caption": {
           "type": "string"
         },
-        "tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "detail": {
+          "type": "string"
         },
-        "cost_estimate": {
-          "$ref": "#/$defs/CostEstimate"
+        "file_path": {
+          "type": "string"
         },
-        "performance": {
-          "$ref": "#/$defs/PerformanceMetrics"
+        "mime_type": {
+          "type": "string"
         },
-        "changelog": {
-          "items": {
-            "$ref": "#/$defs/ChangelogEntry"
-          },
-          "type": "array"
+        "url": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
     },
     "MetricDef": {
       "properties": {
         "name": {
           "type": "string"
         },
+        "range": {
+          "$ref": "#/$defs/MetricDefRange"
+        },
         "type": {
           "type": "string"
-        },
-        "range": {
-          "$ref": "#/$defs/Range"
-        },
-        "labels": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
         }
       },
-      "additionalProperties": false,
+      "additionalProperties": true,
       "type": "object",
       "required": [
         "name",
         "type"
       ]
+    },
+    "MetricDefRange": {
+      "properties": {
+        "max": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "MockMediaSpec": {
       "properties": {
@@ -2017,7 +1919,13 @@
     },
     "ModelOverride": {
       "properties": {
+        "parameters": {
+          "$ref": "#/$defs/Parameters"
+        },
         "system_template": {
+          "type": "string"
+        },
+        "system_template_prefix": {
           "type": "string"
         },
         "system_template_suffix": {
@@ -2026,39 +1934,6 @@
       },
       "additionalProperties": false,
       "type": "object"
-    },
-    "ModelTestResultRef": {
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "date": {
-          "type": "string"
-        },
-        "success_rate": {
-          "type": "number"
-        },
-        "avg_tokens": {
-          "type": "integer"
-        },
-        "avg_cost": {
-          "type": "number"
-        },
-        "avg_latency_ms": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "provider",
-        "model",
-        "date",
-        "success_rate"
-      ]
     },
     "ModuleLoggingConfig": {
       "properties": {
@@ -2125,28 +2000,28 @@
     },
     "MultimodalExample": {
       "properties": {
-        "name": {
-          "type": "string"
-        },
         "description": {
           "type": "string"
         },
-        "role": {
+        "name": {
           "type": "string"
         },
         "parts": {
           "items": {
-            "$ref": "#/$defs/ExampleContentPart"
+            "$ref": "#/$defs/ContentPart"
           },
           "type": "array"
+        },
+        "role": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "name",
-        "role",
-        "parts"
+        "parts",
+        "role"
       ]
     },
     "ObjectMeta": {
@@ -2216,47 +2091,289 @@
       ],
       "description": "OutputConfig contains configuration for all output formats"
     },
-    "ParametersPack": {
+    "PackCompilation": {
       "properties": {
-        "temperature": {
-          "type": "number"
+        "compiled_with": {
+          "type": "string"
         },
-        "max_tokens": {
-          "type": "integer"
+        "created_at": {
+          "type": "string"
         },
-        "top_p": {
-          "type": "number"
+        "schema": {
+          "type": "string"
         },
-        "top_k": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "PerformanceMetrics": {
-      "properties": {
-        "avg_latency_ms": {
-          "type": "integer"
-        },
-        "p95_latency_ms": {
-          "type": "integer"
-        },
-        "avg_tokens": {
-          "type": "integer"
-        },
-        "success_rate": {
-          "type": "number"
+        "source": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "avg_latency_ms",
-        "p95_latency_ms",
-        "avg_tokens",
-        "success_rate"
+        "compiled_with",
+        "created_at",
+        "schema"
       ]
+    },
+    "PackMetadata": {
+      "properties": {
+        "cost_estimate": {
+          "$ref": "#/$defs/PackMetadataCostEstimate"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "governance": {
+          "$ref": "#/$defs/Governance"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "PackMetadataCostEstimate": {
+      "properties": {
+        "avg_cost_usd": {
+          "type": "number"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "min_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PackTemplateEngine": {
+      "properties": {
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "syntax",
+        "version"
+      ]
+    },
+    "PackspecEval": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        },
+        "params": {
+          "type": "object"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "threshold": {
+          "$ref": "#/$defs/EvalThreshold"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "a2a_eval",
+                "a2a_eval_session",
+                "agent_invoked",
+                "agent_not_invoked",
+                "agent_response_contains",
+                "answer_relevancy",
+                "assertion",
+                "audio_duration",
+                "audio_emotion",
+                "audio_format",
+                "banned_words",
+                "bias",
+                "composition_branch_taken",
+                "composition_output",
+                "composition_parallel_complete",
+                "composition_step_output",
+                "contains",
+                "contains_any",
+                "content_excludes",
+                "content_includes",
+                "content_includes_any",
+                "content_matches",
+                "content_not_includes",
+                "contextual_precision",
+                "contextual_recall",
+                "contextual_relevancy",
+                "cosine_similarity",
+                "cost_budget",
+                "directional",
+                "faithfulness",
+                "field_presence",
+                "guardrail",
+                "guardrail_triggered",
+                "hallucination",
+                "image_dimensions",
+                "image_format",
+                "image_moderation",
+                "invariant_fields_preserved",
+                "is_valid_json",
+                "json_path",
+                "json_schema",
+                "json_valid",
+                "latency_budget",
+                "length",
+                "llm_judge",
+                "llm_judge_conversation",
+                "llm_judge_session",
+                "llm_judge_tool_calls",
+                "max_length",
+                "max_sentences",
+                "min_length",
+                "no_tool_errors",
+                "outcome_equivalent",
+                "pii_leakage",
+                "regex",
+                "required_fields",
+                "rest_eval",
+                "rest_eval_session",
+                "role_violation",
+                "sentence_count",
+                "skill_activated",
+                "skill_activation_order",
+                "skill_not_activated",
+                "spoke_in_state",
+                "state_is",
+                "text_sentiment",
+                "text_toxicity",
+                "tool_anti_pattern",
+                "tool_args",
+                "tool_args_excluded_session",
+                "tool_args_session",
+                "tool_call_chain",
+                "tool_call_count",
+                "tool_call_sequence",
+                "tool_called",
+                "tool_calls_with_args",
+                "tool_efficiency",
+                "tool_exec",
+                "tool_no_repeat",
+                "tool_result_has_media",
+                "tool_result_includes",
+                "tool_result_matches",
+                "tool_result_media_type",
+                "tools_called",
+                "tools_called_session",
+                "tools_not_called",
+                "tools_not_called_session",
+                "tools_not_called_with_args",
+                "toxicity",
+                "transitioned_to",
+                "valid_json",
+                "video_duration",
+                "video_resolution",
+                "workflow_complete",
+                "workflow_tool_access",
+                "workflow_transition_order"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
+        },
+        "when": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "trigger",
+        "type"
+      ]
+    },
+    "PackspecToolPolicy": {
+      "properties": {
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "tool_choice": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Parameters": {
+      "properties": {
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "PersonaDefaults": {
       "properties": {
@@ -2378,6 +2495,25 @@
         "file"
       ],
       "description": "PromptConfigRef references a prompt builder configuration"
+    },
+    "PromptFragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
     },
     "Provider": {
       "properties": {
@@ -2519,18 +2655,6 @@
         "file"
       ],
       "description": "ProviderRef references a provider configuration file"
-    },
-    "Range": {
-      "properties": {
-        "min": {
-          "type": "number"
-        },
-        "max": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
     },
     "RateLimit": {
       "properties": {
@@ -3112,21 +3236,18 @@
       ],
       "description": "SelfPlayRoleGroup defines user LLM configuration for self-play"
     },
-    "SkillSourceConfig": {
+    "SkillSource": {
       "properties": {
-        "dir": {
+        "description": {
           "type": "string"
         },
-        "path": {
+        "instructions": {
           "type": "string"
         },
         "name": {
           "type": "string"
         },
-        "description": {
-          "type": "string"
-        },
-        "instructions": {
+        "path": {
           "type": "string"
         },
         "preload": {
@@ -3159,11 +3280,11 @@
           "type": "string"
         },
         "template_engine": {
-          "$ref": "#/$defs/TemplateEngineInfo"
+          "$ref": "#/$defs/PackTemplateEngine"
         },
         "fragments": {
           "items": {
-            "$ref": "#/$defs/FragmentRef"
+            "$ref": "#/$defs/PromptFragmentRef"
           },
           "type": "array"
         },
@@ -3199,27 +3320,27 @@
         },
         "tested_models": {
           "items": {
-            "$ref": "#/$defs/ModelTestResultRef"
+            "$ref": "#/$defs/TestedModel"
           },
           "type": "array"
         },
         "tool_policy": {
-          "$ref": "#/$defs/ToolPolicyPack"
+          "$ref": "#/$defs/PackspecToolPolicy"
         },
         "parameters": {
-          "$ref": "#/$defs/ParametersPack"
+          "$ref": "#/$defs/Parameters"
         },
         "evals": {
           "items": {
-            "$ref": "#/$defs/EvalDef"
+            "$ref": "#/$defs/PackspecEval"
           },
           "type": "array"
         },
         "metadata": {
-          "$ref": "#/$defs/Metadata"
+          "$ref": "#/$defs/PackMetadata"
         },
         "compilation": {
-          "$ref": "#/$defs/CompilationInfo"
+          "$ref": "#/$defs/PackCompilation"
         }
       },
       "additionalProperties": false,
@@ -3329,42 +3450,40 @@
         "type"
       ]
     },
-    "TemplateEngineInfo": {
+    "TestedModel": {
       "properties": {
-        "version": {
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "number"
+        },
+        "date": {
           "type": "string"
         },
-        "syntax": {
+        "model": {
           "type": "string"
         },
-        "features": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "notes": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "version",
-        "syntax"
+        "date",
+        "model",
+        "provider"
       ]
-    },
-    "Threshold": {
-      "properties": {
-        "passed": {
-          "type": "boolean"
-        },
-        "min_score": {
-          "type": "number"
-        },
-        "max_score": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
     },
     "ToolClientConfig": {
       "properties": {
@@ -3444,27 +3563,6 @@
         "max_total_tool_calls"
       ],
       "description": "ToolPolicy defines constraints for tool usage in scenarios"
-    },
-    "ToolPolicyPack": {
-      "properties": {
-        "tool_choice": {
-          "type": "string"
-        },
-        "max_rounds": {
-          "type": "integer"
-        },
-        "max_tool_calls_per_turn": {
-          "type": "integer"
-        },
-        "blocklist": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
     },
     "ToolRef": {
       "properties": {
@@ -3868,9 +3966,6 @@
     },
     "VideoConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -3878,6 +3973,9 @@
           "type": "array"
         },
         "max_duration_sec": {
+          "type": "integer"
+        },
+        "max_size_mb": {
           "type": "integer"
         },
         "require_metadata": {

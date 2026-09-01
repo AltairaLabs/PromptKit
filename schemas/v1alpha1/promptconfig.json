@@ -4,9 +4,6 @@
   "$defs": {
     "AudioConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -16,6 +13,9 @@
         "max_duration_sec": {
           "type": "integer"
         },
+        "max_size_mb": {
+          "type": "integer"
+        },
         "require_metadata": {
           "type": "boolean"
         }
@@ -23,147 +23,16 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "ChangelogEntry": {
+    "ContentPart": {
       "properties": {
-        "version": {
-          "type": "string"
-        },
-        "date": {
-          "type": "string"
-        },
-        "author": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "version",
-        "date",
-        "description"
-      ]
-    },
-    "CompilationInfo": {
-      "properties": {
-        "compiled_with": {
-          "type": "string"
-        },
-        "created_at": {
-          "type": "string"
-        },
-        "schema": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "compiled_with",
-        "created_at"
-      ]
-    },
-    "CostEstimate": {
-      "properties": {
-        "min_cost_usd": {
-          "type": "number"
-        },
-        "max_cost_usd": {
-          "type": "number"
-        },
-        "avg_cost_usd": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "min_cost_usd",
-        "max_cost_usd",
-        "avg_cost_usd"
-      ]
-    },
-    "EvalDef": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string"
-        },
-        "trigger": {
-          "type": "string"
-        },
-        "params": {
-          "type": "object"
-        },
-        "description": {
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "sample_percentage": {
-          "type": "number"
-        },
-        "metric": {
-          "$ref": "#/$defs/MetricDef"
-        },
-        "threshold": {
-          "$ref": "#/$defs/Threshold"
-        },
-        "message": {
-          "type": "string"
-        },
-        "when": {
-          "$ref": "#/$defs/EvalWhen"
-        },
-        "groups": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "type",
-        "trigger",
-        "params"
-      ]
-    },
-    "EvalWhen": {
-      "properties": {
-        "tool_called": {
-          "type": "string"
-        },
-        "tool_called_pattern": {
-          "type": "string"
-        },
-        "any_tool_called": {
-          "type": "boolean"
-        },
-        "min_tool_calls": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "ExampleContentPart": {
-      "properties": {
-        "type": {
-          "type": "string"
+        "media": {
+          "$ref": "#/$defs/MediaReference"
         },
         "text": {
           "type": "string"
         },
-        "media": {
-          "$ref": "#/$defs/ExampleMedia"
+        "type": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -172,29 +41,91 @@
         "type"
       ]
     },
-    "ExampleMedia": {
+    "DocumentConfig": {
       "properties": {
-        "file_path": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extraction_mode": {
           "type": "string"
         },
-        "url": {
+        "max_pages": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Eval": {
+      "properties": {
+        "description": {
           "type": "string"
         },
-        "mime_type": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
           "type": "string"
         },
-        "detail": {
+        "message": {
           "type": "string"
         },
-        "caption": {
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        },
+        "params": {
+          "type": "object"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "threshold": {
+          "$ref": "#/$defs/EvalThreshold"
+        },
+        "trigger": {
           "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "when": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "mime_type"
+        "id",
+        "trigger",
+        "type"
       ]
+    },
+    "EvalThreshold": {
+      "properties": {
+        "operator": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "FragmentRef": {
       "properties": {
@@ -215,11 +146,65 @@
         "required"
       ]
     },
+    "Governance": {
+      "properties": {
+        "accountable_owner": {
+          "type": "string"
+        },
+        "approved_environments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "autonomy_level": {
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "foreseeable_misuse": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_deployment_contexts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_purpose": {
+          "type": "string"
+        },
+        "operator_role": {
+          "type": "string"
+        },
+        "requires_ai_disclosure": {
+          "type": "boolean"
+        },
+        "risk_classification": {
+          "type": "string"
+        },
+        "vocabularies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ImageConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -229,11 +214,14 @@
         "default_detail": {
           "type": "string"
         },
-        "require_caption": {
-          "type": "boolean"
-        },
         "max_images_per_msg": {
           "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_caption": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -241,8 +229,23 @@
     },
     "MediaConfig": {
       "properties": {
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "document": {
+          "$ref": "#/$defs/DocumentConfig"
+        },
         "enabled": {
           "type": "boolean"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
         },
         "supported_types": {
           "items": {
@@ -250,20 +253,8 @@
           },
           "type": "array"
         },
-        "image": {
-          "$ref": "#/$defs/ImageConfig"
-        },
-        "audio": {
-          "$ref": "#/$defs/AudioConfig"
-        },
         "video": {
           "$ref": "#/$defs/VideoConfig"
-        },
-        "examples": {
-          "items": {
-            "$ref": "#/$defs/MultimodalExample"
-          },
-          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -272,64 +263,73 @@
         "enabled"
       ]
     },
-    "Metadata": {
+    "MediaReference": {
       "properties": {
-        "domain": {
+        "base64": {
           "type": "string"
         },
-        "language": {
+        "caption": {
           "type": "string"
         },
-        "tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "detail": {
+          "type": "string"
         },
-        "cost_estimate": {
-          "$ref": "#/$defs/CostEstimate"
+        "file_path": {
+          "type": "string"
         },
-        "performance": {
-          "$ref": "#/$defs/PerformanceMetrics"
+        "mime_type": {
+          "type": "string"
         },
-        "changelog": {
-          "items": {
-            "$ref": "#/$defs/ChangelogEntry"
-          },
-          "type": "array"
+        "url": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
     },
     "MetricDef": {
       "properties": {
         "name": {
           "type": "string"
         },
+        "range": {
+          "$ref": "#/$defs/MetricDefRange"
+        },
         "type": {
           "type": "string"
-        },
-        "range": {
-          "$ref": "#/$defs/Range"
-        },
-        "labels": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
         }
       },
-      "additionalProperties": false,
+      "additionalProperties": true,
       "type": "object",
       "required": [
         "name",
         "type"
       ]
     },
+    "MetricDefRange": {
+      "properties": {
+        "max": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ModelOverride": {
       "properties": {
+        "parameters": {
+          "$ref": "#/$defs/Parameters"
+        },
         "system_template": {
+          "type": "string"
+        },
+        "system_template_prefix": {
           "type": "string"
         },
         "system_template_suffix": {
@@ -339,63 +339,30 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "ModelTestResultRef": {
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "date": {
-          "type": "string"
-        },
-        "success_rate": {
-          "type": "number"
-        },
-        "avg_tokens": {
-          "type": "integer"
-        },
-        "avg_cost": {
-          "type": "number"
-        },
-        "avg_latency_ms": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "provider",
-        "model",
-        "date",
-        "success_rate"
-      ]
-    },
     "MultimodalExample": {
       "properties": {
-        "name": {
-          "type": "string"
-        },
         "description": {
           "type": "string"
         },
-        "role": {
+        "name": {
           "type": "string"
         },
         "parts": {
           "items": {
-            "$ref": "#/$defs/ExampleContentPart"
+            "$ref": "#/$defs/ContentPart"
           },
           "type": "array"
+        },
+        "role": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "name",
-        "role",
-        "parts"
+        "parts",
+        "role"
       ]
     },
     "ObjectMeta": {
@@ -430,54 +397,108 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "ParametersPack": {
+    "PackCompilation": {
       "properties": {
-        "temperature": {
-          "type": "number"
+        "compiled_with": {
+          "type": "string"
         },
-        "max_tokens": {
-          "type": "integer"
+        "created_at": {
+          "type": "string"
         },
-        "top_p": {
-          "type": "number"
+        "schema": {
+          "type": "string"
         },
-        "top_k": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "PerformanceMetrics": {
-      "properties": {
-        "avg_latency_ms": {
-          "type": "integer"
-        },
-        "p95_latency_ms": {
-          "type": "integer"
-        },
-        "avg_tokens": {
-          "type": "integer"
-        },
-        "success_rate": {
-          "type": "number"
+        "source": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "avg_latency_ms",
-        "p95_latency_ms",
-        "avg_tokens",
-        "success_rate"
+        "compiled_with",
+        "created_at",
+        "schema"
       ]
     },
-    "Range": {
+    "PackMetadata": {
       "properties": {
-        "min": {
+        "cost_estimate": {
+          "$ref": "#/$defs/PackMetadataCostEstimate"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "governance": {
+          "$ref": "#/$defs/Governance"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "PackMetadataCostEstimate": {
+      "properties": {
+        "avg_cost_usd": {
           "type": "number"
         },
-        "max": {
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "min_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PackTemplateEngine": {
+      "properties": {
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "syntax",
+        "version"
+      ]
+    },
+    "Parameters": {
+      "properties": {
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        },
+        "top_p": {
           "type": "number"
         }
       },
@@ -496,7 +517,7 @@
           "type": "string"
         },
         "template_engine": {
-          "$ref": "#/$defs/TemplateEngineInfo"
+          "$ref": "#/$defs/PackTemplateEngine"
         },
         "fragments": {
           "items": {
@@ -536,27 +557,27 @@
         },
         "tested_models": {
           "items": {
-            "$ref": "#/$defs/ModelTestResultRef"
+            "$ref": "#/$defs/TestedModel"
           },
           "type": "array"
         },
         "tool_policy": {
-          "$ref": "#/$defs/ToolPolicyPack"
+          "$ref": "#/$defs/ToolPolicy"
         },
         "parameters": {
-          "$ref": "#/$defs/ParametersPack"
+          "$ref": "#/$defs/Parameters"
         },
         "evals": {
           "items": {
-            "$ref": "#/$defs/EvalDef"
+            "$ref": "#/$defs/Eval"
           },
           "type": "array"
         },
         "metadata": {
-          "$ref": "#/$defs/Metadata"
+          "$ref": "#/$defs/PackMetadata"
         },
         "compilation": {
-          "$ref": "#/$defs/CompilationInfo"
+          "$ref": "#/$defs/PackCompilation"
         }
       },
       "additionalProperties": false,
@@ -568,47 +589,48 @@
         "system_template"
       ]
     },
-    "TemplateEngineInfo": {
+    "TestedModel": {
       "properties": {
-        "version": {
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "number"
+        },
+        "date": {
           "type": "string"
         },
-        "syntax": {
+        "model": {
           "type": "string"
         },
-        "features": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "notes": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "version",
-        "syntax"
+        "date",
+        "model",
+        "provider"
       ]
     },
-    "Threshold": {
+    "ToolPolicy": {
       "properties": {
-        "passed": {
-          "type": "boolean"
-        },
-        "min_score": {
-          "type": "number"
-        },
-        "max_score": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
-    "ToolPolicyPack": {
-      "properties": {
-        "tool_choice": {
-          "type": "string"
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "max_rounds": {
           "type": "integer"
@@ -616,11 +638,8 @@
         "max_tool_calls_per_turn": {
           "type": "integer"
         },
-        "blocklist": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "tool_choice": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -719,9 +738,6 @@
     },
     "VideoConfig": {
       "properties": {
-        "max_size_mb": {
-          "type": "integer"
-        },
         "allowed_formats": {
           "items": {
             "type": "string"
@@ -729,6 +745,9 @@
           "type": "array"
         },
         "max_duration_sec": {
+          "type": "integer"
+        },
+        "max_size_mb": {
           "type": "integer"
         },
         "require_metadata": {
