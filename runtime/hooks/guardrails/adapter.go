@@ -41,6 +41,16 @@ func lastUserTurn(msgs []types.Message) (types.Message, bool) {
 	return last, true
 }
 
+// turnIndexOf reads the turn from an eval context, tolerating a nil one.
+// OnChunk and direct test construction both reach evaluate paths without a
+// fully built context, and a missing turn must not panic a guardrail.
+func turnIndexOf(evalCtx *evals.EvalContext) int {
+	if evalCtx == nil {
+		return 0
+	}
+	return evalCtx.TurnIndex
+}
+
 // GuardrailHookAdapter wraps an evals.EvalTypeHandler as a hooks.ProviderHook.
 // This bridges the unified eval system to the pipeline's hook infrastructure,
 // allowing any registered eval handler to be used as a guardrail.
@@ -113,6 +123,10 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	evalCtx := evals.BuildGuardrailEvalContext(
 		req.Messages, lastMsg.GetContent(), metadata,
 	)
+	// The one field BuildGuardrailEvalContext cannot derive from the message
+	// history. The hook boundary carries it now, so handlers that read
+	// TurnIndex are no longer unusable as guardrails.
+	evalCtx.TurnIndex = req.TurnIndex
 
 	d := a.evaluate(ctx, evalCtx)
 	if !d.Allow {
@@ -158,6 +172,9 @@ func (a *GuardrailHookAdapter) AfterCall(
 	evalCtx := evals.BuildGuardrailEvalContext(
 		msgs, resp.Message.GetContent(), metadata,
 	)
+	if req != nil {
+		evalCtx.TurnIndex = req.TurnIndex
+	}
 
 	return a.evaluateMessage(ctx, evalCtx, &resp.Message)
 }
@@ -237,6 +254,7 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 
 	lc := lifecycle{
 		emitter: a.emitter, name: a.evalType, valType: a.evalType, direction: a.direction,
+		turnIndex: turnIndexOf(evalCtx),
 	}
 	start := lc.start()
 

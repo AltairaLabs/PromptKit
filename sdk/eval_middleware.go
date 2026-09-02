@@ -211,6 +211,23 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	}
 }
 
+// reportedTurn is the turn number an eval result carries.
+//
+// The pipeline derives it from the persisted transcript, and that is the number
+// to report: it is what the guardrails inside that same pipeline reported, and
+// it is what lines up with the message log.
+//
+// dispatchCount is only a fallback for a conversation with no pipeline turn
+// state. It counts dispatches in this process, so it is wrong for a resumed
+// conversation — it restarts at 1 while the transcript already holds earlier
+// turns.
+func (em *evalMiddleware) reportedTurn(dispatchCount int32) int {
+	if em.conv != nil && em.conv.turnState.TurnIndex() > 0 {
+		return em.conv.turnState.TurnIndex()
+	}
+	return int(dispatchCount)
+}
+
 // dispatchTurnEvals dispatches turn-level evals asynchronously.
 // Nil-safe: no-op if middleware is nil.
 // The goroutine is tracked via a WaitGroup and respects the middleware's
@@ -312,12 +329,13 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 	defer em.cacheMu.Unlock()
 
 	currentTurn := em.turnIndex.Load()
+	reported := em.reportedTurn(currentTurn)
 
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
 	if em.conv.unarySession == nil && em.conv.duplexSession == nil {
 		return &evals.EvalContext{
-			TurnIndex: int(currentTurn),
+			TurnIndex: reported,
 			PromptID:  em.conv.promptName,
 		}
 	}
@@ -345,7 +363,7 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 	// second edit nobody remembers to make.
 	return evals.BuildEvalContext(
 		em.cachedMessages,
-		int(currentTurn),
+		reported,
 		em.cachedSessionID,
 		em.conv.promptName,
 		nil,

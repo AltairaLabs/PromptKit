@@ -392,6 +392,21 @@ type ValidationEventData struct {
 	Violations    []string      // Set on failed
 	Enforced      bool          // True when the guardrail modified content (truncation/replacement)
 	Score         float64       // Evaluation score (0.0–1.0)
+
+	// TurnIndex is the turn this validation ran against, counted by the
+	// ProviderStage that hosts the guardrail hooks.
+	//
+	// It is NOT the same counter as EvalEventData.TurnIndex and the two must
+	// not be joined. That one is the SDK's (evalMiddleware.turnIndex): it is
+	// 1-based, is incremented only after the pipeline returns, and is skipped
+	// entirely for a turn suspended on pending client tools. This one is
+	// 0-based, advances while the turn is still running — which is the only
+	// reason a guardrail can read it at all — and restarts at 0 in each
+	// composition sub-pipeline, since those build their own ProviderStage.
+	//
+	// Each is internally consistent. Correlating a validation with an eval
+	// requires the message they both hang off, not these numbers.
+	TurnIndex int
 }
 
 type (

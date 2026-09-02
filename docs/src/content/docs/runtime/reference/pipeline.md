@@ -426,6 +426,9 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 - [type TruncationStrategy](<#TruncationStrategy>)
 - [type TurnState](<#TurnState>)
   - [func NewTurnState\(\) \*TurnState](<#NewTurnState>)
+  - [func \(t \*TurnState\) AdvanceTurn\(\) int](<#TurnState.AdvanceTurn>)
+  - [func \(t \*TurnState\) SetTurnIndex\(n int\)](<#TurnState.SetTurnIndex>)
+  - [func \(t \*TurnState\) TurnIndex\(\) int](<#TurnState.TurnIndex>)
 - [type VariableProviderStage](<#VariableProviderStage>)
   - [func NewVariableProviderStage\(variableProviders ...variables.Provider\) \*VariableProviderStage](<#NewVariableProviderStage>)
   - [func NewVariableProviderStageWithVars\(staticVars map\[string\]string, variableProviders \[\]variables.Provider\) \*VariableProviderStage](<#NewVariableProviderStageWithVars>)
@@ -1321,6 +1324,14 @@ type CompositionExecutorDeps struct {
     // alongside composition_step_id. Arena uses this to propagate mock_scenario_id
     // so per-step mock responses are keyed against the right scenario.
     BaseMetadata map[string]interface{}
+
+    // ParentTurnState is the enclosing turn's state, read only for its
+    // TurnIndex. Each step gets a fresh TurnState — its prompt, tools and
+    // system prompt are the step's, not the turn's — but the turn number is
+    // the one thing that must survive the boundary: without it every step
+    // reports turn 1 and no guardrail event inside a composition can be
+    // placed against the transcript. Optional.
+    ParentTurnState *TurnState
 }
 ```
 
@@ -5693,6 +5704,7 @@ type TurnState struct {
     // Read-only after the producer stage runs; downstream stages must
     // not mutate it.
     ProviderRequestMetadata map[string]interface{}
+    // contains filtered or unexported fields
 }
 ```
 
@@ -5704,6 +5716,35 @@ func NewTurnState() *TurnState
 ```
 
 NewTurnState constructs a fresh, empty TurnState.
+
+<a name="TurnState.AdvanceTurn"></a>
+### func \(\*TurnState\) AdvanceTurn
+
+```go
+func (t *TurnState) AdvanceTurn() int
+```
+
+AdvanceTurn moves to the next turn, returning the new value.
+
+<a name="TurnState.SetTurnIndex"></a>
+### func \(\*TurnState\) SetTurnIndex
+
+```go
+func (t *TurnState) SetTurnIndex(n int)
+```
+
+SetTurnIndex records the turn being executed. StateStoreLoadStage owns this; nothing else should write it, or turns get counted twice.
+
+<a name="TurnState.TurnIndex"></a>
+### func \(\*TurnState\) TurnIndex
+
+```go
+func (t *TurnState) TurnIndex() int
+```
+
+TurnIndex is the 1\-based number of the turn being executed, or 0 when none was established \(no state store, so no transcript to count\).
+
+It is what places an event against the transcript, so everything reporting a turn — guardrail events, eval results — must read it from here rather than counting locally. A local count is only right while one pipeline instance outlives the conversation, and is always wrong for a conversation resumed from history it did not itself produce.
 
 <a name="VariableProviderStage"></a>
 ## type VariableProviderStage

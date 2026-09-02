@@ -74,6 +74,14 @@ type CompositionExecutorDeps struct {
 	// alongside composition_step_id. Arena uses this to propagate mock_scenario_id
 	// so per-step mock responses are keyed against the right scenario.
 	BaseMetadata map[string]interface{}
+
+	// ParentTurnState is the enclosing turn's state, read only for its
+	// TurnIndex. Each step gets a fresh TurnState — its prompt, tools and
+	// system prompt are the step's, not the turn's — but the turn number is
+	// the one thing that must survive the boundary: without it every step
+	// reports turn 1 and no guardrail event inside a composition can be
+	// placed against the transcript. Optional.
+	ParentTurnState *TurnState
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -130,6 +138,9 @@ func (deps CompositionExecutorDeps) execLLM(
 		// BaseMetadata (e.g. mock_scenario_id from Arena) is also merged here.
 		ProviderRequestMetadata: meta,
 	}
+	// Carry the turn number across the sub-pipeline boundary; everything else
+	// about this TurnState is deliberately the step's own.
+	turnState.SetTurnIndex(deps.ParentTurnState.TurnIndex())
 	promptStage := NewPromptAssemblyStageWithTurnState(deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState)
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 

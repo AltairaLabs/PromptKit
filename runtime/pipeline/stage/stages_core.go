@@ -187,11 +187,41 @@ func (s *StateStoreLoadStage) Process(
 		return err
 	}
 
+	// Derive the turn from the persisted transcript rather than counting
+	// executions. A counter is only right while one pipeline instance outlives
+	// the conversation: rebuild the pipeline per turn and it restarts, and it
+	// cannot know about turns that happened before this process started. The
+	// transcript knows both, which is also what the number has to line up with.
+	s.publishTurnIndex(countUserTurns(historyMessages))
+
 	if err := s.emitHistoryMessages(ctx, historyMessages, output); err != nil {
 		return err
 	}
 
 	return s.forwardInput(ctx, input, output)
+}
+
+// countUserTurns counts the user turns in a transcript.
+func countUserTurns(messages []types.Message) int {
+	n := 0
+	for i := range messages {
+		if messages[i].Role == roleUser {
+			n++
+		}
+	}
+	return n
+}
+
+// publishTurnIndex records how many user turns the transcript already holds.
+// forwardInput adds this turn's own user message as it passes, so downstream
+// stages read the 1-based number of the turn being executed.
+//
+// Counting the incoming message rather than assuming one is what keeps a
+// resumed turn correct: when a turn suspends for a client tool and the user
+// message was already persisted, it arrives in history and no new user element
+// follows, so the turn does not advance twice.
+func (s *StateStoreLoadStage) publishTurnIndex(priorTurns int) {
+	s.turnState.SetTurnIndex(priorTurns)
 }
 
 // loadHistoryMessages loads messages from state store if configured.
@@ -247,6 +277,13 @@ func (s *StateStoreLoadStage) forwardInput(
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
+		// This turn's own user message completes the count started from the
+		// persisted transcript. Writing before the forward keeps the
+		// happens-before: the next stage observes the turn index by the time
+		// the element reaches it.
+		if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
+			s.turnState.AdvanceTurn()
+		}
 		select {
 		case output <- elem:
 		case <-ctx.Done():

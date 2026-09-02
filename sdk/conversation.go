@@ -170,6 +170,12 @@ type Conversation struct {
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
 
+	// turnState is the per-Turn state shared with the pipeline's stages.
+	// Owned here rather than by the builder so the eval dispatch can read the
+	// turn number the pipeline derived from the transcript, and report the
+	// same one the guardrails did.
+	turnState *stage.TurnState
+
 	// Stream event handler for StreamWithCallback
 	streamEventHandler StreamEventHandler
 
@@ -543,11 +549,16 @@ func (c *Conversation) buildPipelineConfig(
 	reorderTranscript, transcriptPlaceholder := resolveTranscriptReorder(streamProvider, streamConfig)
 
 	// Build pipeline configuration
+	if c.turnState == nil {
+		c.turnState = stage.NewTurnState()
+	}
+
 	pipelineCfg := &intpipeline.Config{
 		Provider:              c.config.getAgentProvider(),
 		ToolRegistry:          toolRegistry,
 		PromptRegistry:        c.promptRegistry,
 		WorkflowStateResolver: c.workflowResolver,
+		TurnState:             c.turnState,
 		TaskType:              c.promptName,
 		Variables:             vars,
 		VariableProviders:     appendSendScopedProvider(c.config.variableProviders), // dynamic + per-send resolution
