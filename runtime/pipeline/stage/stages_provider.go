@@ -66,6 +66,18 @@ type ProviderStage struct {
 	stateResolver WorkflowStateResolver
 }
 
+// currentTurn returns the 1-based number of the turn being processed, or 0 when
+// nothing established one.
+//
+// The number comes from TurnState, which the state-store load stage derives
+// from the persisted transcript. There is deliberately no local counter to fall
+// back on: counting executions here would be right only while one stage
+// instance outlives the conversation, and silently report turn 1 forever for
+// any caller that rebuilds the pipeline per turn. A wrong turn number is worse
+// than an absent one — 0 is visibly "unknown", whereas a repeating 1 looks
+// like data.
+func (s *ProviderStage) currentTurn() int { return s.turnState.TurnIndex() }
+
 // SetWorkflowStateResolver installs the resolver used to apply workflow state
 // changes mid-turn. Pass nil to disable. Must be called before the stage runs.
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
@@ -2124,6 +2136,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		SystemPrompt: p.systemPrompt,
 		Round:        p.round,
 		Metadata:     p.metadata,
+		TurnIndex:    s.currentTurn(),
 	}
 	hookResp := &hooks.ProviderResponse{
 		ProviderID: s.provider.ID(),
@@ -2181,6 +2194,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 		SystemPrompt: systemPrompt,
 		Round:        round,
 		Metadata:     metadata,
+		TurnIndex:    s.currentTurn(),
 	}
 	hookStart := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq)
@@ -2298,6 +2312,7 @@ func (s *ProviderStage) recordGuardrailFiring(
 		Duration:      duration,
 		Enforced:      d.Enforced,
 		Score:         metadataScore(d.Metadata),
+		TurnIndex:     s.currentTurn(),
 	}
 	if !d.Allow {
 		data.Violations = []string{d.Reason}

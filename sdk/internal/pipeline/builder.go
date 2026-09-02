@@ -54,6 +54,16 @@ type Config struct {
 	// nil for non-workflow conversations.
 	WorkflowStateResolver stage.WorkflowStateResolver
 
+	// TurnState lets the caller own the per-Turn state the stages share,
+	// rather than having the builder create one it cannot reach afterwards.
+	//
+	// The Conversation needs the handle so it can stamp TurnState.TurnIndex
+	// before each execution: that is what makes a validation event and an eval
+	// event for the same turn carry the same number, which is what lines both
+	// up with the transcript. Optional — nil builds a fresh one, which is what
+	// every non-SDK caller (and every test) gets.
+	TurnState *stage.TurnState
+
 	// TokenBudget for context management (0 = no limit)
 	TokenBudget int
 
@@ -370,7 +380,10 @@ func collectPipelineStages(
 	// Per-Turn shared state populated by PromptAssemblyStage and consumed by
 	// TemplateStage (and future stages). Caching the rendered system prompt
 	// here is what fixes #1035 — see runtime/pipeline/stage/ARCHITECTURE.md §4.
-	turnState := stage.NewTurnState()
+	turnState := cfg.TurnState
+	if turnState == nil {
+		turnState = stage.NewTurnState()
+	}
 
 	// 1. State store load stage - loads conversation history FIRST
 	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext, turnState)
@@ -524,6 +537,10 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			HookRegistry:   cfg.HookRegistry,
 			BaseVariables:  cfg.Variables,
 			SchemaResolver: cfg.SchemaResolver,
+			// Steps build their own TurnState; this carries the turn number
+			// into them so guardrails inside a composition report the same
+			// turn as everything outside it.
+			ParentTurnState: turnState,
 		}
 		name := cfg.CompositionName
 		if name == "" {
@@ -541,7 +558,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
 		// VAD mode: build audio pipeline
-		return buildVADPipelineStages(cfg)
+		return buildVADPipelineStages(cfg, turnState)
 	}
 	if cfg.Provider != nil {
 		// Text mode: standard LLM call.

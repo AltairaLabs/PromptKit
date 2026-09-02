@@ -487,6 +487,11 @@ type ProviderRequest struct {
     Round        int
     Metadata     map[string]any
 
+    // TurnIndex is the 0-based turn this call belongs to, counted by the
+    // ProviderStage. Round is not a substitute: it counts tool-loop rounds
+    // within one turn and restarts in each composition sub-pipeline.
+    TurnIndex int
+
     // Replacement is written by a BeforeCall hook that returns Enforced, to
     // supply the assistant text returned in place of the blocked provider
     // call. Mirrors how output guardrails mutate resp.Message in AfterCall.

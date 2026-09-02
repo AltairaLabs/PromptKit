@@ -28,13 +28,23 @@ type lifecycle struct {
 	name      string
 	valType   string
 	direction string
+	turnIndex int
 }
 
 // start emits validation.started and returns the instant to measure from.
 // Safe with no emitter, in which case nothing is published.
+//
+// GuardrailStarted rather than ValidationStarted: the two-string form cannot
+// carry TurnIndex, and a started event that cannot be placed against a turn is
+// the half of the pair that leaves a firing rate uncomputable.
 func (l lifecycle) start() time.Time {
 	if l.emitter != nil {
-		l.emitter.ValidationStarted(l.name, l.valType)
+		l.emitter.GuardrailStarted(&events.ValidationEventData{
+			ValidatorName: l.name,
+			ValidatorType: l.valType,
+			Direction:     l.direction,
+			TurnIndex:     l.turnIndex,
+		})
 	}
 	return time.Now()
 }
@@ -50,6 +60,7 @@ func (l lifecycle) pass(since time.Time, score *float64) {
 		ValidatorType: l.valType,
 		Direction:     l.direction,
 		Duration:      time.Since(since),
+		TurnIndex:     l.turnIndex,
 	}
 	if score != nil {
 		data.Score = *score

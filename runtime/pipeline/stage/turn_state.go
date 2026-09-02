@@ -1,6 +1,8 @@
 package stage
 
 import (
+	"sync/atomic"
+
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -80,6 +82,47 @@ type TurnState struct {
 	// Read-only after the producer stage runs; downstream stages must
 	// not mutate it.
 	ProviderRequestMetadata map[string]interface{}
+
+	// turnIndex is the 1-based number of the turn being executed, derived by
+	// StateStoreLoadStage from the persisted transcript. Zero means no turn
+	// was established — read it through TurnIndex().
+	//
+	// Atomic, unlike every other field here, because it is the one field
+	// written after the stage hand-off that orders the rest. A streaming
+	// session runs all its stages concurrently for the whole conversation, so
+	// the load stage advances the turn while the provider stage is reading it.
+	turnIndex atomic.Int64
+}
+
+// TurnIndex is the 1-based number of the turn being executed, or 0 when none
+// was established (no state store, so no transcript to count).
+//
+// It is what places an event against the transcript, so everything reporting a
+// turn — guardrail events, eval results — must read it from here rather than
+// counting locally. A local count is only right while one pipeline instance
+// outlives the conversation, and is always wrong for a conversation resumed
+// from history it did not itself produce.
+func (t *TurnState) TurnIndex() int {
+	if t == nil {
+		return 0
+	}
+	return int(t.turnIndex.Load())
+}
+
+// SetTurnIndex records the turn being executed. StateStoreLoadStage owns this;
+// nothing else should write it, or turns get counted twice.
+func (t *TurnState) SetTurnIndex(n int) {
+	if t != nil {
+		t.turnIndex.Store(int64(n))
+	}
+}
+
+// AdvanceTurn moves to the next turn, returning the new value.
+func (t *TurnState) AdvanceTurn() int {
+	if t == nil {
+		return 0
+	}
+	return int(t.turnIndex.Add(1))
 }
 
 // NewTurnState constructs a fresh, empty TurnState.

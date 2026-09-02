@@ -424,6 +424,18 @@ func (e *Emitter) ValidationFailed(
 	})
 }
 
+// GuardrailStarted emits the validation.started event from a full payload.
+//
+// ValidationStarted covers the two-string case and cannot carry the rest of
+// ValidationEventData — notably TurnIndex, without which a subscriber can see
+// that a guardrail ran but not which turn it ran on.
+func (e *Emitter) GuardrailStarted(data *ValidationEventData) {
+	if data == nil {
+		return
+	}
+	e.emit(EventValidationStarted, data)
+}
+
 // GuardrailResult emits a validation.passed or validation.failed event
 // with full guardrail context (enforcement, monitor-only, score).
 func (e *Emitter) GuardrailResult(data *ValidationEventData) {
