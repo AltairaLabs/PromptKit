@@ -96,7 +96,7 @@ func TestBuildVADPipelineStages(t *testing.T) {
 			Temperature: 0.7,
 		}
 
-		stages, err := buildVADPipelineStages(cfg)
+		stages, err := buildVADPipelineStages(cfg, stage.NewTurnState())
 		require.NoError(t, err)
 		assert.Len(t, stages, 4) // AudioTurn, STT, Provider, TTS
 	})
@@ -118,7 +118,7 @@ func TestBuildVADPipelineStages(t *testing.T) {
 			TTSService: ttsService,
 		}
 
-		stages, err := buildVADPipelineStages(cfg)
+		stages, err := buildVADPipelineStages(cfg, stage.NewTurnState())
 		require.NoError(t, err)
 		assert.Len(t, stages, 3) // AudioTurn, STT, TTS (no Provider)
 	})
@@ -154,7 +154,7 @@ func TestBuildVADPipelineStages(t *testing.T) {
 			Temperature: 0.5,
 		}
 
-		stages, err := buildVADPipelineStages(cfg)
+		stages, err := buildVADPipelineStages(cfg, stage.NewTurnState())
 		require.NoError(t, err)
 		assert.Len(t, stages, 4)
 	})
@@ -172,7 +172,7 @@ func TestBuildVADPipelineStages(t *testing.T) {
 
 		// This should panic or error when trying to dereference nil VADConfig
 		assert.Panics(t, func() {
-			_, _ = buildVADPipelineStages(cfg)
+			_, _ = buildVADPipelineStages(cfg, stage.NewTurnState())
 		})
 	})
 }

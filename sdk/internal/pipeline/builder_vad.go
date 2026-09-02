@@ -66,7 +66,10 @@ func BuildAudioTrackStages(
 // buildVADPipelineStages creates the VAD mode pipeline stages.
 // VAD mode: Audio → VAD → STT → LLM → TTS
 // This is integration-tested through the voice-interview example.
-func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
+//
+// turnState is shared with the rest of the pipeline so the provider stage reads
+// the same per-Turn data every other topology does.
+func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage, error) {
 	var stages []stage.Stage
 
 	logger.Debug("Using VAD pipeline stages")
@@ -95,22 +98,19 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 
 	// 5d. ProviderStage - LLM call
 	if cfg.Provider != nil {
-		providerConfig := &stage.ProviderConfig{
-			MaxTokens:       cfg.MaxTokens,
-			Temperature:     cfg.Temperature,
-			ApprovalChecker: cfg.ApprovalChecker,
-			// Run the continuous multi-turn loop: fire the tool loop per
-			// EndOfTurn, thread history across turns, and stay open for the next
-			// utterance — rather than the unary default that drains the whole
-			// input channel and fires once at session close (#1644).
-			Streaming: true,
-		}
-		stages = append(stages, stage.NewProviderStageWithEmitter(
+		providerConfig := vadProviderConfig(cfg)
+		// NewProviderStageWithEmitter hardcodes a nil hook registry, which is
+		// why no guardrail runs in VAD mode. That gap is deliberately left
+		// alone here — turning hooks on in voice is a behavior change of its
+		// own. This call switches constructor only to share TurnState.
+		stages = append(stages, stage.NewProviderStageWithTurnState(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
 			cfg.EventEmitter,
+			nil,
+			turnState,
 		))
 	}
 
@@ -122,4 +122,28 @@ func buildVADPipelineStages(cfg *Config) ([]stage.Stage, error) {
 	stages = append(stages, stage.NewTTSStageWithInterruption(cfg.TTSService, ttsConfig))
 
 	return stages, nil
+}
+
+// vadProviderConfig builds the ProviderConfig for VAD mode's LLM stage.
+//
+// Extracted so the wiring is assertable: the fields below are easy to omit and
+// the omission is silent. MessageLog/MessageLogConvID were missing here for the
+// life of VAD mode, so a voice session persisted nothing per turn while the
+// sibling streaming topology in builder.go (which sets both) did.
+func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
+	return &stage.ProviderConfig{
+		MaxTokens:   cfg.MaxTokens,
+		Temperature: cfg.Temperature,
+		// The message log is what persists a turn as it happens, rather than
+		// at session close, which is all IncrementalSaveStage can do for a
+		// long-running session: it drains its input channel before writing.
+		MessageLog:       cfg.MessageLog,
+		MessageLogConvID: cfg.ConversationID,
+		ApprovalChecker:  cfg.ApprovalChecker,
+		// Run the continuous multi-turn loop: fire the tool loop per
+		// EndOfTurn, thread history across turns, and stay open for the next
+		// utterance — rather than the unary default that drains the whole
+		// input channel and fires once at session close (#1644).
+		Streaming: true,
+	}
 }

@@ -558,7 +558,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
 		// VAD mode: build audio pipeline
-		return buildVADPipelineStages(cfg)
+		return buildVADPipelineStages(cfg, turnState)
 	}
 	if cfg.Provider != nil {
 		// Text mode: standard LLM call.
