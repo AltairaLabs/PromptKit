@@ -72,6 +72,19 @@ sdk.WithToolDescriptorOverride("memory__remember",
 
 If you reference a tool name that doesn't exist in the registry (for example, a tool that was renamed or removed in a newer PromptKit release), the override is logged at WARN level and skipped. Other overrides still apply. This means override lists survive PromptKit upgrades without breaking the consumer build.
 
+```
+WARN tool descriptor override skipped: tool not registered  name=memory__remember
+```
+
+A renamed tool is not the only thing that produces this. The capability that owns the tool may have declined to register it, in which case the tool name is still correct for your PromptKit version and the override is a symptom rather than the cause. Check the capability's own preconditions first — they are logged at WARN by the capability itself, immediately before this line:
+
+```
+WARN memory tools skipped: scope has no subject key
+     expected_key=user_id scope_keys=[agent_id,virtual_user_id,workspace_id]
+```
+
+Memory registers its tools only when the scope carries a subject; see [`WithMemorySubjectKey`](/sdk/reference/conversation-manager/#WithMemorySubjectKey) when your scope map spells that key differently. `WithMemoryToolsDisabled` suppresses them outright. Skills register nothing without a discovered skill source, and A2A registers nothing when the pack declares no matching agent.
+
 ## How it works
 
 `WithToolDescriptorOverride` does not subvert the capability — the capability still registers its tools with their defaults. Once all capabilities have run `RegisterTools`, the SDK iterates the configured overrides and:

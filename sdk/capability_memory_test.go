@@ -1,8 +1,12 @@
 package sdk
 
 import (
+	"bytes"
+	"log/slog"
+	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -150,5 +154,130 @@ func TestWithMemoryContextFormatter_NilFormatterIsAccepted(t *testing.T) {
 	cap := cfg.capabilities[0].(*MemoryCapability)
 	if cap.formatter != nil {
 		t.Error("formatter should remain nil when WithMemoryContextFormatter(nil)")
+	}
+}
+
+func TestMemoryCapability_AnonymousScope_SkipsTools(t *testing.T) {
+	// Regression guard for #852: with the default subject key and no value
+	// for it, the tools stay unregistered.
+	store := memory.NewInMemoryStore()
+	cap := NewMemoryCapability(store, map[string]string{"workspace_id": "w1"})
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+
+	for _, name := range memoryToolNames() {
+		if registry.Get(name) != nil {
+			t.Errorf("tool %q registered, want skipped for anonymous scope", name)
+		}
+	}
+}
+
+func TestMemoryCapability_CustomSubjectKey_RegistersTools(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"virtual_user_id": "vu-1", "workspace_id": "w1"}
+	cap := NewMemoryCapability(store, scope)
+	cap.subjectKey = "virtual_user_id"
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+
+	for _, name := range memoryToolNames() {
+		if registry.Get(name) == nil {
+			t.Errorf("tool %q not registered under custom subject key", name)
+		}
+	}
+}
+
+func TestMemoryCapability_CustomSubjectKey_IgnoresDefaultKey(t *testing.T) {
+	// The configured key is the only one that counts — a stray "user_id"
+	// must not satisfy the gate.
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "u-1"}
+	cap := NewMemoryCapability(store, scope)
+	cap.subjectKey = "virtual_user_id"
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+
+	for _, name := range memoryToolNames() {
+		if registry.Get(name) != nil {
+			t.Errorf("tool %q registered, want skipped when the configured subject key is absent", name)
+		}
+	}
+}
+
+func TestMemoryCapability_EmptySubjectKey_DisablesGate(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	cap := NewMemoryCapability(store, nil)
+	cap.subjectKey = ""
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+
+	for _, name := range memoryToolNames() {
+		if registry.Get(name) == nil {
+			t.Errorf("tool %q not registered, want registered when the subject gate is disabled", name)
+		}
+	}
+}
+
+func TestMemoryCapability_SkipLogsWarnNamingTheKeys(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"workspace_id": "w1", "virtual_user_id": "vu-1"}
+	NewMemoryCapability(store, scope).RegisterTools(tools.NewRegistry())
+
+	out := buf.String()
+	if !strings.Contains(out, "memory tools skipped") {
+		t.Fatalf("expected a warn-level skip line, got %q", out)
+	}
+	if !strings.Contains(out, `"expected_key":"user_id"`) {
+		t.Errorf("skip line does not name the key it looked for: %q", out)
+	}
+	for _, k := range []string{"workspace_id", "virtual_user_id"} {
+		if !strings.Contains(out, k) {
+			t.Errorf("skip line does not report present scope key %q: %q", k, out)
+		}
+	}
+}
+
+func TestWithMemorySubjectKey_StoredOnCapability(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"virtual_user_id": "vu-1"}
+
+	cfg := &config{}
+	if err := WithMemory(store, scope, WithMemorySubjectKey("virtual_user_id"))(cfg); err != nil {
+		t.Fatalf("WithMemory: %v", err)
+	}
+	cap, ok := cfg.capabilities[0].(*MemoryCapability)
+	if !ok {
+		t.Fatalf("expected *MemoryCapability, got %T", cfg.capabilities[0])
+	}
+	if cap.subjectKey != "virtual_user_id" {
+		t.Errorf("subjectKey = %q, want %q", cap.subjectKey, "virtual_user_id")
+	}
+}
+
+func TestWithMemory_DefaultsSubjectKeyToUserID(t *testing.T) {
+	cfg := &config{}
+	if err := WithMemory(memory.NewInMemoryStore(), nil)(cfg); err != nil {
+		t.Fatalf("WithMemory: %v", err)
+	}
+	cap := cfg.capabilities[0].(*MemoryCapability)
+	if cap.subjectKey != "user_id" {
+		t.Errorf("subjectKey = %q, want default %q", cap.subjectKey, "user_id")
+	}
+}
+
+func memoryToolNames() []string {
+	return []string{
+		memory.RecallToolName,
+		memory.RememberToolName,
+		memory.ListToolName,
+		memory.ForgetToolName,
 	}
 }

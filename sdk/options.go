@@ -1224,6 +1224,28 @@ func WithMemoryToolsDisabled() MemoryOption {
 	return func(c *MemoryCapability) { c.toolsDisabled = true }
 }
 
+// WithMemorySubjectKey declares which scope key identifies the memory subject.
+// The memory tools (memory__remember / memory__recall, etc.) are registered
+// only when the scope carries a non-empty value for it; see
+// AltairaLabs/PromptKit#852 for why.
+//
+// Defaults to [DefaultMemorySubjectKey] ("user_id"). Hosts whose scope map
+// spells the subject differently must say so, otherwise the gate never opens
+// and the agent silently loses its memory tools:
+//
+//	conv, _ := sdk.Open(packPath, "chat",
+//	    sdk.WithMemory(store, map[string]string{"virtual_user_id": id},
+//	        sdk.WithMemorySubjectKey("virtual_user_id"),
+//	    ),
+//	)
+//
+// Passing "" removes the gate entirely: the tools are always registered and
+// the store decides what an anonymous subject means. See
+// AltairaLabs/PromptKit#1946.
+func WithMemorySubjectKey(key string) MemoryOption {
+	return func(c *MemoryCapability) { c.subjectKey = key }
+}
+
 // WithMemoryContextFormatter overrides how retrieved memories are rendered
 // into the "memory_context" template variable that the system prompt sees.
 // Composes with [WithMemory] / [WithMemoryRetriever]; ignored when no
