@@ -17,7 +17,7 @@ PromptKit has two ways to put outside knowledge in front of a model. They are co
 | Reaches the model as | A tool result mid-turn | The `{{memory_context}}` template variable |
 | Configured with | `WithMemory` | `WithRetriever` |
 
-Use memory tools when the model should remember things about the person it is talking to. Use grounding when every answer should be anchored in your documentation, catalog, or knowledge base — the model never has to think to ask for it.
+Use memory tools when the model should remember things about the person it is talking to. Use grounding when every answer should be anchored in your documentation, catalog, or knowledge base — the model never has to think to ask for it. [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) covers the tradeoff in full: what each shape costs, and when to reach for which.
 
 They compose. An agent can remember that a customer prefers email while grounding its answers in the current returns policy.
 
@@ -150,7 +150,7 @@ conv, _ := sdk.Open("./support.pack.json", "support",
 )
 ```
 
-Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice — once by asking, once without — and neither path is then clearly responsible for what it sees.
+Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice — once by asking, once without — and a filter you apply inside your `Retriever` does not run on the tool path, since the tool reaches the store directly. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
 
 ## Gotchas
 
@@ -169,3 +169,4 @@ ERROR Template rendering failed in pipeline  error="unresolved template placehol
 - [Manage Context](/sdk/how-to/conversations/manage-context/) — token budget and truncation for long conversations
 - [Memory reference](/runtime/reference/memory/) — `Store`, `Retriever`, `Extractor`, `Memory`
 - [Memory Corpus reference](/runtime/reference/memory-corpus/) — the reference retriever
+- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) — why retrieval has two shapes, and why PromptKit ships no retriever

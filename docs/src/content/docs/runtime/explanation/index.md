@@ -19,6 +19,7 @@ These explanations help you understand *why* Runtime works the way it does. They
 - [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
 - [State Management](/runtime/explanation/state-management/) - Conversation history and persistence
 - [Media Storage](/runtime/explanation/media-storage/) - Deduplication and crash-safe writes for stored media
+- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) - Model-initiated vs pipeline-initiated retrieval, and what each costs
 
 ## When to Read These
 
