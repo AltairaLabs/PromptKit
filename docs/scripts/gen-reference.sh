@@ -28,6 +28,8 @@ MAP=(
   "./tts|tts|TTS|15"
   "./audio|audio|Audio|16"
   "./variables|variables|Variables|17"
+  "./memory|memory|Memory|18"
+  "./memory/corpus|memory-corpus|Memory Corpus|19"
 )
 
 mkdir -p "$OUT"
