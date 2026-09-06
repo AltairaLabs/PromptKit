@@ -29,7 +29,8 @@ Variable providers dynamically resolve variables at runtime, before template ren
 ### Static vs Dynamic Variables
 
 ```go
-// Static: Set once at conversation start
+// Sticky: set on the conversation, re-read every turn
+// (change it between sends and the next prompt changes)
 conv.SetVar("user_name", "Alice")
 
 // Dynamic: Resolved on each Send()

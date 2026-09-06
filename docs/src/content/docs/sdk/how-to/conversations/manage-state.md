@@ -173,5 +173,6 @@ func main() {
 
 ## See Also
 
+- [How Variables Resolve](/sdk/explanation/variables/) — precedence, when each source is read, and what an unresolved placeholder does
 - [Open a Conversation](/sdk/how-to/conversations/initialize/)
 - [Tutorial 4: Variables](/sdk/tutorials/04-state-management/)
