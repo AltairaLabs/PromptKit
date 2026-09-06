@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -84,11 +85,18 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 	}
 	c.executor = skills.NewExecutor(cfg)
 
-	// Preload skills marked with preload: true.
-	// Errors are intentionally ignored: preloading is best-effort and the skill
-	// will be activated on first use if preloading fails.
+	// Preload skills marked with preload: true. Preloading is best-effort —
+	// a skill that fails here can still be activated on first use, so a
+	// failure does not abort Init. It is reported, though: when the cause is
+	// MaxActive the "activate later" recovery does not hold, because the
+	// limit is just as full at first use as it is now. See #1953.
+	//
+	// PreloadedSkills is sorted, so which skills lose a MaxActive race is
+	// the same on every process start.
 	for _, sk := range reg.PreloadedSkills() {
-		_, _, _ = c.executor.Activate(sk.Name)
+		if _, _, err := c.executor.Activate(sk.Name); err != nil {
+			logger.Warn("skills: preload failed", "skill", sk.Name, "error", err)
+		}
 	}
 
 	return nil
