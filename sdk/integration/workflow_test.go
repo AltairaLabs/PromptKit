@@ -195,3 +195,36 @@ func TestWorkflow_InvalidTransition(t *testing.T) {
 	// State should remain unchanged
 	assert.Equal(t, "intake", wc.CurrentState())
 }
+
+// TestWorkflow_SystemPromptFollowsTheState guards the per-turn render change
+// (#1959) against workflow states. A transition to a different prompt_task
+// opens a new conversation, and a second turn in the same state must keep that
+// state's prompt rather than reverting to the entry state's.
+func TestWorkflow_SystemPromptFollowsTheState(t *testing.T) {
+	rec := newRecordingProvider()
+	wc := openTestWorkflow(t, sdk.WithProvider(rec))
+	ctx := context.Background()
+
+	_, err := wc.Send(ctx, "hello")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "initial contact")
+
+	_, err = wc.Send(ctx, "still here")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "initial contact",
+		"a second turn in the same state keeps that state's prompt")
+
+	state, err := wc.Transition("Escalate")
+	require.NoError(t, err)
+	require.Equal(t, "specialist", state)
+
+	_, err = wc.Send(ctx, "escalated question")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "You are a specialist.")
+	assert.NotContains(t, rec.system(), "initial contact")
+
+	_, err = wc.Send(ctx, "another specialist question")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "You are a specialist.",
+		"the destination state's prompt must survive its own second turn")
+}
