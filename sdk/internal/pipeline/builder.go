@@ -390,13 +390,22 @@ func collectPipelineStages(
 
 	// 2. Variable provider stage - always present, handles static + dynamic vars
 	// 3. Prompt assembly stage - loads raw template (no rendering)
-	// 4. Template stage - single render point, emits events. With turnState,
-	// rendering happens once per Send rather than once per element.
 	//
-	// For composition states (RFC 0010), these three stages are skipped: the
+	// For composition states (RFC 0010), these stages are skipped: the
 	// CompositionStage builds its own per-step sub-pipelines and there is no
 	// top-level prompt_task to assemble.
 	stages = appendPromptAssemblyStages(stages, cfg, turnState)
+
+	// 3.5 Memory retrieval stage - ambient RAG injection. Must run BEFORE the
+	// template stage: it writes TurnState.Variables["memory_context"], which is
+	// only read at render time. Placed after the provider stage's other
+	// pre-flight work it silently no-ops, because the render has already
+	// happened and the placeholder reaches the model raw (#1958).
+	stages = appendMemoryRetrievalStage(stages, cfg, turnState)
+
+	// 4. Template stage - single render point, emits events. With turnState,
+	// rendering happens once per Send rather than once per element.
+	stages = appendTemplateStage(stages, cfg, turnState)
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
@@ -419,16 +428,6 @@ func collectPipelineStages(
 	// 4.7 Frame rate limiting stage - drop excess video/image frames before provider
 	if cfg.VideoStreamConfig != nil && cfg.VideoStreamConfig.TargetFPS > 0 {
 		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
-	}
-
-	// 4.8 Memory retrieval stage - inject relevant memories before provider
-	if cfg.MemoryRetriever != nil && cfg.MemoryStore != nil {
-		retrievalStage := stage.NewMemoryRetrievalStageWithTurnState(
-			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState)
-		if cfg.MemoryContextFormatter != nil {
-			retrievalStage.WithContextFormatter(cfg.MemoryContextFormatter)
-		}
-		stages = append(stages, retrievalStage)
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support
@@ -509,10 +508,14 @@ func appendStateStoreLoadStages(
 	return append(stages, stage.NewStateStoreLoadStageWithTurnState(stateStoreConfig, turnState))
 }
 
-// appendPromptAssemblyStages adds VariableProviderStage, PromptAssemblyStage, and
-// TemplateStage when the pipeline is not running a composition (RFC 0010). Composition
-// states skip these three stages because the CompositionStage builds its own per-step
-// sub-pipelines and there is no top-level prompt_task to assemble.
+// appendPromptAssemblyStages adds VariableProviderStage and PromptAssemblyStage
+// when the pipeline is not running a composition (RFC 0010). Composition states
+// skip them because the CompositionStage builds its own per-step sub-pipelines
+// and there is no top-level prompt_task to assemble.
+//
+// TemplateStage is appended separately by appendTemplateStage so that stages
+// writing TurnState.Variables — memory retrieval — can sit between assembly and
+// the single render point.
 func appendPromptAssemblyStages(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
 	if cfg.ActiveComposition != nil {
 		return stages
@@ -520,8 +523,36 @@ func appendPromptAssemblyStages(stages []stage.Stage, cfg *Config, turnState *st
 	return append(stages,
 		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
-		stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
 	)
+}
+
+// appendTemplateStage adds the single render point. Every stage that writes a
+// variable the system prompt consumes must already be in the chain: the render
+// happens here and nowhere else, and a variable written later is invisible.
+func appendTemplateStage(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
+	if cfg.ActiveComposition != nil {
+		return stages
+	}
+	return append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
+}
+
+// appendMemoryRetrievalStage adds ambient grounding when a host has wired a
+// retriever. The stage writes the retrieved content onto
+// TurnState.Variables["memory_context"], so it must precede appendTemplateStage.
+//
+// A retriever is the only requirement. Grounding may come from a corpus the
+// memory store knows nothing about, so requiring a store here forced hosts
+// doing pure retrieval to construct one that was never read.
+func appendMemoryRetrievalStage(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
+	if cfg.MemoryRetriever == nil {
+		return stages
+	}
+	retrievalStage := stage.NewMemoryRetrievalStageWithTurnState(
+		cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState)
+	if cfg.MemoryContextFormatter != nil {
+		retrievalStage.WithContextFormatter(cfg.MemoryContextFormatter)
+	}
+	return append(stages, retrievalStage)
 }
 
 // buildProviderStages returns the appropriate provider stage(s) based on config.

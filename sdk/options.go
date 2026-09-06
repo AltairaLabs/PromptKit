@@ -262,6 +262,12 @@ type config struct {
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities []Capability
 
+	// Ambient grounding: a retriever wired on its own, independent of the
+	// memory capability. Set by WithRetriever / WithRetrievalFormatter and
+	// taking precedence over a retriever configured through WithMemory.
+	retriever          memory.Retriever
+	retrievalFormatter memory.ContextFormatter
+
 	// Tool descriptor overrides applied after capabilities register their
 	// tools. Each entry patches a registered descriptor by name. Maintained
 	// as an ordered slice (not a map) so multiple overrides for the same
@@ -1169,6 +1175,57 @@ func WithCompactionRules(rules ...stage.CompactionRule) Option {
 func WithMessageLog(log statestore.MessageLog) Option {
 	return func(c *config) error {
 		c.messageLog = log
+		return nil
+	}
+}
+
+// WithRetriever enables ambient grounding: before each turn renders, the
+// retriever is asked what is relevant to the conversation so far, and its
+// answer is injected into the system prompt as the "memory_context" template
+// variable.
+//
+//	conv, _ := sdk.Open("./support.pack.json", "assistant",
+//	    sdk.WithRetriever(corpus.New(docs)))
+//
+//	// system_template: "Product documentation:\n{{memory_context}}"
+//
+// The retriever is handed the turn's messages and decides relevance itself;
+// PromptKit ships [corpus.Retriever] as a reference implementation and hosts
+// implement [memory.Retriever] against their own index.
+//
+// This is a different mechanism from the memory tools. Grounding happens
+// whether or not the model asks for it and needs no store, no scope and no
+// memory capability — the retrieved content need not be "memory" at all. Use
+// [WithMemory] when you want the model to manage facts about its subject;
+// use this when you want it grounded in your content. A retriever set here
+// takes precedence over one configured via [WithMemoryRetriever].
+func WithRetriever(r memory.Retriever) Option {
+	return func(c *config) error {
+		c.retriever = r
+		return nil
+	}
+}
+
+// WithRetrievalFormatter overrides how retrieved content is rendered into the
+// "memory_context" template variable. Falls back to
+// [memory.DefaultContextFormatter] when fn is nil.
+//
+// Use it to surface whatever the prompt needs to cite — a document title, a
+// source URL held in [memory.Memory].Metadata:
+//
+//	sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
+//	    var b strings.Builder
+//	    for _, m := range items {
+//	        fmt.Fprintf(&b, "[%s] %s\n", m.ID, m.Content)
+//	    }
+//	    return b.String()
+//	})
+//
+// Applies to the retriever set by [WithRetriever]; the memory capability's
+// equivalent is [WithMemoryContextFormatter].
+func WithRetrievalFormatter(fn memory.ContextFormatter) Option {
+	return func(c *config) error {
+		c.retrievalFormatter = fn
 		return nil
 	}
 }

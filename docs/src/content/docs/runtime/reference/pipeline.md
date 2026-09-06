@@ -3159,7 +3159,9 @@ Process implements Stage.
 <a name="MemoryRetrievalStage"></a>
 ## type MemoryRetrievalStage
 
-MemoryRetrievalStage injects relevant memories into the conversation context. Runs early in the pipeline \(before the provider stage\). Accumulates messages from input elements, then calls Retriever.RetrieveContext\(\) once the input channel closes and writes the formatted memory context onto TurnState.Variables\["memory\_context"\] for the template stage to consume.
+MemoryRetrievalStage injects relevant memories into the conversation context. Accumulates messages from input elements, then calls Retriever.RetrieveContext\(\) once the input channel closes and writes the formatted memory context onto TurnState.Variables\["memory\_context"\] for the template stage to consume.
+
+It MUST be placed before TemplateStage. That stage is the single render point, and a variable written after it renders is invisible: the prompt reaches the model with \{\{memory\_context\}\} unresolved while retrieval reports success. Ordering it after the render is what \#1958 was.
 
 No\-op passthrough when retriever or turnState is nil.
 

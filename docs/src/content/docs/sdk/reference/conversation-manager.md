@@ -338,6 +338,8 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
   - [func WithRecording\(cfg \*RecordingConfig\) Option](<#WithRecording>)
   - [func WithRelevanceTruncation\(cfg \*RelevanceConfig\) Option](<#WithRelevanceTruncation>)
   - [func WithResponseFormat\(format \*providers.ResponseFormat\) Option](<#WithResponseFormat>)
+  - [func WithRetrievalFormatter\(fn memory.ContextFormatter\) Option](<#WithRetrievalFormatter>)
+  - [func WithRetriever\(r memory.Retriever\) Option](<#WithRetriever>)
   - [func WithRuntimeConfig\(path string\) Option](<#WithRuntimeConfig>)
   - [func WithSTTProvider\(spec ProviderSpec\) Option](<#WithSTTProvider>)
   - [func WithSandboxFactory\(mode string, factory sandbox.Factory\) Option](<#WithSandboxFactory>)
@@ -3965,6 +3967,49 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
     }),
 )
 ```
+
+<a name="WithRetrievalFormatter"></a>
+### func WithRetrievalFormatter
+
+```go
+func WithRetrievalFormatter(fn memory.ContextFormatter) Option
+```
+
+WithRetrievalFormatter overrides how retrieved content is rendered into the "memory\_context" template variable. Falls back to \[memory.DefaultContextFormatter\] when fn is nil.
+
+Use it to surface whatever the prompt needs to cite — a document title, a source URL held in \[memory.Memory\].Metadata:
+
+```
+sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
+    var b strings.Builder
+    for _, m := range items {
+        fmt.Fprintf(&b, "[%s] %s\n", m.ID, m.Content)
+    }
+    return b.String()
+})
+```
+
+Applies to the retriever set by [WithRetriever](<#WithRetriever>); the memory capability's equivalent is [WithMemoryContextFormatter](<#WithMemoryContextFormatter>).
+
+<a name="WithRetriever"></a>
+### func WithRetriever
+
+```go
+func WithRetriever(r memory.Retriever) Option
+```
+
+WithRetriever enables ambient grounding: before each turn renders, the retriever is asked what is relevant to the conversation so far, and its answer is injected into the system prompt as the "memory\_context" template variable.
+
+```
+conv, _ := sdk.Open("./support.pack.json", "assistant",
+    sdk.WithRetriever(corpus.New(docs)))
+
+// system_template: "Product documentation:\n{{memory_context}}"
+```
+
+The retriever is handed the turn's messages and decides relevance itself; PromptKit ships \[corpus.Retriever\] as a reference implementation and hosts implement \[memory.Retriever\] against their own index.
+
+This is a different mechanism from the memory tools. Grounding happens whether or not the model asks for it and needs no store, no scope and no memory capability — the retrieved content need not be "memory" at all. Use [WithMemory](<#WithMemory>) when you want the model to manage facts about its subject; use this when you want it grounded in your content. A retriever set here takes precedence over one configured via [WithMemoryRetriever](<#WithMemoryRetriever>).
 
 <a name="WithRuntimeConfig"></a>
 ### func WithRuntimeConfig
