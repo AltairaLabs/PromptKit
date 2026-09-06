@@ -151,3 +151,54 @@ func TestMemoryContext_RetrieverSeesScopeAndTurnMessages(t *testing.T) {
 	require.NotEmpty(t, ret.sawMsgs)
 	assert.Contains(t, ret.sawMsgs[len(ret.sawMsgs)-1].GetContent(), "where do I live?")
 }
+
+// TestMemoryContext_RefreshesEachTurn pins that grounding follows the
+// conversation. The system prompt used to render once per conversation, so
+// turn two was answered with turn one's retrieval.
+func TestMemoryContext_RefreshesEachTurn(t *testing.T) {
+	rec := newRecordingProvider()
+	kb := corpus.New([]corpus.Document{
+		{ID: "refunds", Title: "Refunds", Text: "Refunds take 14 days."},
+		{ID: "shipping", Title: "Shipping", Text: "Shipping is next day."},
+	})
+
+	conv := openTestConvWithPack(t, memoryContextPack("g:{{memory_context}}"), "chat",
+		sdk.WithProvider(rec),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithRetriever(kb),
+	)
+
+	_, err := conv.Send(context.Background(), "tell me about refunds")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "Refunds take 14 days.")
+
+	_, err = conv.Send(context.Background(), "tell me about shipping")
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "Shipping is next day.")
+	assert.NotContains(t, rec.system(), "Refunds take 14 days.")
+}
+
+// TestMemoryContext_StaleContextDoesNotLeak pins the other half: a turn that
+// retrieves nothing must not inherit the previous turn's grounding, which the
+// variable map would otherwise still be holding.
+func TestMemoryContext_StaleContextDoesNotLeak(t *testing.T) {
+	rec := newRecordingProvider()
+	kb := corpus.New([]corpus.Document{
+		{ID: "refunds", Title: "Refunds", Text: "Refunds take 14 days."},
+	})
+
+	conv := openTestConvWithPack(t, memoryContextPack("g:{{memory_context}}"), "chat",
+		sdk.WithProvider(rec),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithRetriever(kb),
+	)
+
+	_, err := conv.Send(context.Background(), "tell me about refunds")
+	require.NoError(t, err)
+	require.Contains(t, rec.system(), "Refunds take 14 days.")
+
+	_, err = conv.Send(context.Background(), "what is the weather like")
+	require.NoError(t, err)
+	assert.NotContains(t, rec.system(), "Refunds take 14 days.")
+	assert.NotContains(t, rec.system(), "{{memory_context}}")
+}
