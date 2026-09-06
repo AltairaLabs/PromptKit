@@ -97,3 +97,14 @@ func NewStageError(stageName string, stageType StageType, err error) *StageError
 		Err:       err,
 	}
 }
+
+// ErrTemplateUnresolved is returned by TemplateStage when the system prompt
+// references a variable nothing supplied.
+//
+// The turn fails rather than proceeding. The alternative — sending the
+// unrendered template — puts literal {{...}} in front of the model, and since
+// rendering aborts at the first missing name, every other variable in that
+// prompt goes unrendered too. That reads in production as a model ignoring its
+// instructions, which is a far longer trail back to a missing variable than an
+// error naming it.
+var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")

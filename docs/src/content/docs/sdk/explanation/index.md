@@ -9,6 +9,7 @@ Deep-dive documentation explaining SDK architecture and design.
 
 - **[SDK Architecture](/sdk/explanation/architecture/)** - Pack-first design and components
 - **[Observability](/sdk/explanation/observability/)** - Event system and monitoring
+- **[How Variables Resolve](/sdk/explanation/variables/)** - Sources, precedence, and the single substitution point
 
 ## Design Philosophy
 

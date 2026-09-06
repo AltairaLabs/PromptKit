@@ -43,7 +43,7 @@ conv.SetVar("region", "us-west")
 
 ## Use in Templates
 
-Variables are substituted in system prompts:
+Variables are substituted in system prompts, and **only** there — message text is sent exactly as written, so a `{{name}}` in a message a user typed stays a placeholder. See [How Variables Resolve](/sdk/explanation/variables/) for why.
 
 **Pack file:**
 ```json
@@ -173,5 +173,6 @@ func main() {
 
 ## See Also
 
+- [How Variables Resolve](/sdk/explanation/variables/) — precedence, when each source is read, and what an unresolved placeholder does
 - [Open a Conversation](/sdk/how-to/conversations/initialize/)
 - [Tutorial 4: Variables](/sdk/tutorials/04-state-management/)

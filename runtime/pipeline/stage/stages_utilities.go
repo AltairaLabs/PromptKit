@@ -167,7 +167,9 @@ func (s *TemplateStage) Process(
 	defer close(output)
 
 	for elem := range input {
-		s.processElement(&elem)
+		if err := s.renderTurnPrompt(); err != nil {
+			return err
+		}
 
 		select {
 		case output <- elem:
@@ -179,10 +181,16 @@ func (s *TemplateStage) Process(
 	return nil
 }
 
-// processElement performs variable substitution on a single element.
-func (s *TemplateStage) processElement(elem *StreamElement) {
+// renderTurnPrompt renders this turn's system prompt, once — the cache on
+// TurnState.SystemPrompt makes every later element a no-op.
+//
+// Elements pass through untouched. Variables apply to the system template and
+// nothing else: the pipeline cannot distinguish text a host templated from an
+// end user's own words (they arrive as one string), so substituting message
+// content let a user read any variable in scope by typing its placeholder.
+func (s *TemplateStage) renderTurnPrompt() error {
 	if s.turnState == nil || s.turnState.Template == nil {
-		return
+		return nil
 	}
 	tmpl := s.turnState.Template
 
@@ -198,12 +206,9 @@ func (s *TemplateStage) processElement(elem *StreamElement) {
 	}
 
 	if tmpl.RawTemplate != "" {
-		s.renderSystemTemplate(tmpl, mergedVars)
+		return s.renderSystemTemplate(tmpl, mergedVars)
 	}
-
-	if elem.Message != nil {
-		s.substituteMessage(elem.Message, mergedVars)
-	}
+	return nil
 }
 
 // renderSystemTemplate renders the raw template using the full Renderer
@@ -214,9 +219,9 @@ func (s *TemplateStage) processElement(elem *StreamElement) {
 // stage triggers a full render and a new pair of started/rendered events.
 func (s *TemplateStage) renderSystemTemplate(
 	tmpl *prompt.Template, vars map[string]string,
-) {
+) error {
 	if s.turnState.SystemPrompt != "" {
-		return
+		return nil
 	}
 
 	rawTemplate := tmpl.RawTemplate
@@ -229,12 +234,17 @@ func (s *TemplateStage) renderSystemTemplate(
 
 	result, err := s.renderer.RenderDetailed(rawTemplate, vars)
 	if err != nil {
-		logger.Error("Template rendering failed in pipeline", "task_type", taskType, "error", err)
+		wrapped := fmt.Errorf("%w: %s: %w (variables available: %s)",
+			ErrTemplateUnresolved, taskType, err, strings.Join(sortedVarNames(vars), ", "))
+		logger.Error("Template rendering failed in pipeline", "task_type", taskType, "error", wrapped)
 		if s.emitter != nil {
-			s.emitter.TemplateFailed(taskType, err.Error(), nil)
+			s.emitter.TemplateFailed(taskType, wrapped.Error(), nil)
 		}
-		s.turnState.SystemPrompt = rawTemplate
-		return
+		// The turn ends here. Sending the unrendered template instead would put
+		// literal {{...}} in front of the model — and because the render aborts
+		// on the first missing name, every other variable in the prompt would go
+		// unrendered with it, which reads as the model ignoring its instructions.
+		return wrapped
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(result.Text)))
@@ -251,6 +261,18 @@ func (s *TemplateStage) renderSystemTemplate(
 			RenderPasses:    result.Passes,
 		})
 	}
+	return nil
+}
+
+// sortedVarNames lists the variable NAMES available to a render, for an error
+// message. Names only: a value may be a secret, and this string reaches logs.
+func sortedVarNames(vars map[string]string) []string {
+	names := make([]string, 0, len(vars))
+	for k := range vars {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // sortedFragmentNames returns sorted keys of the template's fragment vars.
@@ -264,28 +286,6 @@ func sortedFragmentNames(fragmentVars map[string]string) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// substituteMessage performs variable substitution on message content and parts.
-func (s *TemplateStage) substituteMessage(msg *types.Message, vars map[string]string) {
-	msg.Content = s.substituteVariables(msg.Content, vars)
-
-	for i := range msg.Parts {
-		if msg.Parts[i].Text != nil {
-			text := s.substituteVariables(*msg.Parts[i].Text, vars)
-			msg.Parts[i].Text = &text
-		}
-	}
-}
-
-// substituteVariables replaces {{variable}} placeholders with values.
-func (s *TemplateStage) substituteVariables(text string, vars map[string]string) string {
-	result := text
-	for varName, varValue := range vars {
-		placeholder := "{{" + varName + "}}"
-		result = strings.ReplaceAll(result, placeholder, varValue)
-	}
-	return result
 }
 
 // VariableProviderStage resolves variables from dynamic providers and adds them to metadata.
