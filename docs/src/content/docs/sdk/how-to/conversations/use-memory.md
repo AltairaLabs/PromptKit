@@ -154,6 +154,18 @@ conv, _ := sdk.Open("./support.pack.json", "support",
 
 Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice — once by asking, once without — and a filter you apply inside your `Retriever` does not run on the tool path, since the tool reaches the store directly. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
 
+## Duplex is not supported
+
+Ambient grounding is a per-turn operation: the retrieval stage reads the turn's messages once the input closes, then writes the context the template renders. A duplex session has no such boundary — its input stays open until the session ends — so the stage would never forward and the provider session would never start.
+
+`OpenDuplex` and `OpenVoice` therefore refuse a configured retriever rather than returning a session that cannot reply:
+
+```
+ambient grounding (a memory retriever) is not supported with a duplex provider: ...
+```
+
+Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable. Tracking in issue #1962.
+
 ## Gotchas
 
 **The variable has to be in the prompt.** Retrieval runs and produces nothing visible if `{{memory_context}}` does not appear in `system_template`. Check the rendered prompt, not the retrieval log.

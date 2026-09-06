@@ -61,6 +61,8 @@ The same reasoning applies to `memory.Store` and `memory.Extractor`. Persistence
 
 Ambient retrieval runs as a stage between prompt assembly and template rendering. That position is forced: the stage writes a template variable, and the template stage is the single render point, so retrieval must complete before the render or the variable is invisible. It also means the retriever sees message text before variable substitution has been applied to it.
 
+Ambient retrieval is therefore unavailable in duplex (realtime) sessions, where there is no per-turn input boundary to retrieve against. The SDK refuses the configuration rather than starting a session that can never reply. Model-initiated retrieval has no such constraint — the tool loop runs inside a turn either way.
+
 Tool-based retrieval runs inside the provider stage's tool loop, which is why it can happen several times in one turn and why its results appear in the transcript as tool messages rather than in the system prompt.
 
 ## See also
