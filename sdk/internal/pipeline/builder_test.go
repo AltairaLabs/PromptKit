@@ -1491,3 +1491,37 @@ func TestCollectPipelineStages_ReordersInputTranscript(t *testing.T) {
 		}
 	})
 }
+
+// TestBuild_RetrieverWithDuplexProviderIsRejected pins the duplex deadlock
+// (#1962): MemoryRetrievalStage accumulates until its input channel closes, and
+// a duplex session's input stays open for the session's lifetime, so the stage
+// never forwards and the provider stage never receives a first element. The
+// session hangs with no reply and no error — verified live against OpenAI
+// Realtime — so the build must refuse instead.
+func TestBuild_RetrieverWithDuplexProviderIsRejected(t *testing.T) {
+	cfg := &Config{
+		PromptRegistry:      createTestRegistry("chat"),
+		TaskType:            "chat",
+		MemoryRetriever:     &noopRetriever{},
+		StreamInputProvider: mock.NewStreamingProvider("dup", "dup-model", false),
+	}
+
+	_, err := Build(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplex")
+	assert.Contains(t, err.Error(), "retriev")
+}
+
+// TestBuild_RetrieverWithoutDuplexStillBuilds is the control: the rejection
+// must be specific to the duplex provider, not to configuring a retriever.
+func TestBuild_RetrieverWithoutDuplexStillBuilds(t *testing.T) {
+	cfg := &Config{
+		PromptRegistry:  createTestRegistry("chat"),
+		TaskType:        "chat",
+		MemoryRetriever: &noopRetriever{},
+	}
+
+	pipe, err := Build(cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, pipe)
+}

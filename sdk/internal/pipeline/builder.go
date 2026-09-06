@@ -3,6 +3,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,6 +25,21 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
+
+// ErrRetrieverUnsupportedInDuplex is returned when a memory retriever is
+// configured alongside a duplex (streaming-input) provider.
+//
+// Ambient grounding is a per-turn operation: the retrieval stage reads the
+// turn's messages once the input closes, then writes the memory context the
+// template renders. A duplex session has no such boundary — its input channel
+// stays open until the session ends — so the stage would buffer forever and
+// the provider session would never be created. See #1962; the duplex-side
+// design is still open.
+var ErrRetrieverUnsupportedInDuplex = errors.New(
+	"ambient grounding (a memory retriever) is not supported with a duplex provider: " +
+		"the retrieval stage waits for the turn's input to close, which never happens in a " +
+		"duplex session, so the session would never start — drive retrieval through the " +
+		"memory tools instead, or open a unary conversation")
 
 // Config holds configuration for building a pipeline.
 type Config struct {
@@ -401,6 +417,16 @@ func collectPipelineStages(
 	// only read at render time. Placed after the provider stage's other
 	// pre-flight work it silently no-ops, because the render has already
 	// happened and the placeholder reaches the model raw (#1958).
+	//
+	// It cannot run in a duplex pipeline at all: the stage accumulates until
+	// its input channel closes, and a duplex session's input stays open for the
+	// life of the session, so it never forwards and the provider stage never
+	// receives a first element. Verified live against OpenAI Realtime — the
+	// session simply never starts and no reply ever arrives. Refuse the build
+	// rather than hand back a conversation that hangs (#1962).
+	if cfg.MemoryRetriever != nil && cfg.StreamInputProvider != nil {
+		return nil, ErrRetrieverUnsupportedInDuplex
+	}
 	stages = appendMemoryRetrievalStage(stages, cfg, turnState)
 
 	// 4. Template stage - single render point, emits events. With turnState,
