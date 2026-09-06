@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -465,17 +466,27 @@ func (c *Conversation) ToolRegistry() *tools.Registry {
 
 // registerMCPExecutors registers executors for MCP tools.
 // Guarded by mcpExecutorsRegistered to avoid redundant ListAllTools I/O on every pipeline build (e.g. Fork).
+//
+// The guard is set only after a successful enumeration. A server that is still
+// starting, or briefly unreachable, would otherwise leave the conversation with
+// no MCP tools for its whole life even though the next build would succeed.
 func (c *Conversation) registerMCPExecutors() {
 	if c.mcpRegistry == nil || c.mcpExecutorsRegistered {
 		return
 	}
-	c.mcpExecutorsRegistered = true
 
 	ctx := context.Background()
 	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
 	if err != nil {
+		// Every mcp__ tool is absent from here on. Say so: the symptom
+		// otherwise surfaces layers away as "tool not registered", with
+		// nothing connecting it to the server that could not be reached.
+		logger.Warn("mcp tools not registered: listing tools failed",
+			"servers", c.mcpRegistry.ListServers(),
+			"error", err)
 		return
 	}
+	c.mcpExecutorsRegistered = true
 
 	// Register a single runtime MCP executor that dispatches every
 	// Mode="mcp" tool to the underlying MCP client. This is the canonical
