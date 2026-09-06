@@ -38,15 +38,30 @@ func TestWithRetriever_GroundsWithoutMemory(t *testing.T) {
 
 // TestWithRetriever_RegistersNoMemoryTools pins that grounding alone does not
 // hand the model memory tools — the two paths stay separate.
+//
+// The memory-configured conversation is the control: without it, a mistyped
+// tool name would report both conversations tool-free and the assertion would
+// hold for the wrong reason.
 func TestWithRetriever_RegistersNoMemoryTools(t *testing.T) {
-	conv := openTestConvWithPack(t, memoryContextPack("grounding:{{memory_context}}"), "chat",
+	toolNames := []string{memory.RecallToolName, memory.RememberToolName}
+
+	grounded := openTestConvWithPack(t, memoryContextPack("grounding:{{memory_context}}"), "chat",
 		sdk.WithSkipSchemaValidation(),
 		sdk.WithRetriever(groundingCorpus()),
 	)
+	remembering := openTestConvWithPack(t, memoryContextPack("grounding:{{memory_context}}"), "chat",
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithMemory(memory.NewInMemoryStore(), map[string]string{"user_id": "u1"}),
+	)
 
-	for _, name := range []string{memory.RecallToolName, memory.RememberToolName} {
-		assert.Nil(t, conv.ToolRegistry().Get(name),
+	for _, name := range toolNames {
+		assert.Nil(t, grounded.ToolRegistry().Get(name),
 			"want %s unregistered when only a retriever is configured", name)
+
+		registered := remembering.ToolRegistry().Get(name)
+		require.NotNil(t, registered, "control: %s must register under WithMemory", name)
+		assert.Equal(t, name, registered.Name,
+			"control: the registry lookup must resolve the tool it was asked for")
 	}
 }
 
