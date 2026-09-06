@@ -269,6 +269,7 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
   - [func WithMemoryContextFormatter\(fn memory.ContextFormatter\) MemoryOption](<#WithMemoryContextFormatter>)
   - [func WithMemoryExtractor\(e memory.Extractor\) MemoryOption](<#WithMemoryExtractor>)
   - [func WithMemoryRetriever\(r memory.Retriever\) MemoryOption](<#WithMemoryRetriever>)
+  - [func WithMemorySubjectKey\(key string\) MemoryOption](<#WithMemorySubjectKey>)
   - [func WithMemoryToolsDisabled\(\) MemoryOption](<#WithMemoryToolsDisabled>)
 - [type MultiAgentSession](<#MultiAgentSession>)
   - [func OpenMultiAgent\(packPath string, opts ...Option\) \(\*MultiAgentSession, error\)](<#OpenMultiAgent>)
@@ -505,6 +506,12 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
 
 ```go
 const DefaultMaxConcurrentEvals = 10
+```
+
+<a name="DefaultMemorySubjectKey"></a>DefaultMemorySubjectKey is the scope key MemoryCapability reads to decide whether the conversation has an identified memory subject. Hosts whose scope map spells it differently override it with [WithMemorySubjectKey](<#WithMemorySubjectKey>).
+
+```go
+const DefaultMemorySubjectKey = "user_id"
 ```
 
 ## Variables
@@ -2682,7 +2689,7 @@ func (c *MemoryCapability) RegisterTools(registry *tools.Registry)
 
 RegisterTools implements Capability. Registers the memory executor and tool descriptors, plus any custom tools from ToolProvider stores.
 
-When scope\["user\_id"\] is empty \(anonymous user\), tools are NOT registered — the LLM simply doesn't see memory as an option. This prevents confusing backend errors when the memory store rejects operations without a user\_id. See AltairaLabs/PromptKit\#852.
+When the scope carries no value for the subject key — "user\_id" by default, or whatever [WithMemorySubjectKey](<#WithMemorySubjectKey>) declared — tools are NOT registered: the LLM simply doesn't see memory as an option. This prevents confusing backend errors when the memory store rejects operations for an anonymous subject. See AltairaLabs/PromptKit\#852. The skip is logged at Warn naming both the key looked for and the keys the scope actually has, because the symptom otherwise surfaces three layers away as "tool not registered" \(\#1946\).
 
 When tools are disabled via [WithMemoryToolsDisabled](<#WithMemoryToolsDisabled>), no executor or tool descriptors are registered at all — the LLM never sees memory as an option, but ambient RAG injection still works because the retriever is wired separately from this method \(see AltairaLabs/PromptKit\#1427\).
 
@@ -2750,6 +2757,27 @@ func WithMemoryRetriever(r memory.Retriever) MemoryOption
 ```
 
 WithMemoryRetriever sets a retriever for automatic RAG injection.
+
+<a name="WithMemorySubjectKey"></a>
+### func WithMemorySubjectKey
+
+```go
+func WithMemorySubjectKey(key string) MemoryOption
+```
+
+WithMemorySubjectKey declares which scope key identifies the memory subject. The memory tools \(memory\_\_remember / memory\_\_recall, etc.\) are registered only when the scope carries a non\-empty value for it; see AltairaLabs/PromptKit\#852 for why.
+
+Defaults to [DefaultMemorySubjectKey](<#DefaultMemorySubjectKey>) \("user\_id"\). Hosts whose scope map spells the subject differently must say so, otherwise the gate never opens and the agent silently loses its memory tools:
+
+```
+conv, _ := sdk.Open(packPath, "chat",
+    sdk.WithMemory(store, map[string]string{"virtual_user_id": id},
+        sdk.WithMemorySubjectKey("virtual_user_id"),
+    ),
+)
+```
+
+Passing "" removes the gate entirely: the tools are always registered and the store decides what an anonymous subject means. See AltairaLabs/PromptKit\#1946.
 
 <a name="WithMemoryToolsDisabled"></a>
 ### func WithMemoryToolsDisabled
