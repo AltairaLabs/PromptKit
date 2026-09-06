@@ -354,6 +354,8 @@ func (r *Registry) PreloadedSkills() []*Skill {
 		skill.Path = rs.virtualPath
 		result = append(result, skill)
 	}
+	// Sorted, not map order: when MaxActive truncates the preload set, this
+	// is what makes the surviving skills the same on every process start.
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
