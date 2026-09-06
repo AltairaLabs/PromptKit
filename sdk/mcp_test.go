@@ -19,6 +19,10 @@ type mockMCPRegistry struct {
 	tools    map[string][]mcp.Tool
 	callFunc func(name string, args json.RawMessage) (*mcp.ToolCallResponse, error)
 	closed   bool
+	// listErr, when set, makes ListAllTools fail. listCalls counts how many
+	// times it was asked, so a test can tell a retry from a latched guard.
+	listErr   error
+	listCalls int
 }
 
 func newMockMCPRegistry() *mockMCPRegistry {
@@ -54,6 +58,10 @@ func (m *mockMCPRegistry) ListServers() []string {
 }
 
 func (m *mockMCPRegistry) ListAllTools(ctx context.Context) (map[string][]mcp.Tool, error) {
+	m.listCalls++
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	return m.tools, nil
 }
 
