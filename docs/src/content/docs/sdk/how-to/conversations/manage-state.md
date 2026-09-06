@@ -65,6 +65,17 @@ conv.SetVar("role", "premium")
 // "You are helping Alice. They are a premium user."
 ```
 
+## Precedence
+
+When the same name is set more than one way, the most specific declaration wins:
+
+1. `WithVariables` at `Open()` — the baseline
+2. A `variables.Provider` — computed per turn
+3. `SetVar` / `SetVars` — explicit, sticky for the rest of the conversation
+4. `WithJSONInput` bindings — scoped to a single `Send`
+
+Values are resolved on every turn, so a variable changed between sends changes the next prompt.
+
 ## Environment Variables
 
 Load from environment:

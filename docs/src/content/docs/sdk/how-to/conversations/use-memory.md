@@ -55,6 +55,8 @@ conv, _ := sdk.Open("./support.pack.json", "support",
 
 Before each turn renders, the retriever is asked what is relevant to the conversation so far and its answer is substituted into `{{memory_context}}`. No store, no scope, no memory capability — grounding needs only a retriever.
 
+Retrieval runs on every turn, so grounding follows the conversation. A turn that retrieves nothing renders the variable empty rather than inheriting the previous turn's material.
+
 ### Writing a retriever
 
 `corpus.Retriever` is a reference implementation: it scores documents by term overlap with the latest user turn and returns the best few. It is for development and tests. Production hosts implement the interface against a real index:

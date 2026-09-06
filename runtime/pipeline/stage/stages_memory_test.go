@@ -265,3 +265,29 @@ func TestMemoryExtractionStage_NilExtractorPassthrough(t *testing.T) {
 		t.Error("element should pass through unchanged")
 	}
 }
+
+// TestMemoryRetrievalStage_WritesEmptyContextWhenNothingRetrieved pins that the
+// stage owns its variable on every turn. A TurnState reused across turns still
+// holds the previous turn's value, so a stage that only writes on a hit leaks
+// stale grounding into a turn that retrieved nothing.
+func TestMemoryRetrievalStage_WritesEmptyContextWhenNothingRetrieved(t *testing.T) {
+	turnState := NewTurnState()
+	turnState.Variables = map[string]string{"memory_context": "last turn's memories"}
+
+	st := NewMemoryRetrievalStageWithTurnState(&mockRetriever{memories: nil}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	msg := types.Message{Role: "user", Content: "hello"}
+	input <- StreamElement{Message: &msg}
+	close(input)
+
+	if err := st.Process(context.Background(), input, output); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	<-output
+
+	if got := turnState.Variables["memory_context"]; got != "" {
+		t.Errorf("want the previous turn's context cleared, got %q", got)
+	}
+}

@@ -427,6 +427,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 - [type TurnState](<#TurnState>)
   - [func NewTurnState\(\) \*TurnState](<#NewTurnState>)
   - [func \(t \*TurnState\) AdvanceTurn\(\) int](<#TurnState.AdvanceTurn>)
+  - [func \(t \*TurnState\) BeginTurn\(\)](<#TurnState.BeginTurn>)
   - [func \(t \*TurnState\) SetTurnIndex\(n int\)](<#TurnState.SetTurnIndex>)
   - [func \(t \*TurnState\) TurnIndex\(\) int](<#TurnState.TurnIndex>)
 - [type VariableProviderStage](<#VariableProviderStage>)
@@ -5727,6 +5728,19 @@ func (t *TurnState) AdvanceTurn() int
 ```
 
 AdvanceTurn moves to the next turn, returning the new value.
+
+<a name="TurnState.BeginTurn"></a>
+### func \(\*TurnState\) BeginTurn
+
+```go
+func (t *TurnState) BeginTurn()
+```
+
+BeginTurn clears the per\-turn render cache so the next TemplateStage run renders again. A caller that reuses one TurnState across turns — the SDK Conversation does, to carry the turn index — must call this at the start of every turn.
+
+Without it, SystemPrompt stays populated from the first turn and renderSystemTemplate returns early forever, so the prompt is rendered once per conversation rather than once per turn. Everything that varies between turns then silently stops reaching the model: SetVar, per\-send bindings, dynamic variable providers, and retrieved memory context. See \#1959.
+
+It deliberately leaves the turn's other fields alone. Template, AllowedTools and Validators are repopulated by PromptAssemblyStage on each run, and the turn index belongs to the load stage.
 
 <a name="TurnState.SetTurnIndex"></a>
 ### func \(\*TurnState\) SetTurnIndex

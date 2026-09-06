@@ -130,6 +130,27 @@ func NewTurnState() *TurnState {
 	return &TurnState{}
 }
 
+// BeginTurn clears the per-turn render cache so the next TemplateStage run
+// renders again. A caller that reuses one TurnState across turns — the SDK
+// Conversation does, to carry the turn index — must call this at the start of
+// every turn.
+//
+// Without it, SystemPrompt stays populated from the first turn and
+// renderSystemTemplate returns early forever, so the prompt is rendered once
+// per conversation rather than once per turn. Everything that varies between
+// turns then silently stops reaching the model: SetVar, per-send bindings,
+// dynamic variable providers, and retrieved memory context. See #1959.
+//
+// It deliberately leaves the turn's other fields alone. Template, AllowedTools
+// and Validators are repopulated by PromptAssemblyStage on each run, and the
+// turn index belongs to the load stage.
+func (t *TurnState) BeginTurn() {
+	if t == nil {
+		return
+	}
+	t.SystemPrompt = ""
+}
+
 // ElementMetadata is the typed schema for per-element coordination data.
 // Unlike TurnState (which is per-Turn-invariant), fields here genuinely
 // differ between elements within the same Turn.

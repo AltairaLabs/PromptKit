@@ -264,6 +264,12 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	// executor.SkillIndexFiltered handles the pre-registration state.
 	c.refreshSelectorBoundCapabilities(ctx, extractUserText(userMsg))
 
+	// End the previous turn's render cache. The pipeline is built once and the
+	// TurnState is reused across turns, so without this the system prompt is
+	// rendered once per conversation and every later turn ships turn one's
+	// variables (#1959).
+	c.turnState.BeginTurn()
+
 	// Build and execute pipeline
 	result, err := c.executePipeline(ctx, userMsg)
 	if err != nil {
@@ -561,7 +567,11 @@ func (c *Conversation) buildPipelineConfig(
 		TurnState:             c.turnState,
 		TaskType:              c.promptName,
 		Variables:             vars,
-		VariableProviders:     appendSendScopedProvider(c.config.variableProviders), // dynamic + per-send resolution
+		// Dynamic providers, then the conversation's live SetVar map, then
+		// per-send bindings — least to most specific. The live map has to be
+		// read through a provider because the pipeline is built once, at
+		// Open(), and SetVar is called after (#1959).
+		VariableProviders:     appendSendScopedProvider(c.withSessionVars(c.config.variableProviders)),
 		MaxTokens:             defaultMaxTokens,
 		Temperature:           defaultTemperature,
 		StateStore:            store,

@@ -55,3 +55,31 @@ func TestElementMetadata_FromHistoryDefaultsFalse(t *testing.T) {
 	m.FromHistory = true
 	assert.True(t, m.FromHistory)
 }
+
+func TestTurnState_BeginTurnClearsTheRenderCache(t *testing.T) {
+	state := NewTurnState()
+	state.SystemPrompt = "rendered for the previous turn"
+
+	state.BeginTurn()
+
+	assert.Empty(t, state.SystemPrompt,
+		"a stale SystemPrompt makes TemplateStage skip the render and reuse last turn's prompt")
+}
+
+func TestTurnState_BeginTurnKeepsTurnInvariants(t *testing.T) {
+	state := NewTurnState()
+	state.Template = &prompt.Template{RawTemplate: "hello {{name}}"}
+	state.AllowedTools = []string{"search"}
+	state.SetTurnIndex(3)
+
+	state.BeginTurn()
+
+	assert.NotNil(t, state.Template, "the assembled template is reloaded per turn, not discarded here")
+	assert.Equal(t, []string{"search"}, state.AllowedTools)
+	assert.Equal(t, 3, state.TurnIndex(), "turn numbering is owned by the load stage")
+}
+
+func TestTurnState_BeginTurnOnNilIsSafe(t *testing.T) {
+	var state *TurnState
+	assert.NotPanics(t, func() { state.BeginTurn() })
+}

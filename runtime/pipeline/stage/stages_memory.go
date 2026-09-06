@@ -80,10 +80,14 @@ func (s *MemoryRetrievalStage) Process(
 		memories, err := s.retriever.RetrieveContext(ctx, s.scope, messages)
 		if err != nil {
 			logger.Error("Memory retrieval failed", "error", err)
-		} else if len(memories) > 0 {
-			s.injectMemoryContext(memories)
-			logger.Debug("Memories injected into context", "count", len(memories))
 		}
+		// Written on every turn, including the empty result. The TurnState
+		// outlives the turn, so a stage that wrote only on a hit would leave
+		// the previous turn's context in place for a turn that retrieved
+		// nothing — grounding an answer in material chosen for a different
+		// question.
+		s.injectMemoryContext(memories)
+		logger.Debug("Memories injected into context", "count", len(memories))
 	}
 
 	for i := range pending {

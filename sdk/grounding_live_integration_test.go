@@ -103,6 +103,44 @@ func TestLive_GroundingIsAbsentWithoutARetriever(t *testing.T) {
 	}
 }
 
+// TestLive_GroundingFollowsTheConversation covers the multi-turn case: the
+// system prompt used to render once per conversation, so a second turn was
+// answered with the first turn's retrieval (#1959).
+func TestLive_GroundingFollowsTheConversation(t *testing.T) {
+	for _, c := range liveSDKCases() {
+		t.Run(c.name, func(t *testing.T) {
+			requireLiveKey(t, c)
+
+			provider, err := providers.CreateProviderFromSpec(c.spec(c.model))
+			require.NoError(t, err)
+
+			dir := t.TempDir()
+			packPath := dir + "/grounding.pack.json"
+			require.NoError(t, os.WriteFile(packPath, []byte(groundingPackJSON), 0o644))
+
+			conv, err := sdk.Open(packPath, "support",
+				sdk.WithProvider(provider),
+				sdk.WithSkipSchemaValidation(),
+				sdk.WithRetriever(corpus.New(groundingDocs())),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conv.Close() })
+
+			first, err := conv.Send(context.Background(), groundingQuestion)
+			require.NoError(t, err)
+			t.Logf("turn 1: %s", strings.TrimSpace(first.Text()))
+			require.Contains(t, first.Text(), groundedAnswer)
+
+			// A different question, answered by the other document.
+			second, err := conv.Send(context.Background(), "How long is the warranty?")
+			require.NoError(t, err)
+			t.Logf("turn 2: %s", strings.TrimSpace(second.Text()))
+			assert.Contains(t, strings.ToLower(second.Text()), "two year",
+				"turn two must be grounded in its own retrieval, not turn one's")
+		})
+	}
+}
+
 // askGroundingQuestion opens a conversation on the grounding pack, optionally
 // wired to the corpus, and returns the model's reply.
 func askGroundingQuestion(t *testing.T, c liveSDKCase, withRetriever bool) string {
