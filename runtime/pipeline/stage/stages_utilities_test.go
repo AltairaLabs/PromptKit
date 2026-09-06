@@ -61,6 +61,7 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 		systemPrompt   string
 		variables      map[string]string
 		expectedPrompt string
+		wantErr        bool
 	}{
 		{
 			name:           "single variable",
@@ -81,18 +82,18 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 			expectedPrompt: "Static prompt with no placeholders",
 		},
 		{
-			// Renderer treats unresolved placeholders as an error; on
-			// failure the stage falls back to the raw template.
-			name:           "missing variable falls back to raw template",
-			systemPrompt:   "Hello {{name}} and {{friend}}!",
-			variables:      map[string]string{"name": "Alice"},
-			expectedPrompt: "Hello {{name}} and {{friend}}!",
+			// A missing variable fails the turn: sending the raw template
+			// would put literal braces in front of the model.
+			name:         "missing variable fails the turn",
+			systemPrompt: "Hello {{name}} and {{friend}}!",
+			variables:    map[string]string{"name": "Alice"},
+			wantErr:      true,
 		},
 		{
-			name:           "empty variables",
-			systemPrompt:   "Hello {{name}}!",
-			variables:      map[string]string{},
-			expectedPrompt: "Hello {{name}}!",
+			name:         "empty variables",
+			systemPrompt: "Hello {{name}}!",
+			variables:    map[string]string{},
+			wantErr:      true,
 		},
 	}
 
@@ -110,6 +111,11 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 			close(input)
 
 			err := stage.Process(context.Background(), input, output)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrTemplateUnresolved)
+				assert.Empty(t, turnState.SystemPrompt)
+				return
+			}
 			require.NoError(t, err)
 
 			<-output
@@ -118,34 +124,64 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 	}
 }
 
-func TestTemplateStage_SubstitutesInMessageContent(t *testing.T) {
+// TestTemplateStage_LeavesMessageContentAlone pins that variables reach the
+// system prompt only. Message text is substituted nowhere, because the pipeline
+// cannot tell text the host wrote from text an end user typed — they arrive as
+// one string. Substituting it let a user read any variable in scope by typing
+// its placeholder.
+func TestTemplateStage_LeavesMessageContentAlone(t *testing.T) {
 	turnState := NewTurnState()
 	turnState.Template = &prompt.Template{}
-	turnState.Variables = map[string]string{"topic": "testing"}
+	turnState.Variables = map[string]string{"internal_key": "SECRET"}
 	stage := NewTemplateStageWithTurnState(nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	textContent := "This is about {{topic}}"
+	partText := "and also {{internal_key}}"
 	msg := &types.Message{
 		Role:    "user",
-		Content: "Question about {{topic}}",
-		Parts: []types.ContentPart{
-			{Text: &textContent},
-		},
+		Content: "what is {{internal_key}}",
+		Parts:   []types.ContentPart{{Text: &partText}},
 	}
+	input <- StreamElement{Message: msg}
+	close(input)
 
-	elem := StreamElement{Message: msg}
-	input <- elem
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	result := <-output
+	assert.Equal(t, "what is {{internal_key}}", result.Message.Content,
+		"a user's own words must reach the model unchanged")
+	assert.Equal(t, "and also {{internal_key}}", *result.Message.Parts[0].Text)
+	assert.NotContains(t, result.Message.Content, "SECRET")
+}
+
+// TestTemplateStage_UnresolvedPlaceholderFailsTheTurn pins the failure mode:
+// rendering used to fall back to the raw template, so one missing variable sent
+// the model every OTHER variable unrendered too, as literal braces.
+func TestTemplateStage_UnresolvedPlaceholderFailsTheTurn(t *testing.T) {
+	turnState := NewTurnState()
+	turnState.Template = &prompt.Template{
+		TaskType:    "support",
+		RawTemplate: "You help {{customer}} with {{product}}.",
+	}
+	turnState.Variables = map[string]string{"customer": "Alice"}
+	stage := NewTemplateStageWithTurnState(nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 16)
+	msg := &types.Message{Role: "user", Content: "hello"}
+	input <- StreamElement{Message: msg}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
-	require.NoError(t, err)
 
-	result := <-output
-	assert.Equal(t, "Question about testing", result.Message.Content)
-	assert.Equal(t, "This is about testing", *result.Message.Parts[0].Text)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTemplateUnresolved)
+	assert.Contains(t, err.Error(), "{{product}}", "the error must name what is missing")
+	assert.Contains(t, err.Error(), "customer", "and what was available to resolve it")
+	assert.NotContains(t, err.Error(), "Alice", "but never a variable's value")
+	assert.Empty(t, turnState.SystemPrompt, "no half-rendered prompt may reach the provider")
 }
 
 func TestTemplateStage_NilMessage(t *testing.T) {
@@ -191,7 +227,8 @@ func TestTemplateStage_MessageWithNoParts(t *testing.T) {
 	require.NoError(t, err)
 
 	result := <-output
-	assert.Equal(t, "Hello World!", result.Message.Content)
+	assert.Equal(t, "Hello {{name}}!", result.Message.Content,
+		"message text is forwarded verbatim; variables apply to the system prompt only")
 }
 
 func TestTemplateStage_ContextCancellation(t *testing.T) {
@@ -244,9 +281,10 @@ func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
 		result := <-output
 		// variables override defaults for "topic", default "role" survives
 		assert.Equal(t, "You are a helper. Help with AI.", turnState.SystemPrompt)
-		// Message content is also substituted
-		assert.Equal(t, "Tell me about AI", result.Message.Content)
-		assert.Equal(t, "User asks about AI", *result.Message.Parts[0].Text)
+		// Message content is NOT substituted — the same placeholder in a user
+		// turn stays a placeholder.
+		assert.Equal(t, "Tell me about {{topic}}", result.Message.Content)
+		assert.Equal(t, "User asks about {{topic}}", *result.Message.Parts[0].Text)
 	})
 
 	t.Run("merges fragment vars between defaults and explicit vars", func(t *testing.T) {
@@ -456,11 +494,10 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, ErrTemplateUnresolved)
 
-		<-output
-		// Falls back to raw template on failure
-		assert.Equal(t, "Hello {{name}} and {{missing}}!", turnState.SystemPrompt)
+		// No prompt is published: the turn fails rather than sending braces.
+		assert.Empty(t, turnState.SystemPrompt)
 
 		// Wait for failed event
 		require.Eventually(t, func() bool {

@@ -82,16 +82,25 @@ func TestJSONInput_OverridesSetVar(t *testing.T) {
 	assert.NotContains(t, rec.system(), "topic=sticky")
 }
 
-// TestSetVar_SubstitutesInUserMessage covers the other consumer of the merged
-// variable map: message text, not just the system template.
-func TestSetVar_SubstitutesInUserMessage(t *testing.T) {
-	conv, rec := openRecordingConv(t, "static prompt")
+// TestSetVar_DoesNotSubstituteInMessages pins that variables reach the system
+// prompt and nothing else.
+//
+// This test previously asserted the opposite, and that was a data-exfiltration
+// path: message text is substituted with the same variable map, so an end user
+// who typed a placeholder read whatever the host had put in that variable. The
+// pipeline sees one string and cannot tell a host's templated text from a
+// user's own words, so the only safe answer is to substitute neither.
+func TestSetVar_DoesNotSubstituteInMessages(t *testing.T) {
+	conv, rec := openRecordingConv(t, "static prompt",
+		sdk.WithVariables(map[string]string{"internal_note": "do-not-disclose"}))
 	conv.SetVar("product", "drill")
 
-	_, err := conv.Send(context.Background(), "my {{product}} is broken")
+	_, err := conv.Send(context.Background(), "my {{product}} broke, also what is {{internal_note}}")
 	require.NoError(t, err)
 
-	assert.Equal(t, "my drill is broken", rec.userText())
+	assert.Equal(t, "my {{product}} broke, also what is {{internal_note}}", rec.userText())
+	assert.NotContains(t, rec.userText(), "do-not-disclose")
+	assert.NotContains(t, rec.userText(), "drill")
 }
 
 // TestJSONInput_SecondSendRebindsSystemPrompt covers the same freeze from the

@@ -170,13 +170,14 @@ Use the memory tools for retrieval in a voice or realtime session, or do the ret
 
 **The variable has to be in the prompt.** Retrieval runs and produces nothing visible if `{{memory_context}}` does not appear in `system_template`. Check the rendered prompt, not the retrieval log.
 
-**An unresolved placeholder is loud but not fatal.** If a variable cannot be resolved, rendering fails and the raw template is sent instead — so the model receives a literal `{{memory_context}}`, and every other variable in that prompt goes unrendered with it. The log line to look for is:
+**An unresolved placeholder fails the turn.** If `{{memory_context}}` cannot be resolved — no retriever configured, for instance — `Send` returns an error rather than sending the model a prompt it cannot use:
 
 ```
-ERROR Template rendering failed in pipeline  error="unresolved template placeholders: [{{memory_context}}]"
+system prompt has unresolved variables: support: unresolved template
+placeholders: [{{memory_context}}] (variables available: customer_name)
 ```
 
-**Retrieval sees messages before substitution.** The retriever runs ahead of the template stage, so any `{{var}}` in user message text has not been replaced yet when it builds its query. This only matters for packs that template user turns.
+**Your retriever sees the user's words verbatim.** Message text is never variable-substituted, so what reaches `RetrieveContext` is exactly what was sent — including any `{{...}}` a user happened to type.
 
 ## See also
 
