@@ -1507,21 +1507,10 @@ func TestBuild_RetrieverWithDuplexProviderIsRejected(t *testing.T) {
 	}
 
 	_, err := Build(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duplex")
-	assert.Contains(t, err.Error(), "retriev")
+	require.ErrorIs(t, err, ErrRetrieverUnsupportedInDuplex)
 }
 
-// TestBuild_RetrieverWithoutDuplexStillBuilds is the control: the rejection
-// must be specific to the duplex provider, not to configuring a retriever.
-func TestBuild_RetrieverWithoutDuplexStillBuilds(t *testing.T) {
-	cfg := &Config{
-		PromptRegistry:  createTestRegistry("chat"),
-		TaskType:        "chat",
-		MemoryRetriever: &noopRetriever{},
-	}
-
-	pipe, err := Build(cfg)
-	require.NoError(t, err)
-	assert.NotNil(t, pipe)
-}
+// The control for the rejection above — that a retriever without a duplex
+// provider still builds AND reaches the prompt — is
+// TestWithRetriever_GroundsWithoutMemory in sdk/integration, which asserts the
+// rendered system prompt rather than a non-nil pipeline.
