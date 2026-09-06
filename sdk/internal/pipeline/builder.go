@@ -536,11 +536,15 @@ func appendTemplateStage(stages []stage.Stage, cfg *Config, turnState *stage.Tur
 	return append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
 }
 
-// appendMemoryRetrievalStage adds ambient RAG injection when a host has wired
-// both a retriever and a store. The stage writes the retrieved memories onto
+// appendMemoryRetrievalStage adds ambient grounding when a host has wired a
+// retriever. The stage writes the retrieved content onto
 // TurnState.Variables["memory_context"], so it must precede appendTemplateStage.
+//
+// A retriever is the only requirement. Grounding may come from a corpus the
+// memory store knows nothing about, so requiring a store here forced hosts
+// doing pure retrieval to construct one that was never read.
 func appendMemoryRetrievalStage(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
-	if cfg.MemoryRetriever == nil || cfg.MemoryStore == nil {
+	if cfg.MemoryRetriever == nil {
 		return stages
 	}
 	retrievalStage := stage.NewMemoryRetrievalStageWithTurnState(

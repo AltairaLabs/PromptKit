@@ -613,6 +613,16 @@ func (c *Conversation) buildPipelineConfig(
 		break
 	}
 
+	// WithRetriever wires ambient grounding on its own — no store, no scope,
+	// no memory capability — and wins over a retriever the capability carried,
+	// since it is the more specific declaration.
+	if c.config.retriever != nil {
+		pipelineCfg.MemoryRetriever = c.config.retriever
+	}
+	if c.config.retrievalFormatter != nil {
+		pipelineCfg.MemoryContextFormatter = c.config.retrievalFormatter
+	}
+
 	// Wire recording config if enabled. The recording stage requires an EventStore
 	// destination — when one isn't supplied via WithEventStore, the recording stage
 	// has nowhere to write and is skipped.
