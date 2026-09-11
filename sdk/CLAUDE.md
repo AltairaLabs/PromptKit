@@ -61,6 +61,16 @@ Consequences, and they bite:
 - **A tool absent from the registry at build time stays absent.** Registering a
   handler is not enough; register a live executor on `conv.ToolRegistry()`
   (see `TestComposition_EmbeddedState_RunsViaSend`).
+- **Skill tool grants are a live accessor, not a build-time list.** A skill's
+  `allowed-tools` extend the prompt's baseline on activation, capped by the
+  PACK's `tools` (not the prompt's — `SkillsCapability.Init` sets that
+  ceiling). Activation happens mid-turn via `skill__activate`, so the
+  `ProviderStage` reads `ProviderConfig.ToolGrants` (wired to
+  `Executor().ActiveTools` through `intpipeline.Config.ToolGrants`) on every
+  tools build and rebuilds the array after any tool round that changed it.
+  A rebuild busts the provider's cached prefix, so it happens only on a real
+  change. Compositions (RFC 0010) build their own provider stages and are not
+  wired. See #1957 and `sdk/skills_tool_grant_test.go`.
 - **Duplex renders the system prompt once per session, not per turn.** The
   duplex pipeline's single `Process` run resolves variable providers once,
   renders once, and `DuplexProviderStage` creates the provider session with

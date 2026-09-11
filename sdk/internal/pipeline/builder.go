@@ -123,6 +123,13 @@ type Config struct {
 	// provider sees the full allowedTools list (existing behavior).
 	ToolSelector selection.Selector
 
+	// ToolGrants, when set, is a live accessor for pack tools granted beyond
+	// the prompt's baseline — the union of active skills' allowed-tools. The
+	// ProviderStage merges it into the tools array on every build and rebuilds
+	// mid-turn when it changes. Live because the pipeline is built once, at
+	// Open(), and skills activate afterwards (#1957).
+	ToolGrants func() []string
+
 	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
 	// approval on the standard ProviderStage: a tool the checker holds is
 	// surfaced as pending instead of executing. Optional; nil executes normally.
@@ -634,6 +641,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
 			ToolSelector:     cfg.ToolSelector,
+			ToolGrants:       cfg.ToolGrants,
 			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
 

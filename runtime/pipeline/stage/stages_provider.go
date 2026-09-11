@@ -135,6 +135,17 @@ type ProviderConfig struct {
 	// selection broke).
 	ToolSelector selection.Selector
 
+	// ToolGrants, when set, returns the pack tools currently granted beyond the
+	// prompt's baseline — today, the union of active skills' allowed-tools. It
+	// is a live accessor rather than a list because the set changes while a
+	// turn is running: a skill is usually activated by a tool call in round 1
+	// and its tools must be offered in round 2 of the same Send. The stage
+	// merges the grants into allowedTools on every build and rebuilds the
+	// tools array after any tool round that changed them (#1957). Grants are
+	// applied after ToolSelector narrowing, so a selector never hides a tool
+	// the model was just told it gained.
+	ToolGrants func() []string
+
 	// ApprovalChecker, when set, is consulted before each tool executes. If it
 	// returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
 	// ErrToolsPending / PendingTools metadata) instead of executing — the
@@ -1130,6 +1141,7 @@ func (tl *toolLoop) afterRound(
 		return false, tl.messages, nil
 	}
 
+	grantsBefore := tl.stage.grantedTools()
 	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls, rr)
 	if err != nil {
 		if _, ok := tools.IsErrToolsPending(err); ok {
@@ -1144,7 +1156,12 @@ func (tl *toolLoop) afterRound(
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
 
-	if tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded) {
+	// Rebuild the tools array when this round changed what the model may call:
+	// a tool crossed the rejection threshold (excluded), or a tool call such as
+	// skill__activate / skill__deactivate changed the granted set. Rebuilding
+	// busts the provider's cached prefix, so it happens only on a real change.
+	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
+	if excludedChanged || !stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
 		rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
 		if rebuildErr != nil {
 			return true, tl.messages, fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
@@ -2714,6 +2731,58 @@ func (s *ProviderStage) collectProviderDescriptors(
 	return descriptors
 }
 
+// grantedTools returns the currently granted tool names, sorted, or nil when
+// no grant source is configured.
+func (s *ProviderStage) grantedTools() []string {
+	if s.config == nil || s.config.ToolGrants == nil {
+		return nil
+	}
+	grants := s.config.ToolGrants()
+	if len(grants) == 0 {
+		return nil
+	}
+	out := make([]string, len(grants))
+	copy(out, grants)
+	sort.Strings(out)
+	return out
+}
+
+// withGrantedTools returns allowedTools extended with the currently granted
+// tools that it does not already name. The input slice is not mutated.
+func (s *ProviderStage) withGrantedTools(allowedTools []string) []string {
+	grants := s.grantedTools()
+	if len(grants) == 0 {
+		return allowedTools
+	}
+	seen := make(map[string]bool, len(allowedTools))
+	for _, name := range allowedTools {
+		seen[name] = true
+	}
+	out := make([]string, 0, len(allowedTools)+len(grants))
+	out = append(out, allowedTools...)
+	for _, name := range grants {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// stringSlicesEqual reports whether two string slices hold the same elements
+// in the same order.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
@@ -2736,7 +2805,7 @@ func (s *ProviderStage) buildProviderTools(
 		return nil, "", nil
 	}
 
-	descriptors := s.collectProviderDescriptors(allowedTools, excluded)
+	descriptors := s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded)
 	if len(descriptors) == 0 {
 		return nil, "", nil
 	}

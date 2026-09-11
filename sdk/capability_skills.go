@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
@@ -61,11 +62,16 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 		return fmt.Errorf("skills discovery: %w", err)
 	}
 
-	// Collect pack tool names from the prompt
-	var packTools []string
-	if prompt, ok := ctx.Pack.Prompts[ctx.PromptName]; ok {
-		packTools = prompt.Tools
+	// The ceiling for skill-granted tools is the PACK's declared tools, not
+	// the prompt's. The prompt's list is the baseline the model always sees;
+	// a skill's allowed-tools extend it on activation, capped by the pack.
+	// Using the prompt's list here made every grant a no-op: a skill could
+	// only "add" a tool the model already had (#1957).
+	packTools := make([]string, 0, len(ctx.Pack.Tools))
+	for name := range ctx.Pack.Tools {
+		packTools = append(packTools, name)
 	}
+	sort.Strings(packTools)
 
 	// Resolve the external selector by name when RuntimeConfig binds
 	// one. Missing names are silently ignored — validation happens at

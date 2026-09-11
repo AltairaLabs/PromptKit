@@ -336,6 +336,20 @@ func extractUserText(msg *types.Message) string {
 	return sb.String()
 }
 
+// skillToolGrants returns the pack tools the active skills currently grant
+// beyond the prompt's baseline. It is handed to the pipeline as a live
+// accessor (intpipeline.Config.ToolGrants) because the pipeline is built once
+// and skills activate mid-turn; the provider stage re-reads it on every tools
+// build. Nil when no skills capability is present (#1957).
+func (c *Conversation) skillToolGrants() []string {
+	for _, cap := range c.capabilities {
+		if sc, ok := cap.(*SkillsCapability); ok && sc.executor != nil {
+			return sc.executor.ActiveTools()
+		}
+	}
+	return nil
+}
+
 // refreshSelectorBoundCapabilities lets capabilities that depend on
 // per-turn context (currently only SkillsCapability) refresh their
 // tool descriptors before the pipeline runs. No-op when no such
@@ -597,6 +611,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
+		ToolGrants:            c.skillToolGrants,
 		ApprovalChecker:       c.newApprovalChecker(),
 		ClassifyRegistry:      c.config.classifyRegistry,
 		// A bound audio session (OpenVoice) plays response audio to a realtime
