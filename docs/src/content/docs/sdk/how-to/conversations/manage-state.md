@@ -76,6 +76,8 @@ When the same name is set more than one way, the most specific declaration wins:
 
 Values are resolved on every turn, so a variable changed between sends changes the next prompt.
 
+This is the unary (`Open`) behavior. A duplex conversation (`OpenDuplex`) renders the system prompt once, when the first input starts the session, so set its variables before sending any input. A later `SetVar` is stored but never reaches the provider, and the first one is logged as a warning. See [Variables](/sdk/explanation/variables/#duplex-conversations-render-once).
+
 ## Environment Variables
 
 Load from environment:

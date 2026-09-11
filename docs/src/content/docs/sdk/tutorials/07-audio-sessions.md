@@ -95,6 +95,8 @@ func main() {
     }
     defer conv.Close()
 
+    // Set variables before the first input: a duplex session renders its
+    // system prompt once, when the first chunk starts the pipeline.
     conv.SetVar("user_name", "Alice")
 
     // Send audio chunks and receive responses
