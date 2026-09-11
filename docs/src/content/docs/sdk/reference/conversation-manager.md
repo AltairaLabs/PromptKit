@@ -1014,7 +1014,7 @@ MemberNames returns the names of all agent members known to this resolver.
 func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolDescriptor
 ```
 
-ResolveAgentTools returns tool descriptors for all agent members that appear in the given tool names list. Each descriptor has Mode "a2a", an input schema with a required "query" field, and \(if an EndpointResolver is set\) an AgentURL in A2AConfig.
+ResolveAgentTools returns tool descriptors for all agent members that appear in the given tool names list, under either accepted spelling \(see IsAgentTool\). A member listed under both spellings yields one set of descriptors. A name that carries the a2a namespace and matches no member is a misconfiguration — a typo, or a renamed member — and is logged at Warn; ordinary tool names pass through silently, as they are not agent references. Each descriptor has Mode "a2a", an input schema with a required "query" field, and \(if an EndpointResolver is set\) an AgentURL in A2AConfig.
 
 <a name="AgentToolResolver.SetEndpointResolver"></a>
 ### func \(\*AgentToolResolver\) SetEndpointResolver
