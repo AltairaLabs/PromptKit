@@ -2,8 +2,11 @@ package sdk
 
 import (
 	"encoding/json"
+	"sort"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/agentcard"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -80,21 +83,46 @@ func (r *AgentToolResolver) IsAgentTool(toolName string) bool {
 	if r == nil {
 		return false
 	}
-	// Direct lookup (bare key)
-	if _, ok := r.cards[toolName]; ok {
-		return true
+	_, _, ok := r.lookupMember(toolName)
+	return ok
+}
+
+// lookupMember is the one rule for what names an agent member: the bare
+// member key, or that key qualified with the a2a namespace. It returns the
+// member key, its card, and whether either spelling matched. IsAgentTool and
+// ResolveAgentTools both go through it, so the accepted vocabulary cannot
+// drift between them again (#1952).
+func (r *AgentToolResolver) lookupMember(toolName string) (key string, card *a2a.AgentCard, ok bool) {
+	if card, ok = r.cards[toolName]; ok {
+		return toolName, card, true
 	}
-	// Check qualified a2a__ name
+	if ns, local := tools.ParseToolName(toolName); ns == nsA2A {
+		if card, ok = r.cards[local]; ok {
+			return local, card, true
+		}
+	}
+	return "", nil, false
+}
+
+// isUnknownAgentReference reports whether a tool name claims to be a pack
+// agent reference — the a2a namespace over a single segment — but matches no
+// member. The bridge path names its tools a2a__{agent}__{skill}; that shape
+// is not a member reference and must not be reported here.
+func (r *AgentToolResolver) isUnknownAgentReference(toolName string) bool {
 	ns, local := tools.ParseToolName(toolName)
-	if ns == nsA2A {
-		_, ok := r.cards[local]
-		return ok
+	if ns != nsA2A || strings.Contains(local, tools.NamespaceSep) {
+		return false
 	}
-	return false
+	_, ok := r.cards[local]
+	return !ok
 }
 
 // ResolveAgentTools returns tool descriptors for all agent members
-// that appear in the given tool names list.
+// that appear in the given tool names list, under either accepted spelling
+// (see IsAgentTool). A member listed under both spellings yields one set of
+// descriptors. A name that carries the a2a namespace and matches no member is
+// a misconfiguration — a typo, or a renamed member — and is logged at Warn;
+// ordinary tool names pass through silently, as they are not agent references.
 // Each descriptor has Mode "a2a", an input schema with a required "query"
 // field, and (if an EndpointResolver is set) an AgentURL in A2AConfig.
 func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolDescriptor {
@@ -102,11 +130,20 @@ func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolD
 		return nil
 	}
 	var descriptors []*tools.ToolDescriptor
-	for _, name := range toolNames {
-		card, ok := r.cards[name]
+	seen := make(map[string]bool, len(toolNames))
+	for _, toolName := range toolNames {
+		name, card, ok := r.lookupMember(toolName)
 		if !ok {
+			if r.isUnknownAgentReference(toolName) {
+				logger.Warn("agent tool skipped: no agent member matches the name",
+					"name", toolName, "members", r.MemberNames())
+			}
 			continue
 		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		for i := range card.Skills {
 			agentURL := ""
 			if r.resolver != nil {
@@ -139,6 +176,7 @@ func (r *AgentToolResolver) MemberNames() []string {
 	for name := range r.cards {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
