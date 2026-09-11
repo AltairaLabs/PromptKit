@@ -20,6 +20,9 @@ set -euo pipefail
 VERSION="${1:?usage: $0 <new-version> [base-version]}"
 BASE="${2:-}"
 
+MODULE_PATH=github.com/AltairaLabs/PromptKit
+MODULES=(runtime pkg sdk server/a2a)
+
 if [ -z "$BASE" ]; then
   # Previous release tag on the root module, newest first, excluding this one.
   BASE=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
@@ -34,48 +37,82 @@ fi
 echo "Comparing the published API against ${BASE}, claiming ${VERSION}."
 echo
 
-MODULES=(runtime pkg sdk server/a2a)
-failed=()
-
-# gorelease has to run against a CLEAN tree whose sibling requires resolve.
-# Neither holds in the working copy: sdk and server/a2a pin their siblings at
-# placeholders (server/a2a@v0.0.0) that the release pipeline only rewrites at
-# tag time, so before tagging there is nothing to resolve them to.
+# gorelease needs two things the working copy cannot give it.
 #
-# So each module is analysed in a throwaway worktree at HEAD, with sibling
-# requires rewritten to the BASE version and the local `replace` directives
-# dropped — which is what a consumer of the published modules actually sees.
-# The rewrite is committed inside the worktree so gorelease sees a clean tree.
-WORKTREE=$(mktemp -d)
-cleanup() {
-  git worktree remove --force "$WORKTREE" 2>/dev/null || true
-  rm -rf "$WORKTREE" 2>/dev/null || true
-}
+# 1. A clean tree whose sibling requires resolve. sdk and server/a2a pin their
+#    siblings at placeholders (server/a2a@v0.0.0) behind local `replace`
+#    directives, and gorelease ignores replaces when it loads the release
+#    version ("These directives only apply within the main module").
+#
+# 2. Siblings at the version BEING RELEASED, not the previous one. The release
+#    tags runtime and pkg first and rewrites sdk's requires to VERSION, so what a
+#    consumer gets is sdk@VERSION over runtime@VERSION. Pinning the siblings at
+#    BASE instead — which is what this script did before this rewrite — made gorelease
+#    compile HEAD's sdk against the PREVIOUS runtime, and the first release where
+#    sdk used a new runtime symbol failed with "undefined" and no verdict.
+#
+# So the analysis runs in a throwaway clone of HEAD where every module's sibling
+# requires are rewritten to VERSION and the replaces dropped, committed, and the
+# siblings tagged at VERSION. GOPRIVATE routes only our module path to a direct
+# git fetch, and a git URL redirect points that fetch at the clone, so
+# runtime@VERSION resolves to exactly the code being released while every
+# third-party dependency still comes from the proxy. The module under analysis
+# is left untagged (gorelease refuses a version that already exists) and is
+# diffed against the real BASE tag, which the clone inherited.
+#
+# A private GOMODCACHE keeps the fabricated VERSION out of the developer's real
+# module cache, where it would shadow the eventual published module.
+REPO=$(git rev-parse --show-toplevel)
+WORK=$(mktemp -d)
+CLONE="$WORK/clone"
+cleanup() { rm -rf "$WORK" 2>/dev/null || true; }
 trap cleanup EXIT
 
-git worktree add --quiet --detach "$WORKTREE" HEAD
+git clone --quiet --shared "$REPO" "$CLONE"
+git -C "$CLONE" checkout --quiet --detach HEAD
 
+for m in "${MODULES[@]}"; do
+  (
+    cd "$CLONE/$m"
+    for sib in "${MODULES[@]}"; do
+      [ "$sib" = "$m" ] && continue
+      mod="${MODULE_PATH}/${sib}"
+      grep -q "$mod" go.mod || continue
+      go mod edit -dropreplace="$mod"
+      go mod edit -require="${mod}@${VERSION}"
+    done
+  )
+done
+git -C "$CLONE" -c user.email=ci@local -c user.name=ci \
+  commit --no-verify -aqm "resolve siblings to ${VERSION}"
+for m in "${MODULES[@]}"; do
+  git -C "$CLONE" tag "${m}/${VERSION}"
+done
+
+# One environment for every gorelease run. -mod=mod lets the go command add the
+# sums the rewritten go.mod files lack instead of failing on them; -modcacherw
+# leaves the private module cache writable so the cleanup trap can remove it.
+export GOWORK=off
+export GOFLAGS="-mod=mod -modcacherw"
+export GOMODCACHE="$WORK/modcache"
+export GOPRIVATE="$MODULE_PATH"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="url.file://${CLONE}.insteadOf"
+export GIT_CONFIG_VALUE_0="https://${MODULE_PATH}"
+
+failed=()
 for m in "${MODULES[@]}"; do
   echo "── ${m}"
 
-  # Point sibling requires at the base release and drop the local replaces, so
-  # the module resolves the way a consumer resolves it.
-  (
-    cd "$WORKTREE/$m"
-    for sib in runtime pkg sdk server/a2a; do
-      [ "$sib" = "$m" ] && continue
-      mod="github.com/AltairaLabs/PromptKit/${sib}"
-      grep -q "$mod" go.mod || continue
-      go mod edit -dropreplace="$mod" 2>/dev/null || true
-      go mod edit -require="${mod}@${BASE}" 2>/dev/null || true
-    done
-  )
+  # gorelease rejects a VERSION that already exists in the module's own repo,
+  # so the module under analysis is untagged for its own run only.
+  git -C "$CLONE" tag -d "${m}/${VERSION}" >/dev/null
 
-  out=$(cd "$WORKTREE" && git -c user.email=ci@local -c user.name=ci \
-          commit --no-verify -aqm "resolve siblings to ${BASE}" 2>/dev/null;
-        GOWORK=off go -C "$WORKTREE/$m" run golang.org/x/exp/cmd/gorelease@latest \
+  out=$(go -C "$CLONE/$m" run golang.org/x/exp/cmd/gorelease@latest \
           -base="$BASE" -version="$VERSION" 2>&1 || true)
   echo "$out" | sed 's/^/   /'
+
+  git -C "$CLONE" tag "${m}/${VERSION}"
 
   # Key on the VERDICT, not the exit code: gorelease exits non-zero for
   # diagnostics too, and a diagnostic is not a breaking change.
