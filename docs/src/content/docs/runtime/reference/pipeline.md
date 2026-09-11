@@ -5768,7 +5768,7 @@ It deliberately leaves the turn's other fields alone. Template, AllowedTools and
 func (t *TurnState) SetTurnIndex(n int)
 ```
 
-SetTurnIndex records the turn being executed. StateStoreLoadStage owns this; nothing else should write it, or turns get counted twice.
+SetTurnIndex records the turn being executed. The load stage that opens the turn owns this \(StateStoreLoadStage or ContextAssemblyStage, via deriveTurnIndex\); nothing else should write it, or turns get counted twice.
 
 <a name="TurnState.TurnIndex"></a>
 ### func \(\*TurnState\) TurnIndex

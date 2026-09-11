@@ -131,6 +131,15 @@ func (s *ContextAssemblyStage) Process(
 			return err
 		}
 		historyMessages = msgs
+		// The hot window is a subset, so the turn cannot be counted from it.
+		// Read the transcript once purely to place this turn against it: a
+		// context-window conversation otherwise reports turn 0 on every
+		// guardrail and eval event (#1945).
+		priorTurns, err := deriveTurnIndex(ctx, store, convID)
+		if err != nil {
+			return fmt.Errorf("context assembly: %w", err)
+		}
+		s.turnState.SetTurnIndex(priorTurns)
 	} else {
 		// Fallback: load full state (same as StateStoreLoadStage)
 		msgs, err := s.loadFullHistory(ctx, convID, store)
@@ -138,6 +147,7 @@ func (s *ContextAssemblyStage) Process(
 			return err
 		}
 		historyMessages = msgs
+		s.turnState.SetTurnIndex(countUserTurns(historyMessages))
 	}
 
 	// Warn about large conversations without token budget or context window
@@ -362,6 +372,13 @@ func (s *ContextAssemblyStage) forwardInput(
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
+		// This turn's own user message completes the count started from the
+		// persisted transcript, exactly as StateStoreLoadStage does. A resumed
+		// turn whose user message is already persisted carries no new user
+		// element and so does not advance twice.
+		if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
+			s.turnState.AdvanceTurn()
+		}
 		select {
 		case output <- elem:
 		case <-ctx.Done():

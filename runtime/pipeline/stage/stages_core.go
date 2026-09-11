@@ -201,6 +201,23 @@ func (s *StateStoreLoadStage) Process(
 	return s.forwardInput(ctx, input, output)
 }
 
+// deriveTurnIndex counts the user turns already persisted for a conversation,
+// reading the whole transcript from the store. It is the single source for
+// TurnState.TurnIndex: the turn is a position in the persisted conversation,
+// so every stage that opens a turn must derive it from the store rather than
+// from whatever subset of history it happened to load (#1945). A missing
+// conversation is turn zero, not an error.
+func deriveTurnIndex(ctx context.Context, store statestore.Store, convID string) (int, error) {
+	state, err := store.Load(ctx, convID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return 0, fmt.Errorf("derive turn index: %w", err)
+	}
+	if state == nil {
+		return 0, nil
+	}
+	return countUserTurns(state.Messages), nil
+}
+
 // countUserTurns counts the user turns in a transcript.
 func countUserTurns(messages []types.Message) int {
 	n := 0
