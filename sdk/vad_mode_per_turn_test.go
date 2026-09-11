@@ -67,8 +67,9 @@ func (m *scriptedSTTService) TranscribeBytes(
 type turnRecordingProvider struct {
 	base.Implementation
 
-	mu    sync.Mutex
-	turns [][]types.Message
+	mu      sync.Mutex
+	turns   [][]types.Message
+	systems []string // the system prompt each call carried, parallel to turns
 }
 
 func (p *turnRecordingProvider) ID() string    { return "turn-recording" }
@@ -98,6 +99,17 @@ func (p *turnRecordingProvider) record(req providers.PredictionRequest) {
 	msgs := make([]types.Message, len(req.Messages))
 	copy(msgs, req.Messages)
 	p.turns = append(p.turns, msgs)
+	p.systems = append(p.systems, req.System)
+}
+
+// systemAt returns the system prompt the nth (0-based) call carried.
+func (p *turnRecordingProvider) systemAt(n int) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n >= len(p.systems) {
+		return ""
+	}
+	return p.systems[n]
 }
 
 func (p *turnRecordingProvider) turnCount() int {

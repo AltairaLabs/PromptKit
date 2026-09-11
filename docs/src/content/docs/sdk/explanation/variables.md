@@ -36,6 +36,10 @@ Later rows win:
 
 `SetVar` is sticky, not static: the value persists until changed and is re-read each turn, so changing it between sends changes the next prompt.
 
+### Duplex conversations render once
+
+A duplex conversation (`OpenDuplex`) has no per-turn render. The system prompt is rendered once, when the first input starts the session, and the provider session is created with that text as its system instruction for the life of the session. Set variables before the first `SendChunk` or `SendText`. A `SetVar` made after that is stored (`GetVar` returns it) but never reaches the provider, and the SDK logs a warning the first time it happens. The same applies to `variables.Provider` values, which are read once at session start.
+
 ## Unresolved placeholders fail the turn
 
 A placeholder with no value fails the send. Nothing reaches the model.

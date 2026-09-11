@@ -2064,6 +2064,8 @@ conv.SetVar("customer_name", "Alice")
 // Becomes: "You are helping Alice"
 ```
 
+A unary conversation renders the system prompt on every Send, so a value changed between sends changes the next prompt. A duplex conversation \(OpenDuplex\) renders it once, when the first input starts the session, and the provider session is created with that render as its system instruction. Set duplex variables before the first SendChunk/SendText; a later SetVar is stored but never reaches the provider, and the first one is logged at Warn.
+
 <a name="Conversation.SetVars"></a>
 ### func \(\*Conversation\) SetVars
 

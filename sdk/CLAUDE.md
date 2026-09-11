@@ -61,6 +61,19 @@ Consequences, and they bite:
 - **A tool absent from the registry at build time stays absent.** Registering a
   handler is not enough; register a live executor on `conv.ToolRegistry()`
   (see `TestComposition_EmbeddedState_RunsViaSend`).
+- **Duplex renders the system prompt once per session, not per turn.** The
+  duplex pipeline's single `Process` run resolves variable providers once,
+  renders once, and `DuplexProviderStage` creates the provider session with
+  that render as its `SystemInstruction`. `TurnState.BeginTurn()` is called on
+  the unary paths only, and calling it in duplex would change nothing: there
+  is no second render point and no generic way to replace a live session's
+  instructions (`SendSystemContext` is a `session.update` on OpenAI Realtime
+  but an appended non-turn message on Gemini Live). So `SetVar`, dynamic
+  providers and `WithJSONInput` bindings are fixed at the first input;
+  `duplexSession.SetVar` warns once when called after that. Ambient grounding
+  (`WithRetriever`) cannot run in duplex at all and `Build` refuses it
+  (`ErrRetrieverUnsupportedInDuplex`). See #1962 and
+  `sdk/integration/duplex_setvar_render_test.go`.
 
 ### 3. Deferred Workflow Transitions
 
