@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,14 +30,19 @@ func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistr
 		return defs
 	}
 
-	// ValidateEvalTypes formats each error as: eval "<id>": <reason>
+	// ValidateEvalTypes formats each error as: eval "<id>": <reason>, with the
+	// id %q-quoted. Match against the ids we actually hold rather than
+	// re-parsing the quoting: an id containing a quote is escaped in the
+	// message, and a parse that missed it left the rejected def running (#1950).
 	badIDs := make(map[string]string, len(errs))
 	for _, e := range errs {
-		id, reason := parseEvalValidationError(e)
-		if id != "" {
-			badIDs[id] = reason
-			logger.Warn("Skipping unusable pack eval", "id", id, "reason", reason)
+		id, reason := matchEvalValidationError(e, defs)
+		if id == "" {
+			logger.Warn("Skipping unusable pack eval: unrecognized validation message", "message", e)
+			continue
 		}
+		badIDs[id] = reason
+		logger.Warn("Skipping unusable pack eval", "id", id, "reason", reason)
 	}
 
 	filtered := make([]evals.EvalDef, 0, len(defs))
@@ -83,6 +89,19 @@ func resolveRunnerAndFilter(
 // by evals.ValidateEvalTypes. The format is: eval "<id>": <reason>.
 // If the format doesn't match, the whole string is returned as reason
 // and id is empty.
+// matchEvalValidationError resolves a ValidateEvalTypes message to the def it
+// names by prefix-matching the exact %q form of each known id. Falls back to
+// parseEvalValidationError for ids that need no escaping.
+func matchEvalValidationError(s string, defs []evals.EvalDef) (id, reason string) {
+	for i := range defs {
+		prefix := fmt.Sprintf("eval %q:", defs[i].ID)
+		if strings.HasPrefix(s, prefix) {
+			return defs[i].ID, strings.TrimSpace(s[len(prefix):])
+		}
+	}
+	return parseEvalValidationError(s)
+}
+
 func parseEvalValidationError(s string) (id, reason string) {
 	const prefix = `eval "`
 	if !strings.HasPrefix(s, prefix) {

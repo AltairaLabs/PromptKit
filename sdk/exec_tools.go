@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -32,10 +33,15 @@ func (c *Conversation) registerExecExecutor() {
 		c.serverExecutor = se
 	}
 
-	// Apply exec configs to matching tool descriptors
+	// Apply exec configs to matching tool descriptors. A key that matches no
+	// registered tool is host vocabulary that never met the pack's: the tool
+	// keeps its pack-declared mode and looks merely unconfigured, so say so —
+	// the descriptor-override path already warns on the same condition (#1949).
 	for name, execCfg := range c.config.execToolConfigs {
 		td := c.toolRegistry.Get(name)
 		if td == nil {
+			logger.Warn("exec tool config skipped: tool not registered",
+				"name", name, "registered_tools", c.toolRegistry.List())
 			continue
 		}
 		if execCfg.Runtime == serverRuntime {

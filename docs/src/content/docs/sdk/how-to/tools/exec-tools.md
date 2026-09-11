@@ -197,6 +197,16 @@ fmt.Println(resp.Text())
 
 The runtime handles subprocess lifecycle, timeout enforcement, and JSON marshalling automatically. Your Go code only needs to load the RuntimeConfig -- no `OnTool` registration is required for exec-bound tools.
 
+## Unmatched tool names
+
+A `tools:` entry whose key matches no tool in the registry is skipped and logged at WARN, naming the key and the tools that are registered. The tool the entry was meant for keeps its pack-declared mode, so a misspelled key or a tool renamed in the pack shows up here rather than as a tool that quietly keeps running its old executor:
+
+```
+WARN exec tool config skipped: tool not registered  name=fetch_invoice registered_tools=[fetch_invoices send_email]
+```
+
+Other entries still apply. This matches how [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/#tolerance-to-version-skew) treats an unknown name.
+
 ## See Also
 
 - [Register Tools](/sdk/how-to/tools/register-tools/) -- programmatic tool registration in Go

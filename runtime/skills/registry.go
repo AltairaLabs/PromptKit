@@ -134,12 +134,16 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 		skillDir := filepath.Dir(path)
 		virtualPath := computeVirtualPath(absDir, skillDir, src.MountAs)
 		if existing, exists := r.skills[meta.Name]; exists {
-			if src.Preload && !existing.preload {
+			// First source wins and the later copy's content is dropped; only
+			// its preload flag is merged. A host mounting an override directory
+			// after a base one gets the base skill, so name both sides (#1954).
+			upgraded := src.Preload && !existing.preload
+			if upgraded {
 				existing.preload = true
-				logger.Debug("skills: upgrading preload flag from duplicate source", "skill", meta.Name)
-			} else {
-				logger.Debug("skills: duplicate skill ignored (already registered)", "skill", meta.Name)
 			}
+			logger.Warn("skills: duplicate skill name, keeping first",
+				"skill", meta.Name, "kept", keptPath(existing), "dropped", skillDir,
+				"preload_upgraded", upgraded)
 			return nil
 		}
 
@@ -167,16 +171,26 @@ func computeVirtualPath(sourceDir, skillDir, mountAs string) string {
 	return filepath.Join(mountAs, rel)
 }
 
+// keptPath describes where the registered copy of a skill came from, for the
+// duplicate-name warning: its on-disk directory, or "inline".
+func keptPath(s *registeredSkill) string {
+	if s.realPath == "" {
+		return "inline"
+	}
+	return s.realPath
+}
+
 // registerInline registers an inline skill source directly.
 // Must be called with r.mu held.
 func (r *Registry) registerInline(src SkillSource) {
 	if existing, exists := r.skills[src.Name]; exists {
-		if src.Preload && !existing.preload {
+		upgraded := src.Preload && !existing.preload
+		if upgraded {
 			existing.preload = true
-			logger.Debug("skills: upgrading preload flag from duplicate inline source", "skill", src.Name)
-		} else {
-			logger.Debug("skills: duplicate skill ignored (already registered)", "skill", src.Name)
 		}
+		logger.Warn("skills: duplicate skill name, keeping first",
+			"skill", src.Name, "kept", keptPath(existing), "dropped", "inline",
+			"preload_upgraded", upgraded)
 		return
 	}
 

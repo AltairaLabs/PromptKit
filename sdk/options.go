@@ -3196,6 +3196,11 @@ func WithMaxConcurrentEvals(n int) Option {
 // Evals with no explicit groups belong to the "default" group.
 // When groups are specified, only evals with at least one matching group run.
 // If not set (nil), all evals run regardless of group.
+//
+// A requested group that matches no eval is logged at WARN, naming the group
+// and the groups the pack's evals declare. If none of the requested groups
+// match, no evals run for the conversation, so a typo here disables every
+// eval — including any that back a guardrail.
 func WithEvalGroups(groups ...string) Option {
 	return func(c *config) error {
 		c.evalGroups = groups
