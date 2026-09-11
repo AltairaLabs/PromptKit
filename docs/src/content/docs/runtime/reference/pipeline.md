@@ -3931,6 +3931,17 @@ type ProviderConfig struct {
     // selection broke).
     ToolSelector selection.Selector
 
+    // ToolGrants, when set, returns the pack tools currently granted beyond the
+    // prompt's baseline — today, the union of active skills' allowed-tools. It
+    // is a live accessor rather than a list because the set changes while a
+    // turn is running: a skill is usually activated by a tool call in round 1
+    // and its tools must be offered in round 2 of the same Send. The stage
+    // merges the grants into allowedTools on every build and rebuilds the
+    // tools array after any tool round that changed them (#1957). Grants are
+    // applied after ToolSelector narrowing, so a selector never hides a tool
+    // the model was just told it gained.
+    ToolGrants func() []string
+
     // ApprovalChecker, when set, is consulted before each tool executes. If it
     // returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
     // ErrToolsPending / PendingTools metadata) instead of executing — the
