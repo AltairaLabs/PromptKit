@@ -1130,6 +1130,8 @@ MarshalJSON normalizes the pending tool call's args \(empty \-\> \{\}\).
 
 Registry manages tool descriptors and provides access to executors. All map access is protected by mu \(RWMutex\) for safe concurrent use.
 
+The registry is the single store of descriptors. A repository handed to NewRegistryWithRepository is read once, at construction; every later Register, Unregister, Get and List acts on the registry alone, so what Unregister removes stays removed.
+
 ```go
 type Registry struct {
     // contains filtered or unexported fields
@@ -1186,7 +1188,7 @@ func main() {
 func NewRegistry(opts ...RegistryOption) *Registry
 ```
 
-NewRegistry creates a new tool registry without a repository backend \(legacy mode\)
+NewRegistry creates an empty tool registry.
 
 <a name="NewRegistryWithRepository"></a>
 ### func NewRegistryWithRepository
@@ -1195,7 +1197,7 @@ NewRegistry creates a new tool registry without a repository backend \(legacy mo
 func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Registry
 ```
 
-NewRegistryWithRepository creates a new tool registry with a repository backend
+NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
 
 <a name="Registry.Execute"></a>
 ### func \(\*Registry\) Execute
@@ -1235,7 +1237,7 @@ Memory cost is two shallow map copies; descriptor and executor values are pointe
 func (r *Registry) Get(name string) *ToolDescriptor
 ```
 
-Get retrieves a tool descriptor by name with repository fallback.
+Get retrieves a tool descriptor by name, or nil when none is registered.
 
 <a name="Registry.GetByNamespace"></a>
 ### func \(\*Registry\) GetByNamespace
@@ -1289,7 +1291,7 @@ IterateTools calls fn for each loaded tool descriptor while holding the read loc
 func (r *Registry) List() []string
 ```
 
-List returns all tool names from repository or cache.
+List returns the names of every registered tool, sorted.
 
 <a name="Registry.LoadToolFromBytes"></a>
 ### func \(\*Registry\) LoadToolFromBytes
@@ -1334,11 +1336,11 @@ RegisterExecutor registers a tool executor.
 func (r *Registry) Unregister(name string) bool
 ```
 
-Unregister removes a tool descriptor from the in\-memory cache by name. Returns true if a descriptor was removed, false if none was registered.
+Unregister removes a tool descriptor by name. Returns true if a descriptor was removed, false if none was registered.
 
 Used when a workflow state machine transitions into a terminal state: the previous state's workflow\_\_transition descriptor \(with its now\-stale enum of events\) must be torn down so the LLM can't call it against a dead state. Safe to call concurrently with Get/List.
 
-Note: tools persisted to a repository \(file\-loaded YAML/JSON tools\) will be re\-loaded by Get on next lookup. Unregister is intended for dynamically\-registered descriptors like workflow\_\_transition that don't go through the repository path.
+Removal is final for every read path — Get, GetTool and List all read the same store. There is no repository fallback to resurrect the descriptor \(\#1951\).
 
 <a name="RegistryOption"></a>
 ## type RegistryOption
@@ -1767,7 +1769,7 @@ const (
 <a name="ToolRepository"></a>
 ## type ToolRepository
 
-ToolRepository provides abstract access to tool descriptors \(local interface to avoid import cycles\)
+ToolRepository is the source a registry is LOADED from at construction: NewRegistryWithRepository copies every descriptor it lists into the registry and does not consult it again. It is a loader, not a store — pack content is immutable for a session, so there is nothing to re\-read and nothing to write back \(\#1951\). Local interface to avoid import cycles.
 
 ```go
 type ToolRepository interface {
