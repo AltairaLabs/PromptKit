@@ -2,8 +2,6 @@ module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
-
 require (
 	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
 	github.com/stretchr/testify v1.12.1
