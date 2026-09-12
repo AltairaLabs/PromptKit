@@ -39,6 +39,7 @@ func RegisteredProviderTypes() map[string][]string {
 		pkgconfig.RoleSTT:       stt.RegisteredTypes(),
 		pkgconfig.RoleEmbedding: providers.RegisteredEmbeddingProviderTypes(),
 		pkgconfig.RoleInference: classify.RegisteredTypes(),
+		pkgconfig.RoleRerank:    providers.RegisteredRerankProviderTypes(),
 	}
 }
 

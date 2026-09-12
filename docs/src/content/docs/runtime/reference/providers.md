@@ -35,7 +35,9 @@ This file contains exported test helpers that can be used by provider implementa
 - [func APIKeyFromCredential\(c credentials.Credential\) string](<#APIKeyFromCredential>)
 - [func CapabilitySet\(capabilities \[\]string\) map\[string\]bool](<#CapabilitySet>)
 - [func CheckHTTPError\(resp \*http.Response, url string\) error](<#CheckHTTPError>)
+- [func ClampTopN\(topN, available int\) int](<#ClampTopN>)
 - [func DefaultRetryPolicy\(\) pipeline.RetryPolicy](<#DefaultRetryPolicy>)
+- [func DoAncillaryJSONRequest\(ctx context.Context, client \*http.Client, providerID, apiKey string, cfg HTTPRequestConfig\) \(\[\]byte, error\)](<#DoAncillaryJSONRequest>)
 - [func DoWithRetry\(ctx context.Context, policy pipeline.RetryPolicy, providerName string, doFn DoRequestFunc\) \(\*http.Response, error\)](<#DoWithRetry>)
 - [func ExtractAPIKey\(cred Credential\) string](<#ExtractAPIKey>)
 - [func ExtractOrderedEmbeddings\[T any\]\(data \[\]T, getIndex func\(T\) int, getEmbedding func\(T\) \[\]float32, expectedCount int\) \(\[\]\[\]float32, error\)](<#ExtractOrderedEmbeddings>)
@@ -54,6 +56,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func LoadFileAsBase64\(filePath string\) \(string, error\)](<#LoadFileAsBase64>)
 - [func LogEmbeddingRequest\(provider, model string, textCount int, start time.Time\)](<#LogEmbeddingRequest>)
 - [func LogEmbeddingRequestWithTokens\(provider, model string, textCount, tokens int, start time.Time\)](<#LogEmbeddingRequestWithTokens>)
+- [func LogRerankRequest\(provider, model string, docCount, tokens int, start time.Time\)](<#LogRerankRequest>)
 - [func MarshalRequest\(req any\) \(\[\]byte, error\)](<#MarshalRequest>)
 - [func NewInstrumentedTransport\(base http.RoundTripper\) http.RoundTripper](<#NewInstrumentedTransport>)
 - [func NewPooledTransport\(\) \*http.Transport](<#NewPooledTransport>)
@@ -66,10 +69,13 @@ This file contains exported test helpers that can be used by provider implementa
 - [func RegisterEmbeddingProviderFactory\(providerType string, factory EmbeddingProviderFactory\)](<#RegisterEmbeddingProviderFactory>)
 - [func RegisterPlatformEmbeddingProvider\(typeName string, spec PlatformEmbeddingSpec\)](<#RegisterPlatformEmbeddingProvider>)
 - [func RegisterProviderFactory\(providerType string, factory ProviderFactory\)](<#RegisterProviderFactory>)
+- [func RegisterRerankProviderFactory\(providerType string, factory RerankProviderFactory\)](<#RegisterRerankProviderFactory>)
 - [func RegisteredEmbeddingProviderTypes\(\) \[\]string](<#RegisteredEmbeddingProviderTypes>)
 - [func RegisteredProviderTypes\(\) \[\]string](<#RegisteredProviderTypes>)
+- [func RegisteredRerankProviderTypes\(\) \[\]string](<#RegisteredRerankProviderTypes>)
 - [func ResetDefaultStreamMetrics\(\)](<#ResetDefaultStreamMetrics>)
 - [func ResolveEmbeddingCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveEmbeddingCredential>)
+- [func ResolveRerankCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveRerankCredential>)
 - [func RunProviderContractTests\(t \*testing.T, config ProviderContractTests\)](<#RunProviderContractTests>)
 - [func SetErrorResponse\(predictResp \*PredictionResponse, respBody \[\]byte, start time.Time\)](<#SetErrorResponse>)
 - [func SkipIfNoCredentials\(t \*testing.T, provider Provider\)](<#SkipIfNoCredentials>)
@@ -136,6 +142,14 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b \*BaseProvider\) StreamSemaphore\(\) \*StreamSemaphore](<#BaseProvider.StreamSemaphore>)
   - [func \(b \*BaseProvider\) SupportsStreaming\(\) bool](<#BaseProvider.SupportsStreaming>)
   - [func \(b \*BaseProvider\) WaitForRateLimit\(ctx context.Context\) error](<#BaseProvider.WaitForRateLimit>)
+- [type BaseRerankProvider](<#BaseRerankProvider>)
+  - [func NewBaseRerankProvider\(providerID, defaultModel, defaultBaseURL string, defaultMaxDocs int, defaultTimeout time.Duration\) \*BaseRerankProvider](<#NewBaseRerankProvider>)
+  - [func \(b \*BaseRerankProvider\) DoRerankRequest\(ctx context.Context, cfg HTTPRequestConfig\) \(\[\]byte, error\)](<#BaseRerankProvider.DoRerankRequest>)
+  - [func \(b \*BaseRerankProvider\) ID\(\) string](<#BaseRerankProvider.ID>)
+  - [func \(b \*BaseRerankProvider\) MaxDocuments\(\) int](<#BaseRerankProvider.MaxDocuments>)
+  - [func \(b \*BaseRerankProvider\) Model\(\) string](<#BaseRerankProvider.Model>)
+  - [func \(b \*BaseRerankProvider\) RerankWithEmptyCheck\(ctx context.Context, req RerankRequest, rerank func\(ctx context.Context, req RerankRequest, model string\) \(RerankResponse, error\)\) \(RerankResponse, error\)](<#BaseRerankProvider.RerankWithEmptyCheck>)
+  - [func \(b \*BaseRerankProvider\) ResolveModel\(reqModel string\) string](<#BaseRerankProvider.ResolveModel>)
 - [type BedrockEventScanner](<#BedrockEventScanner>)
   - [func NewBedrockEventScanner\(r io.Reader\) \*BedrockEventScanner](<#NewBedrockEventScanner>)
   - [func \(s \*BedrockEventScanner\) Data\(\) string](<#BedrockEventScanner.Data>)
@@ -182,6 +196,15 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(ml \*MediaLoader\) ResolveURL\(ctx context.Context, media \*types.MediaContent\) \(string, bool, error\)](<#MediaLoader.ResolveURL>)
 - [type MediaLoaderConfig](<#MediaLoaderConfig>)
 - [type MediaStorageConfigurable](<#MediaStorageConfigurable>)
+- [type MockRerankOption](<#MockRerankOption>)
+  - [func WithMockRerankHandler\(h func\(ctx context.Context, req RerankRequest\) \(RerankResponse, error\)\) MockRerankOption](<#WithMockRerankHandler>)
+  - [func WithMockRerankID\(id string\) MockRerankOption](<#WithMockRerankID>)
+  - [func WithMockRerankMaxDocuments\(n int\) MockRerankOption](<#WithMockRerankMaxDocuments>)
+- [type MockRerankProvider](<#MockRerankProvider>)
+  - [func NewMockRerankProvider\(opts ...MockRerankOption\) \*MockRerankProvider](<#NewMockRerankProvider>)
+  - [func \(p \*MockRerankProvider\) ID\(\) string](<#MockRerankProvider.ID>)
+  - [func \(p \*MockRerankProvider\) MaxDocuments\(\) int](<#MockRerankProvider.MaxDocuments>)
+  - [func \(p \*MockRerankProvider\) Rerank\(ctx context.Context, req RerankRequest\) \(RerankResponse, error\)](<#MockRerankProvider.Rerank>)
 - [type MultimodalCapabilities](<#MultimodalCapabilities>)
 - [type MultimodalCapabilityProvider](<#MultimodalCapabilityProvider>)
   - [func GetMultimodalProvider\(p Provider\) MultimodalCapabilityProvider](<#GetMultimodalProvider>)
@@ -209,6 +232,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [type ProviderTransportError](<#ProviderTransportError>)
   - [func \(e \*ProviderTransportError\) Error\(\) string](<#ProviderTransportError.Error>)
   - [func \(e \*ProviderTransportError\) Unwrap\(\) error](<#ProviderTransportError.Unwrap>)
+- [type RankedDocument](<#RankedDocument>)
 - [type Registry](<#Registry>)
   - [func NewRegistry\(\) \*Registry](<#NewRegistry>)
   - [func \(r \*Registry\) Base\(\) \*base.Registry](<#Registry.Base>)
@@ -219,6 +243,15 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(r \*Registry\) List\(\) \[\]string](<#Registry.List>)
   - [func \(r \*Registry\) Register\(provider Provider\)](<#Registry.Register>)
 - [type RequestHeaders](<#RequestHeaders>)
+- [type RerankProvider](<#RerankProvider>)
+  - [func CreateRerankProviderFromSpec\(spec RerankProviderSpec\) \(RerankProvider, error\)](<#CreateRerankProviderFromSpec>)
+- [type RerankProviderFactory](<#RerankProviderFactory>)
+- [type RerankProviderSpec](<#RerankProviderSpec>)
+- [type RerankRequest](<#RerankRequest>)
+- [type RerankResponse](<#RerankResponse>)
+- [type RerankTransport](<#RerankTransport>)
+  - [func ResolveRerankTransport\(spec RerankProviderSpec\) \(RerankTransport, error\)](<#ResolveRerankTransport>)
+- [type RerankUsage](<#RerankUsage>)
 - [type ResponseFormat](<#ResponseFormat>)
 - [type ResponseFormatType](<#ResponseFormatType>)
 - [type RetryBudget](<#RetryBudget>)
@@ -480,6 +513,15 @@ func CheckHTTPError(resp *http.Response, url string) error
 
 CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 
+<a name="ClampTopN"></a>
+## func ClampTopN
+
+```go
+func ClampTopN(topN, available int) int
+```
+
+ClampTopN returns the number of results to keep: TopN when it is set and smaller than what came back, otherwise everything. Vendors that honor top\_n server\-side still call this, because a provider is free to return more than asked and the interface promises it never does.
+
 <a name="DefaultRetryPolicy"></a>
 ## func DefaultRetryPolicy
 
@@ -488,6 +530,17 @@ func DefaultRetryPolicy() pipeline.RetryPolicy
 ```
 
 DefaultRetryPolicy returns a RetryPolicy with sensible defaults: 3 retries, exponential backoff, 500ms initial delay.
+
+<a name="DoAncillaryJSONRequest"></a>
+## func DoAncillaryJSONRequest
+
+```go
+func DoAncillaryJSONRequest(ctx context.Context, client *http.Client, providerID, apiKey string, cfg HTTPRequestConfig) ([]byte, error)
+```
+
+DoAncillaryJSONRequest POSTs a JSON body for one of the ancillary provider roles \(embedding, rerank\) and returns the raw response body.
+
+Shared by both rather than copied, because the error handling is the part worth getting right once: a transport failure is wrapped as ProviderTransportError, not a bare fmt.Errorf, because that is the type whose Error\(\) redacts credential\-bearing query parameters. A plain wrap formats the raw \*url.Error — full URL included — straight into the message, which is how a live key reached the logs in \#1871. It also makes these failures classifiable by IsTransient, like every other provider path.
 
 <a name="DoWithRetry"></a>
 ## func DoWithRetry
@@ -657,6 +710,15 @@ func LogEmbeddingRequestWithTokens(provider, model string, textCount, tokens int
 
 LogEmbeddingRequestWithTokens logs a completed embedding request with token count.
 
+<a name="LogRerankRequest"></a>
+## func LogRerankRequest
+
+```go
+func LogRerankRequest(provider, model string, docCount, tokens int, start time.Time)
+```
+
+LogRerankRequest records a completed rerank at debug level, matching the embedding path's logging so the two roles read alike in a trace.
+
 <a name="MarshalRequest"></a>
 ## func MarshalRequest
 
@@ -775,6 +837,15 @@ func RegisterProviderFactory(providerType string, factory ProviderFactory)
 
 RegisterProviderFactory registers a factory function for a provider type
 
+<a name="RegisterRerankProviderFactory"></a>
+## func RegisterRerankProviderFactory
+
+```go
+func RegisterRerankProviderFactory(providerType string, factory RerankProviderFactory)
+```
+
+RegisterRerankProviderFactory registers a factory for the given provider type. Typically called from a per\-provider package init\(\). Re\-registration overwrites silently, matching the embedding and chat paths.
+
 <a name="RegisteredEmbeddingProviderTypes"></a>
 ## func RegisteredEmbeddingProviderTypes
 
@@ -793,6 +864,15 @@ func RegisteredProviderTypes() []string
 
 RegisteredProviderTypes returns the completion \(chat\) provider types with a registered factory, sorted. This is the registry CreateProviderFromSpec resolves against for the llm, image and video roles alike — a type listed here will construct for any of them.
 
+<a name="RegisteredRerankProviderTypes"></a>
+## func RegisteredRerankProviderTypes
+
+```go
+func RegisteredRerankProviderTypes() []string
+```
+
+RegisteredRerankProviderTypes returns the rerank provider types with a registered factory, sorted. Use it to check a configured type before CreateRerankProviderFromSpec rather than constructing and parsing the error.
+
 <a name="ResetDefaultStreamMetrics"></a>
 ## func ResetDefaultStreamMetrics
 
@@ -810,6 +890,15 @@ func ResolveEmbeddingCredential(ctx context.Context, providerType string, cfgDir
 ```
 
 ResolveEmbeddingCredential resolves an embedding provider's credential block into a concrete Credential, applying the same fallback chain as chat providers \(api\_key → file → env → default env vars\). When platform is non\-empty, the platform branch produces a platform credential \(e.g. AzureCredential\) instead of an API key. Exposed as a helper for the SDK runtime\-config layer.
+
+<a name="ResolveRerankCredential"></a>
+## func ResolveRerankCredential
+
+```go
+func ResolveRerankCredential(ctx context.Context, providerType string, cfgDir string, cred *credentials.CredentialConfig, platform *credentials.PlatformConfig) (credentials.Credential, error)
+```
+
+ResolveRerankCredential resolves a rerank provider's credential block into a concrete Credential, applying the same fallback chain as the embedding and chat paths \(api\_key → file → env → default env vars\).
 
 <a name="RunProviderContractTests"></a>
 ## func RunProviderContractTests
@@ -1464,6 +1553,94 @@ func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error
 ```
 
 WaitForRateLimit blocks until the rate limiter allows the request to proceed, or until the context is canceled. If no rate limiter is configured, it returns immediately. Providers should call this before making HTTP requests to respect rate limits.
+
+<a name="BaseRerankProvider"></a>
+## type BaseRerankProvider
+
+BaseRerankProvider carries the transport state and lifecycle every hosted reranker needs, so a vendor package only has to describe its wire format. It mirrors BaseEmbeddingProvider, with base.Implementation embedded to satisfy base.Provider \(Name/Type/Pricing/Validate/Init/HealthCheck/Close\).
+
+```go
+type BaseRerankProvider struct {
+    *base.Implementation
+
+    ProviderID    string
+    ProviderModel string
+    BaseURL       string
+    APIKey        string
+    HTTPClient    *http.Client
+    // MaxDocs is the largest candidate list one call accepts.
+    MaxDocs int
+    // PlatformAuth indicates the HTTPClient's transport applies
+    // hyperscaler-platform auth per request, so the empty-API-key guard in
+    // each vendor's constructor must be skipped.
+    PlatformAuth bool
+}
+```
+
+<a name="NewBaseRerankProvider"></a>
+### func NewBaseRerankProvider
+
+```go
+func NewBaseRerankProvider(providerID, defaultModel, defaultBaseURL string, defaultMaxDocs int, defaultTimeout time.Duration) *BaseRerankProvider
+```
+
+NewBaseRerankProvider creates a base rerank provider with vendor defaults.
+
+<a name="BaseRerankProvider.DoRerankRequest"></a>
+### func \(\*BaseRerankProvider\) DoRerankRequest
+
+```go
+func (b *BaseRerankProvider) DoRerankRequest(ctx context.Context, cfg HTTPRequestConfig) ([]byte, error)
+```
+
+DoRerankRequest performs the vendor's HTTP call. It shares DoAncillaryJSONRequest with the embedding path so both roles wrap transport failures the same way — which matters, because that wrapping is what redacts credential\-bearing URLs and makes failures classifiable by IsTransient.
+
+<a name="BaseRerankProvider.ID"></a>
+### func \(\*BaseRerankProvider\) ID
+
+```go
+func (b *BaseRerankProvider) ID() string
+```
+
+ID returns the configured provider identifier.
+
+<a name="BaseRerankProvider.MaxDocuments"></a>
+### func \(\*BaseRerankProvider\) MaxDocuments
+
+```go
+func (b *BaseRerankProvider) MaxDocuments() int
+```
+
+MaxDocuments returns the largest candidate list one call accepts.
+
+<a name="BaseRerankProvider.Model"></a>
+### func \(\*BaseRerankProvider\) Model
+
+```go
+func (b *BaseRerankProvider) Model() string
+```
+
+Model returns the current rerank model.
+
+<a name="BaseRerankProvider.RerankWithEmptyCheck"></a>
+### func \(\*BaseRerankProvider\) RerankWithEmptyCheck
+
+```go
+func (b *BaseRerankProvider) RerankWithEmptyCheck(ctx context.Context, req RerankRequest, rerank func(ctx context.Context, req RerankRequest, model string) (RerankResponse, error)) (RerankResponse, error)
+```
+
+RerankWithEmptyCheck short\-circuits the degenerate requests every vendor would otherwise have to guard against, and delegates the rest.
+
+No documents is NOT an error: an upstream search returning nothing is a normal outcome, and making it an error would force every caller to distinguish "search found nothing" from "the reranker is down". An empty query IS an error — ranking against nothing is meaningless, and silently returning the input order would look like the reranker had run.
+
+<a name="BaseRerankProvider.ResolveModel"></a>
+### func \(\*BaseRerankProvider\) ResolveModel
+
+```go
+func (b *BaseRerankProvider) ResolveModel(reqModel string) string
+```
+
+ResolveModel returns the per\-request model override, or the provider default.
 
 <a name="BedrockEventScanner"></a>
 ## type BedrockEventScanner
@@ -2124,6 +2301,99 @@ type MediaStorageConfigurable interface {
 }
 ```
 
+<a name="MockRerankOption"></a>
+## type MockRerankOption
+
+MockRerankOption configures a MockRerankProvider.
+
+```go
+type MockRerankOption func(*MockRerankProvider)
+```
+
+<a name="WithMockRerankHandler"></a>
+### func WithMockRerankHandler
+
+```go
+func WithMockRerankHandler(h func(ctx context.Context, req RerankRequest) (RerankResponse, error)) MockRerankOption
+```
+
+WithMockRerankHandler installs a handler that replaces the built\-in scoring.
+
+<a name="WithMockRerankID"></a>
+### func WithMockRerankID
+
+```go
+func WithMockRerankID(id string) MockRerankOption
+```
+
+WithMockRerankID sets the provider's reported ID.
+
+<a name="WithMockRerankMaxDocuments"></a>
+### func WithMockRerankMaxDocuments
+
+```go
+func WithMockRerankMaxDocuments(n int) MockRerankOption
+```
+
+WithMockRerankMaxDocuments sets the reported document cap, so a test can exercise a caller's batching without sending a thousand documents.
+
+<a name="MockRerankProvider"></a>
+## type MockRerankProvider
+
+MockRerankProvider ranks without a network call, for tests and local development.
+
+It scores by counting how many of the query's whitespace\-separated terms appear in each document, case\-insensitively. That is deliberately crude — it is not trying to be a good reranker, it is trying to be a \*predictable\* one, so a test can assert an exact order without pinning a vendor model's behavior. Ties keep the input order, so the result is fully deterministic.
+
+Scores are normalized to 0..1 \(matched terms over query terms\) purely so they look like the hosted providers' scores; they are not comparable to them, which is true of any two rerankers.
+
+```go
+type MockRerankProvider struct {
+    *base.Implementation
+
+    // Handler, when set, replaces the built-in scoring entirely. Use it to
+    // pin an exact order, or to make the provider fail, without standing up
+    // an HTTP server.
+    Handler func(ctx context.Context, req RerankRequest) (RerankResponse, error)
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewMockRerankProvider"></a>
+### func NewMockRerankProvider
+
+```go
+func NewMockRerankProvider(opts ...MockRerankOption) *MockRerankProvider
+```
+
+NewMockRerankProvider creates an in\-process rerank provider.
+
+<a name="MockRerankProvider.ID"></a>
+### func \(\*MockRerankProvider\) ID
+
+```go
+func (p *MockRerankProvider) ID() string
+```
+
+ID returns the provider identifier.
+
+<a name="MockRerankProvider.MaxDocuments"></a>
+### func \(\*MockRerankProvider\) MaxDocuments
+
+```go
+func (p *MockRerankProvider) MaxDocuments() int
+```
+
+MaxDocuments returns the configured document cap.
+
+<a name="MockRerankProvider.Rerank"></a>
+### func \(\*MockRerankProvider\) Rerank
+
+```go
+func (p *MockRerankProvider) Rerank(ctx context.Context, req RerankRequest) (RerankResponse, error)
+```
+
+Rerank orders documents by term overlap with the query.
+
 <a name="MultimodalCapabilities"></a>
 ## type MultimodalCapabilities
 
@@ -2618,6 +2888,30 @@ func (e *ProviderTransportError) Unwrap() error
 
 
 
+<a name="RankedDocument"></a>
+## type RankedDocument
+
+RankedDocument is one candidate's placing.
+
+```go
+type RankedDocument struct {
+    // Index is the document's position in the request's Documents slice.
+    // This is the field callers key on: the results are reordered, so
+    // position in the response says nothing about which document it was.
+    Index int
+
+    // Score is the provider's relevance score. Higher is more relevant.
+    // The range is provider-specific and NOT comparable across providers
+    // or models — use it to order and to threshold within one provider,
+    // never to compare two providers' verdicts.
+    Score float64
+
+    // Document echoes the input text when the provider returns it. It may
+    // be empty even for a valid result; Index is the reliable identifier.
+    Document string
+}
+```
+
 <a name="Registry"></a>
 ## type Registry
 
@@ -2739,6 +3033,173 @@ RequestHeaders is a map of HTTP header key\-value pairs
 
 ```go
 type RequestHeaders map[string]string
+```
+
+<a name="RerankProvider"></a>
+## type RerankProvider
+
+RerankProvider orders a bounded candidate list by relevance to a query.
+
+It is deliberately not a tool and not an agent: reranking is a synchronous model\-backed function with no conversation, no tool loop and no state. Hosts call it directly, typically as an optional stage after a vector search has produced more candidates than the prompt can afford to carry.
+
+Implementations may be hosted APIs \(Voyage AI, Cohere\), a local cross\-encoder, or an LLM\-based scorer, and callers should not need to know which. See AltairaLabs/PromptKit\#1993.
+
+```go
+type RerankProvider interface {
+    // Provider supplies lifecycle and health: Name, Type, Pricing,
+    // Validate, Init, HealthCheck, Close.
+    base.Provider
+
+    // Rerank orders req.Documents by relevance to req.Query. It honors
+    // context cancellation and deadlines.
+    //
+    // An empty Documents slice returns an empty result and no error: having
+    // nothing to rank is a normal outcome of an upstream search, not a
+    // failure worth propagating.
+    Rerank(ctx context.Context, req RerankRequest) (RerankResponse, error)
+
+    // MaxDocuments reports the most candidates one call accepts. Callers
+    // that may exceed it should batch; implementations are free to batch
+    // internally instead, and say so in their own docs.
+    MaxDocuments() int
+
+    // ID returns the configured provider identifier, e.g. "voyageai-rerank".
+    // This is the instance's ID from config, not the vendor name — several
+    // instances of one vendor can coexist.
+    ID() string
+}
+```
+
+<a name="CreateRerankProviderFromSpec"></a>
+### func CreateRerankProviderFromSpec
+
+```go
+func CreateRerankProviderFromSpec(spec RerankProviderSpec) (RerankProvider, error)
+```
+
+CreateRerankProviderFromSpec builds a rerank provider for spec.Type.
+
+This is the seam worth testing a new backend through: a factory that was never registered — an import missing, an init\(\) that did not run — produces exactly this error, and a constructor test would not catch it because it calls the constructor directly.
+
+<a name="RerankProviderFactory"></a>
+## type RerankProviderFactory
+
+RerankProviderFactory builds a RerankProvider from a spec. Per\-provider packages register one via init\(\) so this package never imports them — the implementations already import it for the interface, and the reverse would be a cycle.
+
+```go
+type RerankProviderFactory func(spec RerankProviderSpec) (RerankProvider, error)
+```
+
+<a name="RerankProviderSpec"></a>
+## type RerankProviderSpec
+
+RerankProviderSpec is the transport\-agnostic description the factory turns into a RerankProvider, mirroring EmbeddingProviderSpec. The SDK translates a pkg/config provider block into this after resolving credentials.
+
+```go
+type RerankProviderSpec struct {
+    // ID is a stable identifier for this instance.
+    ID  string
+    // Type selects the implementation: voyageai, cohere, mock.
+    Type string
+    // Model overrides the provider's default rerank model.
+    Model string
+    // BaseURL overrides the provider's default API endpoint.
+    BaseURL string
+    // Credential carries the resolved API key. May be nil for
+    // providers that need no auth (e.g. the in-process mock).
+    Credential credentials.Credential
+    // AdditionalConfig carries provider-specific extras. Unknown keys are
+    // ignored, so a config written for one vendor does not fail on another.
+    AdditionalConfig map[string]any
+    // Platform identifies a hosting platform ("azure", "bedrock",
+    // "vertex"). Empty means direct API access via Credential.
+    Platform string
+    // PlatformConfig holds platform-specific settings. Only set when
+    // Platform != "".
+    PlatformConfig *PlatformConfig
+}
+```
+
+<a name="RerankRequest"></a>
+## type RerankRequest
+
+RerankRequest asks a provider to order Documents by their relevance to Query.
+
+Unlike embedding, which scores each text on its own and leaves the comparison to the caller, a reranker reads the query and a document together. That is what makes it more accurate — and why its output cannot be cached per document the way a vector can.
+
+```go
+type RerankRequest struct {
+    // Query is the text documents are ranked against. Required.
+    Query string
+
+    // Documents are the candidates to order. The response refers back to
+    // them by position, so the caller keeps ownership of whatever richer
+    // objects these strings were rendered from.
+    Documents []string
+
+    // TopN caps how many results come back. Zero means "all of them",
+    // still ordered. A provider may return fewer than TopN but never more.
+    TopN int
+
+    // Model overrides the provider's default. Empty uses the default.
+    Model string
+}
+```
+
+<a name="RerankResponse"></a>
+## type RerankResponse
+
+RerankResponse holds the reordered candidates.
+
+```go
+type RerankResponse struct {
+    // Results are ordered best-first and contain at most TopN entries.
+    // Documents the provider dropped are simply absent.
+    Results []RankedDocument
+
+    // Model is the model that actually ran, which may differ from the
+    // requested one when the provider substitutes.
+    Model string
+
+    // Usage reports token consumption when the provider supplies it.
+    Usage *RerankUsage
+}
+```
+
+<a name="RerankTransport"></a>
+## type RerankTransport
+
+RerankTransport is the resolved transport for a rerank provider, mirroring EmbeddingTransport.
+
+```go
+type RerankTransport struct {
+    BaseURL string
+    APIKey  string
+}
+```
+
+<a name="ResolveRerankTransport"></a>
+### func ResolveRerankTransport
+
+```go
+func ResolveRerankTransport(spec RerankProviderSpec) (RerankTransport, error)
+```
+
+ResolveRerankTransport turns a spec's credential into the base URL and API key a vendor constructor needs.
+
+Platform\-hosted reranking \(Azure/Bedrock/Vertex\) is not wired: no hyperscaler exposes a first\-party rerank endpoint the way they do embeddings, so rather than guess at an endpoint shape this rejects the combination outright. A declared\-but\-unroutable platform would otherwise fall through to the direct API path and fail later with a confusing auth error. See \#1330 for the platform\-auth base layer this would build on.
+
+<a name="RerankUsage"></a>
+## type RerankUsage
+
+RerankUsage tracks what a rerank call cost.
+
+```go
+type RerankUsage struct {
+    // TotalTokens counts query and documents together. Rerankers bill on
+    // the combined input; there is no output to bill for.
+    TotalTokens int
+}
 ```
 
 <a name="ResponseFormat"></a>

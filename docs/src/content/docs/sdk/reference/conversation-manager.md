@@ -205,6 +205,9 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
   - [func \(c \*Conversation\) PendingTools\(ctx context.Context\) \(\[\]\*sdktools.PendingToolCall, error\)](<#Conversation.PendingTools>)
   - [func \(c \*Conversation\) RejectClientTool\(\_ context.Context, callID, reason string\)](<#Conversation.RejectClientTool>)
   - [func \(c \*Conversation\) RejectTool\(ctx context.Context, id, reason string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.RejectTool>)
+  - [func \(c \*Conversation\) RerankProvider\(\) \(providers.RerankProvider, error\)](<#Conversation.RerankProvider>)
+  - [func \(c \*Conversation\) RerankProviderByID\(id string\) \(providers.RerankProvider, error\)](<#Conversation.RerankProviderByID>)
+  - [func \(c \*Conversation\) RerankProviderIDs\(\) \[\]string](<#Conversation.RerankProviderIDs>)
   - [func \(c \*Conversation\) ResolveTool\(ctx context.Context, id string\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveTool>)
   - [func \(c \*Conversation\) ResolveToolWithArgs\(ctx context.Context, id string, overrides map\[string\]any\) \(\*sdktools.ToolResolution, error\)](<#Conversation.ResolveToolWithArgs>)
   - [func \(c \*Conversation\) Response\(\) \(\<\-chan providers.StreamChunk, error\)](<#Conversation.Response>)
@@ -337,6 +340,7 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
   - [func WithProvidersDir\(dir string\) Option](<#WithProvidersDir>)
   - [func WithRecording\(cfg \*RecordingConfig\) Option](<#WithRecording>)
   - [func WithRelevanceTruncation\(cfg \*RelevanceConfig\) Option](<#WithRelevanceTruncation>)
+  - [func WithRerankProvider\(spec ProviderSpec\) Option](<#WithRerankProvider>)
   - [func WithResponseFormat\(format \*providers.ResponseFormat\) Option](<#WithResponseFormat>)
   - [func WithRetrievalFormatter\(fn memory.ContextFormatter\) Option](<#WithRetrievalFormatter>)
   - [func WithRetriever\(r memory.Retriever\) Option](<#WithRetriever>)
@@ -1827,6 +1831,37 @@ The call is claimed atomically, so a reject races safely against a concurrent ap
 ```
 resp, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
 ```
+
+<a name="Conversation.RerankProvider"></a>
+### func \(\*Conversation\) RerankProvider
+
+```go
+func (c *Conversation) RerankProvider() (providers.RerankProvider, error)
+```
+
+RerankProvider returns the default rerank provider — the first one declared via [WithRerankProvider](<#WithRerankProvider>) or a role: rerank provider file.
+
+Reranking has no built\-in consumer: nothing in the pipeline calls it, by design, because which candidates are worth reranking is the host's decision and depends on a retrieval step PromptKit does not own. This accessor is how a configured provider is reached.
+
+Returns an error rather than nil when none is configured, so a host that meant to configure one finds out here instead of at the call site.
+
+<a name="Conversation.RerankProviderByID"></a>
+### func \(\*Conversation\) RerankProviderByID
+
+```go
+func (c *Conversation) RerankProviderByID(id string) (providers.RerankProvider, error)
+```
+
+RerankProviderByID returns a specific rerank provider by its configured ID, for hosts running more than one — a cheap reranker for a first pass and an accurate one for the survivors, say.
+
+<a name="Conversation.RerankProviderIDs"></a>
+### func \(\*Conversation\) RerankProviderIDs
+
+```go
+func (c *Conversation) RerankProviderIDs() []string
+```
+
+RerankProviderIDs returns the configured rerank provider IDs in declaration order. The first is the one RerankProvider\(\) returns.
 
 <a name="Conversation.ResolveTool"></a>
 ### func \(\*Conversation\) ResolveTool
@@ -3937,6 +3972,31 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
         EmbeddingProvider: embProvider,
     }),
 )
+```
+
+<a name="WithRerankProvider"></a>
+### func WithRerankProvider
+
+```go
+func WithRerankProvider(spec ProviderSpec) Option
+```
+
+WithRerankProvider configures a rerank provider from a spec, for hosts that want to reorder a candidate list by relevance before spending prompt budget on it — typically after a vector search has returned more results than the context window can afford.
+
+Reranking is a synchronous model\-backed call, not a tool: nothing in the pipeline invokes it on your behalf. Retrieve the constructed provider with [Conversation.RerankProvider](<#Conversation.RerankProvider>) and call it where it belongs in your own retrieval flow.
+
+Multiple providers may be configured; the first declared becomes the default returned by RerankProvider\(\). Registered types are reported by \[RegisteredRerankProviderTypes\].
+
+```
+conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+    sdk.WithRerankProvider(sdk.ProviderSpec{
+        Type: "voyageai", Model: "rerank-2.5",
+    }),
+)
+rr, _ := conv.RerankProvider()
+out, err := rr.Rerank(ctx, providers.RerankRequest{
+    Query: q, Documents: candidates, TopN: 5,
+})
 ```
 
 <a name="WithResponseFormat"></a>
