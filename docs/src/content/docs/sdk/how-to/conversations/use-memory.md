@@ -100,9 +100,11 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 )
 ```
 
-The model calls them on its own initiative, so the system prompt should say when to. Configured like the above — a store and a scope, no retriever — nothing reaches the prompt unless the model asks for it.
+The model calls them on its own initiative. It already knows they exist and what they are for: the descriptors go to the provider as tool definitions, and each ships with a description that says when to reach for it — `memory__recall` is described as *"Search your memories for relevant information. Use this to recall facts, preferences, or context from previous conversations."* You do not have to restate any of that in the system prompt.
 
-That is the default, not a property of the capability. `WithMemory` also accepts a retriever, and a capability that carries one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
+When the defaults are not right for your deployment, edit the descriptor rather than the prompt — [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/) patches the description the model sees. Keep the system prompt for policy a tool description cannot carry: when *not* to store something, or which of several sources to trust first.
+
+Configured like the above — a store and a scope, no retriever — nothing reaches the prompt unless the model calls a tool. That is the default of this configuration, not a property of the capability: `WithMemory` also accepts a retriever, and a capability carrying one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
 
 ### Scope
 
