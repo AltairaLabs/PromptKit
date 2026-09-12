@@ -7,7 +7,7 @@ require (
 	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
 	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
-	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.24.1
