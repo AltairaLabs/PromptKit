@@ -126,6 +126,14 @@ type config struct {
 	embeddingProviders   map[string]providers.EmbeddingProvider
 	embeddingProviderIDs []string
 
+	// Declarative rerank providers, keyed by ID. Unlike embeddings these
+	// are not consumed by any built-in stage: reranking is an optional
+	// step a host drives over its own candidates, so the SDK's job is to
+	// construct and hand them back via RerankProvider/RerankProviders.
+	// See AltairaLabs/PromptKit#1993.
+	rerankProviders   map[string]providers.RerankProvider
+	rerankProviderIDs []string
+
 	// Declarative TTS / STT providers, keyed by ID. First entry
 	// becomes the default ttsService / sttService unless one is
 	// already set via WithTTS / WithVADMode.
@@ -2444,6 +2452,57 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 		if c.retrievalProvider == nil {
 			c.retrievalProvider = ep
 		}
+		return nil
+	}
+}
+
+// WithRerankProvider configures a rerank provider from a spec, for hosts that
+// want to reorder a candidate list by relevance before spending prompt budget
+// on it — typically after a vector search has returned more results than the
+// context window can afford.
+//
+// Reranking is a synchronous model-backed call, not a tool: nothing in the
+// pipeline invokes it on your behalf. Retrieve the constructed provider with
+// [Conversation.RerankProvider] and call it where it belongs in your own
+// retrieval flow.
+//
+// Multiple providers may be configured; the first declared becomes the
+// default returned by RerankProvider(). Registered types are reported by
+// [RegisteredRerankProviderTypes].
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithRerankProvider(sdk.ProviderSpec{
+//	        Type: "voyageai", Model: "rerank-2.5",
+//	    }),
+//	)
+//	rr, _ := conv.RerankProvider()
+//	out, err := rr.Rerank(ctx, providers.RerankRequest{
+//	    Query: q, Documents: candidates, TopN: 5,
+//	})
+func WithRerankProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := providers.ResolveRerankCredential(
+			context.Background(), spec.Type, "", spec.Credential, spec.Platform)
+		if err != nil {
+			return fmt.Errorf("WithRerankProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		var platform string
+		if spec.Platform != nil {
+			platform = spec.Platform.Type
+		}
+		rp, err := providers.CreateRerankProviderFromSpec(providers.RerankProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+			Platform: platform, PlatformConfig: spec.Platform,
+		})
+		if err != nil {
+			return fmt.Errorf("WithRerankProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.rerankProviders == nil {
+			c.rerankProviders = make(map[string]providers.RerankProvider)
+		}
+		c.rerankProviders[spec.idOrType()] = rp
+		c.rerankProviderIDs = append(c.rerankProviderIDs, spec.idOrType())
 		return nil
 	}
 }

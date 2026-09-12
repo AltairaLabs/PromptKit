@@ -137,6 +137,25 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 	ctx context.Context,
 	cfg HTTPRequestConfig,
 ) ([]byte, error) {
+	return DoAncillaryJSONRequest(ctx, b.HTTPClient, b.ProviderID, b.APIKey, cfg)
+}
+
+// DoAncillaryJSONRequest POSTs a JSON body for one of the ancillary provider
+// roles (embedding, rerank) and returns the raw response body.
+//
+// Shared by both rather than copied, because the error handling is the part
+// worth getting right once: a transport failure is wrapped as
+// ProviderTransportError, not a bare fmt.Errorf, because that is the type
+// whose Error() redacts credential-bearing query parameters. A plain wrap
+// formats the raw *url.Error — full URL included — straight into the message,
+// which is how a live key reached the logs in #1871. It also makes these
+// failures classifiable by IsTransient, like every other provider path.
+func DoAncillaryJSONRequest(
+	ctx context.Context,
+	client *http.Client,
+	providerID, apiKey string,
+	cfg HTTPRequestConfig,
+) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(
 		ctx, http.MethodPost, cfg.URL, bytes.NewReader(cfg.Body),
 	)
@@ -154,19 +173,13 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 		httpReq.Header.Set(k, v)
 	}
 
-	if cfg.UseAPIKey && b.APIKey != "" {
-		httpReq.Header.Set(AuthorizationHeader, BearerPrefix+b.APIKey)
+	if cfg.UseAPIKey && apiKey != "" {
+		httpReq.Header.Set(AuthorizationHeader, BearerPrefix+apiKey)
 	}
 
-	resp, err := b.HTTPClient.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
-		// Wrapped as ProviderTransportError, not a bare fmt.Errorf: that is the
-		// type whose Error() redacts credential-bearing query parameters. A
-		// plain wrap formats the raw *url.Error — full URL included — straight
-		// into the message, which is how a live key reached the logs in #1871.
-		// It also makes embedding transport failures classifiable by
-		// IsTransient, like every other provider path.
-		return nil, &ProviderTransportError{Cause: err, Provider: b.ProviderID}
+		return nil, &ProviderTransportError{Cause: err, Provider: providerID}
 	}
 	defer resp.Body.Close()
 
@@ -176,7 +189,10 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &ProviderHTTPError{StatusCode: resp.StatusCode, URL: cfg.URL, Body: string(body), Provider: b.ProviderID}
+		return nil, &ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: cfg.URL,
+			Body: string(body), Provider: providerID,
+		}
 	}
 
 	return body, nil

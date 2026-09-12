@@ -17,6 +17,7 @@ func TestRegisteredProviderTypes_CoversEveryRole(t *testing.T) {
 		pkgconfig.RoleLLM, pkgconfig.RoleImage, pkgconfig.RoleVideo,
 		pkgconfig.RoleTTS, pkgconfig.RoleSTT,
 		pkgconfig.RoleEmbedding, pkgconfig.RoleInference,
+		pkgconfig.RoleRerank,
 	}
 	gotRoles := make([]string, 0, len(got))
 	for role := range got {

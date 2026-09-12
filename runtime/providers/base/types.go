@@ -27,6 +27,7 @@ const (
 	ProviderTypeEmbedding ProviderType = "embedding"
 	ProviderTypeImage     ProviderType = "image"
 	ProviderTypeVideo     ProviderType = "video"
+	ProviderTypeRerank    ProviderType = "rerank"
 )
 
 // AllProviderTypes returns every defined ProviderType. Used by the metric

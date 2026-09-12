@@ -55,6 +55,8 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 		return WithEmbeddingProvider(providerSpecFromConfig(p))(c)
 	case pkgconfig.RoleInference:
 		return WithInferenceProvider(providerSpecFromConfig(p))(c)
+	case pkgconfig.RoleRerank:
+		return WithRerankProvider(providerSpecFromConfig(p))(c)
 	default:
 		// Unreachable in practice: ValidateRole() above rejects any role not in
 		// the known set, and every known role is handled. Kept as a defensive
