@@ -1,13 +1,18 @@
 package providers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 func TestMockRerankProvider_OrdersByTermOverlap(t *testing.T) {
@@ -362,10 +367,42 @@ func TestBaseRerankProvider_DoRerankRequest_SurfacesHTTPStatus(t *testing.T) {
 	}
 }
 
-func TestLogRerankRequest_DoesNotPanic(t *testing.T) {
-	// Debug logging is off by default, so this asserts only that the call is
-	// safe — it exists on the hot path of every rerank.
-	LogRerankRequest("acme", "m", 3, 120, time.Now())
+// TestLogRerankRequest_RecordsTheFieldsATraceNeeds captures the emitted record
+// rather than merely calling the function. The provider, model and document
+// count are what make a rerank identifiable in a trace next to the embedding
+// calls around it; a log line missing them is indistinguishable from any other
+// provider call and is the reason this is worth asserting at all.
+func TestLogRerankRequest_RecordsTheFieldsATraceNeeds(t *testing.T) {
+	var buf bytes.Buffer
+	captured := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	restore := logger.GetLogger()
+	logger.SetLogger(captured)
+	t.Cleanup(func() { logger.SetLogger(restore) })
+
+	LogRerankRequest("acme", "acme-1", 3, 120, time.Now().Add(-50*time.Millisecond))
+
+	var rec map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+		t.Fatalf("no log record captured (%v): %q", err, buf.String())
+	}
+	if rec["provider"] != "acme" {
+		t.Errorf("provider = %v", rec["provider"])
+	}
+	if rec["model"] != "acme-1" {
+		t.Errorf("model = %v", rec["model"])
+	}
+	if rec["documents"] != float64(3) {
+		t.Errorf("documents = %v, want 3", rec["documents"])
+	}
+	if rec["tokens"] != float64(120) {
+		t.Errorf("tokens = %v, want 120", rec["tokens"])
+	}
+	// The duration is measured from the caller's start time, so it must
+	// reflect elapsed time rather than being stamped as zero.
+	if ms, ok := rec["duration_ms"].(float64); !ok || ms < 1 {
+		t.Errorf("duration_ms = %v, want the elapsed time since start", rec["duration_ms"])
+	}
 }
 
 func TestMockRerankProvider_MaxDocumentsIsConfigurable(t *testing.T) {
