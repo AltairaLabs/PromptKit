@@ -2,6 +2,27 @@
   "$schema": "https://json-schema.org/draft-07/schema",
   "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/runtime-config.json",
   "$defs": {
+    "ActionScope": {
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effect": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "reversibility": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "CredentialConfig": {
       "properties": {
         "api_key": {
@@ -664,7 +685,8 @@
             "embedding",
             "image",
             "video",
-            "inference"
+            "inference",
+            "rerank"
           ]
         },
         "base_url": {
@@ -1244,6 +1266,12 @@
         },
         "client": {
           "$ref": "#/$defs/ToolClientConfig"
+        },
+        "action_scope": {
+          "$ref": "#/$defs/ActionScope"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
