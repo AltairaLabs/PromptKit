@@ -4394,12 +4394,14 @@ If no tool with the given name is registered when overrides are applied, the ove
 Extending the InputSchema with new top\-level fields produces structured LLM args, but the executor's typed decode would historically drop unknown keys. Executors that have a host\-facing callback now route unknown top\-level args into that callback's typed record:
 
 - memory\_\_remember → Memory.Metadata \(host's MemoryStore.Save\)
+- memory\_\_recall → RetrieveOptions.Extras \(host's MemoryStore.Retrieve\)
+- memory\_\_list → ListOptions.Extras \(host's MemoryStore.List\)
 - A2A outgoing tools → Message.Metadata \(wire payload to remote agent\)
 - workflow\_\_transition → TransitionResult.HostExtras \(host's OnCommit callback\)
 
-For memory and a2a the extras merge into the typed Metadata field with typed\-fields\-win on conflict. For workflow they land on a separate HostExtras field, which is reserved exclusively for this passthrough channel — the runtime never writes to it from elsewhere.
+For memory\_\_remember and a2a the extras merge into the typed Metadata field with typed\-fields\-win on conflict. memory\_\_recall and memory\_\_list put them on a dedicated Extras field of the options struct they hand the store, so a store that does not recognize a key simply ignores it. Workflow uses a separate HostExtras field, which is reserved exclusively for this passthrough channel — the runtime never writes to it from elsewhere.
 
-Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) currently drop unknown top\-level fields. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
+Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) currently drop unknown top\-level fields. memory\_\_forget drops them too, because memory.Store.Delete takes no options struct to carry them and adding one would break every Store implementation. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
 
 Example: customize the memory\_\_remember tool's description for an Omnia deployment that wants the LLM to tag a category alongside the memory, and extend the schema with an \`about\` field that flows into Memory.Metadata.
 

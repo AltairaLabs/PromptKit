@@ -90,6 +90,14 @@ type RetrieveOptions struct {
 	Types         []string // Filter by memory type (empty = all)
 	Limit         int      // Max results (0 = store default)
 	MinConfidence float64  // Minimum confidence threshold (0 = no filter)
+	// Extras carries top-level recall args the executor does not type,
+	// so a store can accept backend-specific parameters without forking
+	// PromptKit. Hosts extend memory__recall's InputSchema with
+	// sdk.WithToolDescriptorOverride and read the values here; a store
+	// that does not recognize a key ignores it. Nil when the call carried
+	// no untyped args. This mirrors what Memory.Metadata does on the
+	// write side. See AltairaLabs/PromptKit#1987.
+	Extras map[string]any
 }
 
 // ListOptions configures a memory list query.
@@ -97,4 +105,7 @@ type ListOptions struct {
 	Types  []string
 	Limit  int
 	Offset int
+	// Extras carries top-level list args the executor does not type.
+	// See [RetrieveOptions.Extras].
+	Extras map[string]any
 }

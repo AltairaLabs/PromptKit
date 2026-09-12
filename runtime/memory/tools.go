@@ -62,7 +62,13 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		Limit         int      `json:"limit,omitempty"`
 		MinConfidence float64  `json:"min_confidence,omitempty"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Decode typed fields and capture any unknown top-level args, the same
+	// way remember does. Hosts use sdk.WithToolDescriptorOverride to extend
+	// memory__recall's input schema with backend-specific fields (Omnia adds
+	// graph expansion and point-in-time args); without this passthrough the
+	// store never sees them. See AltairaLabs/PromptKit#1987.
+	extras, err := tools.DecodeArgsExtras(args, &a, "query", "types", "limit", "min_confidence")
+	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
 	}
 
@@ -70,6 +76,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		Types:         a.Types,
 		Limit:         a.Limit,
 		MinConfidence: a.MinConfidence,
+		Extras:        extras,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
@@ -139,7 +146,9 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Limit  int      `json:"limit,omitempty"`
 		Offset int      `json:"offset,omitempty"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Same passthrough as recall — see [Executor.recall].
+	extras, err := tools.DecodeArgsExtras(args, &a, "types", "limit", "offset")
+	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
 	}
 
@@ -147,6 +156,7 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Types:  a.Types,
 		Limit:  a.Limit,
 		Offset: a.Offset,
+		Extras: extras,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)

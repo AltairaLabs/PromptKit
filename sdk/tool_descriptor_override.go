@@ -56,17 +56,24 @@ type toolDescriptorOverride struct {
 // top-level args into that callback's typed record:
 //
 //   - memory__remember           → Memory.Metadata          (host's MemoryStore.Save)
+//   - memory__recall             → RetrieveOptions.Extras   (host's MemoryStore.Retrieve)
+//   - memory__list               → ListOptions.Extras       (host's MemoryStore.List)
 //   - A2A outgoing tools         → Message.Metadata         (wire payload to remote agent)
 //   - workflow__transition       → TransitionResult.HostExtras (host's OnCommit callback)
 //
-// For memory and a2a the extras merge into the typed Metadata field with
-// typed-fields-win on conflict. For workflow they land on a separate
-// HostExtras field, which is reserved exclusively for this passthrough
-// channel — the runtime never writes to it from elsewhere.
+// For memory__remember and a2a the extras merge into the typed Metadata
+// field with typed-fields-win on conflict. memory__recall and memory__list
+// put them on a dedicated Extras field of the options struct they hand the
+// store, so a store that does not recognize a key simply ignores it.
+// Workflow uses a separate HostExtras field, which is reserved exclusively
+// for this passthrough channel — the runtime never writes to it from
+// elsewhere.
 //
 // Tools without a host-facing callback (workflow__set_artifact, the skills
-// tools) currently drop unknown top-level fields. Extending those schemas
-// will pass the new field to the LLM but the data is not observable
+// tools) currently drop unknown top-level fields. memory__forget drops them
+// too, because memory.Store.Delete takes no options struct to carry them
+// and adding one would break every Store implementation. Extending those
+// schemas will pass the new field to the LLM but the data is not observable
 // host-side. If you need this for one of them, file an issue describing
 // the use case so the right observation point can be designed.
 //
