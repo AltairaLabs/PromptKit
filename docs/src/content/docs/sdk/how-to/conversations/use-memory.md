@@ -15,7 +15,7 @@ PromptKit has two ways to put outside knowledge in front of a model. They are co
 | Source | A `memory.Store` you provide | Any corpus, via a `memory.Retriever` you provide |
 | Scoped to | A subject (a user, a workspace) | Whatever your retriever chooses |
 | Reaches the model as | A tool result mid-turn | The `{{memory_context}}` template variable |
-| Configured with | `WithMemory` | `WithRetriever` |
+| Configured with | `WithMemory` | `WithRetriever`, or `WithMemoryRetriever` inside `WithMemory` |
 
 Use memory tools when the model should remember things about the person it is talking to. Use grounding when every answer should be anchored in your documentation, catalog, or knowledge base — the model never has to think to ask for it. [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) covers the tradeoff in full: what each shape costs, and when to reach for which.
 
@@ -100,7 +100,9 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 )
 ```
 
-The model calls them on its own initiative, so the system prompt should say when to. There is no ambient injection here: nothing reaches the prompt unless the model asks.
+The model calls them on its own initiative, so the system prompt should say when to. Configured like the above — a store and a scope, no retriever — nothing reaches the prompt unless the model asks for it.
+
+That is the default, not a property of the capability. `WithMemory` also accepts a retriever, and a capability that carries one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
 
 ### Scope
 
@@ -138,6 +140,8 @@ sdk.WithMemory(store, scope,
     sdk.WithMemoryToolsDisabled(),
 )
 ```
+
+The two options are independent. `WithMemoryRetriever` on its own adds ambient injection while leaving the tools registered; `WithMemoryToolsDisabled` is what removes them. Drop the second line above and the model gets both paths — it can call `memory__recall`, and `{{memory_context}}` is filled every turn regardless.
 
 `WithMemoryContextFormatter` is the formatter for this path — the capability's equivalent of `WithRetrievalFormatter`. When both a capability retriever and `WithRetriever` are configured, `WithRetriever` wins.
 
