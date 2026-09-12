@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
 
 func TestProviderRole_DefaultsToLLM(t *testing.T) {
 	p := &Provider{}
@@ -68,5 +72,41 @@ func TestProviderRole_RerankIsKnown(t *testing.T) {
 	}
 	if p.GetRole() != "rerank" {
 		t.Errorf("GetRole = %q, want rerank", p.GetRole())
+	}
+}
+
+// TestProviderRole_SchemaEnumMatchesKnownRoles keeps the two places a role has
+// to be declared from drifting apart.
+//
+// knownRoles governs Go-side validation; the jsonschema enum on Provider.Role
+// governs the generated JSON schema, which promptarena's schema-gen produces
+// by reflecting this struct. A role added to one and not the other is the
+// worst kind of half-wired: `role: rerank` passes ValidateRole in Go and is
+// rejected by schema validation in YAML, which reads as a typo rather than a
+// missing declaration.
+func TestProviderRole_SchemaEnumMatchesKnownRoles(t *testing.T) {
+	field, ok := reflect.TypeOf(Provider{}).FieldByName("Role")
+	if !ok {
+		t.Fatal("Provider has no Role field")
+	}
+
+	fromTag := map[string]struct{}{}
+	for _, part := range strings.Split(field.Tag.Get("jsonschema"), ",") {
+		if v, found := strings.CutPrefix(part, "enum="); found {
+			fromTag[v] = struct{}{}
+		}
+	}
+
+	for role := range knownRoles {
+		if _, present := fromTag[role]; !present {
+			t.Errorf("role %q is in knownRoles but missing from the jsonschema enum: "+
+				"it will validate in Go and be rejected in YAML", role)
+		}
+	}
+	for role := range fromTag {
+		if _, present := knownRoles[role]; !present {
+			t.Errorf("role %q is in the jsonschema enum but not knownRoles: "+
+				"the schema will accept a value ValidateRole rejects", role)
+		}
 	}
 }
