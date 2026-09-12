@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // newTestClient wires a Client at an httptest server. Each test

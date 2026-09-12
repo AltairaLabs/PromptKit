@@ -8,7 +8,7 @@ sidebar:
 # memory
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/memory"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 ```
 
 Package memory defines interfaces and types for agentic memory — cross\-session knowledge that persists beyond a single conversation.

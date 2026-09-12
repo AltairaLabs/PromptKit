@@ -12,7 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestMessageCreatedData_ReasoningNotSerialized guards the invariant that the

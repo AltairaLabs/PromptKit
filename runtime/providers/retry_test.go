@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 func TestDefaultRetryPolicy(t *testing.T) {

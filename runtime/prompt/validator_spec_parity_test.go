@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt/schema"
 )
 
 // deliberateOmission records a schema property that a compiled-pack struct

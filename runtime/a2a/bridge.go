@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // ToolBridge discovers an A2A agent and creates ToolDescriptor entries for

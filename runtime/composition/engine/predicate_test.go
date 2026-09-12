@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 )
 
 func boolPtr(b bool) *bool { return &b }

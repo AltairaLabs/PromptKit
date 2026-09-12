@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 // TestAudioTurnStage_TurnDetectorDoesNotShatterContinuousSpeech covers a

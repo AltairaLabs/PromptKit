@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // This test answers the question the stage-level live test does not: does any

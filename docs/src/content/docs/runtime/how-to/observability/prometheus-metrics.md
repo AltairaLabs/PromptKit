@@ -16,8 +16,8 @@ import (
     "github.com/prometheus/client_golang/prometheus"
     "github.com/prometheus/client_golang/prometheus/promhttp"
 
-    "github.com/AltairaLabs/PromptKit/runtime/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

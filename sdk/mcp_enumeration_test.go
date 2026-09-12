@@ -9,8 +9,8 @@ import (
 
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 )
 
 // captureWarnLogs redirects the package logger to a buffer at Warn level for

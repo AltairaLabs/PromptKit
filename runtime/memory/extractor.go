@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Extractor derives memories from conversation messages.

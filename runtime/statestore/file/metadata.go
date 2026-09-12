@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
 // LoadMetadata returns the metadata map for the conversation. Returns

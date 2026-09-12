@@ -3,8 +3,8 @@ package sdk
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // checkProviderRequirements enforces the one behavioral rule RFC 0012 places

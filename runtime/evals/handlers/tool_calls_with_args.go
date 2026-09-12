@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // ToolCallsWithArgsHandler checks that a tool was called with expected arguments.

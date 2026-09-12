@@ -8,7 +8,7 @@ sidebar:
 # storage
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/storage"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 ```
 
 Package storage exposes the MediaStorageService interface for media persistence, plus instrumentation that wires storage operations into the runtime's event bus and OpenTelemetry spans.
@@ -251,9 +251,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage/local"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

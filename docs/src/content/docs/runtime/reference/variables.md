@@ -8,7 +8,7 @@ sidebar:
 # variables
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/variables"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 ```
 
 Package variables provides dynamic variable resolution for prompt templates. Variable providers can inject context from external sources \(databases, APIs, conversation state\) before template rendering.

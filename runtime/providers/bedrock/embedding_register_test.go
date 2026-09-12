@@ -4,13 +4,13 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	// Side-effect import registers the factory under test.
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/bedrock"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/bedrock"
 )
 
 func TestFactoryIsRegistered(t *testing.T) {

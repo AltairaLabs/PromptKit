@@ -3,11 +3,11 @@ package sdk
 import (
 	"slices"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 // RegisteredProviderTypes returns, per provider role, the types that have a

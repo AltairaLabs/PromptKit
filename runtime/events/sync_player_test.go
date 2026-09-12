@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
 )
 
 func TestSyncPlayer_BasicPlayback(t *testing.T) {

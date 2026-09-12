@@ -218,7 +218,13 @@ else
         print_info "Building $module..."
 
         set +e
-        build_out=$(run_in_module "$module" go build ./... 2>&1)
+        # -o /dev/null: compile only, write nothing. Without it `go build`
+        # names each main package's binary after its directory, and
+        # server/a2a/examples/a2a-auth-test has a server/ subdirectory the
+        # binary would collide with ("build output "server" already exists
+        # and is a directory") — a build failure reported for a module that
+        # compiles perfectly well.
+        build_out=$(run_in_module "$module" go build -o /dev/null ./... 2>&1)
         build_rc=$?
         set -e
         [ -n "$build_out" ] && echo "$build_out"
@@ -363,7 +369,19 @@ else
                 grep -h -v "^mode:" "$cov_file" >> "$MERGED_COVERAGE" 2>/dev/null || true
             fi
         done
-        
+
+        # The two consumers below want the paths spelled differently, so keep
+        # both forms. `go tool cover -func` resolves each path as a real import
+        # path and needs the /v2 a v2 module actually has; the per-file lookup
+        # greps for the repo-relative path, where the directory on disk is
+        # runtime/memory with no v2 in it. Normalize one copy and leave the
+        # other alone — normalizing in place makes every changed file report
+        # "no coverage data", and normalizing neither makes the overall figure
+        # read 0.0%. CI applies the same normalization before SonarCloud.
+        MERGED_COVERAGE_REL="$TEMP_COVERAGE_DIR/coverage-relpaths.out"
+        sed -E 's#(github\.com/AltairaLabs/PromptKit/(runtime|pkg|sdk|server/a2a))/v[0-9]+/#\1/#' \
+            "$MERGED_COVERAGE" > "$MERGED_COVERAGE_REL"
+
         # Check coverage on changed files only (excluding *_test.go and *_interactive.go)
         echo ""
         print_info "Checking coverage on changed files..."
@@ -414,12 +432,21 @@ runtime/tts/cartesia_interactive.go"
                 if [[ "$file" == examples/* ]] || [[ "$file" == */examples/* ]] || [[ "$file" == tests/* ]]; then
                     continue
                 fi
+                # Skip trees SonarCloud does not scan at all. sonar.sources is
+                # "sdk,runtime,pkg,server", so benchmarks/ and tools/ are
+                # outside the gate this hook exists to mirror; holding them to
+                # a threshold the CI gate never applies makes the hook stricter
+                # than the thing it is checking against, and a benchmark
+                # harness main() is not code anyone will write tests for.
+                if [[ "$file" == benchmarks/* ]] || [[ "$file" == tools/* ]]; then
+                    continue
+                fi
                 
                 
                 # Calculate ACTUAL statement coverage from raw coverage.out
                 # Format: file:startLine.startCol,endLine.endCol numStatements count
                 # count > 0 means covered, count = 0 means not covered
-                FILE_COV_PERCENT=$(grep "/$file:" "$MERGED_COVERAGE" 2>/dev/null | awk -F'[ ]' '
+                FILE_COV_PERCENT=$(grep "/$file:" "$MERGED_COVERAGE_REL" 2>/dev/null | awk -F'[ ]' '
                 {
                     # Last two fields: numStatements count
                     # Split on space, get the numeric fields

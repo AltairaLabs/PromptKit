@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // TestRegistryConcurrentRegisterAndGet verifies that concurrent Register and Get

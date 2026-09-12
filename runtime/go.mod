@@ -1,10 +1,6 @@
-module github.com/AltairaLabs/PromptKit/runtime
+module github.com/AltairaLabs/PromptKit/runtime/v2
 
 go 1.26.0
-
-retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
-
-retract v1.4.0 // Published prematurely; missing StreamMediaData changes and breaking MediaDelta removal
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1

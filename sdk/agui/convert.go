@@ -9,8 +9,8 @@ import (
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // roleToAGUI maps PromptKit role strings to AG-UI Role constants.

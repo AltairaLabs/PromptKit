@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/storage/policy"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage/policy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

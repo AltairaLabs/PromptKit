@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // countingVAD is a caller-supplied VADAnalyzer. It implements the exported

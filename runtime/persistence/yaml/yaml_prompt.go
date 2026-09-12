@@ -11,9 +11,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/AltairaLabs/PromptKit/runtime/persistence"
-	"github.com/AltairaLabs/PromptKit/runtime/persistence/common"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/common"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // Compile-time interface check

@@ -104,7 +104,7 @@ import (
     "log"
     "time"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
@@ -208,7 +208,7 @@ conv.OnToolCtx("search", func(ctx context.Context, args map[string]any) (any, er
 For external API calls, use HTTP tools:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 conv.OnToolHTTP("stock_price", sdktools.NewHTTPToolConfig(
     "https://api.stocks.example.com/v1/price",

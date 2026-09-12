@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Text-specific infrastructure on top of classify_handler_base.go.

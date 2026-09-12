@@ -3,7 +3,7 @@ package tools
 import (
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // These MarshalJSON guards ensure the non-omitempty json.RawMessage fields on

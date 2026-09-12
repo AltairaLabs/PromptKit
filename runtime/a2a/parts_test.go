@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestInferContentType(t *testing.T) {

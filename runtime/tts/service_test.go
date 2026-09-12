@@ -3,7 +3,7 @@ package tts
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 func TestAudioFormat_String(t *testing.T) {

@@ -21,12 +21,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/vertex"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vertex"
 )
 
 func integrationRegion() string {

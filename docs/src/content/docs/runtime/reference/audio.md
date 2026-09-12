@@ -8,7 +8,7 @@ sidebar:
 # audio
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/audio"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 ```
 
 Package audio provides voice activity detection \(VAD\), turn detection, and audio session management for real\-time voice AI applications.

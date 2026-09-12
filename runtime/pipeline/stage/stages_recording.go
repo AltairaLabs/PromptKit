@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // recordingAudioMIMEType is the MIME type used when recording PCM audio.

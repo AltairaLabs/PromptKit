@@ -8,7 +8,7 @@ sidebar:
 # telemetry
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/telemetry"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 ```
 
 Package telemetry provides OpenTelemetry integration for PromptKit, including TracerProvider management and an event\-to\-span listener.

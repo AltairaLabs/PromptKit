@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func TestToolRegistry(t *testing.T) {

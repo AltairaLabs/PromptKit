@@ -125,7 +125,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 For type-safe tool arguments, use `tools.OnTyped`:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 type SearchArgs struct {
     Query      string `map:"query"`
@@ -142,7 +142,7 @@ sdktools.OnTyped(conv, "search", func(args SearchArgs) (any, error) {
 Register tools that call external APIs:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
     "https://api.example.com/tickets",
@@ -211,7 +211,7 @@ redeploy), inject a durable store with `WithPendingStore`:
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+    sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 store := sdktools.NewRedisPendingStore(
@@ -292,7 +292,7 @@ import (
     "log"
     "time"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

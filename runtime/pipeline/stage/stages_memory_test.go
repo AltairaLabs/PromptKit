@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 type mockRetriever struct {

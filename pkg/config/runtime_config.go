@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/execconfig"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/execconfig"
 )
 
 // RuntimeConfig represents a runtime environment configuration in K8s-style manifest format.

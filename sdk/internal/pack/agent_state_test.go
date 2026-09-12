@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 func stateBackedSDKPack(wf *WorkflowSpec, state string) *Pack {

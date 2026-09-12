@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // PackTemplate is a pre-loaded, immutable representation of a pack file.

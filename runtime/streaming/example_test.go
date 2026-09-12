@@ -3,8 +3,8 @@ package streaming
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ExampleProcessResponseElement shows the response state machine deciding

@@ -8,7 +8,7 @@ sidebar:
 # metrics
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/metrics"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 ```
 
 Package metrics provides the unified PromptKit metrics collector.

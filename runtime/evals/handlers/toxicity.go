@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // ToxicityHandler scores the assistant output for insults, harassment,

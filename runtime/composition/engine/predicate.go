@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 const (

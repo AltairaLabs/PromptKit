@@ -3,10 +3,10 @@ package sdk
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

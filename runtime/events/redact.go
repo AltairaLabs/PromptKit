@@ -1,6 +1,6 @@
 package events
 
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // Redaction of content-bearing event payloads, applied per SUBSCRIBER rather
 // than at the source.

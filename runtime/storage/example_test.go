@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage/local"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ExampleMediaStorageService shows storing and retrieving media content

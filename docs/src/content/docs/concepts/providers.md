@@ -493,7 +493,7 @@ response, err := provider.Predict(ctx, req)
 ### Mock Provider
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 
 func TestWithMock(t *testing.T) {
     mockProvider := mock.NewMockProvider()

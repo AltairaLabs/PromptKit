@@ -3,7 +3,7 @@ package evals
 import (
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const roleAssistant = "assistant"

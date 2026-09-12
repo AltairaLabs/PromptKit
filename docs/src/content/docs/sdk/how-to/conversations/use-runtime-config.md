@@ -12,7 +12,7 @@ Replace dozens of programmatic option calls with a single YAML file that declare
 ## Quick Start
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk"
+import "github.com/AltairaLabs/PromptKit/sdk/v2"
 
 conv, err := sdk.Open("./agent.pack.json", "assistant",
     sdk.WithRuntimeConfig("./runtime.yaml"),

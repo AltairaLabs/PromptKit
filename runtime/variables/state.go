@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
 // StateProvider resolves variables from conversation state metadata.

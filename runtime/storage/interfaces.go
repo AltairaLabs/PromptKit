@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // MediaStorageService defines the interface for storing and retrieving media content.

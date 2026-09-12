@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 func stateBackedPack(workflowSpec *workflow.Spec, state string) *Pack {

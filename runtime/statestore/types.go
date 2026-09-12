@@ -3,7 +3,7 @@ package statestore
 import (
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Sort field constants for ListOptions.SortBy.

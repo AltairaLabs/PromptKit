@@ -3,7 +3,7 @@ package a2a_test
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
 
 // ExampleMessageToMessage shows converting an A2A protocol Message into

@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // Retry defaults for TTS synthesis.

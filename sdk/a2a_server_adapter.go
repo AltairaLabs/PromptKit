@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // responseAdapter wraps *Response to satisfy a2aserver.SendResult.

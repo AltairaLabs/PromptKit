@@ -44,10 +44,10 @@ package main
 
 import (
     "context"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {

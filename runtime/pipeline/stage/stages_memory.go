@@ -3,9 +3,9 @@ package stage
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // MemoryRetrievalStage injects relevant memories into the conversation context.

@@ -36,7 +36,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // structFieldMeta holds pre-computed metadata for a single struct field.

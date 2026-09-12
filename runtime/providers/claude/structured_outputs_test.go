@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // TestOutputConfigFor verifies the ResponseFormat -> Anthropic output_config mapping.

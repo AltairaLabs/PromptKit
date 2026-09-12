@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // A2AOpener returns an A2AConversationOpener backed by SDK conversations.

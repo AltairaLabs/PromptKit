@@ -6,8 +6,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func descriptorNames(ds []*providers.ToolDescriptor) []string {

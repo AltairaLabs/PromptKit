@@ -1,6 +1,6 @@
 package gemini
 
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // normalizeFinishReason maps a Gemini finishReason onto the canonical
 // vocabulary in runtime/types. Unknown/empty values pass through verbatim.

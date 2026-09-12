@@ -9,8 +9,8 @@ Learn how to observe SDK operations with the `hooks` package.
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
@@ -217,8 +217,8 @@ import (
     "github.com/prometheus/client_golang/prometheus"
     "github.com/prometheus/client_golang/prometheus/promhttp"
 
-    "github.com/AltairaLabs/PromptKit/runtime/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // 1. Create collector once per process
@@ -409,9 +409,9 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/sdk/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 func main() {

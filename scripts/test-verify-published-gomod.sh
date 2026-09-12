@@ -49,28 +49,28 @@ expect() {
 # would be indistinguishable from a working guard on the bad fixtures below.
 # ---------------------------------------------------------------------------
 
-expect "clean-block-requires" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk
+expect "clean-block-requires" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk/v2
 
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.8
-	github.com/AltairaLabs/PromptKit/runtime v1.5.8
-	github.com/AltairaLabs/PromptKit/server/a2a v1.5.8
+	github.com/AltairaLabs/PromptKit/pkg/v2 v1.5.8
+	github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v1.5.8
 	github.com/stretchr/testify v1.11.1
 )
 '
 
-expect "clean-single-line-require" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "clean-single-line-require" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-require github.com/AltairaLabs/PromptKit/runtime v1.5.8
+require github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
 '
 
 # A module with no internal dependencies at all is correct by construction.
 # Catches a guard that demands at least one internal require.
-expect "no-internal-deps" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/runtime
+expect "no-internal-deps" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/runtime/v2
 
 go 1.26.0
 
@@ -82,14 +82,14 @@ require (
 
 # Third-party replaces and requires at other versions are none of our business.
 # Catches a guard that matches any `replace`, or that version-checks every require.
-expect "external-replace-and-requires-ignored" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "external-replace-and-requires-ignored" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
 replace github.com/xeipuuv/gojsonschema => github.com/AltairaLabsFork/gojsonschema v1.0.0
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.5.8
+	github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
 	github.com/stretchr/testify v1.11.1
 	k8s.io/apimachinery v0.36.3
 )
@@ -97,7 +97,7 @@ require (
 
 # retract blocks contain bare versions that are not requires.
 # Catches a parser that treats every block line as a require.
-expect "retract-block-ignored" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "retract-block-ignored" 0 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
@@ -108,7 +108,7 @@ retract (
 	v1.2.3
 )
 
-require github.com/AltairaLabs/PromptKit/runtime v1.5.8
+require github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
 '
 
 # ---------------------------------------------------------------------------
@@ -116,84 +116,84 @@ require github.com/AltairaLabs/PromptKit/runtime v1.5.8
 # ---------------------------------------------------------------------------
 
 # The pkg/v1.5.7 defect exactly: a masked replace plus the stale require it hid.
-expect "issue-1713-shape" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "issue-1713-shape" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
+	github.com/AltairaLabs/PromptKit/runtime/v2 v1.3.5
 	github.com/stretchr/testify v1.11.1
 )
-' "github.com/AltairaLabs/PromptKit/runtime"
+' "github.com/AltairaLabs/PromptKit/runtime/v2"
 
 # Catches a guard that only inspects require lines.
-expect "single-line-internal-replace" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "single-line-internal-replace" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
 
-require github.com/AltairaLabs/PromptKit/runtime v1.5.8
+require github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
 ' "replace"
 
 # Catches a parser that only handles the single-line replace form.
-expect "block-internal-replace" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk
+expect "block-internal-replace" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk/v2
 
 go 1.26.0
 
 replace (
-	github.com/AltairaLabs/PromptKit/pkg => ../pkg
-	github.com/AltairaLabs/PromptKit/runtime => ../runtime
+	github.com/AltairaLabs/PromptKit/pkg/v2 => ../pkg
+	github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
 )
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.8
-	github.com/AltairaLabs/PromptKit/runtime v1.5.8
+	github.com/AltairaLabs/PromptKit/pkg/v2 v1.5.8
+	github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
 )
 ' "replace"
 
 # The runtime -> pkg half of #1713: a plain stale require, no replace masking it.
 # Catches a guard that only looks for replaces.
-expect "stale-internal-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/runtime
+expect "stale-internal-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/runtime/v2
 
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3
+	github.com/AltairaLabs/PromptKit/pkg/v2 v1.5.3
 	github.com/google/uuid v1.6.0
 )
 ' "v1.5.3"
 
 # Catches a guard that skips indirect requires — sdk carries pkg as indirect in
 # some example modules, and an indirect stale require is just as wrong.
-expect "stale-indirect-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk
+expect "stale-indirect-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/sdk/v2
 
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.5.8
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3 // indirect
+	github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.8
+	github.com/AltairaLabs/PromptKit/pkg/v2 v1.5.3 // indirect
 )
 ' "v1.5.3"
 
 # Catches a guard that uses substring/prefix matching on the version instead of
 # equality — v1.5.80 contains v1.5.8.
-expect "version-near-miss" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "version-near-miss" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-require github.com/AltairaLabs/PromptKit/runtime v1.5.80
+require github.com/AltairaLabs/PromptKit/runtime/v2 v1.5.80
 ' "v1.5.80"
 
 # A pseudo-version is never a release version.
 # Catches a guard that only rejects lower semver.
-expect "pseudo-version-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg
+expect "pseudo-version-require" 1 v1.5.8 'module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-require github.com/AltairaLabs/PromptKit/runtime v0.0.0-20260101000000-abcdef123456
+require github.com/AltairaLabs/PromptKit/runtime/v2 v0.0.0-20260101000000-abcdef123456
 ' "v0.0.0-"
 
 # ---------------------------------------------------------------------------

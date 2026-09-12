@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // SSEClient is the HTTP+SSE transport implementation of the Client interface.

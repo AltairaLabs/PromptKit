@@ -3,7 +3,7 @@ package evals
 import (
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // ResolveEvals merges pack-level and prompt-level eval definitions.

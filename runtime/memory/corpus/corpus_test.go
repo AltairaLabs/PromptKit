@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/memory/corpus"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 var docs = []corpus.Document{
