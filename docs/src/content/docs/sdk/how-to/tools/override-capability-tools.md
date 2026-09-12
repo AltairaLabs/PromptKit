@@ -94,8 +94,26 @@ Memory registers its tools only when the scope carries a subject; see [`WithMemo
 3. Calls the patch function on the clone.
 4. Re-registers the patched descriptor (`Registry.Register` is last-write-wins, so this replaces the original).
 
+## Getting a new parameter to the host
+
+Adding a field to the input schema makes the model send it. Whether anything downstream can read it depends on the tool: the executor decodes the arguments it knows about, and several route what is left over to the host rather than dropping it.
+
+| Tool | Unknown top-level args arrive in |
+|---|---|
+| `memory__remember` | `Memory.Metadata` (merged with the typed `metadata` arg; typed keys win) |
+| `memory__recall` | `RetrieveOptions.Extras` |
+| `memory__list` | `ListOptions.Extras` |
+| `memory__forget` | `DeleteOptions.Extras`, for stores implementing `memory.ExtrasDeleter` |
+| A2A outgoing tools | `Message.Metadata` on the wire to the remote agent |
+| `workflow__transition` | `TransitionResult.HostExtras`, readable on the `workflow.transitioned` event |
+| `workflow__set_artifact`, the skills tools | nowhere — the field reaches the model but not you |
+
+[Memory and Grounding](/sdk/how-to/conversations/use-memory/#backend-specific-arguments) works the memory case through end to end.
+
+For the tools in the last row, extending the schema is a documentation change only: the model will populate the field and the value is discarded. File an issue if you need one of them, so the observation point can be designed rather than guessed.
+
 ## Does not affect
 
-- The executor that handles the tool. The executor remains the one the capability registered. If you need the executor to recognise a new parameter, you must change the capability code (or wrap the capability with your own).
+- The executor that handles the tool. The executor remains the one the capability registered — it gains no new typed behavior, only the passthrough above.
 - Other tools — patches operate on a clone of one descriptor.
 - Capability lifecycle (Init, Close).

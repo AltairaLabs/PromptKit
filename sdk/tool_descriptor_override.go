@@ -56,13 +56,24 @@ type toolDescriptorOverride struct {
 // top-level args into that callback's typed record:
 //
 //   - memory__remember           → Memory.Metadata          (host's MemoryStore.Save)
+//   - memory__recall             → RetrieveOptions.Extras   (host's MemoryStore.Retrieve)
+//   - memory__list               → ListOptions.Extras       (host's MemoryStore.List)
+//   - memory__forget             → DeleteOptions.Extras     (stores implementing memory.ExtrasDeleter)
 //   - A2A outgoing tools         → Message.Metadata         (wire payload to remote agent)
 //   - workflow__transition       → TransitionResult.HostExtras (host's OnCommit callback)
 //
-// For memory and a2a the extras merge into the typed Metadata field with
-// typed-fields-win on conflict. For workflow they land on a separate
-// HostExtras field, which is reserved exclusively for this passthrough
-// channel — the runtime never writes to it from elsewhere.
+// For memory__remember and a2a the extras merge into the typed Metadata
+// field with typed-fields-win on conflict. memory__recall and memory__list
+// put them on a dedicated Extras field of the options struct they hand the
+// store, so a store that does not recognize a key simply ignores it.
+// Workflow uses a separate HostExtras field, which is reserved exclusively
+// for this passthrough channel — the runtime never writes to it from
+// elsewhere.
+//
+// memory__forget is the one that needs opting into: memory.Store.Delete has
+// no options parameter, so a store receives the extras only if it implements
+// memory.ExtrasDeleter. Stores that do not are unaffected and keep the plain
+// Delete.
 //
 // Tools without a host-facing callback (workflow__set_artifact, the skills
 // tools) currently drop unknown top-level fields. Extending those schemas

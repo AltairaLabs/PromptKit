@@ -62,7 +62,13 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		Limit         int      `json:"limit,omitempty"`
 		MinConfidence float64  `json:"min_confidence,omitempty"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Decode typed fields and capture any unknown top-level args, the same
+	// way remember does. Hosts use sdk.WithToolDescriptorOverride to extend
+	// memory__recall's input schema with backend-specific fields (Omnia adds
+	// graph expansion and point-in-time args); without this passthrough the
+	// store never sees them. See AltairaLabs/PromptKit#1987.
+	extras, err := tools.DecodeArgsExtras(args, &a, "query", "types", "limit", "min_confidence")
+	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
 	}
 
@@ -70,6 +76,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		Types:         a.Types,
 		Limit:         a.Limit,
 		MinConfidence: a.MinConfidence,
+		Extras:        extras,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
@@ -139,7 +146,9 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Limit  int      `json:"limit,omitempty"`
 		Offset int      `json:"offset,omitempty"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Same passthrough as recall — see [Executor.recall].
+	extras, err := tools.DecodeArgsExtras(args, &a, "types", "limit", "offset")
+	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
 	}
 
@@ -147,6 +156,7 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Types:  a.Types,
 		Limit:  a.Limit,
 		Offset: a.Offset,
+		Extras: extras,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
@@ -162,14 +172,18 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 	var a struct {
 		MemoryID string `json:"memory_id"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Same passthrough as recall — see [Executor.recall]. Delete takes no
+	// options parameter, so the extras reach only a store that opts in by
+	// implementing [ExtrasDeleter]; the rest keep the plain Delete.
+	extras, err := tools.DecodeArgsExtras(args, &a, "memory_id")
+	if err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
 	if a.MemoryID == "" {
 		return nil, fmt.Errorf("memory forget: memory_id is required")
 	}
 
-	if err := e.store.Delete(ctx, e.scope, a.MemoryID); err != nil {
+	if err := e.delete(ctx, a.MemoryID, extras); err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
 
@@ -177,6 +191,16 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 		"status":    "forgotten",
 		"memory_id": a.MemoryID,
 	})
+}
+
+// delete routes to the store's [ExtrasDeleter] implementation when it has
+// one so backend-specific forget args survive, and to the plain
+// [Store.Delete] otherwise.
+func (e *Executor) delete(ctx context.Context, memoryID string, extras map[string]any) error {
+	if d, ok := e.store.(ExtrasDeleter); ok {
+		return d.DeleteWithOptions(ctx, e.scope, memoryID, DeleteOptions{Extras: extras})
+	}
+	return e.store.Delete(ctx, e.scope, memoryID)
 }
 
 // RegisterMemoryTools registers the four base memory tools with executor routing.

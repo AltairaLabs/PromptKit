@@ -4394,10 +4394,15 @@ If no tool with the given name is registered when overrides are applied, the ove
 Extending the InputSchema with new top\-level fields produces structured LLM args, but the executor's typed decode would historically drop unknown keys. Executors that have a host\-facing callback now route unknown top\-level args into that callback's typed record:
 
 - memory\_\_remember → Memory.Metadata \(host's MemoryStore.Save\)
+- memory\_\_recall → RetrieveOptions.Extras \(host's MemoryStore.Retrieve\)
+- memory\_\_list → ListOptions.Extras \(host's MemoryStore.List\)
+- memory\_\_forget → DeleteOptions.Extras \(stores implementing memory.ExtrasDeleter\)
 - A2A outgoing tools → Message.Metadata \(wire payload to remote agent\)
 - workflow\_\_transition → TransitionResult.HostExtras \(host's OnCommit callback\)
 
-For memory and a2a the extras merge into the typed Metadata field with typed\-fields\-win on conflict. For workflow they land on a separate HostExtras field, which is reserved exclusively for this passthrough channel — the runtime never writes to it from elsewhere.
+For memory\_\_remember and a2a the extras merge into the typed Metadata field with typed\-fields\-win on conflict. memory\_\_recall and memory\_\_list put them on a dedicated Extras field of the options struct they hand the store, so a store that does not recognize a key simply ignores it. Workflow uses a separate HostExtras field, which is reserved exclusively for this passthrough channel — the runtime never writes to it from elsewhere.
+
+memory\_\_forget is the one that needs opting into: memory.Store.Delete has no options parameter, so a store receives the extras only if it implements memory.ExtrasDeleter. Stores that do not are unaffected and keep the plain Delete.
 
 Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) currently drop unknown top\-level fields. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
 

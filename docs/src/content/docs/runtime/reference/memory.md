@@ -24,11 +24,13 @@ PromptKit defines interfaces and an in\-memory test store. Production implementa
 - [type ConsentCategory](<#ConsentCategory>)
   - [func KnownCategories\(\) \[\]ConsentCategory](<#KnownCategories>)
 - [type ContextFormatter](<#ContextFormatter>)
+- [type DeleteOptions](<#DeleteOptions>)
 - [type Executor](<#Executor>)
   - [func NewExecutor\(store Store, scope map\[string\]string\) \*Executor](<#NewExecutor>)
   - [func \(e \*Executor\) Execute\(ctx context.Context, desc \*tools.ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#Executor.Execute>)
   - [func \(e \*Executor\) Name\(\) string](<#Executor.Name>)
 - [type Extractor](<#Extractor>)
+- [type ExtrasDeleter](<#ExtrasDeleter>)
 - [type InMemoryStore](<#InMemoryStore>)
   - [func NewInMemoryStore\(\) \*InMemoryStore](<#NewInMemoryStore>)
   - [func \(s \*InMemoryStore\) Delete\(\_ context.Context, scope map\[string\]string, memoryID string\) error](<#InMemoryStore.Delete>)
@@ -157,6 +159,19 @@ ContextFormatter renders a slice of retrieved memories into the string that gets
 type ContextFormatter func(memories []*Memory) string
 ```
 
+<a name="DeleteOptions"></a>
+## type DeleteOptions
+
+DeleteOptions configures a memory delete. It exists only to carry Extras: Store.Delete has no options parameter, so a store that wants the passthrough args implements [ExtrasDeleter](<#ExtrasDeleter>) instead.
+
+```go
+type DeleteOptions struct {
+    // Extras carries top-level forget args the executor does not type.
+    // See [RetrieveOptions.Extras].
+    Extras map[string]any
+}
+```
+
 <a name="Executor"></a>
 ## type Executor
 
@@ -203,6 +218,23 @@ Extractor derives memories from conversation messages. PromptKit defines the int
 ```go
 type Extractor interface {
     Extract(ctx context.Context, scope map[string]string, messages []types.Message) ([]*Memory, error)
+}
+```
+
+<a name="ExtrasDeleter"></a>
+## type ExtrasDeleter
+
+ExtrasDeleter is optionally implemented by stores that accept backend\-specific arguments on delete.
+
+Store.Delete takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature — which every Store implementation would have to follow — a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
+
+Recall and list need no equivalent: RetrieveOptions and ListOptions were already parameters, so Extras went straight onto them. See AltairaLabs/PromptKit\#1987.
+
+```go
+type ExtrasDeleter interface {
+    DeleteWithOptions(
+        ctx context.Context, scope map[string]string, memoryID string, opts DeleteOptions,
+    ) error
 }
 ```
 
@@ -281,6 +313,9 @@ type ListOptions struct {
     Types  []string
     Limit  int
     Offset int
+    // Extras carries top-level list args the executor does not type.
+    // See [RetrieveOptions.Extras].
+    Extras map[string]any
 }
 ```
 
@@ -398,6 +433,14 @@ type RetrieveOptions struct {
     Types         []string // Filter by memory type (empty = all)
     Limit         int      // Max results (0 = store default)
     MinConfidence float64  // Minimum confidence threshold (0 = no filter)
+    // Extras carries top-level recall args the executor does not type,
+    // so a store can accept backend-specific parameters without forking
+    // PromptKit. Hosts extend memory__recall's InputSchema with
+    // sdk.WithToolDescriptorOverride and read the values here; a store
+    // that does not recognize a key ignores it. Nil when the call carried
+    // no untyped args. This mirrors what Memory.Metadata does on the
+    // write side. See AltairaLabs/PromptKit#1987.
+    Extras map[string]any
 }
 ```
 
