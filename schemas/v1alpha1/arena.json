@@ -210,6 +210,27 @@
       "type": "object",
       "description": "A2ASkillFilter controls which skills from an A2A agent are exposed."
     },
+    "ActionScope": {
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effect": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "reversibility": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AgentDef": {
       "properties": {
         "description": {
@@ -2547,7 +2568,8 @@
             "embedding",
             "image",
             "video",
-            "inference"
+            "inference",
+            "rerank"
           ]
         },
         "base_url": {
@@ -3615,6 +3637,12 @@
         },
         "client": {
           "$ref": "#/$defs/ToolClientConfig"
+        },
+        "action_scope": {
+          "$ref": "#/$defs/ActionScope"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
