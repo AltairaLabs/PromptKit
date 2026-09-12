@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	streamPkg "github.com/AltairaLabs/PromptKit/sdk/stream"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	streamPkg "github.com/AltairaLabs/PromptKit/sdk/v2/stream"
 )
 
 // StreamChunk represents a single chunk in a streaming response.

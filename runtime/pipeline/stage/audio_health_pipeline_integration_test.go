@@ -10,11 +10,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/expfmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/metrics"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	providersmock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
 
 // TestAudioHealthPipeline_EndToEnd drives ONE real duplex flow and asserts that

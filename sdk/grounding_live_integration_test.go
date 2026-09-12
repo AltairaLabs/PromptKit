@@ -28,12 +28,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/memory/corpus"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/claude"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // groundingPackJSON consumes memory_context in its system prompt and says

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // buildToolRegistry registers the given tool names with a trivial object schema.

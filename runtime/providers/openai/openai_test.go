@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	credentials "github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	credentials "github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestStreamResponse_ReasoningContentEmitsKeepalive(t *testing.T) {

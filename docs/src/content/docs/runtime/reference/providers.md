@@ -8,7 +8,7 @@ sidebar:
 # providers
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 ```
 
 Package providers implements multi\-LLM provider support with unified interfaces.
@@ -2056,8 +2056,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -2379,7 +2379,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 func main() {
@@ -2651,7 +2651,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 func main() {

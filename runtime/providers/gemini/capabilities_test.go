@@ -3,7 +3,7 @@ package gemini
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // TestDeclaredCapabilities_OverrideDefaults verifies that a declared capability

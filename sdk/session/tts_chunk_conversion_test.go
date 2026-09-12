@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/stretchr/testify/assert"
 )
 

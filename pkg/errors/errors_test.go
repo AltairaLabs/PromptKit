@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	pkgerrors "github.com/AltairaLabs/PromptKit/pkg/errors"
+	pkgerrors "github.com/AltairaLabs/PromptKit/pkg/v2/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

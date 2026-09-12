@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 )
 
 func TestContentRouter_RoutesBasedOnPredicate(t *testing.T) {

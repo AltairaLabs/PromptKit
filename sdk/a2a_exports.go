@@ -3,8 +3,8 @@ package sdk
 import (
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // Type aliases for backwards compatibility — re-exported from server/a2a.

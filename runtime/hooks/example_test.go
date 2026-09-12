@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 )
 
 // modelDenylist is a minimal hooks.ProviderHook that blocks calls to a

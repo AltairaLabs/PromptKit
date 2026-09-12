@@ -1,8 +1,8 @@
 package pack
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
 
 // The PromptPack data types are runtime-owned — the runtime is the source of

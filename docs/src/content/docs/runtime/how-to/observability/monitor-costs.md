@@ -384,8 +384,8 @@ import (
     "log"
     "sync"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
 
 type CostMonitor struct {

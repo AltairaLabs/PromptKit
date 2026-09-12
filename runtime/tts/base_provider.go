@@ -3,7 +3,7 @@ package tts
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // The following methods satisfy the base.Provider interface for all three TTS

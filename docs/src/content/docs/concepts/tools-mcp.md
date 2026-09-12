@@ -42,7 +42,7 @@ LLM: "It's 18°C and cloudy in Paris"
 ### Define Tools
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/tools"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 
 // Define tool
 weatherTool := &tools.ToolDescriptor{
@@ -139,7 +139,7 @@ npx @modelcontextprotocol/server-memory
 ### Connect in Code
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/mcp"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 
 // Create MCP registry with server configuration
 mcpRegistry := mcp.NewRegistry()

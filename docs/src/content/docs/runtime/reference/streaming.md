@@ -8,7 +8,7 @@ sidebar:
 # streaming
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/streaming"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/streaming"
 ```
 
 Package streaming provides generic utilities for bidirectional streaming communication with LLM providers.

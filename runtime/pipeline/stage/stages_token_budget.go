@@ -3,9 +3,9 @@ package stage
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (

@@ -4,9 +4,9 @@ package pack
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt/schema"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 // SchemaValidationError represents a schema validation error with details.

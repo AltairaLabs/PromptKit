@@ -39,8 +39,8 @@ Then wire a retriever:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/memory/corpus"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 kb := corpus.New([]corpus.Document{
@@ -90,7 +90,7 @@ sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
 `WithMemory` gives the model four tools — `memory__remember`, `memory__recall`, `memory__list` and `memory__forget` — backed by a store you supply:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/memory"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 
 store := memory.NewInMemoryStore()
 scope := map[string]string{"user_id": "u-1234"}

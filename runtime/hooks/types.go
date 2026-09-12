@@ -3,7 +3,7 @@ package hooks
 import (
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Decision is the result of a hook evaluation.

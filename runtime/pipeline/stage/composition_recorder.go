@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition/engine"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // CompositionStepRecord is one entry in a CompositionSnapshot, capturing the

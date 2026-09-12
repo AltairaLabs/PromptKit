@@ -1,25 +1,25 @@
-module github.com/AltairaLabs/PromptKit/sdk/examples/onnx-audio-emotion
+module github.com/AltairaLabs/PromptKit/sdk/v2/examples/onnx-audio-emotion
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/sdk => ../../
+replace github.com/AltairaLabs/PromptKit/sdk/v2 => ../../
 
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
+replace github.com/AltairaLabs/PromptKit/server/a2a/v2 => ../../../server/a2a
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
+replace github.com/AltairaLabs/PromptKit/pkg/v2 => ../../../pkg
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/sdk v0.0.0-00010101000000-000000000000
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/sdk/v2 v2.0.0
 	github.com/yalue/onnxruntime_go v1.20.0
 )
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3 // indirect
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/pkg/v2 v2.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect

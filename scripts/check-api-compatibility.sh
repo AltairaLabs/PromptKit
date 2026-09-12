@@ -23,14 +23,39 @@ BASE="${2:-}"
 MODULE_PATH=github.com/AltairaLabs/PromptKit
 MODULES=(runtime pkg sdk server/a2a)
 
-if [ -z "$BASE" ]; then
-  # Previous release tag on the root module, newest first, excluding this one.
-  BASE=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
-         | grep -v "^${VERSION}$" | head -1)
+# In Go a major version is part of the module path: v2+ modules are imported as
+# .../runtime/v2. That makes them DIFFERENT modules from their v1 selves, which
+# is what this script has to respect in two places — the sibling requires it
+# rewrites, and the baseline it compares against.
+MAJOR="${VERSION#v}"
+MAJOR="${MAJOR%%.*}"
+PATH_SUFFIX=""
+if [ "$MAJOR" -ge 2 ] 2>/dev/null; then
+  PATH_SUFFIX="/v${MAJOR}"
 fi
 
 if [ -z "$BASE" ]; then
-  echo "::warning::no previous release tag found; skipping API compatibility check"
+  # Previous release tag ON THE SAME MODULE PATH, newest first, excluding this
+  # one. Restricting to the same major matters: v1.11.0 is not a baseline for
+  # a /v2 module, and asking gorelease to use one fails on the go.mod require
+  # rather than reporting anything useful.
+  # `|| true` because grep exits 1 when the tag list is empty, and under
+  # `set -e` with pipefail that kills the assignment before the check below
+  # can report anything. Empty is a legitimate answer — it is exactly the
+  # case of a first release on a new module path.
+  BASE=$(git tag -l "v${MAJOR}.[0-9]*.[0-9]*" --sort=-v:refname \
+         | grep -v "^${VERSION}$" | head -1 || true)
+fi
+
+if [ -z "$BASE" ]; then
+  if [ -n "$PATH_SUFFIX" ]; then
+    echo "::warning::${VERSION} is the first release on the ${PATH_SUFFIX} module path."
+    echo "::warning::A new major is a new module, so there is no published API to"
+    echo "::warning::break and nothing to compare against. Consumers migrate by"
+    echo "::warning::changing their import paths; the v1 modules keep working."
+  else
+    echo "::warning::no previous release tag found; skipping API compatibility check"
+  fi
   exit 0
 fi
 
@@ -76,7 +101,7 @@ for m in "${MODULES[@]}"; do
     cd "$CLONE/$m"
     for sib in "${MODULES[@]}"; do
       [ "$sib" = "$m" ] && continue
-      mod="${MODULE_PATH}/${sib}"
+      mod="${MODULE_PATH}/${sib}${PATH_SUFFIX}"
       grep -q "$mod" go.mod || continue
       go mod edit -dropreplace="$mod"
       go mod edit -require="${mod}@${VERSION}"

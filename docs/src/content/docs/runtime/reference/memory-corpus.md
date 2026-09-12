@@ -8,7 +8,7 @@ sidebar:
 # corpus
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/memory/corpus"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
 ```
 
 Package corpus provides a reference \[memory.Retriever\] over a fixed set of documents — a knowledge base the host supplies, deliberately separate from the \[memory.Store\] the memory tools read and write.

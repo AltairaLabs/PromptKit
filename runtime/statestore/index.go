@@ -3,7 +3,7 @@ package statestore
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // MessageIndex provides semantic search over conversation messages.

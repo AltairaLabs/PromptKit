@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // probedStore wraps a statestore.Store and counts Load/Save/Fork calls.

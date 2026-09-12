@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // CreateStreamSession creates a new bidirectional streaming session with OpenAI Realtime API.

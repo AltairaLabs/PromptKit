@@ -3,11 +3,11 @@ package openai_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 
 	// Side-effect import: trigger our embedding factory registration.
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
 
 // TestEmbeddingRegister_AllOptions exercises every conditional branch

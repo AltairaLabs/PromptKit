@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 type skillFilterKey struct{}

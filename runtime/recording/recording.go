@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Format specifies the recording file format.

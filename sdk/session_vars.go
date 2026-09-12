@@ -3,7 +3,7 @@ package sdk
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/variables"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
 // sessionVarProvider exposes the conversation's live variable map — what

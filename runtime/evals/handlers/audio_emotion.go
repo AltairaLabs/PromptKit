@@ -8,10 +8,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Audio-specific defaults override the classify-base ones. Audio

@@ -1,6 +1,6 @@
 package providers
 
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // NormalizeOpenAIFinishReason maps an OpenAI-wire finish_reason onto the
 // canonical vocabulary in runtime/types. Unknown (and empty) values pass

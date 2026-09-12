@@ -151,7 +151,7 @@ resp, _ := conv.Send(ctx, "Hello!")
 ### Message Type
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 msg := types.Message{
     Role:    "user",
@@ -170,7 +170,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

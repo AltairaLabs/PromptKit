@@ -88,7 +88,7 @@
 //
 // The SDK uses runtime types directly - no duplication:
 //
-//	import "github.com/AltairaLabs/PromptKit/runtime/types"
+//	import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 //
 //	msg := &types.Message{Role: "user"}
 //	msg.AddTextPart("Hello")

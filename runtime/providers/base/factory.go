@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 )
 
 // CapabilitySpec is the unified runtime form of a typed-provider declaration

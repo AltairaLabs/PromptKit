@@ -3,7 +3,7 @@ package openai
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // TestHandleInputTranscription_MarksFinal verifies that the OpenAI Realtime

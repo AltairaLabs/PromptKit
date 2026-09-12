@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

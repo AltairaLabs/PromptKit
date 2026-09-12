@@ -10,7 +10,7 @@ package safe
 import (
 	"runtime/debug"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // Run executes fn with panic recovery. On panic it logs the value and stack,

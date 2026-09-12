@@ -3,9 +3,9 @@ package prompt
 import (
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // MetadataBuilder helps construct pack format metadata from prompt configs and test results

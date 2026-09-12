@@ -8,7 +8,7 @@ sidebar:
 # mcp
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/mcp"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 ```
 
 ## Index
