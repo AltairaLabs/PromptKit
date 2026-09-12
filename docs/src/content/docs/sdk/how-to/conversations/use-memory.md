@@ -141,6 +141,47 @@ sdk.WithMemory(store, scope,
 
 `WithMemoryContextFormatter` is the formatter for this path — the capability's equivalent of `WithRetrievalFormatter`. When both a capability retriever and `WithRetriever` are configured, `WithRetriever` wins.
 
+### Backend-specific arguments
+
+A store with capabilities the four tools do not model — graph expansion, point-in-time reads, a namespace — can accept extra arguments without forking PromptKit. Extend the tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride), and the executor forwards anything it does not type itself:
+
+```go
+conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+    sdk.WithMemory(store, scope),
+    sdk.WithToolDescriptorOverride(memory.RecallToolName,
+        func(d *tools.ToolDescriptor) {
+            d.Description = "Recall memories, optionally expanding the graph from a seed."
+            d.InputSchema = schemaWithSeedAndHops // adds seed_name, max_hops
+        }),
+)
+```
+
+Your store reads them off the options struct:
+
+```go
+func (s *GraphStore) Retrieve(
+    ctx context.Context, scope map[string]string, query string, opts memory.RetrieveOptions,
+) ([]*memory.Memory, error) {
+    seed, _ := opts.Extras["seed_name"].(string)
+    hops, _ := opts.Extras["max_hops"].(float64) // JSON numbers arrive as float64
+    ...
+}
+```
+
+`memory__list` works the same way through `ListOptions.Extras`, and `memory__remember` merges its extras into `Memory.Metadata` alongside the typed `metadata` argument, where a typed key wins a collision.
+
+`memory__forget` is the one that needs opting in. `Store.Delete` takes no options parameter, so implement `memory.ExtrasDeleter` and the executor prefers it:
+
+```go
+func (s *GraphStore) DeleteWithOptions(
+    ctx context.Context, scope map[string]string, memoryID string, opts memory.DeleteOptions,
+) error
+```
+
+A store that ignores `Extras`, or does not implement `ExtrasDeleter`, behaves exactly as it did before — the extras are simply dropped. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the same matrix for workflow, A2A and skills.
+
+Backend-specific fields in the **result** need nothing special: return them in each `Memory.Metadata` and they serialize into the tool result the model sees.
+
 ## Using both
 
 ```go
