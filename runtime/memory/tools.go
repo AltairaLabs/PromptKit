@@ -172,14 +172,18 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 	var a struct {
 		MemoryID string `json:"memory_id"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Same passthrough as recall — see [Executor.recall]. Delete takes no
+	// options parameter, so the extras reach only a store that opts in by
+	// implementing [ExtrasDeleter]; the rest keep the plain Delete.
+	extras, err := tools.DecodeArgsExtras(args, &a, "memory_id")
+	if err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
 	if a.MemoryID == "" {
 		return nil, fmt.Errorf("memory forget: memory_id is required")
 	}
 
-	if err := e.store.Delete(ctx, e.scope, a.MemoryID); err != nil {
+	if err := e.delete(ctx, a.MemoryID, extras); err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
 
@@ -187,6 +191,16 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 		"status":    "forgotten",
 		"memory_id": a.MemoryID,
 	})
+}
+
+// delete routes to the store's [ExtrasDeleter] implementation when it has
+// one so backend-specific forget args survive, and to the plain
+// [Store.Delete] otherwise.
+func (e *Executor) delete(ctx context.Context, memoryID string, extras map[string]any) error {
+	if d, ok := e.store.(ExtrasDeleter); ok {
+		return d.DeleteWithOptions(ctx, e.scope, memoryID, DeleteOptions{Extras: extras})
+	}
+	return e.store.Delete(ctx, e.scope, memoryID)
 }
 
 // RegisterMemoryTools registers the four base memory tools with executor routing.

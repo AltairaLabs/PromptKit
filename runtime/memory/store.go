@@ -21,3 +21,22 @@ type Store interface {
 type ToolProvider interface {
 	RegisterTools(registry *tools.Registry)
 }
+
+// ExtrasDeleter is optionally implemented by stores that accept
+// backend-specific arguments on delete.
+//
+// [Store.Delete] takes no options struct, so it has nowhere to carry the
+// passthrough args a host adds to memory__forget's input schema with
+// sdk.WithToolDescriptorOverride. Rather than change Delete's signature —
+// which every Store implementation would have to follow — a store opts in
+// by implementing this. The memory executor prefers it when present and
+// falls back to Delete otherwise, so a store that ignores it is unaffected.
+//
+// Recall and list need no equivalent: RetrieveOptions and ListOptions were
+// already parameters, so Extras went straight onto them.
+// See AltairaLabs/PromptKit#1987.
+type ExtrasDeleter interface {
+	DeleteWithOptions(
+		ctx context.Context, scope map[string]string, memoryID string, opts DeleteOptions,
+	) error
+}

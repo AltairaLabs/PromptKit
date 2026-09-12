@@ -58,6 +58,7 @@ type toolDescriptorOverride struct {
 //   - memory__remember           → Memory.Metadata          (host's MemoryStore.Save)
 //   - memory__recall             → RetrieveOptions.Extras   (host's MemoryStore.Retrieve)
 //   - memory__list               → ListOptions.Extras       (host's MemoryStore.List)
+//   - memory__forget             → DeleteOptions.Extras     (stores implementing memory.ExtrasDeleter)
 //   - A2A outgoing tools         → Message.Metadata         (wire payload to remote agent)
 //   - workflow__transition       → TransitionResult.HostExtras (host's OnCommit callback)
 //
@@ -69,11 +70,14 @@ type toolDescriptorOverride struct {
 // for this passthrough channel — the runtime never writes to it from
 // elsewhere.
 //
+// memory__forget is the one that needs opting into: memory.Store.Delete has
+// no options parameter, so a store receives the extras only if it implements
+// memory.ExtrasDeleter. Stores that do not are unaffected and keep the plain
+// Delete.
+//
 // Tools without a host-facing callback (workflow__set_artifact, the skills
-// tools) currently drop unknown top-level fields. memory__forget drops them
-// too, because memory.Store.Delete takes no options struct to carry them
-// and adding one would break every Store implementation. Extending those
-// schemas will pass the new field to the LLM but the data is not observable
+// tools) currently drop unknown top-level fields. Extending those schemas
+// will pass the new field to the LLM but the data is not observable
 // host-side. If you need this for one of them, file an issue describing
 // the use case so the right observation point can be designed.
 //

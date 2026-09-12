@@ -109,3 +109,12 @@ type ListOptions struct {
 	// See [RetrieveOptions.Extras].
 	Extras map[string]any
 }
+
+// DeleteOptions configures a memory delete. It exists only to carry Extras:
+// [Store.Delete] has no options parameter, so a store that wants the
+// passthrough args implements [ExtrasDeleter] instead.
+type DeleteOptions struct {
+	// Extras carries top-level forget args the executor does not type.
+	// See [RetrieveOptions.Extras].
+	Extras map[string]any
+}

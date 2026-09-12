@@ -168,3 +168,91 @@ func TestMemoryExecutor_List_PassesUnknownArgsThroughToOptions(t *testing.T) {
 		}
 	}
 }
+
+// extrasDeletingStore opts into the passthrough by implementing
+// [ExtrasDeleter]; optsRecordingStore deliberately does not, so the two
+// together cover both sides of the type assertion in forget.
+type extrasDeletingStore struct {
+	optsRecordingStore
+	deleteOpts DeleteOptions
+	deletedID  string
+	withOpts   bool
+}
+
+func (s *extrasDeletingStore) DeleteWithOptions(
+	_ context.Context, _ map[string]string, memoryID string, opts DeleteOptions,
+) error {
+	s.deletedID = memoryID
+	s.deleteOpts = opts
+	s.withOpts = true
+	return nil
+}
+
+// TestMemoryExecutor_Forget_PassesUnknownArgsToExtrasDeleter covers the opt-in
+// path: Store.Delete has no options parameter, so a store that wants the
+// passthrough implements ExtrasDeleter and the executor prefers it.
+func TestMemoryExecutor_Forget_PassesUnknownArgsToExtrasDeleter(t *testing.T) {
+	store := &extrasDeletingStore{}
+	exec := NewExecutor(store, map[string]string{"user_id": "u1"})
+	desc := &tools.ToolDescriptor{Name: ForgetToolName}
+
+	args, _ := json.Marshal(map[string]any{
+		"memory_id": "m-1",
+		"reason":    "superseded",
+		"as_of":     "2026-01-01T00:00:00Z",
+	})
+	if _, err := exec.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+
+	if !store.withOpts {
+		t.Fatal("expected DeleteWithOptions to be preferred over Delete")
+	}
+	if store.deletedID != "m-1" {
+		t.Errorf("memory_id = %q, want m-1", store.deletedID)
+	}
+	if store.deleteOpts.Extras["reason"] != "superseded" {
+		t.Errorf("Extras[reason] = %v", store.deleteOpts.Extras["reason"])
+	}
+	if store.deleteOpts.Extras["as_of"] != "2026-01-01T00:00:00Z" {
+		t.Errorf("Extras[as_of] = %v", store.deleteOpts.Extras["as_of"])
+	}
+	if _, dup := store.deleteOpts.Extras["memory_id"]; dup {
+		t.Error("typed key \"memory_id\" leaked into Extras")
+	}
+}
+
+// TestMemoryExecutor_Forget_PlainStoreStillUsesDelete proves the fallback: a
+// store that does not implement ExtrasDeleter is unaffected by the change.
+func TestMemoryExecutor_Forget_PlainStoreStillUsesDelete(t *testing.T) {
+	store := NewInMemoryStore()
+	ctx := context.Background()
+	scope := map[string]string{"user_id": "u1"}
+	m := &Memory{Content: "temp", Scope: scope, Confidence: 0.9}
+	if err := store.Save(ctx, m); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	exec := NewExecutor(store, scope)
+	desc := &tools.ToolDescriptor{Name: ForgetToolName}
+	args, _ := json.Marshal(map[string]any{"memory_id": m.ID, "reason": "ignored"})
+	if _, err := exec.Execute(ctx, desc, args); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+
+	all, _ := store.List(ctx, scope, ListOptions{})
+	if len(all) != 0 {
+		t.Errorf("expected the memory to be deleted, %d remain", len(all))
+	}
+}
+
+// TestMemoryExecutor_Forget_MissingIDStillErrors guards the required-field
+// check across the switch to DecodeArgsExtras.
+func TestMemoryExecutor_Forget_MissingIDStillErrors(t *testing.T) {
+	exec := NewExecutor(&extrasDeletingStore{}, nil)
+	desc := &tools.ToolDescriptor{Name: ForgetToolName}
+
+	if _, err := exec.Execute(context.Background(), desc, json.RawMessage(`{"reason":"x"}`)); err == nil {
+		t.Fatal("expected an error when memory_id is absent")
+	}
+}

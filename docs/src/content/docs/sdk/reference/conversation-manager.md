@@ -4396,12 +4396,15 @@ Extending the InputSchema with new top\-level fields produces structured LLM arg
 - memory\_\_remember → Memory.Metadata \(host's MemoryStore.Save\)
 - memory\_\_recall → RetrieveOptions.Extras \(host's MemoryStore.Retrieve\)
 - memory\_\_list → ListOptions.Extras \(host's MemoryStore.List\)
+- memory\_\_forget → DeleteOptions.Extras \(stores implementing memory.ExtrasDeleter\)
 - A2A outgoing tools → Message.Metadata \(wire payload to remote agent\)
 - workflow\_\_transition → TransitionResult.HostExtras \(host's OnCommit callback\)
 
 For memory\_\_remember and a2a the extras merge into the typed Metadata field with typed\-fields\-win on conflict. memory\_\_recall and memory\_\_list put them on a dedicated Extras field of the options struct they hand the store, so a store that does not recognize a key simply ignores it. Workflow uses a separate HostExtras field, which is reserved exclusively for this passthrough channel — the runtime never writes to it from elsewhere.
 
-Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) currently drop unknown top\-level fields. memory\_\_forget drops them too, because memory.Store.Delete takes no options struct to carry them and adding one would break every Store implementation. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
+memory\_\_forget is the one that needs opting into: memory.Store.Delete has no options parameter, so a store receives the extras only if it implements memory.ExtrasDeleter. Stores that do not are unaffected and keep the plain Delete.
+
+Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) currently drop unknown top\-level fields. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
 
 Example: customize the memory\_\_remember tool's description for an Omnia deployment that wants the LLM to tag a category alongside the memory, and extend the schema with an \`about\` field that flows into Memory.Metadata.
 
