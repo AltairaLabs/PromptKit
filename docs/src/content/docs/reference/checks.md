@@ -648,14 +648,19 @@ always wins.
 | `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one eval type in this repo with a non-`output` direction default — a check that only inspects the assistant's reply never blocks the call it exists to prevent. `direction: output` remains legal ("did the assistant wander?" is a coherent question) but is not the default. |
 | `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
 
-**Declare `topic_policy` directly as a `validators:` entry. Do not wrap it in
-`type: guardrail` or `type: assertion`** — unlike the rest of this family, the
-wrapped form does not work. The wrapper resolves eval defaults against the
-*outer* type name, so `topic_policy`'s `direction: input` default is never
-found and the check reverts to the shared `output` default. Wrapped, it lets
-every user message through to the agent and only inspects the reply, which is
-the opposite of what a topic gate is for. Nothing rejects the wrapped form
-today; it fails quietly, so the rule is the safeguard.
+**Declaring `topic_policy` directly as a `validators:` entry is the normal
+form**, and the one the examples use. Wrapping it in `type: guardrail` or
+`type: assertion` now behaves identically: a wrapper inherits the inner check's
+`direction: input` default and runs the inner check's param validation, so both
+forms gate the user's message and both reject a malformed policy at load.
+
+That was not always true. A wrapper used to resolve defaults against the
+*outer* type name, so `direction` reverted to the shared `output` default and a
+wrapped topic gate let every user message through to the agent, inspecting only
+the reply — while appearing configured. It also skipped the inner check's
+`ValidateParams`, so a misspelled key inside `eval_params` loaded clean and
+produced a policy missing the exclusions its author wrote. If you are reading
+older notes that say wrapping does not work, they describe that fixed state.
 
 Unknown keys are rejected at load time — and rejection is fatal: a pack whose
 validator params `topic_policy` refuses (a misspelled `dissallowed:`, an empty

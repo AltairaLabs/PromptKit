@@ -65,22 +65,18 @@ func TestTopicPolicy_DirectDeclarationGatesInput(t *testing.T) {
 	assert.Equal(t, 1, cls.calls, "the classifier must judge the user's input")
 }
 
-// TestTopicPolicy_WrappedInGuardrailDoesNotGateInput pins CURRENT, BROKEN
-// behavior so the day it changes, someone is told.
+// TestTopicPolicy_WrappedInheritsTheInnerCheckDirection covers what used to be
+// a silent disarming: a wrapper resolved ParamDefaults on the OUTER type name,
+// so a topic_policy wrapped in `type: guardrail` looked up
+// ParamDefaults["guardrail"] — which does not exist — and direction fell back
+// to output. BeforeCall then returned Allow without evaluating anything: the
+// off-topic answer was generated first and only judged afterwards, if at all.
 //
-// evals.ApplyDefaults is keyed on the OUTER type name, so a topic_policy wrapped
-// in `type: guardrail` resolves ParamDefaults["guardrail"] — which does not
-// exist — and `direction` falls back to the factory's DirectionOutput. BeforeCall
-// then returns Allow without evaluating: the topic gate never runs on input, the
-// off-topic answer is generated, and only then judged.
-//
-// That defaults-resolution bug lives in shared wrapper machinery that every eval
-// type carrying defaults would hit; topic_policy is simply the only one today.
-// It is deliberately NOT fixed here — it needs its own review. What is in scope
-// is that the docs no longer invite wrapping (see checks.md), and that this test
-// exists: if a wrapper fix lands, this test fails and its author learns that
-// topic_policy's input gate is one of the things they just turned on.
-func TestTopicPolicy_WrappedInGuardrailDoesNotGateInput(t *testing.T) {
+// The wrapper now inherits the inner check's direction default, so wrapped and
+// direct declarations gate the same side. The assertions below are deliberately
+// identical to TestTopicPolicy_DirectDeclarationGatesInput — that equivalence is
+// the property worth pinning.
+func TestTopicPolicy_WrappedInheritsTheInnerCheckDirection(t *testing.T) {
 	for _, outer := range []string{"guardrail", "assertion"} {
 		t.Run(outer, func(t *testing.T) {
 			cls := &countingTopicClassifier{}
@@ -95,13 +91,38 @@ func TestTopicPolicy_WrappedInGuardrailDoesNotGateInput(t *testing.T) {
 
 			decision := compiled[0].BeforeCall(ctxWithTopicClassifier(t, cls), offTopicRequest())
 
-			assert.True(t, decision.Allow,
-				"KNOWN GAP: the wrapper resolves the OUTER type's defaults, so direction "+
-					"reverts to output and the input gate never runs. If this now fails, the "+
-					"wrapper-defaults bug has been fixed — update this test to the direct "+
-					"declaration's expectations and say so in the changelog.")
-			assert.Equal(t, 0, cls.calls,
-				"KNOWN GAP: the classifier is never consulted on the user's message when wrapped")
+			assert.False(t, decision.Allow,
+				"a wrapped topic_policy must gate input exactly as a direct declaration does")
+			assert.Equal(t, 1, cls.calls,
+				"the classifier must judge the user's message even when the check is wrapped")
+		})
+	}
+}
+
+// TestTopicPolicy_WrappedRejectsInnerParamTypos is the other half of the same
+// hole. The wrapper never ran the inner handler's ParamValidator, so a
+// misspelled key inside eval_params loaded clean and produced a policy missing
+// the exclusions its author wrote — a guardrail that appears configured and
+// enforces something else.
+//
+// Direct declarations have always failed loudly on this. Wrapped ones now do
+// too.
+func TestTopicPolicy_WrappedRejectsInnerParamTypos(t *testing.T) {
+	for _, outer := range []string{"guardrail", "assertion"} {
+		t.Run(outer, func(t *testing.T) {
+			typo := topicPolicyParams()
+			typo["dissallowed"] = typo["disallowed"]
+			delete(typo, "disallowed")
+
+			_, err := guardrails.CompileValidatorsWithRegistry([]prompt.ValidatorConfig{
+				{Type: outer, Params: map[string]any{
+					"eval_type":   "topic_policy",
+					"eval_params": typo,
+				}},
+			}, nil)
+
+			require.Error(t, err, "a typo'd inner param must fail the load, not load unprotected")
+			assert.Contains(t, err.Error(), "dissallowed")
 		})
 	}
 }
