@@ -36,6 +36,9 @@ type RuntimeConfigSpec struct {
 	// provider supplied to selectors via SelectorContext.Embeddings.
 	// First entry becomes the default RAG provider unless one is set
 	// programmatically via WithContextRetrieval.
+	//
+	// Deprecated: declare the provider under spec.providers with
+	// `role: embedding` instead. Removed in v3 — see #1998.
 	//nolint:lll // jsonschema tags require single line
 	EmbeddingProviders []EmbeddingProviderConfig `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty" jsonschema:"title=Embedding Providers,description=Embedding provider configurations"`
 
@@ -43,12 +46,18 @@ type RuntimeConfigSpec struct {
 	// ElevenLabs, Cartesia). First entry becomes the default TTS
 	// service unless one is set programmatically via WithTTS or
 	// WithVADMode.
+	//
+	// Deprecated: declare the provider under spec.providers with
+	// `role: tts` instead. Removed in v3 — see #1998.
 	//nolint:lll // jsonschema tags require single line
 	TTSProviders []TTSProviderConfig `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty" jsonschema:"title=TTS Providers,description=Text-to-speech provider configurations"`
 
 	// STTProviders configures speech-to-text providers (OpenAI). First
 	// entry becomes the default STT service unless one is set
 	// programmatically via WithVADMode.
+	//
+	// Deprecated: declare the provider under spec.providers with
+	// `role: stt` instead. Removed in v3 — see #1998.
 	//nolint:lll // jsonschema tags require single line
 	STTProviders []STTProviderConfig `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty" jsonschema:"title=STT Providers,description=Speech-to-text provider configurations"`
 
@@ -56,6 +65,9 @@ type RuntimeConfigSpec struct {
 	// (HuggingFace). Used by classify-backed eval handlers
 	// (audio_emotion, text_toxicity, …). First declared provider
 	// implementing a task becomes that task's default.
+	//
+	// Deprecated: declare the provider under spec.providers with
+	// `role: inference` instead. Removed in v3 — see #1998.
 	//nolint:lll // jsonschema tags require single line
 	InferenceProviders []InferenceProviderConfig `yaml:"inference_providers,omitempty" json:"inference_providers,omitempty" jsonschema:"title=Inference Providers,description=Inference (classify) provider configurations"`
 
@@ -157,6 +169,9 @@ type SkillsConfig struct {
 // for later lookup; the first declared entry becomes the default
 // retrieval and selector-context provider unless one is set
 // programmatically via WithContextRetrieval.
+//
+// Deprecated: use Provider with Role set to 'embedding' under
+// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
 type EmbeddingProviderConfig struct {
 	// ID is a stable identifier used to reference this provider from
 	// other config blocks (e.g. tool_selector via SelectorContext).
@@ -189,6 +204,9 @@ type EmbeddingProviderConfig struct {
 // TTSProviderConfig declares a text-to-speech provider — the
 // declarative analog of programmatic tts.NewOpenAI / NewElevenLabs /
 // NewCartesia constructors. Resolved by sdk.WithRuntimeConfig.
+//
+// Deprecated: use Provider with Role set to 'tts' under
+// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
 type TTSProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
@@ -213,6 +231,9 @@ type TTSProviderConfig struct {
 // declarative analog of programmatic stt.NewOpenAI constructors.
 // Today only "openai" is supported; more types slot in via the
 // stt.RegisterSTTFactory pattern.
+//
+// Deprecated: use Provider with Role set to 'stt' under
+// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
 type STTProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
@@ -235,6 +256,9 @@ type STTProviderConfig struct {
 // InferenceProviderConfig declares an inference (classify) provider —
 // the SDK twin of Arena's `providers:` entry with role: inference. Used
 // by classify-backed eval handlers (audio_emotion, text_toxicity, …).
+//
+// Deprecated: use Provider with Role set to 'inference' under
+// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
 type InferenceProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`

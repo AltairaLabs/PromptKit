@@ -9,23 +9,27 @@ The chat-provider and embedding-provider declarative pattern (#979) extends to t
 
 ## Quick Start
 
+Declare them under `spec.providers` with `role: tts` / `role: stt`:
+
 ```yaml
 spec:
-  tts_providers:
+  providers:
     - id: voice
+      role: tts
       type: elevenlabs
       model: eleven_turbo_v2
       credential:
         credential_env: ELEVEN_API_KEY
     - id: cart
+      role: tts
       type: cartesia
       credential:
         credential_env: CARTESIA_API_KEY
       additional_config:
         ws_url: wss://api.cartesia.ai/tts/websocket
 
-  stt_providers:
     - id: whisper
+      role: stt
       type: openai
       model: whisper-1
       credential:
@@ -40,14 +44,39 @@ conv, _ := sdk.Open("./pack.json", "chat",
 
 The first declared TTS entry becomes the default `ttsService` unless `WithTTS` (or `WithVADMode`) wired one programmatically. Same for STT and `sttService`.
 
+## The `tts_providers:` / `stt_providers:` blocks
+
+Before role routing, each capability had its own top-level block:
+
+```yaml
+spec:
+  tts_providers:
+    - id: voice
+      type: elevenlabs
+      model: eleven_turbo_v2
+      credential:
+        credential_env: ELEVEN_API_KEY
+
+  stt_providers:
+    - id: whisper
+      type: openai
+      model: whisper-1
+      credential:
+        credential_env: OPENAI_API_KEY
+```
+
+Both still work and behave identically. They are deprecated in favor of
+`role: tts` / `role: stt` and are removed in v3. Declaring the same ID in both
+spellings is rejected rather than silently resolved.
+
 ## Supported Types
 
-| Block | `type` value | Underlying package |
+| Role | `type` value | Underlying package |
 |---|---|---|
-| `tts_providers` | `openai` | `runtime/tts` (OpenAI TTS) |
-| `tts_providers` | `elevenlabs` | `runtime/tts` (ElevenLabs) |
-| `tts_providers` | `cartesia` | `runtime/tts` (Cartesia) |
-| `stt_providers` | `openai` | `runtime/stt` (OpenAI Whisper) |
+| `tts` | `openai` | `runtime/tts` (OpenAI TTS) |
+| `tts` | `elevenlabs` | `runtime/tts` (ElevenLabs) |
+| `tts` | `cartesia` | `runtime/tts` (Cartesia) |
+| `stt` | `openai` | `runtime/stt` (OpenAI Whisper) |
 
 `additional_config` honored extras:
 
@@ -62,8 +91,18 @@ The first declared TTS entry becomes the default `ttsService` unless `WithTTS` (
 `LoadRuntimeConfig` rejects:
 
 - Missing `type`.
-- A `type` outside the supported set.
-- Two entries with the same effective ID (explicit ID, or `type` when ID is omitted).
+- An unknown `role`.
+- Two entries with the same effective ID *within a role* (explicit ID, or `type`
+  when ID is omitted). The same ID under two different roles is allowed, since
+  the slots are separate.
+
+`model` is optional for `role: tts` and `role: stt` — it overrides the
+provider's own default.
+
+An unsupported `type` is caught when the provider is constructed, not by a
+hardcoded list in the config loader, so the error names the type and the
+registered alternatives. The deprecated `tts_providers:` / `stt_providers:`
+blocks additionally check `type` against a fixed allowlist at load time.
 
 ## Adding a New Provider
 
