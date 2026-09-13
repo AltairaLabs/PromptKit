@@ -36,12 +36,26 @@ import (
 // small_talk (allow|deny), examples.{allowed,disallowed}, on_deny
 // (block|respond), on_unknown (deny|allow), on_error (deny|allow),
 // recent_turns (>= 0), classifier_id.
+// maxWarnedSessions bounds the memory warnedSessions can use. TopicPolicyHandler
+// is registered once as a process-wide singleton, so without a cap the map
+// would grow by one entry per distinct SessionID for the life of the process —
+// unbounded in a long-lived server with high session churn and a persistently
+// misconfigured guardrail. 1024 is comfortably larger than the number of
+// conversations a single process would plausibly have in flight or recently
+// completed at once; when the cap is hit the tracker is cleared before the new
+// key is inserted (see markWarned), so the worst case is an occasional repeat
+// warning for a conversation already reported — never unbounded growth.
+const maxWarnedSessions = 1024
+
 type TopicPolicyHandler struct {
 	// warnedSessions remembers which conversations have already been told
 	// that no classifier is bound. The failure is loud once per conversation
 	// rather than once per turn: silent fail-closed is only marginally better
-	// than silent fail-open, but a warning on every turn is noise.
-	warnedSessions sync.Map
+	// than silent fail-open, but a warning on every turn is noise. Bounded by
+	// maxWarnedSessions; guarded by warnedSessionsMu rather than sync.Map so
+	// the cap-and-clear logic in markWarned can be a single atomic check.
+	warnedSessionsMu sync.Mutex
+	warnedSessions   map[string]struct{}
 }
 
 // Compile-time checks.
@@ -132,11 +146,33 @@ func (h *TopicPolicyHandler) warnUnbound(evalCtx *evals.EvalContext, reason stri
 	if evalCtx != nil {
 		sessionID = evalCtx.SessionID
 	}
-	if _, seen := h.warnedSessions.LoadOrStore(sessionID, struct{}{}); !seen {
+	if h.markWarned(sessionID) {
 		logger.Warn("topic_policy guardrail has no classifier bound; it is blocking every turn",
 			"session_id", sessionID, "reason", reason)
 	}
 	return err
+}
+
+// markWarned records sessionID as having been warned and reports whether this
+// is the first time — the caller logs only then, so warning stays loud once
+// per conversation rather than once per turn. Bounded by maxWarnedSessions: at
+// capacity the tracker is cleared before the new key is recorded, so a very
+// long-lived process may warn twice for some conversation rather than grow
+// without bound.
+func (h *TopicPolicyHandler) markWarned(sessionID string) bool {
+	h.warnedSessionsMu.Lock()
+	defer h.warnedSessionsMu.Unlock()
+	if h.warnedSessions == nil {
+		h.warnedSessions = make(map[string]struct{})
+	}
+	if _, seen := h.warnedSessions[sessionID]; seen {
+		return false
+	}
+	if len(h.warnedSessions) >= maxWarnedSessions {
+		h.warnedSessions = make(map[string]struct{})
+	}
+	h.warnedSessions[sessionID] = struct{}{}
+	return true
 }
 
 // Details keys shared between decisionResult and outcomeResult.
