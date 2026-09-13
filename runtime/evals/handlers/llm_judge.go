@@ -211,8 +211,14 @@ func buildEvalResult(
 // llm_judge, safety, RAG) — see parseClassifyConfig for the
 // classify-backed call site and llm_judge.go / ragJudgeCall /
 // evalSafetyOutput for the others.
+//
+// thresholdParamNames is also read by topic_policy_params.go's
+// rejectTopicThresholdParams, which wants topic-specific wording on the
+// error and so can't just call this function directly.
+var thresholdParamNames = []string{"min_score", "max_score"}
+
 func rejectThresholdParams(params map[string]any) string {
-	for _, banned := range []string{"min_score", "max_score"} {
+	for _, banned := range thresholdParamNames {
 		if _, present := params[banned]; present {
 			return banned + " is not a valid param on an eval handler; " +
 				"wrap with `type: assertion` and put the threshold there " +
