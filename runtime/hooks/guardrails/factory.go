@@ -72,7 +72,11 @@ func NewGuardrailHookFromRegistry(
 	}
 
 	direction := DirectionOutput
-	if raw, present := params["direction"]; present {
+	// normalized, not params: ApplyDefaults ran above, and an eval type that
+	// declares a direction default in evals.ParamDefaults must get it. Reading
+	// the caller's raw map here silently ignored that default, which is how a
+	// check meant to gate input ends up only inspecting output (#TBD).
+	if raw, present := normalized["direction"]; present {
 		d, ok := raw.(string)
 		if !ok {
 			logger.Warn(
