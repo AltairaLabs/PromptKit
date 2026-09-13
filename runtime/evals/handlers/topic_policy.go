@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
@@ -36,27 +37,38 @@ import (
 // small_talk (allow|deny), examples.{allowed,disallowed}, on_deny
 // (block|respond), on_unknown (deny|allow), on_error (deny|allow),
 // recent_turns (>= 0), classifier_id.
-// maxWarnedSessions bounds the memory warnedSessions can use. TopicPolicyHandler
-// is registered once as a process-wide singleton, so without a cap the map
-// would grow by one entry per distinct SessionID for the life of the process —
-// unbounded in a long-lived server with high session churn and a persistently
-// misconfigured guardrail. 1024 is comfortably larger than the number of
-// conversations a single process would plausibly have in flight or recently
-// completed at once; when the cap is hit the tracker is cleared before the new
-// key is inserted (see markWarned), so the worst case is an occasional repeat
-// warning for a conversation already reported — never unbounded growth.
-const maxWarnedSessions = 1024
-
 type TopicPolicyHandler struct {
-	// warnedSessions remembers which conversations have already been told
-	// that no classifier is bound. The failure is loud once per conversation
-	// rather than once per turn: silent fail-closed is only marginally better
-	// than silent fail-open, but a warning on every turn is noise. Bounded by
-	// maxWarnedSessions; guarded by warnedSessionsMu rather than sync.Map so
-	// the cap-and-clear logic in markWarned can be a single atomic check.
-	warnedSessionsMu sync.Mutex
-	warnedSessions   map[string]struct{}
+	// warnedGuardrails remembers which misconfigured guardrails have already
+	// been reported, so the unbound-classifier warning is loud once rather than
+	// once per turn.
+	//
+	// The key is the policy digest plus the classifier id, NOT a session id.
+	// That is deliberate: the guardrail path's EvalContext carries no SessionID
+	// (BuildGuardrailEvalContext does not set one), so a session-keyed tracker
+	// degenerates to the single key "" and warns once for the whole process —
+	// every later conversation then blocks every turn with nothing in the log.
+	// Keying on what the handler actually holds gives one warning per distinct
+	// misconfigured guardrail per process, which is the granularity an operator
+	// needs: it distinguishes "policy A's classifier is missing" from "policy B's
+	// is too". Per-turn visibility is not lost either way — every denied turn
+	// still emits a guardrail firing carrying the reason.
+	//
+	// Bounded by maxWarnedGuardrails; guarded by a mutex rather than sync.Map so
+	// the cap-and-clear logic in markWarned is a single atomic check.
+	warnedGuardrailsMu sync.Mutex
+	warnedGuardrails   map[string]struct{}
 }
+
+// maxWarnedGuardrails bounds the memory warnedGuardrails can use.
+// TopicPolicyHandler is registered once as a process-wide singleton, so without
+// a cap the map would grow by one entry per distinct policy digest for the life
+// of the process — a multi-tenant server loading many packs, each with its own
+// policy, against a persistently missing classifier. 1024 is comfortably larger
+// than the number of distinct topic policies a single process would plausibly
+// have loaded at once; when the cap is hit the tracker is cleared before the new
+// key is inserted (see markWarned), so the worst case is an occasional repeat
+// warning for a guardrail already reported — never unbounded growth.
+const maxWarnedGuardrails = 1024
 
 // Compile-time checks.
 var (
@@ -91,18 +103,30 @@ func (h *TopicPolicyHandler) Eval(
 		return errorResult(h.Type(), err.Error()), nil
 	}
 
-	classifier, err := h.resolveClassifier(ctx, evalCtx, cfg)
+	// A turn with no judgable text — an image-, audio- or video-only user
+	// message — is not an in-scope message, it is one this check cannot judge.
+	// Sending "" to the classifier asks a meaningless question and gets a
+	// meaningless answer (most likely "on-topic"), which would no-op the
+	// guardrail on exactly the traffic no text check can see. Route it through
+	// on_unknown instead, which defaults to deny.
+	message := judgedMessage(evalCtx)
+	if strings.TrimSpace(message) == "" {
+		return h.outcomeResult(cfg, cfg.onUnknown,
+			"turn carried no judgable text (media-only or empty message); topic_policy classifies text", ""), nil
+	}
+
+	classifier, err := h.resolveClassifier(ctx, cfg)
 	if err != nil {
-		return h.outcomeResult(cfg, classify.TopicUnknown, cfg.onError, err.Error(), ""), nil
+		return h.outcomeResult(cfg, cfg.onError, err.Error(), ""), nil
 	}
 
 	res, err := classifier.ClassifyTopic(ctx, classify.TopicRequest{
 		Policy:  cfg.policy,
 		History: recentTopicTurns(evalCtx, cfg.recentTurns),
-		Message: judgedMessage(evalCtx),
+		Message: message,
 	})
 	if err != nil {
-		return h.outcomeResult(cfg, classify.TopicUnknown, cfg.onError, err.Error(), ""), nil
+		return h.outcomeResult(cfg, cfg.onError, err.Error(), ""), nil
 	}
 
 	switch res.Decision {
@@ -114,7 +138,7 @@ func (h *TopicPolicyHandler) Eval(
 		// Handled below, along with any decision value the classifier package
 		// hasn't defined yet — the classifier didn't decide, so policy does.
 	}
-	return h.outcomeResult(cfg, classify.TopicUnknown, cfg.onUnknown,
+	return h.outcomeResult(cfg, cfg.onUnknown,
 		"classifier returned no usable label", res.Raw), nil
 }
 
@@ -124,54 +148,58 @@ func (h *TopicPolicyHandler) Eval(
 // run (#1996). Here an unbound classifier is an error and obeys on_error, which
 // defaults to deny.
 func (h *TopicPolicyHandler) resolveClassifier(
-	ctx context.Context, evalCtx *evals.EvalContext, cfg topicPolicyConfig,
+	ctx context.Context, cfg topicPolicyConfig,
 ) (classify.TopicClassifier, error) {
 	reg := classify.FromContext(ctx)
 	if reg == nil {
-		return nil, h.warnUnbound(evalCtx, "no classify registry configured")
+		return nil, h.warnUnbound(cfg, "no classify registry configured")
 	}
 	classifier, err := reg.TopicClassifier(cfg.classifierID)
 	if err != nil {
-		return nil, h.warnUnbound(evalCtx, err.Error())
+		return nil, h.warnUnbound(cfg, err.Error())
 	}
 	return classifier, nil
 }
 
-func (h *TopicPolicyHandler) warnUnbound(evalCtx *evals.EvalContext, reason string) error {
+func (h *TopicPolicyHandler) warnUnbound(cfg topicPolicyConfig, reason string) error {
 	err := fmt.Errorf(
 		"topic_policy: %s; declare a provider with role: inference whose backend implements "+
 			"topic classification (e.g. type: nvidia-topic-control), or set classifier_id", reason)
 
-	sessionID := ""
-	if evalCtx != nil {
-		sessionID = evalCtx.SessionID
-	}
-	if h.markWarned(sessionID) {
+	digest := topicPolicyDigest(cfg.policy)
+	if h.markWarned(warnKey(digest, cfg.classifierID)) {
 		logger.Warn("topic_policy guardrail has no classifier bound; it is blocking every turn",
-			"session_id", sessionID, "reason", reason)
+			"policy_digest", digest, "classifier_id", cfg.classifierID, "reason", reason)
 	}
 	return err
 }
 
-// markWarned records sessionID as having been warned and reports whether this
-// is the first time — the caller logs only then, so warning stays loud once
-// per conversation rather than once per turn. Bounded by maxWarnedSessions: at
-// capacity the tracker is cleared before the new key is recorded, so a very
-// long-lived process may warn twice for some conversation rather than grow
-// without bound.
-func (h *TopicPolicyHandler) markWarned(sessionID string) bool {
-	h.warnedSessionsMu.Lock()
-	defer h.warnedSessionsMu.Unlock()
-	if h.warnedSessions == nil {
-		h.warnedSessions = make(map[string]struct{})
+// warnKey identifies one misconfigured guardrail: the policy it enforces plus
+// the classifier it asked for. Two packs with different policies each warn; the
+// same pack warning on every turn does not. See TopicPolicyHandler.
+func warnKey(policyDigest, classifierID string) string {
+	return policyDigest + "\x1f" + classifierID
+}
+
+// markWarned records key as having been warned and reports whether this is the
+// first time — the caller logs only then, so the warning stays loud once per
+// misconfigured guardrail rather than once per turn. Bounded by
+// maxWarnedGuardrails: at capacity the tracker is cleared before the new key is
+// recorded, so a very long-lived process may warn twice for some guardrail
+// rather than grow without bound.
+func (h *TopicPolicyHandler) markWarned(key string) bool {
+	h.warnedGuardrailsMu.Lock()
+	defer h.warnedGuardrailsMu.Unlock()
+	if h.warnedGuardrails == nil {
+		h.warnedGuardrails = make(map[string]struct{})
 	}
-	if _, seen := h.warnedSessions[sessionID]; seen {
+	if _, seen := h.warnedGuardrails[key]; seen {
 		return false
 	}
-	if len(h.warnedSessions) >= maxWarnedSessions {
-		h.warnedSessions = make(map[string]struct{})
+	if len(h.warnedGuardrails) >= maxWarnedGuardrails {
+		h.warnedGuardrails = make(map[string]struct{})
 	}
-	h.warnedSessions[sessionID] = struct{}{}
+	h.warnedGuardrails[key] = struct{}{}
 	return true
 }
 
@@ -205,16 +233,19 @@ func (h *TopicPolicyHandler) decisionResult(
 }
 
 // outcomeResult builds the result for unknown or error, where the score comes
-// from policy rather than from the classifier.
+// from policy rather than from the classifier. The decision is always
+// TopicUnknown: every path here is one where the classifier did not decide, so
+// the recorded decision is fixed and only the outcome (deny or allow, chosen by
+// on_unknown / on_error) and the reason vary.
 func (h *TopicPolicyHandler) outcomeResult(
-	cfg topicPolicyConfig, decision classify.TopicDecision, outcome, reason, raw string,
+	cfg topicPolicyConfig, outcome, reason, raw string,
 ) *evals.EvalResult {
 	score := 0.0
 	if outcome == outcomeAllow {
 		score = 1.0
 	}
 	return scoredTopicResult(score, map[string]any{
-		detailDecision:     string(decision),
+		detailDecision:     string(classify.TopicUnknown),
 		"reason":           reason,
 		detailRaw:          raw,
 		paramClassifierID:  cfg.classifierID,
@@ -252,9 +283,16 @@ func judgedMessage(evalCtx *evals.EvalContext) string {
 	return ""
 }
 
-// recentTopicTurns flattens the last n turns before the judged message.
-// GetContent() rather than .Content: user text can live in Parts while
+// recentTopicTurns flattens the last n conversational turns before the judged
+// message. GetContent() rather than .Content: user text can live in Parts while
 // assistant text lives on Content.
+//
+// Filter first, then slice — never the other way round. A transcript carries
+// tool-result messages (role "tool") alongside the conversation, so slicing the
+// raw tail first lets a single tool-heavy prior turn evict every real turn: four
+// tool results with recent_turns: 4 leave the classifier zero history, and an
+// anaphoric but perfectly in-scope follow-up ("What about Azure?") is judged bare
+// and denied.
 func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 	if evalCtx == nil || n <= 0 || len(evalCtx.Messages) == 0 {
 		return nil
@@ -264,9 +302,6 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 	history := evalCtx.Messages
 	if last := len(history) - 1; last >= 0 && history[last].Role == roleUser {
 		history = history[:last]
-	}
-	if len(history) > n {
-		history = history[len(history)-n:]
 	}
 	out := make([]classify.TopicTurn, 0, len(history))
 	for i := range history {
@@ -278,6 +313,9 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 			continue
 		}
 		out = append(out, classify.TopicTurn{Role: history[i].Role, Text: text})
+	}
+	if len(out) > n {
+		out = out[len(out)-n:]
 	}
 	return out
 }

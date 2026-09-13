@@ -428,7 +428,7 @@ conversation_assertions:
 
 These eval primitives call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
-They depend on a provider with `role: inference` being declared in the arena config; without one — for example a keyless CI run with no `HF_TOKEN` — the check **skips cleanly** rather than failing.
+They depend on a provider with `role: inference` being declared in the arena config. Without one — for example a keyless CI run with no `HF_TOKEN` — most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. That difference is deliberate — a safety control that silently does not run is the failure it exists to prevent.
 
 **Two declaration sites:**
 
@@ -459,7 +459,7 @@ Putting `min_score` or `max_score` directly on a classify-backed handler is reje
 | `expected_label` | string | Yes | Label whose score is emitted |
 | `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
 | `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
-| `classifier_id` | string | No | Explicit registry id; empty uses `defaults.inference.<task>_classifier` |
+| `classifier_id` | string | No | Explicit registry id; empty uses the registry's default for that task, which is the first `role: inference` provider declared that serves it |
 
 ### `audio_emotion`
 
@@ -619,11 +619,33 @@ base_url: http://topic-control:8000/v1
 | `recent_turns` | int (>= 0) | `4` | How many prior turns of history to replay for reference resolution (0 = judge the current message alone). A context-management knob, not a scope statement — there is no host-side surface for it. |
 | `classifier_id` | string | none | Explicit registry id; empty uses the registered default topic classifier. |
 | `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one eval type in this repo with a non-`output` direction default — a check that only inspects the assistant's reply never blocks the call it exists to prevent. `direction: output` remains legal ("did the assistant wander?" is a coherent question) but is not the default. |
-| `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params` for parity with `type: assertion`/`type: guardrail` wrapping. |
+| `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
 
-Unknown keys are rejected at load time, and `min_score` / `max_score` are
-rejected with a message pointing at `type: assertion` — `topic_policy` is
-default-deny and needs no threshold.
+**Declare `topic_policy` directly as a `validators:` entry. Do not wrap it in
+`type: guardrail` or `type: assertion`** — unlike the rest of this family, the
+wrapped form does not work. The wrapper resolves eval defaults against the
+*outer* type name, so `topic_policy`'s `direction: input` default is never
+found and the check reverts to the shared `output` default. Wrapped, it lets
+every user message through to the agent and only inspects the reply, which is
+the opposite of what a topic gate is for. Nothing rejects the wrapped form
+today; it fails quietly, so the rule is the safeguard.
+
+Unknown keys are rejected at load time — and rejection is fatal: a pack whose
+validator params `topic_policy` refuses (a misspelled `dissallowed:`, an empty
+`allowed:`, a bad enum value) fails to load rather than opening with the
+guardrail quietly dropped. `min_score` / `max_score` are rejected the same way,
+with a message pointing at `type: assertion` — `topic_policy` is default-deny
+and needs no threshold.
+
+**A turn with no judgable text is unknown, not in scope.** A user message
+carrying only an image, audio or video part has no text for a text classifier
+to judge, so it resolves through `on_unknown` (default deny) with a reason
+recorded, rather than being sent to the classifier as an empty string.
+
+**`recent_turns` counts conversational turns**, meaning `user` and `assistant`
+messages. Tool-result messages in the transcript are filtered out before the
+window is applied, so a turn answered with several tool calls does not evict the
+history an anaphoric follow-up ("What about Azure?") needs to be resolved.
 
 **`on_unknown` and `on_error` describe the same event today.** They are
 conceptually different — `on_unknown` covers a classifier that answered but

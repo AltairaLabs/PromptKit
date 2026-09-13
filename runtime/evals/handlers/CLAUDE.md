@@ -27,6 +27,14 @@ Every handler in this package that takes a measurement (classify-backed, embeddi
    deny), not as Skipped. Skipped scores 1.0 and passes, which for a guardrail
    means the safety control silently did not run — the #1996 failure. Do not
    "fix" it to match the other classify-backed handlers.
+8. **`topic_policy` also breaks step 6 of the wiring list below: it has only
+   ONE declaration site.** It must be declared directly as a pack `validators:`
+   entry. `evals.ApplyDefaults` is keyed on the OUTER type name, so wrapping it
+   in `type: assertion` / `type: guardrail` resolves `ParamDefaults["assertion"]`
+   — nothing — and its `direction: input` default is lost, silently reverting the
+   check to output-only. Pinned by
+   `hooks/guardrails/factory_topic_policy_wrapper_test.go`; fixing the wrapper's
+   defaults resolution is its own piece of work on shared machinery.
 
 ## How to wire a new eval handler
 

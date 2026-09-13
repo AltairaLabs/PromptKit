@@ -391,3 +391,102 @@ func TestTopicPolicy_DefaultsDirectionToInput(t *testing.T) {
 	assert.Equal(t, "input", defaults["direction"],
 		"a topic guardrail that only inspects output never blocks the call it exists to prevent")
 }
+
+// TestTopicPolicy_NonTextTurnIsUnknown pins the media-only turn. A user message
+// whose Parts carry only an image has GetContent() == "", and the handler used
+// to hand that empty string to the classifier as the message under judgment —
+// asking "is '' on topic?", whose likeliest answer is yes. The guardrail then
+// no-ops on exactly the traffic no text check can see. An unjudgable turn is
+// unknown, so it resolves through on_unknown; the classifier is never called.
+func TestTopicPolicy_NonTextTurnIsUnknown(t *testing.T) {
+	imageOnly := types.Message{
+		Role:  "user",
+		Parts: []types.ContentPart{{Type: "image", Media: &types.MediaContent{MIMEType: "image/png"}}},
+	}
+
+	for _, tc := range []struct {
+		onUnknown string
+		want      float64
+	}{
+		{"deny", 0.0},
+		{"allow", 1.0},
+	} {
+		t.Run(tc.onUnknown, func(t *testing.T) {
+			fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+			h := &handlers.TopicPolicyHandler{}
+
+			res, err := h.Eval(
+				ctxWithTopic(t, fake),
+				&evals.EvalContext{Messages: []types.Message{imageOnly}, ContentScope: evals.ContentScopeCurrent},
+				topicParams(map[string]any{"on_unknown": tc.onUnknown}),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, res.Score)
+
+			assert.InDelta(t, tc.want, *res.Score, 0.0001)
+			assert.Equal(t, "unknown", res.Details["decision"])
+			assert.Equal(t, 0, fake.calls,
+				"an unjudgable turn must not be sent to the classifier as the empty string")
+			assert.Contains(t, res.Details["reason"], "no judgable text")
+		})
+	}
+}
+
+// TestTopicPolicy_ToolMessagesDoNotEvictHistory is the design's own worked
+// example. The agent answers using four tool calls, then the user asks an
+// anaphoric follow-up. History was sliced to the last recent_turns MESSAGES and
+// only then filtered by role, so four tool results evicted every real turn and
+// "What about Azure?" reached the classifier bare — and was denied. Filtering
+// before slicing is what makes recent_turns count conversational turns.
+func TestTopicPolicy_ToolMessagesDoNotEvictHistory(t *testing.T) {
+	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	h := &handlers.TopicPolicyHandler{}
+
+	history := []types.Message{
+		{Role: "user", Content: "Can Omnia run on OpenShift?"},
+		{Role: "assistant", Content: "Yes — here is how."},
+		{Role: "tool", Content: "{\"docs\": 1}"},
+		{Role: "tool", Content: "{\"docs\": 2}"},
+		{Role: "tool", Content: "{\"docs\": 3}"},
+		{Role: "tool", Content: "{\"docs\": 4}"},
+	}
+	_, err := h.Eval(
+		ctxWithTopic(t, fake),
+		topicEvalCtx("What about Azure?", history...),
+		topicParams(map[string]any{"recent_turns": 4}),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, fake.seen.History, 2,
+		"tool messages must be filtered out before the window is applied, not after")
+	assert.Equal(t, "Can Omnia run on OpenShift?", fake.seen.History[0].Text)
+	assert.Equal(t, "Yes — here is how.", fake.seen.History[1].Text)
+	assert.Equal(t, "What about Azure?", fake.seen.Message)
+}
+
+// TestTopicPolicy_WindowCountsConversationalTurnsOnly is the other half: once
+// tool messages are filtered out, recent_turns still bounds what is sent.
+func TestTopicPolicy_WindowCountsConversationalTurnsOnly(t *testing.T) {
+	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	h := &handlers.TopicPolicyHandler{}
+
+	history := []types.Message{
+		{Role: "user", Content: "turn one"},
+		{Role: "tool", Content: "noise"},
+		{Role: "assistant", Content: "reply one"},
+		{Role: "tool", Content: "noise"},
+		{Role: "user", Content: "turn two"},
+		{Role: "tool", Content: "noise"},
+		{Role: "assistant", Content: "reply two"},
+	}
+	_, err := h.Eval(
+		ctxWithTopic(t, fake),
+		topicEvalCtx("What about Azure?", history...),
+		topicParams(map[string]any{"recent_turns": 2}),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, fake.seen.History, 2)
+	assert.Equal(t, "turn two", fake.seen.History[0].Text)
+	assert.Equal(t, "reply two", fake.seen.History[1].Text)
+}
