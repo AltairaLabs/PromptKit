@@ -1100,8 +1100,12 @@ func TestApplyRuntimeConfig_RoleInferenceReachesClassifyRegistry(t *testing.T) {
 	require.NoError(t, applyRuntimeConfig(c, spec))
 
 	require.NotNil(t, c.classifyRegistry, "role: inference should build a classify registry")
-	_, err := c.classifyRegistry.TextClassifier("")
-	assert.NoError(t, err, "role: inference must leave a usable default classifier")
+	byID, err := c.classifyRegistry.TextClassifier("hf")
+	require.NoError(t, err, "the declared id should resolve")
+	byDefault, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err, "role: inference must leave a usable default classifier")
+	assert.Equal(t, byID, byDefault,
+		"the default classifier must be the declared provider, not some other registration")
 }
 
 func TestApplyRuntimeConfig_RoleEmbeddingReachesRetrieval(t *testing.T) {
@@ -1116,7 +1120,9 @@ func TestApplyRuntimeConfig_RoleEmbeddingReachesRetrieval(t *testing.T) {
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
 
-	assert.NotNil(t, c.retrievalProvider, "role: embedding should fill the retrieval slot")
+	require.NotNil(t, c.retrievalProvider, "role: embedding should fill the retrieval slot")
+	assert.Same(t, c.embeddingProviders["emb"], c.retrievalProvider,
+		"the retrieval slot must hold the declared provider, not a different instance")
 	assert.Nil(t, c.getAgentProvider(), "an embedding provider must not become the agent")
 }
 

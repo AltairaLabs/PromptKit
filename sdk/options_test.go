@@ -1334,8 +1334,11 @@ func TestWithSelector(t *testing.T) {
 	})
 }
 
-// stubText is a minimal TextClassifier for WithClassifier tests.
-type stubText struct{}
+// stubText is a minimal TextClassifier for WithClassifier tests. The id field
+// exists so two stubs compare unequal — an empty struct makes every value
+// identical, which would let a "did the right one win?" assertion pass by
+// accident.
+type stubText struct{ id string }
 
 func (stubText) ClassifyText(_ context.Context, _ string, _ classify.TextOptions) ([]classify.LabelScore, error) {
 	return nil, nil
@@ -1435,11 +1438,19 @@ func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {
 
 func TestWithClassifier_ClaimsDefaultTask(t *testing.T) {
 	c := &config{}
-	require.NoError(t, WithClassifier("stub", stubText{})(c))
-	_, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, WithClassifier("first", stubText{id: "first"})(c))
+	require.NoError(t, WithClassifier("second", stubText{id: "second"})(c))
+
+	// The empty id must resolve, and resolve to the FIRST registration —
+	// a backend registered through an option has to claim the unset default,
+	// and a later one must not steal it.
+	byDefault, err := c.classifyRegistry.TextClassifier("")
 	require.NoError(t, err,
 		"a classify backend registered through an option must claim the unset default, "+
 			"otherwise every handler lookup that doesn't name an id fails")
+	named, err := c.classifyRegistry.TextClassifier("first")
+	require.NoError(t, err)
+	require.Equal(t, named, byDefault, "default text classifier should be the first registered")
 }
 
 func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
@@ -1450,10 +1461,20 @@ func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
 		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
 	})(c)
 	require.NoError(t, err)
-	_, err = c.classifyRegistry.AudioClassifier("")
+
+	// The HF backend satisfies every task interface, so each task's default
+	// must resolve to the same instance the id "hf" resolves to.
+	audioByID, err := c.classifyRegistry.AudioClassifier("hf")
+	require.NoError(t, err)
+	audioDefault, err := c.classifyRegistry.AudioClassifier("")
 	require.NoError(t, err, "role: inference must set the default audio classifier")
-	_, err = c.classifyRegistry.TextClassifier("")
+	require.Equal(t, audioByID, audioDefault)
+
+	textByID, err := c.classifyRegistry.TextClassifier("hf")
+	require.NoError(t, err)
+	textDefault, err := c.classifyRegistry.TextClassifier("")
 	require.NoError(t, err, "role: inference must set the default text classifier")
+	require.Equal(t, textByID, textDefault)
 }
 
 func TestWithClassifier_DuplicateIDRejected(t *testing.T) {
