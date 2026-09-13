@@ -67,33 +67,68 @@ type RegistryDefaults struct {
 	Embedder        string
 }
 
+// Task labels returned by RegisterBackend and consumed by
+// Registry.claimDefaults and BuildRegistry's first-wins map. Naming them keeps
+// the producer and both consumers from drifting apart on a typo.
+const (
+	taskAudio    = "audio"
+	taskText     = "text"
+	taskImage    = "image"
+	taskVideo    = "video"
+	taskEmbedder = "embedder"
+)
+
 // RegisterBackend registers b under id against every task interface it
 // implements, returning the task labels registered (e.g. ["audio",
 // "text"]). A backend that satisfies no task interface registers nothing
 // and returns an empty slice. Shared by BuildRegistry and the SDK's
 // programmatic options so the type-assert logic lives in one place.
+//
+// It does not touch defaults. Callers that register incrementally — one
+// provider per SDK option, with nothing running afterwards to assign
+// defaults — want RegisterBackendDefaulting instead.
 func RegisterBackend(reg *Registry, id string, b Backend) []string {
 	var tasks []string
 	if c, ok := b.(AudioClassifier); ok {
 		reg.RegisterAudio(id, c)
-		tasks = append(tasks, "audio")
+		tasks = append(tasks, taskAudio)
 	}
 	if c, ok := b.(TextClassifier); ok {
 		reg.RegisterText(id, c)
-		tasks = append(tasks, "text")
+		tasks = append(tasks, taskText)
 	}
 	if c, ok := b.(ImageClassifier); ok {
 		reg.RegisterImage(id, c)
-		tasks = append(tasks, "image")
+		tasks = append(tasks, taskImage)
 	}
 	if c, ok := b.(VideoClassifier); ok {
 		reg.RegisterVideo(id, c)
-		tasks = append(tasks, "video")
+		tasks = append(tasks, taskVideo)
 	}
 	if c, ok := b.(Embedder); ok {
 		reg.RegisterEmbedder(id, c)
-		tasks = append(tasks, "embedder")
+		tasks = append(tasks, taskEmbedder)
 	}
+	return tasks
+}
+
+// RegisterBackendDefaulting registers b exactly as RegisterBackend does and,
+// for every task interface it implements, claims that task's default when no
+// default is set yet. Returns the task labels registered.
+//
+// Use it wherever backends arrive one at a time and nothing runs afterwards to
+// assign defaults — the SDK's WithInferenceProvider / WithClassifier options
+// and the `role: inference` config path. Without it a backend registers
+// successfully and then every handler lookup that doesn't name an explicit id
+// fails with "no default classifier".
+//
+// BuildRegistry deliberately keeps RegisterBackend plus its own applyDefaults
+// pass: it sees the whole spec list up front, so it can honor an explicit
+// RegistryDefaults entry over the first-declared one. The two paths agree on
+// first-wins whenever no explicit default is given.
+func RegisterBackendDefaulting(reg *Registry, id string, b Backend) []string {
+	tasks := RegisterBackend(reg, id, b)
+	reg.claimDefaults(id, tasks)
 	return tasks
 }
 
@@ -146,11 +181,11 @@ func applyDefaults(reg *Registry, d RegistryDefaults, first map[string]string) e
 		set func(string) error
 	}
 	for _, p := range []defPair{
-		{pick(d.AudioClassifier, "audio"), reg.SetDefaultAudio},
-		{pick(d.TextClassifier, "text"), reg.SetDefaultText},
-		{pick(d.ImageClassifier, "image"), reg.SetDefaultImage},
-		{pick(d.VideoClassifier, "video"), reg.SetDefaultVideo},
-		{pick(d.Embedder, "embedder"), reg.SetDefaultEmbedder},
+		{pick(d.AudioClassifier, taskAudio), reg.SetDefaultAudio},
+		{pick(d.TextClassifier, taskText), reg.SetDefaultText},
+		{pick(d.ImageClassifier, taskImage), reg.SetDefaultImage},
+		{pick(d.VideoClassifier, taskVideo), reg.SetDefaultVideo},
+		{pick(d.Embedder, taskEmbedder), reg.SetDefaultEmbedder},
 	} {
 		if p.id == "" {
 			continue
