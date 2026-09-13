@@ -122,7 +122,20 @@ run_in_module() {
 # build (e.g. everything behind a //go:build portaudio tag) or that has no test
 # files has nothing to analyze/build/test — that is not a failure. Match the Go
 # toolchain / golangci-lint messages that signal "nothing to do here".
+# is_empty_module_output reports whether a module produced nothing runnable at
+# all, which the caller treats as a pass rather than a failure.
+#
+# The "nothing ran" markers must be the ONLY thing in the output. Matching them
+# anywhere is how this check silently disabled the whole test gate: `runtime`
+# emits "[no test files]" for classify/backends/all among ~80 packages, so the
+# marker was always present, the caller's `||` branch was always true, and a
+# module with failing tests still printed "tests passed". Requiring the absence
+# of any per-package result line (ok / FAIL / --- FAIL) is what makes the
+# distinction real.
 is_empty_module_output() {
+    if echo "$1" | grep -qE "^(ok[[:space:]]|FAIL|--- FAIL|panic:)"; then
+        return 1
+    fi
     echo "$1" | grep -qE "no go files to analyze|matched no packages|build constraints exclude all Go files|no test files"
 }
 
