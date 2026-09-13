@@ -88,33 +88,7 @@ func NewGuardrailHookFromRegistry(
 		}
 	}
 
-	direction := DirectionOutput
-	// normalized, not params: ApplyDefaults ran above, and an eval type that
-	// declares a direction default in evals.ParamDefaults must get it. This used
-	// to read the caller's raw map, so a default declared in ParamDefaults was
-	// invisible here and the factory fell through to DirectionOutput — a check
-	// meant to gate input would silently only inspect the assistant's reply,
-	// never blocking the call it exists to prevent. topic_policy is the first
-	// eval type to declare a direction default, which is what exposed it; no
-	// pre-existing type sets one, so nothing else changed behavior.
-	if raw, present := normalized["direction"]; present {
-		d, ok := raw.(string)
-		if !ok {
-			logger.Warn(
-				"Guardrail direction must be a string; falling back to output",
-				"type", typeName, "direction", raw)
-		} else {
-			switch d {
-			case DirectionInput, DirectionOutput, DirectionBoth:
-				direction = d
-			default:
-				logger.Warn(
-					"Guardrail has unrecognized direction; falling back to output",
-					"type", typeName, "direction", d,
-					"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
-			}
-		}
-	}
+	direction := resolveDirection(typeName, normalized, params)
 
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -268,4 +242,65 @@ func compileValidators(
 		out = append(out, hook)
 	}
 	return out, nil
+}
+
+// resolveDirection picks which side of the provider call this guardrail gates.
+//
+// It reads the DEFAULTED params, not the caller's raw map: an eval type that
+// declares a direction default in evals.ParamDefaults must actually get it, and
+// reading the raw map here silently ignored that — a check meant to gate input
+// then only inspected the assistant's reply and never blocked the call it
+// existed to prevent.
+//
+// A wrapper type carries the real check in eval_type, and the default belongs
+// to that inner check rather than to the wrapper. Without this, `type: guardrail`
+// wrapping an input-gating check reverted to output and disarmed it while
+// appearing configured.
+func resolveDirection(typeName string, normalized, raw map[string]any) string {
+	if d, ok := directionFrom(normalized, typeName); ok {
+		return d
+	}
+	if inner, ok := innerEvalTypeOf(typeName, raw); ok {
+		if d, ok := directionFrom(evals.ApplyDefaults(inner, nil), typeName); ok {
+			return d
+		}
+	}
+	return DirectionOutput
+}
+
+// innerEvalTypeOf returns the eval type a wrapper delegates to, and whether
+// this type name is a wrapper at all.
+func innerEvalTypeOf(typeName string, params map[string]any) (string, bool) {
+	if typeName != evals.WrapperTypeGuardrail && typeName != evals.WrapperTypeAssertion {
+		return "", false
+	}
+	inner, ok := params["eval_type"].(string)
+	return inner, ok && inner != ""
+}
+
+// directionFrom reads and validates a direction value, warning rather than
+// guessing when it is present but unusable — a typo must not silently select a
+// side the author did not choose.
+func directionFrom(params map[string]any, typeName string) (string, bool) {
+	rawDir, present := params["direction"]
+	if !present {
+		return "", false
+	}
+	d, ok := rawDir.(string)
+	if !ok {
+		logger.Warn(
+			"Guardrail direction must be a string; falling back to output",
+			"type", typeName, "direction", rawDir)
+		return "", false
+	}
+	switch d {
+	case DirectionInput, DirectionOutput, DirectionBoth:
+		return d, true
+	default:
+		logger.Warn(
+			"Guardrail has unrecognized direction; falling back to output",
+			"type", typeName, "direction", d,
+			"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
+		return "", false
+	}
 }

@@ -159,19 +159,13 @@ func (h *AssertionEvalHandler) Type() string { return WrapperTypeAssertion }
 func (h *AssertionEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
-	evalType, ok := params["eval_type"].(string)
-	if !ok || evalType == "" {
-		return nil, fmt.Errorf("assertion handler requires eval_type param")
-	}
-
-	handler, err := h.registry.Get(evalType)
+	handler, innerParams, err := prepareInner(h.registry, WrapperTypeAssertion, params)
 	if err != nil {
-		return nil, fmt.Errorf("assertion inner eval: %w", err)
+		return nil, err
 	}
 
 	minScore := extractOptionalFloat64(params, "min_score")
 	maxScore := extractOptionalFloat64(params, "max_score")
-	innerParams := extractEvalParams(params)
 
 	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {
@@ -235,19 +229,13 @@ func (h *GuardrailEvalHandler) Type() string { return WrapperTypeGuardrail }
 func (h *GuardrailEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
-	evalType, ok := params["eval_type"].(string)
-	if !ok || evalType == "" {
-		return nil, fmt.Errorf("guardrail handler requires eval_type param")
-	}
-
-	handler, err := h.registry.Get(evalType)
+	handler, innerParams, err := prepareInner(h.registry, WrapperTypeGuardrail, params)
 	if err != nil {
-		return nil, fmt.Errorf("guardrail inner eval: %w", err)
+		return nil, err
 	}
 
 	action := extractParamString(params, "action", "block")
 	thresholds := ExtractScoreThresholds(params)
-	innerParams := extractEvalParams(params)
 
 	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {
@@ -279,4 +267,63 @@ func (h *GuardrailEvalHandler) Eval(
 	result.Details["triggered"] = triggered
 	result.Details["action"] = action
 	return result, nil
+}
+
+// innerEvalType reports the eval type a wrapper delegates to, and whether the
+// param was usable. Shared so the two wrappers and anything inspecting a
+// wrapper declaration agree on where the inner type is named.
+func innerEvalType(params map[string]any) (string, bool) {
+	t, ok := params["eval_type"].(string)
+	return t, ok && t != ""
+}
+
+// prepareInner resolves a wrapper's inner handler and the params to call it
+// with, applying the same treatment the direct declaration path gives an eval:
+// the inner type's defaults, its param aliases, and its own ValidateParams.
+//
+// Without this a wrapper silently disarmed whatever it wrapped. Two separate
+// failures, both observed: a wrapped check never saw its own ParamDefaults, so
+// an eval type declaring `direction: input` reverted to the factory's output
+// default and never gated the user's turn; and the inner ValidateParams never
+// ran, so a misspelled key inside eval_params loaded clean and produced a
+// policy with none of its exclusions. Direct declarations had both protections
+// and wrapped ones had neither.
+func prepareInner(
+	registry *EvalTypeRegistry, wrapper string, params map[string]any,
+) (EvalTypeHandler, map[string]any, error) {
+	evalType, ok := innerEvalType(params)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s handler requires eval_type param", wrapper)
+	}
+
+	handler, err := registry.Get(evalType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s inner eval: %w", wrapper, err)
+	}
+
+	inner := ApplyDefaults(evalType, extractEvalParams(params))
+	inner = NormalizeParams(evalType, inner)
+
+	if pv, vok := handler.(ParamValidator); vok {
+		if verr := pv.ValidateParams(inner); verr != nil {
+			return nil, nil, fmt.Errorf("%s inner eval %q: %w", wrapper, evalType, verr)
+		}
+	}
+	return handler, inner, nil
+}
+
+// ValidateParams lets a wrapped eval's own param validation run at load time,
+// the same as a directly declared one. The guardrail factory and
+// sdk.ValidatePack both look for this interface, so implementing it here is
+// what makes `type: guardrail` wrapping a check with a typo'd param fail to
+// load rather than load unprotected.
+func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error {
+	_, _, err := prepareInner(h.registry, WrapperTypeAssertion, params)
+	return err
+}
+
+// ValidateParams mirrors AssertionEvalHandler.ValidateParams.
+func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error {
+	_, _, err := prepareInner(h.registry, WrapperTypeGuardrail, params)
+	return err
 }
