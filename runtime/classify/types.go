@@ -22,6 +22,11 @@
 // model) are bridged into the same handler path via adapters, not
 // by relocating providers. Treat Embedder here as a convenience
 // surface, not a migration target.
+//
+// TopicClassifier is the exception to the bytes-in/[]LabelScore-out shape:
+// it takes a structured TopicRequest (a policy plus the message under
+// judgment) and returns a TopicDecision, because a topic-scope verdict is
+// not a ranked label set.
 package classify
 
 // LabelScore pairs a classifier label with a confidence score in

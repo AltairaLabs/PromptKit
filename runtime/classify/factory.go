@@ -65,6 +65,7 @@ type RegistryDefaults struct {
 	ImageClassifier string
 	VideoClassifier string
 	Embedder        string
+	TopicClassifier string
 }
 
 // Task labels returned by RegisterBackend and consumed by
@@ -76,6 +77,7 @@ const (
 	taskImage    = "image"
 	taskVideo    = "video"
 	taskEmbedder = "embedder"
+	taskTopic    = "topic"
 )
 
 // RegisterBackend registers b under id against every task interface it
@@ -108,6 +110,10 @@ func RegisterBackend(reg *Registry, id string, b Backend) []string {
 	if c, ok := b.(Embedder); ok {
 		reg.RegisterEmbedder(id, c)
 		tasks = append(tasks, taskEmbedder)
+	}
+	if c, ok := b.(TopicClassifier); ok {
+		reg.RegisterTopic(id, c)
+		tasks = append(tasks, taskTopic)
 	}
 	return tasks
 }
@@ -186,6 +192,7 @@ func applyDefaults(reg *Registry, d RegistryDefaults, first map[string]string) e
 		{pick(d.ImageClassifier, taskImage), reg.SetDefaultImage},
 		{pick(d.VideoClassifier, taskVideo), reg.SetDefaultVideo},
 		{pick(d.Embedder, taskEmbedder), reg.SetDefaultEmbedder},
+		{pick(d.TopicClassifier, taskTopic), reg.SetDefaultTopic},
 	} {
 		if p.id == "" {
 			continue
