@@ -12,6 +12,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// execTestTimeoutMs is what every script-spawning test in this file uses.
+//
+// The production default is 10s, which is right for a hook sitting in the
+// request path but is a race when the whole module's packages compile and run
+// in parallel: a /bin/sh subprocess that normally answers in milliseconds lost
+// that race and failed a test at exactly 10.05s. The assertions here are about
+// hook behavior, not about how long a loaded machine takes to fork a shell, so
+// they should not depend on it. Timeout handling itself is covered separately
+// by TestExecHookBase_Timeout and the timeout-specific cases below.
+const execTestTimeoutMs = 60000
+
 func writeHookScript(t *testing.T, name, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -61,9 +72,10 @@ func TestExecProviderHook_BeforeCall_Allow(t *testing.T) {
 echo '{"allow": true}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "test",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{Model: "gpt-4o"})
@@ -75,9 +87,10 @@ func TestExecProviderHook_BeforeCall_Deny(t *testing.T) {
 echo '{"allow": false, "reason": "PII detected"}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "pii",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "pii",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -90,9 +103,10 @@ func TestExecProviderHook_BeforeCall_Enforced(t *testing.T) {
 echo '{"allow": false, "enforced": true, "reason": "PII redacted", "metadata": {"field": "email"}}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "pii",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "pii",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -107,9 +121,10 @@ func TestExecProviderHook_BeforeCall_DenyWithMetadata(t *testing.T) {
 echo '{"allow": false, "reason": "blocked", "metadata": {"score": 0.9}}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "test",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -120,9 +135,10 @@ echo '{"allow": false, "reason": "blocked", "metadata": {"score": 0.9}}'
 
 func TestExecProviderHook_BeforeCall_SkipsPhase(t *testing.T) {
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "test",
-		Command: "/nonexistent",
-		Phases:  []string{"after_call"}, // not before_call
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   "/nonexistent",
+		Phases:    []string{"after_call"}, // not before_call
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -134,9 +150,10 @@ func TestExecProviderHook_AfterCall(t *testing.T) {
 echo '{"allow": true}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "test",
-		Command: script,
-		Phases:  []string{"after_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   script,
+		Phases:    []string{"after_call"},
 	})
 
 	d := h.AfterCall(context.Background(), &ProviderRequest{}, &ProviderResponse{})
@@ -145,9 +162,10 @@ echo '{"allow": true}'
 
 func TestExecProviderHook_AfterCall_SkipsPhase(t *testing.T) {
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "test",
-		Command: "/nonexistent",
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   "/nonexistent",
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.AfterCall(context.Background(), &ProviderRequest{}, &ProviderResponse{})
@@ -159,9 +177,10 @@ func TestExecProviderHook_ProcessFailure_Denies(t *testing.T) {
 exit 1
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "fail",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "fail",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -174,9 +193,10 @@ func TestExecProviderHook_InvalidJSON_Denies(t *testing.T) {
 echo 'not json'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "bad",
-		Command: script,
-		Phases:  []string{"before_call"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "bad",
+		Command:   script,
+		Phases:    []string{"before_call"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -189,10 +209,11 @@ func TestExecProviderHook_ObserveMode(t *testing.T) {
 echo '{"allow": false, "reason": "would deny"}'
 `)
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "observer",
-		Command: script,
-		Phases:  []string{"before_call"},
-		Mode:    "observe",
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "observer",
+		Command:   script,
+		Phases:    []string{"before_call"},
+		Mode:      "observe",
 	})
 
 	// Observe mode always returns Allow regardless of subprocess output
@@ -207,10 +228,11 @@ echo '{"allow": true}'
 	t.Setenv("EXEC_HOOK_TEST_VAR", "set")
 
 	h := NewExecProviderHook(&ExecHookConfig{
-		Name:    "env_test",
-		Command: script,
-		Phases:  []string{"before_call"},
-		Env:     []string{"EXEC_HOOK_TEST_VAR"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "env_test",
+		Command:   script,
+		Phases:    []string{"before_call"},
+		Env:       []string{"EXEC_HOOK_TEST_VAR"},
 	})
 
 	d := h.BeforeCall(context.Background(), &ProviderRequest{})
@@ -229,9 +251,10 @@ func TestExecToolHook_BeforeExecution_Allow(t *testing.T) {
 echo '{"allow": true}'
 `)
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "test",
-		Command: script,
-		Phases:  []string{"before_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   script,
+		Phases:    []string{"before_execution"},
 	})
 
 	d := h.BeforeExecution(context.Background(), ToolRequest{Name: "db_query"})
@@ -243,9 +266,10 @@ func TestExecToolHook_BeforeExecution_Deny(t *testing.T) {
 echo '{"allow": false, "reason": "query not allowed"}'
 `)
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "allowlist",
-		Command: script,
-		Phases:  []string{"before_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "allowlist",
+		Command:   script,
+		Phases:    []string{"before_execution"},
 	})
 
 	d := h.BeforeExecution(context.Background(), ToolRequest{Name: "db_query"})
@@ -255,9 +279,10 @@ echo '{"allow": false, "reason": "query not allowed"}'
 
 func TestExecToolHook_BeforeExecution_SkipsPhase(t *testing.T) {
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "test",
-		Command: "/nonexistent",
-		Phases:  []string{"after_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   "/nonexistent",
+		Phases:    []string{"after_execution"},
 	})
 
 	d := h.BeforeExecution(context.Background(), ToolRequest{})
@@ -269,9 +294,10 @@ func TestExecToolHook_AfterExecution(t *testing.T) {
 echo '{"allow": true}'
 `)
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "test",
-		Command: script,
-		Phases:  []string{"after_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   script,
+		Phases:    []string{"after_execution"},
 	})
 
 	d := h.AfterExecution(context.Background(), ToolRequest{}, ToolResponse{})
@@ -280,9 +306,10 @@ echo '{"allow": true}'
 
 func TestExecToolHook_AfterExecution_SkipsPhase(t *testing.T) {
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "test",
-		Command: "/nonexistent",
-		Phases:  []string{"before_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   "/nonexistent",
+		Phases:    []string{"before_execution"},
 	})
 
 	d := h.AfterExecution(context.Background(), ToolRequest{}, ToolResponse{})
@@ -294,10 +321,11 @@ func TestExecToolHook_ObserveMode(t *testing.T) {
 echo '{"allow": false, "reason": "denied"}'
 `)
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "observer",
-		Command: script,
-		Phases:  []string{"before_execution"},
-		Mode:    "observe",
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "observer",
+		Command:   script,
+		Phases:    []string{"before_execution"},
+		Mode:      "observe",
 	})
 
 	d := h.BeforeExecution(context.Background(), ToolRequest{})
@@ -309,9 +337,10 @@ func TestExecToolHook_ProcessFailure(t *testing.T) {
 exit 1
 `)
 	h := NewExecToolHook(&ExecHookConfig{
-		Name:    "fail",
-		Command: script,
-		Phases:  []string{"before_execution"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "fail",
+		Command:   script,
+		Phases:    []string{"before_execution"},
 	})
 
 	d := h.BeforeExecution(context.Background(), ToolRequest{})
@@ -331,9 +360,10 @@ func TestExecSessionHook_OnSessionStart(t *testing.T) {
 echo '{"ack": true}'
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "audit",
-		Command: script,
-		Phases:  []string{"session_start"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "audit",
+		Command:   script,
+		Phases:    []string{"session_start"},
 	})
 
 	err := h.OnSessionStart(context.Background(), SessionEvent{SessionID: "s1"})
@@ -345,9 +375,10 @@ func TestExecSessionHook_OnSessionUpdate(t *testing.T) {
 echo '{"ack": true}'
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "audit",
-		Command: script,
-		Phases:  []string{"session_update"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "audit",
+		Command:   script,
+		Phases:    []string{"session_update"},
 	})
 
 	err := h.OnSessionUpdate(context.Background(), SessionEvent{SessionID: "s1"})
@@ -359,9 +390,10 @@ func TestExecSessionHook_OnSessionEnd(t *testing.T) {
 echo '{"ack": true}'
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "audit",
-		Command: script,
-		Phases:  []string{"session_end"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "audit",
+		Command:   script,
+		Phases:    []string{"session_end"},
 	})
 
 	err := h.OnSessionEnd(context.Background(), SessionEvent{SessionID: "s1"})
@@ -370,9 +402,10 @@ echo '{"ack": true}'
 
 func TestExecSessionHook_SkipsPhase(t *testing.T) {
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "test",
-		Command: "/nonexistent",
-		Phases:  []string{"session_end"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "test",
+		Command:   "/nonexistent",
+		Phases:    []string{"session_end"},
 	})
 
 	// session_start not in phases, should be no-op
@@ -385,10 +418,11 @@ func TestExecSessionHook_ObserveMode_IgnoresErrors(t *testing.T) {
 exit 1
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "observer",
-		Command: script,
-		Phases:  []string{"session_start"},
-		Mode:    "observe",
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "observer",
+		Command:   script,
+		Phases:    []string{"session_start"},
+		Mode:      "observe",
 	})
 
 	err := h.OnSessionStart(context.Background(), SessionEvent{})
@@ -400,10 +434,11 @@ func TestExecSessionHook_FilterMode_ReturnsError(t *testing.T) {
 exit 1
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "strict",
-		Command: script,
-		Phases:  []string{"session_start"},
-		Mode:    "filter",
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "strict",
+		Command:   script,
+		Phases:    []string{"session_start"},
+		Mode:      "filter",
 	})
 
 	err := h.OnSessionStart(context.Background(), SessionEvent{})
@@ -416,9 +451,10 @@ func TestExecSessionHook_AllPhases(t *testing.T) {
 echo '{"ack": true}'
 `)
 	h := NewExecSessionHook(&ExecHookConfig{
-		Name:    "full",
-		Command: script,
-		Phases:  []string{"session_start", "session_update", "session_end"},
+		TimeoutMs: execTestTimeoutMs,
+		Name:      "full",
+		Command:   script,
+		Phases:    []string{"session_start", "session_update", "session_end"},
 	})
 
 	require.NoError(t, h.OnSessionStart(context.Background(), SessionEvent{}))
