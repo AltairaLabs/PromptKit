@@ -19,8 +19,10 @@ import (
 // as a warning. Returns the filtered slice (never nil).
 //
 // This runs at middleware creation time, so the EvalRunner never sees
-// bad defs at dispatch time. Mirrors the validator warn-and-skip loop in
-// sdk.go:convertPackValidatorsToHooks.
+// bad defs at dispatch time. Unlike pack validators — which are guardrails, and
+// whose construction failures are fatal in convertPackValidatorsToHooks — an
+// eval is a measurement, not a control, so dropping one degrades reporting
+// rather than removing protection.
 func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistry) []evals.EvalDef {
 	if len(defs) == 0 {
 		return defs

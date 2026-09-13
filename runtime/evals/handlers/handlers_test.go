@@ -1612,6 +1612,7 @@ func TestRegisterInit(t *testing.T) {
 		"image_moderation",
 		"text_toxicity",
 		"text_sentiment",
+		"topic_policy",
 
 		// LLM judge handlers
 		"llm_judge",

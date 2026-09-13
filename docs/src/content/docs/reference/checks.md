@@ -428,7 +428,7 @@ conversation_assertions:
 
 These eval primitives call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
-They depend on a provider with `role: inference` being declared in the arena config; without one — for example a keyless CI run with no `HF_TOKEN` — the check **skips cleanly** rather than failing.
+They depend on a provider with `role: inference` being declared in the arena config. Without one — for example a keyless CI run with no `HF_TOKEN` — most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. That difference is deliberate — a safety control that silently does not run is the failure it exists to prevent.
 
 **Two declaration sites:**
 
@@ -459,7 +459,7 @@ Putting `min_score` or `max_score` directly on a classify-backed handler is reje
 | `expected_label` | string | Yes | Label whose score is emitted |
 | `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
 | `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
-| `classifier_id` | string | No | Explicit registry id; empty uses `defaults.inference.<task>_classifier` |
+| `classifier_id` | string | No | Explicit registry id; empty uses the registry's default for that task, which is the first `role: inference` provider declared that serves it |
 
 ### `audio_emotion`
 
@@ -571,6 +571,108 @@ Classifier-backed sentiment eval. Emits the model's score for `expected_label`. 
       expected_label: positive
     min_score: 0.7
 ```
+
+### `topic_policy`
+
+Confines a conversation to a declared subject scope, decided by a
+`classify.TopicClassifier` rather than by the model being governed. Unlike the
+rest of this family it is declared and used as a **guardrail**, not an eval or
+assertion: it gates the user's message before the primary provider is called,
+and a denied turn is replaced with the configured message and never reaches
+the agent. It is default-deny — an empty or missing allow-list is rejected at
+load time rather than silently blocking everything.
+
+**Surfaces:** G
+
+**Two declaration sites**, both required:
+
+```yaml
+# 1. The pack validator — the normal declaration site.
+validators:
+  - type: topic_policy
+    message: "I can only help with AltairaLabs products."
+    params:
+      description: Helps users evaluate and operate AltairaLabs products.
+      allowed: [Omnia and PromptKit, licensing and support]
+      disallowed: [politics]
+
+# 2. The host provider file — an ordinary role: inference declaration.
+# Required: the check denies every turn (on_error's default) without one.
+id: topic-control
+role: inference
+type: nvidia-topic-control
+base_url: http://topic-control:8000/v1
+```
+
+**Params:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | string | *(required)* | The application's purpose in prose. An allow-list alone reads as keywords to a semantic classifier. |
+| `allowed` | string[] | *(required, non-empty)* | In-scope subjects. |
+| `disallowed` | string[] | none | Explicit exclusions. |
+| `small_talk` | `allow` \| `deny` | `allow` | Whether greetings, thanks and pleasantries that match no listed subject count as in scope. |
+| `examples.allowed` / `examples.disallowed` | string[] | none | An optional labeled corpus. A classification aid, not configuration — a backend may fold it into a prompt or ignore it. |
+| `on_deny` | `block` \| `respond` | `block` | Recorded on the result for future branching; both values enforce identically today — the turn is blocked and replaced with `message`. |
+| `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier responds but gives no decision it will act on. |
+| `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier can't be reached or its response can't be parsed — including no provider configured at all. |
+| `recent_turns` | int (>= 0) | `4` | How many prior turns of history to replay for reference resolution (0 = judge the current message alone). A context-management knob, not a scope statement — there is no host-side surface for it. |
+| `classifier_id` | string | none | Explicit registry id; empty uses the registered default topic classifier. |
+| `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one eval type in this repo with a non-`output` direction default — a check that only inspects the assistant's reply never blocks the call it exists to prevent. `direction: output` remains legal ("did the assistant wander?" is a coherent question) but is not the default. |
+| `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
+
+**Declare `topic_policy` directly as a `validators:` entry. Do not wrap it in
+`type: guardrail` or `type: assertion`** — unlike the rest of this family, the
+wrapped form does not work. The wrapper resolves eval defaults against the
+*outer* type name, so `topic_policy`'s `direction: input` default is never
+found and the check reverts to the shared `output` default. Wrapped, it lets
+every user message through to the agent and only inspects the reply, which is
+the opposite of what a topic gate is for. Nothing rejects the wrapped form
+today; it fails quietly, so the rule is the safeguard.
+
+Unknown keys are rejected at load time — and rejection is fatal: a pack whose
+validator params `topic_policy` refuses (a misspelled `dissallowed:`, an empty
+`allowed:`, a bad enum value) fails to load rather than opening with the
+guardrail quietly dropped. `min_score` / `max_score` are rejected the same way,
+with a message pointing at `type: assertion` — `topic_policy` is default-deny
+and needs no threshold.
+
+**A turn with no judgable text is unknown, not in scope.** A user message
+carrying only an image, audio or video part has no text for a text classifier
+to judge, so it resolves through `on_unknown` (default deny) with a reason
+recorded, rather than being sent to the classifier as an empty string.
+
+**`recent_turns` counts conversational turns**, meaning `user` and `assistant`
+messages. Tool-result messages in the transcript are filtered out before the
+window is applied, so a turn answered with several tool calls does not evict the
+history an anaphoric follow-up ("What about Azure?") needs to be resolved.
+
+**`on_unknown` and `on_error` describe the same event today.** They are
+conceptually different — `on_unknown` covers a classifier that answered but
+gave no usable label, `on_error` covers a classifier that could not be
+reached or parsed, including nothing configured at all — but the only shipped
+backend (`nvidia-topic-control`) is a label-emitting chat model: any response
+that isn't exactly its two trained labels already falls to `on_unknown`, and
+everything else that can go wrong (network, non-2xx, malformed JSON) is an
+actual error. In practice both params currently mean "the classifier did not
+give an actionable answer," and most pack authors should set them the same
+way. The split exists for a future backend that can distinguish "infrastructure
+is down" from "genuinely unsure" with different confidence.
+
+**`policy_digest` (in the eval result's `Details`) is a digest, not a
+version.** It is a SHA-256 hash of the normalized policy fields (`description`,
+`allowed`, `disallowed`, `small_talk`, `examples`), included so a report can
+say which policy governed an interaction. Inline params carry no policy id, so
+this is the best available answer — but it changes on a purely cosmetic
+wording edit to `description`, and on its own it cannot say *what* changed
+between two digests, only *that* something did.
+
+**MVP scope:** the check claims English-language policies and `direction:
+input` only. A topic-control model tuned on English is exactly where an
+English policy classifying non-English input produces silent unknowns or false
+denials — if your traffic is multilingual, budget for that risk rather than
+assuming parity. `direction: both` and non-English policies are both explicitly
+deferred, not silently unsupported.
 
 ### `assertion` (wrapper) {#assertion-wrapper}
 

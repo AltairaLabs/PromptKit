@@ -81,6 +81,7 @@ func init() {
 	evals.RegisterDefault(&ImageModerationHandler{})
 	evals.RegisterDefault(&TextToxicityHandler{})
 	evals.RegisterDefault(&TextSentimentHandler{})
+	evals.RegisterDefault(&TopicPolicyHandler{})
 
 	// LLM judge handlers
 	evals.RegisterDefault(&LLMJudgeHandler{})

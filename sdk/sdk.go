@@ -1330,10 +1330,13 @@ func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
 // provider hooks, prepending them before any user-registered hooks. The
 // per-validator translation lives in guardrails.CompileValidatorsWithRegistry
 // so SDK and Arena exercise identical conversion semantics — same defaults,
-// same skip-and-warn behavior, same enforcement.
+// same failure policy, same enforcement.
 //
 // Validator types resolve against the registry from WithEvalRegistry when one
 // was supplied, so a custom handler can back a pack `validators:` entry (#1717).
+//
+// A validator that cannot be built fails Open() rather than being dropped: see
+// the failure policy on guardrails.CompileValidators.
 func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	if len(p.Validators) == 0 {
 		return nil
@@ -1348,9 +1351,10 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	}
 	packHooks, err := guardrails.CompileValidatorsWithRegistry(specs, cfg.evalRegistry)
 	if err != nil {
-		// An unknown eval type is fatal: dropping it would leave the
-		// conversation silently unprotected. Unusable params are still
-		// warned about and skipped inside CompileValidators.
+		// Fatal, and deliberately so: an unknown eval type or a param set the
+		// handler itself rejects both mean this guardrail cannot run, and
+		// dropping either leaves the conversation silently unprotected while
+		// Open() reports success.
 		return err
 	}
 	if len(packHooks) > 0 {

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "guardrail-topic-policy-typo",
+  "name": "Guardrail Topic Policy Typo Pack",
+  "version": "1.0.0",
+  "description": "Pack whose topic_policy validator misspells disallowed, so the deny-list is silently lost",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant.",
+      "validators": [
+        {
+          "type": "topic_policy",
+          "enabled": true,
+          "message": "I can only help with AltairaLabs products.",
+          "params": {
+            "description": "Helps users evaluate and operate AltairaLabs products.",
+            "allowed": ["Omnia and PromptKit", "licensing and support"],
+            "dissallowed": ["politics"]
+          }
+        }
+      ]
+    }
+  }
+}
