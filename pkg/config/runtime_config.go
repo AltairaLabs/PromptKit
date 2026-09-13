@@ -354,21 +354,58 @@ func (s *RuntimeConfigSpec) Validate() error {
 	return s.validateSelectors()
 }
 
+// completionRoles are the roles built through the chat-completion provider
+// factory, which needs an explicit model. Every other role treats model as an
+// optional override of the provider's own default — matching both the four
+// capability blocks and the published JSON schema, which requires only `type`.
+var completionRoles = map[string]bool{
+	RoleLLM:   true,
+	RoleImage: true,
+	RoleVideo: true,
+}
+
 func (s *RuntimeConfigSpec) validateProviders() error {
+	// Slots are per-role, so "openai" may legitimately appear as both the LLM
+	// and the TTS provider. Collisions are only collisions within one role.
+	seen := make(map[string]map[string]bool, len(s.Providers))
 	for i := range s.Providers {
 		p := &s.Providers[i]
+		if err := p.ValidateRole(); err != nil {
+			return &ValidationError{
+				Field:   fmt.Sprintf("providers[%d].role", i),
+				Message: err.Error(),
+				Value:   p.Role,
+			}
+		}
 		if p.Type == "" {
 			return &ValidationError{
 				Field:   fmt.Sprintf("providers[%d].type", i),
 				Message: "provider type is required",
 			}
 		}
-		if p.Model == "" {
+		role := p.GetRole()
+		if completionRoles[role] && p.Model == "" {
 			return &ValidationError{
 				Field:   fmt.Sprintf("providers[%d].model", i),
 				Message: "provider model is required",
 			}
 		}
+		// Matches how every apply* path derives the id it registers under.
+		id := p.ID
+		if id == "" {
+			id = p.Type
+		}
+		if seen[role] == nil {
+			seen[role] = make(map[string]bool)
+		}
+		if seen[role][id] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("providers[%d].id", i),
+				Message: fmt.Sprintf("duplicate provider id within role %q", role),
+				Value:   id,
+			}
+		}
+		seen[role][id] = true
 	}
 	return nil
 }

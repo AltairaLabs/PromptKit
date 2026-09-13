@@ -921,3 +921,68 @@ func TestValidateInferenceProviders_Valid(t *testing.T) {
 		t.Fatalf("valid inference provider rejected: %v", err)
 	}
 }
+
+func TestValidateProviders_ModelOptionalForCapabilityRoles(t *testing.T) {
+	// TTS, STT, embedding, inference and rerank all treat model as an optional
+	// override of the provider's own default — the four capability blocks never
+	// required it and the published JSON schema requires only `type`.
+	for _, role := range []string{RoleTTS, RoleSTT, RoleEmbedding, RoleInference, RoleRerank} {
+		s := &RuntimeConfigSpec{Providers: []Provider{{Type: "openai", Role: role}}}
+		if err := s.Validate(); err != nil {
+			t.Errorf("role %q: model should be optional, got %v", role, err)
+		}
+	}
+}
+
+func TestValidateProviders_ModelRequiredForCompletionRoles(t *testing.T) {
+	// An empty role defaults to llm, so it keeps the pre-existing requirement.
+	for _, role := range []string{"", RoleLLM, RoleImage, RoleVideo} {
+		s := &RuntimeConfigSpec{Providers: []Provider{{Type: "openai", Role: role}}}
+		if err := s.Validate(); err == nil {
+			t.Errorf("role %q: model should be required", role)
+		}
+	}
+}
+
+func TestValidateProviders_UnknownRoleRejected(t *testing.T) {
+	s := &RuntimeConfigSpec{Providers: []Provider{
+		{Type: "openai", Model: "m", Role: "bogus"},
+	}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected an unknown role to be rejected")
+	}
+}
+
+func TestValidateProviders_DuplicateIDWithinRole(t *testing.T) {
+	s := &RuntimeConfigSpec{Providers: []Provider{
+		{ID: "x", Type: "openai", Model: "m", Role: RoleLLM},
+		{ID: "x", Type: "claude", Model: "m", Role: RoleLLM},
+	}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected a duplicate id within one role to be rejected")
+	}
+}
+
+func TestValidateProviders_DuplicateIDDefaultsToType(t *testing.T) {
+	// An omitted id falls back to the type, matching how every apply* path
+	// derives it — so two type-only entries of the same type collide.
+	s := &RuntimeConfigSpec{Providers: []Provider{
+		{Type: "openai", Model: "a", Role: RoleLLM},
+		{Type: "openai", Model: "b", Role: RoleLLM},
+	}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected two type-only entries of the same type to collide")
+	}
+}
+
+func TestValidateProviders_SameIDDifferentRolesAllowed(t *testing.T) {
+	// Slots are per-role, so "openai" as both the LLM and the TTS provider is
+	// a legitimate config, not a collision.
+	s := &RuntimeConfigSpec{Providers: []Provider{
+		{ID: "openai", Type: "openai", Model: "m", Role: RoleLLM},
+		{ID: "openai", Type: "openai", Role: RoleTTS},
+	}}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("same id under different roles should be allowed: %v", err)
+	}
+}
