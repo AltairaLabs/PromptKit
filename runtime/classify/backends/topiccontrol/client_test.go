@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,4 +155,63 @@ func TestFactoryRegistered(t *testing.T) {
 
 	_, ok := backend.(classify.TopicClassifier)
 	assert.True(t, ok, "the constructed backend must satisfy TopicClassifier")
+}
+
+// --- Timeout configuration -------------------------------------------------
+
+// TestNew_TimeoutDefaultsAndOverrides pins that the per-call timeout is
+// configurable. It matters because a timeout is an error, on_error denies, and
+// a NIM answering its first request from cold can exceed a short default — so
+// a too-tight timeout takes the conversation offline rather than leaking
+// traffic. Observed live: a 20s default tripped on a slow shared endpoint.
+func TestNew_TimeoutDefaultsAndOverrides(t *testing.T) {
+	def, err := topiccontrol.New(topiccontrol.Config{BaseURL: "http://x/v1"})
+	require.NoError(t, err)
+	assert.Equal(t, 20*time.Second, def.HTTPTimeout(), "default must stay 20s")
+
+	custom, err := topiccontrol.New(topiccontrol.Config{BaseURL: "http://x/v1", Timeout: 90 * time.Second})
+	require.NoError(t, err)
+	assert.Equal(t, 90*time.Second, custom.HTTPTimeout())
+
+	zero, err := topiccontrol.New(topiccontrol.Config{BaseURL: "http://x/v1", Timeout: 0})
+	require.NoError(t, err)
+	assert.Equal(t, 20*time.Second, zero.HTTPTimeout(), "zero must fall back, not disable the timeout")
+}
+
+// TestFactory_ReadsTimeoutFromAdditionalConfig proves the knob is reachable
+// from a provider file and not just from Go. A config field nothing parses is
+// the inert-declaration shape this repo keeps rediscovering, so the assertion
+// goes through CreateFromSpec rather than calling New directly.
+func TestFactory_ReadsTimeoutFromAdditionalConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  any
+		want time.Duration
+	}{
+		{"int", 90, 90 * time.Second},
+		{"float", 45.5, 45500 * time.Millisecond},
+		{"absent", nil, 20 * time.Second},
+		{"wrong type falls back", "sixty", 20 * time.Second},
+		{"non-positive falls back", 0, 20 * time.Second},
+		{"negative falls back", -5, 20 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := map[string]any{}
+			if tc.raw != nil {
+				cfg["timeout_seconds"] = tc.raw
+			}
+			backend, err := classify.CreateFromSpec(classify.ProviderSpec{
+				ID:               "topic-control",
+				Type:             "nvidia-topic-control",
+				BaseURL:          "http://localhost:8000/v1",
+				AdditionalConfig: cfg,
+			})
+			require.NoError(t, err)
+
+			client, ok := backend.(*topiccontrol.Client)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, client.HTTPTimeout())
+		})
+	}
 }

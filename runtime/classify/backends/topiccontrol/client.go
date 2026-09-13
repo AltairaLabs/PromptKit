@@ -20,6 +20,12 @@ const DefaultModel = "nvidia/llama-3.1-nemoguard-8b-topic-control"
 
 // defaultHTTPTimeout bounds one classification. This runs in the request path
 // ahead of the agent's own call, so it must fail fast rather than hang a turn.
+//
+// It is a default rather than a constant ceiling because it is short enough to
+// be wrong for some deployments: a NIM answering its first request from cold,
+// or a shared endpoint under load, can exceed it. A timeout here is an error,
+// and on_error denies, so a too-short timeout does not leak traffic — it blocks
+// the conversation. Raise it with Config.Timeout (additional_config.timeout_seconds).
 const defaultHTTPTimeout = 20 * time.Second
 
 // maxLabelTokens caps the completion. The answer is one of two short labels;
@@ -51,7 +57,13 @@ type Config struct {
 	APIKey string
 	// Model overrides DefaultModel.
 	Model string
-	// HTTPClient overrides the default client. Mainly for tests.
+	// Timeout bounds a single classification call. Zero means
+	// defaultHTTPTimeout. Note this caps the call regardless of the deadline
+	// on the context passed to ClassifyTopic: whichever is shorter wins, so a
+	// caller cannot extend it by supplying a longer context.
+	Timeout time.Duration
+	// HTTPClient overrides the default client entirely, Timeout included.
+	// Mainly for tests.
 	HTTPClient *http.Client
 }
 
@@ -77,7 +89,11 @@ func New(cfg Config) (*Client, error) {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
+		timeout := cfg.Timeout
+		if timeout <= 0 {
+			timeout = defaultHTTPTimeout
+		}
+		httpClient = &http.Client{Timeout: timeout}
 	}
 	return &Client{
 		baseURL: strings.TrimSuffix(cfg.BaseURL, "/"),
@@ -198,3 +214,7 @@ func snippet(b []byte) string {
 	}
 	return string(b)
 }
+
+// HTTPTimeout reports the per-call timeout this client will apply. Exported for
+// tests: the timeout is only observable otherwise by waiting for it to expire.
+func (c *Client) HTTPTimeout() time.Duration { return c.http.Timeout }

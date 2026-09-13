@@ -602,7 +602,34 @@ id: topic-control
 role: inference
 type: nvidia-topic-control
 base_url: http://topic-control:8000/v1
+additional_config:
+  timeout_seconds: 20   # optional; default 20
 ```
+
+**Choosing the model.** The backend is an OpenAI-compatible chat client that
+asks for one of two labels, so it works against any endpoint speaking that
+protocol — the purpose-built
+`nvidia/llama-3.1-nemoguard-8b-topic-control`, or a general
+instruction-following model via `model:`. Verified live against
+`meta/llama-3.2-11b-vision-instruct`, which returns the expected labels for
+in-scope, small-talk, out-of-scope and multi-turn anaphora cases.
+
+:::caution[Do not point this at a reasoning model]
+A reasoning model answers with its thinking (`"Here's a thinking process:
+1. **Analyze User Input**..."`) rather than a bare label. Every classification
+then parses as unknown, `on_unknown` denies, and **the guardrail blocks every
+turn**. It fails closed rather than leaking traffic, but the conversation stops
+working. Pick a model that will comply with "respond with `on-topic` or
+`off-topic`" and nothing else.
+:::
+
+**`timeout_seconds`** bounds a single classification. The default of 20s is
+deliberately tight — this call sits in the request path ahead of the agent's own
+call. Raise it for a NIM answering from cold or a shared endpoint under load: a
+timeout is an error, `on_error` denies, so a too-short timeout takes the
+conversation offline rather than letting anything through. It caps the call
+regardless of any longer deadline on the calling context; the shorter of the two
+always wins.
 
 **Params:**
 
