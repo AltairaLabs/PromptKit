@@ -429,7 +429,6 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		return nil
 	}
 	c.ensureClassifyRegistry()
-	seen := make(map[string]bool, len(specs))
 	first := make(map[string]string)
 	for i := range specs {
 		ip := &specs[i]
@@ -437,10 +436,6 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		if id == "" {
 			id = ip.Type
 		}
-		if seen[id] {
-			return fmt.Errorf("inference provider %q: duplicate ID", id)
-		}
-		seen[id] = true
 		cred, err := classify.ResolveCredential(context.Background(), ip.Type, "", ip.Credential)
 		if err != nil {
 			return fmt.Errorf("inference provider %q: resolving credential: %w", id, err)
@@ -456,7 +451,11 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		if err != nil {
 			return fmt.Errorf("inference provider %q: %w", id, err)
 		}
-		for _, task := range classify.RegisterBackend(c.classifyRegistry, id, backend) {
+		tasks, err := c.registerClassifyBackend(id, backend)
+		if err != nil {
+			return fmt.Errorf("inference provider %q: %w", id, err)
+		}
+		for _, task := range tasks {
 			if _, ok := first[task]; !ok {
 				first[task] = id
 			}

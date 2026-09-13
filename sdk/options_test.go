@@ -1432,3 +1432,58 @@ func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {
 	require.Equal(t, "bedrock", p.Platform.Type)
 	require.Equal(t, "us-east-1", p.Platform.Region)
 }
+
+func TestWithClassifier_ClaimsDefaultTask(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("stub", stubText{})(c))
+	_, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err,
+		"a classify backend registered through an option must claim the unset default, "+
+			"otherwise every handler lookup that doesn't name an id fails")
+}
+
+func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
+	c := &config{}
+	err := WithInferenceProvider(ProviderSpec{
+		ID:         "hf",
+		Type:       "huggingface",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	_, err = c.classifyRegistry.AudioClassifier("")
+	require.NoError(t, err, "role: inference must set the default audio classifier")
+	_, err = c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err, "role: inference must set the default text classifier")
+}
+
+func TestWithClassifier_DuplicateIDRejected(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := WithClassifier("dup", stubText{})(c)
+	require.Error(t, err, "registering the same classify id twice must be rejected")
+	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestWithInferenceProvider_DuplicateIDAcrossSpellings(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := WithInferenceProvider(ProviderSpec{
+		ID:         "dup",
+		Type:       "huggingface",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.Error(t, err,
+		"a duplicate classify id must be rejected across every registration path, "+
+			"not just within a single config block")
+}
+
+func TestApplyInferenceProviders_DuplicateIDAgainstProgrammatic(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := applyInferenceProviders(c, []pkgconfig.InferenceProviderConfig{
+		{ID: "dup", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+	})
+	require.Error(t, err,
+		"inference_providers: must see ids already registered programmatically; "+
+			"a block-local duplicate check silently overwrites them")
+}
