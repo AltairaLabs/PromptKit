@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -145,6 +146,13 @@ type config struct {
 	// Inference (classify) registry, built from declarative
 	// inference_providers and/or WithInferenceProvider / WithClassifier.
 	classifyRegistry *classify.Registry
+
+	// classifyProviderIDs records every classify backend id registered
+	// through any path — inference_providers:, a providers: entry with
+	// role: inference, WithInferenceProvider, WithClassifier — so a
+	// duplicate is rejected config-wide rather than per-block. Mirrors
+	// ttsProviderIDs / sttProviderIDs.
+	classifyProviderIDs []string
 
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
@@ -497,12 +505,38 @@ func (c *config) getSummarizeProvider() providers.Provider {
 }
 
 // ensureClassifyRegistry lazy-initializes the classify registry.
-// Called by applyInferenceProviders and the WithInferenceProvider /
-// WithClassifier options before registering any backend.
+// Called by registerClassifyBackend before registering anything.
 func (c *config) ensureClassifyRegistry() {
 	if c.classifyRegistry == nil {
 		c.classifyRegistry = classify.NewRegistry()
 	}
+}
+
+// registerClassifyBackend registers backend under id on the classify registry,
+// claiming any task defaults that aren't set yet, and records the id.
+//
+// It is the single entry point for every classify registration path — the
+// inference_providers: block, a providers: entry with role: inference, and the
+// WithInferenceProvider / WithClassifier options — so that a duplicate id is
+// caught config-wide. Tracking duplicates per block instead let the same id
+// registered through two different paths silently overwrite the first.
+//
+// Defaults are claimed here because these paths register one backend at a time
+// with nothing running afterwards to assign them; a backend without a default
+// resolves by id and fails every lookup that omits one.
+// It returns the task labels the backend registered against, so a caller that
+// needs to compute its own first-wins ordering doesn't have to re-derive them.
+func (c *config) registerClassifyBackend(id string, backend classify.Backend) ([]string, error) {
+	if slices.Contains(c.classifyProviderIDs, id) {
+		return nil, fmt.Errorf("classify provider %q: duplicate ID", id)
+	}
+	c.ensureClassifyRegistry()
+	tasks := classify.RegisterBackendDefaulting(c.classifyRegistry, id, backend)
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("classify provider %q: backend implements no classify task interface", id)
+	}
+	c.classifyProviderIDs = append(c.classifyProviderIDs, id)
+	return tasks, nil
 }
 
 // CredentialOption configures credentials for a provider.
@@ -2290,9 +2324,8 @@ func WithInferenceProvider(spec ProviderSpec) Option {
 		if err != nil {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
-		c.ensureClassifyRegistry()
-		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
-			return fmt.Errorf("WithInferenceProvider %q: backend implements no classify task interface", id)
+		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+			return fmt.Errorf("WithInferenceProvider: %w", err)
 		}
 		return nil
 	}
@@ -2306,9 +2339,8 @@ func WithClassifier(id string, backend classify.Backend) Option {
 		if id == "" {
 			return fmt.Errorf("WithClassifier: id is required")
 		}
-		c.ensureClassifyRegistry()
-		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
-			return fmt.Errorf("WithClassifier %q: backend implements no classify task interface", id)
+		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+			return fmt.Errorf("WithClassifier: %w", err)
 		}
 		return nil
 	}

@@ -9,15 +9,19 @@ Embedding providers used to be Go-only: a consumer who wanted RAG retrieval or a
 
 ## Quick Start
 
+Declare the provider under `spec.providers` with `role: embedding`:
+
 ```yaml
 spec:
-  embedding_providers:
+  providers:
     - id: rag
+      role: embedding
       type: openai
       model: text-embedding-3-small
       credential:
         credential_env: OPENAI_API_KEY
     - id: voyage
+      role: embedding
       type: voyageai
       model: voyage-3
       credential:
@@ -34,6 +38,24 @@ conv, _ := sdk.Open("./pack.json", "chat",
 ```
 
 The first declared entry becomes the default RAG provider unless `WithContextRetrieval` set one programmatically. The same instance is supplied to in-process `selection.Selector` implementations via `SelectorContext.Embeddings` on `Init`, so a cosine-similarity selector and the RAG retrieval pipeline share a single embedding pool — one connection pool, one rate-limit bucket, one set of credentials.
+
+## The `embedding_providers:` block
+
+Before role routing, embedding providers had their own top-level block:
+
+```yaml
+spec:
+  embedding_providers:
+    - id: rag
+      type: openai
+      model: text-embedding-3-small
+      credential:
+        credential_env: OPENAI_API_KEY
+```
+
+It still works and behaves identically. It is deprecated in favor of
+`role: embedding` and is removed in v3. Declaring the same ID in both
+spellings is rejected rather than silently resolved.
 
 ## Supported Types
 

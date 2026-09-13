@@ -1049,3 +1049,111 @@ func TestApplyInferenceProviders_Empty(t *testing.T) {
 		t.Fatal("expected no registry for empty config")
 	}
 }
+
+func TestApplyRuntimeConfig_SecondProviderIsPooledNotDropped(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "agent", Type: "mock", Model: "m1"},
+			{ID: "judge", Type: "mock", Model: "m2"},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	require.NotNil(t, c.getAgentProvider(), "first provider should become the agent")
+	require.NotNil(t, c.providers, "provider pool should exist")
+	_, ok := c.providers.Get("judge")
+	assert.True(t, ok,
+		"providers[1:] must stay in the pool; reading only providers[0] silently "+
+			"discarded every other declared provider")
+}
+
+func TestApplyRuntimeConfig_RoutesByRole(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "chat", Type: "mock", Model: "m"},
+			{ID: "voice", Role: pkgconfig.RoleTTS, Type: "openai",
+				Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	assert.NotNil(t, c.ttsService, "role: tts entry should reach the TTS slot")
+	agent := c.getAgentProvider()
+	require.NotNil(t, agent)
+	assert.Equal(t, "chat", agent.ID(),
+		"a role: tts entry must not be constructed as the chat agent")
+}
+
+func TestApplyRuntimeConfig_RoleInferenceReachesClassifyRegistry(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "hf", Role: pkgconfig.RoleInference, Type: "huggingface",
+				Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	require.NotNil(t, c.classifyRegistry, "role: inference should build a classify registry")
+	byID, err := c.classifyRegistry.TextClassifier("hf")
+	require.NoError(t, err, "the declared id should resolve")
+	byDefault, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err, "role: inference must leave a usable default classifier")
+	assert.Equal(t, byID, byDefault,
+		"the default classifier must be the declared provider, not some other registration")
+}
+
+func TestApplyRuntimeConfig_RoleEmbeddingReachesRetrieval(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "emb", Role: pkgconfig.RoleEmbedding, Type: "openai",
+				Model:      "text-embedding-3-small",
+				Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	require.NotNil(t, c.retrievalProvider, "role: embedding should fill the retrieval slot")
+	assert.Same(t, c.embeddingProviders["emb"], c.retrievalProvider,
+		"the retrieval slot must hold the declared provider, not a different instance")
+	assert.Nil(t, c.getAgentProvider(), "an embedding provider must not become the agent")
+}
+
+func TestApplyRuntimeConfig_UnknownRoleRejected(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "x", Role: "bogus", Type: "mock", Model: "m"},
+		},
+	}
+
+	c := &config{}
+	err := applyRuntimeConfig(c, spec)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "providers[0]",
+		"the error should name the offending index")
+}
+
+func TestApplyRuntimeConfig_DuplicateClassifyIDAcrossSpellings(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Providers: []pkgconfig.Provider{
+			{ID: "hf", Role: pkgconfig.RoleInference, Type: "huggingface",
+				Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+		},
+		InferenceProviders: []pkgconfig.InferenceProviderConfig{
+			{ID: "hf", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+		},
+	}
+
+	c := &config{}
+	err := applyRuntimeConfig(c, spec)
+	require.Error(t, err,
+		"the same id declared under providers: and inference_providers: is a config "+
+			"mistake and must be rejected, not silently overwritten")
+}

@@ -114,13 +114,20 @@ func WithRuntimeConfig(path string) Option {
 // without review, as they can execute arbitrary commands with the privileges
 // of the host process.
 func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
-	// Apply provider (use first provider if configured and no provider already set)
-	if len(spec.Providers) > 0 && c.getAgentProvider() == nil {
-		prov, err := createProviderFromConfig(&spec.Providers[0], c.mediaStorage)
-		if err != nil {
-			return fmt.Errorf("creating provider from runtime config: %w", err)
+	// Route every declared provider by its role: llm/image/video into the agent
+	// pool (first declared becomes the agent unless one is already set
+	// programmatically, the rest stay pooled by ID), tts/stt/embedding/
+	// inference/rerank into their slots.
+	//
+	// This is the same router WithProviderFile / WithProvidersDir use, so a
+	// provider declared here and the identically-shaped *.provider.yaml behave
+	// the same. They did not before: this block read spec.Providers[0] only,
+	// built it through the completion-provider factory whatever its role said,
+	// and discarded every later entry without a word.
+	for i := range spec.Providers {
+		if err := c.applyProviderConfig(&spec.Providers[i]); err != nil {
+			return fmt.Errorf("runtime config providers[%d]: %w", i, err)
 		}
-		registerAgentProvider(c, prov)
 	}
 
 	// Apply embedding providers (declarative). The first declared
@@ -429,7 +436,6 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		return nil
 	}
 	c.ensureClassifyRegistry()
-	seen := make(map[string]bool, len(specs))
 	first := make(map[string]string)
 	for i := range specs {
 		ip := &specs[i]
@@ -437,10 +443,6 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		if id == "" {
 			id = ip.Type
 		}
-		if seen[id] {
-			return fmt.Errorf("inference provider %q: duplicate ID", id)
-		}
-		seen[id] = true
 		cred, err := classify.ResolveCredential(context.Background(), ip.Type, "", ip.Credential)
 		if err != nil {
 			return fmt.Errorf("inference provider %q: resolving credential: %w", id, err)
@@ -456,7 +458,11 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		if err != nil {
 			return fmt.Errorf("inference provider %q: %w", id, err)
 		}
-		for _, task := range classify.RegisterBackend(c.classifyRegistry, id, backend) {
+		tasks, err := c.registerClassifyBackend(id, backend)
+		if err != nil {
+			return fmt.Errorf("inference provider %q: %w", id, err)
+		}
+		for _, task := range tasks {
 			if _, ok := first[task]; !ok {
 				first[task] = id
 			}

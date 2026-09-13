@@ -207,3 +207,77 @@ func TestResolveCredential_APIKey(t *testing.T) {
 		t.Fatal("expected non-nil credential")
 	}
 }
+
+// distinctText lets a test tell two registrations apart by identity — fakeText
+// is an empty struct, so every value of it compares equal.
+type distinctText struct{ id string }
+
+func (distinctText) ClassifyText(
+	_ context.Context, _ string, _ classify.TextOptions,
+) ([]classify.LabelScore, error) {
+	return []classify.LabelScore{{Label: "x", Score: 1}}, nil
+}
+
+func TestRegisterBackendDefaulting_ClaimsUnsetDefaults(t *testing.T) {
+	reg := classify.NewRegistry()
+	tasks := classify.RegisterBackendDefaulting(reg, "first", fakeAll{})
+	if len(tasks) == 0 {
+		t.Fatal("expected task labels, got none")
+	}
+	// Every task the backend implements must now resolve with an empty id.
+	if _, err := reg.TextClassifier(""); err != nil {
+		t.Errorf("default text classifier not set: %v", err)
+	}
+	if _, err := reg.AudioClassifier(""); err != nil {
+		t.Errorf("default audio classifier not set: %v", err)
+	}
+	if _, err := reg.ImageClassifier(""); err != nil {
+		t.Errorf("default image classifier not set: %v", err)
+	}
+	if _, err := reg.VideoClassifier(""); err != nil {
+		t.Errorf("default video classifier not set: %v", err)
+	}
+	if _, err := reg.Embedder(""); err != nil {
+		t.Errorf("default embedder not set: %v", err)
+	}
+}
+
+func TestRegisterBackendDefaulting_FirstWins(t *testing.T) {
+	reg := classify.NewRegistry()
+	classify.RegisterBackendDefaulting(reg, "first", distinctText{id: "first"})
+	classify.RegisterBackendDefaulting(reg, "second", distinctText{id: "second"})
+
+	got, err := reg.TextClassifier("")
+	if err != nil {
+		t.Fatalf("default text classifier: %v", err)
+	}
+	first, err := reg.TextClassifier("first")
+	if err != nil {
+		t.Fatalf("first text classifier: %v", err)
+	}
+	if got != first {
+		t.Fatal("second registration stole the default; first-wins violated")
+	}
+}
+
+func TestRegisterBackendDefaulting_LeavesExplicitDefaultAlone(t *testing.T) {
+	reg := classify.NewRegistry()
+	classify.RegisterBackend(reg, "explicit", distinctText{id: "explicit"})
+	if err := reg.SetDefaultText("explicit"); err != nil {
+		t.Fatalf("SetDefaultText: %v", err)
+	}
+
+	classify.RegisterBackendDefaulting(reg, "later", distinctText{id: "later"})
+
+	got, err := reg.TextClassifier("")
+	if err != nil {
+		t.Fatalf("default text classifier: %v", err)
+	}
+	explicit, err := reg.TextClassifier("explicit")
+	if err != nil {
+		t.Fatalf("explicit text classifier: %v", err)
+	}
+	if got != explicit {
+		t.Fatal("a later registration overrode an explicitly set default")
+	}
+}

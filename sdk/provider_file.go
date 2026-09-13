@@ -40,7 +40,10 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 		if err != nil {
 			return fmt.Errorf("provider %q: %w", id, err)
 		}
-		if c.agentSet {
+		// getAgentProvider rather than agentSet: it also lifts a legacy
+		// c.provider field into the pool on first access, so a provider supplied
+		// that way still wins over one declared in a config file.
+		if c.getAgentProvider() != nil {
 			ensureProviderPool(c)
 			c.providers.Register(prov) // keep in pool; first-declared stays the agent
 			return nil

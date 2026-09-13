@@ -77,6 +77,38 @@ func (r *Registry) RegisterEmbedder(id string, e Embedder) {
 	r.embedders[id] = e
 }
 
+// claimDefaults sets this registry's default for each named task to id, but
+// only for tasks that have no default yet — first registration wins.
+//
+// Unknown task labels are ignored: the label set comes from RegisterBackend,
+// which only emits a label for a task it actually registered, so an unknown
+// label here means a task was added to RegisterBackend without a case below.
+// The zero value of every default field is the empty string, which is also
+// what the accessors treat as "no default", so an unset task stays unset.
+func (r *Registry) claimDefaults(id string, tasks []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	set := func(field *string) {
+		if *field == "" {
+			*field = id
+		}
+	}
+	for _, task := range tasks {
+		switch task {
+		case taskAudio:
+			set(&r.defaultAudio)
+		case taskText:
+			set(&r.defaultText)
+		case taskImage:
+			set(&r.defaultImage)
+		case taskVideo:
+			set(&r.defaultVideo)
+		case taskEmbedder:
+			set(&r.defaultEmbedder)
+		}
+	}
+}
+
 // SetDefaultAudio names the AudioClassifier used when a handler
 // doesn't pass an explicit id. The id must already be registered.
 func (r *Registry) SetDefaultAudio(id string) error {
