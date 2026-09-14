@@ -305,7 +305,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
-Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model and [Hooks Reference](/runtime/reference/hooks/#evalhook) for the interface details.
+Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model and [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) for the registration API.
 
 ## See Also
 
@@ -313,6 +313,6 @@ Eval hooks are observational by contract — they cannot gate execution. Every r
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
 - [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
-- [Hooks Reference](/runtime/reference/hooks/#evalhook) -- `EvalHook` and `ExecEvalHook` API
+- [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) -- registering an `EvalHook`
 - [Exec Hooks How-To](/sdk/how-to/hooks/exec-hooks/) -- subprocess-backed eval hooks in any language
 - [Monitor Events](/sdk/how-to/observability/monitor-events/) -- Event-based observability

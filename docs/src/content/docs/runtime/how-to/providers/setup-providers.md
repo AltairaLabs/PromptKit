@@ -444,7 +444,7 @@ docker run --rm --gpus all \
 - Multi-GPU tensor parallelism
 - High-throughput continuous batching
 
-See [Provider Reference](/runtime/reference/providers#vllm-provider) for full vLLM configuration options.
+See [Provider Reference](/runtime/reference/providers/) for full vLLM configuration options.
 
 ## Next Steps
 

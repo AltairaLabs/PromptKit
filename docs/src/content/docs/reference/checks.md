@@ -279,7 +279,7 @@ different problem from a state that stayed quiet.
 
 ---
 
-## Composition Checks {#composition-checks}
+## Composition Checks
 
 These checks assert on the internal execution of a [Workflow Composition](/concepts/compositions/) (RFC 0010). They read observability data injected into `EvalContext.Metadata` by the Arena `CompositionMetadataProvider` — step outputs, branch decisions, and parallel completion status. They are **pure eval primitives**: they emit a raw score and put detail in `Details`; threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper. `min_score` / `max_score` placed directly on these handlers are rejected at parse time.
 
@@ -706,7 +706,7 @@ denials — if your traffic is multilingual, budget for that risk rather than
 assuming parity. `direction: both` and non-English policies are both explicitly
 deferred, not silently unsupported.
 
-### `assertion` (wrapper) {#assertion-wrapper}
+### `assertion` (wrapper)
 
 Generic wrapper that turns any eval primitive into a thresholded pass/fail. Cleanest way to use any classify-backed eval as a scenario assertion.
 

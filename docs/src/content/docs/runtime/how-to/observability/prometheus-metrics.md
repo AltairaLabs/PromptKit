@@ -79,7 +79,7 @@ For duplex/voice pipelines, PromptKit emits **direct-update** health metrics —
 reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", nil))
 ```
 
-`direction` is `input` or `output`; these metrics are never labeled by stream/session ID (bounded cardinality). See the [Metrics Reference](/runtime/reference/metrics/#realtime-audio-health-metrics) for the off-bus rationale and label semantics.
+`direction` is `input` or `output`; these metrics are never labeled by stream/session ID (bounded cardinality). See the [Metrics Reference](/runtime/reference/metrics/) for the off-bus rationale and label semantics.
 
 ### Eval Metrics
 
