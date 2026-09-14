@@ -85,23 +85,64 @@ guided_json:
 // TestAdditionalConfig_WrongTypesAreIgnored — a genuinely wrong type is still
 // ignored rather than coerced. Widening the accepted shapes must not turn
 // "guided_choice: 3" into a value.
+//
+// Each case asserts against the accepted spelling of the SAME key, so the
+// test discriminates between "refused this shape" and "reads nothing at all":
+// an extractor that always returned the zero value would fail the right-hand
+// column.
 func TestAdditionalConfig_WrongTypesAreIgnored(t *testing.T) {
-	req := buildFromConfig(t, decodeYAML(t, `
-guided_choice: 3
-best_of: "many"
-use_beam_search: "yes"
-`))
+	for _, tc := range []struct {
+		name           string
+		refused, taken string
+		got            func(*vllmRequest) any
+		want           any
+	}{
+		{
+			name:    "guided_choice",
+			refused: "guided_choice: 3",
+			taken:   "guided_choice: [refund]",
+			got:     func(r *vllmRequest) any { return r.GuidedChoice },
+			want:    []string{"refund"},
+		},
+		{
+			name:    "best_of",
+			refused: `best_of: "many"`,
+			taken:   "best_of: 4",
+			got:     func(r *vllmRequest) any { return r.BestOf },
+			want:    4,
+		},
+		{
+			name:    "use_beam_search",
+			refused: "use_beam_search: [1, 2]",
+			taken:   "use_beam_search: true",
+			got:     func(r *vllmRequest) any { return r.UseBeamSearch },
+			want:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refused := tc.got(buildFromConfig(t, decodeYAML(t, tc.refused)))
+			taken := tc.got(buildFromConfig(t, decodeYAML(t, tc.taken)))
 
-	assert.Nil(t, req.GuidedChoice)
-	assert.Zero(t, req.BestOf)
-	assert.False(t, req.UseBeamSearch)
+			assert.NotEqual(t, tc.want, refused, "a wrong-typed value must not be coerced")
+			assert.Equal(t, tc.want, taken, "the accepted spelling must still apply")
+		})
+	}
 }
 
 // TestAdditionalConfig_GuidedChoiceRejectsNonStrings — a sequence carrying a
 // non-string element is not a choice list. Take none of it rather than
-// silently dropping the element the author wrote.
+// silently dropping the element the author wrote: a shortened choice list
+// changes what the model is allowed to answer, which is worse than no
+// constraint because it looks like the one that was written.
+//
+// Asserted against the same list with the offending element corrected, so
+// "returns nil" alone cannot satisfy it.
 func TestAdditionalConfig_GuidedChoiceRejectsNonStrings(t *testing.T) {
-	req := buildFromConfig(t, decodeYAML(t, "guided_choice: [refund, 7]"))
+	mixed := buildFromConfig(t, decodeYAML(t, "guided_choice: [refund, 7]"))
+	allStrings := buildFromConfig(t, decodeYAML(t, "guided_choice: [refund, seven]"))
 
-	assert.Nil(t, req.GuidedChoice)
+	assert.Equal(t, []string{"refund", "seven"}, allStrings.GuidedChoice,
+		"the control: a well-formed list is read")
+	assert.Nil(t, mixed.GuidedChoice,
+		"one bad element refuses the whole list, rather than silently keeping [refund]")
 }
