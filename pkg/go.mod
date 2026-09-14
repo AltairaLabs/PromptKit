@@ -2,10 +2,8 @@ module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
-
 require (
-	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.2.1
 	github.com/stretchr/testify v1.12.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
