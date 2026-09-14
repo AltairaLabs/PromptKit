@@ -649,7 +649,7 @@ always wins.
 | `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
 
 **Declaring `topic_policy` directly as a `validators:` entry is the normal
-form**, and the one the examples use. Wrapping it in `type: guardrail` or
+form**, and the one `sdk/examples/topic-policy` uses. Wrapping it in `type: guardrail` or
 `type: assertion` now behaves identically: a wrapper inherits the inner check's
 `direction: input` default and runs the inner check's param validation, so both
 forms gate the user's message and both reject a malformed policy at load.

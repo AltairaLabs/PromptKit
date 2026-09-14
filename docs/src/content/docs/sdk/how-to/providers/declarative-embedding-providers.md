@@ -88,6 +88,6 @@ spellings is rejected rather than silently resolved.
 - [Use a RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/)
 - [Plug in an external selector](/sdk/how-to/) — selectors receive embedding providers via `SelectorContext.Embeddings`.
 
-## Roadmap
+## See also
 
-TTS and STT providers follow the same pattern (#979). They're declared at the same level once landed; today they're still programmatic-only via `WithTTS` / `WithVADMode`.
+TTS and STT providers follow the same pattern, declared at the same level with `role: tts` / `role: stt` — see [declarative TTS and STT providers](/sdk/how-to/providers/declarative-tts-stt-providers/).

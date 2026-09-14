@@ -211,7 +211,7 @@ Ambient grounding is a per-turn operation: the retrieval stage reads the turn's 
 ambient grounding (a memory retriever) is not supported with a duplex provider: ...
 ```
 
-Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable. Tracking in issue #1962.
+Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable.
 
 ## Gotchas
 

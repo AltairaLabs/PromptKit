@@ -3890,9 +3890,9 @@ type ProviderConfig struct {
     // StructuredOutputMode selects when ResponseFormat is applied to a tool
     // loop. Empty means final_turn — the schema is withheld from tool-calling
     // rounds and the final answer is re-asked under it, because a schema on
-    // every round suppresses tool calling. See structured_output_mode.go and
-    // issue #1853. Ignored when ResponseFormat is nil or the turn uses no
-    // tools, where there is no loop to protect.
+    // every round suppresses tool calling. See structured_output_mode.go.
+    // Ignored when ResponseFormat is nil or the turn uses no tools, where
+    // there is no loop to protect.
     StructuredOutputMode StructuredOutputMode
     Labels               map[string]string // Optional labels propagated to events, metrics, and traces
     Source               string            // Origin of the call: "agent" (default), "judge", "selfplay"
@@ -3937,7 +3937,7 @@ type ProviderConfig struct {
     // turn is running: a skill is usually activated by a tool call in round 1
     // and its tools must be offered in round 2 of the same Send. The stage
     // merges the grants into allowedTools on every build and rebuilds the
-    // tools array after any tool round that changed them (#1957). Grants are
+    // tools array after any tool round that changed them. Grants are
     // applied after ToolSelector narrowing, so a selector never hides a tool
     // the model was just told it gained.
     ToolGrants func() []string
@@ -5264,8 +5264,6 @@ On a production underwriting pack the same model that scores 5.8 here reached to
 
 The fix is to constrain only the turn that produces the final answer, which is what the providers that hold up are already doing server\-side \(Anthropic's stronger models; Gemini's Interactions API\). Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
 
-See issue \#1853.
-
 ```go
 type StructuredOutputMode string
 ```
@@ -5279,7 +5277,7 @@ const (
     StructuredOutputFinalTurn StructuredOutputMode = "final_turn"
 
     // StructuredOutputEveryRound sends ResponseFormat on every round — the
-    // pre-#1853 behavior.
+    // older behavior, from before the final-turn rule existed.
     //
     // This is an escape hatch, not a supported alternative: it is the
     // configuration measured above, and on two of the four models tested it

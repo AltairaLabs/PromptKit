@@ -820,9 +820,9 @@ type EvalViolationData struct {
 // (completed, failed). It captures the eval result and metadata.
 //
 // Violations and Details carry the lossless content of the underlying
-// EvalResult — see https://github.com/AltairaLabs/PromptKit/issues/1028
-// for the rationale. Consumers that only want a textual summary can
-// derive it from Violations[].Description.
+// EvalResult: a consumer that only wants a textual summary can derive it
+// from Violations[].Description, but one that wants the structure no
+// longer has to reconstruct it from prose.
 // EvalKind names the ROLE a result was produced in, so a consumer is told
 // rather than left to infer it.
 //

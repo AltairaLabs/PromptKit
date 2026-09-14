@@ -540,7 +540,7 @@ func DoAncillaryJSONRequest(ctx context.Context, client *http.Client, providerID
 
 DoAncillaryJSONRequest POSTs a JSON body for one of the ancillary provider roles \(embedding, rerank\) and returns the raw response body.
 
-Shared by both rather than copied, because the error handling is the part worth getting right once: a transport failure is wrapped as ProviderTransportError, not a bare fmt.Errorf, because that is the type whose Error\(\) redacts credential\-bearing query parameters. A plain wrap formats the raw \*url.Error — full URL included — straight into the message, which is how a live key reached the logs in \#1871. It also makes these failures classifiable by IsTransient, like every other provider path.
+Shared by both rather than copied, because the error handling is the part worth getting right once: a transport failure is wrapped as ProviderTransportError, not a bare fmt.Errorf, because that is the type whose Error\(\) redacts credential\-bearing query parameters. A plain wrap formats the raw \*url.Error — full URL included — straight into the message, which is how a live key once reached the logs. It also makes these failures classifiable by IsTransient, like every other provider path.
 
 <a name="DoWithRetry"></a>
 ## func DoWithRetry

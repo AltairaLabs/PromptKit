@@ -3,7 +3,7 @@
 // PromptKit EmbeddingProvider.
 //
 // This is the Go port of the in-tree EmbeddingSelector that shipped
-// before #980 deleted it. It exists as an example, not as core code:
+// before it was removed from core. It exists as an example, not as core code:
 // PromptKit no longer ships any selector implementations beyond the
 // exec client. Copy, adapt, or import directly.
 //

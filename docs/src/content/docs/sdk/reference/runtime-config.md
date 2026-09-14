@@ -110,7 +110,7 @@ the same ID in both spellings is rejected.
 |-------|------|----------|-------------|
 | `id` | string | no | Unique provider identifier. Used to reference this provider elsewhere. Defaults to `type`. |
 | `role` | string | no | What this provider is for: `llm` (default), `image`, `video`, `tts`, `stt`, `embedding`, `inference`, `rerank`. |
-| `type` | string | yes | Provider type. One of: `claude`, `openai`, `gemini`, `ollama`, `vllm`, `voyageai`, `mock`, `replay`. |
+| `type` | string | yes | Provider type. Not an enum — it names a registered factory, and which factories exist depends on which provider packages are linked in. See [provider types](#provider-types). |
 | `model` | string | for completion roles | Model name (e.g., `claude-sonnet-4-20250514`, `gpt-4o`). Optional for capability roles, where it overrides the provider default. |
 | `base_url` | string | no | Custom API base URL. Overrides the default endpoint for the provider type. |
 | `credential` | object | no | API key configuration. See [credential](#credential). |
@@ -126,6 +126,36 @@ the same ID in both spellings is rejected.
 | `stream_retry` | object | no | Streaming retry configuration. See [stream_retry](#stream_retry). |
 | `stream_max_concurrent` | int | no | Max concurrent streaming requests in flight. Requests beyond the limit block on the caller's context. `0` = unlimited (default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
+
+#### provider types
+
+`type` is a registry key, not a fixed enum. Each role has its own registry, so
+the same name can mean different things under different roles, and a name is
+valid only when the package that registers it is linked into the binary.
+
+Importing the SDK registers these:
+
+| Role | Types |
+|------|-------|
+| `llm` | `claude`, `openai`, `gemini`, `ollama`, `mock` |
+| `image` | `imagen` |
+| `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex` |
+| `rerank` | `voyageai`, `cohere`, `mock` |
+| `inference` | `huggingface`, `nvidia-topic-control` |
+
+Others need a blank import of their package — `vllm` and `replay` (both `llm`)
+are registered by `runtime/providers/vllm` and `runtime/providers/replay`:
+
+```go
+import _ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
+```
+
+An unregistered type fails at construction rather than degrading — the
+embedding and rerank paths name the types that *are* registered, which is the
+quickest way to tell a typo from a missing import.
+
+Bedrock, Vertex and Azure hosting of a chat model is not a separate `type` —
+it is the [`platform`](#platform) block on `claude` or `openai`.
 
 #### credential
 

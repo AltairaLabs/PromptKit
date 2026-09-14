@@ -158,6 +158,63 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 			"enforced message should use custom message from params")
 	})
 
+	// The spec's own spelling: `message:` is a field ON the validator, not a
+	// param. A pack compiled by PackCompiler has it folded into params by
+	// foldValidatorMessages, so only hand-authored packs — every example, and
+	// the form the docs call normal — carry it here. Dropping it silently
+	// replaced the author's wording with the generic default.
+	t.Run("passes top-level message to guardrail hook", func(t *testing.T) {
+		prompt := &pack.Prompt{
+			Validators: []*pack.Validator{
+				{
+					Type:    "banned_words",
+					Enabled: packspec.Ptr(true),
+					Message: "Custom blocked response",
+					Params:  map[string]any{"patterns": []any{"bad"}},
+				},
+			},
+		}
+		cfg := &config{}
+		convertPackValidatorsToHooks(prompt, cfg)
+		require.Len(t, cfg.providerHooks, 1)
+
+		hook := cfg.providerHooks[0]
+		resp := &hooks.ProviderResponse{
+			Message: types.Message{Role: "assistant", Content: "this is bad content"},
+		}
+		decision := hook.AfterCall(context.Background(), nil, resp)
+		assert.True(t, decision.Enforced)
+		assert.Equal(t, "Custom blocked response", resp.Message.Content,
+			"the validator's own message field must reach the guardrail, not just params.message")
+	})
+
+	// params.message is the compiled spelling; when both are present it is the
+	// same string, but the top-level field is the author's and wins.
+	t.Run("top-level message wins over params message", func(t *testing.T) {
+		prompt := &pack.Prompt{
+			Validators: []*pack.Validator{
+				{
+					Type:    "banned_words",
+					Enabled: packspec.Ptr(true),
+					Message: "From the validator field",
+					Params: map[string]any{
+						"patterns": []any{"bad"},
+						"message":  "From params",
+					},
+				},
+			},
+		}
+		cfg := &config{}
+		convertPackValidatorsToHooks(prompt, cfg)
+		require.Len(t, cfg.providerHooks, 1)
+
+		resp := &hooks.ProviderResponse{
+			Message: types.Message{Role: "assistant", Content: "this is bad content"},
+		}
+		cfg.providerHooks[0].AfterCall(context.Background(), nil, resp)
+		assert.Equal(t, "From the validator field", resp.Message.Content)
+	})
+
 	t.Run("default message used when params has no message", func(t *testing.T) {
 		prompt := &pack.Prompt{
 			Validators: []*pack.Validator{

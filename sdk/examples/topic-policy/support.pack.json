@@ -1,0 +1,38 @@
+{
+  "$schema": "https://promptpack.org/schema/v1.2/promptpack.schema.json",
+  "id": "topic-policy-demo",
+  "name": "Topic Policy Demo",
+  "version": "1.0.0",
+  "description": "A support agent confined to a declared subject scope by the topic_policy guardrail.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "support": {
+      "id": "support",
+      "name": "Support",
+      "version": "1.0.0",
+      "system_template": "You are a support agent for AltairaLabs. Answer questions about Omnia and PromptKit.",
+      "validators": [
+        {
+          "type": "topic_policy",
+          "message": "I can only help with AltairaLabs products — Omnia, PromptKit, licensing and support.",
+          "params": {
+            "description": "Helps users evaluate and operate AltairaLabs products.",
+            "allowed": [
+              "Omnia and PromptKit",
+              "licensing and support"
+            ],
+            "disallowed": [
+              "politics",
+              "medical advice"
+            ],
+            "small_talk": "allow",
+            "recent_turns": 4
+          }
+        }
+      ]
+    }
+  }
+}
