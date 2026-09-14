@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -266,6 +267,54 @@ func (p *Provider) applyRequestDefaults(
 	return temperature, topP, maxTokens
 }
 
+// configInt reads an integer from additional_config across the shapes a config
+// decoder produces. A bare `.(int)` assertion is right for YAML and wrong for
+// JSON, which decodes every number to float64 — so best_of worked from a
+// *.provider.yaml and was silently dropped from the equivalent JSON, with no
+// error either way. A non-integral float is refused rather than truncated.
+func configInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		if n != math.Trunc(n) {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+// configStrings reads a string list from additional_config. Both YAML and JSON
+// decode a sequence to []any, never []string, so the []string assertion this
+// replaces could not match anything a config file produced — guided_choice was
+// settable only from hand-written Go.
+//
+// A sequence carrying a non-string element is refused whole: silently keeping
+// the string elements would enforce a narrower choice list than the author
+// wrote, which for guided decoding changes what the model may answer.
+func configStrings(v any) ([]string, bool) {
+	switch list := v.(type) {
+	case []string:
+		return list, true
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
 // buildRequest creates a vLLM request with optional vLLM-specific parameters
 //
 //nolint:gocognit // complexity from vLLM-specific parameter extraction
@@ -295,7 +344,7 @@ func (p *Provider) buildRequest( // NOSONAR
 		if useBeamSearch, ok := p.additionalConfig["use_beam_search"].(bool); ok {
 			vllmReq.UseBeamSearch = useBeamSearch
 		}
-		if bestOf, ok := p.additionalConfig["best_of"].(int); ok {
+		if bestOf, ok := configInt(p.additionalConfig["best_of"]); ok {
 			vllmReq.BestOf = bestOf
 		}
 		if ignoreEOS, ok := p.additionalConfig["ignore_eos"].(bool); ok {
@@ -313,7 +362,7 @@ func (p *Provider) buildRequest( // NOSONAR
 		if guidedGrammar, ok := p.additionalConfig["guided_grammar"].(string); ok {
 			vllmReq.GuidedGrammar = guidedGrammar
 		}
-		if guidedChoice, ok := p.additionalConfig["guided_choice"].([]string); ok {
+		if guidedChoice, ok := configStrings(p.additionalConfig["guided_choice"]); ok {
 			vllmReq.GuidedChoice = guidedChoice
 		}
 	}

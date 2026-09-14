@@ -79,7 +79,48 @@ For duplex/voice pipelines, PromptKit emits **direct-update** health metrics —
 reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", nil))
 ```
 
-`direction` is `input` or `output`; these metrics are never labeled by stream/session ID (bounded cardinality). See the [Metrics Reference](/runtime/reference/metrics/#realtime-audio-health-metrics) for the off-bus rationale and label semantics.
+#### Why these are off the event bus
+
+Every other metric on this page is derived from events. These are not, and the
+difference matters precisely when you need them.
+
+The event bus drops events when its buffer is full, counting the casualties in
+`DroppedCount()`. That is the correct behavior — a realtime audio pipeline must
+not block on telemetry — but it means bus-derived metrics under-report exactly
+during the burst that caused the drop. An audio underrun metric that loses
+counts when audio is struggling measures the wrong thing at the only moment it
+is being read.
+
+So these four counters are incremented inline at the point of failure, with no
+event in between. They stay accurate while the bus is shedding load. The
+event-bus saturation counter (`{ns}_eventbus_events_dropped_total`) is the
+companion signal: pull-based, read from `DroppedCount()` at scrape time, no
+goroutine and no per-event work. A rise there tells you how much to distrust
+every *other* metric on this page — which is why it is worth registering even
+though it costs an extra line.
+
+#### Label semantics
+
+`direction` is `input` (audio arriving from the user) or `output` (audio being
+played back). Nothing else appears in it.
+
+There is deliberately **no stream, session, or conversation label**. A realtime
+deployment opens one session per call, so a session-labeled counter grows a new
+time series per call and never stops — the classic unbounded-cardinality
+failure, which takes the whole Prometheus instance down rather than just this
+metric. Aggregate health is the question these answer: *is audio breaking up
+right now, in which direction*. Attributing a stutter to one specific call is a
+tracing question, and the span carries the session ID.
+
+`reason` appears only on `{ns}_audio_frame_drops_total`, and is `overflow` — the
+producer outran the buffer. It is a label rather than a separate metric so that
+a second cause can be added later without breaking a dashboard.
+
+Read them as a pair rather than individually: `audio_frame_underruns_total`
+counts stutter *events* and `audio_frame_underrun_samples_total` their
+*magnitude*, so a rising underrun count with flat samples is many tiny gaps,
+while the reverse is a few long silences. The first is usually pacing jitter and
+the second usually a stalled producer.
 
 ### Eval Metrics
 

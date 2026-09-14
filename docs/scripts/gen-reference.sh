@@ -17,6 +17,7 @@ MAP=(
   "./tools|tools|Tools|9"
   "./mcp|mcp|MCP|10"
   "./hooks|hooks|Hooks|5"
+  "./evals|evals|Evals|20"
   "./statestore|statestore|State Store|6"
   "./storage|storage|Storage|11"
   "./a2a|a2a|A2A|4"

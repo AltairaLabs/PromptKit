@@ -444,7 +444,46 @@ docker run --rm --gpus all \
 - Multi-GPU tensor parallelism
 - High-throughput continuous batching
 
-See [Provider Reference](/runtime/reference/providers#vllm-provider) for full vLLM configuration options.
+#### vLLM `additional_config` keys
+
+Everything vLLM-specific rides in `additional_config`. These are the keys the
+provider reads; anything else is passed over in silence.
+
+| Key | Type | Effect |
+|-----|------|--------|
+| `api_key` | string | Bearer token for a vLLM server started with `--api-key`. Read once at construction. |
+| `use_beam_search` | bool | Beam search instead of sampling. Higher quality, higher latency. |
+| `best_of` | int | Generate *n* candidates server-side and return the best. Costs *n*× the compute. |
+| `ignore_eos` | bool | Keep generating past the EOS token, up to `max_tokens`. |
+| `skip_special_tokens` | bool | Strip special tokens from the returned text. |
+| `guided_json` | object | JSON Schema the output must satisfy. |
+| `guided_regex` | string | Regex the output must match. |
+| `guided_grammar` | string | GBNF grammar the output must follow. |
+| `guided_choice` | string[] | Closed set of permitted answers. |
+
+The four `guided_*` keys are mutually exclusive — vLLM applies one decoding
+constraint per request. Guided decoding is enforced by the server, so unlike a
+prompt instruction it cannot be ignored by the model.
+
+```yaml
+id: local-llama
+type: vllm
+model: meta-llama/Llama-3.2-3B-Instruct
+base_url: http://localhost:8000
+additional_config:
+  guided_choice: [refund, exchange, escalate]
+  best_of: 4
+```
+
+A value of the wrong type is ignored rather than rejected, so a key that does
+not take effect is worth checking against the table above before suspecting
+the server. Two shapes are read leniently because a config decoder has no
+choice about what it produces: `best_of` accepts a JSON number (JSON decodes
+every number to a float, so an integer literal arrives as `4.0`) but refuses a
+fractional one, and `guided_choice` accepts the untyped sequence both YAML and
+JSON produce. A `guided_choice` list containing a non-string is refused whole
+rather than partially applied — a silently shortened choice list changes what
+the model is allowed to answer.
 
 ## Next Steps
 
