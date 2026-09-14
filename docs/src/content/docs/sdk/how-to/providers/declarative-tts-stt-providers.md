@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-The chat-provider and embedding-provider declarative pattern (#979) extends to text-to-speech and speech-to-text. Voice-mode applications no longer need to hard-code provider construction in Go.
+The chat-provider and embedding-provider declarative pattern extends to text-to-speech and speech-to-text. Voice-mode applications no longer need to hard-code provider construction in Go.
 
 ## Quick Start
 

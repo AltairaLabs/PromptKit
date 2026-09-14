@@ -94,9 +94,9 @@ type ProviderConfig struct {
 	// StructuredOutputMode selects when ResponseFormat is applied to a tool
 	// loop. Empty means final_turn — the schema is withheld from tool-calling
 	// rounds and the final answer is re-asked under it, because a schema on
-	// every round suppresses tool calling. See structured_output_mode.go and
-	// issue #1853. Ignored when ResponseFormat is nil or the turn uses no
-	// tools, where there is no loop to protect.
+	// every round suppresses tool calling. See structured_output_mode.go.
+	// Ignored when ResponseFormat is nil or the turn uses no tools, where
+	// there is no loop to protect.
 	StructuredOutputMode StructuredOutputMode
 	Labels               map[string]string // Optional labels propagated to events, metrics, and traces
 	Source               string            // Origin of the call: "agent" (default), "judge", "selfplay"
@@ -141,7 +141,7 @@ type ProviderConfig struct {
 	// turn is running: a skill is usually activated by a tool call in round 1
 	// and its tools must be offered in round 2 of the same Send. The stage
 	// merges the grants into allowedTools on every build and rebuilds the
-	// tools array after any tool round that changed them (#1957). Grants are
+	// tools array after any tool round that changed them. Grants are
 	// applied after ToolSelector narrowing, so a selector never hides a tool
 	// the model was just told it gained.
 	ToolGrants func() []string

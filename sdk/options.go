@@ -2803,9 +2803,9 @@ func WithResponseFormat(format *providers.ResponseFormat) Option {
 // The default, "final_turn", withholds the schema from tool-calling rounds and
 // re-asks the final answer under it. A schema applied to every round competes
 // with tool calling and suppresses it — silently, intermittently, and more the
-// more work the task requires. See issue #1853.
+// more work the task requires.
 //
-// "every_round" restores the pre-#1853 behavior. It is an escape hatch for
+// "every_round" restores the older behavior. It is an escape hatch for
 // pinning old behavior without waiting on a release, not a supported
 // alternative: it is the configuration that loses tool calls.
 //

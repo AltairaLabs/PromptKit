@@ -18,6 +18,41 @@ const includeExternal = process.env.CHECK_LINKS_INCLUDE_EXTERNAL === '1';
 const port = Number(process.env.CHECK_LINKS_PORT ?? '4321');
 const baseURL = `http://localhost:${port}/`;
 
+// Readiness is decided by polling the port, not by parsing astro's output.
+// Recent astro versions run `preview` as a detached daemon: the spawned
+// process exits immediately after handing off, and prints a JSON log line
+// rather than the plain "ready" line this used to match. Both broke the old
+// detection — the run failed with "astro preview exited before becoming
+// ready" even on a free port. An HTTP probe is independent of log format and
+// of whether the server daemonized.
+const probe = async () => {
+  try {
+    const res = await fetch(baseURL, { method: 'HEAD' });
+    return res.ok || res.status === 404; // serving, even if / is not a page
+  } catch {
+    return false;
+  }
+};
+
+const run = (args) =>
+  new Promise((resolve) => {
+    const p = spawn('npx', ['astro', ...args], { stdio: 'ignore' });
+    once(p, 'exit').then(() => resolve());
+  });
+
+// A daemon left over from an earlier run holds the port and is not ours to
+// crawl — its dist may be stale. Stop it before checking whether anything
+// else is listening.
+await run(['preview', 'stop']);
+
+if (await probe()) {
+  console.error(
+    `Error: something is already serving ${baseURL}. ` +
+    `Stop it, or set CHECK_LINKS_PORT to a free port.`,
+  );
+  process.exit(1);
+}
+
 console.log(`🚀 Starting preview server on port ${port}...`);
 const server = spawn(
   'npx',
@@ -27,53 +62,25 @@ const server = spawn(
     stdio: ['ignore', 'pipe', 'pipe'],
   },
 );
+server.stdout.on('data', (c) => process.stdout.write(c));
+server.stderr.on('data', (c) => process.stdout.write(c));
 
-// Wait until the preview server reports it's listening on the expected
-// port — if astro falls back to a different port (because ours is taken),
-// fail fast rather than silently crawling the wrong content. Astro emits
-// its "ready" line with ANSI color codes in both CI and local shells, so
-// strip those before matching.
-const stripAnsi = (s) => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
-const readyRegex = new RegExp(`http://localhost:${port}/`);
-const fallbackRegex = /http:\/\/localhost:(\d+)\//;
-let ready = false;
-let fallbackPort;
+// If astro falls back to another port because ours is taken, nothing ever
+// answers ours and this times out — which is the same outcome the old
+// fallback check produced, without having to recognize the message.
+const readyPromise = (async () => {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await probe()) return;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`astro preview did not become ready on port ${port} within 30s`);
+})();
 
-const readyPromise = new Promise((resolve, reject) => {
-  const onData = (chunk) => {
-    const raw = chunk.toString();
-    process.stdout.write(raw);
-    const text = stripAnsi(raw);
-    if (readyRegex.test(text)) {
-      ready = true;
-      resolve();
-      return;
-    }
-    const match = text.match(fallbackRegex);
-    if (match && match[1] !== String(port)) {
-      fallbackPort = match[1];
-      reject(
-        new Error(
-          `astro preview fell back to port ${fallbackPort} because ${port} is busy. ` +
-          `Set CHECK_LINKS_PORT to a free port or stop the process using ${port}.`,
-        ),
-      );
-    }
-  };
-  server.stdout.on('data', onData);
-  server.stderr.on('data', onData);
-  once(server, 'exit').then(() => {
-    if (!ready) {
-      reject(new Error('astro preview exited before becoming ready'));
-    }
-  });
-  // Safety net — reject if the server never reports ready.
-  setTimeout(() => {
-    if (!ready) {
-      reject(new Error(`astro preview did not become ready on port ${port} within 30s`));
-    }
-  }, 30_000);
-});
+// Set rather than exited on: process.exit() skips the finally block below,
+// which is how a previous run could leave the preview daemon holding the port
+// and fail the next one before it started.
+let exitCode = 1;
 
 try {
   await readyPromise;
@@ -104,8 +111,8 @@ try {
 
   if (brokenLinks.length === 0) {
     console.log('✅ No broken links found!');
-    process.exit(0);
-  }
+    exitCode = 0;
+  } else {
 
   // Group by broken URL
   const linksByUrl = new Map();
@@ -161,14 +168,20 @@ try {
     }
   }
 
-  process.exit(1);
+    exitCode = 1;
+  }
 } catch (error) {
   console.error('Error:', error.message);
-  process.exit(1);
+  exitCode = 1;
 } finally {
+  // Both forms: `preview stop` reaches the daemon, the group kill reaches an
+  // older astro that stayed in the foreground.
+  await run(['preview', 'stop']);
   try {
     process.kill(-server.pid);
-  } catch (e) {
-    // Ignore
+  } catch {
+    // Already gone.
   }
 }
+
+process.exit(exitCode);

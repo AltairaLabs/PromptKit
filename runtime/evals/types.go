@@ -344,8 +344,8 @@ type EvalResult struct {
 	// one to a consumer. See TestExecuteHandler_StripsPassedFromAPlainEval.
 	//
 	// It is also not DERIVED. Deriving it is how an llm_judge scoring 0.9 came
-	// to be reported as FAILED (#1861): `score >= 1.0` is the assertion's
-	// default threshold showing through, not a judgement anyone made.
+	// to be reported as FAILED: `score >= 1.0` is the assertion's default
+	// threshold showing through, not a judgement anyone made.
 	Passed *bool `json:"passed,omitempty"`
 
 	Score *float64 `json:"score,omitempty"`
@@ -357,8 +357,8 @@ type EvalResult struct {
 	// A wrapper does not overwrite it. The assertion wrapper used to replace it
 	// with its own boolean, destroying the inner eval's output — the judge
 	// reasoning, the rubric breakdown — so the richest thing an eval produced
-	// was thrown away by the act of asserting on it (#1875). The boolean now
-	// has its own field, above.
+	// was thrown away by the act of asserting on it. The boolean now has its
+	// own field, above.
 	Value       any      `json:"value,omitempty"`
 	MetricValue *float64 `json:"metric_value,omitempty"`
 	Explanation string   `json:"explanation,omitempty"`

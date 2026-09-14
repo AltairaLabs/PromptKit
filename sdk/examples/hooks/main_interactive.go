@@ -125,7 +125,7 @@ func hookDenialReason(err error) (string, bool) {
 //
 // A blocked turn is also visible through resp.Message().FinishReason, which
 // the pipeline sets to types.FinishReasonSafety — on both the Send() and the
-// Stream() path (#1681, #1715). Use that when all you need is "was this turn
+// Stream() path. Use that when all you need is "was this turn
 // blocked?". Validations() is the complementary signal, and the only one that
 // names WHICH guardrail fired, which is what this helper returns.
 //

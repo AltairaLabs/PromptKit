@@ -1,8 +1,8 @@
 # Selector Examples
 
-Reference implementations of the `selection.Selector` interface
-(see issue #980). PromptKit core ships only the exec client; everything
-in here is example code consumers can copy, adapt, or import directly.
+Reference implementations of the `selection.Selector` interface.
+PromptKit core ships only the exec client; everything in here is example
+code consumers can copy, adapt, or import directly.
 
 Two patterns covered:
 

@@ -1344,7 +1344,14 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
 	for _, v := range p.Validators {
 		specs = append(specs, rtprompt.ValidatorConfig{
-			Type:    v.Type,
+			Type: v.Type,
+			// Message is a field ON the validator in the spec, not a param.
+			// PackCompiler folds it into params (foldValidatorMessages), so a
+			// compiled pack carries it either way — but a hand-authored pack,
+			// which is every example and the form the docs call normal, carries
+			// it only here. Dropping it replaced the author's wording with the
+			// generic blocked message and reported success.
+			Message: v.Message,
 			Params:  v.Params,
 			Enabled: v.Enabled,
 		})

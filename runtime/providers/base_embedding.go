@@ -148,7 +148,7 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 // ProviderTransportError, not a bare fmt.Errorf, because that is the type
 // whose Error() redacts credential-bearing query parameters. A plain wrap
 // formats the raw *url.Error — full URL included — straight into the message,
-// which is how a live key reached the logs in #1871. It also makes these
+// which is how a live key once reached the logs. It also makes these
 // failures classifiable by IsTransient, like every other provider path.
 func DoAncillaryJSONRequest(
 	ctx context.Context,
