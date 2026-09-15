@@ -198,6 +198,76 @@ func TestTopicPolicy_SendsPolicyAndBoundedHistory(t *testing.T) {
 	assert.Equal(t, classify.SmallTalkAllow, fake.seen.Policy.SmallTalk)
 }
 
+// TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory — a denied turn is
+// persisted with the validator's message as the assistant reply and
+// FinishReason "safety". Replaying that to the classifier would present the
+// guardrail's own output as the agent's voice, spend the anaphora window on a
+// refusal with no subject in it, and disclose prior denials.
+//
+// The real agent turn either side must survive, or this would be indis-
+// tinguishable from dropping assistant history altogether.
+func TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory(t *testing.T) {
+	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	h := &handlers.TopicPolicyHandler{}
+
+	history := []types.Message{
+		{Role: "user", Content: "Can Omnia run on OpenShift?"},
+		{Role: "assistant", Content: "Yes, on 4.14 and later.", FinishReason: types.FinishReasonStop},
+		{Role: "user", Content: "Who should I vote for?"},
+		{
+			Role:         "assistant",
+			Content:      "I can only help with AltairaLabs products.",
+			FinishReason: types.FinishReasonSafety,
+		},
+	}
+	_, err := h.Eval(
+		ctxWithTopic(t, fake),
+		topicEvalCtx("What about Azure?", history...),
+		topicParams(map[string]any{"recent_turns": 4}),
+	)
+	require.NoError(t, err)
+
+	var texts []string
+	for _, turn := range fake.seen.History {
+		texts = append(texts, turn.Text)
+	}
+	assert.NotContains(t, texts, "I can only help with AltairaLabs products.",
+		"the guardrail's own substituted reply is not the agent's voice")
+	assert.Equal(t,
+		[]string{"Can Omnia run on OpenShift?", "Yes, on 4.14 and later.", "Who should I vote for?"},
+		texts,
+		"every genuine turn survives, including the user message that was denied")
+}
+
+// TestTopicPolicy_BlockedTurnDoesNotConsumeTheWindow — the filter runs before
+// the recent_turns slice, so a blocked turn does not evict real history. With
+// the order reversed, recent_turns: 2 here would yield a single turn.
+func TestTopicPolicy_BlockedTurnDoesNotConsumeTheWindow(t *testing.T) {
+	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	h := &handlers.TopicPolicyHandler{}
+
+	history := []types.Message{
+		{Role: "user", Content: "Can Omnia run on OpenShift?"},
+		{Role: "assistant", Content: "Yes, on 4.14 and later.", FinishReason: types.FinishReasonStop},
+		{Role: "user", Content: "Who should I vote for?"},
+		{Role: "assistant", Content: "Blocked.", FinishReason: types.FinishReasonSafety},
+	}
+	_, err := h.Eval(
+		ctxWithTopic(t, fake),
+		topicEvalCtx("What about Azure?", history...),
+		topicParams(map[string]any{"recent_turns": 2}),
+	)
+	require.NoError(t, err)
+
+	var texts []string
+	for _, turn := range fake.seen.History {
+		texts = append(texts, turn.Text)
+	}
+	assert.Equal(t, []string{"Yes, on 4.14 and later.", "Who should I vote for?"}, texts,
+		"the window holds the last two REAL turns; filtering before slicing is what "+
+			"keeps the blocked turn from costing one of them")
+}
+
 func TestTopicPolicy_RecentTurnsZeroSendsNoHistory(t *testing.T) {
 	fake := &fakeTopicClassifier{decision: classify.TopicDeny}
 	h := &handlers.TopicPolicyHandler{}

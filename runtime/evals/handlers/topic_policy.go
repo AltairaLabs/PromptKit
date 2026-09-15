@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TopicPolicyHandler confines a conversation to a declared subject scope,
@@ -308,6 +309,9 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 		if !isTopicConversationRole(history[i].Role) {
 			continue
 		}
+		if isSubstitutedAssistantTurn(history[i]) {
+			continue
+		}
 		text := history[i].GetContent()
 		if text == "" {
 			continue
@@ -322,4 +326,29 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 
 func isTopicConversationRole(role string) bool {
 	return role == roleUser || role == roleAssistant
+}
+
+// isSubstitutedAssistantTurn reports whether an assistant message is a blocked
+// turn's replacement text rather than something the agent generated.
+//
+// A denied turn is persisted with the validator's message as the assistant
+// reply and FinishReason "safety", so on the NEXT turn it would otherwise be
+// replayed to the classifier as the agent's own voice. Two reasons not to:
+//
+//   - It is not the agent's voice. The window that exists to resolve "what
+//     about that one?" gets spent on a refusal with no subject in it, and with
+//     a user who keeps trying, the whole window fills with identical refusals
+//     while the real history is evicted.
+//   - It discloses prior denials to the classifier, which the policy never
+//     asked to convey.
+//
+// Providers set the same FinishReason for model-side content filtering, and
+// those turns are excluded too. That is the same call for the same reason:
+// whatever text a filtered turn carries, it is not a substantive answer, so it
+// is not useful history for deciding what the conversation is about.
+//
+// The user's message that was denied is NOT filtered — it is genuinely what
+// the user said, and it is what an anaphoric follow-up may refer back to.
+func isSubstitutedAssistantTurn(m types.Message) bool {
+	return m.Role == roleAssistant && m.FinishReason == types.FinishReasonSafety
 }

@@ -679,6 +679,16 @@ messages. Tool-result messages in the transcript are filtered out before the
 window is applied, so a turn answered with several tool calls does not evict the
 history an anaphoric follow-up ("What about Azure?") needs to be resolved.
 
+**A previously blocked turn's replacement text is not replayed.** A denied turn
+is persisted with this check's own `message` as the assistant reply; sending it
+back as history would present the guardrail's output to the classifier as the
+agent's voice, spend the anaphora window on a refusal with no subject in it, and
+disclose prior denials the policy never asked to convey. Assistant messages
+finishing for `safety` — this check's substitutions, and provider-side content
+filtering — are dropped before the window is applied, so they do not cost a
+turn either. The user's denied *message* is kept: it is genuinely what the user
+said, and it is what a follow-up may refer back to.
+
 **`on_unknown` and `on_error` describe the same event today.** They are
 conceptually different — `on_unknown` covers a classifier that answered but
 gave no usable label, `on_error` covers a classifier that could not be
