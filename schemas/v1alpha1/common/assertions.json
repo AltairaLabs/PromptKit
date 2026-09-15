@@ -114,6 +114,7 @@
             "tools_not_called",
             "tools_not_called_session",
             "tools_not_called_with_args",
+            "topic_policy",
             "toxicity",
             "transitioned_to",
             "valid_json",
