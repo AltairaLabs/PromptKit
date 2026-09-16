@@ -384,11 +384,40 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
 	return result
 }
 
-// RegisterExecutor registers a tool executor.
+// RegisterExecutor registers a tool executor under its [Executor.Name].
+//
+// A registry holds exactly one executor per name, so registering a second one
+// under a name already taken EVICTS the first. That is almost always a bug:
+// two owners -- typically two conversations sharing a registry -- each believe
+// they installed the executor that serves their tool calls, and the loser
+// silently starts getting the winner's answers, along with whatever
+// per-conversation state the winner's executor holds. Every bug in
+// AltairaLabs/PromptKit#2011 was that, and all of them were invisible because
+// this used to overwrite without a word.
+//
+// So it now says so, at Warn. Nothing in PromptKit legitimately re-registers a
+// name on the same registry -- each conversation owns its own (see
+// [Registry.Child]), and a workflow state change opens a fresh conversation with
+// a fresh registry -- so in practice this fires only on the bug.
 func (r *Registry) RegisterExecutor(executor Executor) {
+	if executor == nil {
+		return
+	}
+	name := executor.Name()
+
 	r.mu.Lock()
-	r.executors[executor.Name()] = executor
+	previous, existed := r.executors[name]
+	r.executors[name] = executor
 	r.mu.Unlock()
+
+	if existed && previous != executor {
+		logger.Warn("tool executor replaced: the previous one will no longer receive calls",
+			"executor", name,
+			"previous_type", fmt.Sprintf("%T", previous),
+			"new_type", fmt.Sprintf("%T", executor),
+			"hint", "two owners sharing one registry? give each its own via Registry.Child(); "+
+				"if this replacement is intended, use ReplaceExecutor")
+	}
 }
 
 // MaxToolResultSize returns the configured maximum tool result size in bytes.
