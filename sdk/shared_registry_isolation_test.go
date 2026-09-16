@@ -141,37 +141,3 @@ func sharedPackRegistry(t *testing.T) *tools.Registry {
 	}
 	return reg
 }
-
-// The nil guards on the accessor context are reachable: a nil conversation
-// attaches nothing, and a context with no accessors reports none, which is what
-// keeps the pre-existing snapshot-then-live path alive for hosts that never
-// go through Send (direct registry use, tests, embedded pipelines).
-func TestConversationHandlersContext_NilIsANoOp(t *testing.T) {
-	ctx := context.Background()
-
-	assert.Nil(t, conversationHandlersFromContext(ctx))
-	assert.Equal(t, ctx, withLocalHandlers(ctx, nil))
-	//nolint:staticcheck // deliberately probing the nil-context guard
-	assert.Nil(t, conversationHandlersFromContext(nil))
-}
-
-// An executor with accessors on the context but no matching handler still
-// reports the tool as unhandled, rather than silently succeeding.
-func TestLocalHandlers_UnhandledToolStillErrors(t *testing.T) {
-	packPath := writeWorkflowTestPack(t, toolGrantPackJSON)
-	conv, err := Open(packPath, "chat",
-		WithProvider(newCallOnceProvider("lookup_order")),
-		WithSkipSchemaValidation(),
-		WithToolRegistry(sharedPackRegistry(t)),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-
-	own := conversationHandlersFromContext(withLocalHandlers(context.Background(), conv))
-	require.NotNil(t, own)
-
-	_, ok := own.local.getHandler("lookup_order")
-	assert.False(t, ok, "no handler was registered")
-	_, ok = own.client.getHandler("lookup_order")
-	assert.False(t, ok, "no client handler was registered")
-}

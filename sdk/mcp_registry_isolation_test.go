@@ -93,7 +93,8 @@ func TestMCPRouting_DoesNotLeakAcrossASharedRegistry(t *testing.T) {
 	alice, aliceProv := open("alice")
 	open("bob") // registers second, overwriting the "mcp" executor by name
 
-	aliceProv.toolName = firstMCPTool(t, shared)
+	// The MCP descriptors land in alice's own child registry, not the host's.
+	aliceProv.toolName = firstMCPTool(t, alice.ToolRegistry())
 
 	_, err := alice.Send(context.Background(), "ping it")
 	require.NoError(t, err)

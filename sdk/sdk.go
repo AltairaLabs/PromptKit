@@ -242,9 +242,16 @@ func initConversation(
 	// don't implement MediaStorageConfigurable are skipped.
 	applyMediaStorageToPool(cfg)
 
-	// Use caller-provided tool registry or create a new one from the pack.
-	toolReg := cfg.toolRegistry
-	if toolReg == nil {
+	// Every conversation gets its OWN registry. When the host supplied one
+	// (WithToolRegistry), take a child of it: the child inherits the host's tool
+	// descriptors and executors but owns the ones this conversation registers,
+	// so two conversations over one host registry no longer overwrite each
+	// other's executors -- and with them the per-conversation state those
+	// executors hold. See #2011.
+	var toolReg *tools.Registry
+	if cfg.toolRegistry != nil {
+		toolReg = cfg.toolRegistry.Child()
+	} else {
 		toolReg = tools.NewRegistryWithRepository(pack.ToToolRepository(p))
 	}
 

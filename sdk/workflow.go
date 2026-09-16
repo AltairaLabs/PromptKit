@@ -573,11 +573,6 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	registry.RegisterExecutor(wc.artifactExec)
 	workflow.RegisterArtifactTool(registry, wc.workflowSpec)
 
-	// Bind these to the conversation so its tool calls reach THIS state
-	// machine even when another workflow conversation registered over the same
-	// shared registry (#2011).
-	wc.activeConv.setWorkflowExecutors(wc.transExec, wc.artifactExec)
-
 	// Hand the provider tool loop a resolver so a transition applies mid-turn
 	// and the destination state generates the next round. The pipeline was
 	// built against the conversation's holder before transExec existed, so

@@ -1215,7 +1215,7 @@ type ClientToolRequestEvent struct {
 ```
 
 <a name="Conversation"></a>
-## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L110-L201>)
+## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L109-L195>)
 
 Conversation represents an active LLM conversation.
 
@@ -1296,7 +1296,7 @@ The packPath can be:
 The promptName must match a prompt ID defined in the pack's "prompts" section.
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1189>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1196>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1383,7 +1383,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1088>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1095>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1410,7 +1410,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1163>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1170>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1441,7 +1441,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 The persisted message history is seeded into the duplex pipeline by the same StateStore load stage that the unary path uses; no separate replay is needed.
 
 <a name="Conversation.Clear"></a>
-### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1247>)
+### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1221>)
 
 ```go
 func (c *Conversation) Clear() error
@@ -1452,7 +1452,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1435>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1409>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1506,7 +1506,7 @@ for chunk := range conv.Response() {
 ```
 
 <a name="Conversation.Done"></a>
-### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1114>)
+### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1088>)
 
 ```go
 func (c *Conversation) Done() (<-chan struct{}, error)
@@ -1515,7 +1515,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1552>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1526>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1534,7 +1534,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.Fork"></a>
-### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1282>)
+### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1256>)
 
 ```go
 func (c *Conversation) Fork() (*Conversation, error)
@@ -1558,7 +1558,7 @@ branch.Send(ctx, "Tell me about Kyoto")   // Branch path
 The forked conversation is completely independent \- changes to one do not affect the other.
 
 <a name="Conversation.GetVar"></a>
-### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1217>)
+### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1191>)
 
 ```go
 func (c *Conversation) GetVar(name string) (string, bool)
@@ -1582,7 +1582,7 @@ Nothing in PromptKit acts on the result. RFC 0013 is explicit that a governance 
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1538>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1512>)
 
 ```go
 func (c *Conversation) ID() string
@@ -1591,7 +1591,7 @@ func (c *Conversation) ID() string
 ID returns the conversation's unique identifier.
 
 <a name="Conversation.Messages"></a>
-### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1230>)
+### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1204>)
 
 ```go
 func (c *Conversation) Messages(ctx context.Context) []types.Message
@@ -1808,7 +1808,7 @@ func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToo
 PendingTools returns all pending tool calls awaiting approval for this conversation. With a durable store this reflects calls held by any instance, including ones that survived a restart. Returns nil \(no error\) when no store is configured.
 
 <a name="Conversation.RejectClientTool"></a>
-### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L253>)
+### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L248>)
 
 ```go
 func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string)
@@ -1909,7 +1909,7 @@ resp, _ = conv.Continue(ctx)
 ```
 
 <a name="Conversation.Response"></a>
-### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1101>)
+### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1075>)
 
 ```go
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error)
@@ -1922,7 +1922,7 @@ The caller MUST drain the returned channel for the lifetime of the session, even
 A session whose Response\(\) is never called does not stall — the SDK drops output once the buffer fills, logging a one\-time warning — so call Response\(\) before the session produces output, or early chunks may be dropped.
 
 <a name="Conversation.Resume"></a>
-### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L272>)
+### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L267>)
 
 ```go
 func (c *Conversation) Resume(ctx context.Context) (*Response, error)
@@ -1933,7 +1933,7 @@ Resume continues pipeline execution after all deferred client tools have been re
 The resolved tool results are injected as tool\-result messages and a new LLM round is triggered. The returned Response contains the assistant's reply.
 
 <a name="Conversation.ResumeStream"></a>
-### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L314>)
+### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L309>)
 
 ```go
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk
@@ -1954,7 +1954,7 @@ for chunk := range conv.ResumeStream(ctx) {
 ```
 
 <a name="Conversation.Send"></a>
-### func \(\*Conversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L247>)
+### func \(\*Conversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L241>)
 
 ```go
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -1990,7 +1990,7 @@ Send automatically:
 - Persists state if a state store is configured
 
 <a name="Conversation.SendChunk"></a>
-### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L998>)
+### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L972>)
 
 ```go
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
@@ -1999,7 +1999,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 SendChunk sends a streaming chunk in duplex mode. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.SendFrame"></a>
-### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1033>)
+### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1007>)
 
 ```go
 func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error
@@ -2019,7 +2019,7 @@ conv.SendFrame(ctx, frame)
 ```
 
 <a name="Conversation.SendText"></a>
-### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1011>)
+### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L985>)
 
 ```go
 func (c *Conversation) SendText(ctx context.Context, text string) error
@@ -2028,7 +2028,7 @@ func (c *Conversation) SendText(ctx context.Context, text string) error
 SendText sends text in duplex mode. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.SendToolResult"></a>
-### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L205>)
+### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L200>)
 
 ```go
 func (c *Conversation) SendToolResult(_ context.Context, callID string, result any) error
@@ -2041,7 +2041,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendToolResultMultimodal"></a>
-### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L232>)
+### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L227>)
 
 ```go
 func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string, parts []types.ContentPart) error
@@ -2054,7 +2054,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult, SendToolResultMultimodal, or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendVideoChunk"></a>
-### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1056>)
+### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1030>)
 
 ```go
 func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error
@@ -2075,7 +2075,7 @@ conv.SendVideoChunk(ctx, chunk)
 ```
 
 <a name="Conversation.SessionError"></a>
-### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1128>)
+### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1102>)
 
 ```go
 func (c *Conversation) SessionError() error
@@ -2084,7 +2084,7 @@ func (c *Conversation) SessionError() error
 SessionError returns any error from the duplex session. Only available when the conversation was opened with OpenDuplex\(\). Note: This is named SessionError to avoid conflict with the Error interface method.
 
 <a name="Conversation.SetVar"></a>
-### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1153>)
+### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1127>)
 
 ```go
 func (c *Conversation) SetVar(name, value string)
@@ -2103,7 +2103,7 @@ conv.SetVar("customer_name", "Alice")
 A unary conversation renders the system prompt on every Send, so a value changed between sends changes the next prompt. A duplex conversation \(OpenDuplex\) renders it once, when the first input starts the session, and the provider session is created with that render as its system instruction. Set duplex variables before the first SendChunk/SendText; a later SetVar is stored but never reaches the provider, and the first one is logged at Warn.
 
 <a name="Conversation.SetVars"></a>
-### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1170>)
+### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1144>)
 
 ```go
 func (c *Conversation) SetVars(vars map[string]any)
@@ -2120,7 +2120,7 @@ conv.SetVars(map[string]any{
 ```
 
 <a name="Conversation.SetVarsFromEnv"></a>
-### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1191>)
+### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1165>)
 
 ```go
 func (c *Conversation) SetVarsFromEnv(prefix string)
@@ -2220,7 +2220,7 @@ for _, desc := range registry.Descriptors() {
 ```
 
 <a name="Conversation.TriggerStart"></a>
-### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1078>)
+### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1052>)
 
 ```go
 func (c *Conversation) TriggerStart(ctx context.Context, message string) error
@@ -5675,7 +5675,7 @@ func WithVideoStorageRef(ref, mimeType string) SendOption
 WithVideoStorageRef attaches a video by durable storage reference.
 
 <a name="SessionMode"></a>
-## type [SessionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L55>)
+## type [SessionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L54>)
 
 SessionMode represents the conversation's session mode.
 
@@ -6055,7 +6055,7 @@ func (e *ToolError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="ToolHandler"></a>
-## type [ToolHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L213>)
+## type [ToolHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L207>)
 
 ToolHandler is a function that executes a tool call. It receives the parsed arguments from the LLM and returns a result.
 
@@ -6073,7 +6073,7 @@ type ToolHandler func(args map[string]any) (any, error)
 ```
 
 <a name="ToolHandlerCtx"></a>
-## type [ToolHandlerCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L221>)
+## type [ToolHandlerCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L215>)
 
 ToolHandlerCtx is like [ToolHandler](<#ToolHandler>) but receives a context. Use this when your tool implementation needs context for cancellation or deadlines.
 
@@ -6433,7 +6433,7 @@ wc, err := sdk.ResumeWorkflow("workflow-123", "./support.pack.json",
 ```
 
 <a name="WorkflowConversation.ActiveConversation"></a>
-### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L693>)
+### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L688>)
 
 ```go
 func (wc *WorkflowConversation) ActiveConversation() *Conversation
@@ -6442,7 +6442,7 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation
 ActiveConversation returns the current state's Conversation. Use this to access conversation\-specific methods like SetVar, OnTool, etc.
 
 <a name="WorkflowConversation.AvailableEvents"></a>
-### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L660>)
+### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L655>)
 
 ```go
 func (wc *WorkflowConversation) AvailableEvents() []string
@@ -6451,7 +6451,7 @@ func (wc *WorkflowConversation) AvailableEvents() []string
 AvailableEvents returns the events available in the current state, sorted alphabetically.
 
 <a name="WorkflowConversation.Close"></a>
-### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L700>)
+### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L695>)
 
 ```go
 func (wc *WorkflowConversation) Close() error
@@ -6460,7 +6460,7 @@ func (wc *WorkflowConversation) Close() error
 Close closes the active conversation and marks the workflow as closed.
 
 <a name="WorkflowConversation.Context"></a>
-### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L668>)
+### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L663>)
 
 ```go
 func (wc *WorkflowConversation) Context() *workflow.Context
@@ -6469,7 +6469,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context
 Context returns a snapshot of the workflow execution context including transition history and metadata.
 
 <a name="WorkflowConversation.CurrentPromptTask"></a>
-### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L646>)
+### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L641>)
 
 ```go
 func (wc *WorkflowConversation) CurrentPromptTask() string
@@ -6478,7 +6478,7 @@ func (wc *WorkflowConversation) CurrentPromptTask() string
 CurrentPromptTask returns the prompt\_task for the current state.
 
 <a name="WorkflowConversation.CurrentState"></a>
-### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L639>)
+### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L634>)
 
 ```go
 func (wc *WorkflowConversation) CurrentState() string
@@ -6487,7 +6487,7 @@ func (wc *WorkflowConversation) CurrentState() string
 CurrentState returns the current workflow state name.
 
 <a name="WorkflowConversation.IsComplete"></a>
-### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L653>)
+### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L648>)
 
 ```go
 func (wc *WorkflowConversation) IsComplete() bool
@@ -6496,7 +6496,7 @@ func (wc *WorkflowConversation) IsComplete() bool
 IsComplete returns true if the workflow is in a terminal state \(no outgoing transitions\).
 
 <a name="WorkflowConversation.OrchestrationMode"></a>
-### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L677>)
+### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L672>)
 
 ```go
 func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration

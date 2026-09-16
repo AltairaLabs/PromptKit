@@ -86,6 +86,11 @@ type Registry struct {
 	defaultTimeoutMs  int                        // Default timeout for tools without explicit TimeoutMs
 	maxToolResultSize int                        // Max result size in bytes (0 = unlimited)
 	rateLimiter       *rateLimiter               // Per-tool rate limiter (nil = unlimited)
+	// parent, when set, is the registry this one was derived from with
+	// [Registry.Child]. Descriptor and executor lookups fall through to it for
+	// names this registry does not hold; registration never writes to it. Set
+	// once at construction and read-only thereafter, so it needs no lock.
+	parent *Registry
 }
 
 // NewRegistry creates an empty tool registry.
@@ -166,6 +171,13 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 		return errors.New("tool registry: cannot register a descriptor with an empty name")
 	}
 
+	// A child registry isolates executors, not descriptors: the host that
+	// passed a registry in reads it back to inspect and override the tool set,
+	// so descriptors must land where it can see them. See [Registry.Child].
+	if r.parent != nil {
+		return r.parent.Register(descriptor)
+	}
+
 	// Test validation setup (errors here indicate schema compilation issues, which are acceptable during registration)
 	_ = r.validator.ValidateArgs(descriptor, []byte("{}"))
 
@@ -190,6 +202,12 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 // same store. There is no repository fallback to resurrect the descriptor
 // (#1951).
 func (r *Registry) Unregister(name string) bool {
+	// Descriptors live on the parent (see [Registry.Child]), so removal has to
+	// reach the registry that actually holds them.
+	if r.parent != nil {
+		return r.parent.Unregister(name)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -202,17 +220,15 @@ func (r *Registry) Unregister(name string) bool {
 
 // Get retrieves a tool descriptor by name, or nil when none is registered.
 func (r *Registry) Get(name string) *ToolDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.tools[name]
+	tool, _ := r.lookupTool(name)
+	return tool
 }
 
 // List returns the names of every registered tool, sorted.
 func (r *Registry) List() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
+	visible := r.visibleTools()
+	names := make([]string, 0, len(visible))
+	for name := range visible {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -317,9 +333,7 @@ func (r *Registry) loadJSONTool(filename string, data []byte) error {
 
 // GetTool retrieves a tool descriptor by name.
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
-	r.mu.RLock()
-	tool, exists := r.tools[name]
-	r.mu.RUnlock()
+	tool, exists := r.lookupTool(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
 	}
@@ -330,14 +344,9 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
 // copy (safe to iterate/delete keys), but the *ToolDescriptor pointers are
 // shared with the registry. Callers MUST NOT mutate the returned descriptors.
 func (r *Registry) GetTools() map[string]*ToolDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	// Return a copy to prevent external modification
-	result := make(map[string]*ToolDescriptor, len(r.tools))
-	for name, tool := range r.tools {
-		result[name] = tool
-	}
-	return result
+	// visibleTools already returns a fresh map, and locks each registry in the
+	// parent chain individually.
+	return r.visibleTools()
 }
 
 // IterateTools calls fn for each loaded tool descriptor while holding the
@@ -346,9 +355,7 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor {
 // once (e.g. building a provider tool list).
 // The callback MUST NOT call back into the Registry (deadlock).
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor)) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for name, tool := range r.tools {
+	for name, tool := range r.visibleTools() {
 		fn(name, tool)
 	}
 }
@@ -368,10 +375,8 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error) {
 
 // GetByNamespace returns all tool descriptors in the given namespace.
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	var result []*ToolDescriptor
-	for _, tool := range r.tools {
+	for _, tool := range r.visibleTools() {
 		if tool.Namespace == ns {
 			result = append(result, tool)
 		}
@@ -571,17 +576,20 @@ func (r *Registry) ExecuteAsync(
 // Priority order:
 // 1. Built-in mode mapping (mock, live, mcp) for backwards compatibility
 // 2. If tool.Mode matches a registered executor name, use it (enables custom executors)
+// It resolves through the parent chain (see [Registry.Child]), so a child
+// registry uses its own executors and inherits the parent's for names it never
+// claimed. It takes no lock of its own: every read goes through lookupExecutor,
+// which locks each registry in the chain individually. Holding r.mu here and
+// calling lookupExecutor would re-enter the same RLock, which deadlocks the
+// moment a writer is queued.
 func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	var executorName string
 
 	// First, handle built-in modes with their established mappings
 	switch tool.Mode {
 	case modeClient:
 		// Prefer registered "client" executor (SDK); fall back to mock
-		if _, ok := r.executors["client"]; ok {
+		if _, ok := r.lookupExecutor("client"); ok {
 			executorName = "client"
 		} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 			executorName = executorMockScripted
@@ -608,7 +616,7 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 		executorName = tool.Mode
 	}
 
-	executor, exists := r.executors[executorName]
+	executor, exists := r.lookupExecutor(executorName)
 	if !exists {
 		return nil, fmt.Errorf("executor %s not available for tool %s", executorName, tool.Name)
 	}

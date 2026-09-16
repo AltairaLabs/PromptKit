@@ -76,15 +76,8 @@ func (e *TransitionExecutor) Name() string { return TransitionExecutorMode }
 // surfaced to the new conversation as the `workflow_context` template
 // variable when the consumer opens it.
 func (e *TransitionExecutor) Execute(
-	ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage,
+	_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
-	// The caller's own executor wins: this instance may belong to a different
-	// conversation that registered over the same shared registry, and the
-	// transition would then be pending on the wrong state machine (#2011).
-	if target := transitionExecutorFromCtx(ctx); target != nil && target != e {
-		return target.Execute(context.WithValue(ctx, transitionExecutorKey{}, target), desc, args)
-	}
-
 	var a struct {
 		Event   string `json:"event"`
 		Context string `json:"context"`

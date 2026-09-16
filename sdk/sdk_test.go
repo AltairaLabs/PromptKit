@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -208,14 +209,74 @@ func TestWithToolRegistry_Applied(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// The conversation's tool registry should be the one we provided
-	assert.Same(t, customRegistry, conv.ToolRegistry(),
-		"WithToolRegistry should apply the provided registry, not create a new one")
+	// The conversation gets a CHILD of the supplied registry, not the registry
+	// itself: executors registered per conversation must not overwrite another
+	// conversation's (#2011). Pointer identity is therefore no longer part of
+	// the contract — everything the host actually relies on is.
+	assert.NotSame(t, customRegistry, conv.ToolRegistry(),
+		"each conversation owns its executors, so it gets a child of the host's registry")
 
-	// The custom tool should be accessible
+	// The host's tools are visible to the conversation...
 	td := conv.ToolRegistry().Get("custom_tool")
 	require.NotNil(t, td, "custom_tool should be available in the conversation's registry")
 	assert.Equal(t, "A custom tool registered via WithToolRegistry", td.Description)
+	assert.Contains(t, conv.ToolRegistry().List(), "custom_tool")
+
+	// ...and what the conversation registers stays visible to the host, which
+	// is what WithToolRegistry is for: inspecting and overriding the tool set.
+	require.NoError(t, conv.ToolRegistry().Register(&tools.ToolDescriptor{
+		Name:        "added_by_conversation",
+		Description: "registered after open",
+		InputSchema: []byte(`{"type":"object"}`),
+	}))
+	assert.NotNil(t, customRegistry.Get("added_by_conversation"),
+		"descriptors register through to the host's registry")
+}
+
+// A host's own executor on the supplied registry is still used: the child
+// inherits executors for every name it does not itself register.
+func TestWithToolRegistry_HostExecutorStillUsed(t *testing.T) {
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {"main": {"system_template": "You are helpful."}}
+	}`
+	require.NoError(t, os.WriteFile(packFile, []byte(packContent), 0o644))
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	hostRegistry := tools.NewRegistry()
+	require.NoError(t, hostRegistry.Register(&tools.ToolDescriptor{
+		Name:        "host_tool",
+		Description: "served by the host's own executor",
+		Mode:        "host-mode",
+		InputSchema: []byte(`{"type":"object"}`),
+	}))
+	hostRegistry.RegisterExecutor(&hostModeExecutor{})
+
+	conv, err := Open(packFile, "main", WithSkipSchemaValidation(),
+		WithToolRegistry(hostRegistry))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	res, err := conv.ToolRegistry().Execute(
+		context.Background(), "host_tool", []byte(`{}`))
+	require.NoError(t, err)
+	require.Empty(t, res.Error)
+	assert.JSONEq(t, `{"from":"host"}`, string(res.Result))
+}
+
+// hostModeExecutor stands in for an executor a host registers on the registry
+// it passes to WithToolRegistry.
+type hostModeExecutor struct{}
+
+func (*hostModeExecutor) Name() string { return "host-mode" }
+
+func (*hostModeExecutor) Execute(
+	_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, error) {
+	return json.RawMessage(`{"from":"host"}`), nil
 }
 
 func TestOpenWithVariableDefaults(t *testing.T) {
