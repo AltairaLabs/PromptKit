@@ -1218,7 +1218,7 @@ Descriptor lookup is live, not a snapshot. A tool registered on the parent after
 Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without branching on whether the host supplied one.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L415-L417>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L444-L446>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
@@ -1227,7 +1227,7 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 Execute executes a tool with the given arguments
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L529-L531>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L558-L560>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1321,7 +1321,7 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
 LoadToolFromBytes loads a tool descriptor from raw bytes data. This is useful when tool data has already been read from a file or received from another source, avoiding redundant file I/O. The filename parameter is used only for error reporting.
 
 <a name="Registry.MaxToolResultSize"></a>
-### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L395>)
+### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L424>)
 
 ```go
 func (r *Registry) MaxToolResultSize() int
@@ -1339,13 +1339,17 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error
 Register adds a tool descriptor to the registry with validation.
 
 <a name="Registry.RegisterExecutor"></a>
-### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L388>)
+### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L402>)
 
 ```go
 func (r *Registry) RegisterExecutor(executor Executor)
 ```
 
-RegisterExecutor registers a tool executor.
+RegisterExecutor registers a tool executor under its Executor.Name.
+
+A registry holds exactly one executor per name, so registering a second one under a name already taken EVICTS the first. That is almost always a bug: two owners \-\- typically two conversations sharing a registry \-\- each believe they installed the executor that serves their tool calls, and the loser silently starts getting the winner's answers, along with whatever per\-conversation state the winner's executor holds. Every bug in AltairaLabs/PromptKit\#2011 was that, and all of them were invisible because this used to overwrite without a word.
+
+So it now says so, at Warn. Nothing in PromptKit legitimately re\-registers a name on the same registry \-\- each conversation owns its own \(see [Registry.Child](<#Registry.Child>)\), and a workflow state change opens a fresh conversation with a fresh registry \-\- so in practice this fires only on the bug.
 
 <a name="Registry.Unregister"></a>
 ### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L204>)
