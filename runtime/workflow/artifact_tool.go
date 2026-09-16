@@ -32,15 +32,8 @@ func (e *ArtifactExecutor) Name() string { return ArtifactExecutorMode }
 
 // Execute implements tools.Executor. Sets the artifact value on the state machine.
 func (e *ArtifactExecutor) Execute(
-	ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage,
+	_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
-	// The caller's own executor wins, for the same reason as the transition
-	// executor: the registry holds one per name, and this one may write into
-	// another conversation's state machine (#2011).
-	if target := artifactExecutorFromCtx(ctx); target != nil && target != e {
-		return target.Execute(context.WithValue(ctx, artifactExecutorKey{}, target), desc, args)
-	}
-
 	var a struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`

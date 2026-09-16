@@ -59,16 +59,6 @@ func (e *localExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
-	// The calling conversation's own accessor, when the context carries one,
-	// is authoritative: this executor instance may belong to a different
-	// conversation that registered over the same shared registry, and its
-	// snapshot and accessor would then be the wrong conversation's (#2011).
-	// Its live map is a superset of that conversation's own snapshot, so
-	// nothing is lost by consulting it alone.
-	if own := conversationHandlersFromContext(ctx); own != nil && own.local != nil {
-		return dispatchLocal(ctx, descriptor, argsMap, own.local.getCtxHandler, own.local.getHandler)
-	}
-
 	// Prefer context-aware handler; for each kind look at the build-time
 	// snapshot first, then live handlers via the accessor (handlers registered
 	// after the pipeline was built, e.g. after OpenDuplex).
@@ -102,38 +92,6 @@ func (e *localExecutor) Execute(
 		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
 	}
 
-	return resultJSON, nil
-}
-
-// dispatchLocal runs a local tool through the given handler lookups, preferring
-// the context-aware handler so tracing and cancellation propagate.
-func dispatchLocal(
-	ctx context.Context,
-	descriptor *tools.ToolDescriptor,
-	argsMap map[string]any,
-	getCtxHandler func(string) (ToolHandlerCtx, bool),
-	getHandler func(string) (ToolHandler, bool),
-) (json.RawMessage, error) {
-	var result any
-	var err error
-	switch ctxHandler, ok := getCtxHandler(descriptor.Name); {
-	case ok:
-		result, err = ctxHandler(ctx, argsMap)
-	default:
-		handler, hok := getHandler(descriptor.Name)
-		if !hok {
-			return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
-		}
-		result, err = handler(argsMap)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	resultJSON, marshalErr := json.Marshal(result)
-	if marshalErr != nil {
-		return nil, fmt.Errorf("failed to serialize tool result: %w", marshalErr)
-	}
 	return resultJSON, nil
 }
 
