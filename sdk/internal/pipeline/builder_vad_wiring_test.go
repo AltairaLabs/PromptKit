@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -117,19 +118,44 @@ func TestVADProviderConfig_CarriesToolSelector(t *testing.T) {
 	assert.Same(t, sel, got.ToolSelector)
 }
 
-// Compaction must reach VAD mode's provider stage.
+// Compaction must reach VAD mode's provider stage, built the same way the
+// streaming sibling builds it.
 //
 // A voice session is the longest-lived topology there is: without a compactor
 // the tool loop grows the context until the provider rejects the turn. The
-// default is on, exactly as in the streaming sibling.
-func TestVADProviderConfig_CompactsByDefault(t *testing.T) {
-	got := vadProviderConfig(&Config{})
-	assert.NotNil(t, got.Compactor, "a long-running voice session must compact")
+// caller's own strategy wins, as it does everywhere else.
+func TestVADProviderConfig_CompactsWithTheCallersStrategy(t *testing.T) {
+	mine := &stage.ContextCompactor{BudgetTokens: 4321}
+
+	got := vadProviderConfig(&Config{CompactionStrategy: mine})
+
+	assert.Same(t, mine, got.Compactor,
+		"a caller-supplied compactor must reach the voice stage unchanged")
 }
 
-// ...and stays off when the caller disabled it.
+// With no strategy supplied, VAD still gets the default compactor and its
+// default budget -- not nil, which is what it used to get.
+func TestVADProviderConfig_CompactsByDefault(t *testing.T) {
+	got := vadProviderConfig(&Config{})
+
+	compactor, ok := got.Compactor.(*stage.ContextCompactor)
+	require.True(t, ok, "a long-running voice session must compact, got %T", got.Compactor)
+	assert.Equal(t, stage.DefaultBudgetTokens, compactor.BudgetTokens,
+		"the default budget is what bounds an unattended voice session")
+}
+
+// ...and stays off when the caller disabled it, even having supplied a
+// strategy: the switch wins over the strategy.
+//
+// Asserted against the enabled case built from the same strategy, so the test
+// fails both if disabling is ignored and if the switch disables everything.
 func TestVADProviderConfig_HonorsCompactionDisabled(t *testing.T) {
-	off := false
-	got := vadProviderConfig(&Config{CompactionEnabled: &off})
-	assert.Nil(t, got.Compactor)
+	mine := &stage.ContextCompactor{BudgetTokens: 4321}
+	off, on := false, true
+
+	disabled := vadProviderConfig(&Config{CompactionEnabled: &off, CompactionStrategy: mine})
+	enabled := vadProviderConfig(&Config{CompactionEnabled: &on, CompactionStrategy: mine})
+
+	assert.Same(t, mine, enabled.Compactor, "the same config with the switch on compacts")
+	assert.Nil(t, disabled.Compactor, "disabling compaction must beat a supplied strategy")
 }
