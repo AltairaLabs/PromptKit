@@ -21,14 +21,29 @@ const ExecutorMode = "memory"
 
 // Executor implements tools.Executor for all memory tools.
 // It routes by tool name to the appropriate Store method.
+//
+// The scope it was constructed with is a default, not a binding: every call
+// prefers the scope on the context (see [WithScope]). One Executor is all a
+// tools.Registry holds per name, so a host running concurrent conversations
+// over a shared registry must scope per call or their memories cross
+// (#2011).
 type Executor struct {
 	store Store
 	scope map[string]string
 }
 
-// NewExecutor creates a Executor for the given store and scope.
+// NewExecutor creates a Executor for the given store and default scope.
 func NewExecutor(store Store, scope map[string]string) *Executor {
 	return &Executor{store: store, scope: scope}
+}
+
+// scopeFor returns the conversation's scope from the context, falling back to
+// the scope the Executor was constructed with.
+func (e *Executor) scopeFor(ctx context.Context) map[string]string {
+	if scope := ScopeFromContext(ctx); scope != nil {
+		return scope
+	}
+	return e.scope
 }
 
 // Name implements tools.Executor.
@@ -72,7 +87,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		return nil, fmt.Errorf("memory recall: %w", err)
 	}
 
-	memories, err := e.store.Retrieve(ctx, e.scope, a.Query, RetrieveOptions{
+	memories, err := e.store.Retrieve(ctx, e.scopeFor(ctx), a.Query, RetrieveOptions{
 		Types:         a.Types,
 		Limit:         a.Limit,
 		MinConfidence: a.MinConfidence,
@@ -120,7 +135,7 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Content:    a.Content,
 		Confidence: a.Confidence,
 		Metadata:   tools.MergeExtrasIntoMetadata(a.Metadata, extras),
-		Scope:      e.scope,
+		Scope:      e.scopeFor(ctx),
 	}
 	// Stash the LLM-supplied consent category so downstream consumers
 	// (e.g. Omnia's PII redactor / per-category retention) can read it
@@ -152,7 +167,7 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		return nil, fmt.Errorf("memory list: %w", err)
 	}
 
-	memories, err := e.store.List(ctx, e.scope, ListOptions{
+	memories, err := e.store.List(ctx, e.scopeFor(ctx), ListOptions{
 		Types:  a.Types,
 		Limit:  a.Limit,
 		Offset: a.Offset,
@@ -198,9 +213,9 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 // [Store.Delete] otherwise.
 func (e *Executor) delete(ctx context.Context, memoryID string, extras map[string]any) error {
 	if d, ok := e.store.(ExtrasDeleter); ok {
-		return d.DeleteWithOptions(ctx, e.scope, memoryID, DeleteOptions{Extras: extras})
+		return d.DeleteWithOptions(ctx, e.scopeFor(ctx), memoryID, DeleteOptions{Extras: extras})
 	}
-	return e.store.Delete(ctx, e.scope, memoryID)
+	return e.store.Delete(ctx, e.scopeFor(ctx), memoryID)
 }
 
 // RegisterMemoryTools registers the four base memory tools with executor routing.
