@@ -10,6 +10,18 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 GOMARKDOC="github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0"
 
+# Pin the repository gomarkdoc links symbols against. Without these it infers
+# them from the checkout, and a shallow detached CI checkout cannot resolve a
+# default branch -- so CI emitted link-free headings while any full local clone
+# emitted linked ones. The committed pages then drifted from whichever
+# environment last regenerated them, and the drift check was unwinnable in the
+# other. Pinning makes the output identical everywhere.
+REPO_FLAGS=(
+  --repository.url "https://github.com/AltairaLabs/PromptKit"
+  --repository.default-branch "main"
+  --repository.path "/runtime"
+)
+
 # pkg | filename | title | sidebar-order
 MAP=(
   "./types|types|Types|7"
@@ -36,7 +48,7 @@ MAP=(
 mkdir -p "$OUT"
 for row in "${MAP[@]}"; do
   IFS='|' read -r pkg file title order <<<"$row"
-  go -C "$ROOT/runtime" run "$GOMARKDOC" --output "$TMP/$file.md" "$pkg"
+  go -C "$ROOT/runtime" run "$GOMARKDOC" "${REPO_FLAGS[@]}" --output "$TMP/$file.md" "$pkg"
   {
     printf -- '---\ntitle: %s\nsidebar:\n  order: %s\n---\n' "$title" "$order"
     cat "$TMP/$file.md"

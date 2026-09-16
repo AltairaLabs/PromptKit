@@ -47,7 +47,7 @@ const (
 ```
 
 <a name="Document"></a>
-## type Document
+## type [Document](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L51-L59>)
 
 Document is one unit of retrievable host content.
 
@@ -64,7 +64,7 @@ type Document struct {
 ```
 
 <a name="Option"></a>
-## type Option
+## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L68>)
 
 Option configures a [Retriever](<#Retriever>).
 
@@ -73,7 +73,7 @@ type Option func(*Retriever)
 ```
 
 <a name="WithTopK"></a>
-### func WithTopK
+### func [WithTopK](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L72>)
 
 ```go
 func WithTopK(n int) Option
@@ -82,7 +82,7 @@ func WithTopK(n int) Option
 WithTopK caps how many documents are injected. Defaults to 3 — enough to ground an answer without crowding the system prompt.
 
 <a name="Retriever"></a>
-## type Retriever
+## type [Retriever](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L62-L65>)
 
 Retriever answers ambient\-injection queries from a fixed document set.
 
@@ -93,7 +93,7 @@ type Retriever struct {
 ```
 
 <a name="New"></a>
-### func New
+### func [New](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L77>)
 
 ```go
 func New(docs []Document, opts ...Option) *Retriever
@@ -102,7 +102,7 @@ func New(docs []Document, opts ...Option) *Retriever
 New returns a [Retriever](<#Retriever>) over docs.
 
 <a name="Retriever.RetrieveContext"></a>
-### func \(\*Retriever\) RetrieveContext
+### func \(\*Retriever\) [RetrieveContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L91-L93>)
 
 ```go
 func (r *Retriever) RetrieveContext(_ context.Context, _ map[string]string, messages []types.Message) ([]*memory.Memory, error)

@@ -39,7 +39,7 @@ Package variables provides dynamic variable resolution for prompt templates. Var
 
 
 <a name="RequestVars"></a>
-## func RequestVars
+## func [RequestVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/request.go#L26>)
 
 ```go
 func RequestVars(ctx context.Context) map[string]string
@@ -48,7 +48,7 @@ func RequestVars(ctx context.Context) map[string]string
 RequestVars returns the per\-request variables carried on ctx, or nil if none.
 
 <a name="WithRequestVars"></a>
-## func WithRequestVars
+## func [WithRequestVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/request.go#L18>)
 
 ```go
 func WithRequestVars(ctx context.Context, vars map[string]string) context.Context
@@ -59,7 +59,7 @@ WithRequestVars returns a context carrying per\-request template variables. Thes
 This is the vehicle for per\-send variables \(e.g. an SDK structured input\): because the values ride on the context, they are available at the very start of request processing, before any pipeline stage runs.
 
 <a name="ChainProvider"></a>
-## type ChainProvider
+## type [ChainProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L11-L13>)
 
 ChainProvider composes multiple providers into a single provider. Providers are called in order, with later providers overriding variables from earlier providers when keys conflict.
 
@@ -70,7 +70,7 @@ type ChainProvider struct {
 ```
 
 <a name="Chain"></a>
-### func Chain
+### func [Chain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L18>)
 
 ```go
 func Chain(providers ...Provider) *ChainProvider
@@ -131,7 +131,7 @@ Hi premium
 </details>
 
 <a name="ChainProvider.Add"></a>
-### func \(\*ChainProvider\) Add
+### func \(\*ChainProvider\) [Add](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L47>)
 
 ```go
 func (c *ChainProvider) Add(p Provider) *ChainProvider
@@ -140,7 +140,7 @@ func (c *ChainProvider) Add(p Provider) *ChainProvider
 Add appends a provider to the chain.
 
 <a name="ChainProvider.Name"></a>
-### func \(\*ChainProvider\) Name
+### func \(\*ChainProvider\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L23>)
 
 ```go
 func (c *ChainProvider) Name() string
@@ -149,7 +149,7 @@ func (c *ChainProvider) Name() string
 Name returns the provider identifier.
 
 <a name="ChainProvider.Provide"></a>
-### func \(\*ChainProvider\) Provide
+### func \(\*ChainProvider\) [Provide](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L29>)
 
 ```go
 func (c *ChainProvider) Provide(ctx context.Context) (map[string]string, error)
@@ -158,7 +158,7 @@ func (c *ChainProvider) Provide(ctx context.Context) (map[string]string, error)
 Provide calls all chained providers and merges their results. Returns an error if any provider fails.
 
 <a name="ChainProvider.Providers"></a>
-### func \(\*ChainProvider\) Providers
+### func \(\*ChainProvider\) [Providers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/chain.go#L53>)
 
 ```go
 func (c *ChainProvider) Providers() []Provider
@@ -167,7 +167,7 @@ func (c *ChainProvider) Providers() []Provider
 Providers returns the list of providers in the chain.
 
 <a name="Provider"></a>
-## type Provider
+## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/provider.go#L16-L23>)
 
 Provider resolves variables dynamically at runtime. Variables returned override static variables with the same key. Providers are called before template rendering to inject dynamic context.
 
@@ -185,7 +185,7 @@ type Provider interface {
 ```
 
 <a name="StateProvider"></a>
-## type StateProvider
+## type [StateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L19-L34>)
 
 StateProvider resolves variables from conversation state metadata. It extracts key\-value pairs from the state's Metadata field and converts them to string variables for template substitution.
 
@@ -207,7 +207,7 @@ type StateProvider struct {
 ```
 
 <a name="NewStatePrefixProvider"></a>
-### func NewStatePrefixProvider
+### func [NewStatePrefixProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L48>)
 
 ```go
 func NewStatePrefixProvider(store statestore.Store, conversationID, prefix string, stripPrefix bool) *StateProvider
@@ -216,7 +216,7 @@ func NewStatePrefixProvider(store statestore.Store, conversationID, prefix strin
 NewStatePrefixProvider creates a StateProvider that only extracts metadata keys with the given prefix. If stripPrefix is true, the prefix is removed from the resulting variable names.
 
 <a name="NewStateProvider"></a>
-### func NewStateProvider
+### func [NewStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L38>)
 
 ```go
 func NewStateProvider(store statestore.Store, conversationID string) *StateProvider
@@ -225,7 +225,7 @@ func NewStateProvider(store statestore.Store, conversationID string) *StateProvi
 NewStateProvider creates a StateProvider that extracts all metadata as variables from the given conversation's state.
 
 <a name="StateProvider.Name"></a>
-### func \(\*StateProvider\) Name
+### func \(\*StateProvider\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L58>)
 
 ```go
 func (p *StateProvider) Name() string
@@ -234,7 +234,7 @@ func (p *StateProvider) Name() string
 Name returns the provider identifier.
 
 <a name="StateProvider.Provide"></a>
-### func \(\*StateProvider\) Provide
+### func \(\*StateProvider\) [Provide](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L67>)
 
 ```go
 func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error)
@@ -243,7 +243,7 @@ func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error)
 Provide extracts variables from conversation state metadata. Returns nil if store is nil, conversation not found, or has no metadata.
 
 <a name="TimeProvider"></a>
-## type TimeProvider
+## type [TimeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L11-L22>)
 
 TimeProvider provides current time and date variables. Useful for prompts that need temporal context like "What day is it?" or time\-sensitive instructions.
 
@@ -260,7 +260,7 @@ type TimeProvider struct {
 ```
 
 <a name="NewTimeProvider"></a>
-### func NewTimeProvider
+### func [NewTimeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L25>)
 
 ```go
 func NewTimeProvider() *TimeProvider
@@ -269,7 +269,7 @@ func NewTimeProvider() *TimeProvider
 NewTimeProvider creates a TimeProvider with default settings \(UTC, RFC3339 format\).
 
 <a name="NewTimeProviderWithFormat"></a>
-### func NewTimeProviderWithFormat
+### func [NewTimeProviderWithFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L35>)
 
 ```go
 func NewTimeProviderWithFormat(format string) *TimeProvider
@@ -278,7 +278,7 @@ func NewTimeProviderWithFormat(format string) *TimeProvider
 NewTimeProviderWithFormat creates a TimeProvider with a custom time format.
 
 <a name="NewTimeProviderWithLocation"></a>
-### func NewTimeProviderWithLocation
+### func [NewTimeProviderWithLocation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L30>)
 
 ```go
 func NewTimeProviderWithLocation(loc *time.Location) *TimeProvider
@@ -287,7 +287,7 @@ func NewTimeProviderWithLocation(loc *time.Location) *TimeProvider
 NewTimeProviderWithLocation creates a TimeProvider for a specific timezone.
 
 <a name="TimeProvider.Name"></a>
-### func \(\*TimeProvider\) Name
+### func \(\*TimeProvider\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L40>)
 
 ```go
 func (p *TimeProvider) Name() string
@@ -296,7 +296,7 @@ func (p *TimeProvider) Name() string
 Name returns the provider identifier.
 
 <a name="TimeProvider.Provide"></a>
-### func \(\*TimeProvider\) Provide
+### func \(\*TimeProvider\) [Provide](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L52>)
 
 ```go
 func (p *TimeProvider) Provide(ctx context.Context) (map[string]string, error)
@@ -312,7 +312,7 @@ Provide returns time\-related variables. Variables provided:
 - current\_hour: Hour in 24\-hour format \(00\-23\)
 
 <a name="TimeProvider.WithNowFunc"></a>
-### func \(\*TimeProvider\) WithNowFunc
+### func \(\*TimeProvider\) [WithNowFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L83>)
 
 ```go
 func (p *TimeProvider) WithNowFunc(fn func() time.Time) *TimeProvider

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -20,6 +21,11 @@ type SkillsCapability struct {
 	newSelector selection.Selector
 	maxActive   int
 	executor    *skills.Executor
+	packTools   []string
+	// preload names the skills to activate into every conversation's own
+	// ActiveSet. They used to be activated into the executor at Init, which
+	// made them one shared set (#2011).
+	preload []string
 }
 
 // SkillsOption configures a SkillsCapability.
@@ -82,6 +88,22 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 		}
 	}
 
+	// Init runs once per conversation open, and a host may reuse one
+	// SkillsCapability across opens via WithCapability. Replacing the executor
+	// on a later Init would orphan the ToolExecutor the earlier conversation
+	// already registered, so build it once. The executor holds no
+	// conversation state, so sharing it is safe — each conversation activates
+	// into its own ActiveSet (#2011).
+	if c.executor != nil {
+		if !slices.Equal(c.packTools, packTools) {
+			logger.Warn("skills: capability reused across packs with different tools; "+
+				"keeping the tool ceiling from the first pack",
+				"capability", capabilityNameSkills,
+				"ceiling", c.packTools, "ignored", packTools)
+		}
+		return nil
+	}
+
 	cfg := skills.ExecutorConfig{
 		Registry:    reg,
 		Selector:    c.selector,
@@ -90,22 +112,40 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 		MaxActive:   c.maxActive,
 	}
 	c.executor = skills.NewExecutor(cfg)
+	c.packTools = packTools
 
-	// Preload skills marked with preload: true. Preloading is best-effort —
-	// a skill that fails here can still be activated on first use, so a
-	// failure does not abort Init. It is reported, though: when the cause is
-	// MaxActive the "activate later" recovery does not hold, because the
-	// limit is just as full at first use as it is now. See #1953.
+	// Skills marked preload: true are activated into each conversation's own
+	// set by [SkillsCapability.NewActiveSet], not here. Activating them here
+	// put them in the executor's set, which every conversation shared.
 	//
-	// PreloadedSkills is sorted, so which skills lose a MaxActive race is
-	// the same on every process start.
+	// PreloadedSkills is sorted, so which skills lose a MaxActive race is the
+	// same on every process start.
+	c.preload = make([]string, 0, len(reg.PreloadedSkills()))
 	for _, sk := range reg.PreloadedSkills() {
-		if _, _, err := c.executor.Activate(sk.Name); err != nil {
-			logger.Warn("skills: preload failed", "skill", sk.Name, "error", err)
-		}
+		c.preload = append(c.preload, sk.Name)
 	}
 
 	return nil
+}
+
+// NewActiveSet returns a fresh ActiveSet for one conversation, with the
+// preloaded skills already activated into it.
+//
+// Preloading is best-effort — a skill that fails here can still be activated
+// on first use, so a failure does not abort the open. It is reported, though:
+// when the cause is MaxActive the "activate later" recovery does not hold,
+// because the limit is just as full at first use as it is now (#1953).
+func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet {
+	set := skills.NewActiveSet()
+	if c.executor == nil {
+		return set
+	}
+	for _, name := range c.preload {
+		if _, err := c.executor.ActivateIn(set, name); err != nil {
+			logger.Warn("skills: preload failed", "skill", name, "error", err)
+		}
+	}
+	return set
 }
 
 // RegisterTools registers the skill management tools into the registry.

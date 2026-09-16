@@ -31,7 +31,7 @@ Package storage exposes the MediaStorageService interface for media persistence,
 
 
 <a name="InstrumentedStorage"></a>
-## type InstrumentedStorage
+## type [InstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L34-L41>)
 
 InstrumentedStorage wraps any MediaStorageService with telemetry — OTel spans on every call, runtime events on success/failure, and \(when wired in by the consumer\) bytes/latency/error metrics derived from the emitted events.
 
@@ -46,7 +46,7 @@ type InstrumentedStorage struct {
 ```
 
 <a name="NewInstrumentedStorage"></a>
-### func NewInstrumentedStorage
+### func [NewInstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L51>)
 
 ```go
 func NewInstrumentedStorage(inner MediaStorageService, bus events.Bus, backend string) *InstrumentedStorage
@@ -57,7 +57,7 @@ NewInstrumentedStorage wraps inner so every call publishes a media lifecycle eve
 Passing a nil inner returns nil — the wrapper has nothing to wrap. A nil bus is allowed \(events become no\-ops\); spans still emit via the global tracer provider.
 
 <a name="InstrumentedStorage.DeleteMedia"></a>
-### func \(\*InstrumentedStorage\) DeleteMedia
+### func \(\*InstrumentedStorage\) [DeleteMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L161>)
 
 ```go
 func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Reference) error
@@ -66,7 +66,7 @@ func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Referen
 DeleteMedia traces, times, and announces a delete operation.
 
 <a name="InstrumentedStorage.GetURL"></a>
-### func \(\*InstrumentedStorage\) GetURL
+### func \(\*InstrumentedStorage\) [GetURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L188-L190>)
 
 ```go
 func (s *InstrumentedStorage) GetURL(ctx context.Context, reference Reference, expiry time.Duration) (string, error)
@@ -75,7 +75,7 @@ func (s *InstrumentedStorage) GetURL(ctx context.Context, reference Reference, e
 GetURL traces and times URL generation. No success event is emitted — URL generation is a metadata operation that doesn't move bytes — but failures still publish an error event so opaque 404s are visible.
 
 <a name="InstrumentedStorage.Inner"></a>
-### func \(\*InstrumentedStorage\) Inner
+### func \(\*InstrumentedStorage\) [Inner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L86>)
 
 ```go
 func (s *InstrumentedStorage) Inner() MediaStorageService
@@ -84,7 +84,7 @@ func (s *InstrumentedStorage) Inner() MediaStorageService
 Inner returns the wrapped MediaStorageService — useful for callers that need to type\-assert to a backend\-specific interface.
 
 <a name="InstrumentedStorage.RetrieveMedia"></a>
-### func \(\*InstrumentedStorage\) RetrieveMedia
+### func \(\*InstrumentedStorage\) [RetrieveMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L132-L134>)
 
 ```go
 func (s *InstrumentedStorage) RetrieveMedia(ctx context.Context, reference Reference) (*types.MediaContent, error)
@@ -93,7 +93,7 @@ func (s *InstrumentedStorage) RetrieveMedia(ctx context.Context, reference Refer
 RetrieveMedia traces, times, and announces a retrieve operation.
 
 <a name="InstrumentedStorage.SetBus"></a>
-### func \(\*InstrumentedStorage\) SetBus
+### func \(\*InstrumentedStorage\) [SetBus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L69>)
 
 ```go
 func (s *InstrumentedStorage) SetBus(bus events.Bus)
@@ -102,7 +102,7 @@ func (s *InstrumentedStorage) SetBus(bus events.Bus)
 SetBus swaps the event bus the wrapper publishes to. Arena constructs the storage before the runtime event bus exists, then late\-binds it via this method once the bus is wired up. Safe to call once before the wrapper sees any traffic; safe to call concurrently with operations because the bus pointer is guarded by busMu.
 
 <a name="InstrumentedStorage.StoreMedia"></a>
-### func \(\*InstrumentedStorage\) StoreMedia
+### func \(\*InstrumentedStorage\) [StoreMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L94-L96>)
 
 ```go
 func (s *InstrumentedStorage) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *MediaMetadata) (Reference, error)
@@ -111,7 +111,7 @@ func (s *InstrumentedStorage) StoreMedia(ctx context.Context, content *types.Med
 StoreMedia traces, times, and announces a store operation.
 
 <a name="MediaMetadata"></a>
-## type MediaMetadata
+## type [MediaMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L9-L39>)
 
 MediaMetadata contains metadata about stored media for organization and policy enforcement. This metadata is used to organize media files in storage and apply retention policies.
 
@@ -150,7 +150,7 @@ type MediaMetadata struct {
 ```
 
 <a name="MediaStorageService"></a>
-## type MediaStorageService
+## type [MediaStorageService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L24-L90>)
 
 MediaStorageService defines the interface for storing and retrieving media content. Implementations may store media in local filesystem, cloud storage, or other backends.
 
@@ -298,7 +298,7 @@ text/plain
 </details>
 
 <a name="OrganizationMode"></a>
-## type OrganizationMode
+## type [OrganizationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L42>)
 
 OrganizationMode defines how media files are organized in storage.
 
@@ -322,7 +322,7 @@ const (
 ```
 
 <a name="PolicyHandler"></a>
-## type PolicyHandler
+## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L109-L137>)
 
 PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management.
 
@@ -376,7 +376,7 @@ type PolicyHandler interface {
 ```
 
 <a name="Reference"></a>
-## type Reference
+## type [Reference](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L57>)
 
 Reference is a reference to media stored in a backend. The format and meaning is backend\-specific.
 

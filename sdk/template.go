@@ -219,6 +219,9 @@ func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Pro
 		}
 	}
 	conv.capabilities = allCaps
+	// Each conversation opened from a template owns its share of capability
+	// state, exactly as one opened through Open does (#2011).
+	conv.initConversationState()
 
 	initEventBus(cfg)
 	conv.hookRegistry = cfg.buildHookRegistry()

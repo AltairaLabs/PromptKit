@@ -116,7 +116,7 @@ var (
 ```
 
 <a name="APIRequest"></a>
-## func APIRequest
+## func [APIRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L351>)
 
 ```go
 func APIRequest(provider, method, url string, headers map[string]string, body interface{})
@@ -135,7 +135,7 @@ Parameters:
 Sensitive data in URL, headers, and body are automatically redacted.
 
 <a name="APIResponse"></a>
-## func APIResponse
+## func [APIResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L398>)
 
 ```go
 func APIResponse(provider string, statusCode int, body string, err error)
@@ -153,7 +153,7 @@ Parameters:
 Response bodies are attempted to be parsed as JSON for pretty formatting. Status codes are logged with emoji indicators: 🟢 \(2xx\), 🟡 \(3xx\), 🔴 \(4xx/5xx\).
 
 <a name="Configure"></a>
-## func Configure
+## func [Configure](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L122>)
 
 ```go
 func Configure(cfg *LoggingConfigSpec) error
@@ -162,7 +162,7 @@ func Configure(cfg *LoggingConfigSpec) error
 Configure applies a LoggingConfigSpec to the global logger. This reconfigures the logger with the new settings.
 
 <a name="Debug"></a>
-## func Debug
+## func [Debug](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L201>)
 
 ```go
 func Debug(msg string, args ...any)
@@ -171,7 +171,7 @@ func Debug(msg string, args ...any)
 Debug logs a debug\-level message with structured attributes. Debug messages are only output when the log level is set to LevelDebug or lower.
 
 <a name="DebugContext"></a>
-## func DebugContext
+## func [DebugContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L206>)
 
 ```go
 func DebugContext(ctx context.Context, msg string, args ...any)
@@ -180,7 +180,7 @@ func DebugContext(ctx context.Context, msg string, args ...any)
 DebugContext logs a debug message with context and structured attributes.
 
 <a name="Error"></a>
-## func Error
+## func [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L223>)
 
 ```go
 func Error(msg string, args ...any)
@@ -189,7 +189,7 @@ func Error(msg string, args ...any)
 Error logs an error message with structured attributes. Use for errors that affect operation but don't cause complete failure.
 
 <a name="ErrorContext"></a>
-## func ErrorContext
+## func [ErrorContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L228>)
 
 ```go
 func ErrorContext(ctx context.Context, msg string, args ...any)
@@ -198,7 +198,7 @@ func ErrorContext(ctx context.Context, msg string, args ...any)
 ErrorContext logs an error message with context and structured attributes.
 
 <a name="GetLogger"></a>
-## func GetLogger
+## func [GetLogger](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L76>)
 
 ```go
 func GetLogger() *slog.Logger
@@ -207,7 +207,7 @@ func GetLogger() *slog.Logger
 GetLogger returns the current logger, safe for concurrent use.
 
 <a name="Info"></a>
-## func Info
+## func [Info](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L189>)
 
 ```go
 func Info(msg string, args ...any)
@@ -216,7 +216,7 @@ func Info(msg string, args ...any)
 Info logs an informational message with structured key\-value attributes. Args should be provided in key\-value pairs: key1, value1, key2, value2, ...
 
 <a name="InfoContext"></a>
-## func InfoContext
+## func [InfoContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L195>)
 
 ```go
 func InfoContext(ctx context.Context, msg string, args ...any)
@@ -225,7 +225,7 @@ func InfoContext(ctx context.Context, msg string, args ...any)
 InfoContext logs an informational message with context and structured attributes. The context can be used for request tracing and cancellation.
 
 <a name="LLMCall"></a>
-## func LLMCall
+## func [LLMCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L234>)
 
 ```go
 func LLMCall(provider, role string, messages int, temperature float64, attrs ...any)
@@ -234,7 +234,7 @@ func LLMCall(provider, role string, messages int, temperature float64, attrs ...
 LLMCall logs a provider API call with structured fields for observability. Additional attributes can be passed as key\-value pairs after the required parameters.
 
 <a name="LLMError"></a>
-## func LLMError
+## func [LLMError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L262>)
 
 ```go
 func LLMError(provider, role string, err error, attrs ...any)
@@ -243,7 +243,7 @@ func LLMError(provider, role string, err error, attrs ...any)
 LLMError logs a provider API error for debugging and monitoring.
 
 <a name="LLMResponse"></a>
-## func LLMResponse
+## func [LLMResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L248>)
 
 ```go
 func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, attrs ...any)
@@ -252,7 +252,7 @@ func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, a
 LLMResponse logs a provider API response with token usage and cost tracking. Cost should be provided in USD \(e.g., 0.0001 for $0.0001\).
 
 <a name="ParseLevel"></a>
-## func ParseLevel
+## func [ParseLevel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L110>)
 
 ```go
 func ParseLevel(s string) slog.Level
@@ -261,7 +261,7 @@ func ParseLevel(s string) slog.Level
 ParseLevel converts a string log level to slog.Level. Supported values: "trace", "debug", "info", "warn", "warning", "error". Unknown values default to LevelInfo.
 
 <a name="RedactSensitiveData"></a>
-## func RedactSensitiveData
+## func [RedactSensitiveData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L321>)
 
 ```go
 func RedactSensitiveData(input string) string
@@ -278,7 +278,7 @@ Supported patterns:
 This function is safe for concurrent use as it only reads from the compiled patterns.
 
 <a name="SetLevel"></a>
-## func SetLevel
+## func [SetLevel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L133>)
 
 ```go
 func SetLevel(level slog.Level)
@@ -287,7 +287,7 @@ func SetLevel(level slog.Level)
 SetLevel changes the logging level for all subsequent log operations. This is safe for concurrent use as it replaces the entire logger instance. If a custom logger was set via SetLogger, it is preserved — only the level tracking variable is updated.
 
 <a name="SetLogger"></a>
-## func SetLogger
+## func [SetLogger](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L163>)
 
 ```go
 func SetLogger(l *slog.Logger)
@@ -300,7 +300,7 @@ The provided logger is also set as the slog default so that any code using slog 
 Once a custom logger is set, SetLevel and SetVerbose will no longer recreate the handler — the custom logger is preserved until reset. Pass nil to reset to the built\-in default logger.
 
 <a name="SetOutput"></a>
-## func SetOutput
+## func [SetOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L177>)
 
 ```go
 func SetOutput(w io.Writer)
@@ -309,7 +309,7 @@ func SetOutput(w io.Writer)
 SetOutput changes the log output destination and reinitializes the logger. This is primarily for testing. Pass nil to reset to os.Stderr. Note: This clears any custom logger set via SetLogger, since the output destination is changing.
 
 <a name="SetVerbose"></a>
-## func SetVerbose
+## func [SetVerbose](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L144>)
 
 ```go
 func SetVerbose(verbose bool)
@@ -318,7 +318,7 @@ func SetVerbose(verbose bool)
 SetVerbose enables debug\-level logging when verbose is true, otherwise sets info\-level. This is a convenience wrapper around SetLevel for command\-line verbose flags.
 
 <a name="ToolCall"></a>
-## func ToolCall
+## func [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L275>)
 
 ```go
 func ToolCall(provider string, messages, tools int, choice string, attrs ...any)
@@ -327,7 +327,7 @@ func ToolCall(provider string, messages, tools int, choice string, attrs ...any)
 ToolCall logs a tool execution request with context about available tools. The choice parameter indicates the tool selection mode \(e.g., "auto", "required", "none"\).
 
 <a name="ToolResponse"></a>
-## func ToolResponse
+## func [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L288>)
 
 ```go
 func ToolResponse(provider string, tokensIn, tokensOut, toolCalls int, cost float64, attrs ...any)
@@ -336,7 +336,7 @@ func ToolResponse(provider string, tokensIn, tokensOut, toolCalls int, cost floa
 ToolResponse logs the result of tool executions with token usage and cost.
 
 <a name="Warn"></a>
-## func Warn
+## func [Warn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L212>)
 
 ```go
 func Warn(msg string, args ...any)
@@ -345,7 +345,7 @@ func Warn(msg string, args ...any)
 Warn logs a warning message with structured attributes. Use for recoverable errors or unexpected but non\-critical situations.
 
 <a name="WarnContext"></a>
-## func WarnContext
+## func [WarnContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L217>)
 
 ```go
 func WarnContext(ctx context.Context, msg string, args ...any)
@@ -354,7 +354,7 @@ func WarnContext(ctx context.Context, msg string, args ...any)
 WarnContext logs a warning message with context and structured attributes.
 
 <a name="WithCorrelationID"></a>
-## func WithCorrelationID
+## func [WithCorrelationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L102>)
 
 ```go
 func WithCorrelationID(ctx context.Context, correlationID string) context.Context
@@ -363,7 +363,7 @@ func WithCorrelationID(ctx context.Context, correlationID string) context.Contex
 WithCorrelationID returns a new context with the correlation ID set.
 
 <a name="WithEnvironment"></a>
-## func WithEnvironment
+## func [WithEnvironment](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L107>)
 
 ```go
 func WithEnvironment(ctx context.Context, environment string) context.Context
@@ -372,7 +372,7 @@ func WithEnvironment(ctx context.Context, environment string) context.Context
 WithEnvironment returns a new context with the environment set.
 
 <a name="WithLoggingContext"></a>
-## func WithLoggingContext
+## func [WithLoggingContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L114>)
 
 ```go
 func WithLoggingContext(ctx context.Context, fields *LoggingFields) context.Context
@@ -381,7 +381,7 @@ func WithLoggingContext(ctx context.Context, fields *LoggingFields) context.Cont
 WithLoggingContext returns a new context with multiple logging fields set at once. This is a convenience function for setting multiple fields in one call. Only non\-empty values are set.
 
 <a name="WithModel"></a>
-## func WithModel
+## func [WithModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L82>)
 
 ```go
 func WithModel(ctx context.Context, model string) context.Context
@@ -390,7 +390,7 @@ func WithModel(ctx context.Context, model string) context.Context
 WithModel returns a new context with the model name set.
 
 <a name="WithProvider"></a>
-## func WithProvider
+## func [WithProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L77>)
 
 ```go
 func WithProvider(ctx context.Context, provider string) context.Context
@@ -399,7 +399,7 @@ func WithProvider(ctx context.Context, provider string) context.Context
 WithProvider returns a new context with the provider name set.
 
 <a name="WithRequestID"></a>
-## func WithRequestID
+## func [WithRequestID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L97>)
 
 ```go
 func WithRequestID(ctx context.Context, requestID string) context.Context
@@ -408,7 +408,7 @@ func WithRequestID(ctx context.Context, requestID string) context.Context
 WithRequestID returns a new context with the request ID set.
 
 <a name="WithScenario"></a>
-## func WithScenario
+## func [WithScenario](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L67>)
 
 ```go
 func WithScenario(ctx context.Context, scenario string) context.Context
@@ -417,7 +417,7 @@ func WithScenario(ctx context.Context, scenario string) context.Context
 WithScenario returns a new context with the scenario name set.
 
 <a name="WithScenarioVersion"></a>
-## func WithScenarioVersion
+## func [WithScenarioVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L72>)
 
 ```go
 func WithScenarioVersion(ctx context.Context, version string) context.Context
@@ -426,7 +426,7 @@ func WithScenarioVersion(ctx context.Context, version string) context.Context
 WithScenarioVersion returns a new context with the scenario version set.
 
 <a name="WithSessionID"></a>
-## func WithSessionID
+## func [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L92>)
 
 ```go
 func WithSessionID(ctx context.Context, sessionID string) context.Context
@@ -435,7 +435,7 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context
 WithSessionID returns a new context with the session ID set.
 
 <a name="WithStage"></a>
-## func WithStage
+## func [WithStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L87>)
 
 ```go
 func WithStage(ctx context.Context, stage string) context.Context
@@ -444,7 +444,7 @@ func WithStage(ctx context.Context, stage string) context.Context
 WithStage returns a new context with the pipeline stage set.
 
 <a name="WithTurnID"></a>
-## func WithTurnID
+## func [WithTurnID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L62>)
 
 ```go
 func WithTurnID(ctx context.Context, turnID string) context.Context
@@ -453,7 +453,7 @@ func WithTurnID(ctx context.Context, turnID string) context.Context
 WithTurnID returns a new context with the turn ID set.
 
 <a name="ContextHandler"></a>
-## type ContextHandler
+## type [ContextHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L13-L16>)
 
 ContextHandler is a slog.Handler that automatically extracts logging fields from context and adds them to log records. It wraps an inner handler and delegates all actual logging to it after enriching records with context data.
 
@@ -464,7 +464,7 @@ type ContextHandler struct {
 ```
 
 <a name="NewContextHandler"></a>
-### func NewContextHandler
+### func [NewContextHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L28>)
 
 ```go
 func NewContextHandler(inner slog.Handler, commonFields ...slog.Attr) *ContextHandler
@@ -473,7 +473,7 @@ func NewContextHandler(inner slog.Handler, commonFields ...slog.Attr) *ContextHa
 NewContextHandler creates a new ContextHandler wrapping the given handler. The commonFields are added to every log record \(useful for environment, service name, etc.\).
 
 <a name="ContextHandler.Enabled"></a>
-### func \(\*ContextHandler\) Enabled
+### func \(\*ContextHandler\) [Enabled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L37>)
 
 ```go
 func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool
@@ -482,7 +482,7 @@ func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool
 Enabled reports whether the handler handles records at the given level. It delegates to the inner handler.
 
 <a name="ContextHandler.Handle"></a>
-### func \(\*ContextHandler\) Handle
+### func \(\*ContextHandler\) [Handle](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L45>)
 
 ```go
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error
@@ -491,7 +491,7 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error
 Handle processes the log record by extracting context fields and adding them to the record before delegating to the inner handler.
 
 <a name="ContextHandler.Unwrap"></a>
-### func \(\*ContextHandler\) Unwrap
+### func \(\*ContextHandler\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L89>)
 
 ```go
 func (h *ContextHandler) Unwrap() slog.Handler
@@ -500,7 +500,7 @@ func (h *ContextHandler) Unwrap() slog.Handler
 Unwrap returns the inner handler. This is useful for handler chains that need to inspect or replace the underlying handler.
 
 <a name="ContextHandler.WithAttrs"></a>
-### func \(\*ContextHandler\) WithAttrs
+### func \(\*ContextHandler\) [WithAttrs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L71>)
 
 ```go
 func (h *ContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler
@@ -509,7 +509,7 @@ func (h *ContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler
 WithAttrs returns a new handler with the given attributes added. The attributes are added to the inner handler.
 
 <a name="ContextHandler.WithGroup"></a>
-### func \(\*ContextHandler\) WithGroup
+### func \(\*ContextHandler\) [WithGroup](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L80>)
 
 ```go
 func (h *ContextHandler) WithGroup(name string) slog.Handler
@@ -518,7 +518,7 @@ func (h *ContextHandler) WithGroup(name string) slog.Handler
 WithGroup returns a new handler with the given group name. The group is added to the inner handler.
 
 <a name="LoggingConfigSpec"></a>
-## type LoggingConfigSpec
+## type [LoggingConfigSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L100-L105>)
 
 LoggingConfigSpec defines the logging configuration for the Configure function. This mirrors the config.LoggingConfigSpec to avoid import cycles.
 
@@ -532,7 +532,7 @@ type LoggingConfigSpec struct {
 ```
 
 <a name="LoggingFields"></a>
-## type LoggingFields
+## type [LoggingFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L153-L164>)
 
 LoggingFields holds all standard logging context fields. This struct is used with WithLoggingContext for bulk field setting.
 
@@ -552,7 +552,7 @@ type LoggingFields struct {
 ```
 
 <a name="ExtractLoggingFields"></a>
-### func ExtractLoggingFields
+### func [ExtractLoggingFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/context.go#L168>)
 
 ```go
 func ExtractLoggingFields(ctx context.Context) LoggingFields
@@ -561,7 +561,7 @@ func ExtractLoggingFields(ctx context.Context) LoggingFields
 ExtractLoggingFields extracts all logging fields from a context. Returns a LoggingFields struct with all values found in the context.
 
 <a name="ModuleConfig"></a>
-## type ModuleConfig
+## type [ModuleConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L13-L18>)
 
 ModuleConfig manages per\-module logging configuration. It supports hierarchical module names where more specific modules override less specific ones \(e.g., "runtime.pipeline" overrides "runtime"\).
 
@@ -572,7 +572,7 @@ type ModuleConfig struct {
 ```
 
 <a name="GetModuleConfig"></a>
-### func GetModuleConfig
+### func [GetModuleConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L189>)
 
 ```go
 func GetModuleConfig() *ModuleConfig
@@ -581,7 +581,7 @@ func GetModuleConfig() *ModuleConfig
 GetModuleConfig returns the global module configuration. This is primarily for testing.
 
 <a name="NewModuleConfig"></a>
-### func NewModuleConfig
+### func [NewModuleConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L21>)
 
 ```go
 func NewModuleConfig(defaultLevel slog.Level) *ModuleConfig
@@ -590,7 +590,7 @@ func NewModuleConfig(defaultLevel slog.Level) *ModuleConfig
 NewModuleConfig creates a new ModuleConfig with the given default level.
 
 <a name="ModuleConfig.LevelFor"></a>
-### func \(\*ModuleConfig\) LevelFor
+### func \(\*ModuleConfig\) [LevelFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L52>)
 
 ```go
 func (m *ModuleConfig) LevelFor(module string) slog.Level
@@ -604,7 +604,7 @@ LevelFor returns the log level for the given module. It checks for exact match f
 4. Return default level
 
 <a name="ModuleConfig.SetDefaultLevel"></a>
-### func \(\*ModuleConfig\) SetDefaultLevel
+### func \(\*ModuleConfig\) [SetDefaultLevel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L39>)
 
 ```go
 func (m *ModuleConfig) SetDefaultLevel(level slog.Level)
@@ -613,7 +613,7 @@ func (m *ModuleConfig) SetDefaultLevel(level slog.Level)
 SetDefaultLevel sets the default log level.
 
 <a name="ModuleConfig.SetModuleLevel"></a>
-### func \(\*ModuleConfig\) SetModuleLevel
+### func \(\*ModuleConfig\) [SetModuleLevel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L30>)
 
 ```go
 func (m *ModuleConfig) SetModuleLevel(module string, level slog.Level)
@@ -622,7 +622,7 @@ func (m *ModuleConfig) SetModuleLevel(module string, level slog.Level)
 SetModuleLevel sets the log level for a specific module. Module names use dot notation \(e.g., "runtime.pipeline"\).
 
 <a name="ModuleHandler"></a>
-## type ModuleHandler
+## type [ModuleHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L21-L24>)
 
 ModuleHandler extends ContextHandler with per\-module log level filtering. It determines the module name from the call stack and applies the appropriate log level from the module configuration.
 
@@ -634,7 +634,7 @@ type ModuleHandler struct {
 ```
 
 <a name="NewModuleHandler"></a>
-### func NewModuleHandler
+### func [NewModuleHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L97>)
 
 ```go
 func NewModuleHandler(inner slog.Handler, moduleConfig *ModuleConfig, commonFields ...slog.Attr) *ModuleHandler
@@ -643,7 +643,7 @@ func NewModuleHandler(inner slog.Handler, moduleConfig *ModuleConfig, commonFiel
 NewModuleHandler creates a new ModuleHandler with per\-module log level filtering.
 
 <a name="ModuleHandler.Enabled"></a>
-### func \(\*ModuleHandler\) Enabled
+### func \(\*ModuleHandler\) [Enabled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L109>)
 
 ```go
 func (h *ModuleHandler) Enabled(ctx context.Context, level slog.Level) bool
@@ -652,7 +652,7 @@ func (h *ModuleHandler) Enabled(ctx context.Context, level slog.Level) bool
 Enabled reports whether the handler handles records at the given level. It uses the module configuration to determine the level for the calling module.
 
 <a name="ModuleHandler.Handle"></a>
-### func \(\*ModuleHandler\) Handle
+### func \(\*ModuleHandler\) [Handle](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L118>)
 
 ```go
 func (h *ModuleHandler) Handle(ctx context.Context, r slog.Record) error
@@ -661,7 +661,7 @@ func (h *ModuleHandler) Handle(ctx context.Context, r slog.Record) error
 Handle processes the log record, adding the module name as an attribute.
 
 <a name="ModuleHandler.WithAttrs"></a>
-### func \(\*ModuleHandler\) WithAttrs
+### func \(\*ModuleHandler\) [WithAttrs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L140>)
 
 ```go
 func (h *ModuleHandler) WithAttrs(attrs []slog.Attr) slog.Handler
@@ -670,7 +670,7 @@ func (h *ModuleHandler) WithAttrs(attrs []slog.Attr) slog.Handler
 WithAttrs returns a new handler with the given attributes added.
 
 <a name="ModuleHandler.WithGroup"></a>
-### func \(\*ModuleHandler\) WithGroup
+### func \(\*ModuleHandler\) [WithGroup](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/handler.go#L151>)
 
 ```go
 func (h *ModuleHandler) WithGroup(name string) slog.Handler
@@ -679,7 +679,7 @@ func (h *ModuleHandler) WithGroup(name string) slog.Handler
 WithGroup returns a new handler with the given group name.
 
 <a name="ModuleLoggingSpec"></a>
-## type ModuleLoggingSpec
+## type [ModuleLoggingSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/config.go#L108-L112>)
 
 ModuleLoggingSpec configures logging for a specific module.
 

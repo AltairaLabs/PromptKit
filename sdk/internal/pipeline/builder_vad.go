@@ -129,9 +129,16 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 // Extracted so the wiring is assertable: the fields below are easy to omit and
 // the omission is silent. MessageLog/MessageLogConvID were missing here for the
 // life of VAD mode, so a voice session persisted nothing per turn while the
-// sibling streaming topology in builder.go (which sets both) did.
+// sibling streaming topology in builder.go (which sets both) did; ToolGrants,
+// ToolSelector and the compactor were missing for the same reason, so a voice
+// session ignored skill grants, ignored per-turn tool selection, and grew its
+// context until the provider refused the turn (#2011).
+//
+// Deliberately absent, rather than forgotten: ResponseFormat and
+// StructuredOutputMode. VAD output is spoken, so there is no JSON to shape.
+// Add a field here only alongside an assertion in builder_vad_wiring_test.go.
 func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
-	return &stage.ProviderConfig{
+	pc := &stage.ProviderConfig{
 		MaxTokens:   cfg.MaxTokens,
 		Temperature: cfg.Temperature,
 		// The message log is what persists a turn as it happens, rather than
@@ -140,10 +147,21 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		MessageLog:       cfg.MessageLog,
 		MessageLogConvID: cfg.ConversationID,
 		ApprovalChecker:  cfg.ApprovalChecker,
+		// A skill activated mid-conversation extends the tool array, and
+		// selection narrows it per turn. Both are live reads on every tools
+		// build, so voice gets the same tools as text (#1957, #1980).
+		ToolSelector: cfg.ToolSelector,
+		ToolGrants:   cfg.ToolGrants,
 		// Run the continuous multi-turn loop: fire the tool loop per
 		// EndOfTurn, thread history across turns, and stay open for the next
 		// utterance — rather than the unary default that drains the whole
 		// input channel and fires once at session close (#1644).
 		Streaming: true,
 	}
+	// A voice session is the longest-lived topology there is; without this it
+	// never compacts. Default-on, matching the streaming sibling.
+	if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
+		pc.Compactor = buildCompactionStrategy(cfg)
+	}
+	return pc
 }

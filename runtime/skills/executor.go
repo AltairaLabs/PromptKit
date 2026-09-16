@@ -14,12 +14,20 @@ import (
 type skillFilterKey struct{}
 
 // WithSkillFilter returns a context with the given skill filter glob pattern.
-// The ToolExecutor reads this to apply per-run filtering in concurrent scenarios.
+//
+// Deprecated: use [WithActiveSet] and [ActiveSet.SetFilter]. A filter is one
+// half of a conversation's skill state and belongs with the other half; this
+// pair only ever covered the filter, and never had a producer anywhere. It is
+// retained so existing callers keep compiling and will be removed in v3.
+// See AltairaLabs/PromptKit#2011.
 func WithSkillFilter(ctx context.Context, filter string) context.Context {
 	return context.WithValue(ctx, skillFilterKey{}, filter)
 }
 
 // SkillFilterFromContext returns the skill filter from context, or "" if not set.
+//
+// Deprecated: use [ActiveSetFromContext] and [ActiveSet.Filter].
+// See AltairaLabs/PromptKit#2011.
 func SkillFilterFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(skillFilterKey{}).(string); ok {
 		return v
@@ -27,19 +35,26 @@ func SkillFilterFromContext(ctx context.Context) string {
 	return ""
 }
 
-// Executor manages the skill activation lifecycle and provides
-// functions that implement the skill__ namespaced tools.
+// Executor is the skill catalog and the activation policy: what skills
+// exist, what the pack ceiling is, whether a filter admits a given skill, and
+// what activating one grants.
+//
+// It holds no per-conversation state. Activation state lives in an [ActiveSet]
+// the caller owns and passes in — see [Executor.ActivateIn] — because one
+// Executor is registered by name into a tools.Registry that keeps exactly one
+// executor per name, so a host running concurrent conversations over a shared
+// registry would otherwise share their active skills. The `own` set below
+// backs the deprecated stateful methods only.
 type Executor struct {
 	registry    *Registry
 	selector    SkillSelector
 	newSelector selection.Selector
-	active      map[string]*Skill // currently active skills, keyed by name
-	packTools   []string          // all tools declared in the pack (the ceiling)
-	packSet     map[string]bool   // pre-built set from packTools for O(1) membership checks
-	maxActive   int               // max concurrent active skills (0 = unlimited)
-	filter      string            // glob pattern restricting activatable skills
-	configDir   string            // base directory for computing relative skill paths
-	mu          sync.RWMutex
+	own         *ActiveSet      // backs the deprecated stateful methods only
+	packTools   []string        // all tools declared in the pack (the ceiling)
+	packSet     map[string]bool // pre-built set from packTools for O(1) membership checks
+	maxActive   int             // max concurrent active skills per set (0 = unlimited)
+	configDir   string          // base directory for computing relative skill paths
+	mu          sync.RWMutex    // guards newSelector only; everything else is immutable
 }
 
 // ExecutorConfig configures the skill executor.
@@ -69,7 +84,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		registry:    cfg.Registry,
 		selector:    sel,
 		newSelector: cfg.NewSelector,
-		active:      make(map[string]*Skill),
+		own:         NewActiveSet(),
 		packTools:   cfg.PackTools,
 		packSet:     packSet,
 		maxActive:   cfg.MaxActive,
@@ -86,119 +101,96 @@ func (e *Executor) SetNewSelector(sel selection.Selector) {
 	e.newSelector = sel
 }
 
-// Activate loads a skill's instructions and returns them.
-// It extends the active tool set with the skill's allowed-tools (capped by pack tools).
-// If the skill is already active, it returns the instructions again (idempotent).
-// Returns error if skill not found or at max active limit.
-func (e *Executor) Activate(name string) (instructions string, addedTools []string, retErr error) {
-	return e.ActivateWithFilter(name, e.filter)
+// Activation is the result of activating a skill: the instructions to hand the
+// model, and the pack tools the skill adds beyond the prompt's baseline.
+type Activation struct {
+	Instructions string
+	AddedTools   []string
 }
 
-// ActivateWithFilter is like Activate but applies the given filter instead of the
-// executor's default filter. This supports per-run filtering in concurrent scenarios.
-func (e *Executor) ActivateWithFilter(name, filter string) (instructions string, addedTools []string, retErr error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+// ActivateIn activates a skill into the caller's ActiveSet and returns its
+// instructions and the tools it grants (capped by the pack's tools).
+//
+// Activation is idempotent: activating an already-active skill returns its
+// instructions again. It fails when the skill does not exist, when the set's
+// filter does not admit it, or when the set is already at the configured
+// max-active limit — a limit that applies per set, so one conversation filling
+// its quota cannot lock another out.
+//
+// A nil set activates into the Executor's own set, which is the deprecated
+// stateful behavior; pass a real set.
+func (e *Executor) ActivateIn(set *ActiveSet, name string) (Activation, error) {
+	if set == nil {
+		set = e.own
+	}
+
+	set.mu.Lock()
+	defer set.mu.Unlock()
 
 	// If already active, return instructions idempotently.
-	if s, ok := e.active[name]; ok {
-		tools := e.intersectPackTools(s.AllowedTools)
-		return s.Instructions, tools, nil
+	if entry, ok := set.active[name]; ok {
+		return Activation{
+			Instructions: entry.skill.Instructions,
+			AddedTools:   e.intersectPackTools(entry.skill.AllowedTools),
+		}, nil
 	}
 
-	// Load skill to get its path for filter check.
-	skill, loadErr := e.registry.Load(name)
-	if loadErr != nil {
-		return "", nil, fmt.Errorf("activating skill %q: %w", name, loadErr)
+	skill, err := e.registry.Load(name)
+	if err != nil {
+		return Activation{}, fmt.Errorf("activating skill %q: %w", name, err)
 	}
 
-	// Check filter.
-	if !e.matchesFilterWith(skill, filter) {
-		return "", nil, fmt.Errorf(
+	relPath := e.relPath(skill)
+	if !matchesFilter(relPath, set.filter) {
+		return Activation{}, fmt.Errorf(
 			"skill %q is not available in the current state (filter: %q)",
-			name, filter,
+			name, set.filter,
 		)
 	}
 
-	// Check max active limit.
-	if e.maxActive > 0 && len(e.active) >= e.maxActive {
-		return "", nil, fmt.Errorf(
+	if e.maxActive > 0 && len(set.active) >= e.maxActive {
+		return Activation{}, fmt.Errorf(
 			"cannot activate skill %q: max active limit (%d) reached",
 			name, e.maxActive,
 		)
 	}
 
-	tools := e.intersectPackTools(skill.AllowedTools)
-	e.active[name] = skill
+	set.active[name] = activeEntry{skill: skill, relPath: relPath}
 
-	return skill.Instructions, tools, nil
+	return Activation{
+		Instructions: skill.Instructions,
+		AddedTools:   e.intersectPackTools(skill.AllowedTools),
+	}, nil
 }
 
-// SetFilter sets a glob pattern that restricts which skills can be activated.
-// Empty string means all skills are available. "none" (case-insensitive) disables all.
-// Returns names of skills that were deactivated because they no longer match.
-func (e *Executor) SetFilter(glob string) []string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	e.filter = glob
-
-	var deactivated []string
-	for name, skill := range e.active {
-		if !e.matchesFilterWith(skill, glob) {
-			delete(e.active, name)
-			deactivated = append(deactivated, name)
-		}
+// DeactivateIn removes a skill from the caller's ActiveSet and returns the
+// tools to drop. A tool is only dropped when no skill still active in that same
+// set needs it.
+func (e *Executor) DeactivateIn(set *ActiveSet, name string) (removedTools []string, retErr error) {
+	if set == nil {
+		set = e.own
 	}
-	return deactivated
-}
 
-// matchesFilterWith checks whether a skill's relative path matches the given filter.
-// Must be called with e.mu held.
-func (e *Executor) matchesFilterWith(skill *Skill, filter string) bool {
-	if filter == "" {
-		return true
-	}
-	if strings.EqualFold(filter, "none") {
-		return false
-	}
-	relPath := skill.Path
-	if e.configDir != "" {
-		if rel, err := filepath.Rel(e.configDir, skill.Path); err == nil {
-			relPath = rel
-		}
-	}
-	matched, _ := filepath.Match(filter, relPath)
-	return matched
-}
+	set.mu.Lock()
+	defer set.mu.Unlock()
 
-// Deactivate removes a skill from the active set.
-// Returns the tools that should be removed from the active tool set.
-// A tool is only removed if no other active skill also needs it.
-func (e *Executor) Deactivate(name string) (removedTools []string, retErr error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	skill, ok := e.active[name]
+	entry, ok := set.active[name]
 	if !ok {
 		return nil, fmt.Errorf("skill %q is not active", name)
 	}
 
-	// Compute the skill's effective tools (intersection with pack).
-	skillTools := e.intersectPackTools(skill.AllowedTools)
+	skillTools := e.intersectPackTools(entry.skill.AllowedTools)
 
-	// Remove from active map first so we don't count it.
-	delete(e.active, name)
+	// Remove from the active map first so we don't count it as still needed.
+	delete(set.active, name)
 
-	// Build set of tools still needed by remaining active skills.
 	stillNeeded := make(map[string]bool)
-	for _, other := range e.active {
-		for _, t := range e.intersectPackTools(other.AllowedTools) {
+	for _, other := range set.active {
+		for _, t := range e.intersectPackTools(other.skill.AllowedTools) {
 			stillNeeded[t] = true
 		}
 	}
 
-	// Only remove tools not needed by any remaining active skill.
 	var removed []string
 	for _, t := range skillTools {
 		if !stillNeeded[t] {
@@ -208,6 +200,119 @@ func (e *Executor) Deactivate(name string) (removedTools []string, retErr error)
 	sort.Strings(removed)
 	return removed, nil
 }
+
+// ToolsFor returns the aggregate set of tools granted by the skills active in
+// the given set, each capped by the pack's tools. Deduplicated and sorted.
+func (e *Executor) ToolsFor(set *ActiveSet) []string {
+	if set == nil {
+		set = e.own
+	}
+
+	set.mu.RLock()
+	defer set.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	for _, entry := range set.active {
+		for _, t := range e.intersectPackTools(entry.skill.AllowedTools) {
+			seen[t] = true
+		}
+	}
+
+	tools := make([]string, 0, len(seen))
+	for t := range seen {
+		tools = append(tools, t)
+	}
+	sort.Strings(tools)
+	return tools
+}
+
+// SkillsIn returns the names of the skills active in the given set, sorted.
+func (e *Executor) SkillsIn(set *ActiveSet) []string {
+	if set == nil {
+		set = e.own
+	}
+	return set.Names()
+}
+
+// relPath returns the path filters match a skill against: relative to the
+// executor's ConfigDir when one is configured, absolute otherwise.
+func (e *Executor) relPath(skill *Skill) string {
+	if e.configDir == "" {
+		return skill.Path
+	}
+	rel, err := filepath.Rel(e.configDir, skill.Path)
+	if err != nil {
+		return skill.Path
+	}
+	return rel
+}
+
+// Activate loads a skill's instructions and returns them.
+//
+// Deprecated: use [Executor.ActivateIn] with the conversation's own
+// [ActiveSet]. This form activates into state held on the Executor, which is
+// shared by every conversation dispatching through the same tools.Registry
+// entry. It will be removed in v3. See AltairaLabs/PromptKit#2011.
+func (e *Executor) Activate(name string) (instructions string, addedTools []string, retErr error) {
+	act, err := e.ActivateIn(e.own, name)
+	return act.Instructions, act.AddedTools, err
+}
+
+// ActivateWithFilter is like Activate but applies the given filter instead of
+// the executor's default filter.
+//
+// Deprecated: use [Executor.ActivateIn] with an [ActiveSet] whose filter was
+// set by [ActiveSet.SetFilter]. Passing a filter per call covered only half of
+// the per-conversation state and left the active set shared. It will be
+// removed in v3. See AltairaLabs/PromptKit#2011.
+func (e *Executor) ActivateWithFilter(
+	name, filter string,
+) (instructions string, addedTools []string, retErr error) {
+	set := NewActiveSet()
+	set.SetFilter(filter)
+	// Preserve the historical semantics: activation lands in the executor's own
+	// set, but admission is judged against the caller's filter.
+	e.own.mu.RLock()
+	prior := e.own.filter
+	e.own.mu.RUnlock()
+
+	e.own.mu.Lock()
+	e.own.filter = filter
+	e.own.mu.Unlock()
+
+	act, err := e.ActivateIn(e.own, name)
+
+	e.own.mu.Lock()
+	e.own.filter = prior
+	e.own.mu.Unlock()
+
+	return act.Instructions, act.AddedTools, err
+}
+
+// SetFilter sets a glob pattern that restricts which skills can be activated.
+//
+// Deprecated: use [ActiveSet.SetFilter] on the conversation's own set. This
+// form mutates state shared by every conversation dispatching through the same
+// tools.Registry entry. It will be removed in v3.
+// See AltairaLabs/PromptKit#2011.
+func (e *Executor) SetFilter(glob string) []string {
+	return e.own.SetFilter(glob)
+}
+
+// Deactivate removes a skill from the active set.
+//
+// Deprecated: use [Executor.DeactivateIn] with the conversation's own
+// [ActiveSet]. It will be removed in v3. See AltairaLabs/PromptKit#2011.
+func (e *Executor) Deactivate(name string) (removedTools []string, retErr error) {
+	return e.DeactivateIn(e.own, name)
+}
+
+// OwnActiveSet returns the set backing the deprecated stateful methods.
+//
+// Deprecated: exists so a host migrating off [Executor.Activate] can adopt the
+// set it was already implicitly using. New code should construct its own with
+// [NewActiveSet]. It will be removed in v3.
+func (e *Executor) OwnActiveSet() *ActiveSet { return e.own }
 
 // ReadResource reads a file from within a skill's directory.
 // Delegates to the underlying registry.
@@ -300,43 +405,29 @@ func (e *Executor) applyNewSelector(ctx context.Context, query string, skills []
 }
 
 // ActiveSkills returns the names of currently active skills, sorted.
+//
+// Deprecated: use [Executor.SkillsIn] with the conversation's own [ActiveSet].
+// It will be removed in v3. See AltairaLabs/PromptKit#2011.
 func (e *Executor) ActiveSkills() []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	names := make([]string, 0, len(e.active))
-	for name := range e.active {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return e.own.Names()
 }
 
 // ActiveTools returns the aggregate set of tools added by all active skills
 // (each capped by pack tools). The result is deduplicated and sorted.
+//
+// Deprecated: use [Executor.ToolsFor] with the conversation's own [ActiveSet].
+// Wiring this into ProviderConfig.ToolGrants from a shared executor grants one
+// conversation's skill tools to every other conversation — a permission leak,
+// which is what made this the urgent half of AltairaLabs/PromptKit#2011. It
+// will be removed in v3.
 func (e *Executor) ActiveTools() []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	seen := make(map[string]bool)
-	for _, skill := range e.active {
-		for _, t := range e.intersectPackTools(skill.AllowedTools) {
-			seen[t] = true
-		}
-	}
-
-	tools := make([]string, 0, len(seen))
-	for t := range seen {
-		tools = append(tools, t)
-	}
-	sort.Strings(tools)
-	return tools
+	return e.ToolsFor(e.own)
 }
 
 // intersectPackTools returns elements of skillTools that also appear in packTools.
 // Uses the pre-built packSet for O(1) membership checks instead of rebuilding
-// the map on every call.
-// Must be called with e.mu held (read or write).
+// the map on every call. packSet is immutable after construction, so this needs
+// no lock.
 func (e *Executor) intersectPackTools(skillTools []string) []string {
 	if len(e.packSet) == 0 || len(skillTools) == 0 {
 		return nil

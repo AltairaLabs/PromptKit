@@ -141,6 +141,11 @@ func NewToolExecutor(exec *Executor) *ToolExecutor {
 func (e *ToolExecutor) Name() string { return SkillExecutorName }
 
 // Execute dispatches a skill tool call to the appropriate executor method.
+//
+// Activation and deactivation land in the [ActiveSet] the caller attached with
+// [WithActiveSet], so one ToolExecutor -- which is all a tools.Registry holds
+// per name -- serves concurrent conversations without their active skills
+// reaching each other (#2011).
 func (e *ToolExecutor) Execute(
 	ctx context.Context, tool *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -148,12 +153,21 @@ func (e *ToolExecutor) Execute(
 	case SkillActivateTool:
 		return e.executeActivate(ctx, args)
 	case SkillDeactivateTool:
-		return e.executeDeactivate(args)
+		return e.executeDeactivate(ctx, args)
 	case SkillReadResourceTool:
 		return e.executeReadResource(args)
 	default:
 		return nil, fmt.Errorf("unknown skill tool: %s", tool.Name)
 	}
+}
+
+// activeSet returns the conversation's set from the context, falling back to
+// the Executor's own set for hosts that have not adopted [WithActiveSet].
+func (e *ToolExecutor) activeSet(ctx context.Context) *ActiveSet {
+	if set := ActiveSetFromContext(ctx); set != nil {
+		return set
+	}
+	return e.executor.OwnActiveSet()
 }
 
 func (e *ToolExecutor) executeActivate(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
@@ -164,24 +178,25 @@ func (e *ToolExecutor) executeActivate(ctx context.Context, args json.RawMessage
 		return nil, fmt.Errorf("parsing activate args: %w", err)
 	}
 
-	// Use per-run filter from context if available, otherwise fall back to executor's default.
-	filter := SkillFilterFromContext(ctx)
-	instructions, addedTools, err := e.executor.ActivateWithFilter(params.Name, filter)
+	act, err := e.executor.ActivateIn(e.activeSet(ctx), params.Name)
 	if err != nil {
 		return nil, err
 	}
 
+	addedTools := act.AddedTools
 	if addedTools == nil {
 		addedTools = []string{}
 	}
 	result := map[string]any{
-		"instructions": instructions,
+		"instructions": act.Instructions,
 		"added_tools":  addedTools,
 	}
 	return json.Marshal(result)
 }
 
-func (e *ToolExecutor) executeDeactivate(args json.RawMessage) (json.RawMessage, error) {
+func (e *ToolExecutor) executeDeactivate(
+	ctx context.Context, args json.RawMessage,
+) (json.RawMessage, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
@@ -189,7 +204,7 @@ func (e *ToolExecutor) executeDeactivate(args json.RawMessage) (json.RawMessage,
 		return nil, fmt.Errorf("parsing deactivate args: %w", err)
 	}
 
-	removedTools, err := e.executor.Deactivate(params.Name)
+	removedTools, err := e.executor.DeactivateIn(e.activeSet(ctx), params.Name)
 	if err != nil {
 		return nil, err
 	}
