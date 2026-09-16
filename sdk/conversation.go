@@ -371,6 +371,7 @@ func (c *Conversation) skillToolGrants() []string {
 // would land in whichever scope the shared executor happened to hold. See
 // #2011.
 func (c *Conversation) withConversationState(ctx context.Context) context.Context {
+	ctx = withLocalHandlers(ctx, c)
 	ctx = skills.WithActiveSet(ctx, c.skillSet)
 	return memory.WithScope(ctx, c.memoryScope)
 }

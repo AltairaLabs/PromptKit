@@ -107,6 +107,22 @@ func (a *clientHandlersMuAccessor) getHandler(name string) (ClientToolHandler, b
 	return h, ok
 }
 
+// lookupClientHandler resolves a client handler for the calling conversation.
+func (e *clientExecutor) lookupClientHandler(
+	ctx context.Context, name string,
+) (ClientToolHandler, bool) {
+	if own := conversationHandlersFromContext(ctx); own != nil && own.client != nil {
+		return own.client.getHandler(name)
+	}
+	if h, ok := e.handlers[name]; ok {
+		return h, true
+	}
+	if e.handlersMu != nil {
+		return e.handlersMu.getHandler(name)
+	}
+	return nil, false
+}
+
 // Name returns "client" to match mode: "client" tools.
 func (e *clientExecutor) Name() string {
 	return "client"
@@ -123,11 +139,10 @@ func (e *clientExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
 	}
 
-	// Look up handler — first from snapshot, then live via mutex accessor
-	handler, ok := e.handlers[descriptor.Name]
-	if !ok && e.handlersMu != nil {
-		handler, ok = e.handlersMu.getHandler(descriptor.Name)
-	}
+	// The calling conversation's own accessor wins: this instance may belong to
+	// another conversation that registered over the same shared registry
+	// (#2011). Otherwise snapshot first, then live via the mutex accessor.
+	handler, ok := e.lookupClientHandler(ctx, descriptor.Name)
 	if !ok {
 		return nil, fmt.Errorf("no client handler registered for tool: %s", descriptor.Name)
 	}
