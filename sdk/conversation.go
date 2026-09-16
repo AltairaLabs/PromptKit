@@ -25,6 +25,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	intpipeline "github.com/AltairaLabs/PromptKit/sdk/v2/internal/pipeline"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
@@ -170,6 +171,11 @@ type Conversation struct {
 	// instead. See #2011.
 	skillSet    *skills.ActiveSet
 	memoryScope map[string]string
+	// The workflow executors this conversation's state machine belongs to.
+	// A WorkflowConversation populates them in registerWorkflowTools and
+	// re-populates them on every state change; guarded by handlersMu.
+	workflowTransitionExec *workflow.TransitionExecutor
+	workflowArtifactExec   *workflow.ArtifactExecutor
 
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
@@ -371,10 +377,28 @@ func (c *Conversation) skillToolGrants() []string {
 // would land in whichever scope the shared executor happened to hold. See
 // #2011.
 func (c *Conversation) withConversationState(ctx context.Context) context.Context {
+	c.handlersMu.RLock()
+	transExec, artifactExec := c.workflowTransitionExec, c.workflowArtifactExec
+	c.handlersMu.RUnlock()
+
 	ctx = withLocalHandlers(ctx, c)
 	ctx = tools.WithMCPRegistry(ctx, c.mcpRegistry)
+	ctx = workflow.WithTransitionExecutor(ctx, transExec)
+	ctx = workflow.WithArtifactExecutor(ctx, artifactExec)
 	ctx = skills.WithActiveSet(ctx, c.skillSet)
 	return memory.WithScope(ctx, c.memoryScope)
+}
+
+// setWorkflowExecutors records the executors bound to this conversation's state
+// machine so every call can be routed to them, whatever the shared registry
+// happens to hold. Called on open and again on every state change (#2011).
+func (c *Conversation) setWorkflowExecutors(
+	transExec *workflow.TransitionExecutor, artifactExec *workflow.ArtifactExecutor,
+) {
+	c.handlersMu.Lock()
+	c.workflowTransitionExec = transExec
+	c.workflowArtifactExec = artifactExec
+	c.handlersMu.Unlock()
 }
 
 // initConversationState gives the conversation its own capability state:
