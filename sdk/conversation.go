@@ -372,6 +372,7 @@ func (c *Conversation) skillToolGrants() []string {
 // #2011.
 func (c *Conversation) withConversationState(ctx context.Context) context.Context {
 	ctx = withLocalHandlers(ctx, c)
+	ctx = tools.WithMCPRegistry(ctx, c.mcpRegistry)
 	ctx = skills.WithActiveSet(ctx, c.skillSet)
 	return memory.WithScope(ctx, c.memoryScope)
 }
