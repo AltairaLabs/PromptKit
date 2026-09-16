@@ -10,6 +10,7 @@ func init() {
 	evals.RegisterDefault(&JSONValidHandler{})
 	evals.RegisterDefault(&JSONSchemaHandler{})
 	evals.RegisterDefault(&ToolsCalledHandler{})
+	evals.RegisterDefault(&ToolsOfferedHandler{})
 	evals.RegisterDefault(&ToolsNotCalledHandler{})
 	evals.RegisterDefault(&ToolArgsHandler{})
 	evals.RegisterDefault(&LatencyBudgetHandler{})

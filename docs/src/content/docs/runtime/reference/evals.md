@@ -21,6 +21,7 @@ Package evals provides the core evaluation framework for PromptPack. Eval defini
 - [func DefaultAliases\(\) \[\]\[2\]string](<#DefaultAliases>)
 - [func DefaultGroupsForType\(evalType string\) \[\]string](<#DefaultGroupsForType>)
 - [func EncodeEvalWhen\(when \*EvalWhen\) map\[string\]any](<#EncodeEvalWhen>)
+- [func ExtractToolsOffered\(messages \[\]types.Message\) \[\]string](<#ExtractToolsOffered>)
 - [func ExtractValue\(result EvalResult, metric \*MetricDef\) \(float64, bool\)](<#ExtractValue>)
 - [func ExtractWorkflowExtras\(messages \[\]types.Message\) map\[string\]any](<#ExtractWorkflowExtras>)
 - [func FlakinessScore\(results \[\]bool\) float64](<#FlakinessScore>)
@@ -194,6 +195,12 @@ const DefaultExecEvalHookTimeout = 5 * time.Second
 const DefaultSamplePercentage = 5.0
 ```
 
+<a name="MetaToolsOffered"></a>MetaToolsOffered re\-exports the message\-meta key carrying the tool names a turn handed the provider. ProviderStage stamps it onto the assistant message it produces, so the set survives into the transcript and is still readable when evals run later against stored messages rather than a live turn.
+
+```go
+const MetaToolsOffered = types.MetaToolsOffered
+```
+
 <a name="MetricExpressionKey"></a>MetricExpressionKey is the metric property naming a JMESPath expression that selects this metric's value out of EvalResult.Value.
 
 It lives in MetricDef.Extra rather than a typed field because the PromptPack schema declares MetricDef with additionalProperties: true, so a pack may carry it today without a spec change. The name matches the json\_path eval handler's parameter so there is one expression vocabulary, not two.
@@ -330,6 +337,17 @@ func EncodeEvalWhen(when *EvalWhen) map[string]any
 
 EncodeEvalWhen is the inverse of DecodeEvalWhen: it renders promptkit's when\-conditions into the spec's open \`when\` object, for anything building an eval programmatically rather than loading one from a pack.
 
+<a name="ExtractToolsOffered"></a>
+## func [ExtractToolsOffered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L190>)
+
+```go
+func ExtractToolsOffered(messages []types.Message) []string
+```
+
+ExtractToolsOffered returns the union of the tool sets recorded on the messages, sorted and deduplicated.
+
+A turn can hand the provider a different set on each tool round — that is the point of skill tool grants, which widen the set mid\-turn — so the union is what "this turn offered" means. A caller needing per\-round detail should read the per\-message meta directly.
+
 <a name="ExtractValue"></a>
 ## func [ExtractValue](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/metrics.go#L108>)
 
@@ -350,7 +368,7 @@ Precedence:
 An expression that does not resolve, or resolves to something non\-numeric, yields no sample. Guessing would reintroduce the fabricated zero.
 
 <a name="ExtractWorkflowExtras"></a>
-## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L193>)
+## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L250>)
 
 ```go
 func ExtractWorkflowExtras(messages []types.Message) map[string]any
@@ -472,7 +490,7 @@ func SamplePercentage(e *EvalDef) float64
 SamplePercentage returns the sampling percentage, defaulting to DefaultSamplePercentage when unset.
 
 <a name="SeedBudgetMetadata"></a>
-## func [SeedBudgetMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L108-L110>)
+## func [SeedBudgetMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L111-L113>)
 
 ```go
 func SeedBudgetMetadata(metadata map[string]any, messages []types.Message, latencyMs *int64) map[string]any
@@ -624,7 +642,7 @@ func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams lets a wrapped eval's own param validation run at load time, the same as a directly declared one. The guardrail factory and sdk.ValidatePack both look for this interface, so implementing it here is what makes \`type: guardrail\` wrapping a check with a typo'd param fail to load rather than load unprotected.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L395-L421>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L395-L435>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -634,11 +652,25 @@ type EvalContext struct {
     TurnIndex     int              `json:"turn_index"`
     CurrentOutput string           `json:"current_output"`
     ToolCalls     []ToolCallRecord `json:"tool_calls,omitempty"`
-    SessionID     string           `json:"session_id"`
-    PromptID      string           `json:"prompt_id"`
-    Variables     map[string]any   `json:"variables,omitempty"`
-    Metadata      map[string]any   `json:"metadata,omitempty"`
-    Extras        map[string]any   `json:"extras,omitempty"`
+
+    // ToolsOffered holds the tool names this turn handed the provider: the
+    // descriptor set that reaches ToolSupport.BuildTooling, after the prompt's
+    // allowed_tools, the implicit capability tools, exclusions and skill tool
+    // grants have all been applied. Sorted and deduplicated.
+    //
+    // This is what the model could see, as opposed to ToolCalls, which is what
+    // it chose to do. Only the former can show that a skill's allowed-tools
+    // grant took effect: a grant that works and a grant that silently does
+    // nothing produce identical ToolCalls whenever the model does not go on to
+    // call the granted tool. See #1957 and AltairaLabs/promptarena#195.
+    //
+    // Hosts populate it; it is empty when the host does not.
+    ToolsOffered []string       `json:"tools_offered,omitempty"`
+    SessionID    string         `json:"session_id"`
+    PromptID     string         `json:"prompt_id"`
+    Variables    map[string]any `json:"variables,omitempty"`
+    Metadata     map[string]any `json:"metadata,omitempty"`
+    Extras       map[string]any `json:"extras,omitempty"`
 
     // PriorResults holds results from evals that have already run in this
     // batch. This allows evals like guardrail_triggered to inspect the
@@ -659,7 +691,7 @@ type EvalContext struct {
 ```
 
 <a name="BuildEvalContext"></a>
-### func [BuildEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L18-L24>)
+### func [BuildEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L19-L25>)
 
 ```go
 func BuildEvalContext(messages []types.Message, turnIndex int, sessionID string, promptID string, metadata map[string]any) *EvalContext
@@ -670,7 +702,7 @@ BuildEvalContext constructs an EvalContext from a message history snapshot. It e
 This is the canonical way to build an EvalContext outside of a live conversation. Both Arena \(EvalOrchestrator\) and the SDK \(Evaluate\) use this function.
 
 <a name="BuildGuardrailEvalContext"></a>
-### func [BuildGuardrailEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L74-L76>)
+### func [BuildGuardrailEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L76-L78>)
 
 ```go
 func BuildGuardrailEvalContext(messages []types.Message, currentOutput string, metadata map[string]any) *EvalContext
@@ -1436,7 +1468,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L438>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L452>)
 
 ToolCallRecord is an alias for types.ToolCallRecord so existing code referencing evals.ToolCallRecord continues to compile unchanged.
 
@@ -1445,7 +1477,7 @@ type ToolCallRecord = types.ToolCallRecord
 ```
 
 <a name="ExtractToolCalls"></a>
-### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L176>)
+### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L233>)
 
 ```go
 func ExtractToolCalls(messages []types.Message) []ToolCallRecord

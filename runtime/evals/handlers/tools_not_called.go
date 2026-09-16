@@ -31,7 +31,7 @@ func (h *ToolsNotCalledHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no tool_names specified",
+			Explanation: errNoToolNames,
 		}, nil
 	}
 

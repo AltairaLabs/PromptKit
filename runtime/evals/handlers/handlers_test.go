@@ -1557,6 +1557,7 @@ func TestRegisterInit(t *testing.T) {
 		"contains_any",
 		"content_excludes",
 		"tools_called_session",
+		"tools_offered",
 		"tools_not_called_session",
 		"tool_args_session",
 		"tool_args_excluded_session",
