@@ -33,10 +33,21 @@ func TestRecordOffered_UnionsAcrossRounds(t *testing.T) {
 	assert.Equal(t, []string{"get_order", "refund"}, s.offeredToolNames())
 }
 
-func TestRecordOffered_NothingOfferedIsNil(t *testing.T) {
+// Nil for "nothing offered" is what tells the eval it has nothing to judge, so
+// it must be the answer to an empty record specifically — not what the stage
+// returns regardless. Recording after the empty call proves it discriminates.
+func TestRecordOffered_DiscriminatesEmptyFromRecorded(t *testing.T) {
 	s := &ProviderStage{}
+
 	s.recordOffered(nil)
-	assert.Nil(t, s.offeredToolNames())
+	assert.Nil(t, s.offeredToolNames(), "nothing recorded yet")
+
+	s.recordOffered([]*providers.ToolDescriptor{})
+	assert.Nil(t, s.offeredToolNames(), "an empty build records nothing")
+
+	s.recordOffered([]*providers.ToolDescriptor{{Name: "refund"}})
+	assert.Equal(t, []string{"refund"}, s.offeredToolNames(),
+		"a real build must produce a real answer")
 }
 
 func TestRecordOffered_SkipsNilDescriptors(t *testing.T) {

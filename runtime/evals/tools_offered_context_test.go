@@ -58,8 +58,25 @@ func TestExtractToolsOffered_SurvivesJSONRoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"refund"}, ExtractToolsOffered(restored))
 }
 
-func TestExtractToolsOffered_NoneIsNil(t *testing.T) {
-	assert.Nil(t, ExtractToolsOffered([]types.Message{{Role: "assistant"}}))
+// Nil for "nothing recorded" is load-bearing: the tools_offered eval keys its
+// "could not be judged" branch off an empty result. Asserting the nil alone
+// would pass even if the function always returned nil, so this pins that the
+// same input shape flips to a real answer once the meta is there.
+func TestExtractToolsOffered_DiscriminatesRecordedFromNot(t *testing.T) {
+	without := []types.Message{{Role: "assistant"}}
+	assert.Nil(t, ExtractToolsOffered(without), "no meta means nothing was recorded")
+
+	with := []types.Message{{Role: "assistant", Meta: map[string]any{
+		types.MetaToolsOffered: []string{"refund"},
+	}}}
+	assert.Equal(t, []string{"refund"}, ExtractToolsOffered(with),
+		"the same shape with meta must return the recorded set")
+
+	// An empty recorded list is still "nothing offered", not a phantom entry.
+	empty := []types.Message{{Role: "assistant", Meta: map[string]any{
+		types.MetaToolsOffered: []string{},
+	}}}
+	assert.Nil(t, ExtractToolsOffered(empty))
 }
 
 func TestBuildEvalContext_PopulatesToolsOffered(t *testing.T) {
