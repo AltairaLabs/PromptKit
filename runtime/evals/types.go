@@ -397,11 +397,25 @@ type EvalContext struct {
 	TurnIndex     int              `json:"turn_index"`
 	CurrentOutput string           `json:"current_output"`
 	ToolCalls     []ToolCallRecord `json:"tool_calls,omitempty"`
-	SessionID     string           `json:"session_id"`
-	PromptID      string           `json:"prompt_id"`
-	Variables     map[string]any   `json:"variables,omitempty"`
-	Metadata      map[string]any   `json:"metadata,omitempty"`
-	Extras        map[string]any   `json:"extras,omitempty"`
+
+	// ToolsOffered holds the tool names this turn handed the provider: the
+	// descriptor set that reaches ToolSupport.BuildTooling, after the prompt's
+	// allowed_tools, the implicit capability tools, exclusions and skill tool
+	// grants have all been applied. Sorted and deduplicated.
+	//
+	// This is what the model could see, as opposed to ToolCalls, which is what
+	// it chose to do. Only the former can show that a skill's allowed-tools
+	// grant took effect: a grant that works and a grant that silently does
+	// nothing produce identical ToolCalls whenever the model does not go on to
+	// call the granted tool. See #1957 and AltairaLabs/promptarena#195.
+	//
+	// Hosts populate it; it is empty when the host does not.
+	ToolsOffered []string       `json:"tools_offered,omitempty"`
+	SessionID    string         `json:"session_id"`
+	PromptID     string         `json:"prompt_id"`
+	Variables    map[string]any `json:"variables,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Extras       map[string]any `json:"extras,omitempty"`
 
 	// PriorResults holds results from evals that have already run in this
 	// batch. This allows evals like guardrail_triggered to inspect the

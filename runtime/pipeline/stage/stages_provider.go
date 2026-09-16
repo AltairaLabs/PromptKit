@@ -64,6 +64,10 @@ type ProviderStage struct {
 	// turn ending with the origin state still in control. Nil for
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
+	// offeredTools accumulates the tool names handed to the provider across
+	// this turn's rounds, stamped onto each assistant message. A stage serves
+	// one turn on one goroutine, so it needs no lock.
+	offeredTools map[string]bool
 }
 
 // currentTurn returns the 1-based number of the turn being processed, or 0 when
@@ -1402,6 +1406,15 @@ func (s *ProviderStage) executeRound(
 		FinishReason: resp.FinishReason,
 	}
 
+	// Record what this turn offered the model, so an eval can assert on tool
+	// availability and not just on what the model chose to call.
+	if offered := s.offeredToolNames(); len(offered) > 0 {
+		if responseMsg.Meta == nil {
+			responseMsg.Meta = map[string]interface{}{}
+		}
+		responseMsg.Meta[types.MetaToolsOffered] = offered
+	}
+
 	// Run AfterCall hooks
 	if err := s.runAfterCallHooks(ctx, &afterCallParams{
 		messages:     messages,
@@ -2655,6 +2668,44 @@ func (s *ProviderStage) updateExcludedTools(
 	return changed
 }
 
+// recordOffered accumulates the tool names handed to the provider this turn.
+//
+// The set is a union across rounds, not a snapshot: skill tool grants widen it
+// mid-turn, which is the whole point of them, so "what this turn offered" is
+// everything the model saw at any round. Stamped onto each assistant message as
+// types.MetaToolsOffered, which is what makes the tools_offered eval possible —
+// nothing else records a tool the model was offered but never called.
+//
+// A ProviderStage serves one turn, so no locking is needed: Process and the
+// tool loop run on the same goroutine.
+func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
+	if len(descriptors) == 0 {
+		return
+	}
+	if s.offeredTools == nil {
+		s.offeredTools = make(map[string]bool, len(descriptors))
+	}
+	for _, d := range descriptors {
+		if d != nil {
+			s.offeredTools[d.Name] = true
+		}
+	}
+}
+
+// offeredToolNames returns the accumulated set, sorted, or nil when the turn
+// offered no tools at all.
+func (s *ProviderStage) offeredToolNames() []string {
+	if len(s.offeredTools) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(s.offeredTools))
+	for name := range s.offeredTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // buildProviderTools constructs the tool descriptors sent to the provider.
 // Tools in the excluded set are omitted from the result.
 // classifyToolError determines the ToolErrorType from an execution error.
@@ -2806,6 +2857,7 @@ func (s *ProviderStage) buildProviderTools(
 	}
 
 	descriptors := s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded)
+	s.recordOffered(descriptors)
 	if len(descriptors) == 0 {
 		return nil, "", nil
 	}

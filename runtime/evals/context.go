@@ -2,6 +2,7 @@ package evals
 
 import (
 	"encoding/json"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -38,6 +39,7 @@ func BuildEvalContext(
 		TurnIndex:     turnIndex,
 		CurrentOutput: currentOutput,
 		ToolCalls:     ExtractToolCalls(messages),
+		ToolsOffered:  ExtractToolsOffered(messages),
 		SessionID:     sessionID,
 		PromptID:      promptID,
 		Extras:        workflowExtras(messages, metadata),
@@ -79,6 +81,7 @@ func BuildGuardrailEvalContext(
 		CurrentOutput: currentOutput,
 		ContentScope:  ContentScopeCurrent,
 		ToolCalls:     ExtractToolCalls(messages),
+		ToolsOffered:  ExtractToolsOffered(messages),
 		Extras:        workflowExtras(messages, metadata),
 		Metadata:      metadata,
 		PriorResults:  validationsToPriorResults(messages),
@@ -169,6 +172,60 @@ func workflowExtras(messages []types.Message, metadata map[string]any) map[strin
 		extras[key] = v
 	}
 	return extras
+}
+
+// MetaToolsOffered re-exports the message-meta key carrying the tool names a
+// turn handed the provider. ProviderStage stamps it onto the assistant message
+// it produces, so the set survives into the transcript and is still readable
+// when evals run later against stored messages rather than a live turn.
+const MetaToolsOffered = types.MetaToolsOffered
+
+// ExtractToolsOffered returns the union of the tool sets recorded on the
+// messages, sorted and deduplicated.
+//
+// A turn can hand the provider a different set on each tool round — that is the
+// point of skill tool grants, which widen the set mid-turn — so the union is
+// what "this turn offered" means. A caller needing per-round detail should read
+// the per-message meta directly.
+func ExtractToolsOffered(messages []types.Message) []string {
+	seen := map[string]bool{}
+	for i := range messages {
+		if messages[i].Meta == nil {
+			continue
+		}
+		for _, name := range toStringSlice(messages[i].Meta[MetaToolsOffered]) {
+			seen[name] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	offered := make([]string, 0, len(seen))
+	for name := range seen {
+		offered = append(offered, name)
+	}
+	sort.Strings(offered)
+	return offered
+}
+
+// toStringSlice coerces a meta value to a string slice. Meta survives a JSON
+// round-trip through the state store, which turns []string into []any, so both
+// shapes have to be handled or the set silently vanishes on replay.
+func toStringSlice(v any) []string {
+	switch vals := v.(type) {
+	case []string:
+		return vals
+	case []any:
+		out := make([]string, 0, len(vals))
+		for _, item := range vals {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // ExtractToolCalls builds ToolCallRecords from a message history by matching
