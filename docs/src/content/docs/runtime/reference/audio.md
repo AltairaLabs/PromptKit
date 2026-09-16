@@ -166,7 +166,7 @@ const DefaultMaxAudioBufferSize = 10 * 1024 * 1024
 ```
 
 <a name="DecodeALaw"></a>
-## func DecodeALaw
+## func [DecodeALaw](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/g711.go#L86>)
 
 ```go
 func DecodeALaw(alaw []byte) []byte
@@ -175,7 +175,7 @@ func DecodeALaw(alaw []byte) []byte
 DecodeALaw converts G.711 a\-law bytes to little\-endian PCM16 \(2 bytes/sample\).
 
 <a name="DecodeMuLaw"></a>
-## func DecodeMuLaw
+## func [DecodeMuLaw](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/g711.go#L32>)
 
 ```go
 func DecodeMuLaw(mulaw []byte) []byte
@@ -184,7 +184,7 @@ func DecodeMuLaw(mulaw []byte) []byte
 DecodeMuLaw converts G.711 mu\-law bytes to little\-endian PCM16 \(2 bytes/sample\).
 
 <a name="EncodeALaw"></a>
-## func EncodeALaw
+## func [EncodeALaw](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/g711.go#L96>)
 
 ```go
 func EncodeALaw(pcm16le []byte) []byte
@@ -193,7 +193,7 @@ func EncodeALaw(pcm16le []byte) []byte
 EncodeALaw converts little\-endian PCM16 to G.711 a\-law bytes \(1 byte/sample\).
 
 <a name="EncodeMuLaw"></a>
-## func EncodeMuLaw
+## func [EncodeMuLaw](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/g711.go#L42>)
 
 ```go
 func EncodeMuLaw(pcm16le []byte) []byte
@@ -202,7 +202,7 @@ func EncodeMuLaw(pcm16le []byte) []byte
 EncodeMuLaw converts little\-endian PCM16 to G.711 mu\-law bytes \(1 byte/sample\).
 
 <a name="Resample24kTo16k"></a>
-## func Resample24kTo16k
+## func [Resample24kTo16k](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample.go#L131>)
 
 ```go
 func Resample24kTo16k(input []byte) ([]byte, error)
@@ -211,7 +211,7 @@ func Resample24kTo16k(input []byte) ([]byte, error)
 Resample24kTo16k is a convenience function for the common case of resampling from 24kHz \(TTS output\) to 16kHz \(Gemini input\).
 
 <a name="ResamplePCM16"></a>
-## func ResamplePCM16
+## func [ResamplePCM16](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample.go#L53>)
 
 ```go
 func ResamplePCM16(input []byte, fromRate, toRate int) ([]byte, error)
@@ -220,7 +220,7 @@ func ResamplePCM16(input []byte, fromRate, toRate int) ([]byte, error)
 ResamplePCM16 resamples PCM16 audio data from one sample rate to another. Uses linear interpolation for reasonable quality resampling. Input and output are little\-endian 16\-bit signed PCM samples.
 
 <a name="AccumulatingTurnDetector"></a>
-## type AccumulatingTurnDetector
+## type [AccumulatingTurnDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/detector.go#L35-L46>)
 
 AccumulatingTurnDetector is a TurnDetector that accumulates audio during a turn.
 
@@ -240,7 +240,7 @@ type AccumulatingTurnDetector interface {
 ```
 
 <a name="AdaptiveVAD"></a>
-## type AdaptiveVAD
+## type [AdaptiveVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/adaptive_vad.go#L73-L79>)
 
 AdaptiveVAD is a voice activity detector that adapts its speech threshold to the ambient noise level. It is well\-suited for "quiet mic" environments where the speaker's voice is only slightly louder than the background — a condition where SimpleVAD's fixed threshold often fails to trigger.
 
@@ -261,7 +261,7 @@ type AdaptiveVAD struct {
 ```
 
 <a name="NewAdaptiveVAD"></a>
-### func NewAdaptiveVAD
+### func [NewAdaptiveVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/adaptive_vad.go#L82>)
 
 ```go
 func NewAdaptiveVAD(params VADParams) (*AdaptiveVAD, error)
@@ -270,7 +270,7 @@ func NewAdaptiveVAD(params VADParams) (*AdaptiveVAD, error)
 NewAdaptiveVAD creates an AdaptiveVAD analyzer with the given parameters.
 
 <a name="AdaptiveVAD.Analyze"></a>
-### func \(\*AdaptiveVAD\) Analyze
+### func \(\*AdaptiveVAD\) [Analyze](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/adaptive_vad.go#L99>)
 
 ```go
 func (v *AdaptiveVAD) Analyze(_ context.Context, audioData []byte) (float64, error)
@@ -279,7 +279,7 @@ func (v *AdaptiveVAD) Analyze(_ context.Context, audioData []byte) (float64, err
 Analyze processes audio and returns voice probability based on adaptive RMS analysis.
 
 <a name="AdaptiveVAD.Name"></a>
-### func \(\*AdaptiveVAD\) Name
+### func \(\*AdaptiveVAD\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/adaptive_vad.go#L94>)
 
 ```go
 func (v *AdaptiveVAD) Name() string
@@ -288,7 +288,7 @@ func (v *AdaptiveVAD) Name() string
 Name returns the analyzer identifier.
 
 <a name="AdaptiveVAD.Reset"></a>
-### func \(\*AdaptiveVAD\) Reset
+### func \(\*AdaptiveVAD\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/adaptive_vad.go#L155>)
 
 ```go
 func (v *AdaptiveVAD) Reset()
@@ -297,7 +297,7 @@ func (v *AdaptiveVAD) Reset()
 Reset clears accumulated state for a new conversation, resetting the smoothed RMS and noise floor back to their initial values.
 
 <a name="Chunk"></a>
-## type Chunk
+## type [Chunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/chunk.go#L6-L15>)
 
 Chunk represents a chunk of audio data flowing through the runtime — produced by TTS providers, consumed by playback sinks, realtime LLM inputs, and pipeline stages. Carries the bytes plus stream\-position metadata.
 
@@ -315,7 +315,7 @@ type Chunk struct {
 ```
 
 <a name="Format"></a>
-## type Format
+## type [Format](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L20-L25>)
 
 Format describes the encoding of the media payload. Audio fields are present now; video fields \(Width, Height, Codec\) will be added later.
 
@@ -329,7 +329,7 @@ type Format struct {
 ```
 
 <a name="InterruptionCallback"></a>
-## type InterruptionCallback
+## type [InterruptionCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L35>)
 
 InterruptionCallback is called when user interrupts the bot.
 
@@ -338,7 +338,7 @@ type InterruptionCallback func()
 ```
 
 <a name="InterruptionHandler"></a>
-## type InterruptionHandler
+## type [InterruptionHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L38-L52>)
 
 InterruptionHandler manages user interruption logic during bot output.
 
@@ -349,7 +349,7 @@ type InterruptionHandler struct {
 ```
 
 <a name="NewInterruptionHandler"></a>
-### func NewInterruptionHandler
+### func [NewInterruptionHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L55>)
 
 ```go
 func NewInterruptionHandler(strategy InterruptionStrategy, vad VADAnalyzer) *InterruptionHandler
@@ -358,7 +358,7 @@ func NewInterruptionHandler(strategy InterruptionStrategy, vad VADAnalyzer) *Int
 NewInterruptionHandler creates an InterruptionHandler with the given strategy and VAD.
 
 <a name="InterruptionHandler.Interrupt"></a>
-### func \(\*InterruptionHandler\) Interrupt
+### func \(\*InterruptionHandler\) [Interrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L96>)
 
 ```go
 func (h *InterruptionHandler) Interrupt()
@@ -367,7 +367,7 @@ func (h *InterruptionHandler) Interrupt()
 Interrupt externally signals an interruption. Use this on the realtime/ASM path where barge\-in is detected by the provider's server\-side VAD rather than our local VAD — there is no ProcessVADState call to drive handleInterruption, so the provider stage signals the interruption directly. Idempotent within a turn; cleared by Reset.
 
 <a name="InterruptionHandler.Interrupted"></a>
-### func \(\*InterruptionHandler\) Interrupted
+### func \(\*InterruptionHandler\) [Interrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L85>)
 
 ```go
 func (h *InterruptionHandler) Interrupted() <-chan struct{}
@@ -376,7 +376,7 @@ func (h *InterruptionHandler) Interrupted() <-chan struct{}
 Interrupted returns a channel closed when an interruption fires for the current turn. Reset re\-arms it, so callers should re\-fetch after a Reset.
 
 <a name="InterruptionHandler.IsBotSpeaking"></a>
-### func \(\*InterruptionHandler\) IsBotSpeaking
+### func \(\*InterruptionHandler\) [IsBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L126>)
 
 ```go
 func (h *InterruptionHandler) IsBotSpeaking() bool
@@ -385,7 +385,7 @@ func (h *InterruptionHandler) IsBotSpeaking() bool
 IsBotSpeaking returns true if the bot is currently outputting audio.
 
 <a name="InterruptionHandler.NotifySentenceBoundary"></a>
-### func \(\*InterruptionHandler\) NotifySentenceBoundary
+### func \(\*InterruptionHandler\) [NotifySentenceBoundary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L245>)
 
 ```go
 func (h *InterruptionHandler) NotifySentenceBoundary()
@@ -394,7 +394,7 @@ func (h *InterruptionHandler) NotifySentenceBoundary()
 NotifySentenceBoundary notifies the handler of a sentence boundary. For deferred interruption strategy, this may trigger the pending interruption.
 
 <a name="InterruptionHandler.OnInterrupt"></a>
-### func \(\*InterruptionHandler\) OnInterrupt
+### func \(\*InterruptionHandler\) [OnInterrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L133>)
 
 ```go
 func (h *InterruptionHandler) OnInterrupt(callback InterruptionCallback)
@@ -403,7 +403,7 @@ func (h *InterruptionHandler) OnInterrupt(callback InterruptionCallback)
 OnInterrupt registers a callback for when interruption occurs.
 
 <a name="InterruptionHandler.ProcessAudio"></a>
-### func \(\*InterruptionHandler\) ProcessAudio
+### func \(\*InterruptionHandler\) [ProcessAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L141>)
 
 ```go
 func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (bool, error)
@@ -412,7 +412,7 @@ func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (b
 ProcessAudio processes audio and detects user interruption. Returns true if an interruption was detected and should be acted upon.
 
 <a name="InterruptionHandler.ProcessVADState"></a>
-### func \(\*InterruptionHandler\) ProcessVADState
+### func \(\*InterruptionHandler\) [ProcessVADState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L173>)
 
 ```go
 func (h *InterruptionHandler) ProcessVADState(ctx context.Context, state VADState) (bool, error)
@@ -421,7 +421,7 @@ func (h *InterruptionHandler) ProcessVADState(ctx context.Context, state VADStat
 ProcessVADState processes a VAD state update for interruption detection. Returns true if an interruption was detected and should be acted upon.
 
 <a name="InterruptionHandler.Reset"></a>
-### func \(\*InterruptionHandler\) Reset
+### func \(\*InterruptionHandler\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L231>)
 
 ```go
 func (h *InterruptionHandler) Reset()
@@ -430,7 +430,7 @@ func (h *InterruptionHandler) Reset()
 Reset clears interruption state for a new turn.
 
 <a name="InterruptionHandler.SetBotSpeaking"></a>
-### func \(\*InterruptionHandler\) SetBotSpeaking
+### func \(\*InterruptionHandler\) [SetBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L110>)
 
 ```go
 func (h *InterruptionHandler) SetBotSpeaking(speaking bool)
@@ -439,7 +439,7 @@ func (h *InterruptionHandler) SetBotSpeaking(speaking bool)
 SetBotSpeaking sets whether the bot is currently outputting audio.
 
 <a name="InterruptionHandler.WasInterrupted"></a>
-### func \(\*InterruptionHandler\) WasInterrupted
+### func \(\*InterruptionHandler\) [WasInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L224>)
 
 ```go
 func (h *InterruptionHandler) WasInterrupted() bool
@@ -448,7 +448,7 @@ func (h *InterruptionHandler) WasInterrupted() bool
 WasInterrupted returns true if an interruption occurred.
 
 <a name="InterruptionStrategy"></a>
-## type InterruptionStrategy
+## type [InterruptionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L9>)
 
 InterruptionStrategy determines how to handle user interrupting bot.
 
@@ -470,7 +470,7 @@ const (
 ```
 
 <a name="InterruptionStrategy.String"></a>
-### func \(InterruptionStrategy\) String
+### func \(InterruptionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L21>)
 
 ```go
 func (s InterruptionStrategy) String() string
@@ -479,7 +479,7 @@ func (s InterruptionStrategy) String() string
 String returns a human\-readable representation of the interruption strategy.
 
 <a name="JitterBuffer"></a>
-## type JitterBuffer
+## type [JitterBuffer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L15-L25>)
 
 JitterBuffer is a bounded FIFO ring buffer of int16 PCM samples \(mono\). It is safe for concurrent use: Push from a producer goroutine while Pull or Clear are called from the duplex playback loop.
 
@@ -494,7 +494,7 @@ type JitterBuffer struct {
 ```
 
 <a name="NewJitterBuffer"></a>
-### func NewJitterBuffer
+### func [NewJitterBuffer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L29>)
 
 ```go
 func NewJitterBuffer(capacitySamples int) *JitterBuffer
@@ -503,7 +503,7 @@ func NewJitterBuffer(capacitySamples int) *JitterBuffer
 NewJitterBuffer returns a JitterBuffer with the given maximum capacity in samples. A capacity of zero is valid but all pushes will drop immediately.
 
 <a name="JitterBuffer.Clear"></a>
-### func \(\*JitterBuffer\) Clear
+### func \(\*JitterBuffer\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L114>)
 
 ```go
 func (j *JitterBuffer) Clear()
@@ -512,7 +512,7 @@ func (j *JitterBuffer) Clear()
 Clear drops all buffered samples. The next Pull will return silence.
 
 <a name="JitterBuffer.Drops"></a>
-### func \(\*JitterBuffer\) Drops
+### func \(\*JitterBuffer\) [Drops](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L131>)
 
 ```go
 func (j *JitterBuffer) Drops() int64
@@ -521,7 +521,7 @@ func (j *JitterBuffer) Drops() int64
 Drops returns the cumulative number of samples that have been dropped due to buffer overflow.
 
 <a name="JitterBuffer.Len"></a>
-### func \(\*JitterBuffer\) Len
+### func \(\*JitterBuffer\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L122>)
 
 ```go
 func (j *JitterBuffer) Len() int
@@ -530,7 +530,7 @@ func (j *JitterBuffer) Len() int
 Len returns the number of samples currently in the buffer.
 
 <a name="JitterBuffer.Pull"></a>
-### func \(\*JitterBuffer\) Pull
+### func \(\*JitterBuffer\) [Pull](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L78>)
 
 ```go
 func (j *JitterBuffer) Pull(n int) []int16
@@ -539,7 +539,7 @@ func (j *JitterBuffer) Pull(n int) []int16
 Pull removes and returns exactly n samples from the front of the buffer. If fewer than n samples are available the returned slice is zero\-filled from the point of underrun through index n\-1.
 
 <a name="JitterBuffer.Push"></a>
-### func \(\*JitterBuffer\) Push
+### func \(\*JitterBuffer\) [Push](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L38>)
 
 ```go
 func (j *JitterBuffer) Push(samples []int16)
@@ -548,7 +548,7 @@ func (j *JitterBuffer) Push(samples []int16)
 Push appends samples to the buffer. If appending would exceed capacity, the oldest samples are discarded first and the drop counter incremented.
 
 <a name="JitterBuffer.UnderrunSamples"></a>
-### func \(\*JitterBuffer\) UnderrunSamples
+### func \(\*JitterBuffer\) [UnderrunSamples](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L149>)
 
 ```go
 func (j *JitterBuffer) UnderrunSamples() int64
@@ -557,7 +557,7 @@ func (j *JitterBuffer) UnderrunSamples() int64
 UnderrunSamples returns the cumulative number of silence samples substituted across all underrunning Pull calls.
 
 <a name="JitterBuffer.Underruns"></a>
-### func \(\*JitterBuffer\) Underruns
+### func \(\*JitterBuffer\) [Underruns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L140>)
 
 ```go
 func (j *JitterBuffer) Underruns() int64
@@ -566,7 +566,7 @@ func (j *JitterBuffer) Underruns() int64
 Underruns returns the cumulative number of Pull calls that had to substitute silence because fewer than n samples were buffered.
 
 <a name="MediaFrame"></a>
-## type MediaFrame
+## type [MediaFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L30-L39>)
 
 MediaFrame is a single unit of captured or synthesized media. PTS \(presentation timestamp\) is measured from the session clock and is the load\-bearing field for AEC delay estimation and A/V sync.
 
@@ -584,7 +584,7 @@ type MediaFrame struct {
 ```
 
 <a name="MediaKind"></a>
-## type MediaKind
+## type [MediaKind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L9>)
 
 MediaKind identifies the type of media carried in a MediaFrame.
 
@@ -604,7 +604,7 @@ const (
 ```
 
 <a name="MemSink"></a>
-## type MemSink
+## type [MemSink](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L8-L12>)
 
 MemSink is an in\-memory Sink for tests and headless use. It records every Write call; Flush drops the recorded frames. Safe for concurrent use.
 
@@ -615,7 +615,7 @@ type MemSink struct {
 ```
 
 <a name="NewMemSink"></a>
-### func NewMemSink
+### func [NewMemSink](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L15>)
 
 ```go
 func NewMemSink(k MediaKind) *MemSink
@@ -624,7 +624,7 @@ func NewMemSink(k MediaKind) *MemSink
 NewMemSink creates a MemSink that accepts frames of the given kind.
 
 <a name="MemSink.Close"></a>
-### func \(\*MemSink\) Close
+### func \(\*MemSink\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L27>)
 
 ```go
 func (m *MemSink) Close() error
@@ -633,7 +633,7 @@ func (m *MemSink) Close() error
 Close is a no\-op for MemSink; it satisfies the Sink interface.
 
 <a name="MemSink.Flush"></a>
-### func \(\*MemSink\) Flush
+### func \(\*MemSink\) [Flush](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L21>)
 
 ```go
 func (m *MemSink) Flush()
@@ -642,7 +642,7 @@ func (m *MemSink) Flush()
 Flush drops all queued frames, simulating barge\-in drain.
 
 <a name="MemSink.Kind"></a>
-### func \(\*MemSink\) Kind
+### func \(\*MemSink\) [Kind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L24>)
 
 ```go
 func (m *MemSink) Kind() MediaKind
@@ -651,7 +651,7 @@ func (m *MemSink) Kind() MediaKind
 Kind returns the MediaKind this sink accepts.
 
 <a name="MemSink.Write"></a>
-### func \(\*MemSink\) Write
+### func \(\*MemSink\) [Write](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L18>)
 
 ```go
 func (m *MemSink) Write(f MediaFrame)
@@ -660,7 +660,7 @@ func (m *MemSink) Write(f MediaFrame)
 Write appends f to the internal frame log.
 
 <a name="MemSink.Written"></a>
-### func \(\*MemSink\) Written
+### func \(\*MemSink\) [Written](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L32>)
 
 ```go
 func (m *MemSink) Written() []MediaFrame
@@ -669,7 +669,7 @@ func (m *MemSink) Written() []MediaFrame
 Written returns a copy of the frames written since the last Flush. The returned slice is independent of the internal buffer, making it safe to read concurrently with ongoing Write or Flush calls.
 
 <a name="MemSource"></a>
-## type MemSource
+## type [MemSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L41-L45>)
 
 MemSource is an in\-memory Source for tests and headless use. Push frames via Push; close the channel via Close so that range\-loops terminate. Safe for concurrent use.
 
@@ -680,7 +680,7 @@ type MemSource struct {
 ```
 
 <a name="NewMemSource"></a>
-### func NewMemSource
+### func [NewMemSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L48>)
 
 ```go
 func NewMemSource(kind MediaKind, buf int) *MemSource
@@ -689,7 +689,7 @@ func NewMemSource(kind MediaKind, buf int) *MemSource
 NewMemSource creates a MemSource with a buffered channel of size buf.
 
 <a name="MemSource.Close"></a>
-### func \(\*MemSource\) Close
+### func \(\*MemSource\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L63>)
 
 ```go
 func (m *MemSource) Close() error
@@ -698,7 +698,7 @@ func (m *MemSource) Close() error
 Close closes the underlying channel, signaling end\-of\-stream to consumers. It is idempotent; calling Close more than once is safe.
 
 <a name="MemSource.Frames"></a>
-### func \(\*MemSource\) Frames
+### func \(\*MemSource\) [Frames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L56>)
 
 ```go
 func (m *MemSource) Frames() <-chan MediaFrame
@@ -707,7 +707,7 @@ func (m *MemSource) Frames() <-chan MediaFrame
 Frames returns the read\-only channel of MediaFrames.
 
 <a name="MemSource.Kind"></a>
-### func \(\*MemSource\) Kind
+### func \(\*MemSource\) [Kind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L59>)
 
 ```go
 func (m *MemSource) Kind() MediaKind
@@ -716,7 +716,7 @@ func (m *MemSource) Kind() MediaKind
 Kind returns the MediaKind produced by this source.
 
 <a name="MemSource.Push"></a>
-### func \(\*MemSource\) Push
+### func \(\*MemSource\) [Push](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/memio.go#L53>)
 
 ```go
 func (m *MemSource) Push(f MediaFrame)
@@ -725,7 +725,7 @@ func (m *MemSource) Push(f MediaFrame)
 Push sends f onto the internal channel. It blocks if the buffer is full.
 
 <a name="Session"></a>
-## type Session
+## type [Session](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L72-L81>)
 
 Session groups the Sources and Sinks that belong to one audio session \(e.g. a single call leg: one microphone source \+ one speaker sink\).
 
@@ -743,7 +743,7 @@ type Session interface {
 ```
 
 <a name="SilenceDetector"></a>
-## type SilenceDetector
+## type [SilenceDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L16-L38>)
 
 SilenceDetector detects turn boundaries based on silence duration. It triggers end\-of\-turn when silence exceeds a configurable threshold.
 
@@ -761,7 +761,7 @@ type SilenceDetector struct {
 ```
 
 <a name="NewSilenceDetector"></a>
-### func NewSilenceDetector
+### func [NewSilenceDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L99>)
 
 ```go
 func NewSilenceDetector(threshold time.Duration, opts ...SilenceDetectorOption) *SilenceDetector
@@ -770,7 +770,7 @@ func NewSilenceDetector(threshold time.Duration, opts ...SilenceDetectorOption) 
 NewSilenceDetector creates a SilenceDetector with the given threshold. threshold is the duration of silence required to trigger end\-of\-turn.
 
 <a name="SilenceDetector.GetAccumulatedAudio"></a>
-### func \(\*SilenceDetector\) GetAccumulatedAudio
+### func \(\*SilenceDetector\) [GetAccumulatedAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L244>)
 
 ```go
 func (d *SilenceDetector) GetAccumulatedAudio() []byte
@@ -779,7 +779,7 @@ func (d *SilenceDetector) GetAccumulatedAudio() []byte
 GetAccumulatedAudio returns audio accumulated so far.
 
 <a name="SilenceDetector.IsUserSpeaking"></a>
-### func \(\*SilenceDetector\) IsUserSpeaking
+### func \(\*SilenceDetector\) [IsUserSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L215>)
 
 ```go
 func (d *SilenceDetector) IsUserSpeaking() bool
@@ -788,7 +788,7 @@ func (d *SilenceDetector) IsUserSpeaking() bool
 IsUserSpeaking returns true if user is currently speaking.
 
 <a name="SilenceDetector.Name"></a>
-### func \(\*SilenceDetector\) Name
+### func \(\*SilenceDetector\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L114>)
 
 ```go
 func (d *SilenceDetector) Name() string
@@ -797,7 +797,7 @@ func (d *SilenceDetector) Name() string
 Name returns the detector identifier.
 
 <a name="SilenceDetector.OnTurnComplete"></a>
-### func \(\*SilenceDetector\) OnTurnComplete
+### func \(\*SilenceDetector\) [OnTurnComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L237>)
 
 ```go
 func (d *SilenceDetector) OnTurnComplete(callback TurnCallback)
@@ -806,7 +806,7 @@ func (d *SilenceDetector) OnTurnComplete(callback TurnCallback)
 OnTurnComplete registers a callback for when a complete turn is detected.
 
 <a name="SilenceDetector.ProcessAudio"></a>
-### func \(\*SilenceDetector\) ProcessAudio
+### func \(\*SilenceDetector\) [ProcessAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L121>)
 
 ```go
 func (d *SilenceDetector) ProcessAudio(ctx context.Context, audio []byte) (bool, error)
@@ -815,7 +815,7 @@ func (d *SilenceDetector) ProcessAudio(ctx context.Context, audio []byte) (bool,
 ProcessAudio processes an incoming audio chunk. This implementation delegates to ProcessVADState and expects VAD to be run separately. Returns true if end of turn is detected.
 
 <a name="SilenceDetector.ProcessVADState"></a>
-### func \(\*SilenceDetector\) ProcessVADState
+### func \(\*SilenceDetector\) [ProcessVADState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L136>)
 
 ```go
 func (d *SilenceDetector) ProcessVADState(ctx context.Context, state VADState) (bool, error)
@@ -824,7 +824,7 @@ func (d *SilenceDetector) ProcessVADState(ctx context.Context, state VADState) (
 ProcessVADState processes a VAD state update and detects turn boundaries. Returns true if end of turn is detected.
 
 <a name="SilenceDetector.Reset"></a>
-### func \(\*SilenceDetector\) Reset
+### func \(\*SilenceDetector\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L222>)
 
 ```go
 func (d *SilenceDetector) Reset()
@@ -833,7 +833,7 @@ func (d *SilenceDetector) Reset()
 Reset clears state for a new conversation.
 
 <a name="SilenceDetector.SetTranscript"></a>
-### func \(\*SilenceDetector\) SetTranscript
+### func \(\*SilenceDetector\) [SetTranscript](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L258>)
 
 ```go
 func (d *SilenceDetector) SetTranscript(transcript string)
@@ -842,7 +842,7 @@ func (d *SilenceDetector) SetTranscript(transcript string)
 SetTranscript sets the transcript for the current turn.
 
 <a name="SilenceDetectorOption"></a>
-## type SilenceDetectorOption
+## type [SilenceDetectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L87>)
 
 SilenceDetectorOption configures a SilenceDetector.
 
@@ -851,7 +851,7 @@ type SilenceDetectorOption func(*SilenceDetector)
 ```
 
 <a name="WithMaxAudioBufferSize"></a>
-### func WithMaxAudioBufferSize
+### func [WithMaxAudioBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L91>)
 
 ```go
 func WithMaxAudioBufferSize(size int) SilenceDetectorOption
@@ -860,7 +860,7 @@ func WithMaxAudioBufferSize(size int) SilenceDetectorOption
 WithMaxAudioBufferSize sets the maximum audio buffer size in bytes. When the buffer exceeds this limit, the oldest data is trimmed.
 
 <a name="SimpleVAD"></a>
-## type SimpleVAD
+## type [SimpleVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/simple_vad.go#L49-L55>)
 
 SimpleVAD is a voice activity detector using a FIXED RMS threshold.
 
@@ -879,7 +879,7 @@ type SimpleVAD struct {
 ```
 
 <a name="NewSimpleVAD"></a>
-### func NewSimpleVAD
+### func [NewSimpleVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/simple_vad.go#L58>)
 
 ```go
 func NewSimpleVAD(params VADParams) (*SimpleVAD, error)
@@ -921,7 +921,7 @@ probability=0.0 state=quiet
 </details>
 
 <a name="SimpleVAD.Analyze"></a>
-### func \(\*SimpleVAD\) Analyze
+### func \(\*SimpleVAD\) [Analyze](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/simple_vad.go#L75>)
 
 ```go
 func (v *SimpleVAD) Analyze(_ context.Context, audioData []byte) (float64, error)
@@ -930,7 +930,7 @@ func (v *SimpleVAD) Analyze(_ context.Context, audioData []byte) (float64, error
 Analyze processes audio and returns voice probability based on RMS volume.
 
 <a name="SimpleVAD.Name"></a>
-### func \(\*SimpleVAD\) Name
+### func \(\*SimpleVAD\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/simple_vad.go#L70>)
 
 ```go
 func (v *SimpleVAD) Name() string
@@ -939,7 +939,7 @@ func (v *SimpleVAD) Name() string
 Name returns the analyzer identifier.
 
 <a name="SimpleVAD.Reset"></a>
-### func \(\*SimpleVAD\) Reset
+### func \(\*SimpleVAD\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/simple_vad.go#L100>)
 
 ```go
 func (v *SimpleVAD) Reset()
@@ -948,7 +948,7 @@ func (v *SimpleVAD) Reset()
 Reset clears accumulated state for a new conversation, including the smoothed RMS.
 
 <a name="Sink"></a>
-## type Sink
+## type [Sink](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L55-L68>)
 
 Sink is a write\-only media stream. Implementations include hardware playback devices \(speaker\), file writers, and the in\-memory MemSink test double.
 
@@ -970,7 +970,7 @@ type Sink interface {
 ```
 
 <a name="Source"></a>
-## type Source
+## type [Source](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L43-L51>)
 
 Source is a read\-only media stream. Implementations include hardware capture devices \(microphone\), file readers, and the in\-memory MemSource test double.
 
@@ -987,7 +987,7 @@ type Source interface {
 ```
 
 <a name="TurnCallback"></a>
-## type TurnCallback
+## type [TurnCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/detector.go#L32>)
 
 TurnCallback is called when a complete user turn is detected. audio contains the accumulated audio for the turn. transcript contains any accumulated transcript \(may be empty\).
 
@@ -996,7 +996,7 @@ type TurnCallback func(audio []byte, transcript string)
 ```
 
 <a name="TurnDetector"></a>
-## type TurnDetector
+## type [TurnDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/detector.go#L10-L27>)
 
 TurnDetector determines when a speaker has finished their turn. This is separate from VAD \- VAD detects voice activity, turn detection determines conversation boundaries.
 
@@ -1022,7 +1022,7 @@ type TurnDetector interface {
 ```
 
 <a name="VADAnalyzer"></a>
-## type VADAnalyzer
+## type [VADAnalyzer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L122-L139>)
 
 VADAnalyzer analyzes audio for voice activity.
 
@@ -1048,7 +1048,7 @@ type VADAnalyzer interface {
 ```
 
 <a name="VADEvent"></a>
-## type VADEvent
+## type [VADEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L113-L119>)
 
 VADEvent represents a state transition in VAD.
 
@@ -1063,7 +1063,7 @@ type VADEvent struct {
 ```
 
 <a name="VADParams"></a>
-## type VADParams
+## type [VADParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L50-L69>)
 
 VADParams configures voice activity detection behavior.
 
@@ -1091,7 +1091,7 @@ type VADParams struct {
 ```
 
 <a name="DefaultVADParams"></a>
-### func DefaultVADParams
+### func [DefaultVADParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L72>)
 
 ```go
 func DefaultVADParams() VADParams
@@ -1100,7 +1100,7 @@ func DefaultVADParams() VADParams
 DefaultVADParams returns sensible defaults for voice activity detection.
 
 <a name="VADParams.Validate"></a>
-### func \(VADParams\) Validate
+### func \(VADParams\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L83>)
 
 ```go
 func (p VADParams) Validate() error
@@ -1109,7 +1109,7 @@ func (p VADParams) Validate() error
 Validate checks that VAD parameters are within acceptable ranges.
 
 <a name="VADState"></a>
-## type VADState
+## type [VADState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L20>)
 
 VADState represents the current voice activity state.
 
@@ -1133,7 +1133,7 @@ const (
 ```
 
 <a name="VADState.String"></a>
-### func \(VADState\) String
+### func \(VADState\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L34>)
 
 ```go
 func (s VADState) String() string
@@ -1142,7 +1142,7 @@ func (s VADState) String() string
 String returns a human\-readable representation of the VAD state.
 
 <a name="ValidationError"></a>
-## type ValidationError
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L103-L106>)
 
 ValidationError represents a parameter validation error.
 
@@ -1154,7 +1154,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) Error
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L108>)
 
 ```go
 func (e *ValidationError) Error() string

@@ -278,7 +278,7 @@ func (c *Conversation) executeStreamingPipeline(
 	c.turnState.BeginTurn()
 
 	// Execute streaming through the unary session (only called from Stream which checks mode)
-	streamCh, err := c.unarySession.ExecuteStreamWithMessage(ctx, *userMsg)
+	streamCh, err := c.unarySession.ExecuteStreamWithMessage(c.withConversationState(ctx), *userMsg)
 	if err != nil {
 		return fmt.Errorf("pipeline streaming failed: %w", err)
 	}

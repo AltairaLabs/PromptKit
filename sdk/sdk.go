@@ -302,6 +302,9 @@ func initConversation(
 		logger.Info("capabilities initialized", "capabilities", names, "count", len(allCaps))
 	}
 	conv.capabilities = allCaps
+	// Each conversation owns its share of capability state: its own active
+	// skill set (preloads included) and its own memory scope (#2011).
+	conv.initConversationState()
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)

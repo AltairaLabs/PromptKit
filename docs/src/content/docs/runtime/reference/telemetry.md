@@ -45,7 +45,7 @@ const (
 ```
 
 <a name="NewTracerProvider"></a>
-## func NewTracerProvider
+## func [NewTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L37>)
 
 ```go
 func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdktrace.TracerProvider, error)
@@ -54,7 +54,7 @@ func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdkt
 NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP. The caller is responsible for calling Shutdown on the returned provider.
 
 <a name="SetupPropagation"></a>
-## func SetupPropagation
+## func [SetupPropagation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L62>)
 
 ```go
 func SetupPropagation()
@@ -63,7 +63,7 @@ func SetupPropagation()
 SetupPropagation configures the global OTel text\-map propagator to handle W3C TraceContext, W3C Baggage, and AWS X\-Ray trace headers.
 
 <a name="Tracer"></a>
-## func Tracer
+## func [Tracer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L28>)
 
 ```go
 func Tracer(tp trace.TracerProvider) trace.Tracer
@@ -72,7 +72,7 @@ func Tracer(tp trace.TracerProvider) trace.Tracer
 Tracer returns a named tracer from the given TracerProvider. If tp is nil the global noop provider is used.
 
 <a name="AgentInfo"></a>
-## type AgentInfo
+## type [AgentInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L149-L152>)
 
 AgentInfo holds optional agent identity metadata for session spans.
 
@@ -84,7 +84,7 @@ type AgentInfo struct {
 ```
 
 <a name="OTelEventListener"></a>
-## type OTelEventListener
+## type [OTelEventListener](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L67-L80>)
 
 OTelEventListener converts runtime events into OTel spans in real time. It implements the events.Listener function signature via its OnEvent method. It is safe for concurrent use and tolerates out\-of\-order event delivery. Call Close when the listener is no longer needed to stop the cleanup goroutine.
 
@@ -95,7 +95,7 @@ type OTelEventListener struct {
 ```
 
 <a name="NewOTelEventListener"></a>
-### func NewOTelEventListener
+### func [NewOTelEventListener](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L85>)
 
 ```go
 func NewOTelEventListener(tracer trace.Tracer, opts ...OTelOption) *OTelEventListener
@@ -104,7 +104,7 @@ func NewOTelEventListener(tracer trace.Tracer, opts ...OTelOption) *OTelEventLis
 NewOTelEventListener creates a listener that creates OTel spans from runtime events. A background goroutine periodically cleans up stale entries to prevent unbounded map growth. Call Close when the listener is no longer needed.
 
 <a name="OTelEventListener.Close"></a>
-### func \(\*OTelEventListener\) Close
+### func \(\*OTelEventListener\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L104>)
 
 ```go
 func (l *OTelEventListener) Close()
@@ -113,7 +113,7 @@ func (l *OTelEventListener) Close()
 Close stops the background cleanup goroutine.
 
 <a name="OTelEventListener.EndSession"></a>
-### func \(\*OTelEventListener\) EndSession
+### func \(\*OTelEventListener\) [EndSession](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L190>)
 
 ```go
 func (l *OTelEventListener) EndSession(sessionID string)
@@ -122,7 +122,7 @@ func (l *OTelEventListener) EndSession(sessionID string)
 EndSession ends the root span for the given session.
 
 <a name="OTelEventListener.OnEvent"></a>
-### func \(\*OTelEventListener\) OnEvent
+### func \(\*OTelEventListener\) [OnEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L204>)
 
 ```go
 func (l *OTelEventListener) OnEvent(evt *events.Event)
@@ -131,7 +131,7 @@ func (l *OTelEventListener) OnEvent(evt *events.Event)
 OnEvent handles a single runtime event and creates/completes OTel spans accordingly. It is safe for concurrent use and can be passed to EventBus.SubscribeAll.
 
 <a name="OTelEventListener.StartSession"></a>
-### func \(\*OTelEventListener\) StartSession
+### func \(\*OTelEventListener\) [StartSession](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L160>)
 
 ```go
 func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string, agent ...AgentInfo)
@@ -140,7 +140,7 @@ func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID st
 StartSession creates a root span for the given session, optionally parented under the span context in parentCtx. It is idempotent: if a session already exists for the given ID, the previous session span is ended before creating a new one. This allows callers to call StartSession on every Send/Stream with a fresh parent context. The optional agent parameter provides agent identity attributes for the span.
 
 <a name="OTelOption"></a>
-## type OTelOption
+## type [OTelOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L50>)
 
 OTelOption configures an OTelEventListener.
 
@@ -149,7 +149,7 @@ type OTelOption func(*OTelEventListener)
 ```
 
 <a name="WithContentCapture"></a>
-### func WithContentCapture
+### func [WithContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L63>)
 
 ```go
 func WithContentCapture(enabled bool) OTelOption

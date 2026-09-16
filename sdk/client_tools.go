@@ -267,7 +267,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	}
 
 	// Inject tool results into session history and re-execute
-	result, err := c.unarySession.ResumeWithToolResults(ctx, toolMsgs)
+	result, err := c.unarySession.ResumeWithToolResults(c.withConversationState(ctx), toolMsgs)
 	if err != nil {
 		return nil, fmt.Errorf("resume failed: %w", err)
 	}
@@ -316,7 +316,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
-		streamCh, err := c.unarySession.ResumeStreamWithToolResults(ctx, toolMsgs)
+		streamCh, err := c.unarySession.ResumeStreamWithToolResults(c.withConversationState(ctx), toolMsgs)
 		if err != nil {
 			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", err)}
 			return

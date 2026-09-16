@@ -24,11 +24,16 @@ func preloadInlineSources(names ...string) []skills.SkillSource {
 	return srcs
 }
 
+// initSkillsCapability initializes the capability and materializes one
+// conversation's ActiveSet, which is where preloading now happens: Init only
+// records which skills preload, because activating them at Init put them in a
+// set every conversation shared (#2011).
 func initSkillsCapability(t *testing.T, c *SkillsCapability) {
 	t.Helper()
 	if err := c.Init(CapabilityContext{Pack: &pack.Pack{}, PromptName: "chat"}); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
+	c.NewActiveSet()
 }
 
 func TestSkillsCapability_PreloadBlockedByMaxActive_IsLogged(t *testing.T) {

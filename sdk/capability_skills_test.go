@@ -269,9 +269,14 @@ Preloaded instructions.`
 	}}
 	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
 
-	// The preloaded skill should be active
-	activeSkills := cap.Executor().ActiveSkills()
-	assert.Contains(t, activeSkills, "preloaded-skill")
+	// The preloaded skill is active in every conversation's own set. It is not
+	// active on the executor: that set is shared by every conversation
+	// dispatching through the same registry entry (#2011).
+	set := cap.NewActiveSet()
+	assert.Contains(t, cap.Executor().SkillsIn(set), "preloaded-skill")
+	assert.NotContains(t, cap.Executor().SkillsIn(cap.NewActiveSet()), "unrelated-skill")
+	assert.Empty(t, cap.Executor().ActiveSkills(), //nolint:staticcheck // pinning the move
+		"preloading must not populate the executor's shared set")
 }
 
 func TestSkillsCapability_SkillExecutor_Activate(t *testing.T) {

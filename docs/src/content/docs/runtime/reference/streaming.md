@@ -119,7 +119,7 @@ var ErrSessionEnded = errors.New("session ended")
 ```
 
 <a name="BuildToolResponseElement"></a>
-## func BuildToolResponseElement
+## func [BuildToolResponseElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/tools.go#L63>)
 
 ```go
 func BuildToolResponseElement(result *ToolExecutionResult) stage.StreamElement
@@ -128,7 +128,7 @@ func BuildToolResponseElement(result *ToolExecutionResult) stage.StreamElement
 BuildToolResponseElement creates a stream element containing tool results. This element can be sent through the pipeline to: 1. Forward tool responses to the provider \(via Meta.ToolResponses\) 2. Capture tool results in the state store \(via Meta.ToolResultMessages\)
 
 <a name="DrainStaleMessages"></a>
-## func DrainStaleMessages
+## func [DrainStaleMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L157>)
 
 ```go
 func DrainStaleMessages(outputChan <-chan stage.StreamElement) (int, error)
@@ -139,7 +139,7 @@ DrainStaleMessages removes any buffered messages from the output channel. This i
 Returns the number of messages drained, or an error if the session ended.
 
 <a name="ExecuteAndSend"></a>
-## func ExecuteAndSend
+## func [ExecuteAndSend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/tools.go#L76-L81>)
 
 ```go
 func ExecuteAndSend(ctx context.Context, executor ToolExecutor, toolCalls []types.MessageToolCall, inputChan chan<- stage.StreamElement) error
@@ -150,7 +150,7 @@ ExecuteAndSend is a convenience function that executes tool calls and sends the 
 If the executor is nil, this function returns nil \(no\-op\).
 
 <a name="SendEndOfStream"></a>
-## func SendEndOfStream
+## func [SendEndOfStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/audio.go#L12-L15>)
 
 ```go
 func SendEndOfStream(ctx context.Context, inputChan chan<- stage.StreamElement) error
@@ -159,7 +159,7 @@ func SendEndOfStream(ctx context.Context, inputChan chan<- stage.StreamElement) 
 SendEndOfStream signals that audio input is complete for the current turn. This triggers the provider to generate a response.
 
 <a name="SendImageEndOfStream"></a>
-## func SendImageEndOfStream
+## func [SendImageEndOfStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L185-L188>)
 
 ```go
 func SendImageEndOfStream(ctx context.Context, output chan<- stage.StreamElement) error
@@ -168,7 +168,7 @@ func SendImageEndOfStream(ctx context.Context, output chan<- stage.StreamElement
 SendImageEndOfStream signals that image/frame input is complete for the current turn. This triggers the provider to generate a response.
 
 <a name="SendToolResults"></a>
-## func SendToolResults
+## func [SendToolResults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/tools.go#L37-L41>)
 
 ```go
 func SendToolResults(ctx context.Context, result *ToolExecutionResult, inputChan chan<- stage.StreamElement) error
@@ -179,7 +179,7 @@ SendToolResults sends tool execution results back through the pipeline to the pr
 This matches the behavior of non\-streaming mode where tool results are stored as messages. The tool result messages are sent via inputChan with metadata, and DuplexProviderStage forwards them to output for state store capture.
 
 <a name="SendVideoEndOfStream"></a>
-## func SendVideoEndOfStream
+## func [SendVideoEndOfStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L200-L203>)
 
 ```go
 func SendVideoEndOfStream(ctx context.Context, output chan<- stage.StreamElement) error
@@ -188,7 +188,7 @@ func SendVideoEndOfStream(ctx context.Context, output chan<- stage.StreamElement
 SendVideoEndOfStream signals that video input is complete for the current turn. This triggers the provider to generate a response.
 
 <a name="WaitForResponse"></a>
-## func WaitForResponse
+## func [WaitForResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L180>)
 
 ```go
 func WaitForResponse(ctx context.Context, responseDone <-chan error) error
@@ -197,7 +197,7 @@ func WaitForResponse(ctx context.Context, responseDone <-chan error) error
 WaitForResponse waits for the response collection to complete. This is a convenience function for blocking until a response is received.
 
 <a name="ImageStreamer"></a>
-## type ImageStreamer
+## type [ImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L23-L27>)
 
 ImageStreamer provides utilities for streaming image frames through a pipeline. Use this for realtime video scenarios like webcam feeds or screen sharing.
 
@@ -210,7 +210,7 @@ type ImageStreamer struct {
 ```
 
 <a name="NewImageStreamer"></a>
-### func NewImageStreamer
+### func [NewImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L31>)
 
 ```go
 func NewImageStreamer(targetFPS float64) *ImageStreamer
@@ -219,7 +219,7 @@ func NewImageStreamer(targetFPS float64) *ImageStreamer
 NewImageStreamer creates a new image streamer with the specified target FPS. Use targetFPS of 0 or less for default \(1.0 FPS\).
 
 <a name="ImageStreamer.SendFrame"></a>
-### func \(\*ImageStreamer\) SendFrame
+### func \(\*ImageStreamer\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L49-L56>)
 
 ```go
 func (s *ImageStreamer) SendFrame(ctx context.Context, data []byte, mimeType string, frameNum int64, timestamp time.Time, output chan<- stage.StreamElement) error
@@ -236,7 +236,7 @@ Parameters:
 - output: Pipeline input channel
 
 <a name="ImageStreamer.SendFrameWithDimensions"></a>
-### func \(\*ImageStreamer\) SendFrameWithDimensions
+### func \(\*ImageStreamer\) [SendFrameWithDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L78-L86>)
 
 ```go
 func (s *ImageStreamer) SendFrameWithDimensions(ctx context.Context, data []byte, mimeType string, width, height int, frameNum int64, timestamp time.Time, output chan<- stage.StreamElement) error
@@ -245,7 +245,7 @@ func (s *ImageStreamer) SendFrameWithDimensions(ctx context.Context, data []byte
 SendFrameWithDimensions sends a frame with explicit width and height. Use this when dimensions are known to avoid decoding overhead downstream.
 
 <a name="ImageStreamer.StreamFramesBurst"></a>
-### func \(\*ImageStreamer\) StreamFramesBurst
+### func \(\*ImageStreamer\) [StreamFramesBurst](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L110-L115>)
 
 ```go
 func (s *ImageStreamer) StreamFramesBurst(ctx context.Context, frames [][]byte, mimeType string, output chan<- stage.StreamElement) error
@@ -254,7 +254,7 @@ func (s *ImageStreamer) StreamFramesBurst(ctx context.Context, frames [][]byte, 
 StreamFramesBurst sends all frames as fast as possible without pacing. Use this for pre\-recorded frame sequences where real\-time pacing isn't needed.
 
 <a name="ImageStreamer.StreamFramesRealtime"></a>
-### func \(\*ImageStreamer\) StreamFramesRealtime
+### func \(\*ImageStreamer\) [StreamFramesRealtime](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L141-L146>)
 
 ```go
 func (s *ImageStreamer) StreamFramesRealtime(ctx context.Context, frames [][]byte, mimeType string, output chan<- stage.StreamElement) error
@@ -263,7 +263,7 @@ func (s *ImageStreamer) StreamFramesRealtime(ctx context.Context, frames [][]byt
 StreamFramesRealtime sends frames paced to match the target FPS. Use this for simulating real\-time playback of pre\-recorded frames.
 
 <a name="ResponseAction"></a>
-## type ResponseAction
+## type [ResponseAction](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/response.go#L11>)
 
 ResponseAction indicates what action to take after processing a response element.
 
@@ -288,7 +288,7 @@ const (
 ```
 
 <a name="ProcessResponseElement"></a>
-### func ProcessResponseElement
+### func [ProcessResponseElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/response.go#L54>)
 
 ```go
 func ProcessResponseElement(elem *stage.StreamElement, logPrefix string) (ResponseAction, error)
@@ -336,7 +336,7 @@ complete
 </details>
 
 <a name="ResponseAction.String"></a>
-### func \(ResponseAction\) String
+### func \(ResponseAction\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/response.go#L26>)
 
 ```go
 func (a ResponseAction) String() string
@@ -345,7 +345,7 @@ func (a ResponseAction) String() string
 String returns a human\-readable representation of the action.
 
 <a name="ResponseCollector"></a>
-## type ResponseCollector
+## type [ResponseCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L28-L30>)
 
 ResponseCollector manages response collection from a streaming session. It processes streaming elements, handles tool calls, and signals completion.
 
@@ -356,7 +356,7 @@ type ResponseCollector struct {
 ```
 
 <a name="NewResponseCollector"></a>
-### func NewResponseCollector
+### func [NewResponseCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L33>)
 
 ```go
 func NewResponseCollector(config ResponseCollectorConfig) *ResponseCollector
@@ -365,7 +365,7 @@ func NewResponseCollector(config ResponseCollectorConfig) *ResponseCollector
 NewResponseCollector creates a new response collector with the given configuration.
 
 <a name="ResponseCollector.Start"></a>
-### func \(\*ResponseCollector\) Start
+### func \(\*ResponseCollector\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L47-L51>)
 
 ```go
 func (c *ResponseCollector) Start(ctx context.Context, outputChan <-chan stage.StreamElement, inputChan chan<- stage.StreamElement) <-chan error
@@ -376,7 +376,7 @@ Start begins collecting responses in a goroutine. Returns a channel that receive
 The collector will: 1. Process incoming stream elements 2. Execute tool calls via the ToolExecutor \(if configured\) 3. Send tool results back through inputChan 4. Signal completion or error through the returned channel
 
 <a name="ResponseCollectorConfig"></a>
-## type ResponseCollectorConfig
+## type [ResponseCollectorConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/collector.go#L17-L24>)
 
 ResponseCollectorConfig configures response collection behavior.
 
@@ -392,7 +392,7 @@ type ResponseCollectorConfig struct {
 ```
 
 <a name="ToolExecutionResult"></a>
-## type ToolExecutionResult
+## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/tools.go#L22-L29>)
 
 ToolExecutionResult contains the results of executing tool calls.
 
@@ -408,7 +408,7 @@ type ToolExecutionResult struct {
 ```
 
 <a name="ToolExecutor"></a>
-## type ToolExecutor
+## type [ToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/tools.go#L14-L19>)
 
 ToolExecutor executes tool calls and returns results. Implementations provide the actual tool registry integration.
 
@@ -422,7 +422,7 @@ type ToolExecutor interface {
 ```
 
 <a name="VideoChunk"></a>
-## type VideoChunk
+## type [VideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L115-L120>)
 
 VideoChunk represents a video chunk with metadata for batch streaming.
 
@@ -436,7 +436,7 @@ type VideoChunk struct {
 ```
 
 <a name="VideoStreamer"></a>
-## type VideoStreamer
+## type [VideoStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L21-L25>)
 
 VideoStreamer provides utilities for streaming video chunks through a pipeline. Use this for encoded video segments \(H.264, VP8, etc.\) rather than individual frames. For individual image frames, use ImageStreamer instead.
 
@@ -449,7 +449,7 @@ type VideoStreamer struct {
 ```
 
 <a name="NewVideoStreamer"></a>
-### func NewVideoStreamer
+### func [NewVideoStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L29>)
 
 ```go
 func NewVideoStreamer(chunkDurationMs int) *VideoStreamer
@@ -458,7 +458,7 @@ func NewVideoStreamer(chunkDurationMs int) *VideoStreamer
 NewVideoStreamer creates a new video streamer with the specified chunk duration. Use chunkDurationMs of 0 or less for default \(1000ms\).
 
 <a name="VideoStreamer.SendChunk"></a>
-### func \(\*VideoStreamer\) SendChunk
+### func \(\*VideoStreamer\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L47-L55>)
 
 ```go
 func (s *VideoStreamer) SendChunk(ctx context.Context, data []byte, mimeType string, chunkIndex int, isKeyFrame bool, timestamp time.Time, output chan<- stage.StreamElement) error
@@ -476,7 +476,7 @@ Parameters:
 - output: Pipeline input channel
 
 <a name="VideoStreamer.SendChunkWithDimensions"></a>
-### func \(\*VideoStreamer\) SendChunkWithDimensions
+### func \(\*VideoStreamer\) [SendChunkWithDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L78-L89>)
 
 ```go
 func (s *VideoStreamer) SendChunkWithDimensions(ctx context.Context, data []byte, mimeType string, width, height int, frameRate float64, chunkIndex int, isKeyFrame bool, timestamp time.Time, duration time.Duration, output chan<- stage.StreamElement) error
@@ -485,7 +485,7 @@ func (s *VideoStreamer) SendChunkWithDimensions(ctx context.Context, data []byte
 SendChunkWithDimensions sends a video chunk with explicit dimensions and frame rate. Use this when video metadata is known to avoid parsing overhead downstream.
 
 <a name="VideoStreamer.StreamChunksBurst"></a>
-### func \(\*VideoStreamer\) StreamChunksBurst
+### func \(\*VideoStreamer\) [StreamChunksBurst](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L124-L129>)
 
 ```go
 func (s *VideoStreamer) StreamChunksBurst(ctx context.Context, chunks []VideoChunk, mimeType string, output chan<- stage.StreamElement) error
@@ -494,7 +494,7 @@ func (s *VideoStreamer) StreamChunksBurst(ctx context.Context, chunks []VideoChu
 StreamChunksBurst sends all video chunks as fast as possible without pacing. Use this for pre\-recorded video where real\-time pacing isn't needed.
 
 <a name="VideoStreamer.StreamChunksRealtime"></a>
-### func \(\*VideoStreamer\) StreamChunksRealtime
+### func \(\*VideoStreamer\) [StreamChunksRealtime](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/video_streamer.go#L155-L160>)
 
 ```go
 func (s *VideoStreamer) StreamChunksRealtime(ctx context.Context, chunks []VideoChunk, mimeType string, output chan<- stage.StreamElement) error

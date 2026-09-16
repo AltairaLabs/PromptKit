@@ -144,7 +144,7 @@ var ErrNotFound = errors.New("conversation not found")
 ```
 
 <a name="BulkWriter"></a>
-## type BulkWriter
+## type [BulkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L35-L39>)
 
 BulkWriter allows replacing the entire conversation state in one operation. Optional and explicitly OUT\-OF\-BAND for hot\-path stages — it exists for admin tools, test seeders, and Session.Clear\-style ops.
 
@@ -159,7 +159,7 @@ type BulkWriter interface {
 ```
 
 <a name="ConversationState"></a>
-## type ConversationState
+## type [ConversationState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/types.go#L20-L29>)
 
 ConversationState represents stored conversation state in the state store. This is the primary data structure for persisting and loading conversation history.
 
@@ -177,7 +177,7 @@ type ConversationState struct {
 ```
 
 <a name="InMemoryIndex"></a>
-## type InMemoryIndex
+## type [InMemoryIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L31-L36>)
 
 InMemoryIndex provides an in\-memory implementation of MessageIndex using brute\-force cosine similarity search. Suitable for development, testing, and conversations with up to \~10K messages.
 
@@ -190,7 +190,7 @@ type InMemoryIndex struct {
 ```
 
 <a name="NewInMemoryIndex"></a>
-### func NewInMemoryIndex
+### func [NewInMemoryIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L50>)
 
 ```go
 func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryIndexOption) *InMemoryIndex
@@ -199,7 +199,7 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 NewInMemoryIndex creates a new in\-memory message index.
 
 <a name="InMemoryIndex.Delete"></a>
-### func \(\*InMemoryIndex\) Delete
+### func \(\*InMemoryIndex\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L161>)
 
 ```go
 func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
@@ -208,7 +208,7 @@ func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
 Delete removes all indexed messages for a conversation.
 
 <a name="InMemoryIndex.Index"></a>
-### func \(\*InMemoryIndex\) Index
+### func \(\*InMemoryIndex\) [Index](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L65-L67>)
 
 ```go
 func (idx *InMemoryIndex) Index(ctx context.Context, conversationID string, turnIndex int, message types.Message) error
@@ -217,7 +217,7 @@ func (idx *InMemoryIndex) Index(ctx context.Context, conversationID string, turn
 Index adds a message to the search index by computing its embedding.
 
 <a name="InMemoryIndex.Search"></a>
-### func \(\*InMemoryIndex\) Search
+### func \(\*InMemoryIndex\) [Search](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L99>)
 
 ```go
 func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query string, k int) ([]IndexResult, error)
@@ -226,7 +226,7 @@ func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query stri
 Search finds the top\-k messages most relevant to the query string.
 
 <a name="InMemoryIndexOption"></a>
-## type InMemoryIndexOption
+## type [InMemoryIndexOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L39>)
 
 InMemoryIndexOption configures an InMemoryIndex.
 
@@ -235,7 +235,7 @@ type InMemoryIndexOption func(*InMemoryIndex)
 ```
 
 <a name="WithMaxIndexedConversations"></a>
-### func WithMaxIndexedConversations
+### func [WithMaxIndexedConversations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L43>)
 
 ```go
 func WithMaxIndexedConversations(maxConv int) InMemoryIndexOption
@@ -244,7 +244,7 @@ func WithMaxIndexedConversations(maxConv int) InMemoryIndexOption
 WithMaxIndexedConversations sets the maximum number of conversations to index. Default is DefaultMaxIndexedConversations \(1000\).
 
 <a name="IndexResult"></a>
-## type IndexResult
+## type [IndexResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index.go#L26-L35>)
 
 IndexResult represents a single search result from the message index.
 
@@ -262,7 +262,7 @@ type IndexResult struct {
 ```
 
 <a name="LLMSummarizer"></a>
-## type LLMSummarizer
+## type [LLMSummarizer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer_llm.go#L18-L20>)
 
 LLMSummarizer uses an LLM provider to compress messages into summaries.
 
@@ -273,7 +273,7 @@ type LLMSummarizer struct {
 ```
 
 <a name="NewLLMSummarizer"></a>
-### func NewLLMSummarizer
+### func [NewLLMSummarizer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer_llm.go#L24>)
 
 ```go
 func NewLLMSummarizer(provider providers.Provider) *LLMSummarizer
@@ -282,7 +282,7 @@ func NewLLMSummarizer(provider providers.Provider) *LLMSummarizer
 NewLLMSummarizer creates a new LLM\-based summarizer. A cheaper/faster model is recommended \(e.g., GPT\-3.5, Claude Haiku\).
 
 <a name="LLMSummarizer.Summarize"></a>
-### func \(\*LLMSummarizer\) Summarize
+### func \(\*LLMSummarizer\) [Summarize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer_llm.go#L29>)
 
 ```go
 func (s *LLMSummarizer) Summarize(ctx context.Context, messages []types.Message) (string, error)
@@ -291,7 +291,7 @@ func (s *LLMSummarizer) Summarize(ctx context.Context, messages []types.Message)
 Summarize compresses the given messages into a concise summary.
 
 <a name="ListAccessor"></a>
-## type ListAccessor
+## type [ListAccessor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L128-L144>)
 
 ListAccessor allows storing append\-only collections of opaque items \(JSON\-encoded by the caller\) per conversation. Each list is keyed by a stable name \(e.g. "workflow.history"\).
 
@@ -320,7 +320,7 @@ type ListAccessor interface {
 ```
 
 <a name="ListOptions"></a>
-## type ListOptions
+## type [ListOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L42-L61>)
 
 ListOptions provides filtering and pagination options for listing conversations.
 
@@ -348,7 +348,7 @@ type ListOptions struct {
 ```
 
 <a name="MemoryStore"></a>
-## type MemoryStore
+## type [MemoryStore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L138-L164>)
 
 MemoryStore provides an in\-memory implementation of the Store interface. It is thread\-safe and suitable for development, testing, and single\-instance deployments. For distributed systems, use RedisStore or a database\-backed implementation.
 
@@ -403,7 +403,7 @@ hi
 </details>
 
 <a name="NewMemoryStore"></a>
-### func NewMemoryStore
+### func [NewMemoryStore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L170>)
 
 ```go
 func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore
@@ -412,7 +412,7 @@ func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore
 NewMemoryStore creates a new in\-memory state store. By default, DefaultTTL and DefaultMaxEntries are applied to prevent unbounded memory growth in server scenarios. Options can be provided to override these defaults. Use WithNoTTL\(\) and/or WithNoMaxEntries\(\) to explicitly disable limits.
 
 <a name="MemoryStore.AppendList"></a>
-### func \(\*MemoryStore\) AppendList
+### func \(\*MemoryStore\) [AppendList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L716>)
 
 ```go
 func (s *MemoryStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error
@@ -421,7 +421,7 @@ func (s *MemoryStore) AppendList(ctx context.Context, id, listName string, items
 AppendList appends items to the named list for the conversation. Auto\-creates the conversation entry if missing. Items are deep\-copied so subsequent caller mutations don't affect stored state.
 
 <a name="MemoryStore.AppendMessages"></a>
-### func \(\*MemoryStore\) AppendMessages
+### func \(\*MemoryStore\) [AppendMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L527>)
 
 ```go
 func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error
@@ -430,7 +430,7 @@ func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []
 AppendMessages appends messages to the conversation's message history. If the entry is expired, it is treated as non\-existent and a new state is created.
 
 <a name="MemoryStore.Close"></a>
-### func \(\*MemoryStore\) Close
+### func \(\*MemoryStore\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L196>)
 
 ```go
 func (s *MemoryStore) Close()
@@ -439,7 +439,7 @@ func (s *MemoryStore) Close()
 Close stops the background eviction goroutine, if running. It is safe to call Close multiple times.
 
 <a name="MemoryStore.Delete"></a>
-### func \(\*MemoryStore\) Delete
+### func \(\*MemoryStore\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L319>)
 
 ```go
 func (s *MemoryStore) Delete(ctx context.Context, id string) error
@@ -448,7 +448,7 @@ func (s *MemoryStore) Delete(ctx context.Context, id string) error
 Delete removes a conversation state by ID.
 
 <a name="MemoryStore.Fork"></a>
-### func \(\*MemoryStore\) Fork
+### func \(\*MemoryStore\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L273>)
 
 ```go
 func (s *MemoryStore) Fork(ctx context.Context, sourceID, newID string) error
@@ -457,7 +457,7 @@ func (s *MemoryStore) Fork(ctx context.Context, sourceID, newID string) error
 Fork creates a copy of an existing conversation state with a new ID.
 
 <a name="MemoryStore.Len"></a>
-### func \(\*MemoryStore\) Len
+### func \(\*MemoryStore\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L678>)
 
 ```go
 func (s *MemoryStore) Len() int
@@ -466,7 +466,7 @@ func (s *MemoryStore) Len() int
 Len returns the number of entries currently in the store, including expired entries that have not yet been evicted. This is primarily useful for testing.
 
 <a name="MemoryStore.List"></a>
-### func \(\*MemoryStore\) List
+### func \(\*MemoryStore\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L342>)
 
 ```go
 func (s *MemoryStore) List(ctx context.Context, opts ListOptions) ([]string, error)
@@ -475,7 +475,7 @@ func (s *MemoryStore) List(ctx context.Context, opts ListOptions) ([]string, err
 List returns conversation IDs matching the given criteria. Expired entries are excluded from results.
 
 <a name="MemoryStore.ListLen"></a>
-### func \(\*MemoryStore\) ListLen
+### func \(\*MemoryStore\) [ListLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L780>)
 
 ```go
 func (s *MemoryStore) ListLen(ctx context.Context, id, listName string) (int, error)
@@ -484,7 +484,7 @@ func (s *MemoryStore) ListLen(ctx context.Context, id, listName string) (int, er
 ListLen returns the length of the named list. ErrNotFound only when the conversation itself doesn't exist.
 
 <a name="MemoryStore.Load"></a>
-### func \(\*MemoryStore\) Load
+### func \(\*MemoryStore\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L207>)
 
 ```go
 func (s *MemoryStore) Load(ctx context.Context, id string) (*ConversationState, error)
@@ -493,7 +493,7 @@ func (s *MemoryStore) Load(ctx context.Context, id string) (*ConversationState, 
 Load retrieves a conversation state by ID. Returns a deep copy to prevent external mutations. Expired entries are lazily evicted on access and return ErrNotFound.
 
 <a name="MemoryStore.LoadList"></a>
-### func \(\*MemoryStore\) LoadList
+### func \(\*MemoryStore\) [LoadList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L747>)
 
 ```go
 func (s *MemoryStore) LoadList(ctx context.Context, id, listName string) ([][]byte, error)
@@ -502,7 +502,7 @@ func (s *MemoryStore) LoadList(ctx context.Context, id, listName string) ([][]by
 LoadList returns all items of the named list, deep\-copied. Returns \(nil, nil\) when the list is empty or never written. Returns ErrNotFound when the conversation itself doesn't exist.
 
 <a name="MemoryStore.LoadMetadata"></a>
-### func \(\*MemoryStore\) LoadMetadata
+### func \(\*MemoryStore\) [LoadMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L468>)
 
 ```go
 func (s *MemoryStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
@@ -511,7 +511,7 @@ func (s *MemoryStore) LoadMetadata(ctx context.Context, id string) (map[string]i
 LoadMetadata returns just the metadata map for the given conversation. This avoids the cost of deep\-copying the entire message history, making it significantly cheaper than Load\(\) for callers that only need metadata. Expired entries are lazily evicted and return ErrNotFound.
 
 <a name="MemoryStore.LoadRecentMessages"></a>
-### func \(\*MemoryStore\) LoadRecentMessages
+### func \(\*MemoryStore\) [LoadRecentMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L408>)
 
 ```go
 func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error)
@@ -520,7 +520,7 @@ func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) 
 LoadRecentMessages returns the last n messages for the given conversation. Expired entries return ErrNotFound.
 
 <a name="MemoryStore.LoadSummaries"></a>
-### func \(\*MemoryStore\) LoadSummaries
+### func \(\*MemoryStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L604>)
 
 ```go
 func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error)
@@ -529,7 +529,7 @@ func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, 
 LoadSummaries returns all summaries for the given conversation. Uses a read lock since summaries contain only value types and cloning is a simple slice copy that doesn't benefit from write\-lock protection. Expired entries return nil but are not eagerly evicted under RLock.
 
 <a name="MemoryStore.LogAppend"></a>
-### func \(\*MemoryStore\) LogAppend
+### func \(\*MemoryStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L541>)
 
 ```go
 func (s *MemoryStore) LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error)
@@ -538,7 +538,7 @@ func (s *MemoryStore) LogAppend(ctx context.Context, id string, startSeq int, me
 LogAppend appends messages with sequence\-based idempotent deduplication. Messages before startSeq are already persisted and are skipped.
 
 <a name="MemoryStore.LogLen"></a>
-### func \(\*MemoryStore\) LogLen
+### func \(\*MemoryStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L588>)
 
 ```go
 func (s *MemoryStore) LogLen(ctx context.Context, id string) (int, error)
@@ -547,7 +547,7 @@ func (s *MemoryStore) LogLen(ctx context.Context, id string) (int, error)
 LogLen returns the total message count for the conversation. Returns 0 if the conversation doesn't exist.
 
 <a name="MemoryStore.LogLoad"></a>
-### func \(\*MemoryStore\) LogLoad
+### func \(\*MemoryStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L569>)
 
 ```go
 func (s *MemoryStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
@@ -556,7 +556,7 @@ func (s *MemoryStore) LogLoad(ctx context.Context, id string, recent int) ([]typ
 LogLoad returns messages for the conversation. If recent \> 0, returns only the last N messages. Returns an empty slice if the conversation doesn't exist.
 
 <a name="MemoryStore.MergeMetadata"></a>
-### func \(\*MemoryStore\) MergeMetadata
+### func \(\*MemoryStore\) [MergeMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L651>)
 
 ```go
 func (s *MemoryStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error
@@ -565,7 +565,7 @@ func (s *MemoryStore) MergeMetadata(ctx context.Context, id string, updates map[
 MergeMetadata atomically merges the supplied keys into the conversation's Metadata map. Auto\-creates the conversation if it doesn't exist.
 
 <a name="MemoryStore.MessageCount"></a>
-### func \(\*MemoryStore\) MessageCount
+### func \(\*MemoryStore\) [MessageCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L444>)
 
 ```go
 func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error)
@@ -574,7 +574,7 @@ func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error)
 MessageCount returns the total number of messages in the conversation. Uses a read lock since it only needs the message count, not a mutable reference. Expired entries return ErrNotFound but are not eagerly evicted under RLock; they will be cleaned up on the next write operation or background eviction.
 
 <a name="MemoryStore.Save"></a>
-### func \(\*MemoryStore\) Save
+### func \(\*MemoryStore\) [Save](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L236>)
 
 ```go
 func (s *MemoryStore) Save(ctx context.Context, state *ConversationState) error
@@ -583,7 +583,7 @@ func (s *MemoryStore) Save(ctx context.Context, state *ConversationState) error
 Save persists a conversation state. If it already exists, it will be updated. When a max entries limit is set and the store is full, the least\-recently\-accessed entry is evicted to make room.
 
 <a name="MemoryStore.SaveSummary"></a>
-### func \(\*MemoryStore\) SaveSummary
+### func \(\*MemoryStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L632>)
 
 ```go
 func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summary) error
@@ -592,7 +592,7 @@ func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summar
 SaveSummary appends a summary to the conversation's summary list. Auto\-creates the conversation if it doesn't exist.
 
 <a name="MemoryStoreOption"></a>
-## type MemoryStoreOption
+## type [MemoryStoreOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L70>)
 
 MemoryStoreOption configures optional behavior for MemoryStore.
 
@@ -601,7 +601,7 @@ type MemoryStoreOption func(*MemoryStore)
 ```
 
 <a name="WithMemoryEvictionInterval"></a>
-### func WithMemoryEvictionInterval
+### func [WithMemoryEvictionInterval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L129>)
 
 ```go
 func WithMemoryEvictionInterval(d time.Duration) MemoryStoreOption
@@ -610,7 +610,7 @@ func WithMemoryEvictionInterval(d time.Duration) MemoryStoreOption
 WithMemoryEvictionInterval sets the interval for the background cleanup goroutine that removes expired entries. If zero, no background cleanup runs and eviction happens only lazily on access. Requires a non\-zero TTL to have any effect.
 
 <a name="WithMemoryMaxEntries"></a>
-### func WithMemoryMaxEntries
+### func [WithMemoryMaxEntries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L106>)
 
 ```go
 func WithMemoryMaxEntries(n int) MemoryStoreOption
@@ -619,7 +619,7 @@ func WithMemoryMaxEntries(n int) MemoryStoreOption
 WithMemoryMaxEntries sets the maximum number of entries the store will hold. When the limit is reached, the least\-recently\-accessed entry is evicted. A zero or negative value disables the limit. By default, DefaultMaxEntries is applied. Use WithNoMaxEntries\(\) as an explicit, self\-documenting way to disable the entry limit.
 
 <a name="WithMemoryTTL"></a>
-### func WithMemoryTTL
+### func [WithMemoryTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L86>)
 
 ```go
 func WithMemoryTTL(ttl time.Duration) MemoryStoreOption
@@ -634,7 +634,7 @@ RedisStore applies the same rule to the same set of operations, so a given TTL m
 A zero or negative TTL disables expiration. By default, DefaultTTL is applied. Use WithNoTTL\(\) as an explicit, self\-documenting way to disable TTL expiration.
 
 <a name="WithNoMaxEntries"></a>
-### func WithNoMaxEntries
+### func [WithNoMaxEntries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L119>)
 
 ```go
 func WithNoMaxEntries() MemoryStoreOption
@@ -643,7 +643,7 @@ func WithNoMaxEntries() MemoryStoreOption
 WithNoMaxEntries explicitly disables the max entries limit so the store can grow unbounded. This overrides the DefaultMaxEntries that is otherwise applied automatically.
 
 <a name="WithNoTTL"></a>
-### func WithNoTTL
+### func [WithNoTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L95>)
 
 ```go
 func WithNoTTL() MemoryStoreOption
@@ -652,7 +652,7 @@ func WithNoTTL() MemoryStoreOption
 WithNoTTL explicitly disables TTL expiration so entries never expire. This overrides the DefaultTTL that is otherwise applied automatically.
 
 <a name="MessageAppender"></a>
-## type MessageAppender
+## type [MessageAppender](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L79-L83>)
 
 MessageAppender allows appending messages without a full load\+replace\+save cycle. This is an optional interface — stores that implement it enable incremental saves. Pipeline stages type\-assert for this interface and fall back to BulkWriter when unavailable.
 
@@ -665,7 +665,7 @@ type MessageAppender interface {
 ```
 
 <a name="MessageIndex"></a>
-## type MessageIndex
+## type [MessageIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index.go#L12-L23>)
 
 MessageIndex provides semantic search over conversation messages. Implementations can use embedding\-based vector search or other similarity methods to find messages relevant to a given query.
 
@@ -685,7 +685,7 @@ type MessageIndex interface {
 ```
 
 <a name="MessageLog"></a>
-## type MessageLog
+## type [MessageLog](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/message_log.go#L22-L37>)
 
 MessageLog provides sequence\-based message persistence with idempotent append. Stores that implement this interface enable per\-round write\-through during tool loops, so messages survive process crashes without waiting for the end\-of\-pipeline save stage.
 
@@ -713,7 +713,7 @@ type MessageLog interface {
 ```
 
 <a name="MessageReader"></a>
-## type MessageReader
+## type [MessageReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L66-L74>)
 
 MessageReader allows loading a subset of messages without full state deserialization. This is an optional interface — stores that implement it enable efficient partial reads. Pipeline stages type\-assert for this interface and fall back to Store.Load when unavailable.
 
@@ -730,7 +730,7 @@ type MessageReader interface {
 ```
 
 <a name="MetadataAccessor"></a>
-## type MetadataAccessor
+## type [MetadataAccessor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L91-L102>)
 
 MetadataAccessor allows reading and writing metadata without loading the full state. This is an optional interface — stores that implement it enable efficient metadata operations without the cost of deep\-copying the message history. Pipeline stages type\-assert for this interface; reads fall back to Store.Load when LoadMetadata is unavailable, and writes fall back to BulkWriter when MergeMetadata is unavailable.
 
@@ -750,7 +750,7 @@ type MetadataAccessor interface {
 ```
 
 <a name="RedisOption"></a>
-## type RedisOption
+## type [RedisOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L39>)
 
 RedisOption configures a RedisStore.
 
@@ -759,7 +759,7 @@ type RedisOption func(*RedisStore)
 ```
 
 <a name="WithPrefix"></a>
-### func WithPrefix
+### func [WithPrefix](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L62>)
 
 ```go
 func WithPrefix(prefix string) RedisOption
@@ -768,7 +768,7 @@ func WithPrefix(prefix string) RedisOption
 WithPrefix sets the key prefix for Redis keys. Default is "promptkit".
 
 <a name="WithTTL"></a>
-### func WithTTL
+### func [WithTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L54>)
 
 ```go
 func WithTTL(ttl time.Duration) RedisOption
@@ -783,7 +783,7 @@ MemoryStore applies the same rule to the same set of operations, so a given TTL 
 Default is 24 hours. Set to 0 for no expiration.
 
 <a name="RedisStore"></a>
-## type RedisStore
+## type [RedisStore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L32-L36>)
 
 RedisStore provides a Redis\-backed implementation of the Store interface. It uses JSON serialization for state storage and supports automatic TTL\-based cleanup. This implementation is suitable for distributed systems and production deployments.
 
@@ -794,7 +794,7 @@ type RedisStore struct {
 ```
 
 <a name="NewRedisStore"></a>
-### func NewRedisStore
+### func [NewRedisStore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L77>)
 
 ```go
 func NewRedisStore(client *redis.Client, opts ...RedisOption) *RedisStore
@@ -813,7 +813,7 @@ store := NewRedisStore(
 ```
 
 <a name="RedisStore.AppendList"></a>
-### func \(\*RedisStore\) AppendList
+### func \(\*RedisStore\) [AppendList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L854>)
 
 ```go
 func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error
@@ -824,7 +824,7 @@ AppendList appends opaque items to the named per\-conversation list using RPUSH.
 Auto\-creates the conversation if it doesn't exist — meta is touched on the next interaction \(or by an explicit Save\). No Save is required.
 
 <a name="RedisStore.AppendMessages"></a>
-### func \(\*RedisStore\) AppendMessages
+### func \(\*RedisStore\) [AppendMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1018>)
 
 ```go
 func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error
@@ -833,7 +833,7 @@ func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []t
 AppendMessages appends messages to the conversation's message list using RPUSH. Uses Redis pipelining to batch the RPUSH, EXPIRE, and meta update in a single round\-trip.
 
 <a name="RedisStore.Delete"></a>
-### func \(\*RedisStore\) Delete
+### func \(\*RedisStore\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L525>)
 
 ```go
 func (s *RedisStore) Delete(ctx context.Context, id string) error
@@ -842,7 +842,7 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error
 Delete removes a conversation state from Redis. Removes both decomposed keys \(meta, messages, summaries\) and legacy monolithic key. Uses a pipeline to batch all DEL commands and optional user index cleanup.
 
 <a name="RedisStore.Fork"></a>
-### func \(\*RedisStore\) Fork
+### func \(\*RedisStore\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L503>)
 
 ```go
 func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error
@@ -851,7 +851,7 @@ func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error
 Fork creates a copy of an existing conversation state with a new ID.
 
 <a name="RedisStore.List"></a>
-### func \(\*RedisStore\) List
+### func \(\*RedisStore\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L579>)
 
 ```go
 func (s *RedisStore) List(ctx context.Context, opts ListOptions) ([]string, error)
@@ -860,7 +860,7 @@ func (s *RedisStore) List(ctx context.Context, opts ListOptions) ([]string, erro
 List returns conversation IDs matching the given criteria.
 
 <a name="RedisStore.ListLen"></a>
-### func \(\*RedisStore\) ListLen
+### func \(\*RedisStore\) [ListLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L931>)
 
 ```go
 func (s *RedisStore) ListLen(ctx context.Context, id, listName string) (int, error)
@@ -869,7 +869,7 @@ func (s *RedisStore) ListLen(ctx context.Context, id, listName string) (int, err
 ListLen returns the current length of the named list. Returns 0 for empty/missing lists; ErrNotFound only when the conversation itself doesn't exist.
 
 <a name="RedisStore.Load"></a>
-### func \(\*RedisStore\) Load
+### func \(\*RedisStore\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L107>)
 
 ```go
 func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, error)
@@ -878,7 +878,7 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 Load retrieves a conversation state by ID from Redis. Tries the decomposed format \(meta key \+ messages list \+ summaries list\) first, then falls back to the legacy monolithic JSON string for backward compatibility.
 
 <a name="RedisStore.LoadList"></a>
-### func \(\*RedisStore\) LoadList
+### func \(\*RedisStore\) [LoadList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L893>)
 
 ```go
 func (s *RedisStore) LoadList(ctx context.Context, id, listName string) ([][]byte, error)
@@ -887,7 +887,7 @@ func (s *RedisStore) LoadList(ctx context.Context, id, listName string) ([][]byt
 LoadList returns all items of the named list in append order. Returns \(nil, nil\) when the list is empty or has never been written and the conversation exists. Returns ErrNotFound only when the conversation itself doesn't exist \(distinguished by an EXISTS check on the meta key\).
 
 <a name="RedisStore.LoadMetadata"></a>
-### func \(\*RedisStore\) LoadMetadata
+### func \(\*RedisStore\) [LoadMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L740>)
 
 ```go
 func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
@@ -896,7 +896,7 @@ func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]in
 LoadMetadata returns the user metadata map for the given conversation by reading the dedicated metadata hash. Returns ErrNotFound when the conversation doesn't exist \(matches MemoryStore.LoadMetadata\). Returns an empty \(or nil\) map when the conversation exists but has no metadata.
 
 <a name="RedisStore.LoadRecentMessages"></a>
-### func \(\*RedisStore\) LoadRecentMessages
+### func \(\*RedisStore\) [LoadRecentMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L958>)
 
 ```go
 func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error)
@@ -905,7 +905,7 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 LoadRecentMessages returns the last n messages using LRANGE on the messages list. Falls back to loading from the monolithic key if the list doesn't exist.
 
 <a name="RedisStore.LoadSummaries"></a>
-### func \(\*RedisStore\) LoadSummaries
+### func \(\*RedisStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1121>)
 
 ```go
 func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error)
@@ -914,7 +914,7 @@ func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, e
 LoadSummaries returns all summaries for the conversation.
 
 <a name="RedisStore.LogAppend"></a>
-### func \(\*RedisStore\) LogAppend
+### func \(\*RedisStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1395-L1397>)
 
 ```go
 func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error)
@@ -923,7 +923,7 @@ func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, mes
 LogAppend appends messages with sequence\-based idempotent deduplication. The on\-disk layout matches what Save writes \(a Redis list at messagesKey\(id\)\) so messages persisted via the tool\-loop write\-through path are loaded back transparently by Load. A minimal meta stub is written via SETNX so a subsequent Load\(id\) does not return ErrNotFound after a crash recovery before the end\-of\-turn Save has run; the next Save overwrites it.
 
 <a name="RedisStore.LogLen"></a>
-### func \(\*RedisStore\) LogLen
+### func \(\*RedisStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1465>)
 
 ```go
 func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
@@ -932,7 +932,7 @@ func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
 LogLen returns the message count for the conversation, or 0 if absent.
 
 <a name="RedisStore.LogLoad"></a>
-### func \(\*RedisStore\) LogLoad
+### func \(\*RedisStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1448>)
 
 ```go
 func (s *RedisStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
@@ -941,7 +941,7 @@ func (s *RedisStore) LogLoad(ctx context.Context, id string, recent int) ([]type
 LogLoad returns messages for the conversation. Empty \(not an error\) when the conversation doesn't exist. With recent \> 0, returns only the last N.
 
 <a name="RedisStore.MergeMetadata"></a>
-### func \(\*RedisStore\) MergeMetadata
+### func \(\*RedisStore\) [MergeMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L813>)
 
 ```go
 func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error
@@ -950,7 +950,7 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 MergeMetadata writes the supplied keys into the conversation's metadata hash via a single HMSET. Each Redis hash field write is server\-atomic, so concurrent MergeMetadata calls on the same conversation just work — no WATCH/MULTI/EXEC, no retry loop. Updates the meta\-key TTL too so metadata\-only writes count as activity for retention purposes.
 
 <a name="RedisStore.MessageCount"></a>
-### func \(\*RedisStore\) MessageCount
+### func \(\*RedisStore\) [MessageCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L990>)
 
 ```go
 func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error)
@@ -959,7 +959,7 @@ func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error)
 MessageCount returns the total number of messages. Falls back to loading from the monolithic key if the list doesn't exist.
 
 <a name="RedisStore.Save"></a>
-### func \(\*RedisStore\) Save
+### func \(\*RedisStore\) [Save](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L290>)
 
 ```go
 func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error
@@ -968,7 +968,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error
 Save persists a conversation state to Redis using decomposed keys. Metadata is stored in a meta key, messages in a Redis list, and summaries in a separate list. Messages use append\-only delta writes: only new messages \(beyond what is already stored\) are RPUSHed, avoiding the cost of DEL\+RPUSH for the entire list on every save. If the message count in Redis exceeds the local count \(e.g., external truncation\), a full rewrite is performed.
 
 <a name="RedisStore.SaveSummary"></a>
-### func \(\*RedisStore\) SaveSummary
+### func \(\*RedisStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1161>)
 
 ```go
 func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary) error
@@ -977,7 +977,7 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 SaveSummary appends a summary to the conversation's summary list. Uses a pipeline to batch RPUSH and EXPIRE into a single round\-trip.
 
 <a name="Store"></a>
-## type Store
+## type [Store](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L18-L25>)
 
 Store defines the interface for persistent conversation state storage.
 
@@ -995,7 +995,7 @@ type Store interface {
 ```
 
 <a name="Summarizer"></a>
-## type Summarizer
+## type [Summarizer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer.go#L12-L15>)
 
 Summarizer compresses a batch of messages into a summary string. Implementations may use LLM providers, extractive methods, or other compression strategies.
 
@@ -1007,7 +1007,7 @@ type Summarizer interface {
 ```
 
 <a name="Summary"></a>
-## type Summary
+## type [Summary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/types.go#L33-L39>)
 
 Summary represents a compressed version of conversation turns. Used to maintain context while reducing token count for older conversations.
 
@@ -1022,7 +1022,7 @@ type Summary struct {
 ```
 
 <a name="SummaryAccessor"></a>
-## type SummaryAccessor
+## type [SummaryAccessor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L106-L114>)
 
 SummaryAccessor allows reading and writing summaries independently of the full state. This is an optional interface for stores that support efficient summary operations.
 

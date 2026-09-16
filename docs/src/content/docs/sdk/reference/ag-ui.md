@@ -44,7 +44,7 @@ Package agui provides bidirectional converters between PromptKit internal types 
 
 
 <a name="MessageFromAGUI"></a>
-## func MessageFromAGUI
+## func [MessageFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L68>)
 
 ```go
 func MessageFromAGUI(msg *aguitypes.Message) types.Message
@@ -88,7 +88,7 @@ assistant -> Hi there!
 </details>
 
 <a name="MessageToAGUI"></a>
-## func MessageToAGUI
+## func [MessageToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L38>)
 
 ```go
 func MessageToAGUI(msg *types.Message) aguitypes.Message
@@ -128,7 +128,7 @@ user -> Hello!
 </details>
 
 <a name="MessagesFromAGUI"></a>
-## func MessagesFromAGUI
+## func [MessagesFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L107>)
 
 ```go
 func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message
@@ -137,7 +137,7 @@ func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message
 MessagesFromAGUI converts a slice of AG\-UI Messages to PromptKit Messages.
 
 <a name="MessagesToAGUI"></a>
-## func MessagesToAGUI
+## func [MessagesToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L98>)
 
 ```go
 func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
@@ -146,7 +146,7 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
 MessagesToAGUI converts a slice of PromptKit Messages to AG\-UI Messages.
 
 <a name="ToolsFromAGUI"></a>
-## func ToolsFromAGUI
+## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L143>)
 
 ```go
 func ToolsFromAGUI(aguiTools []aguitypes.Tool) []*tools.ToolDescriptor
@@ -155,7 +155,7 @@ func ToolsFromAGUI(aguiTools []aguitypes.Tool) []*tools.ToolDescriptor
 ToolsFromAGUI converts a slice of AG\-UI Tool definitions to PromptKit ToolDescriptors. Each tool's Parameters \(JSON Schema as any\) is marshaled to json.RawMessage for InputSchema.
 
 <a name="ToolsToAGUI"></a>
-## func ToolsToAGUI
+## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L119>)
 
 ```go
 func ToolsToAGUI(descs []tools.ToolDescriptor) []aguitypes.Tool
@@ -164,7 +164,7 @@ func ToolsToAGUI(descs []tools.ToolDescriptor) []aguitypes.Tool
 ToolsToAGUI converts a slice of PromptKit ToolDescriptors to AG\-UI Tool definitions.
 
 <a name="AdapterOption"></a>
-## type AdapterOption
+## type [AdapterOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L55>)
 
 AdapterOption configures an EventAdapter.
 
@@ -173,7 +173,7 @@ type AdapterOption func(*adapterConfig)
 ```
 
 <a name="WithRunID"></a>
-### func WithRunID
+### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L73>)
 
 ```go
 func WithRunID(id string) AdapterOption
@@ -182,7 +182,7 @@ func WithRunID(id string) AdapterOption
 WithRunID sets the AG\-UI run ID for emitted events.
 
 <a name="WithStateProvider"></a>
-### func WithStateProvider
+### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L80>)
 
 ```go
 func WithStateProvider(sp StateProvider) AdapterOption
@@ -191,7 +191,7 @@ func WithStateProvider(sp StateProvider) AdapterOption
 WithStateProvider sets a provider that produces state snapshots.
 
 <a name="WithThreadID"></a>
-### func WithThreadID
+### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L66>)
 
 ```go
 func WithThreadID(id string) AdapterOption
@@ -200,7 +200,7 @@ func WithThreadID(id string) AdapterOption
 WithThreadID sets the AG\-UI thread ID for emitted events.
 
 <a name="WithToolResultProvider"></a>
-### func WithToolResultProvider
+### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L97>)
 
 ```go
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption
@@ -209,7 +209,7 @@ func WithToolResultProvider(provider ToolResultProvider) AdapterOption
 WithToolResultProvider sets a callback that supplies results for pending client tools. When configured, the adapter will suspend, call the provider, resolve each tool, then call Resume to continue the pipeline.
 
 <a name="WithWorkflowSteps"></a>
-### func WithWorkflowSteps
+### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L88>)
 
 ```go
 func WithWorkflowSteps(enabled bool) AdapterOption
@@ -218,7 +218,7 @@ func WithWorkflowSteps(enabled bool) AdapterOption
 WithWorkflowSteps enables emission of StepStarted/StepFinished events for workflow state transitions observed on the event bus.
 
 <a name="EventAdapter"></a>
-## type EventAdapter
+## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L106-L114>)
 
 EventAdapter bridges a PromptKit conversation to an AG\-UI event channel. It calls Send on the underlying conversation and translates the response \(and any event\-bus tool\-call events\) into AG\-UI protocol events.
 
@@ -229,7 +229,7 @@ type EventAdapter struct {
 ```
 
 <a name="NewEventAdapter"></a>
-### func NewEventAdapter
+### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L119-L123>)
 
 ```go
 func NewEventAdapter(conv interface {
@@ -241,7 +241,7 @@ func NewEventAdapter(conv interface {
 NewEventAdapter creates a new EventAdapter for the given conversation. The conversation must implement both Sender and EventBusProvider. In practice, \*sdk.Conversation satisfies both interfaces.
 
 <a name="EventAdapter.Events"></a>
-### func \(\*EventAdapter\) Events
+### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L146>)
 
 ```go
 func (a *EventAdapter) Events() <-chan aguievents.Event
@@ -250,7 +250,7 @@ func (a *EventAdapter) Events() <-chan aguievents.Event
 Events returns the read\-only channel of AG\-UI events. The channel is closed after RunSend completes \(either successfully or with an error\).
 
 <a name="EventAdapter.RunID"></a>
-### func \(\*EventAdapter\) RunID
+### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L156>)
 
 ```go
 func (a *EventAdapter) RunID() string
@@ -259,7 +259,7 @@ func (a *EventAdapter) RunID() string
 RunID returns the run ID used by this adapter.
 
 <a name="EventAdapter.RunSend"></a>
-### func \(\*EventAdapter\) RunSend
+### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L182>)
 
 ```go
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error
@@ -281,7 +281,7 @@ Event sequence on success:
 On error, a RunErrorEvent is emitted instead of steps 3\-8. The events channel is always closed when RunSend returns.
 
 <a name="EventAdapter.ThreadID"></a>
-### func \(\*EventAdapter\) ThreadID
+### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L151>)
 
 ```go
 func (a *EventAdapter) ThreadID() string
@@ -290,7 +290,7 @@ func (a *EventAdapter) ThreadID() string
 ThreadID returns the thread ID used by this adapter.
 
 <a name="EventBusProvider"></a>
-## type EventBusProvider
+## type [EventBusProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L45-L47>)
 
 EventBusProvider abstracts access to the conversation's event bus.
 
@@ -301,7 +301,7 @@ type EventBusProvider interface {
 ```
 
 <a name="Sender"></a>
-## type Sender
+## type [Sender](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L24-L29>)
 
 Sender abstracts the conversation methods needed by the adapter. In production code, \*sdk.Conversation satisfies this interface.
 
@@ -315,7 +315,7 @@ type Sender interface {
 ```
 
 <a name="StateProvider"></a>
-## type StateProvider
+## type [StateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L50-L52>)
 
 StateProvider produces a state snapshot for the AG\-UI StateSnapshotEvent.
 
@@ -326,7 +326,7 @@ type StateProvider interface {
 ```
 
 <a name="ToolResult"></a>
-## type ToolResult
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L37-L42>)
 
 ToolResult carries the caller\-provided outcome for a single client tool call.
 
@@ -340,7 +340,7 @@ type ToolResult struct {
 ```
 
 <a name="ToolResultProvider"></a>
-## type ToolResultProvider
+## type [ToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L34>)
 
 ToolResultProvider is a callback the caller implements to supply results for pending client tools. The adapter calls it when the LLM response contains deferred client tools that need fulfillment before the pipeline can continue.
 
