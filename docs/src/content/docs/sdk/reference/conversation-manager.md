@@ -523,6 +523,27 @@ const DefaultMaxConcurrentEvals = 10
 const DefaultMemorySubjectKey = "user_id"
 ```
 
+<a name="JudgeProviderKey"></a>JudgeProviderKey is the provider key a pack names when it requires an LLM judge, and the key the host registers its judge under:
+
+```
+requires:
+  providers:
+    - key: judge
+      role: llm
+      description: grades toxicity and PII checks
+
+sdk.Open(pack, "chat",
+    sdk.WithProvider(agent),
+    sdk.WithLLMProvider(sdk.ProviderSpec{ID: "judge", Type: "openai", Model: "gpt-4.1-mini"}),
+)
+```
+
+RFC 0012 names "judge" as an example key for exactly this; nothing here invents a judge or borrows the agent's provider, because which model grades the output is the host's decision, not the runtime's. A host whose pack names a different key passes the provider explicitly with [WithJudgeProvider](<#WithJudgeProvider>).
+
+```go
+const JudgeProviderKey = "judge"
+```
+
 ## Variables
 
 <a name="NewInMemoryA2ATaskStore"></a>Re\-exported constructors and sentinel errors.
@@ -3304,7 +3325,7 @@ WithEmbeddingProvider builds an embedding provider from a spec and sets it as th
 Registering the same ID twice is an error, matching what the declarative path \(a runtime config's embedding\_providers\) already does. Silently keeping one provider while listing its ID twice made the ID list stop being a set \(\#2000\).
 
 <a name="WithEvalGroups"></a>
-### func [WithEvalGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3372>)
+### func [WithEvalGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3381>)
 
 ```go
 func WithEvalGroups(groups ...string) Option
@@ -3400,7 +3421,7 @@ conv2, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 ```
 
 <a name="WithEventRedactor"></a>
-### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3552>)
+### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3561>)
 
 ```go
 func WithEventRedactor(r events.Redactor) Option
@@ -3591,15 +3612,17 @@ resp, _ := conv.Send(ctx, "List 3 colors as JSON")
 ```
 
 <a name="WithJudgeProvider"></a>
-### func [WithJudgeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3338>)
+### func [WithJudgeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3347>)
 
 ```go
 func WithJudgeProvider(jp handlers.JudgeProvider) Option
 ```
 
-WithJudgeProvider configures the LLM judge provider for judge\-based evals.
+WithJudgeProvider configures the LLM judge that judge\-backed checks — bias, toxicity, pii\_leakage, role\_violation, llm\_judge and the RAG primitives — evaluate through, as evals and as pack \`validators:\` guardrails alike.
 
-If not set, an SDKJudgeProvider is created automatically using the conversation's provider.
+If not set, the judge is the provider registered under [JudgeProviderKey](<#JudgeProviderKey>), which is what a host supplies in answer to a pack's requires block. Nothing falls back to the conversation's own provider: which model grades the output is the host's decision, and self\-grading on the agent model is a decision, not a default.
+
+A judge\-backed guardrail with no judge from either route fails Open\(\) rather than failing per turn, where it used to block every turn or none of them silently \(\#1996\).
 
 <a name="WithLLMProvider"></a>
 ### func [WithLLMProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2430>)
@@ -3729,7 +3752,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithMaxActiveSkillsOption"></a>
-### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3470>)
+### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3479>)
 
 ```go
 func WithMaxActiveSkillsOption(n int) Option
@@ -3744,7 +3767,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithMaxConcurrentEvals"></a>
-### func [WithMaxConcurrentEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3351>)
+### func [WithMaxConcurrentEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3360>)
 
 ```go
 func WithMaxConcurrentEvals(n int) Option
@@ -3803,7 +3826,7 @@ WithMessageLog enables per\-round write\-through persistence during tool loops. 
 The store must implement \[statestore.MessageLog\]. MemoryStore implements it by default. Pass nil to disable.
 
 <a name="WithMetricRecorder"></a>
-### func [WithMetricRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3387>)
+### func [WithMetricRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3396>)
 
 ```go
 func WithMetricRecorder(r evals.MetricRecorder) Option
@@ -4195,7 +4218,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithShutdownManager"></a>
-### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3491>)
+### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3500>)
 
 ```go
 func WithShutdownManager(mgr *ShutdownManager) Option
@@ -4214,7 +4237,7 @@ defer conv.Close()
 ```
 
 <a name="WithSkillSelectorOption"></a>
-### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3457>)
+### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3466>)
 
 ```go
 func WithSkillSelectorOption(s skills.SkillSelector) Option
@@ -4229,7 +4252,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithSkillSource"></a>
-### func [WithSkillSource](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3443>)
+### func [WithSkillSource](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3452>)
 
 ```go
 func WithSkillSource(src skills.SkillSource) Option
@@ -4254,7 +4277,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithSkillsDir"></a>
-### func [WithSkillsDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3406>)
+### func [WithSkillsDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3415>)
 
 ```go
 func WithSkillsDir(dir string) Option
@@ -4418,7 +4441,7 @@ func WithTTSProvider(spec ProviderSpec) Option
 WithTTSProvider builds a TTS service from a spec and sets it as the default ttsService \(first\-wins; does not overwrite one already set by WithTTS or a prior WithTTSProvider call\). Registering the same ID twice is an error, matching the declarative path \(\#2000\).
 
 <a name="WithTelemetryContentCapture"></a>
-### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3521>)
+### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3530>)
 
 ```go
 func WithTelemetryContentCapture(enabled bool) Option

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -37,12 +38,35 @@ type invalidParams struct{ err error }
 func (e *invalidParams) Error() string   { return e.err.Error() }
 func (e *invalidParams) Unwrap() []error { return []error{e.err, ErrInvalidGuardrailParams} }
 
+// ErrGuardrailNeedsJudge is returned when a validator names a judge-backed eval
+// type and no judge provider was supplied. It is fatal on the strict path for
+// the same reason an unknown type is: the guardrail cannot run.
+//
+// Before this, the two judge-backed families failed in opposite directions and
+// both silently — a `toxicity` guardrail scored 0.0 against a 1.0 floor and
+// blocked EVERY turn while reporting a content violation, and `pii_leakage`
+// degraded open so its LLM layer never ran at all (#1996). Neither is
+// detectable without reading the blocked message, and both are decided long
+// before any turn: the pack declares the judge it needs, the host supplies it,
+// and if it did not, that is knowable at load.
+var ErrGuardrailNeedsJudge = errors.New("guardrail needs a judge provider")
+
 // GuardrailOption configures a GuardrailHookAdapter.
 type GuardrailOption func(*GuardrailHookAdapter)
 
 // WithMessage sets the user-facing message shown when content is blocked.
 func WithMessage(msg string) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.message = msg }
+}
+
+// WithJudge supplies the LLM judge a judge-backed guardrail evaluates through.
+//
+// The judge is the host's, resolved from what the pack declared it requires —
+// this carries it to the handler, which reads it out of the eval context's
+// metadata. A judge-backed type built without one is refused
+// (ErrGuardrailNeedsJudge) rather than left to fail per turn.
+func WithJudge(judge handlers.JudgeProvider) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.judge = judge }
 }
 
 // WithEmitter gives the guardrail an event emitter so it reports its validation
@@ -98,6 +122,15 @@ func NewGuardrailHookFromRegistry(
 	}
 	for _, opt := range opts {
 		opt(adapter)
+	}
+
+	// Checked after the options are applied, because WithJudge is one of them.
+	if handlers.RequiresJudge(handler) && adapter.judge == nil {
+		return nil, fmt.Errorf(
+			"guardrail %q: %w — declare it in the pack's requires block and supply "+
+				"the provider the host resolves it to (sdk.WithJudgeProvider, or a provider "+
+				"registered under the key the pack names)",
+			typeName, ErrGuardrailNeedsJudge)
 	}
 	return adapter, nil
 }
@@ -175,6 +208,18 @@ func CompileValidatorsWithRegistry(
 	return compileValidators(validators, true, registry)
 }
 
+// CompileValidatorsWithOptions is CompileValidatorsWithRegistry with options
+// applied to every guardrail it builds — WithJudge above all, which is what
+// makes a judge-backed validator usable at all.
+//
+// Per-validator options (the blocked message) are applied after these, so a
+// validator's own message still wins.
+func CompileValidatorsWithOptions(
+	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry, opts ...GuardrailOption,
+) ([]hooks.ProviderHook, error) {
+	return compileValidators(validators, true, registry, opts...)
+}
+
 // ValidatorsToHooks is the lenient form: every unusable validator — an unknown
 // eval type or a param set the handler rejects — is logged and skipped, and the
 // usable ones are still returned.
@@ -210,6 +255,7 @@ func ValidatorsToHooksWithRegistry(
 // the default registry.
 func compileValidators(
 	validators []prompt.ValidatorConfig, strict bool, registry *evals.EvalTypeRegistry,
+	shared ...GuardrailOption,
 ) ([]hooks.ProviderHook, error) {
 	if len(validators) == 0 {
 		return nil, nil
@@ -224,7 +270,7 @@ func compileValidators(
 			continue
 		}
 
-		var opts []GuardrailOption
+		opts := append([]GuardrailOption{}, shared...)
 		if v.Message != "" {
 			opts = append(opts, WithMessage(v.Message))
 		} else if msg, ok := v.Params["message"].(string); ok && msg != "" {
@@ -233,7 +279,9 @@ func compileValidators(
 
 		hook, err := NewGuardrailHookFromRegistry(v.Type, v.Params, reg, opts...)
 		if err != nil {
-			if strict && (errors.Is(err, ErrUnknownGuardrailType) || errors.Is(err, ErrInvalidGuardrailParams)) {
+			if strict && (errors.Is(err, ErrUnknownGuardrailType) ||
+				errors.Is(err, ErrInvalidGuardrailParams) ||
+				errors.Is(err, ErrGuardrailNeedsJudge)) {
 				return nil, fmt.Errorf("pack validator: %w", err)
 			}
 			logger.Warn("Skipping unusable pack validator", "type", v.Type, "error", err)
