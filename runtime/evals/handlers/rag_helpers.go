@@ -154,7 +154,7 @@ func ragJudgeCall(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(evalType, msg), nil
 	}
-	provider, extractErr := extractJudgeProvider(evalCtx)
+	provider, extractErr := resolveJudgeProvider(ctx, evalCtx, params)
 	if extractErr != nil {
 		return ragErrorResult(evalType, extractErr.Error()), nil
 	}

@@ -3,6 +3,8 @@ package stage
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
@@ -56,6 +58,12 @@ type PipelineConfig struct {
 	// GracefulShutdownTimeout sets the maximum time to wait for in-flight executions during shutdown.
 	// Default: 10 seconds
 	GracefulShutdownTimeout time.Duration
+
+	// ProviderBinding, when non-nil, is attached to the execution context so
+	// checks can resolve the LOGICAL provider names their pack declared
+	// (evals.BindingFromContext). The host owns the mapping; the pipeline only
+	// carries it.
+	ProviderBinding evals.ProviderBinding
 
 	// ClassifyRegistry, when non-nil, is attached to the execution
 	// context (via classify.WithRegistry) so stages and downstream

@@ -459,7 +459,7 @@ Putting `min_score` or `max_score` directly on a classify-backed handler is reje
 | `expected_label` | string | Yes | Label whose score is emitted |
 | `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
 | `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
-| `classifier_id` | string | No | Explicit registry id; empty uses the registry's default for that task, which is the first `role: inference` provider declared that serves it |
+| `provider` | string | No | A logical provider name this pack declares in `requires`, which the host binds to a classifier. Empty uses the host's default for that task, which is the first `role: inference` provider declared that serves it |
 
 ### `audio_emotion`
 
@@ -478,7 +478,7 @@ conversation_assertions:
         model: superb/wav2vec2-base-superb-er
         message_role: user
         expected_label: ang     # this model emits truncated labels: ang/neu/hap/sad
-        classifier_id: hf
+        provider: screener   # a key this pack declares in requires
       min_score: 0.5
 ```
 
@@ -644,7 +644,7 @@ always wins.
 | `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier responds but gives no decision it will act on. |
 | `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier can't be reached or its response can't be parsed — including no provider configured at all. |
 | `recent_turns` | int (>= 0) | `4` | How many prior turns of history to replay for reference resolution (0 = judge the current message alone). A context-management knob, not a scope statement — there is no host-side surface for it. |
-| `classifier_id` | string | none | Explicit registry id; empty uses the registered default topic classifier. |
+| `provider` | string | none | A logical provider name this pack declares in `requires`, bound by the host to a topic classifier. Empty uses the host's default topic classifier. |
 | `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one eval type in this repo with a non-`output` direction default — a check that only inspects the assistant's reply never blocks the call it exists to prevent. `direction: output` remains legal ("did the assistant wander?" is a coherent question) but is not the default. |
 | `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
 

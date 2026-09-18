@@ -26,33 +26,33 @@ func TestTopicPolicyHandler_WarnKeyIsPolicyNotSession(t *testing.T) {
 		Description: "billing", Allowed: []string{"invoices"},
 	}}
 	aOtherClassifier := a
-	aOtherClassifier.classifierID = "second"
+	aOtherClassifier.providerKey = "second"
 
 	// Drive the real call path, not markWarned directly: warnUnbound is where
 	// the key is built, and building it from the wrong thing is the bug.
 	if _, seen := h.warnedGuardrails[warnKey(topicPolicyDigest(a.policy), "")]; seen {
 		t.Fatal("tracker must start empty")
 	}
-	_ = h.warnUnbound(a, "no classify registry configured")
-	_ = h.warnUnbound(a, "no classify registry configured")
-	_ = h.warnUnbound(b, "no classify registry configured")
-	_ = h.warnUnbound(aOtherClassifier, "no classify registry configured")
+	_ = h.warnUnbound(a, "names no provider and the host set no default")
+	_ = h.warnUnbound(a, "names no provider and the host set no default")
+	_ = h.warnUnbound(b, "names no provider and the host set no default")
+	_ = h.warnUnbound(aOtherClassifier, "names no provider and the host set no default")
 
 	if got := len(h.warnedGuardrails); got != 3 {
 		t.Fatalf("warnedGuardrails has %d entries, want 3 (policy a, policy b, policy a + explicit classifier)", got)
 	}
 	for _, cfg := range []topicPolicyConfig{a, b, aOtherClassifier} {
-		key := warnKey(topicPolicyDigest(cfg.policy), cfg.classifierID)
+		key := warnKey(topicPolicyDigest(cfg.policy), cfg.providerKey)
 		if _, seen := h.warnedGuardrails[key]; !seen {
 			t.Fatalf("no tracker entry for policy digest %q classifier %q",
-				topicPolicyDigest(cfg.policy), cfg.classifierID)
+				topicPolicyDigest(cfg.policy), cfg.providerKey)
 		}
 	}
 
 	// And the key is NOT the session id: the eval context carrying one changes
 	// nothing, because the handler never reads it.
 	before := len(h.warnedGuardrails)
-	_ = h.warnUnbound(a, "no classify registry configured")
+	_ = h.warnUnbound(a, "names no provider and the host set no default")
 	if got := len(h.warnedGuardrails); got != before {
 		t.Fatalf("repeat warning for the same policy added an entry: %d -> %d", before, got)
 	}

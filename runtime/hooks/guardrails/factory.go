@@ -59,12 +59,14 @@ func WithMessage(msg string) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.message = msg }
 }
 
-// WithJudge supplies the LLM judge a judge-backed guardrail evaluates through.
+// WithJudge supplies a DEFAULT judge, used by a judge-backed guardrail whose
+// pack names no provider of its own.
 //
-// The judge is the host's, resolved from what the pack declared it requires —
-// this carries it to the handler, which reads it out of the eval context's
-// metadata. A judge-backed type built without one is refused
-// (ErrGuardrailNeedsJudge) rather than left to fail per turn.
+// The normal route is the pack: a check names a logical provider from its
+// requires block and the host binds that name, which keeps the host free to
+// change the model behind it. This is for a host driving guardrails with no
+// pack binding in play, and for one that wants a fallback; a named provider
+// always wins over it.
 func WithJudge(judge handlers.JudgeProvider) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.judge = judge }
 }
@@ -125,12 +127,17 @@ func NewGuardrailHookFromRegistry(
 	}
 
 	// Checked after the options are applied, because WithJudge is one of them.
-	if handlers.RequiresJudge(handler) && adapter.judge == nil {
+	//
+	// A judge-backed guardrail is usable when its pack NAMES the provider to
+	// grade with — the normal case, resolved per turn through the host's
+	// binding — or when the host supplied a default judge for checks that name
+	// none. With neither, it cannot run, and that is knowable now rather than
+	// on every turn (#1996).
+	if handlers.RequiresJudge(handler) && normalized[handlers.ProviderParam] == nil && adapter.judge == nil {
 		return nil, fmt.Errorf(
-			"guardrail %q: %w — declare it in the pack's requires block and supply "+
-				"the provider the host resolves it to (sdk.WithJudgeProvider, or a provider "+
-				"registered under the key the pack names)",
-			typeName, ErrGuardrailNeedsJudge)
+			"guardrail %q: %w — add params.%s naming a provider this pack declares in "+
+				"its requires block, which the host then supplies",
+			typeName, ErrGuardrailNeedsJudge, handlers.ProviderParam)
 	}
 	return adapter, nil
 }

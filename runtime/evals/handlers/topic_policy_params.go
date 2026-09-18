@@ -13,12 +13,12 @@ import (
 
 // topicPolicyConfig is the handler's view of a validated policy declaration.
 type topicPolicyConfig struct {
-	policy       classify.TopicPolicy
-	onDeny       string
-	onUnknown    string
-	onError      string
-	recentTurns  int
-	classifierID string
+	policy      classify.TopicPolicy
+	onDeny      string
+	onUnknown   string
+	onError     string
+	recentTurns int
+	providerKey string
 }
 
 // Enum values for the decision params. Each is a closed set: a typo must be
@@ -36,11 +36,11 @@ const (
 // echoed back into EvalResult.Details — defining it once keeps those three
 // sites from drifting apart, and keeps goconst happy about the repetition.
 const (
-	paramAllowed      = "allowed"
-	paramDisallowed   = "disallowed"
-	paramOnDeny       = "on_deny"
-	paramClassifierID = "classifier_id"
-	paramMessage      = "message"
+	paramAllowed    = "allowed"
+	paramDisallowed = "disallowed"
+	paramOnDeny     = "on_deny"
+	paramProvider   = ProviderParam
+	paramMessage    = "message"
 )
 
 // defaultRecentTurns is topic_policy's recent_turns default, mirrored in
@@ -53,16 +53,16 @@ const defaultRecentTurns = 4
 // it a misspelled `dissallowed:` yields a policy with no exclusions and no
 // signal that anything is wrong.
 var topicPolicyKeys = map[string]struct{}{
-	"description":     {},
-	paramAllowed:      {},
-	paramDisallowed:   {},
-	"small_talk":      {},
-	"examples":        {},
-	paramOnDeny:       {},
-	"on_unknown":      {},
-	"on_error":        {},
-	"recent_turns":    {},
-	paramClassifierID: {},
+	"description":   {},
+	paramAllowed:    {},
+	paramDisallowed: {},
+	"small_talk":    {},
+	"examples":      {},
+	paramOnDeny:     {},
+	"on_unknown":    {},
+	"on_error":      {},
+	"recent_turns":  {},
+	paramProvider:   {},
 	// direction is consumed by the guardrail factory, not by this handler,
 	// but it arrives in the same map (and via ParamDefaults), so it must be
 	// permitted here or every declaration fails validation.
@@ -118,7 +118,7 @@ func parseTopicPolicyParams(params map[string]any) (topicPolicyConfig, error) {
 	if cfg.recentTurns, err = nonNegativeIntParam(params, "recent_turns", defaultRecentTurns); err != nil {
 		return cfg, err
 	}
-	if cfg.classifierID, err = optionalString(params, paramClassifierID); err != nil {
+	if cfg.providerKey, err = optionalString(params, paramProvider); err != nil {
 		return cfg, err
 	}
 

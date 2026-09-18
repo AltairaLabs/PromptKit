@@ -291,6 +291,13 @@ func initConversation(
 
 	// RFC 0012: fail here if the pack declares providers the host has not
 	// supplied, rather than at the first request that needs one.
+	// Checks first, deliberately. Both gates can fail on the same missing
+	// provider, and the check-level one says more: which check wanted it, and
+	// whether what the host bound is missing or merely unsuitable. The
+	// requirements gate then covers what no check references.
+	if err := checkProviderKeys(p, prompt, cfg); err != nil {
+		return nil, nil, err
+	}
 	if err := checkProviderRequirements(p, cfg); err != nil {
 		return nil, nil, err
 	}
@@ -1373,12 +1380,12 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 			Enabled: v.Enabled,
 		})
 	}
-	// The judge the host supplied, if any. A judge-backed validator built
-	// without one used to fail per turn — blocking everything or nothing,
-	// silently — so CompileValidators refuses it here instead (#1996).
+	// The host's default judge, for checks whose pack names no provider. A
+	// check that DOES name one resolves it per turn through the host's
+	// binding and never reaches this.
 	var guardrailOpts []guardrails.GuardrailOption
-	if judge := resolveJudge(cfg); judge != nil {
-		guardrailOpts = append(guardrailOpts, guardrails.WithJudge(judge))
+	if cfg.judgeProvider != nil {
+		guardrailOpts = append(guardrailOpts, guardrails.WithJudge(cfg.judgeProvider))
 	}
 
 	packHooks, err := guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)

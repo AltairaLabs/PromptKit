@@ -43,7 +43,8 @@ import (
 //   - expected_label string (required) — label whose score is emitted
 //   - message_role  string  (optional, default "assistant")
 //   - message_index int     (optional, default -1)
-//   - classifier_id string  (optional)
+//   - provider      string  (optional) — a logical provider name from the pack's
+//     requires block; empty uses the host's default
 type TextToxicityHandler struct{}
 
 // Type returns the eval type identifier.

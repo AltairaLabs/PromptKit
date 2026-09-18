@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -280,6 +281,11 @@ type Config struct {
 	// will not be added to the pipeline.
 	RecordingStore events.EventStore
 
+	// ProviderBinding answers a pack's logical provider names with what the
+	// host wired. Attached to the execution context so checks can resolve the
+	// ancillary providers their pack declared.
+	ProviderBinding evals.ProviderBinding
+
 	// ClassifyRegistry is attached to the pipeline execution context.
 	// When non-nil, stages and downstream consumers can resolve inference
 	// backends via classify.FromContext.
@@ -380,6 +386,7 @@ func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 func pipelineConfigFor(cfg *Config) *stage.PipelineConfig {
 	pc := stage.DefaultPipelineConfig()
 	pc.ClassifyRegistry = cfg.ClassifyRegistry
+	pc.ProviderBinding = cfg.ProviderBinding
 	switch {
 	case cfg.StreamInputProvider != nil:
 		// For duplex streaming (ASM mode), disable execution timeout

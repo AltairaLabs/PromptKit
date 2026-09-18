@@ -105,47 +105,57 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 Judge-backed checks — `llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
 `pii_leakage`, `role_violation` and the RAG primitives — need an LLM to grade
-with. The pack declares that it needs one; the host supplies it. Nothing falls
-back to the conversation's own provider: which model grades the output is the
-host's decision, and self-grading on the agent model is a decision rather than
-a default.
+with. They get it the same way every other ancillary provider is supplied: the
+pack names what it needs, the host decides what answers.
 
-Declare the requirement in the pack:
+The name is the pack author's own and means nothing outside the pack. You stay
+free to change the model behind it whenever you like, which is the point.
+
+Declare it, and point the check at it:
 
 ```yaml
 requires:
   providers:
-    - key: judge
+    - key: grader                 # any name this pack likes
       role: llm
       description: grades the toxicity and PII checks
       required: true
+
+prompts:
+  chat:
+    validators:
+      - type: toxicity
+        params:
+          provider: grader        # the name declared above
 ```
 
-Supply it as a provider under that key:
+Bind that name when you open the conversation:
 
 ```go
 conv, _ := sdk.Open("./app.pack.json", "chat",
     sdk.WithProvider(agent),
     sdk.WithLLMProvider(sdk.ProviderSpec{
-        ID: "judge", Type: "openai", Model: "gpt-4.1-mini",
+        ID: "grader", Type: "openai", Model: "gpt-4.1-mini",
     }),
 )
 ```
 
-…or pass a judge directly, which also satisfies a `judge` requirement and is
-the route for a pack that names its judge something else:
+Nothing falls back to the conversation's own provider. Which model grades the
+output is your decision, and self-grading on the agent model — with the agent's
+bill — is a decision rather than a default.
 
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProvider(agent),
-    sdk.WithJudgeProvider(myJudge),
-)
-```
+Everything that can go wrong is caught at `Open()`, and the error says whose
+problem it is:
 
-A judge-backed **guardrail** (a pack `validators:` entry) with no judge fails
-`Open()` rather than failing per turn. It used to build successfully and then
-block every turn while reporting a content violation, or — for `pii_leakage` —
-run only its regex pre-pass with the LLM layer silently absent.
+| What is wrong | Whose | What you see |
+|---|---|---|
+| The check names a provider the pack never declares | pack | names the check, the name, and what the pack does declare |
+| The pack declares it, you bound nothing | host | names the key the pack asked for |
+| You bound something that cannot do the job | host | names the key and says what it needs instead — "bound to a classify provider, and this check needs one that runs completions" |
+| A judge-backed check names nothing at all | pack | tells you to add `params.provider` |
+
+For a host driving a pack whose checks name nothing, `sdk.WithJudgeProvider`
+supplies a default judge. A check that names a provider always wins over it.
 
 For the offline path, pass the judge in the options:
 

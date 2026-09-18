@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -73,15 +72,6 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 	if c.providers != nil {
 		llm = append(llm, c.providers.List()...)
 	}
-	// A judge supplied as an object rather than a provider (WithJudgeProvider)
-	// has no pool entry, so without this a pack that declares the judge it needs
-	// — the documented way to ask for one — failed the gate while the host had
-	// in fact supplied it. It answers to the conventional key only: an explicit
-	// judge is not a general-purpose llm and must not satisfy a requirement for
-	// some other one.
-	if c.judgeProvider != nil && !slices.Contains(llm, JudgeProviderKey) {
-		llm = append(llm, JudgeProviderKey)
-	}
 	if len(llm) > 0 {
 		inv[prompt.RequirementRoleLLM] = llm
 	}
@@ -97,6 +87,11 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 	// A programmatically-supplied service has no key of its own, so it answers
 	// to any key the pack names for that role: the host supplied exactly one, and
 	// the pack asked for exactly one. anyKey marks that.
+	// Classify backends answer `role: inference` requirements. Without this a
+	// host that wired exactly what the pack asked for — WithClassifier, or an
+	// inference provider — was told it had supplied nothing, because the
+	// inventory only knew about the llm/embedding/tts/stt roles.
+	addRole(inv, "inference", c.classifyProviderIDs, false)
 	addRole(inv, "embedding", c.embeddingProviderIDs, c.retrievalProvider != nil)
 	addRole(inv, "tts", c.ttsProviderIDs, c.ttsService != nil)
 	addRole(inv, "stt", c.sttProviderIDs, c.sttService != nil)

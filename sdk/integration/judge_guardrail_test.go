@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 
@@ -24,7 +23,7 @@ const judgeGuardrailPackJSON = `{
 	"description": "Pack with a judge-backed guardrail",
 	"requires": {
 		"providers": [
-			{"key": "judge", "role": "llm", "description": "grades the toxicity guardrail", "required": true}
+			{"key": "grader", "role": "llm", "description": "grades the toxicity guardrail", "required": true}
 		]
 	},
 	"prompts": {
@@ -33,7 +32,26 @@ const judgeGuardrailPackJSON = `{
 			"name": "Chat",
 			"system_template": "You are a helpful assistant.",
 			"validators": [
-				{"type": "toxicity", "enabled": true, "message": "That request was blocked."}
+				{"type": "toxicity", "enabled": true, "message": "That request was blocked.",
+				 "params": {"provider": "grader"}}
+			]
+		}
+	}
+}`
+
+// judgeGuardrailUnnamedPackJSON declares the same guardrail without naming a
+// provider for it — the pack author forgot the binding.
+const judgeGuardrailUnnamedPackJSON = `{
+	"id": "integration-judge-guardrail-unnamed",
+	"version": "1.0.0",
+	"description": "Judge-backed guardrail that names no provider",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You are a helpful assistant.",
+			"validators": [
+				{"type": "toxicity", "enabled": true}
 			]
 		}
 	}
@@ -53,7 +71,21 @@ func (j *countingJudge) Judge(_ context.Context, _ handlers.JudgeOpts) (*handler
 // a consumer. A toxicity guardrail with no judge used to open successfully and
 // then block EVERY turn, reporting a content violation — the pack's stated
 // requirement going unmet looked like an over-aggressive model.
-func TestJudgeGuardrail_OpenFailsWithoutJudge(t *testing.T) {
+func TestJudgeGuardrail_OpenFailsWhenNoProviderIsNamed(t *testing.T) {
+	packPath := writePackFile(t, judgeGuardrailUnnamedPackJSON)
+
+	_, err := sdk.Open(packPath, "chat",
+		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
+		sdk.WithSkipSchemaValidation(),
+	)
+
+	require.Error(t, err, "a judge-backed guardrail that names no provider must not open")
+	assert.Contains(t, err.Error(), "params.provider")
+}
+
+// TestJudgeGuardrail_OpenFailsWhenTheHostBoundNothing: the pack names a
+// provider and declares it, and the host supplied nothing for it.
+func TestJudgeGuardrail_OpenFailsWhenTheHostBoundNothing(t *testing.T) {
 	packPath := writePackFile(t, judgeGuardrailPackJSON)
 
 	_, err := sdk.Open(packPath, "chat",
@@ -61,14 +93,17 @@ func TestJudgeGuardrail_OpenFailsWithoutJudge(t *testing.T) {
 		sdk.WithSkipSchemaValidation(),
 	)
 
-	require.Error(t, err, "a judge-backed guardrail with no judge must not open")
-	assert.Contains(t, strings.ToLower(err.Error()), "judge")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "grader",
+		"the error must name the logical provider the pack asked for")
 }
 
-// TestJudgeGuardrail_RunsWithHostSuppliedJudge: with the judge supplied, the
-// guardrail runs on real turns and a clean verdict does not block.
-func TestJudgeGuardrail_RunsWithHostSuppliedJudge(t *testing.T) {
-	packPath := writePackFile(t, judgeGuardrailPackJSON)
+// TestJudgeGuardrail_HostDefaultCoversAPackThatNamesNothing: a host driving a
+// pack whose check names no provider can still supply a judge itself. It is a
+// fallback, not the route — a pack that names a provider must have that name
+// bound, and this one names none.
+func TestJudgeGuardrail_HostDefaultCoversAPackThatNamesNothing(t *testing.T) {
+	packPath := writePackFile(t, judgeGuardrailUnnamedPackJSON)
 	judge := &countingJudge{}
 
 	conv, err := sdk.Open(packPath, "chat",
@@ -82,9 +117,8 @@ func TestJudgeGuardrail_RunsWithHostSuppliedJudge(t *testing.T) {
 	resp, err := conv.Send(context.Background(), "Hello there")
 	require.NoError(t, err)
 
-	assert.Positive(t, judge.calls, "the guardrail never consulted the judge")
-	assert.NotContains(t, resp.Text(), "That request was blocked.",
-		"a clean verdict blocked the turn — the 0.0-score failure mode is back")
+	assert.Positive(t, judge.calls, "the guardrail never consulted the host's judge")
+	assert.NotEmpty(t, resp.Text(), "a clean verdict must not empty the turn")
 }
 
 // recordingRepo is a mock response source that counts the calls made to the
@@ -117,19 +151,19 @@ func (r *recordingRepo) count() int {
 	return r.calls
 }
 
-// TestJudgeGuardrail_PooledJudgeProviderSatisfiesTheRequirement: the normal
-// wiring, where the host answers the pack's requires block by registering a
-// provider under that key rather than passing a judge object. The turn has to
-// actually run through that provider — Open() succeeding proves only that the
-// gate was satisfied, not that the guardrail found the judge afterwards.
-func TestJudgeGuardrail_PooledJudgeProviderSatisfiesTheRequirement(t *testing.T) {
+// TestJudgeGuardrail_HostBindsTheNameThePackChose is the normal wiring: the
+// pack names `grader`, the host binds a provider to that name, and the check
+// grades through whatever the host bound. The turn has to actually run through
+// that provider — Open() succeeding proves only that the gate passed, not that
+// the check found the provider afterwards.
+func TestJudgeGuardrail_HostBindsTheNameThePackChose(t *testing.T) {
 	packPath := writePackFile(t, judgeGuardrailPackJSON)
 	judgeRepo := &recordingRepo{response: `{"passed": true, "score": 1.0, "reasoning": "clean"}`}
 
 	conv, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithLLMProvider(sdk.ProviderSpec{
-			ID:    sdk.JudgeProviderKey,
+		sdk.WithNamedProvider(sdk.ProviderSpec{
+			ID:    "grader",
 			Type:  "mock",
 			Model: "mock-model",
 			AdditionalConfig: map[string]any{
@@ -138,15 +172,14 @@ func TestJudgeGuardrail_PooledJudgeProviderSatisfiesTheRequirement(t *testing.T)
 		}),
 		sdk.WithSkipSchemaValidation(),
 	)
-	require.NoError(t, err, "a provider registered under %q should satisfy the guardrail",
-		sdk.JudgeProviderKey)
+	require.NoError(t, err, "a provider bound to the name the pack chose should satisfy the guardrail")
 	t.Cleanup(func() { _ = conv.Close() })
 
 	resp, err := conv.Send(context.Background(), "Hello there")
 	require.NoError(t, err)
 
 	assert.Positive(t, judgeRepo.count(),
-		"the pooled judge provider was never called; the guardrail found no judge at turn time")
+		"the provider the host bound to %q was never called; the check resolved nothing at turn time", "grader")
 	assert.NotContains(t, resp.Text(), "That request was blocked.",
 		"a clean verdict blocked the turn")
 }

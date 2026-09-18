@@ -37,7 +37,7 @@ import (
 // Params: description (required), allowed (required, non-empty), disallowed,
 // small_talk (allow|deny), examples.{allowed,disallowed}, on_deny
 // (block|respond), on_unknown (deny|allow), on_error (deny|allow),
-// recent_turns (>= 0), classifier_id.
+// recent_turns (>= 0), provider.
 type TopicPolicyHandler struct {
 	// warnedGuardrails remembers which misconfigured guardrails have already
 	// been reported, so the unbound-classifier warning is loud once rather than
@@ -151,11 +151,20 @@ func (h *TopicPolicyHandler) Eval(
 func (h *TopicPolicyHandler) resolveClassifier(
 	ctx context.Context, cfg topicPolicyConfig,
 ) (classify.TopicClassifier, error) {
-	reg := classify.FromContext(ctx)
-	if reg == nil {
-		return nil, h.warnUnbound(cfg, "no classify registry configured")
+	if cfg.providerKey != "" {
+		classifier, err := classifierFor(ctx, cfg.providerKey, "topic classifier",
+			func(b classify.Backend) (classify.TopicClassifier, bool) {
+				c, ok := b.(classify.TopicClassifier)
+				return c, ok
+			})
+		if err != nil {
+			return nil, h.warnUnbound(cfg, err.Error())
+		}
+		return classifier, nil
 	}
-	classifier, err := reg.TopicClassifier(cfg.classifierID)
+
+	classifier, err := defaultClassifier(ctx, "topic classifier",
+		func(r *classify.Registry) (classify.TopicClassifier, error) { return r.TopicClassifier("") })
 	if err != nil {
 		return nil, h.warnUnbound(cfg, err.Error())
 	}
@@ -165,12 +174,13 @@ func (h *TopicPolicyHandler) resolveClassifier(
 func (h *TopicPolicyHandler) warnUnbound(cfg topicPolicyConfig, reason string) error {
 	err := fmt.Errorf(
 		"topic_policy: %s; declare a provider with role: inference whose backend implements "+
-			"topic classification (e.g. type: nvidia-topic-control), or set classifier_id", reason)
+			"topic classification (e.g. type: nvidia-topic-control), and name it with "+
+			"params.provider using the key the pack declares in requires", reason)
 
 	digest := topicPolicyDigest(cfg.policy)
-	if h.markWarned(warnKey(digest, cfg.classifierID)) {
+	if h.markWarned(warnKey(digest, cfg.providerKey)) {
 		logger.Warn("topic_policy guardrail has no classifier bound; it is blocking every turn",
-			"policy_digest", digest, "classifier_id", cfg.classifierID, "reason", reason)
+			"policy_digest", digest, "provider", cfg.providerKey, "reason", reason)
 	}
 	return err
 }
@@ -178,8 +188,8 @@ func (h *TopicPolicyHandler) warnUnbound(cfg topicPolicyConfig, reason string) e
 // warnKey identifies one misconfigured guardrail: the policy it enforces plus
 // the classifier it asked for. Two packs with different policies each warn; the
 // same pack warning on every turn does not. See TopicPolicyHandler.
-func warnKey(policyDigest, classifierID string) string {
-	return policyDigest + "\x1f" + classifierID
+func warnKey(policyDigest, providerKey string) string {
+	return policyDigest + "\x1f" + providerKey
 }
 
 // markWarned records key as having been warned and reports whether this is the
@@ -218,7 +228,7 @@ func (h *TopicPolicyHandler) decisionResult(
 	details := map[string]any{
 		detailDecision:     string(decision),
 		detailRaw:          res.Raw,
-		paramClassifierID:  cfg.classifierID,
+		paramProvider:      cfg.providerKey,
 		paramOnDeny:        cfg.onDeny,
 		detailPolicyDigest: topicPolicyDigest(cfg.policy),
 	}
@@ -249,7 +259,7 @@ func (h *TopicPolicyHandler) outcomeResult(
 		detailDecision:     string(classify.TopicUnknown),
 		"reason":           reason,
 		detailRaw:          raw,
-		paramClassifierID:  cfg.classifierID,
+		paramProvider:      cfg.providerKey,
 		"outcome":          outcome,
 		detailPolicyDigest: topicPolicyDigest(cfg.policy),
 	})

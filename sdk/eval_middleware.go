@@ -280,7 +280,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
-		results := em.runner.RunTurnEvals(em.evalContextWithRegistry(em.ctx), em.defs, evalCtx)
+		results := em.runner.RunTurnEvals(em.evalContextWithBinding(em.evalContextWithRegistry(em.ctx)), em.defs, evalCtx)
 		em.recordMetrics(results)
 	}()
 }
@@ -294,7 +294,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
-	results := em.runner.RunSessionEvals(em.evalContextWithRegistry(ctx), em.defs, evalCtx)
+	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 
@@ -345,6 +345,17 @@ func (em *evalMiddleware) evalContextWithRegistry(base context.Context) context.
 	return classify.WithRegistry(base, em.conv.config.classifyRegistry)
 }
 
+// evalContextWithBinding attaches the host's provider binding, so a per-turn
+// eval resolves the logical provider names its pack declared exactly as a
+// guardrail does. Turn evals run off the middleware's own context rather than
+// the pipeline's, so the wiring has to happen here as well.
+func (em *evalMiddleware) evalContextWithBinding(base context.Context) context.Context {
+	if em.conv == nil || em.conv.config == nil {
+		return base
+	}
+	return evals.WithProviderBinding(base, newHostBinding(em.conv.config))
+}
+
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
@@ -387,27 +398,16 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 		reported,
 		em.cachedSessionID,
 		em.conv.promptName,
-		em.judgeMetadata(),
+		em.hostDefaultJudge(),
 	)
 }
 
-// judgeMetadata carries the host's judge to judge-backed handlers, which read
-// it out of the eval context under "judge_provider".
-//
-// Per-turn evals had the same gap guardrails did (#1996): the key was seeded in
-// exactly one place, the offline Evaluate() path, so a `toxicity` or
-// `faithfulness` eval declared in a pack's evals: block scored 0.0 every turn
-// with the real reason buried in Explanation, and pii_leakage ran its regex
-// pre-pass alone. Nil when the host supplied no judge — an eval degrades to a
-// reported skip, which is right for a measurement and wrong for a guardrail,
-// which is why the guardrail path refuses to build instead.
-func (em *evalMiddleware) judgeMetadata() map[string]any {
-	if em.conv == nil || em.conv.config == nil {
+// hostDefaultJudge carries a host-supplied default judge to checks whose pack
+// names no provider of its own. A check that names one resolves it through the
+// binding on the context instead, and never reads this.
+func (em *evalMiddleware) hostDefaultJudge() map[string]any {
+	if em.conv == nil || em.conv.config == nil || em.conv.config.judgeProvider == nil {
 		return nil
 	}
-	judge := resolveJudge(em.conv.config)
-	if judge == nil {
-		return nil
-	}
-	return map[string]any{"judge_provider": judge}
+	return map[string]any{"judge_provider": em.conv.config.judgeProvider}
 }

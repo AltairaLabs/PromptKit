@@ -41,7 +41,9 @@ const audioEmotionDefaultRole = "user"
 //   - expected_label  string  (required) — label whose score is emitted
 //   - message_role    string  (optional, default "user") — which speaker's audio to score
 //   - message_index   int     (optional, default -1 = latest match) — pick a specific audio message
-//   - classifier_id   string  (optional) — explicit registry id; empty uses the configured default
+//   - provider        string  (optional) — a logical provider name this pack
+//     declares in requires, bound by the host; empty uses
+//     the host's configured default
 //
 // Putting min_score / max_score on this handler is rejected — the
 // assertion wrapper is the canonical home for thresholds.
@@ -75,9 +77,9 @@ func (h *AudioEmotionHandler) Eval(
 		return errorResult(h.Type(), cfgErr.Error()), nil
 	}
 
-	classifier, classifierErr := resolveAudioClassifier(ctx, cfg.classifierID)
+	classifier, classifierErr := resolveAudioClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
-		return skippedResult(h.Type(), classifierErr.Error()), nil
+		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
 
 	audioParts := collectAudioPartsByRole(evalCtx.Messages, cfg.messageRole)
@@ -151,14 +153,16 @@ func parseAudioEmotionParams(params map[string]any) (classifyConfig, error) {
 // requested classifier id. An empty id resolves the configured default, so
 // arenas with `defaults.inference.audio_classifier` set don't need to repeat
 // the id on every handler.
-func resolveAudioClassifier(ctx context.Context, id string) (classify.AudioClassifier, error) {
-	reg := classify.FromContext(ctx)
-	if reg == nil {
-		return nil, errors.New(
-			"no classify registry configured; add a providers: entry with role: inference " +
-				"and either defaults.inference.audio_classifier or params.classifier_id")
+func resolveAudioClassifier(ctx context.Context, key string) (classify.AudioClassifier, error) {
+	if key != "" {
+		return classifierFor(ctx, key, "audio classifier",
+			func(b classify.Backend) (classify.AudioClassifier, bool) {
+				c, ok := b.(classify.AudioClassifier)
+				return c, ok
+			})
 	}
-	return reg.AudioClassifier(id)
+	return defaultClassifier(ctx, "audio classifier",
+		func(r *classify.Registry) (classify.AudioClassifier, error) { return r.AudioClassifier("") })
 }
 
 // pickMediaPart selects one part from a non-empty slice of audio parts. A
