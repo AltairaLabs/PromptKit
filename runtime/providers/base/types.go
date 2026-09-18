@@ -40,6 +40,7 @@ func AllProviderTypes() []ProviderType {
 		ProviderTypeEmbedding,
 		ProviderTypeImage,
 		ProviderTypeVideo,
+		ProviderTypeRerank,
 	}
 }
 
