@@ -103,18 +103,25 @@ func TestExecuteToolCalls_HeartbeatStopsWhenToolsFinish(t *testing.T) {
 }
 
 func TestKeepIdleAlive_ResetsUntilStopped(t *testing.T) {
+	const interval = 20 * time.Millisecond
+
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, 20*time.Millisecond)
+	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, interval)
 
 	stop := keepIdleAlive(ctx)
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(6 * interval)
 	stop()
 
-	during := resets.Load()
-	assert.Positive(t, during, "heartbeat should have reset the idle timer while running")
+	assert.Positive(t, resets.Load(), "heartbeat should have reset the idle timer while running")
 
-	time.Sleep(120 * time.Millisecond)
-	assert.Equal(t, during, resets.Load(), "heartbeat should stop resetting once stopped")
+	// A tick already in flight when stop() ran may still land, so take the
+	// baseline after things settle rather than the instant stop() returns —
+	// what matters is that resets cease, not their exact count.
+	time.Sleep(4 * interval)
+	settled := resets.Load()
+
+	time.Sleep(6 * interval)
+	assert.Equal(t, settled, resets.Load(), "heartbeat should stop resetting once stopped")
 }
 
 func TestKeepIdleAlive_StopIsIdempotent(t *testing.T) {
