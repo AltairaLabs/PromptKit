@@ -277,6 +277,13 @@ func initConversation(
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
 
+	// Executors given as options reach conversations that the caller never
+	// receives — A2AOpener opens one per context ID internally, so there is no
+	// conversation to call OnToolExecutor on (#2019).
+	for name, executor := range cfg.toolExecutors {
+		conv.OnToolExecutor(name, executor)
+	}
+
 	// Auto-convert pack validators to provider hooks (before building hook registry)
 	if err := convertPackValidatorsToHooks(prompt, cfg); err != nil {
 		return nil, nil, err

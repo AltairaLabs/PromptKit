@@ -163,6 +163,23 @@ conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
 
 The executor must implement `runtime/tools.Executor`.
 
+### Executors for conversations you never hold
+
+`OnToolExecutor` needs a conversation. Constructors that own the conversation
+lifecycle — `A2AOpener` above all, which opens one per context ID internally —
+never hand one back, so pass the executor as an option instead:
+
+```go
+opener := sdk.A2AOpener(packPath, promptName,
+    sdk.WithToolExecutor("search", myExecutor),
+    sdk.WithToolExecutor("fetch", myExecutor),
+)
+```
+
+`WithToolExecutor` is `OnToolExecutor` applied at open time and works with any
+constructor taking options. Use it when the tool path must be the same whichever
+protocol a caller arrives on — policy checks, credential injection, audit.
+
 ## Async Tools (HITL)
 
 Register tools that require human approval before execution. When the check

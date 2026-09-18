@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -100,6 +101,9 @@ type config struct {
 
 	// Tool registry (for power users)
 	toolRegistry *tools.Registry
+
+	// Executors registered by name via WithToolExecutor, applied at Open.
+	toolExecutors map[string]tools.Executor
 
 	// Event bus for observability
 	eventBus events.Bus
@@ -938,6 +942,40 @@ func WithSessionMetadata(metadata map[string]any) Option {
 func WithToolRegistry(registry *tools.Registry) Option {
 	return func(c *config) error {
 		c.toolRegistry = registry
+		return nil
+	}
+}
+
+// WithToolExecutor registers a custom executor for a tool by name, applied when
+// the conversation is opened.
+//
+// This is [Conversation.OnToolExecutor] expressed as an option, for
+// constructors that own the conversation lifecycle and never hand the
+// conversation back — [A2AOpener] above all. Without it, an embedder's tool
+// path (policy checks, credential injection, audit) cannot reach conversations
+// served over A2A, so what a deployment enforces depends on which protocol the
+// caller used.
+//
+//	opener := sdk.A2AOpener(packPath, promptName,
+//	    sdk.WithToolExecutor("search", myExecutor),
+//	    sdk.WithToolExecutor("fetch", myExecutor),
+//	)
+//
+// The tool must be declared in the pack; registering an executor for a name the
+// pack does not define fails when the model calls it, not here. Registering the
+// same name twice keeps the last executor.
+func WithToolExecutor(name string, executor tools.Executor) Option {
+	return func(c *config) error {
+		if name == "" {
+			return errors.New("WithToolExecutor: tool name must not be empty")
+		}
+		if executor == nil {
+			return fmt.Errorf("WithToolExecutor: executor for %q must not be nil", name)
+		}
+		if c.toolExecutors == nil {
+			c.toolExecutors = make(map[string]tools.Executor)
+		}
+		c.toolExecutors[name] = executor
 		return nil
 	}
 }
