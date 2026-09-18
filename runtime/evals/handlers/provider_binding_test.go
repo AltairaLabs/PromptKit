@@ -55,7 +55,14 @@ func TestClassifierFor_ResolvesThroughTheBinding(t *testing.T) {
 	got, err := classifierFor(ctx, "screener", "text classifier", assertText)
 
 	require.NoError(t, err)
-	assert.NotNil(t, got)
+	require.NotNil(t, got)
+
+	// It is the host's backend, not some default: ask it something.
+	scores, err := got.ClassifyText(context.Background(), "lovely", classify.TextOptions{})
+	require.NoError(t, err)
+	require.NotEmpty(t, scores)
+	assert.Equal(t, "positive", scores[0].Label,
+		"the resolved classifier is not the one the host bound")
 }
 
 // Each failure has to name the key and say what kind of thing was wanted, so
@@ -122,7 +129,13 @@ func TestDefaultClassifier_UsesTheHostsDefault(t *testing.T) {
 		func(r *classify.Registry) (classify.TextClassifier, error) { return r.TextClassifier("") })
 
 	require.NoError(t, err)
-	assert.NotNil(t, got, "a check that names nothing falls back to what the HOST made default")
+	require.NotNil(t, got, "a check that names nothing falls back to what the HOST made default")
+
+	scores, err := got.ClassifyText(context.Background(), "lovely", classify.TextOptions{})
+	require.NoError(t, err)
+	require.NotEmpty(t, scores)
+	assert.Equal(t, "positive", scores[0].Label,
+		"the fallback resolved something other than the host's registered default")
 }
 
 // The judge side of the same mechanism: a named provider resolves through the

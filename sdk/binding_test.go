@@ -75,10 +75,19 @@ func TestHostBinding_WrongKind(t *testing.T) {
 		"asking for a classifier and finding an LLM must point at the provider role to use")
 }
 
-func TestNewHostBinding_NilWhenNothingIsWired(t *testing.T) {
+// Nothing wired means no binding at all, which is what lets a caller tell
+// "this host offers nothing" from "this host offers nothing under that name" —
+// two different errors for two different fixes.
+func TestNewHostBinding_NilOnlyWhenNothingIsWired(t *testing.T) {
 	assert.Nil(t, newHostBinding(&config{}),
 		"a host that wired no providers has no bindings to offer")
 	assert.Nil(t, newHostBinding(nil))
+
+	wired := bindingWith(t, []string{"grader"}, nil)
+	require.NotNil(t, wired, "a host that wired a provider must offer a binding")
+	resolved, err := wired.LLM("grader")
+	require.NoError(t, err)
+	assert.Equal(t, "grader", resolved.ID())
 }
 
 func TestHostBinding_NilReceiverReportsNoBinding(t *testing.T) {

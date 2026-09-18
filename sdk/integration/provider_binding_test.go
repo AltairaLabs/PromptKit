@@ -2,12 +2,15 @@ package integration
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	sdk "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
@@ -39,7 +42,7 @@ func classifyCheckPack(checkProviderName string) string {
 					"id": "tone",
 					"type": "text_sentiment",
 					"trigger": "every_turn",
-					"params": {"expected_label": "positive", "provider": "` + checkProviderName + `"}
+					"params": {"model": "stub-ser", "expected_label": "positive", "provider": "` + checkProviderName + `"}
 				}
 			]
 		}
@@ -47,26 +50,49 @@ func classifyCheckPack(checkProviderName string) string {
 }`
 }
 
-// stubTextClassifier is a classify backend that implements the text task.
-type stubTextClassifier struct{}
+// stubTextClassifier is a classify backend that implements the text task and
+// counts the calls, so a test can prove the check reached the backend the host
+// bound rather than merely that Open() was happy.
+type stubTextClassifier struct {
+	mu    sync.Mutex
+	calls int
+}
 
-func (stubTextClassifier) ClassifyText(
+func (s *stubTextClassifier) ClassifyText(
 	_ context.Context, _ string, _ classify.TextOptions,
 ) ([]classify.LabelScore, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
 	return []classify.LabelScore{{Label: "positive", Score: 0.9}}, nil
+}
+
+func (s *stubTextClassifier) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 func TestProviderBinding_HostBindsWhatThePackNamed(t *testing.T) {
 	packPath := writePackFile(t, classifyCheckPack("screener"))
+	classifier := &stubTextClassifier{}
 
 	conv, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithClassifier("screener", stubTextClassifier{}),
+		sdk.WithClassifier("screener", classifier),
+		sdk.WithEvalRunner(evals.NewEvalRunner(evals.NewEvalTypeRegistry())),
 		sdk.WithSkipSchemaValidation(),
 	)
-
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conv.Close() })
+
+	_, err = conv.Send(context.Background(), "what a lovely day")
+	require.NoError(t, err)
+
+	// Turn evals are dispatched asynchronously; wait for the classifier rather
+	// than racing it.
+	require.Eventually(t, func() bool { return classifier.count() > 0 }, 2*time.Second, 10*time.Millisecond,
+		"the check never reached the classifier the host bound to the name its pack chose")
 }
 
 // The check points at a name the pack never declared — a typo, and the pack
@@ -76,7 +102,7 @@ func TestProviderBinding_UndeclaredNameFailsAtOpen(t *testing.T) {
 
 	_, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithClassifier("screener", stubTextClassifier{}),
+		sdk.WithClassifier("screener", &stubTextClassifier{}),
 		sdk.WithSkipSchemaValidation(),
 	)
 
@@ -144,7 +170,7 @@ func TestProviderBinding_ClassifierBoundToAJudgeNameFailsAtOpen(t *testing.T) {
 
 	_, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithClassifier("grader", stubTextClassifier{}),
+		sdk.WithClassifier("grader", &stubTextClassifier{}),
 		sdk.WithSkipSchemaValidation(),
 	)
 

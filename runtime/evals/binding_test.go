@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
 
 type fakeBinding struct {
@@ -36,20 +37,39 @@ func TestProviderBinding_ContextRoundTrip(t *testing.T) {
 	assert.Equal(t, b, got)
 }
 
-func TestBindingFromContext_AbsentAndNil(t *testing.T) {
+// Absent, explicitly-nil and present must be distinguishable, and the middle
+// one matters most: storing a nil binding would read back as "there is one" and
+// turn a missing binding into a nil call at the first check that needs it.
+func TestBindingFromContext_AbsentNilAndPresent(t *testing.T) {
+	real := fakeBinding{llm: mock.NewProvider("grader", "mock-model", false)}
+
+	present := BindingFromContext(WithProviderBinding(context.Background(), real))
+	require.NotNil(t, present)
+	resolved, err := present.LLM("grader")
+	require.NoError(t, err)
+	assert.Equal(t, "grader", resolved.ID(),
+		"the binding that came back out resolves what the one going in resolved")
+
 	assert.Nil(t, BindingFromContext(context.Background()),
 		"a context with no binding must report none rather than an empty one")
+	assert.Nil(t, BindingFromContext(WithProviderBinding(context.Background(), nil)),
+		"a nil binding must not be stored as a present one")
 	//nolint:staticcheck // deliberately passing a nil context: callers do, and it must not panic
 	assert.Nil(t, BindingFromContext(nil))
 }
 
-// WithProviderBinding(nil) leaves the context alone rather than storing a typed
-// nil, which would later read back as "there is a binding" and turn a missing
-// one into a nil-pointer call.
-func TestWithProviderBinding_NilIsNotStored(t *testing.T) {
-	ctx := WithProviderBinding(context.Background(), nil)
+// Storing nil must also leave an existing binding alone rather than shadowing
+// it with something unusable.
+func TestWithProviderBinding_NilLeavesAnExistingBindingInPlace(t *testing.T) {
+	ctx := WithProviderBinding(context.Background(),
+		fakeBinding{llm: mock.NewProvider("grader", "mock-model", false)})
 
-	assert.Nil(t, BindingFromContext(ctx))
+	got := BindingFromContext(WithProviderBinding(ctx, nil))
+
+	require.NotNil(t, got, "the earlier binding was shadowed by a nil one")
+	resolved, err := got.LLM("grader")
+	require.NoError(t, err)
+	assert.Equal(t, "grader", resolved.ID())
 }
 
 // DescribeUnresolved exists so the person reading the error knows whose problem
