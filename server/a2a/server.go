@@ -175,7 +175,11 @@ type namedChecker struct {
 // Server is an HTTP server that exposes a Conversation as an
 // A2A-compliant JSON-RPC endpoint.
 type Server struct {
+	// Exactly one of opener and handler is set; see NewServer and
+	// NewStatelessServer. opener means the server owns conversations, handler
+	// means the embedder does.
 	opener        ConversationOpener
+	handler       MessageHandler
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
 	authenticator Authenticator
@@ -211,10 +215,22 @@ type Server struct {
 	subs   map[string]*taskBroadcaster // task_id → broadcaster
 }
 
-// NewServer creates a new A2A server.
+// NewServer creates a new A2A server that OWNS its conversations: it opens one
+// per context id through the supplied opener, caches it, and reuses it when
+// that id returns. Suits an embedder running A2A and the runtime in one
+// process.
+//
+// For an embedder that owns conversations itself — because the runtime lives
+// elsewhere, or it already tracks sessions — see [NewStatelessServer].
 func NewServer(opener ConversationOpener, opts ...Option) *Server {
+	s := newServer(opts...)
+	s.opener = opener
+	return s
+}
+
+// newServer builds the parts both modes share.
+func newServer(opts ...Option) *Server {
 	s := &Server{
-		opener:       opener,
 		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
 		cancels:      make(map[string]context.CancelFunc),
@@ -479,6 +495,14 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	contextID := params.Message.ContextID
 	if contextID == "" {
 		contextID = generateID()
+	}
+
+	// Stateless mode short-circuits everything about conversation ownership:
+	// there is nothing to open, nothing to cache, and the handler sees the
+	// request it arrived on.
+	if s.handler != nil {
+		s.handleSendViaHandler(w, r, req, contextID, params)
+		return
 	}
 
 	conv, err := s.getOrCreateConversation(contextID)

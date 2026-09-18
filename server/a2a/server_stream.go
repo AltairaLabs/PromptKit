@@ -250,31 +250,63 @@ func (s *Server) handleStreamMessage(
 		contextID = generateID()
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		writeRPCError(w, req.ID, -32000,
-			fmt.Sprintf("Failed to open conversation: %v", err))
-		return
-	}
+	// startTurn yields the event stream for this request, from whichever half
+	// of the server owns conversations. Resolved before the task exists so a
+	// refusal costs nothing.
+	var startTurn func(ctx context.Context, taskID string) <-chan StreamEvent
 
-	streamConv, ok := conv.(StreamingConversation)
-	if !ok {
-		writeRPCError(w, req.ID, -32601,
-			"Streaming not supported by this agent")
-		return
-	}
+	if s.handler != nil {
+		trh, resumable := s.handler.(ToolResultHandler)
+		toolResults := extractToolResults(params.Message.Parts)
+		if len(toolResults) > 0 && !resumable {
+			writeRPCError(w, req.ID, -32601,
+				"Client tool results are not supported by this agent")
+			return
+		}
+		startTurn = func(ctx context.Context, taskID string) <-chan StreamEvent {
+			if len(toolResults) > 0 {
+				return trh.HandleToolResult(ctx, ToolResultRequest{
+					ContextID: contextID,
+					TaskID:    taskID,
+					Results:   toToolResults(toolResults),
+				})
+			}
+			return s.handler.Handle(ctx, MessageRequest{
+				ContextID: contextID,
+				TaskID:    taskID,
+				Message:   params.Message,
+			})
+		}
+	} else {
+		conv, err := s.getOrCreateConversation(contextID)
+		if err != nil {
+			writeRPCError(w, req.ID, -32000,
+				fmt.Sprintf("Failed to open conversation: %v", err))
+			return
+		}
 
-	// Check if this is a tool-result message for a resumable conversation.
-	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
-		return
-	}
+		streamConv, ok := conv.(StreamingConversation)
+		if !ok {
+			writeRPCError(w, req.ID, -32601,
+				"Streaming not supported by this agent")
+			return
+		}
 
-	pkMsg, err := a2a.MessageToMessage(&params.Message)
-	if err != nil {
-		writeRPCError(w, req.ID, -32602,
-			fmt.Sprintf("Invalid message: %v", err))
-		return
+		// Check if this is a tool-result message for a resumable conversation.
+		if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
+			s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
+			return
+		}
+
+		pkMsg, err := a2a.MessageToMessage(&params.Message)
+		if err != nil {
+			writeRPCError(w, req.ID, -32602,
+				fmt.Sprintf("Invalid message: %v", err))
+			return
+		}
+		startTurn = func(ctx context.Context, _ string) <-chan StreamEvent {
+			return streamConv.Stream(ctx, pkMsg)
+		}
 	}
 
 	taskID := generateID()
@@ -323,7 +355,7 @@ func (s *Server) handleStreamMessage(
 	s.cancels[taskID] = cancel
 	s.cancelsMu.Unlock()
 
-	events := streamConv.Stream(ctx, pkMsg)
+	events := startTurn(ctx, taskID)
 
 	sc.processEvents(ctx, events)
 }

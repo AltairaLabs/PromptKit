@@ -33,6 +33,8 @@ Package a2aserver provides a standalone A2A\-protocol HTTP server that can be ba
   - [func \(s \*InMemoryTaskStore\) Get\(taskID string\) \(\*a2a.Task, error\)](<#InMemoryTaskStore.Get>)
   - [func \(s \*InMemoryTaskStore\) List\(contextID string, limit, offset int\) \(\[\]\*a2a.Task, error\)](<#InMemoryTaskStore.List>)
   - [func \(s \*InMemoryTaskStore\) SetState\(taskID string, state a2a.TaskState, msg \*a2a.Message\) error](<#InMemoryTaskStore.SetState>)
+- [type MessageHandler](<#MessageHandler>)
+- [type MessageRequest](<#MessageRequest>)
 - [type Option](<#Option>)
   - [func WithAuthenticator\(auth Authenticator\) Option](<#WithAuthenticator>)
   - [func WithCard\(card \*a2a.AgentCard\) Option](<#WithCard>)
@@ -51,6 +53,7 @@ Package a2aserver provides a standalone A2A\-protocol HTTP server that can be ba
 - [type SendResult](<#SendResult>)
 - [type Server](<#Server>)
   - [func NewServer\(opener ConversationOpener, opts ...Option\) \*Server](<#NewServer>)
+  - [func NewStatelessServer\(h MessageHandler, opts ...Option\) \*Server](<#NewStatelessServer>)
   - [func \(s \*Server\) Handler\(\) http.Handler](<#Server.Handler>)
   - [func \(s \*Server\) ListenAndServe\(\) error](<#Server.ListenAndServe>)
   - [func \(s \*Server\) Serve\(ln net.Listener\) error](<#Server.Serve>)
@@ -60,6 +63,9 @@ Package a2aserver provides a standalone A2A\-protocol HTTP server that can be ba
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamingConversation](<#StreamingConversation>)
 - [type TaskStore](<#TaskStore>)
+- [type ToolResult](<#ToolResult>)
+- [type ToolResultHandler](<#ToolResultHandler>)
+- [type ToolResultRequest](<#ToolResultRequest>)
 
 
 ## Variables
@@ -104,7 +110,7 @@ type Authenticator interface {
 ```
 
 <a name="Conversation"></a>
-## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L71-L74>)
+## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L80-L83>)
 
 Conversation is the non\-streaming conversation interface the server uses.
 
@@ -116,7 +122,7 @@ type Conversation interface {
 ```
 
 <a name="ConversationOpener"></a>
-## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L93>)
+## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L102>)
 
 ConversationOpener creates or retrieves a conversation for a given context ID.
 
@@ -151,6 +157,15 @@ const (
 
     // EventClientTool indicates a client tool request awaiting fulfillment.
     EventClientTool
+
+    // EventPending indicates the turn is paused on something the server cannot
+    // see — a human approving a tool call, most often. Text carries the reason.
+    //
+    // It exists because "is this turn waiting?" cannot be inferred: a pause on
+    // a server-side approval looks exactly like a finished turn from outside,
+    // and reporting it as completed would be a control that did not run
+    // reporting clean. A handler that never pauses never emits it.
+    EventPending
 )
 ```
 
@@ -314,6 +329,41 @@ func (s *InMemoryTaskStore) SetState(taskID string, state a2a.TaskState, msg *a2
 
 SetState transitions the task to a new state with an optional status message.
 
+<a name="MessageHandler"></a>
+## type [MessageHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L37-L39>)
+
+MessageHandler turns one inbound A2A message into a stream of events.
+
+Handle is called once per message and the server keeps no state between calls. ctx is the HTTP request's context, so whatever the embedder's middleware put on it — caller identity, tenant, trace — is readable here, which is the thing [ConversationOpener](<#ConversationOpener>) cannot offer.
+
+The returned channel must be closed when the turn is over. A closing channel that sent no [EventDone](<#EventText>) is treated as a completed turn.
+
+```go
+type MessageHandler interface {
+    Handle(ctx context.Context, req MessageRequest) <-chan StreamEvent
+}
+```
+
+<a name="MessageRequest"></a>
+## type [MessageRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L42-L53>)
+
+MessageRequest is one inbound message, as the handler sees it.
+
+```go
+type MessageRequest struct {
+    // ContextID is client-supplied. The server attaches no meaning to it: the
+    // embedder decides whether it identifies a session, and whether two callers
+    // presenting the same one share anything.
+    ContextID string
+
+    // TaskID is the server-assigned id of the task this message created.
+    TaskID string
+
+    // Message is the inbound A2A message.
+    Message a2a.Message
+}
+```
+
 <a name="Option"></a>
 ## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L84>)
 
@@ -446,7 +496,7 @@ type PendingClientToolInfo struct {
 ```
 
 <a name="ResumableConversation"></a>
-## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L84-L90>)
+## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L93-L99>)
 
 ResumableConversation extends Conversation with the ability to submit client\-side tool results and resume pipeline execution.
 
@@ -488,7 +538,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L177-L212>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L177-L216>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -499,16 +549,29 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L215>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L225>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
 ```
 
-NewServer creates a new A2A server.
+NewServer creates a new A2A server that OWNS its conversations: it opens one per context id through the supplied opener, caches it, and reuses it when that id returns. Suits an embedder running A2A and the runtime in one process.
+
+For an embedder that owns conversations itself — because the runtime lives elsewhere, or it already tracks sessions — see [NewStatelessServer](<#NewStatelessServer>).
+
+<a name="NewStatelessServer"></a>
+### func [NewStatelessServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L93>)
+
+```go
+func NewStatelessServer(h MessageHandler, opts ...Option) *Server
+```
+
+NewStatelessServer creates a server that holds no conversations.
+
+It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations — because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L248>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L264>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -517,7 +580,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L278>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L294>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -528,7 +591,7 @@ ListenAndServe starts the HTTP server on the configured port.
 WriteTimeout is set to 0 \(disabled\) because SSE streaming endpoints \(message/stream, tasks/subscribe\) hold the connection open indefinitely. A non\-zero WriteTimeout would kill long\-lived SSE connections. Non\-streaming endpoints rely on the request context deadline for timeout enforcement.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L343>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L359>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -537,7 +600,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener. See ListenAndServe for the rationale behind WriteTimeout: 0.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L300>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L316>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -566,7 +629,7 @@ func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error)
 AgentCard returns the static card.
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L62-L68>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L71-L77>)
 
 StreamEvent is a single event on a streaming channel.
 
@@ -581,7 +644,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamingConversation"></a>
-## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L77-L80>)
+## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L86-L89>)
 
 StreamingConversation extends Conversation with streaming support.
 
@@ -610,6 +673,52 @@ type TaskStore interface {
     // timestamp is older than the given cutoff time. It returns the IDs
     // of evicted tasks so callers can clean up associated resources.
     EvictTerminal(olderThan time.Time) []string
+}
+```
+
+<a name="ToolResult"></a>
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L76-L84>)
+
+ToolResult is one fulfilled — or refused — client\-side tool call.
+
+```go
+type ToolResult struct {
+    CallID string
+    Result any
+
+    // Rejected is true when the caller declined the tool. Reason carries their
+    // explanation, if any.
+    Rejected bool
+    Reason   string
+}
+```
+
+<a name="ToolResultHandler"></a>
+## type [ToolResultHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L61-L63>)
+
+ToolResultHandler is the optional client\-tool half of [MessageHandler](<#MessageHandler>). A handler that implements it can receive the results of client\-side tool calls it previously asked for and continue the turn.
+
+Without it, a stateless server rejects tool\-result messages rather than pretending to resume something it is not holding.
+
+```go
+type ToolResultHandler interface {
+    HandleToolResult(ctx context.Context, req ToolResultRequest) <-chan StreamEvent
+}
+```
+
+<a name="ToolResultRequest"></a>
+## type [ToolResultRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L66-L73>)
+
+ToolResultRequest carries client\-tool results back to the handler.
+
+```go
+type ToolResultRequest struct {
+    ContextID string
+    TaskID    string
+
+    // Results are the fulfilled tool calls, keyed by the call id the handler
+    // supplied in its [EventClientTool] events.
+    Results []ToolResult
 }
 ```
 
