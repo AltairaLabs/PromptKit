@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
@@ -509,11 +508,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 		return
 	}
 
-	// Propagate trace context to the background goroutine. We use a detached
-	// context because the goroutine outlives the HTTP handler on the non-blocking path.
-	// Copy the OTel span context so downstream spans nest under the inbound trace.
-	bgCtx := trace.ContextWithSpanContext(context.Background(),
-		trace.SpanContextFromContext(r.Context()))
+	// Detach from the request's cancellation because the goroutine outlives the
+	// HTTP handler on the non-blocking path, but keep its values: caller
+	// middleware (identity, tenant, request-scoped config) and the OTel span
+	// context both ride along, so downstream spans still nest under the inbound
+	// trace and message/send behaves like message/stream.
+	bgCtx := context.WithoutCancel(r.Context())
 	done := s.runConversation(bgCtx, taskID, conv, pkMsg)
 
 	if params.Configuration != nil && params.Configuration.Blocking {
@@ -595,10 +595,9 @@ func (s *Server) handleToolResultMessage(
 		return
 	}
 
-	// Propagate trace context to the background goroutine so downstream
-	// spans nest under the inbound trace.
-	bgCtx := trace.ContextWithSpanContext(context.Background(),
-		trace.SpanContextFromContext(r.Context()))
+	// Detach from the request's cancellation but keep its values; see
+	// handleSendMessage for why.
+	bgCtx := context.WithoutCancel(r.Context())
 	done := s.runResume(bgCtx, taskID, resumable)
 
 	if cfg != nil && cfg.Blocking {
