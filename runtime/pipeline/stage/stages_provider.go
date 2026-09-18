@@ -1935,6 +1935,10 @@ func (s *ProviderStage) executeToolCalls(
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
 
+	// Running tools is activity, so hold the idle timer open until they finish.
+	// Each tool is still bounded by its own TimeoutMs (#2017).
+	defer keepIdleAlive(ctx)()
+
 	resultSlots := make([]toolCallResult, len(toolCalls))
 	var mu sync.Mutex
 	var pendingTools []tools.PendingToolExecution

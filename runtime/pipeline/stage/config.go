@@ -20,7 +20,8 @@ const (
 	// Set to 0 (disabled) — use IdleTimeout as the primary liveness check.
 	DefaultExecutionTimeoutSeconds = 0
 	// DefaultIdleTimeoutSeconds is the default idle timeout in seconds.
-	// The timer resets on each activity signal (stream chunk, round, tool completion).
+	// The timer resets on each activity signal (stream chunk, round, tool
+	// completion) and is held open while tool calls are in flight.
 	DefaultIdleTimeoutSeconds = 30
 	// DefaultGracefulShutdownTimeoutSeconds is the default graceful shutdown timeout in seconds.
 	DefaultGracefulShutdownTimeoutSeconds = 10
@@ -46,7 +47,9 @@ type PipelineConfig struct {
 
 	// IdleTimeout sets the maximum duration of inactivity before the pipeline is
 	// canceled. The timer resets on each streaming chunk, round completion, and
-	// tool completion. Set to 0 to disable.
+	// tool completion, and is held open for as long as tool calls are running —
+	// a tool in flight is not an idle pipeline, and slow tools are bounded by
+	// their own TimeoutMs instead. Set to 0 to disable.
 	// Default: 30 seconds.
 	IdleTimeout time.Duration
 

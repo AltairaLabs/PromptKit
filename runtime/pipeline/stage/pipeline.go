@@ -71,7 +71,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 		var idleCancel context.CancelFunc
 		var resetIdle func()
 		execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
-		execCtx = contextWithIdleReset(execCtx, resetIdle)
+		execCtx = contextWithIdleReset(execCtx, resetIdle, p.config.IdleTimeout)
 		prevCancel := cancel
 		cancel = func() {
 			idleCancel()

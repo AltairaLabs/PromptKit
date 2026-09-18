@@ -425,7 +425,7 @@ func (s *resetDetectorStage) Type() StageType { return StageTypeTransform }
 func (s *resetDetectorStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 	defer close(out)
 	// Check if idle reset func is in context
-	if _, ok := ctx.Value(idleResetKey{}).(func()); ok {
+	if c, ok := ctx.Value(idleResetKey{}).(idleControl); ok && c.reset != nil {
 		s.found = true
 	}
 	for elem := range in {

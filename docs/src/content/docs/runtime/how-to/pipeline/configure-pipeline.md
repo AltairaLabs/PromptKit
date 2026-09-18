@@ -494,7 +494,7 @@ func TestPipeline(t *testing.T) {
 
 **Problem**: Pipeline executions timing out.
 
-**Solution**: Increase the idle timeout (resets on each activity — provider call, tool execution, streaming chunk):
+**Solution**: Increase the idle timeout. It resets on each activity — provider call, round completion, streaming chunk — and is held open for as long as a tool call is running, so a slow tool does not trip it (bound those with the tool's own `TimeoutMs`):
 
 ```go
 config := stage.DefaultPipelineConfig().
