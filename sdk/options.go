@@ -2457,11 +2457,15 @@ func WithImageProvider(spec ProviderSpec) Option {
 
 // WithTTSProvider builds a TTS service from a spec and sets it as the default
 // ttsService (first-wins; does not overwrite one already set by WithTTS or a
-// prior WithTTSProvider call).
+// prior WithTTSProvider call). Registering the same ID twice is an error,
+// matching the declarative path (#2000).
 //
 //nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
 func WithTTSProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.ttsProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithTTSProvider %q: duplicate ID", spec.idOrType())
+		}
 		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2486,11 +2490,15 @@ func WithTTSProvider(spec ProviderSpec) Option {
 }
 
 // WithSTTProvider builds an STT service from a spec and sets it as the default
-// sttService (first-wins; does not overwrite one already set).
+// sttService (first-wins; does not overwrite one already set). Registering the
+// same ID twice is an error, matching the declarative path (#2000).
 //
 //nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
 func WithSTTProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.sttProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithSTTProvider %q: duplicate ID", spec.idOrType())
+		}
 		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2518,9 +2526,17 @@ func WithSTTProvider(spec ProviderSpec) Option {
 // the default RAG retrievalProvider (first-wins; does not overwrite one already
 // set by WithContextRetrieval or a prior WithEmbeddingProvider call).
 //
+// Registering the same ID twice is an error, matching what the declarative
+// path (a runtime config's embedding_providers) already does. Silently keeping
+// one provider while listing its ID twice made the ID list stop being a set
+// (#2000).
+//
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithEmbeddingProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.embeddingProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithEmbeddingProvider %q: duplicate ID", spec.idOrType())
+		}
 		var platform string
 		if spec.Platform != nil {
 			platform = spec.Platform.Type
