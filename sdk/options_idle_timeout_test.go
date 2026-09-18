@@ -28,17 +28,7 @@ func TestWithIdleTimeout_ReachesPipelineConfig(t *testing.T) {
 	assert.Equal(t, 90*time.Second, *cfg.IdleTimeout)
 }
 
-// TestWithIdleTimeout_UnsetLeavesDefault: no option, no override — the runtime
-// default applies.
-func TestWithIdleTimeout_UnsetLeavesDefault(t *testing.T) {
-	conv := &Conversation{
-		config:       configFromOptions(t),
-		toolRegistry: tools.NewRegistry(),
-		prompt:       &pack.Prompt{},
-	}
-
-	cfg := conv.buildPipelineConfig(nil, "conv-1", nil, nil)
-
-	require.NotNil(t, cfg)
-	assert.Nil(t, cfg.IdleTimeout)
-}
+// The unset case — no option, runtime default of 30s applies — is asserted
+// where the value actually resolves, in
+// internal/pipeline.TestPipelineConfigFor_IdleTimeout. Asserting a nil pointer
+// here would pass whether or not the default survived.
