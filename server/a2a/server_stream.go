@@ -250,63 +250,11 @@ func (s *Server) handleStreamMessage(
 		contextID = generateID()
 	}
 
-	// startTurn yields the event stream for this request, from whichever half
-	// of the server owns conversations. Resolved before the task exists so a
-	// refusal costs nothing.
-	var startTurn func(ctx context.Context, taskID string) <-chan StreamEvent
-
-	if s.handler != nil {
-		trh, resumable := s.handler.(ToolResultHandler)
-		toolResults := extractToolResults(params.Message.Parts)
-		if len(toolResults) > 0 && !resumable {
-			writeRPCError(w, req.ID, -32601,
-				"Client tool results are not supported by this agent")
-			return
-		}
-		startTurn = func(ctx context.Context, taskID string) <-chan StreamEvent {
-			if len(toolResults) > 0 {
-				return trh.HandleToolResult(ctx, ToolResultRequest{
-					ContextID: contextID,
-					TaskID:    taskID,
-					Results:   toToolResults(toolResults),
-				})
-			}
-			return s.handler.Handle(ctx, MessageRequest{
-				ContextID: contextID,
-				TaskID:    taskID,
-				Message:   params.Message,
-			})
-		}
-	} else {
-		conv, err := s.getOrCreateConversation(contextID)
-		if err != nil {
-			writeRPCError(w, req.ID, -32000,
-				fmt.Sprintf("Failed to open conversation: %v", err))
-			return
-		}
-
-		streamConv, ok := conv.(StreamingConversation)
-		if !ok {
-			writeRPCError(w, req.ID, -32601,
-				"Streaming not supported by this agent")
-			return
-		}
-
-		// Check if this is a tool-result message for a resumable conversation.
-		if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-			s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
-			return
-		}
-
-		pkMsg, err := a2a.MessageToMessage(&params.Message)
-		if err != nil {
-			writeRPCError(w, req.ID, -32602,
-				fmt.Sprintf("Invalid message: %v", err))
-			return
-		}
-		startTurn = func(ctx context.Context, _ string) <-chan StreamEvent {
-			return streamConv.Stream(ctx, pkMsg)
-		}
+	// Which half of the server owns conversations decides where the events come
+	// from. Resolved before the task exists, so a refusal costs nothing.
+	startTurn, handled := s.resolveStreamTurn(w, r, req, contextID, params)
+	if handled {
+		return
 	}
 
 	taskID := generateID()
@@ -627,4 +575,76 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 			return
 		}
 	}
+}
+
+// resolveStreamTurn produces the function that starts this request's event
+// stream, for either server mode.
+//
+// handled is true when the request is already answered — a refusal, or a
+// conversation-backed tool result, which has its own handler. The caller stops
+// in that case.
+func (s *Server) resolveStreamTurn(
+	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
+	contextID string, params a2a.SendMessageRequest,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	toolResults := extractToolResults(params.Message.Parts)
+
+	if s.handler != nil {
+		return s.statelessStreamTurn(w, req, contextID, params, toolResults)
+	}
+
+	conv, err := s.getOrCreateConversation(contextID)
+	if err != nil {
+		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to open conversation: %v", err))
+		return nil, true
+	}
+
+	streamConv, ok := conv.(StreamingConversation)
+	if !ok {
+		writeRPCError(w, req.ID, -32601, "Streaming not supported by this agent")
+		return nil, true
+	}
+
+	if len(toolResults) > 0 {
+		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
+		return nil, true
+	}
+
+	pkMsg, err := a2a.MessageToMessage(&params.Message)
+	if err != nil {
+		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
+		return nil, true
+	}
+
+	return func(ctx context.Context, _ string) <-chan StreamEvent {
+		return streamConv.Stream(ctx, pkMsg)
+	}, false
+}
+
+// statelessStreamTurn is resolveStreamTurn's handler-mode half: no conversation
+// to open, and tool results only when the handler asked for client tools.
+func (s *Server) statelessStreamTurn(
+	w http.ResponseWriter, req *a2a.JSONRPCRequest,
+	contextID string, params a2a.SendMessageRequest, toolResults []toolResultEntry,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	trh, resumable := s.handler.(ToolResultHandler)
+	if len(toolResults) > 0 && !resumable {
+		writeRPCError(w, req.ID, -32601, "Client tool results are not supported by this agent")
+		return nil, true
+	}
+
+	return func(ctx context.Context, taskID string) <-chan StreamEvent {
+		if len(toolResults) > 0 {
+			return trh.HandleToolResult(ctx, ToolResultRequest{
+				ContextID: contextID,
+				TaskID:    taskID,
+				Results:   toToolResults(toolResults),
+			})
+		}
+		return s.handler.Handle(ctx, MessageRequest{
+			ContextID: contextID,
+			TaskID:    taskID,
+			Message:   params.Message,
+		})
+	}, false
 }

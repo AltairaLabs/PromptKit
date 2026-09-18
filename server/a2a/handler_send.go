@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
@@ -66,72 +65,21 @@ func (s *Server) handleSendViaHandler(
 		})
 	}
 
-	if params.Configuration != nil && params.Configuration.Blocking {
-		<-done
-	} else {
-		select {
-		case <-done:
-		case <-time.After(sendSettleTime):
-		}
-	}
-
-	task, err := s.taskStore.Get(taskID)
-	if err != nil {
-		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
-		return
-	}
-	writeRPCResult(w, req.ID, task)
+	s.awaitTurn(w, req, taskID, done, params.Configuration)
 }
 
-// runHandlerTurn runs one handler call to completion in the background,
-// mirroring runConversation: same cancellation registration so tasks/cancel
-// works, same working/failed/completed transitions.
+// runHandlerTurn runs one handler call to completion, drained into the
+// SendResult the task machinery needs.
 func (s *Server) runHandlerTurn(
 	parent context.Context, taskID string, start func(context.Context) <-chan StreamEvent,
 ) <-chan struct{} {
-	ctx, cancel := context.WithCancel(parent)
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		defer cancel()
-		defer func() {
-			s.cancelsMu.Lock()
-			delete(s.cancels, taskID)
-			s.cancelsMu.Unlock()
-		}()
-
-		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-		}
-
+	return s.runTurn(parent, taskID, func(ctx context.Context) (SendResult, error) {
 		result := drain(ctx, start(ctx))
-
 		if result.err != nil {
-			// A canceled context means tasks/cancel already set the state;
-			// overwriting it with "failed" would lose that.
-			if ctx.Err() == nil {
-				errText := result.err.Error()
-				if storeErr := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
-					Role:  a2a.RoleAgent,
-					Parts: []a2a.Part{{Text: &errText}},
-				}); storeErr != nil {
-					log.Printf("a2a: task %s: failed to set failed state: %v", taskID, storeErr)
-				}
-			}
-			return
+			return nil, result.err
 		}
-		if ctx.Err() != nil {
-			return
-		}
-
-		s.finalizeTask(taskID, result)
-	}()
-	return done
+		return result, nil
+	})
 }
 
 // toToolResults converts the wire form into what a handler receives.
