@@ -70,3 +70,21 @@ func defaultClassifier[T any](
 	}
 	return get(reg)
 }
+
+// providerResult turns a resolution failure into the right KIND of result.
+//
+// A check that NAMED a provider and could not get it is misconfigured, and
+// misconfiguration is an Error: Skipped scores 1.0 and passes, so a safety
+// control that silently did not run would report as clean — the #1996 failure,
+// one level up. A check that named nothing and found no host default is the
+// older "infrastructure absent" case, which stays Skipped so a pack that never
+// asked for a classifier does not start failing.
+func providerResult(handlerType, key string, err error, skipped, errored resultFn) *evals.EvalResult {
+	if key != "" {
+		return errored(handlerType, err.Error())
+	}
+	return skipped(handlerType, err.Error())
+}
+
+// resultFn builds an EvalResult of one kind (skippedResult, errorResult).
+type resultFn func(handlerType, reason string) *evals.EvalResult

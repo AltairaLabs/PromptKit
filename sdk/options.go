@@ -2436,8 +2436,36 @@ func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 	}
 }
 
+// WithNamedProvider registers a completion provider under its ID for a pack to
+// name, WITHOUT making it the conversation's agent.
+//
+// This is how a host answers a pack's `requires` entry for an ancillary model —
+// the judge a toxicity guardrail grades with, say. [WithLLMProvider] would also
+// register it, but it sets the agent as a side effect, so binding a grader with
+// it silently replaces the model the conversation talks to.
+//
+//	conv, _ := sdk.Open(pack, "chat",
+//	    sdk.WithProvider(agent),
+//	    sdk.WithNamedProvider(sdk.ProviderSpec{ID: "grader", Type: "openai", Model: "gpt-4.1-mini"}),
+//	)
+func WithNamedProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
+		if err != nil {
+			return fmt.Errorf("WithNamedProvider %q: %w", spec.idOrType(), err)
+		}
+		ensureProviderPool(c)
+		c.providers.Register(prov)
+		return nil
+	}
+}
+
 // WithLLMProvider sets the conversation's agent (completion) provider from a
 // spec. Sugar over WithProvider for the uniform spec-based option family.
+//
+// It sets the AGENT: the last call wins, and a provider registered this way
+// becomes the model the conversation talks to. To bind an ancillary provider a
+// pack names — a judge, say — use [WithNamedProvider] instead.
 //
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithLLMProvider(spec ProviderSpec) Option {

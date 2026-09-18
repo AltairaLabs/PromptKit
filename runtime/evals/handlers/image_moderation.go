@@ -50,7 +50,7 @@ func (h *ImageModerationHandler) Eval(
 
 	classifier, classifierErr := resolveImageClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
-		return skippedResult(h.Type(), classifierErr.Error()), nil
+		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
 
 	imageParts := collectMediaContentByRole(evalCtx.Messages, types.ContentTypeImage, cfg.messageRole)

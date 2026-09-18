@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
@@ -80,6 +81,17 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 	}
 	if v, ok := params[ProviderParam].(string); ok {
 		cfg.providerKey = v
+	}
+
+	// classifier_id named a HOST-side provider id inside a pack, which pinned
+	// the pack to one deployment's wiring. It is gone, and saying so is the
+	// point: silently ignoring it would fall back to the host's default
+	// classifier and score against a different model than the author chose.
+	if _, ok := params["classifier_id"]; ok {
+		return cfg, fmt.Errorf(
+			"classifier_id is no longer supported: name a provider this pack declares in its "+
+				"requires block with %q instead, which lets the host bind and rebind it freely",
+			ProviderParam)
 	}
 
 	if msg := rejectThresholdParams(params); msg != "" {

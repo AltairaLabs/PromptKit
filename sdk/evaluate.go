@@ -126,6 +126,15 @@ type EvaluateOpts struct {
 
 	// SkipSchemaValidation disables JSON schema validation when loading from PackPath.
 	SkipSchemaValidation bool
+
+	// ProviderBinding answers the LOGICAL provider names a pack's checks use —
+	// `provider: grader` resolving to whatever this caller wants to grade with.
+	//
+	// Required for a pack whose checks name their providers, which is the
+	// normal shape: without it those checks have nothing to resolve. When it is
+	// nil and JudgeTargets is set, the targets are used as a binding, since
+	// they are already keyed by name.
+	ProviderBinding evals.ProviderBinding
 }
 
 // Evaluate runs evals from a PromptPack against a conversation snapshot.
@@ -153,6 +162,12 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	defs = evals.FilterByGroups(defs, opts.EvalGroups)
 	if len(defs) == 0 {
 		return nil, nil
+	}
+
+	// Attach the caller's provider binding so checks that name a provider can
+	// resolve it here exactly as they do in a live conversation.
+	if binding := evaluateBinding(&opts); binding != nil {
+		ctx = evals.WithProviderBinding(ctx, binding)
 	}
 
 	// 2. Build EvalContext from messages

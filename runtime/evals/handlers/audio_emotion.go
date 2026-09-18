@@ -79,7 +79,7 @@ func (h *AudioEmotionHandler) Eval(
 
 	classifier, classifierErr := resolveAudioClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
-		return skippedResult(h.Type(), classifierErr.Error()), nil
+		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
 
 	audioParts := collectAudioPartsByRole(evalCtx.Messages, cfg.messageRole)

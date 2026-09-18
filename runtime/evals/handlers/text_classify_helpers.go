@@ -145,7 +145,7 @@ func runTextClassifyEval(
 
 	classifier, classifierErr := resolveTextClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
-		return skippedResult(handlerType, classifierErr.Error())
+		return providerResult(handlerType, cfg.providerKey, classifierErr, skippedResult, errorResult)
 	}
 
 	texts := collectTextsByRole(evalCtx.Messages, cfg.messageRole)

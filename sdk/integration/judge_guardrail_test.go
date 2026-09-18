@@ -162,7 +162,7 @@ func TestJudgeGuardrail_HostBindsTheNameThePackChose(t *testing.T) {
 
 	conv, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithLLMProvider(sdk.ProviderSpec{
+		sdk.WithNamedProvider(sdk.ProviderSpec{
 			ID:    "grader",
 			Type:  "mock",
 			Model: "mock-model",
