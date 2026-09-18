@@ -50,10 +50,16 @@ func TestGuardrail_JudgeBackedRefusesToBuildWithoutJudge(t *testing.T) {
 }
 
 func TestGuardrail_JudgeBackedBuildsWithJudge(t *testing.T) {
-	hook, err := NewGuardrailHook("toxicity", map[string]any{}, WithJudge(&recordingJudge{}))
+	judge := &recordingJudge{}
+
+	hook, err := NewGuardrailHook("toxicity", map[string]any{}, WithJudge(judge))
 
 	require.NoError(t, err)
-	assert.NotNil(t, hook)
+	adapter, ok := hook.(*GuardrailHookAdapter)
+	require.True(t, ok)
+	assert.Same(t, judge, adapter.judge,
+		"the guardrail built, but not around the judge it was given — it would find none at turn time")
+	assert.Equal(t, "toxicity", adapter.evalType)
 }
 
 // TestGuardrail_NonJudgeTypeStillBuildsWithoutJudge: the refusal is scoped to
@@ -62,7 +68,18 @@ func TestGuardrail_NonJudgeTypeStillBuildsWithoutJudge(t *testing.T) {
 	hook, err := NewGuardrailHook("contains", map[string]any{"text": "forbidden"})
 
 	require.NoError(t, err)
-	assert.NotNil(t, hook)
+	adapter, ok := hook.(*GuardrailHookAdapter)
+	require.True(t, ok)
+	assert.Equal(t, "contains", adapter.evalType)
+	assert.Nil(t, adapter.judge, "a deterministic check must not acquire a judge it never uses")
+
+	// And it still works: the refusal is scoped to judge-backed types, so a
+	// check that needs nothing keeps enforcing.
+	adapter.direction = DirectionInput
+	d := adapter.BeforeCall(context.Background(), &hooks.ProviderRequest{
+		Messages: userTurn("this contains forbidden material"),
+	})
+	assert.False(t, d.Allow, "the contains guardrail did not fire on matching input")
 }
 
 // TestGuardrail_JudgeReachesTheHandler is the producer half: the judge must

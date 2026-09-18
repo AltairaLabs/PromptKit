@@ -187,6 +187,23 @@ func (pj *ProviderJudge) Judge(ctx context.Context, opts JudgeOpts) (*JudgeResul
 	return judgeWithProvider(ctx, pj.provider, opts)
 }
 
+// ID reports the id of the provider grading with this judge, for callers that
+// log or attribute the judging cost to something other than the agent.
+func (pj *ProviderJudge) ID() string {
+	if pj == nil || pj.provider == nil {
+		return ""
+	}
+	return pj.provider.ID()
+}
+
+// Model reports the model this judge grades with.
+func (pj *ProviderJudge) Model() string {
+	if pj == nil || pj.provider == nil {
+		return ""
+	}
+	return pj.provider.Model()
+}
+
 // Ensure ProviderJudge implements JudgeProvider.
 var _ JudgeProvider = (*ProviderJudge)(nil)
 

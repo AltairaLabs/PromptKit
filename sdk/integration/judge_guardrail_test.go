@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,19 +87,66 @@ func TestJudgeGuardrail_RunsWithHostSuppliedJudge(t *testing.T) {
 		"a clean verdict blocked the turn — the 0.0-score failure mode is back")
 }
 
+// recordingRepo is a mock response source that counts the calls made to the
+// provider it backs, so a test can prove the JUDGE provider — not the agent —
+// was the one consulted.
+type recordingRepo struct {
+	mu       sync.Mutex
+	calls    int
+	response string
+}
+
+func (r *recordingRepo) GetResponse(_ context.Context, _ mock.ResponseParams) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls++
+	return r.response, nil
+}
+
+func (r *recordingRepo) GetTurn(ctx context.Context, params mock.ResponseParams) (*mock.Turn, error) {
+	text, err := r.GetResponse(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return &mock.Turn{Type: "text", Content: text}, nil
+}
+
+func (r *recordingRepo) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
+}
+
 // TestJudgeGuardrail_PooledJudgeProviderSatisfiesTheRequirement: the normal
 // wiring, where the host answers the pack's requires block by registering a
-// provider under that key rather than passing a judge object.
+// provider under that key rather than passing a judge object. The turn has to
+// actually run through that provider — Open() succeeding proves only that the
+// gate was satisfied, not that the guardrail found the judge afterwards.
 func TestJudgeGuardrail_PooledJudgeProviderSatisfiesTheRequirement(t *testing.T) {
 	packPath := writePackFile(t, judgeGuardrailPackJSON)
+	judgeRepo := &recordingRepo{response: `{"passed": true, "score": 1.0, "reasoning": "clean"}`}
 
 	conv, err := sdk.Open(packPath, "chat",
 		sdk.WithProvider(mock.NewProvider("agent", "mock-model", false)),
-		sdk.WithLLMProvider(sdk.ProviderSpec{ID: sdk.JudgeProviderKey, Type: "mock", Model: "mock-model"}),
+		sdk.WithLLMProvider(sdk.ProviderSpec{
+			ID:    sdk.JudgeProviderKey,
+			Type:  "mock",
+			Model: "mock-model",
+			AdditionalConfig: map[string]any{
+				"repository": mock.ResponseRepository(judgeRepo),
+			},
+		}),
 		sdk.WithSkipSchemaValidation(),
 	)
-
 	require.NoError(t, err, "a provider registered under %q should satisfy the guardrail",
 		sdk.JudgeProviderKey)
 	t.Cleanup(func() { _ = conv.Close() })
+
+	resp, err := conv.Send(context.Background(), "Hello there")
+	require.NoError(t, err)
+
+	assert.Positive(t, judgeRepo.count(),
+		"the pooled judge provider was never called; the guardrail found no judge at turn time")
+	assert.NotContains(t, resp.Text(), "That request was blocked.",
+		"a clean verdict blocked the turn")
 }

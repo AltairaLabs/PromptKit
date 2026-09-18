@@ -19,11 +19,10 @@ func (stubJudge) Judge(_ context.Context, _ handlers.JudgeOpts) (*handlers.Judge
 }
 
 func TestResolveJudge(t *testing.T) {
-	t.Run("nil when the host supplied nothing", func(t *testing.T) {
-		assert.Nil(t, resolveJudge(&config{}),
-			"inventing a judge would make the agent grade its own output and bill for it")
-	})
-
+	// The "no judge at all" case is asserted inside "resolves by key" below,
+	// where it is stated against a populated pool and followed by the judge
+	// resolving — a bare nil check on an empty config passes for an
+	// implementation that falls back to the agent provider too.
 	t.Run("explicit WithJudgeProvider wins", func(t *testing.T) {
 		explicit := stubJudge{}
 		cfg := &config{}
@@ -47,12 +46,23 @@ func TestResolveJudge(t *testing.T) {
 		assert.IsType(t, &handlers.ProviderJudge{}, judge)
 	})
 
-	t.Run("a pool without a judge key resolves nothing", func(t *testing.T) {
+	// The judge is looked up by key, not by "whatever llm is around": a pool
+	// full of other providers still resolves nothing, and the one named judge
+	// resolves even when it is not the only entry.
+	t.Run("resolves by key, not by availability", func(t *testing.T) {
 		cfg := &config{}
 		ensureProviderPool(cfg)
 		cfg.providers.Register(mock.NewProvider("agent", "mock-model", false))
+		cfg.providers.Register(mock.NewProvider("summarizer", "mock-model", false))
+		require.Nil(t, resolveJudge(cfg), "another role's provider must not be borrowed as a judge")
 
-		assert.Nil(t, resolveJudge(cfg),
-			"the agent provider must not be borrowed as a judge")
+		cfg.providers.Register(mock.NewProvider(JudgeProviderKey, "judge-model", false))
+		judge := resolveJudge(cfg)
+
+		require.NotNil(t, judge)
+		pj, ok := judge.(*handlers.ProviderJudge)
+		require.True(t, ok)
+		assert.Equal(t, "judge-model", pj.Model(),
+			"resolved some other provider in the pool rather than the one named %q", JudgeProviderKey)
 	})
 }
