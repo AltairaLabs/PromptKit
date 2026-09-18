@@ -158,6 +158,10 @@ type config struct {
 	// ttsProviderIDs / sttProviderIDs.
 	classifyProviderIDs []string
 
+	// classifyBackends is every classify backend by the id it was registered
+	// under, for provider-binding lookups. See registerClassifyBackend.
+	classifyBackends map[string]classify.Backend
+
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
 	summarizeProviderID string
@@ -541,6 +545,15 @@ func (c *config) registerClassifyBackend(id string, backend classify.Backend) ([
 		return nil, fmt.Errorf("classify provider %q: backend implements no classify task interface", id)
 	}
 	c.classifyProviderIDs = append(c.classifyProviderIDs, id)
+	// Remembered by id so the provider binding can answer "what did the host
+	// bind to this logical name" for a classify-backed check. The registry
+	// itself only offers typed, per-task lookups, which cannot distinguish
+	// "bound nothing" from "bound something that does not do this task" — and
+	// that distinction is the whole point of the binding's error messages.
+	if c.classifyBackends == nil {
+		c.classifyBackends = make(map[string]classify.Backend)
+	}
+	c.classifyBackends[id] = backend
 	return tasks, nil
 }
 

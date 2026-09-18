@@ -93,3 +93,35 @@ func TestProviderJudge_UnparseableVerdictIsAnError(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// TestRequiresClassifier_CoversTheClassifyBackedFamily is the other half of the
+// pair: the two markers together let a caller tell WHICH kind of provider a
+// check's named key must resolve to, so binding an LLM where a classifier
+// belongs is caught before the first turn.
+func TestRequiresClassifier_CoversTheClassifyBackedFamily(t *testing.T) {
+	classifyBacked := []any{
+		&AudioEmotionHandler{},
+		&ImageModerationHandler{},
+		&TextSentimentHandler{},
+		&TextToxicityHandler{},
+		&TopicPolicyHandler{},
+	}
+
+	for _, h := range classifyBacked {
+		typed, ok := h.(interface{ Type() string })
+		require.True(t, ok, "%T has no Type()", h)
+		t.Run(typed.Type(), func(t *testing.T) {
+			assert.True(t, RequiresClassifier(h),
+				"%T resolves a classify backend but does not declare that it needs one", h)
+			assert.False(t, RequiresJudge(h),
+				"a classify-backed check must not also claim to need a judge; "+
+					"the two markers pick which kind of provider its key resolves to")
+		})
+	}
+}
+
+func TestRequiresClassifier_FalseForEverythingElse(t *testing.T) {
+	assert.False(t, RequiresClassifier(&ContainsHandler{}))
+	assert.False(t, RequiresClassifier(&ToxicityHandler{}), "judge-backed, not classify-backed")
+	assert.False(t, RequiresClassifier(nil))
+}

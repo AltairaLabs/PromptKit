@@ -656,6 +656,7 @@ func (c *Conversation) buildPipelineConfig(
 		ToolGrants:            c.skillToolGrants,
 		ApprovalChecker:       c.newApprovalChecker(),
 		ClassifyRegistry:      c.config.classifyRegistry,
+		ProviderBinding:       newHostBinding(c.config),
 		// A bound audio session (OpenVoice) plays response audio to a realtime
 		// speaker; pace the output so a streaming provider's whole-reply burst
 		// doesn't overrun the sink's jitter buffer and drop audio (stutter).

@@ -42,7 +42,7 @@ type classifyConfig struct {
 	expectedLabel string
 	messageRole   string
 	messageIndex  int
-	classifierID  string
+	providerKey   string
 }
 
 // parseClassifyConfig validates and extracts the common param set.
@@ -78,8 +78,8 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 	} else if v, ok := extractFloat64(params, "message_index"); ok {
 		cfg.messageIndex = int(v)
 	}
-	if v, ok := params["classifier_id"].(string); ok {
-		cfg.classifierID = v
+	if v, ok := params[ProviderParam].(string); ok {
+		cfg.providerKey = v
 	}
 
 	if msg := rejectThresholdParams(params); msg != "" {

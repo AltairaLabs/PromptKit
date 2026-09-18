@@ -26,6 +26,22 @@ type JudgeRequiring interface {
 	RequiresJudge() bool
 }
 
+// ClassifierRequiring marks a handler that needs a classify backend — the same
+// statement of fact as [JudgeRequiring], for the other family of ancillary
+// provider. Callers use the two together to know WHICH kind of provider a
+// check's named key has to resolve to, so binding the wrong kind is caught
+// before the first turn rather than surfacing as a missing measurement.
+type ClassifierRequiring interface {
+	// RequiresClassifier reports whether this handler needs a classify backend.
+	RequiresClassifier() bool
+}
+
+// RequiresClassifier reports whether a handler needs a classify backend.
+func RequiresClassifier(h any) bool {
+	cr, ok := h.(ClassifierRequiring)
+	return ok && cr.RequiresClassifier()
+}
+
 // RequiresJudge reports whether a handler needs an LLM judge. A handler that
 // does not implement [JudgeRequiring] is assumed not to need one, which is the
 // safe default: a wrong "no" costs nothing at wiring time, while a wrong "yes"
@@ -79,3 +95,19 @@ func (h *ContextualRelevancyHandler) RequiresJudge() bool { return true }
 // half-armed; as an eval it still degrades open, because the two roles want
 // different answers to the same fact.
 func (h *PIILeakageHandler) RequiresJudge() bool { return true }
+
+// RequiresClassifier reports true: the classify-backed family below all resolve
+// a classify backend, and measure nothing without one.
+func (h *AudioEmotionHandler) RequiresClassifier() bool { return true }
+
+// RequiresClassifier reports true. See [AudioEmotionHandler.RequiresClassifier].
+func (h *ImageModerationHandler) RequiresClassifier() bool { return true }
+
+// RequiresClassifier reports true. See [AudioEmotionHandler.RequiresClassifier].
+func (h *TextSentimentHandler) RequiresClassifier() bool { return true }
+
+// RequiresClassifier reports true. See [AudioEmotionHandler.RequiresClassifier].
+func (h *TextToxicityHandler) RequiresClassifier() bool { return true }
+
+// RequiresClassifier reports true. See [AudioEmotionHandler.RequiresClassifier].
+func (h *TopicPolicyHandler) RequiresClassifier() bool { return true }

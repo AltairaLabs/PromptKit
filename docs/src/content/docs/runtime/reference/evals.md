@@ -20,6 +20,7 @@ Package evals provides the core evaluation framework for PromptPack. Eval defini
 - [func ApplyDefaults\(evalType string, params map\[string\]any\) map\[string\]any](<#ApplyDefaults>)
 - [func DefaultAliases\(\) \[\]\[2\]string](<#DefaultAliases>)
 - [func DefaultGroupsForType\(evalType string\) \[\]string](<#DefaultGroupsForType>)
+- [func DescribeUnresolved\(key string, err error\) string](<#DescribeUnresolved>)
 - [func EncodeEvalWhen\(when \*EvalWhen\) map\[string\]any](<#EncodeEvalWhen>)
 - [func ExtractToolsOffered\(messages \[\]types.Message\) \[\]string](<#ExtractToolsOffered>)
 - [func ExtractValue\(result EvalResult, metric \*MetricDef\) \(float64, bool\)](<#ExtractValue>)
@@ -43,6 +44,7 @@ Package evals provides the core evaluation framework for PromptPack. Eval defini
 - [func ValidateEvalTypes\(defs \[\]EvalDef, registry \*EvalTypeRegistry\) \[\]string](<#ValidateEvalTypes>)
 - [func ValidateEvalWhen\(raw map\[string\]any\) error](<#ValidateEvalWhen>)
 - [func ValidateEvals\(defs \[\]EvalDef, scope string\) \[\]string](<#ValidateEvals>)
+- [func WithProviderBinding\(ctx context.Context, b ProviderBinding\) context.Context](<#WithProviderBinding>)
 - [type AssertionEvalHandler](<#AssertionEvalHandler>)
   - [func \(h \*AssertionEvalHandler\) Eval\(ctx context.Context, evalCtx \*EvalContext, params map\[string\]any\) \(\*EvalResult, error\)](<#AssertionEvalHandler.Eval>)
   - [func \(h \*AssertionEvalHandler\) Type\(\) string](<#AssertionEvalHandler.Type>)
@@ -98,6 +100,8 @@ Package evals provides the core evaluation framework for PromptPack. Eval defini
   - [func \(w \*MetricResultWriter\) WriteResults\(\_ context.Context, results \[\]EvalResult\) error](<#MetricResultWriter.WriteResults>)
 - [type MetricType](<#MetricType>)
 - [type ParamValidator](<#ParamValidator>)
+- [type ProviderBinding](<#ProviderBinding>)
+  - [func BindingFromContext\(ctx context.Context\) ProviderBinding](<#BindingFromContext>)
 - [type Range](<#Range>)
 - [type ResultWriter](<#ResultWriter>)
 - [type RunnerOption](<#RunnerOption>)
@@ -223,6 +227,24 @@ const WrapperTypeGuardrail = "guardrail"
 
 ## Variables
 
+<a name="ErrNoBinding"></a>ErrNoBinding is returned when no host binding is attached at all. It means the runtime was driven by a caller that never wired one up, which is a wiring error rather than a pack error.
+
+```go
+var ErrNoBinding = errors.New("no provider binding configured")
+```
+
+<a name="ErrUnboundKey"></a>ErrUnboundKey is returned when the pack asked for a logical name the host bound nothing to.
+
+```go
+var ErrUnboundKey = errors.New("no provider bound to this key")
+```
+
+<a name="ErrWrongKind"></a>ErrWrongKind is returned when the host DID bind something to the key, but what they bound cannot do what the check needs — an embedding provider bound to the name a judge\-backed check points at, say. Callers should surface this at load time; a host that binds the wrong thing has made a wiring mistake and deserves to hear about it before the first conversation, not on the turn that happens to need it.
+
+```go
+var ErrWrongKind = errors.New("provider bound to this key cannot do what the check needs")
+```
+
 <a name="ParamAliases"></a>ParamAliases maps legacy param names to canonical names per eval type. Entries exist for both the canonical type name and any aliases, so that NormalizeParams works regardless of which name is used.
 
 ```go
@@ -327,6 +349,15 @@ func DefaultGroupsForType(evalType string) []string
 ```
 
 DefaultGroupsForType returns the well\-known groups for a given eval type. The result always includes DefaultEvalGroup plus any classification groups based on the handler's characteristics.
+
+<a name="DescribeUnresolved"></a>
+## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L83>)
+
+```go
+func DescribeUnresolved(key string, err error) string
+```
+
+DescribeUnresolved renders why a logical name could not be resolved, in terms the person who has to fix it can act on: which name the pack used, and whether the fix is in the pack or in the host's wiring.
 
 <a name="EncodeEvalWhen"></a>
 ## func [EncodeEvalWhen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/when.go#L147>)
@@ -591,6 +622,15 @@ ValidateEvals validates a slice of EvalDef for correctness. The scope parameter 
 - sample\_percentage \(if set\) is in \[0, 100\]
 - Metric name matches Prometheus naming regex
 - Metric type is one of gauge/counter/histogram/boolean
+
+<a name="WithProviderBinding"></a>
+## func [WithProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L64>)
+
+```go
+func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context
+```
+
+WithProviderBinding attaches a host's binding to ctx. Mirrors classify.WithRegistry: the pipeline attaches it once and every stage and handler below reads it from the context it was given.
 
 <a name="AssertionEvalHandler"></a>
 ## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L150-L152>)
@@ -1349,6 +1389,37 @@ type ParamValidator interface {
     ValidateParams(params map[string]any) error
 }
 ```
+
+<a name="ProviderBinding"></a>
+## type [ProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L46-L57>)
+
+ProviderBinding resolves a pack's logical provider names against what the host bound to them.
+
+Implementations live with the host \(the SDK, Arena\), because only the host knows what it has. Each method answers for one KIND of use, so a mismatch is reported as a mismatch — "you bound an embedder to the name a judge check uses" — rather than as an absence, which is what makes the failure legible.
+
+```go
+type ProviderBinding interface {
+    // LLM returns a provider that can run completions, for the logical key —
+    // what a judge-backed check needs. ErrWrongKind when the host bound
+    // something that is not one.
+    LLM(key string) (providers.Provider, error)
+
+    // Classifier returns the classify backend bound to the logical key.
+    // classify.Backend is an open type, so the caller still asserts the task
+    // interface it needs; the binding answers "this is what the host bound,
+    // and it is a classifier at all".
+    Classifier(key string) (classify.Backend, error)
+}
+```
+
+<a name="BindingFromContext"></a>
+### func [BindingFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L72>)
+
+```go
+func BindingFromContext(ctx context.Context) ProviderBinding
+```
+
+BindingFromContext returns the binding attached to ctx, or nil when none is.
 
 <a name="Range"></a>
 ## type [Range](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L242>)

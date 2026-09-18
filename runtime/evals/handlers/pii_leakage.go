@@ -57,7 +57,7 @@ func (h *PIILeakageHandler) Eval(
 		return piiLeakageRegexHit(hit), nil
 	}
 
-	if !hasJudgeProvider(evalCtx) {
+	if !hasJudgeProvider(evalCtx, params) {
 		return piiLeakageRegexClean(), nil
 	}
 

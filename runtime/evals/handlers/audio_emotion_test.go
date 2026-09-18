@@ -299,7 +299,7 @@ func TestAudioEmotion_NoRegistryInContext(t *testing.T) {
 	if !res.Skipped {
 		t.Fatalf("expected Skipped when no registry; got Error=%q", res.Error)
 	}
-	if !strings.Contains(res.SkipReason, "no classify registry configured") {
+	if !strings.Contains(res.SkipReason, "names no provider and the host set no default") {
 		t.Errorf("SkipReason %q should point users at the missing wiring", res.SkipReason)
 	}
 }

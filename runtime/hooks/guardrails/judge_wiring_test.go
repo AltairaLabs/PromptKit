@@ -32,10 +32,10 @@ func userTurn(text string) []types.Message {
 }
 
 // TestGuardrail_JudgeBackedRefusesToBuildWithoutJudge is the load-time half of
-// #1996. A judge-backed guardrail with no judge scored 0.0 against the 1.0
-// floor and blocked every turn, reporting a content violation as the reason.
-// Nothing about that is discoverable at runtime, and all of it is knowable at
-// load.
+// #1996. A judge-backed guardrail that names no provider, with no host default
+// either, scored 0.0 against the 1.0 floor and blocked every turn, reporting a
+// content violation as the reason. Nothing about that is discoverable at
+// runtime, and all of it is knowable at load.
 func TestGuardrail_JudgeBackedRefusesToBuildWithoutJudge(t *testing.T) {
 	for _, evalType := range []string{"toxicity", "bias", "role_violation", "pii_leakage", "faithfulness"} {
 		t.Run(evalType, func(t *testing.T) {
@@ -43,13 +43,27 @@ func TestGuardrail_JudgeBackedRefusesToBuildWithoutJudge(t *testing.T) {
 
 			require.Error(t, err, "a judge-backed guardrail with no judge must not build")
 			assert.ErrorIs(t, err, ErrGuardrailNeedsJudge)
+			assert.Contains(t, err.Error(), "params.provider",
+				"the error should name the param a pack uses to point at its required provider")
 			assert.Contains(t, err.Error(), "requires",
-				"the error should point at the pack's requires block, which is how a judge is declared")
+				"…and the requires block, which is where that name is declared")
 		})
 	}
 }
 
-func TestGuardrail_JudgeBackedBuildsWithJudge(t *testing.T) {
+// A pack that names its provider builds: resolution happens per turn, through
+// the host's binding, so construction only has to see that a name was given.
+func TestGuardrail_JudgeBackedBuildsWhenThePackNamesAProvider(t *testing.T) {
+	hook, err := NewGuardrailHook("toxicity", map[string]any{"provider": "grader"})
+
+	require.NoError(t, err)
+	adapter, ok := hook.(*GuardrailHookAdapter)
+	require.True(t, ok)
+	assert.Equal(t, "grader", adapter.params["provider"],
+		"the guardrail must carry the name its pack gave, since that is what it resolves per turn")
+}
+
+func TestGuardrail_JudgeBackedBuildsWithHostDefaultJudge(t *testing.T) {
 	judge := &recordingJudge{}
 
 	hook, err := NewGuardrailHook("toxicity", map[string]any{}, WithJudge(judge))
@@ -108,7 +122,7 @@ func TestGuardrail_JudgeReachesTheHandler(t *testing.T) {
 // dropped, which is the existing policy for an unknown type and a rejected
 // param set.
 func TestCompileValidators_JudgeBackedIsFatalWithoutJudge(t *testing.T) {
-	specs := []prompt.ValidatorConfig{{Type: "toxicity"}}
+	specs := []prompt.ValidatorConfig{{Type: "toxicity"}} // names no provider
 
 	hooksOut, err := CompileValidators(specs)
 

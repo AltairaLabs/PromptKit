@@ -63,7 +63,10 @@ func main() {
 
 	conv, err := sdk.Open("./caller.pack.json", "assistant",
 		sdk.WithProvider(provider),
-		sdk.WithClassifier("onnx-ser", backend), // <-- the pluggable seam
+		// The pack asks for a classifier it calls "emotion-classifier"; the host
+		// binds that name to this backend and can swap it without touching the
+		// pack.
+		sdk.WithClassifier("emotion-classifier", backend), // <-- the pluggable seam
 		sdk.WithEvalRunner(runner),
 		sdk.WithEvalHook(printHook{}),
 	)

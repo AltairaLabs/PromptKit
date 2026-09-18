@@ -8,6 +8,16 @@
     "version": "v1",
     "syntax": "{{variable}}"
   },
+  "requires": {
+    "providers": [
+      {
+        "key": "emotion-classifier",
+        "role": "inference",
+        "description": "speech-emotion classifier scoring the caller's audio",
+        "required": true
+      }
+    ]
+  },
   "prompts": {
     "assistant": {
       "id": "assistant",
@@ -26,7 +36,7 @@
         "model": "wav2vec2-ser",
         "expected_label": "angry",
         "message_role": "user",
-        "classifier_id": "onnx-ser"
+        "provider": "emotion-classifier"
       },
       "metric": {
         "name": "caller_anger_score",

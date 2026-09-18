@@ -26,14 +26,16 @@ const textClassifyDefaultRole = "assistant"
 // looks up the requested classifier. An empty id resolves the
 // configured default. The error returned here surfaces as Skipped at
 // the handler so keyless-CI paths stay clean.
-func resolveTextClassifier(ctx context.Context, id string) (classify.TextClassifier, error) {
-	reg := classify.FromContext(ctx)
-	if reg == nil {
-		return nil, errors.New(
-			"no classify registry configured; add a providers: entry with role: inference " +
-				"and either defaults.inference.text_classifier or params.classifier_id")
+func resolveTextClassifier(ctx context.Context, key string) (classify.TextClassifier, error) {
+	if key != "" {
+		return classifierFor(ctx, key, "text classifier",
+			func(b classify.Backend) (classify.TextClassifier, bool) {
+				c, ok := b.(classify.TextClassifier)
+				return c, ok
+			})
 	}
-	return reg.TextClassifier(id)
+	return defaultClassifier(ctx, "text classifier",
+		func(r *classify.Registry) (classify.TextClassifier, error) { return r.TextClassifier("") })
 }
 
 // collectTextsByRole returns the text content for every message whose
@@ -141,7 +143,7 @@ func runTextClassifyEval(
 		return errorResult(handlerType, cfgErr.Error())
 	}
 
-	classifier, classifierErr := resolveTextClassifier(ctx, cfg.classifierID)
+	classifier, classifierErr := resolveTextClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
 		return skippedResult(handlerType, classifierErr.Error())
 	}

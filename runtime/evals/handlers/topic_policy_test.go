@@ -368,9 +368,9 @@ func TestTopicPolicy_ValidateParams(t *testing.T) {
 		},
 		{
 			name:     "classifier_id wrong type",
-			params:   topicParams(map[string]any{"classifier_id": 123}),
+			params:   topicParams(map[string]any{"provider": 123}),
 			wantErr:  true,
-			contains: "classifier_id",
+			contains: "provider",
 		},
 		{
 			name:     "disallowed wrong type",
@@ -465,7 +465,7 @@ func TestTopicPolicy_DefaultsDirectionToInput(t *testing.T) {
 // TestTopicPolicy_NonTextTurnIsUnknown pins the media-only turn. A user message
 // whose Parts carry only an image has GetContent() == "", and the handler used
 // to hand that empty string to the classifier as the message under judgment —
-// asking "is '' on topic?", whose likeliest answer is yes. The guardrail then
+// asking "is ” on topic?", whose likeliest answer is yes. The guardrail then
 // no-ops on exactly the traffic no text check can see. An unjudgable turn is
 // unknown, so it resolves through on_unknown; the classifier is never called.
 func TestTopicPolicy_NonTextTurnIsUnknown(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -88,6 +89,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	// via classify.FromContext, mirroring Arena's eval-orchestrator wiring.
 	if p.config.ClassifyRegistry != nil {
 		execCtx = classify.WithRegistry(execCtx, p.config.ClassifyRegistry)
+	}
+
+	// The host's answer to "which provider did you bind to the name this pack
+	// used". Guardrails and evals resolve their ancillary providers through it.
+	if p.config.ProviderBinding != nil {
+		execCtx = evals.WithProviderBinding(execCtx, p.config.ProviderBinding)
 	}
 
 	// Track execution for graceful shutdown

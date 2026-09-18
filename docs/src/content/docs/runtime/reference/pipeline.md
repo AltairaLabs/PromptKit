@@ -2082,7 +2082,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L558-L565>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L565-L572>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2098,7 +2098,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L577-L581>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L584-L588>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -3655,7 +3655,7 @@ func (b *PipelineBuilder) WithEventEmitter(emitter *events.Emitter) *PipelineBui
 WithEventEmitter sets the event emitter for the pipeline.
 
 <a name="PipelineConfig"></a>
-## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L31-L64>)
+## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L33-L72>)
 
 PipelineConfig defines configuration options for pipeline execution.
 
@@ -3689,6 +3689,12 @@ type PipelineConfig struct {
     // Default: 10 seconds
     GracefulShutdownTimeout time.Duration
 
+    // ProviderBinding, when non-nil, is attached to the execution context so
+    // checks can resolve the LOGICAL provider names their pack declared
+    // (evals.BindingFromContext). The host owns the mapping; the pipeline only
+    // carries it.
+    ProviderBinding evals.ProviderBinding
+
     // ClassifyRegistry, when non-nil, is attached to the execution
     // context (via classify.WithRegistry) so stages and downstream
     // consumers resolve inference backends with classify.FromContext.
@@ -3697,7 +3703,7 @@ type PipelineConfig struct {
 ```
 
 <a name="DefaultPipelineConfig"></a>
-### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L67>)
+### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L75>)
 
 ```go
 func DefaultPipelineConfig() *PipelineConfig
@@ -3706,7 +3712,7 @@ func DefaultPipelineConfig() *PipelineConfig
 DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
 
 <a name="PipelineConfig.Validate"></a>
-### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L78>)
+### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L86>)
 
 ```go
 func (c *PipelineConfig) Validate() error
@@ -3715,7 +3721,7 @@ func (c *PipelineConfig) Validate() error
 Validate checks if the configuration is valid.
 
 <a name="PipelineConfig.WithChannelBufferSize"></a>
-### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L98>)
+### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L106>)
 
 ```go
 func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
@@ -3724,7 +3730,7 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
 WithChannelBufferSize sets the channel buffer size.
 
 <a name="PipelineConfig.WithExecutionTimeout"></a>
-### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L110>)
+### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L118>)
 
 ```go
 func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig
@@ -3733,7 +3739,7 @@ func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineCo
 WithExecutionTimeout sets the execution timeout.
 
 <a name="PipelineConfig.WithGracefulShutdownTimeout"></a>
-### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L122>)
+### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L130>)
 
 ```go
 func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig
@@ -3742,7 +3748,7 @@ func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *Pip
 WithGracefulShutdownTimeout sets the graceful shutdown timeout.
 
 <a name="PipelineConfig.WithIdleTimeout"></a>
-### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L116>)
+### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L124>)
 
 ```go
 func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
@@ -3751,7 +3757,7 @@ func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
 WithIdleTimeout sets the idle timeout.
 
 <a name="PipelineConfig.WithMaxConcurrentPipelines"></a>
-### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L104>)
+### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L112>)
 
 ```go
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig
@@ -4258,7 +4264,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L568-L574>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L575-L581>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5212,7 +5218,7 @@ func (e *StreamElement) WithSource(source string) *StreamElement
 WithSource sets the source stage name for this element.
 
 <a name="StreamPipeline"></a>
-## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L21-L48>)
+## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L22-L49>)
 
 StreamPipeline represents an executable pipeline of stages. It manages the DAG of stages, creates channels between them, and orchestrates execution.
 
@@ -5223,7 +5229,7 @@ type StreamPipeline struct {
 ```
 
 <a name="StreamPipeline.Execute"></a>
-### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L53>)
+### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L54>)
 
 ```go
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
@@ -5232,7 +5238,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 Execute starts the pipeline execution with the given input channel. Returns an output channel that will receive all elements from terminal stages. The pipeline executes in background goroutines and closes the output channel when complete.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L537>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L544>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5241,7 +5247,7 @@ func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement
 ExecuteSync runs the pipeline synchronously and returns the accumulated result. This is a convenience method for request/response mode where you want a single result. It converts the streaming execution into a blocking call.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L638>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L645>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error

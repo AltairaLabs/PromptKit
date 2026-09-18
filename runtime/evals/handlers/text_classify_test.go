@@ -179,7 +179,7 @@ func TestTextClassify_NoRegistryInContextSkips(t *testing.T) {
 	if !res.Skipped {
 		t.Fatalf("expected Skipped; got Error=%q", res.Error)
 	}
-	if !strings.Contains(res.SkipReason, "no classify registry configured") {
+	if !strings.Contains(res.SkipReason, "names no provider and the host set no default") {
 		t.Errorf("SkipReason %q should point at the missing wiring", res.SkipReason)
 	}
 }
