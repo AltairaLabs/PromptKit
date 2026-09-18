@@ -67,7 +67,17 @@ type ProviderStage struct {
 	// offeredTools accumulates the tool names handed to the provider across
 	// this turn's rounds, stamped onto each assistant message. A stage serves
 	// one turn on one goroutine, so it needs no lock.
-	offeredTools map[string]bool
+	//
+	// Held behind a pointer deliberately: a map field of its own would make
+	// ProviderStage non-comparable, which is an incompatible API change for a
+	// published exported type and blocks every subsequent minor release.
+	offeredTools *offeredToolSet
+}
+
+// offeredToolSet is the set of tool names offered during a turn. It exists so
+// ProviderStage can hold it by pointer and stay comparable; see offeredTools.
+type offeredToolSet struct {
+	names map[string]bool
 }
 
 // currentTurn returns the 1-based number of the turn being processed, or 0 when
@@ -2687,11 +2697,11 @@ func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
 		return
 	}
 	if s.offeredTools == nil {
-		s.offeredTools = make(map[string]bool, len(descriptors))
+		s.offeredTools = &offeredToolSet{names: make(map[string]bool, len(descriptors))}
 	}
 	for _, d := range descriptors {
 		if d != nil {
-			s.offeredTools[d.Name] = true
+			s.offeredTools.names[d.Name] = true
 		}
 	}
 }
@@ -2699,11 +2709,11 @@ func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
 // offeredToolNames returns the accumulated set, sorted, or nil when the turn
 // offered no tools at all.
 func (s *ProviderStage) offeredToolNames() []string {
-	if len(s.offeredTools) == 0 {
+	if s.offeredTools == nil || len(s.offeredTools.names) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(s.offeredTools))
-	for name := range s.offeredTools {
+	names := make([]string, 0, len(s.offeredTools.names))
+	for name := range s.offeredTools.names {
 		names = append(names, name)
 	}
 	sort.Strings(names)
