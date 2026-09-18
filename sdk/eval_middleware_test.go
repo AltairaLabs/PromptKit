@@ -24,12 +24,49 @@ import (
 
 // captureLogs redirects the global logger to a buffer for the duration
 // of a test. Not goroutine-safe across parallel tests.
-func captureLogs(t *testing.T) *bytes.Buffer {
+// captureLogs points the GLOBAL logger at a buffer for the duration of one
+// test, and restores it afterwards.
+//
+// Both halves matter, and neither was here before. The logger is process-wide,
+// so a pipeline goroutine started by any other test writes into whatever buffer
+// is installed — concurrently with the capturing test reading it, which the race
+// detector caught (CI, 2026-09-18: a StreamPipeline stage writing while
+// TestAgentToolResolver_WarnsOnlyForUnknownQualifiedAgent read). An
+// unsynchronized bytes.Buffer cannot take that. Not restoring the logger left
+// every later test writing into a dead test's buffer.
+func captureLogs(t *testing.T) *safeBuffer {
 	t.Helper()
-	buf := &bytes.Buffer{}
+	buf := &safeBuffer{}
 	h := slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	previous := logger.GetLogger()
 	logger.SetLogger(slog.New(h))
+	t.Cleanup(func() { logger.SetLogger(previous) })
 	return buf
+}
+
+// safeBuffer is a bytes.Buffer that tolerates the concurrent writes a global
+// logger inevitably receives.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *safeBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }
 
 func TestFilterInvalidEvalDefs_UnknownType(t *testing.T) {
