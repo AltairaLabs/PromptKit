@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -116,15 +117,19 @@ func judgeProviderFromTargets(raw any) (JudgeProvider, error) {
 		return nil, fmt.Errorf("judge_targets present but empty or wrong type")
 	}
 
-	// Select first available judge (the "judge" param selection happens
-	// at the assertion config level, not here — the metadata carries
-	// the resolved target)
+	// Lowest key wins when several targets are present. Ranging over the map
+	// picked whichever entry Go's randomized iteration order happened to yield
+	// first, so a two-judge config graded with a different model between runs
+	// and the scores were not comparable. Which target a caller MEANT is
+	// selected upstream, where the metadata is assembled; this only has to be
+	// the same choice every time.
+	keys := make([]string, 0, len(targets))
 	for k := range targets {
-		spec := targets[k]
-		return NewSpecJudgeProvider(&spec), nil
+		keys = append(keys, k)
 	}
-
-	return nil, fmt.Errorf("no judge targets available")
+	sort.Strings(keys)
+	spec := targets[keys[0]]
+	return NewSpecJudgeProvider(&spec), nil
 }
 
 // coerceJudgeTargets normalizes metadata targets into a typed map.

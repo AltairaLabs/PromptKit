@@ -103,7 +103,51 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 ## LLM Judge Support
 
-For `llm_judge` and `llm_judge_session` evals, provide a judge provider:
+Judge-backed checks — `llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
+`pii_leakage`, `role_violation` and the RAG primitives — need an LLM to grade
+with. The pack declares that it needs one; the host supplies it. Nothing falls
+back to the conversation's own provider: which model grades the output is the
+host's decision, and self-grading on the agent model is a decision rather than
+a default.
+
+Declare the requirement in the pack:
+
+```yaml
+requires:
+  providers:
+    - key: judge
+      role: llm
+      description: grades the toxicity and PII checks
+      required: true
+```
+
+Supply it as a provider under that key:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProvider(agent),
+    sdk.WithLLMProvider(sdk.ProviderSpec{
+        ID: "judge", Type: "openai", Model: "gpt-4.1-mini",
+    }),
+)
+```
+
+…or pass a judge directly, which also satisfies a `judge` requirement and is
+the route for a pack that names its judge something else:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProvider(agent),
+    sdk.WithJudgeProvider(myJudge),
+)
+```
+
+A judge-backed **guardrail** (a pack `validators:` entry) with no judge fails
+`Open()` rather than failing per turn. It used to build successfully and then
+block every turn while reporting a content violation, or — for `pii_leakage` —
+run only its regex pre-pass with the LLM layer silently absent.
+
+For the offline path, pass the judge in the options:
 
 ```go
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{

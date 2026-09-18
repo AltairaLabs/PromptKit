@@ -1373,7 +1373,15 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 			Enabled: v.Enabled,
 		})
 	}
-	packHooks, err := guardrails.CompileValidatorsWithRegistry(specs, cfg.evalRegistry)
+	// The judge the host supplied, if any. A judge-backed validator built
+	// without one used to fail per turn — blocking everything or nothing,
+	// silently — so CompileValidators refuses it here instead (#1996).
+	var guardrailOpts []guardrails.GuardrailOption
+	if judge := resolveJudge(cfg); judge != nil {
+		guardrailOpts = append(guardrailOpts, guardrails.WithJudge(judge))
+	}
+
+	packHooks, err := guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)
 	if err != nil {
 		// Fatal, and deliberately so: an unknown eval type or a param set the
 		// handler itself rejects both mean this guardrail cannot run, and

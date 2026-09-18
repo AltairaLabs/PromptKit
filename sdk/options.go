@@ -3331,10 +3331,19 @@ func WithEvalsDisabled() Option {
 	}
 }
 
-// WithJudgeProvider configures the LLM judge provider for judge-based evals.
+// WithJudgeProvider configures the LLM judge that judge-backed checks — bias,
+// toxicity, pii_leakage, role_violation, llm_judge and the RAG primitives —
+// evaluate through, as evals and as pack `validators:` guardrails alike.
 //
-// If not set, an SDKJudgeProvider is created automatically using the
-// conversation's provider.
+// If not set, the judge is the provider registered under [JudgeProviderKey],
+// which is what a host supplies in answer to a pack's requires block. Nothing
+// falls back to the conversation's own provider: which model grades the output
+// is the host's decision, and self-grading on the agent model is a decision, not
+// a default.
+//
+// A judge-backed guardrail with no judge from either route fails Open() rather
+// than failing per turn, where it used to block every turn or none of them
+// silently (#1996).
 func WithJudgeProvider(jp handlers.JudgeProvider) Option {
 	return func(c *config) error {
 		c.judgeProvider = jp

@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -71,6 +72,15 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 	}
 	if c.providers != nil {
 		llm = append(llm, c.providers.List()...)
+	}
+	// A judge supplied as an object rather than a provider (WithJudgeProvider)
+	// has no pool entry, so without this a pack that declares the judge it needs
+	// — the documented way to ask for one — failed the gate while the host had
+	// in fact supplied it. It answers to the conventional key only: an explicit
+	// judge is not a general-purpose llm and must not satisfy a requirement for
+	// some other one.
+	if c.judgeProvider != nil && !slices.Contains(llm, JudgeProviderKey) {
+		llm = append(llm, JudgeProviderKey)
 	}
 	if len(llm) > 0 {
 		inv[prompt.RequirementRoleLLM] = llm
