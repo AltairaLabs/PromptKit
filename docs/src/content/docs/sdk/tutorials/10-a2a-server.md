@@ -76,6 +76,19 @@ Use `sdk.A2AOpener` to create conversations from a pack file:
 
 Each A2A request creates a new SDK conversation via this opener. The `contextID` from the A2A protocol groups related requests.
 
+:::note[Two ways to run the server]
+This tutorial uses the **conversation-owning** mode: you hand the server an
+opener, and it keeps the conversations it opens, reusing one per `contextID`.
+That is the right fit when A2A and the runtime run in the same process, as here.
+
+If your runtime lives somewhere else — another service, another container — and
+you already track sessions yourself, use
+[`a2aserver.NewStatelessServer`](/sdk/reference/a2a-server/) instead. It hands
+each message to a handler you write, along with the HTTP request's context, and
+keeps nothing between calls. See [Choosing a server
+mode](/sdk/how-to/interop/choose-a2a-server-mode/).
+:::
+
 ---
 
 ## Step 3: Create and Start the Server

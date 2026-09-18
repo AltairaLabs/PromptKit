@@ -175,7 +175,11 @@ type namedChecker struct {
 // Server is an HTTP server that exposes a Conversation as an
 // A2A-compliant JSON-RPC endpoint.
 type Server struct {
+	// Exactly one of opener and handler is set; see NewServer and
+	// NewStatelessServer. opener means the server owns conversations, handler
+	// means the embedder does.
 	opener        ConversationOpener
+	handler       MessageHandler
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
 	authenticator Authenticator
@@ -211,10 +215,22 @@ type Server struct {
 	subs   map[string]*taskBroadcaster // task_id → broadcaster
 }
 
-// NewServer creates a new A2A server.
+// NewServer creates a new A2A server that OWNS its conversations: it opens one
+// per context id through the supplied opener, caches it, and reuses it when
+// that id returns. Suits an embedder running A2A and the runtime in one
+// process.
+//
+// For an embedder that owns conversations itself — because the runtime lives
+// elsewhere, or it already tracks sessions — see [NewStatelessServer].
 func NewServer(opener ConversationOpener, opts ...Option) *Server {
+	s := newServer(opts...)
+	s.opener = opener
+	return s
+}
+
+// newServer builds the parts both modes share.
+func newServer(opts ...Option) *Server {
 	s := &Server{
-		opener:       opener,
 		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
 		cancels:      make(map[string]context.CancelFunc),
@@ -481,6 +497,14 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 		contextID = generateID()
 	}
 
+	// Stateless mode short-circuits everything about conversation ownership:
+	// there is nothing to open, nothing to cache, and the handler sees the
+	// request it arrived on.
+	if s.handler != nil {
+		s.handleSendViaHandler(w, r, req, contextID, params)
+		return
+	}
+
 	conv, err := s.getOrCreateConversation(contextID)
 	if err != nil {
 		log.Printf("a2a: failed to open conversation for context %s: %v", contextID, err)
@@ -515,23 +539,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	// trace and message/send behaves like message/stream.
 	bgCtx := context.WithoutCancel(r.Context())
 	done := s.runConversation(bgCtx, taskID, conv, pkMsg)
-
-	if params.Configuration != nil && params.Configuration.Blocking {
-		<-done
-	} else {
-		select {
-		case <-done:
-		case <-time.After(sendSettleTime):
-		}
-	}
-
-	task, err := s.taskStore.Get(taskID)
-	if err != nil {
-		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
-		return
-	}
-	writeRPCResult(w, req.ID, task)
+	s.awaitTurn(w, req, taskID, done, params.Configuration)
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
@@ -599,7 +607,89 @@ func (s *Server) handleToolResultMessage(
 	// handleSendMessage for why.
 	bgCtx := context.WithoutCancel(r.Context())
 	done := s.runResume(bgCtx, taskID, resumable)
+	s.awaitTurn(w, req, taskID, done, cfg)
+}
 
+// runResume spawns a goroutine that calls Resume on a ResumableConversation.
+func (s *Server) runResume(parent context.Context, taskID string, conv ResumableConversation) <-chan struct{} {
+	return s.runTurn(parent, taskID, conv.Resume)
+}
+
+// runConversation spawns a goroutine that drives the conversation for a task.
+// It returns a channel that is closed when the goroutine completes.
+func (s *Server) runConversation(parent context.Context, taskID string, conv Conversation, pkMsg any) <-chan struct{} {
+	return s.runTurn(parent, taskID, func(ctx context.Context) (SendResult, error) {
+		return conv.Send(ctx, pkMsg)
+	})
+}
+
+// runTurn drives one turn in the background and closes the returned channel
+// when it is done.
+//
+// Every way a turn can be produced — a conversation's Send, its Resume, a
+// stateless handler's stream — needs the same surrounding care: register the
+// cancel func so tasks/cancel can reach it, mark the task working, and on
+// failure avoid overwriting a state the cancel handler already set. Three
+// copies of that is how the copies drift.
+func (s *Server) runTurn(
+	parent context.Context, taskID string, produce func(context.Context) (SendResult, error),
+) <-chan struct{} {
+	ctx, cancel := context.WithCancel(parent)
+	s.cancelsMu.Lock()
+	s.cancels[taskID] = cancel
+	s.cancelsMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cancel()
+		defer func() {
+			s.cancelsMu.Lock()
+			delete(s.cancels, taskID)
+			s.cancelsMu.Unlock()
+		}()
+
+		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
+			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
+		}
+
+		resp, err := produce(ctx)
+		if err != nil {
+			// A canceled context means CancelTask already set the state to
+			// "canceled"; only a genuine error marks the task failed.
+			if ctx.Err() == nil {
+				s.failTask(taskID, err)
+			}
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		s.finalizeTask(taskID, resp)
+	}()
+
+	return done
+}
+
+// failTask records a turn's error as the task's terminal state.
+func (s *Server) failTask(taskID string, cause error) {
+	errText := cause.Error()
+	if err := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+		Role:  a2a.RoleAgent,
+		Parts: []a2a.Part{{Text: &errText}},
+	}); err != nil {
+		log.Printf("a2a: task %s: failed to set failed state: %v", taskID, err)
+	}
+}
+
+// awaitTurn waits for a turn the way message/send does — fully when the caller
+// asked for blocking, otherwise only until the settle time — then answers with
+// the task as it stands.
+func (s *Server) awaitTurn(
+	w http.ResponseWriter, req *a2a.JSONRPCRequest, taskID string,
+	done <-chan struct{}, cfg *a2a.SendMessageConfiguration,
+) {
 	if cfg != nil && cfg.Blocking {
 		<-done
 	} else {
@@ -616,92 +706,6 @@ func (s *Server) handleToolResultMessage(
 		return
 	}
 	writeRPCResult(w, req.ID, task)
-}
-
-// runResume spawns a goroutine that calls Resume on a ResumableConversation.
-func (s *Server) runResume(parent context.Context, taskID string, conv ResumableConversation) <-chan struct{} {
-	ctx, cancel := context.WithCancel(parent)
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		defer cancel()
-		defer func() {
-			s.cancelsMu.Lock()
-			delete(s.cancels, taskID)
-			s.cancelsMu.Unlock()
-		}()
-
-		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-		}
-
-		resp, err := conv.Resume(ctx)
-		if err != nil {
-			if ctx.Err() == nil {
-				errText := err.Error()
-				if storeErr := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
-					Role:  a2a.RoleAgent,
-					Parts: []a2a.Part{{Text: &errText}},
-				}); storeErr != nil {
-					log.Printf("a2a: task %s: failed to set failed state: %v", taskID, storeErr)
-				}
-			}
-			return
-		}
-
-		s.finalizeTask(taskID, resp)
-	}()
-
-	return done
-}
-
-// runConversation spawns a goroutine that drives the conversation for a task.
-// It returns a channel that is closed when the goroutine completes.
-func (s *Server) runConversation(parent context.Context, taskID string, conv Conversation, pkMsg any) <-chan struct{} {
-	ctx, cancel := context.WithCancel(parent)
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		defer cancel()
-		defer func() {
-			s.cancelsMu.Lock()
-			delete(s.cancels, taskID)
-			s.cancelsMu.Unlock()
-		}()
-
-		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-		}
-
-		resp, sendErr := conv.Send(ctx, pkMsg)
-		if sendErr != nil {
-			// If the context was canceled (e.g. by CancelTask), don't
-			// overwrite the task state — the cancel handler sets it to
-			// "canceled". Only mark as failed for genuine errors.
-			if ctx.Err() == nil {
-				errText := sendErr.Error()
-				if storeErr := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
-					Role:  a2a.RoleAgent,
-					Parts: []a2a.Part{{Text: &errText}},
-				}); storeErr != nil {
-					log.Printf("a2a: task %s: failed to set failed state: %v", taskID, storeErr)
-				}
-			}
-			return
-		}
-
-		s.finalizeTask(taskID, resp)
-	}()
-
-	return done
 }
 
 // finalizeTask handles the terminal state of a task based on the SendResult.
