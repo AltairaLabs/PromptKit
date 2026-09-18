@@ -63,6 +63,33 @@ The ProviderStage runs the LLM-tool loop:
 
 **ProcessEvent returns `(*TransitionResult, error)`** — redirects (max_visits) are successful transitions, not errors.
 
+## PromptKit reads the PromptPack spec. It does not extend it.
+
+The spec lives in another repo. Everything a pack author types — keys, roles,
+param names, reserved values — is owned there, and this runtime is a consumer
+of it. Two rules follow, and both have been broken here:
+
+1. **Never author a name a pack must use.** `JudgeProviderKey = "judge"` had the
+   runtime decide what a pack calls its grading provider, resolved it by
+   convention, and shipped in v2.4.0 before it was caught (#1996 → corrected in
+   #2027). If a feature seems to need new pack vocabulary, it is a request
+   against the spec repo, not a constant here.
+
+2. **Never let a pack name something host-side.** `classifier_id` took a
+   provider id that meant something only in one deployment, so a host could not
+   swap providers without editing someone else's pack (removed in #2027).
+
+The shape that satisfies both: a pack declares a LOGICAL name in `requires`, a
+check points at that name, and the host binds it to whatever it likes and stays
+free to rebind it. One param — `provider` — carries it for judges, classifiers
+and anything later. See `runtime/evals/binding.go`.
+
+`TestPackFacingParams_AreDeclared` (runtime/evals/handlers) makes new pack
+vocabulary visible in the diff: a param a handler reads must be declared with a
+reason. It cannot see a name invented elsewhere in the codebase — which is
+exactly what `JudgeProviderKey` was — so it is a backstop for this rule, not a
+substitute for it.
+
 ## Adding New Functionality
 
 - **New tool executor**: Implement `Executor`, register via `Registry.RegisterExecutor()`
