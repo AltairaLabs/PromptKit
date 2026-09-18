@@ -94,7 +94,7 @@ func TestResetIdleFromContext_Present(t *testing.T) {
 	var called atomic.Bool
 	spy := func() { called.Store(true) }
 
-	ctx := contextWithIdleReset(context.Background(), spy)
+	ctx := contextWithIdleReset(context.Background(), spy, time.Second)
 	ResetIdleFromContext(ctx)
 
 	require.True(t, called.Load(), "reset func should have been called")

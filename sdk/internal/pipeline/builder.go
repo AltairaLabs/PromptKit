@@ -265,6 +265,11 @@ type Config struct {
 	// A zero value disables timeout entirely.
 	ExecutionTimeout *time.Duration
 
+	// IdleTimeout overrides the default pipeline idle timeout (30s), which
+	// cancels a pipeline that shows no activity for that long. When non-nil,
+	// the pointed-to duration is used; a zero value disables it entirely.
+	IdleTimeout *time.Duration
+
 	// RecordingConfig enables recording stages in the pipeline.
 	// When set, input and output RecordingStages are inserted to capture
 	// full binary content for session replay.
@@ -367,6 +372,12 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 // newPipelineBuilder creates the appropriate pipeline builder for the config.
 func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
+	return stage.NewPipelineBuilderWithConfig(pipelineConfigFor(cfg))
+}
+
+// pipelineConfigFor derives the runtime pipeline config — timeouts included —
+// from the SDK config.
+func pipelineConfigFor(cfg *Config) *stage.PipelineConfig {
 	pc := stage.DefaultPipelineConfig()
 	pc.ClassifyRegistry = cfg.ClassifyRegistry
 	switch {
@@ -377,7 +388,12 @@ func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 	case cfg.ExecutionTimeout != nil:
 		pc.ExecutionTimeout = *cfg.ExecutionTimeout
 	}
-	return stage.NewPipelineBuilderWithConfig(pc)
+	// Applies to duplex too: the idle timer is that path's liveness check, so
+	// it is never force-disabled the way ExecutionTimeout is above.
+	if cfg.IdleTimeout != nil {
+		pc.IdleTimeout = *cfg.IdleTimeout
+	}
+	return pc
 }
 
 // buildStateStoreConfig creates a state store config if a state store is configured.

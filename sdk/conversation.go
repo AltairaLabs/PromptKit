@@ -647,6 +647,7 @@ func (c *Conversation) buildPipelineConfig(
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
 		HookRegistry:          c.hookRegistry,
 		ExecutionTimeout:      c.config.executionTimeout,
+		IdleTimeout:           c.config.idleTimeout,
 		MessageLog:            c.config.messageLog,
 		CompactionEnabled:     c.config.compactionEnabled,
 		CompactionStrategy:    c.config.compactionStrategy,

@@ -2139,7 +2139,7 @@ func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
 	// Set up context with a spy reset func
 	var resetCount int32
 	spy := func() { resetCount++ }
-	ctx := contextWithIdleReset(context.Background(), spy)
+	ctx := contextWithIdleReset(context.Background(), spy, time.Second)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
@@ -2173,7 +2173,7 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 
 	var resetCount int32
 	spy := func() { resetCount++ }
-	ctx := contextWithIdleReset(context.Background(), spy)
+	ctx := contextWithIdleReset(context.Background(), spy, time.Second)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}

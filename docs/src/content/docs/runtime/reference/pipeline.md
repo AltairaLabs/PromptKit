@@ -473,7 +473,8 @@ const (
     // Set to 0 (disabled) — use IdleTimeout as the primary liveness check.
     DefaultExecutionTimeoutSeconds = 0
     // DefaultIdleTimeoutSeconds is the default idle timeout in seconds.
-    // The timer resets on each activity signal (stream chunk, round, tool completion).
+    // The timer resets on each activity signal (stream chunk, round, tool
+    // completion) and is held open while tool calls are in flight.
     DefaultIdleTimeoutSeconds = 30
     // DefaultGracefulShutdownTimeoutSeconds is the default graceful shutdown timeout in seconds.
     DefaultGracefulShutdownTimeoutSeconds = 10
@@ -727,7 +728,7 @@ func PutElement(elem *StreamElement)
 PutElement returns a StreamElement to the pool for reuse. The element is reset before being returned to the pool to prevent data leaks. After calling PutElement, the caller must not use the element again.
 
 <a name="ResetIdleFromContext"></a>
-## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L54>)
+## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L67>)
 
 ```go
 func ResetIdleFromContext(ctx context.Context)
@@ -3654,7 +3655,7 @@ func (b *PipelineBuilder) WithEventEmitter(emitter *events.Emitter) *PipelineBui
 WithEventEmitter sets the event emitter for the pipeline.
 
 <a name="PipelineConfig"></a>
-## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L30-L61>)
+## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L31-L64>)
 
 PipelineConfig defines configuration options for pipeline execution.
 
@@ -3678,7 +3679,9 @@ type PipelineConfig struct {
 
     // IdleTimeout sets the maximum duration of inactivity before the pipeline is
     // canceled. The timer resets on each streaming chunk, round completion, and
-    // tool completion. Set to 0 to disable.
+    // tool completion, and is held open for as long as tool calls are running —
+    // a tool in flight is not an idle pipeline, and slow tools are bounded by
+    // their own TimeoutMs instead. Set to 0 to disable.
     // Default: 30 seconds.
     IdleTimeout time.Duration
 
@@ -3694,7 +3697,7 @@ type PipelineConfig struct {
 ```
 
 <a name="DefaultPipelineConfig"></a>
-### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L64>)
+### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L67>)
 
 ```go
 func DefaultPipelineConfig() *PipelineConfig
@@ -3703,7 +3706,7 @@ func DefaultPipelineConfig() *PipelineConfig
 DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
 
 <a name="PipelineConfig.Validate"></a>
-### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L75>)
+### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L78>)
 
 ```go
 func (c *PipelineConfig) Validate() error
@@ -3712,7 +3715,7 @@ func (c *PipelineConfig) Validate() error
 Validate checks if the configuration is valid.
 
 <a name="PipelineConfig.WithChannelBufferSize"></a>
-### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L95>)
+### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L98>)
 
 ```go
 func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
@@ -3721,7 +3724,7 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
 WithChannelBufferSize sets the channel buffer size.
 
 <a name="PipelineConfig.WithExecutionTimeout"></a>
-### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L107>)
+### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L110>)
 
 ```go
 func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig
@@ -3730,7 +3733,7 @@ func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineCo
 WithExecutionTimeout sets the execution timeout.
 
 <a name="PipelineConfig.WithGracefulShutdownTimeout"></a>
-### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L119>)
+### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L122>)
 
 ```go
 func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig
@@ -3739,7 +3742,7 @@ func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *Pip
 WithGracefulShutdownTimeout sets the graceful shutdown timeout.
 
 <a name="PipelineConfig.WithIdleTimeout"></a>
-### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L113>)
+### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L116>)
 
 ```go
 func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
@@ -3748,7 +3751,7 @@ func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
 WithIdleTimeout sets the idle timeout.
 
 <a name="PipelineConfig.WithMaxConcurrentPipelines"></a>
-### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L101>)
+### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L104>)
 
 ```go
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig

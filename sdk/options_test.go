@@ -89,6 +89,29 @@ func TestWithExecutionTimeout(t *testing.T) {
 	})
 }
 
+func TestWithIdleTimeout(t *testing.T) {
+	t.Run("sets timeout", func(t *testing.T) {
+		cfg := &config{}
+		require.NoError(t, WithIdleTimeout(90*time.Second)(cfg))
+		require.NotNil(t, cfg.idleTimeout)
+		assert.Equal(t, 90*time.Second, *cfg.idleTimeout)
+	})
+
+	t.Run("zero disables the idle timer", func(t *testing.T) {
+		cfg := &config{}
+		require.NoError(t, WithIdleTimeout(0)(cfg))
+		require.NotNil(t, cfg.idleTimeout)
+		assert.Equal(t, time.Duration(0), *cfg.idleTimeout)
+	})
+
+	t.Run("rejects a negative timeout", func(t *testing.T) {
+		cfg := &config{}
+		err := WithIdleTimeout(-time.Second)(cfg)
+		require.Error(t, err)
+		assert.Nil(t, cfg.idleTimeout)
+	})
+}
+
 func TestWithTokenBudget(t *testing.T) {
 	opt := WithTokenBudget(1000)
 	assert.NotNil(t, opt)

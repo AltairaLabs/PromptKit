@@ -331,6 +331,7 @@ type config struct {
 	// When non-nil, overrides the default 30s execution timeout.
 	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
 	executionTimeout *time.Duration
+	idleTimeout      *time.Duration
 
 	// Recording configuration for session recording via RecordingStage.
 	// When set, RecordingStages are inserted into the pipeline to capture
@@ -1414,6 +1415,28 @@ func WithMemoryContextFormatter(fn memory.ContextFormatter) MemoryOption {
 func WithExecutionTimeout(d time.Duration) Option {
 	return func(c *config) error {
 		c.executionTimeout = &d
+		return nil
+	}
+}
+
+// WithIdleTimeout overrides the default pipeline idle timeout (30s). The idle
+// timer cancels a pipeline that shows no activity — no provider tokens, no
+// tool progress — for that long. Pass 0 to disable it entirely, leaving
+// [WithExecutionTimeout] as the only bound on a turn.
+//
+// Time spent inside a tool call does not count as idle, so this does not need
+// raising for slow tools; bound those with the tool's own timeout. Raise it
+// when a provider itself goes quiet for long stretches.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithIdleTimeout(90 * time.Second),
+//	)
+func WithIdleTimeout(d time.Duration) Option {
+	return func(c *config) error {
+		if d < 0 {
+			return fmt.Errorf("WithIdleTimeout: timeout must be non-negative, got %s", d)
+		}
+		c.idleTimeout = &d
 		return nil
 	}
 }
