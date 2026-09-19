@@ -228,15 +228,20 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 }
 
 // initSelectors calls Init on every registered selector with a
-// SelectorContext that exposes the configured RAG embedding provider
-// (when one is set). Init failure aborts config application — a
-// selector that can't initialize would fail every Send anyway, so
-// surfacing the error at config-load time gives a faster signal.
+// SelectorContext that exposes the shared infrastructure a selector may
+// opt into — the configured RAG embedding provider and the default
+// rerank provider, each when one is set. Init failure aborts config
+// application — a selector that can't initialize would fail every Send
+// anyway, so surfacing the error at config-load time gives a faster
+// signal.
 func initSelectors(c *config) error {
 	if len(c.selectors) == 0 {
 		return nil
 	}
-	ctx := selection.SelectorContext{Embeddings: c.retrievalProvider}
+	ctx := selection.SelectorContext{
+		Embeddings: c.retrievalProvider,
+		Rerank:     c.defaultRerankProvider(),
+	}
 	for name, sel := range c.selectors {
 		if err := sel.Init(ctx); err != nil {
 			return fmt.Errorf("selector %q: %w", name, err)

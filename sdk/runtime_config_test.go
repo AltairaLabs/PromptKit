@@ -1157,3 +1157,108 @@ func TestApplyRuntimeConfig_DuplicateClassifyIDAcrossSpellings(t *testing.T) {
 		"the same id declared under providers: and inference_providers: is a config "+
 			"mistake and must be rejected, not silently overwritten")
 }
+
+// A rerank-backed selector needs the configured provider the same way a
+// cosine one needs the embedder — without the fan-in it fails Init and the
+// host gets "no rerank provider configured" despite having configured one.
+func TestInitSelectors_PassesRerankProvider(t *testing.T) {
+	rec := &recordingSelector{name: "s"}
+	rp := providers.NewMockRerankProvider(providers.WithMockRerankID("rr"))
+	c := &config{
+		selectors:         map[string]selection.Selector{"s": rec},
+		rerankProviders:   map[string]providers.RerankProvider{"rr": rp},
+		rerankProviderIDs: []string{"rr"},
+	}
+
+	require.NoError(t, initSelectors(c))
+
+	require.NotNil(t, rec.gotInit.Rerank, "the configured provider must reach Init")
+	require.Same(t, rp, rec.gotInit.Rerank)
+}
+
+// Declaration order decides the default, matching Conversation.RerankProvider:
+// a host running a cheap reranker and an accurate one must not have the
+// selector silently pick the other.
+func TestInitSelectors_RerankUsesFirstDeclared(t *testing.T) {
+	rec := &recordingSelector{name: "s"}
+	first := providers.NewMockRerankProvider(providers.WithMockRerankID("cheap"))
+	second := providers.NewMockRerankProvider(providers.WithMockRerankID("accurate"))
+	c := &config{
+		selectors: map[string]selection.Selector{"s": rec},
+		rerankProviders: map[string]providers.RerankProvider{
+			"cheap": first, "accurate": second,
+		},
+		rerankProviderIDs: []string{"cheap", "accurate"},
+	}
+
+	require.NoError(t, initSelectors(c))
+
+	require.NotNil(t, rec.gotInit.Rerank)
+	require.Same(t, first, rec.gotInit.Rerank)
+}
+
+// Nil when none is configured — asserted against the same config with one
+// configured, because the nil alone would pass just as well if the field were
+// never populated at all.
+func TestInitSelectors_RerankIsNilOnlyWhenNoneConfigured(t *testing.T) {
+	without := &recordingSelector{name: "s"}
+	require.NoError(t, initSelectors(&config{
+		selectors: map[string]selection.Selector{"s": without},
+	}))
+	require.Nil(t, without.gotInit.Rerank, "nothing configured, nothing handed over")
+
+	rp := providers.NewMockRerankProvider(providers.WithMockRerankID("rr"))
+	with := &recordingSelector{name: "s"}
+	require.NoError(t, initSelectors(&config{
+		selectors:         map[string]selection.Selector{"s": with},
+		rerankProviders:   map[string]providers.RerankProvider{"rr": rp},
+		rerankProviderIDs: []string{"rr"},
+	}))
+	require.Same(t, rp, with.gotInit.Rerank,
+		"the same call shape must produce a real provider once one exists")
+}
+
+// The seam that matters: a host registers the rerank selector and a rerank
+// provider through the public options, and the selector ends up able to rank.
+//
+// The initSelectors tests above build a config literal, so they would still
+// pass if WithRerankProvider stopped populating the fields they read — the
+// classic declared-vocabulary-with-no-producer failure. This one goes through
+// the real option functions, so it fails if either end of the wiring breaks.
+func TestRerankSelector_WiresThroughPublicOptions(t *testing.T) {
+	sel := selection.NewRerankSelector()
+
+	c := &config{}
+	for _, opt := range []Option{
+		WithRerankProvider(ProviderSpec{ID: "rr", Type: "mock"}),
+		WithSelector("rerank", sel),
+	} {
+		require.NoError(t, opt(c))
+	}
+	require.NoError(t, initSelectors(c))
+
+	// The mock ranks by how many query terms appear in each document, so
+	// "refund" beats the others on a refund query.
+	got, err := sel.Select(context.Background(), selection.Query{Text: "refund", K: 1},
+		[]selection.Candidate{
+			{ID: "lookup", Description: "look up an order"},
+			{ID: "refund", Description: "issue a refund"},
+		})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"refund"}, got,
+		"a selector wired through the public options must actually rank")
+}
+
+// Without a rerank provider the selector must refuse at config time, not at
+// the first Send. A selector that failed open here would be invisible: its
+// empty result is exactly what "include all eligible" looks like.
+func TestRerankSelector_ConfigFailsWhenNoRerankProviderConfigured(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithSelector("rerank", selection.NewRerankSelector())(c))
+
+	err := initSelectors(c)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no rerank provider configured")
+}
