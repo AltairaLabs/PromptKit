@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -159,3 +161,149 @@ func TestVADProviderConfig_HonorsCompactionDisabled(t *testing.T) {
 	assert.Same(t, mine, enabled.Compactor, "the same config with the switch on compacts")
 	assert.Nil(t, disabled.Compactor, "disabling compaction must beat a supplied strategy")
 }
+
+// blockingVoiceHook denies every provider call and records that it ran.
+type blockingVoiceHook struct{ beforeCalls int }
+
+func (*blockingVoiceHook) Name() string { return "blocking-voice-hook" }
+
+func (h *blockingVoiceHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	h.beforeCalls++
+	return hooks.Deny("blocked in voice")
+}
+
+func (*blockingVoiceHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+var _ hooks.ProviderHook = (*blockingVoiceHook)(nil)
+
+// providerStageFrom returns the ProviderStage the builder put in the topology.
+func providerStageFrom(t *testing.T, stages []stage.Stage) stage.Stage {
+	t.Helper()
+	for _, s := range stages {
+		if s.Name() == "provider" {
+			return s
+		}
+	}
+	t.Fatal("VAD topology has no provider stage")
+	return nil
+}
+
+// A guardrail must gate a voice turn exactly as it gates a text one.
+//
+// It never did: builder_vad.go passed nil for the provider stage's hook
+// registry, so every provider hook early-returned and a pack's validators:
+// silently did nothing in VAD mode (#1944). The streaming sibling in
+// builder.go has always passed cfg.HookRegistry — same silent-omission class
+// as the message log and the tool grants above.
+//
+// Asserted by running a turn, not by reading a field: the registry arriving
+// and the hook firing are two different things, and #1679 exists because the
+// first was once verified without the second.
+func TestVADPipeline_RunsProviderHooks(t *testing.T) {
+	hook := &blockingVoiceHook{}
+	vadConfig := stage.AudioTurnConfig{
+		VAD:          &mockVADAnalyzer{},
+		TurnDetector: &mockTurnDetector{},
+	}
+	cfg := &Config{
+		Provider:     mock.NewProvider("test-mock", "test-model", false),
+		VADConfig:    &vadConfig,
+		HookRegistry: hooks.NewRegistry(hooks.WithProviderHook(hook)),
+	}
+
+	stages, err := buildVADPipelineStages(cfg, stage.NewTurnState())
+	require.NoError(t, err)
+
+	input := make(chan stage.StreamElement, 4)
+	input <- stage.NewMessageElement(&types.Message{Role: "user", Content: "say something"})
+	input <- stage.NewEndOfTurnElement()
+	close(input)
+	output := make(chan stage.StreamElement, 32)
+
+	require.NoError(t, providerStageFrom(t, stages).Process(context.Background(), input, output))
+
+	require.Equal(t, 1, hook.beforeCalls,
+		"a voice turn must run the provider hooks a text turn runs")
+
+	// Running is not gating. A hook that fires and is then ignored leaves a
+	// pack's validators: just as inert, so assert the denial actually took.
+	//
+	// A bare Deny surfaces as an error element and no assistant turn. The
+	// canned-turn contract belongs to the guardrail adapter's Enforced
+	// decision, which is a layer above this wiring.
+	assistants, errs := drainTurn(output)
+	assert.Empty(t, assistants, "a denied turn must not reach the model")
+	assert.NotEmpty(t, errs, "the denial has to be visible to the caller")
+	assert.Contains(t, errs[0].Error(), "blocked in voice")
+}
+
+// drainTurn reads a finished turn's output. Process closes the channel itself,
+// so the range terminates without the test closing anything.
+func drainTurn(output <-chan stage.StreamElement) ([]string, []error) {
+	var assistants []string
+	var errs []error
+	for e := range output {
+		switch {
+		case e.Error != nil:
+			errs = append(errs, e.Error)
+		case e.Message != nil && e.Message.Role == "assistant":
+			assistants = append(assistants, e.Message.GetContent())
+		}
+	}
+	return assistants, errs
+}
+
+// The control: the same topology with an allowing hook lets the turn through.
+// Without it the test above passes for a pipeline that blocks everything —
+// including one where the provider was never wired at all.
+func TestVADPipeline_AllowingHookLetsTheTurnThrough(t *testing.T) {
+	hook := &allowingVoiceHook{}
+	vadConfig := stage.AudioTurnConfig{
+		VAD:          &mockVADAnalyzer{},
+		TurnDetector: &mockTurnDetector{},
+	}
+	cfg := &Config{
+		Provider:     mock.NewProvider("test-mock", "test-model", false),
+		VADConfig:    &vadConfig,
+		HookRegistry: hooks.NewRegistry(hooks.WithProviderHook(hook)),
+	}
+
+	stages, err := buildVADPipelineStages(cfg, stage.NewTurnState())
+	require.NoError(t, err)
+
+	input := make(chan stage.StreamElement, 4)
+	input <- stage.NewMessageElement(&types.Message{Role: "user", Content: "say something"})
+	input <- stage.NewEndOfTurnElement()
+	close(input)
+	output := make(chan stage.StreamElement, 32)
+
+	require.NoError(t, providerStageFrom(t, stages).Process(context.Background(), input, output))
+
+	require.Equal(t, 1, hook.beforeCalls)
+	assistants, errs := drainTurn(output)
+	assert.Empty(t, errs)
+	require.Len(t, assistants, 1, "an allowed voice turn produces the model's answer")
+	assert.NotEmpty(t, assistants[0])
+}
+
+// allowingVoiceHook permits every call and records that it ran.
+type allowingVoiceHook struct{ beforeCalls int }
+
+func (*allowingVoiceHook) Name() string { return "allowing-voice-hook" }
+
+func (h *allowingVoiceHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	h.beforeCalls++
+	return hooks.Allow
+}
+
+func (*allowingVoiceHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+var _ hooks.ProviderHook = (*allowingVoiceHook)(nil)

@@ -80,6 +80,26 @@ failing, and that failure is the correct answer:
 If an assertion flips to failing, read it as the grant not being active on that
 turn rather than as a regression in the check.
 
+### Voice (VAD) sessions now run guardrails
+
+A pack's `validators:` did nothing in a VAD voice session. Guardrails are
+provider hooks, and the VAD pipeline built its provider stage with a nil hook
+registry, so every hook path early-returned: no `validation.started` /
+`passed` / `failed` events, and no enforcement. The docs said guardrails
+applied everywhere; for voice they did not.
+
+They now run, exactly as they do in text.
+
+**What to expect:** a voice conversation that was passing because nothing
+checked it can start being blocked. That is the configured policy taking
+effect, not a regression. Before upgrading, check what your pack's
+`validators:` would do to the voice path — they have never been exercised
+there.
+
+This covers VAD mode (`OpenVoice` and the VAD topology). Native realtime and
+duplex sessions are a separate stage with no hook support at all, tracked in
+#1682; guardrails still do not run there.
+
 ## v2.4.0
 
 ### Judge-backed guardrails need a judge
