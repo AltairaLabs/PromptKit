@@ -158,16 +158,33 @@ func TestBuildEvalContext_ToolsOfferedUnionsRoundsWithinTheTurn(t *testing.T) {
 // all, so cutting at the last assistant hands it the PREVIOUS turn's set —
 // which reads as "this turn offers refund" when this turn has offered nothing
 // yet. Nil is the honest answer, and the tools_offered handler says so.
-func TestBuildGuardrailEvalContext_ToolsOfferedIsEmptyBeforeTheTurnRecordsAny(t *testing.T) {
+//
+// Asserting that nil alone would pass if ToolsOffered were never populated at
+// all, so the same transcript is run twice: once with the turn still empty and
+// once with its round recorded. The pair is what pins the boundary — the first
+// case fails if the cut moves to the last assistant message, the second fails
+// if scoping drops the current turn's own evidence.
+func TestBuildGuardrailEvalContext_ToolsOfferedStartsEmptyThenRecords(t *testing.T) {
 	midTurn := []types.Message{
 		{Role: "user", Content: "turn 1"},
 		{Role: "assistant", Content: "a1", Meta: map[string]any{
 			types.MetaToolsOffered: []string{"refund"},
 		}},
-		{Role: "user", Content: "turn 2, nothing generated yet"},
+		{Role: "user", Content: "turn 2"},
 	}
 
-	ctx := BuildGuardrailEvalContext(midTurn, "turn 2, nothing generated yet", nil)
-	assert.Nil(t, ctx.ToolsOffered,
+	before := BuildGuardrailEvalContext(midTurn, "turn 2", nil)
+	assert.Nil(t, before.ToolsOffered,
 		"turn 1's set is not evidence about turn 2")
+
+	// Turn 2's first round lands. Same transcript, one message longer.
+	afterRound1 := append(midTurn, types.Message{
+		Role: "assistant", Content: "a2", Meta: map[string]any{
+			types.MetaToolsOffered: []string{"get_order"},
+		},
+	})
+
+	after := BuildGuardrailEvalContext(afterRound1, "a2", nil)
+	assert.Equal(t, []string{"get_order"}, after.ToolsOffered,
+		"once this turn records a set, that set is the answer — and it is not turn 1's")
 }
