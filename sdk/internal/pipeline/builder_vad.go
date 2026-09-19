@@ -99,17 +99,18 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 	// 5d. ProviderStage - LLM call
 	if cfg.Provider != nil {
 		providerConfig := vadProviderConfig(cfg)
-		// NewProviderStageWithEmitter hardcodes a nil hook registry, which is
-		// why no guardrail runs in VAD mode. That gap is deliberately left
-		// alone here — turning hooks on in voice is a behavior change of its
-		// own. This call switches constructor only to share TurnState.
+		// The hook registry reaches the stage here, as it does in the
+		// streaming sibling. Passing nil is what made a pack's validators:
+		// silently do nothing in a voice session (#1944): guardrails are
+		// provider hooks, and every hook path early-returns on a nil
+		// registry, so voice ran ungated while the docs said otherwise.
 		stages = append(stages, stage.NewProviderStageWithTurnState(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
 			cfg.EventEmitter,
-			nil,
+			cfg.HookRegistry,
 			turnState,
 		))
 	}
