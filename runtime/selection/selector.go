@@ -40,8 +40,18 @@ type Query struct {
 // selectors may opt into — most notably the configured embedding
 // provider, so in-process selectors can reuse the same instance RAG
 // uses instead of constructing their own. Any field may be nil.
+//
+// A selector that needs a field it did not get must fail Init rather
+// than degrade silently: Select's fallback is "include all eligible",
+// which is indistinguishable from a selector that ran and chose
+// everything.
 type SelectorContext struct {
 	Embeddings providers.EmbeddingProvider
+
+	// Rerank is the configured rerank provider, for selectors that rank
+	// by relevance to the turn's query rather than by vector distance.
+	// Nil when the host configured none.
+	Rerank providers.RerankProvider
 }
 
 // Selector narrows a candidate set. Returning an error or an empty

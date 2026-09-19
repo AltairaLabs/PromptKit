@@ -47,3 +47,16 @@ func (c *Conversation) RerankProviderIDs() []string {
 	}
 	return slices.Clone(c.config.rerankProviderIDs)
 }
+
+// defaultRerankProvider returns the first declared rerank provider, or nil
+// when none is configured.
+//
+// Declaration order decides the default, matching what
+// [Conversation.RerankProvider] returns — a host running a cheap reranker
+// alongside an accurate one must get the same answer from both paths.
+func (c *config) defaultRerankProvider() providers.RerankProvider {
+	if c == nil || len(c.rerankProviderIDs) == 0 {
+		return nil
+	}
+	return c.rerankProviders[c.rerankProviderIDs[0]]
+}
