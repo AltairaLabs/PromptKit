@@ -1416,14 +1416,7 @@ func (s *ProviderStage) executeRound(
 		FinishReason: resp.FinishReason,
 	}
 
-	// Record what this turn offered the model, so an eval can assert on tool
-	// availability and not just on what the model chose to call.
-	if offered := s.offeredToolNames(); len(offered) > 0 {
-		if responseMsg.Meta == nil {
-			responseMsg.Meta = map[string]interface{}{}
-		}
-		responseMsg.Meta[types.MetaToolsOffered] = offered
-	}
+	s.stampToolsOffered(&responseMsg)
 
 	// Run AfterCall hooks
 	if err := s.runAfterCallHooks(ctx, &afterCallParams{
@@ -1614,6 +1607,7 @@ func (s *ProviderStage) executeStreamingRound(
 		FinishReason: finishReason,
 		Validations:  chunkValidations,
 	}
+	s.stampToolsOffered(&responseMsg)
 
 	// Run AfterCall hooks
 	if err := s.runAfterCallHooks(ctx, &afterCallParams{
@@ -2704,6 +2698,25 @@ func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
 			s.offeredTools.names[d.Name] = true
 		}
 	}
+}
+
+// stampToolsOffered records on an assistant message what this turn offered the
+// model, so an eval can assert on tool availability and not just on what the
+// model chose to call.
+//
+// Both round implementations must call it. It lived inline in executeRound
+// until #2035, which meant it never ran for a streaming provider — that is
+// every provider PromptArena runs, so the eval had no evidence to judge
+// anywhere it mattered.
+func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
+	offered := s.offeredToolNames()
+	if len(offered) == 0 {
+		return
+	}
+	if msg.Meta == nil {
+		msg.Meta = map[string]interface{}{}
+	}
+	msg.Meta[types.MetaToolsOffered] = offered
 }
 
 // offeredToolNames returns the accumulated set, sorted, or nil when the turn

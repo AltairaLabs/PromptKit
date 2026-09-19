@@ -107,3 +107,64 @@ func (p *toolingProvider) PredictStreamWithTools(
 // Compile-time proof the fake gets past buildProviderTools' capability check —
 // without this, a missing method makes the test silently record nothing.
 var _ providers.ToolSupport = (*toolingProvider)(nil)
+
+// Every provider PromptArena runs streams, so a stamp that only lands on the
+// unary path is a stamp no real run ever sees (#2035). This drives the whole
+// streaming loop rather than the round helper, because the bug was that the
+// message built at the end of the streaming round never got the Meta key —
+// asserting on offeredToolNames() alone passed throughout.
+func TestProviderStage_Streaming_StampsToolsOffered(t *testing.T) {
+	prov := &streamingToolingProvider{}
+	ts := NewTurnState()
+	ts.AllowedTools = []string{"get_order"}
+	stage := NewProviderStageWithTurnState(
+		prov, registryWithTools(t, "get_order", "refund"), nil,
+		&ProviderConfig{Streaming: true}, nil, nil, ts,
+	)
+
+	input := make(chan StreamElement, 4)
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "stream turn"})
+	input <- NewEndOfTurnElement()
+	close(input)
+
+	output := make(chan StreamElement, 32)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	var assistant []*types.Message
+	for e := range output {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			assistant = append(assistant, e.Message)
+		}
+	}
+	require.Len(t, assistant, 1)
+	assert.Equal(t, []string{"get_order"}, assistant[0].Meta[types.MetaToolsOffered],
+		"the streaming path must stamp what the turn offered, same as the unary path")
+}
+
+// streamingToolingProvider streams and declares tools: the combination every
+// real provider has and the only one that reaches executeStreamingRound with a
+// non-empty offered set.
+type streamingToolingProvider struct {
+	streamingRecordingProvider
+}
+
+func (p *streamingToolingProvider) BuildTooling(
+	descriptors []*providers.ToolDescriptor,
+) (providers.ProviderTools, error) {
+	return descriptors, nil
+}
+
+func (p *streamingToolingProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	resp, err := p.Predict(ctx, req)
+	return resp, nil, err
+}
+
+func (p *streamingToolingProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (<-chan providers.StreamChunk, error) {
+	return p.PredictStream(ctx, req)
+}
+
+var _ providers.ToolSupport = (*streamingToolingProvider)(nil)
