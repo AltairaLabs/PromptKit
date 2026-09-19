@@ -7,7 +7,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-const roleAssistant = "assistant"
+const (
+	roleAssistant = "assistant"
+	roleUser      = "user"
+)
 
 // BuildEvalContext constructs an EvalContext from a message history snapshot.
 // It extracts the last assistant message as CurrentOutput, builds ToolCallRecords
@@ -39,7 +42,7 @@ func BuildEvalContext(
 		TurnIndex:     turnIndex,
 		CurrentOutput: currentOutput,
 		ToolCalls:     ExtractToolCalls(messages),
-		ToolsOffered:  ExtractToolsOffered(messages),
+		ToolsOffered:  ExtractToolsOffered(currentTurnMessages(messages)),
 		SessionID:     sessionID,
 		PromptID:      promptID,
 		Extras:        workflowExtras(messages, metadata),
@@ -81,7 +84,7 @@ func BuildGuardrailEvalContext(
 		CurrentOutput: currentOutput,
 		ContentScope:  ContentScopeCurrent,
 		ToolCalls:     ExtractToolCalls(messages),
-		ToolsOffered:  ExtractToolsOffered(messages),
+		ToolsOffered:  ExtractToolsOffered(currentTurnMessages(messages)),
 		Extras:        workflowExtras(messages, metadata),
 		Metadata:      metadata,
 		PriorResults:  validationsToPriorResults(messages),
@@ -179,6 +182,30 @@ func workflowExtras(messages []types.Message, metadata map[string]any) map[strin
 // it produces, so the set survives into the transcript and is still readable
 // when evals run later against stored messages rather than a live turn.
 const MetaToolsOffered = types.MetaToolsOffered
+
+// currentTurnMessages narrows a history to the turn in progress: everything
+// from the last user message onward.
+//
+// ToolsOffered means what THIS turn handed the provider, but Messages is the
+// history up to the current turn, so extracting over all of it answers a
+// different question - one where a tools_offered check with absent:true can
+// never fail after the tool has been offered once anywhere in the
+// conversation (#2037). Only the offered set is narrowed; EvalContext.Messages
+// stays whole, because the session-scoped handlers need it.
+//
+// A turn may open with several user messages (duplex accumulates them before
+// the end-of-turn boundary), and cutting at the last one drops the earlier
+// ones. That is harmless here: a user message never carries an offered set.
+// Returns the whole history when no user message is present, which is the
+// honest answer for a transcript whose turn boundaries cannot be seen.
+func currentTurnMessages(messages []types.Message) []types.Message {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == roleUser {
+			return messages[i:]
+		}
+	}
+	return messages
+}
 
 // ExtractToolsOffered returns the union of the tool sets recorded on the
 // messages, sorted and deduplicated.

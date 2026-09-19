@@ -65,8 +65,10 @@ type ProviderStage struct {
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
 	// offeredTools accumulates the tool names handed to the provider across
-	// this turn's rounds, stamped onto each assistant message. A stage serves
-	// one turn on one goroutine, so it needs no lock.
+	// this turn's rounds, stamped onto each assistant message. Reset per turn
+	// by newToolLoop; see resetOffered for why that matters.
+	//
+	// A turn runs on one goroutine, so it needs no lock.
 	//
 	// Held behind a pointer deliberately: a map field of its own would make
 	// ProviderStage non-comparable, which is an incompatible API change for a
@@ -1038,6 +1040,9 @@ func (tl *toolLoop) warnIfCachingStalled(round int) {
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
+	// The one place both multi-round paths pass through exactly once per turn,
+	// and therefore where the turn's offered set begins.
+	s.resetOffered()
 	excluded := map[string]bool{}
 	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, excluded)
 	if err != nil {
@@ -2674,6 +2679,19 @@ func (s *ProviderStage) updateExcludedTools(
 		}
 	}
 	return changed
+}
+
+// resetOffered starts a fresh offered set for a turn.
+//
+// The union is across a turn's ROUNDS — skill grants widen it mid-turn, which
+// is the whole point — but a ProviderStage outlives the turn: the SDK builds
+// the pipeline once per conversation and every Send reuses it, and
+// processStreaming serves a whole session inside one Process call. Without
+// this, a tool offered once is reported offered for the rest of the
+// conversation and a tools_offered check with absent:true can never fail
+// again (#2037).
+func (s *ProviderStage) resetOffered() {
+	s.offeredTools = nil
 }
 
 // recordOffered accumulates the tool names handed to the provider this turn.

@@ -58,6 +58,28 @@ the fix belongs in the pack or in your wiring. A check that names a provider it
 cannot get is an error rather than a skip, because a skip scores 1.0 and passes:
 a safety control that never ran must not report clean.
 
+### `tools_offered` now answers for the turn, not the conversation
+
+`tools_offered` was documented as checking what **a turn** handed the provider
+and in practice reported the union over the whole conversation, in two places
+at once: the pipeline never reset its record between turns, and the eval
+context extracted over the full history.
+
+Both are fixed. The set a check sees is now the tools offered across the
+current turn's rounds — a skill grant that widens the set mid-turn still
+counts, a grant from three turns ago does not.
+
+**What to expect:** a check that was passing on stale evidence can start
+failing, and that failure is the correct answer:
+
+| Check | Before | Now |
+|---|---|---|
+| `tool_names: [refund]` | passed if `refund` was offered in **any** earlier turn | passes only if this turn offered it |
+| `tool_names: [refund], absent: true` | could never fail once `refund` had been offered once | fails when this turn offers it |
+
+If an assertion flips to failing, read it as the grant not being active on that
+turn rather than as a regression in the check.
+
 ## v2.4.0
 
 ### Judge-backed guardrails need a judge
