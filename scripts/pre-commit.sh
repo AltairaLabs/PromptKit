@@ -334,6 +334,40 @@ fi
 echo ""
 
 #
+# 2.6. Weak assertions — new tests that cannot fail
+#
+# A test asserting only NoError/Nil/NotNil passes whether or not the code under
+# test produced the right answer, while still counting toward the coverage gate
+# below — so both checks go green on a test that proves nothing. CI's "Weak
+# Assertion Guard" fails on these, which is a late and easily-avoided surprise.
+#
+# The base is HEAD, not the merge base CI uses: that flags what THIS commit
+# adds and cannot be tripped by someone else's test arriving on main, which is
+# the wrong way for a pre-commit hook to fail. Anything added earlier on the
+# branch is left to CI. Same --new-from-rev convention as the lint step above.
+STAGED_TEST_FILES=$(echo "$STAGED_GO_FILES" | grep '_test\.go$' || true)
+
+if [ -n "$STAGED_TEST_FILES" ]; then
+    print_header "Weak Assertions"
+    print_info "Checking new tests can actually fail..."
+
+    set +e
+    weak_out=$("$REPO_ROOT/scripts/check-weak-assertions.sh" HEAD 2>&1)
+    weak_rc=$?
+    set -e
+
+    if [ $weak_rc -eq 0 ]; then
+        print_success "New tests carry falsifiable assertions"
+    else
+        echo "$weak_out" | head -40
+        print_error "New tests have assertions that cannot fail"
+        CHECKS_FAILED=1
+    fi
+
+    echo ""
+fi
+
+#
 # 3. Run tests with coverage on changed packages
 #
 print_header "Testing Changed Packages"
