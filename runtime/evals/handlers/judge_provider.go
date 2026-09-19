@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (
@@ -154,6 +154,66 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 	}
 	defer provider.Close()
 
+	return judgeWithProvider(ctx, provider, opts)
+}
+
+// ProviderJudge implements JudgeProvider over a provider the HOST already
+// supplied and owns — the conversation's judge from a pack `requires` entry,
+// say. Unlike SpecJudgeProvider it builds nothing and closes nothing: the
+// caller's provider outlives any one evaluation.
+//
+// This is the piece judge-backed guardrails were missing. A pack declares the
+// judge it needs, the host resolves it to a concrete provider, and this carries
+// that provider into the eval path (#1996).
+type ProviderJudge struct {
+	provider providers.Provider
+}
+
+// NewProviderJudge wraps a live provider as a JudgeProvider. A nil provider
+// yields nil so callers can pass a lookup result straight through.
+func NewProviderJudge(p providers.Provider) *ProviderJudge {
+	if p == nil {
+		return nil
+	}
+	return &ProviderJudge{provider: p}
+}
+
+// Judge sends the evaluation prompt to the host's provider and parses the
+// verdict.
+func (pj *ProviderJudge) Judge(ctx context.Context, opts JudgeOpts) (*JudgeResult, error) {
+	if pj == nil || pj.provider == nil {
+		return nil, fmt.Errorf("judge provider is not configured")
+	}
+	return judgeWithProvider(ctx, pj.provider, opts)
+}
+
+// ID reports the id of the provider grading with this judge, for callers that
+// log or attribute the judging cost to something other than the agent.
+func (pj *ProviderJudge) ID() string {
+	if pj == nil || pj.provider == nil {
+		return ""
+	}
+	return pj.provider.ID()
+}
+
+// Model reports the model this judge grades with.
+func (pj *ProviderJudge) Model() string {
+	if pj == nil || pj.provider == nil {
+		return ""
+	}
+	return pj.provider.Model()
+}
+
+// Ensure ProviderJudge implements JudgeProvider.
+var _ JudgeProvider = (*ProviderJudge)(nil)
+
+// judgeWithProvider runs one judging call against an already-built provider.
+// Shared by both implementations so a spec-built judge and a host-supplied one
+// send the same prompt, at the same temperature, and emit the same events —
+// otherwise the two paths could disagree about what a score means.
+func judgeWithProvider(
+	ctx context.Context, provider providers.Provider, opts JudgeOpts,
+) (*JudgeResult, error) {
 	systemPrompt := opts.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = defaultJudgeSystemPrompt

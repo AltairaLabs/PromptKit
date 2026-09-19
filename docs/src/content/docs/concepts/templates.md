@@ -67,7 +67,7 @@ variables := map[string]string{
 ### Runtime Templates
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/template"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/template"
 
 // Create registry
 templates := template.NewRegistry()

@@ -2,6 +2,27 @@
   "$schema": "https://json-schema.org/draft-07/schema",
   "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json",
   "$defs": {
+    "ActionScope": {
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effect": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "reversibility": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ExecBinding": {
       "properties": {
         "command": {
@@ -322,6 +343,12 @@
         },
         "client": {
           "$ref": "#/$defs/ToolClientConfig"
+        },
+        "action_scope": {
+          "$ref": "#/$defs/ActionScope"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,

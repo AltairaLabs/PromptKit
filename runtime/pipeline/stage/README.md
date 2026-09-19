@@ -347,7 +347,7 @@ All core pipeline tests pass with the new architecture:
 ```bash
 go test ./runtime/pipeline -v
 # PASS
-# ok  	github.com/AltairaLabs/PromptKit/runtime/pipeline	0.184s
+# ok  	github.com/AltairaLabs/PromptKit/runtime/v2/pipeline	0.184s
 ```
 
 Example tests demonstrate usage:
@@ -355,7 +355,7 @@ Example tests demonstrate usage:
 ```bash
 go test ./runtime/pipeline/stage -run=Example -v
 # PASS
-# ok  	github.com/AltairaLabs/PromptKit/runtime/pipeline/stage	0.185s
+# ok  	github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage	0.185s
 ```
 
 ## Creating Custom Stages

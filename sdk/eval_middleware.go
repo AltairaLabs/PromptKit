@@ -2,15 +2,16 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // filterInvalidEvalDefs removes eval defs whose type is unregistered or
@@ -18,8 +19,10 @@ import (
 // as a warning. Returns the filtered slice (never nil).
 //
 // This runs at middleware creation time, so the EvalRunner never sees
-// bad defs at dispatch time. Mirrors the validator warn-and-skip loop in
-// sdk.go:convertPackValidatorsToHooks.
+// bad defs at dispatch time. Unlike pack validators — which are guardrails, and
+// whose construction failures are fatal in convertPackValidatorsToHooks — an
+// eval is a measurement, not a control, so dropping one degrades reporting
+// rather than removing protection.
 func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistry) []evals.EvalDef {
 	if len(defs) == 0 {
 		return defs
@@ -29,14 +32,19 @@ func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistr
 		return defs
 	}
 
-	// ValidateEvalTypes formats each error as: eval "<id>": <reason>
+	// ValidateEvalTypes formats each error as: eval "<id>": <reason>, with the
+	// id %q-quoted. Match against the ids we actually hold rather than
+	// re-parsing the quoting: an id containing a quote is escaped in the
+	// message, and a parse that missed it left the rejected def running (#1950).
 	badIDs := make(map[string]string, len(errs))
 	for _, e := range errs {
-		id, reason := parseEvalValidationError(e)
-		if id != "" {
-			badIDs[id] = reason
-			logger.Warn("Skipping unusable pack eval", "id", id, "reason", reason)
+		id, reason := matchEvalValidationError(e, defs)
+		if id == "" {
+			logger.Warn("Skipping unusable pack eval: unrecognized validation message", "message", e)
+			continue
 		}
+		badIDs[id] = reason
+		logger.Warn("Skipping unusable pack eval", "id", id, "reason", reason)
 	}
 
 	filtered := make([]evals.EvalDef, 0, len(defs))
@@ -83,6 +91,19 @@ func resolveRunnerAndFilter(
 // by evals.ValidateEvalTypes. The format is: eval "<id>": <reason>.
 // If the format doesn't match, the whole string is returned as reason
 // and id is empty.
+// matchEvalValidationError resolves a ValidateEvalTypes message to the def it
+// names by prefix-matching the exact %q form of each known id. Falls back to
+// parseEvalValidationError for ids that need no escaping.
+func matchEvalValidationError(s string, defs []evals.EvalDef) (id, reason string) {
+	for i := range defs {
+		prefix := fmt.Sprintf("eval %q:", defs[i].ID)
+		if strings.HasPrefix(s, prefix) {
+			return defs[i].ID, strings.TrimSpace(s[len(prefix):])
+		}
+	}
+	return parseEvalValidationError(s)
+}
+
 func parseEvalValidationError(s string) (id, reason string) {
 	const prefix = `eval "`
 	if !strings.HasPrefix(s, prefix) {
@@ -259,7 +280,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
-		results := em.runner.RunTurnEvals(em.evalContextWithRegistry(em.ctx), em.defs, evalCtx)
+		results := em.runner.RunTurnEvals(em.evalContextWithBinding(em.evalContextWithRegistry(em.ctx)), em.defs, evalCtx)
 		em.recordMetrics(results)
 	}()
 }
@@ -273,7 +294,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
-	results := em.runner.RunSessionEvals(em.evalContextWithRegistry(ctx), em.defs, evalCtx)
+	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 
@@ -324,6 +345,17 @@ func (em *evalMiddleware) evalContextWithRegistry(base context.Context) context.
 	return classify.WithRegistry(base, em.conv.config.classifyRegistry)
 }
 
+// evalContextWithBinding attaches the host's provider binding, so a per-turn
+// eval resolves the logical provider names its pack declared exactly as a
+// guardrail does. Turn evals run off the middleware's own context rather than
+// the pipeline's, so the wiring has to happen here as well.
+func (em *evalMiddleware) evalContextWithBinding(base context.Context) context.Context {
+	if em.conv == nil || em.conv.config == nil {
+		return base
+	}
+	return evals.WithProviderBinding(base, newHostBinding(em.conv.config))
+}
+
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
@@ -366,6 +398,16 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 		reported,
 		em.cachedSessionID,
 		em.conv.promptName,
-		nil,
+		em.hostDefaultJudge(),
 	)
+}
+
+// hostDefaultJudge carries a host-supplied default judge to checks whose pack
+// names no provider of its own. A check that names one resolves it through the
+// binding on the context instead, and never reads this.
+func (em *evalMiddleware) hostDefaultJudge() map[string]any {
+	if em.conv == nil || em.conv.config == nil || em.conv.config.judgeProvider == nil {
+		return nil
+	}
+	return map[string]any{"judge_provider": em.conv.config.judgeProvider}
 }

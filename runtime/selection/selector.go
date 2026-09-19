@@ -12,7 +12,7 @@ package selection
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Candidate describes one item a Selector may choose to surface.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
 // LoadSummaries returns all summaries for the conversation, or nil if none.

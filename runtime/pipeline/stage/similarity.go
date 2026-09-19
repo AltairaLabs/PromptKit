@@ -3,7 +3,7 @@ package stage
 import (
 	"math"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // CosineSimilarity computes the cosine similarity between two embedding vectors.

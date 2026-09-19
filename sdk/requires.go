@@ -3,8 +3,8 @@ package sdk
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // checkProviderRequirements enforces the one behavioral rule RFC 0012 places
@@ -87,6 +87,11 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 	// A programmatically-supplied service has no key of its own, so it answers
 	// to any key the pack names for that role: the host supplied exactly one, and
 	// the pack asked for exactly one. anyKey marks that.
+	// Classify backends answer `role: inference` requirements. Without this a
+	// host that wired exactly what the pack asked for — WithClassifier, or an
+	// inference provider — was told it had supplied nothing, because the
+	// inventory only knew about the llm/embedding/tts/stt roles.
+	addRole(inv, "inference", c.classifyProviderIDs, false)
 	addRole(inv, "embedding", c.embeddingProviderIDs, c.retrievalProvider != nil)
 	addRole(inv, "tts", c.ttsProviderIDs, c.ttsService != nil)
 	addRole(inv, "stt", c.sttProviderIDs, c.sttService != nil)

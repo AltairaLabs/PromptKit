@@ -24,8 +24,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox/direct"
 )
 
 // ModeName is the identifier under which this backend registers with

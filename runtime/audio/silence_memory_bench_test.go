@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // Audio geometry used by these benchmarks: 16 kHz mono PCM16, 100 ms chunks.

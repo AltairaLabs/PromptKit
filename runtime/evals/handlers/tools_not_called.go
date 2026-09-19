@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // ToolsNotCalledHandler checks that specific tools were NOT called.
@@ -31,7 +31,7 @@ func (h *ToolsNotCalledHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no tool_names specified",
+			Explanation: errNoToolNames,
 		}, nil
 	}
 

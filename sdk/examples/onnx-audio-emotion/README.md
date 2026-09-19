@@ -25,7 +25,7 @@ ClassifyAudio(ctx, wavBytes, opts):
   return softmax(logits) → []classify.LabelScore   // emotion labels
 ```
 
-`main.go` registers it via `sdk.WithClassifier("onnx-ser", backend)` and the
+`main.go` binds it to the name the pack asks for, `sdk.WithClassifier("emotion-classifier", backend)`, and the
 `audio_emotion` eval in `caller.pack.json` scores the caller's speech.
 
 ## Prerequisites

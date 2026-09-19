@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // StructuredOutputMode selects when a caller's ResponseFormat is applied to a
@@ -32,8 +32,6 @@ import (
 // stronger models; Gemini's Interactions API). Doing it in the stage rather than
 // per provider means no per-model support table: the rule is mechanical and
 // every provider gets it, including ones added later.
-//
-// See issue #1853.
 type StructuredOutputMode string
 
 const (
@@ -42,7 +40,7 @@ const (
 	StructuredOutputFinalTurn StructuredOutputMode = "final_turn"
 
 	// StructuredOutputEveryRound sends ResponseFormat on every round — the
-	// pre-#1853 behavior.
+	// older behavior, from before the final-turn rule existed.
 	//
 	// This is an escape hatch, not a supported alternative: it is the
 	// configuration measured above, and on two of the four models tested it

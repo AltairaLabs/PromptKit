@@ -16,7 +16,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 	"gopkg.in/yaml.v3"
 
-	promptschema "github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
+	promptschema "github.com/AltairaLabs/PromptKit/runtime/v2/prompt/schema"
 )
 
 // SchemaBaseURL is the base URL for PromptKit JSON schemas

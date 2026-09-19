@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // PIILeakageHandler scores whether the assistant output leaks
@@ -57,7 +57,7 @@ func (h *PIILeakageHandler) Eval(
 		return piiLeakageRegexHit(hit), nil
 	}
 
-	if !hasJudgeProvider(evalCtx) {
+	if !hasJudgeProvider(evalCtx, params) {
 		return piiLeakageRegexClean(), nil
 	}
 

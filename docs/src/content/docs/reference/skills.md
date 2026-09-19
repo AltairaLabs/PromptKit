@@ -100,6 +100,18 @@ Mark a skill source as preloaded to activate it at startup:
 
 Preloaded skills are activated before the first LLM message — their instructions and tools are always available.
 
+### Name Collisions
+
+Skill names are unique across all sources. When two sources declare the same name, **the first source listed wins**: its instructions, description and `allowed-tools` are registered, and the later copy's content is dropped. The only thing merged from the later copy is `preload: true`, which upgrades the registered skill to preloaded.
+
+Every collision is logged at WARN naming the copy that is live and the copy that was dropped:
+
+```
+WARN skills: duplicate skill name, keeping first  skill=refund-policy kept=/opt/skills/base/refund-policy dropped=/opt/skills/tenant-a/refund-policy preload_upgraded=false
+```
+
+To override a base skill for one deployment, list the override source **before** the base source, or give the override a distinct name.
+
 ---
 
 ## Shared Skills

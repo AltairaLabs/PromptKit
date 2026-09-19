@@ -44,8 +44,8 @@ Keeps semantically relevant messages using embeddings:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // Create embedding provider
@@ -123,9 +123,9 @@ Use all three tiers together for the most efficient long conversation handling:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 store := statestore.NewMemoryStore()
@@ -166,7 +166,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 ### OpenAI
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 
 // Default model (text-embedding-3-small)
 embProvider, _ := openai.NewEmbeddingProvider()
@@ -180,7 +180,7 @@ embProvider, _ := openai.NewEmbeddingProvider(
 ### Gemini
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 
 // Default model (text-embedding-004)
 embProvider, _ := gemini.NewEmbeddingProvider()
@@ -196,7 +196,7 @@ embProvider, _ := gemini.NewEmbeddingProvider(
 Recommended by Anthropic for Claude-based systems:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/voyageai"
 
 // Default model (voyage-3.5)
 embProvider, _ := voyageai.NewEmbeddingProvider()
@@ -288,8 +288,8 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

@@ -3,7 +3,7 @@ package sdk
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // applyStorageRefParts runs the given send-options through a sendConfig and

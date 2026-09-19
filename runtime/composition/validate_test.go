@@ -1,7 +1,7 @@
 package composition
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"strings"
 	"testing"
 )

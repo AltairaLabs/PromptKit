@@ -348,8 +348,8 @@ conv.Send(ctx, "Hello")
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/sdk/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Subscribe to a specific event type

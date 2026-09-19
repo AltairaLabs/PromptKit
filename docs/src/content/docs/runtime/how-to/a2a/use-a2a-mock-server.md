@@ -28,8 +28,8 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/runtime/a2a"
-    "github.com/AltairaLabs/PromptKit/runtime/a2a/mock"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/a2a/mock"
 )
 
 func main() {
@@ -143,7 +143,7 @@ The mock returns a task with `status.state: "failed"` and the error message in t
 For Arena integration or file-based configuration, define rules as `AgentConfig`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/a2a/mock"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/a2a/mock"
 
 cfg := &mock.AgentConfig{
     Name: "research_agent",

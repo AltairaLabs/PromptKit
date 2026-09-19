@@ -6,13 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // StreamPipeline represents an executable pipeline of stages.
@@ -71,7 +72,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 		var idleCancel context.CancelFunc
 		var resetIdle func()
 		execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
-		execCtx = contextWithIdleReset(execCtx, resetIdle)
+		execCtx = contextWithIdleReset(execCtx, resetIdle, p.config.IdleTimeout)
 		prevCancel := cancel
 		cancel = func() {
 			idleCancel()
@@ -88,6 +89,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	// via classify.FromContext, mirroring Arena's eval-orchestrator wiring.
 	if p.config.ClassifyRegistry != nil {
 		execCtx = classify.WithRegistry(execCtx, p.config.ClassifyRegistry)
+	}
+
+	// The host's answer to "which provider did you bind to the name this pack
+	// used". Guardrails and evals resolve their ancillary providers through it.
+	if p.config.ProviderBinding != nil {
+		execCtx = evals.WithProviderBinding(execCtx, p.config.ProviderBinding)
 	}
 
 	// Track execution for graceful shutdown

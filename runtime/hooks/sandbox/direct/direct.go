@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
 )
 
 // ModeName is the mode identifier under which this backend registers

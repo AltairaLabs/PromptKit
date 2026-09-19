@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 func TestA2AOpener(t *testing.T) {

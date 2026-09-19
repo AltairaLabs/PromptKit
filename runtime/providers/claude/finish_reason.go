@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // stopReasonToolUse is the Anthropic wire stop_reason indicating the model
 // stopped to call a tool. Declared here to keep the literal out of the switch

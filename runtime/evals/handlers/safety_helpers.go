@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // Safety eval handlers (bias, toxicity, pii_leakage, role_violation) all
@@ -129,10 +129,19 @@ func piiLeakageRegexClean() *evals.EvalResult {
 	}
 }
 
-// hasJudgeProvider reports whether the eval context has a wired judge
-// provider (direct provider or judge_targets ProviderSpec map). Used by
-// pii_leakage to decide whether to attempt the LLM-judged second layer.
-func hasJudgeProvider(evalCtx *evals.EvalContext) bool {
+// hasJudgeProvider reports whether this check has a judge to reach for: a
+// provider its pack named and the host bound, or one a direct caller put in the
+// eval context's metadata. Used by pii_leakage to decide whether to attempt the
+// LLM-judged second layer.
+//
+// A check that NAMES a provider counts as having one even if the name fails to
+// resolve. The difference matters: a pack that asked for a judge and did not get
+// a usable one is a wiring error worth reporting, while a pack that asked for
+// none has simply chosen the regex-only baseline.
+func hasJudgeProvider(evalCtx *evals.EvalContext, params map[string]any) bool {
+	if providerKeyFrom(params) != "" {
+		return true
+	}
 	if evalCtx == nil || evalCtx.Metadata == nil {
 		return false
 	}

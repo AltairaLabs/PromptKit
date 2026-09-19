@@ -3,17 +3,19 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (
@@ -31,7 +33,11 @@ const (
 	DefaultMaxToolResultSize = 1 * 1024 * 1024 // 1 MB
 )
 
-// ToolRepository provides abstract access to tool descriptors (local interface to avoid import cycles)
+// ToolRepository is the source a registry is LOADED from at construction:
+// NewRegistryWithRepository copies every descriptor it lists into the
+// registry and does not consult it again. It is a loader, not a store — pack
+// content is immutable for a session, so there is nothing to re-read and
+// nothing to write back (#1951). Local interface to avoid import cycles.
 type ToolRepository interface {
 	LoadTool(name string) (*ToolDescriptor, error)
 	ListTools() ([]string, error)
@@ -67,23 +73,33 @@ func WithRateLimit(maxCallsPerMinute int) RegistryOption {
 
 // Registry manages tool descriptors and provides access to executors.
 // All map access is protected by mu (RWMutex) for safe concurrent use.
+//
+// The registry is the single store of descriptors. A repository handed to
+// NewRegistryWithRepository is read once, at construction; every later
+// Register, Unregister, Get and List acts on the registry alone, so what
+// Unregister removes stays removed.
 type Registry struct {
 	mu                sync.RWMutex
-	repository        ToolRepository             // Optional repository for loading tools
-	tools             map[string]*ToolDescriptor // Cache of loaded tool descriptors
+	tools             map[string]*ToolDescriptor // Every descriptor the registry holds
 	validator         *SchemaValidator           // Schema validator for tool arguments
 	executors         map[string]Executor        // Registered tool executors
 	defaultTimeoutMs  int                        // Default timeout for tools without explicit TimeoutMs
 	maxToolResultSize int                        // Max result size in bytes (0 = unlimited)
 	rateLimiter       *rateLimiter               // Per-tool rate limiter (nil = unlimited)
+	// parent, when set, is the registry this one was derived from with
+	// [Registry.Child]. Descriptor and executor lookups fall through to it for
+	// names this registry does not hold; registration never writes to it. Set
+	// once at construction and read-only thereafter, so it needs no lock.
+	parent *Registry
 }
 
-// NewRegistry creates a new tool registry without a repository backend (legacy mode)
+// NewRegistry creates an empty tool registry.
 func NewRegistry(opts ...RegistryOption) *Registry {
 	return newRegistry(nil, opts...)
 }
 
-// NewRegistryWithRepository creates a new tool registry with a repository backend
+// NewRegistryWithRepository creates a tool registry preloaded with every
+// descriptor the repository lists. The repository is not retained.
 func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Registry {
 	return newRegistry(repo, opts...)
 }
@@ -91,7 +107,6 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 // newRegistry is the internal constructor for creating registries
 func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	registry := &Registry{
-		repository:        repository,
 		tools:             make(map[string]*ToolDescriptor),
 		validator:         NewSchemaValidator(),
 		executors:         make(map[string]Executor),
@@ -107,7 +122,8 @@ func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	registry.RegisterExecutor(NewMockStaticExecutor())
 	registry.RegisterExecutor(NewMockScriptedExecutor())
 
-	// Preload all tools from repository into cache if repository is provided
+	// Load every descriptor the repository holds. This is the one and only
+	// read of the repository (#1951).
 	if repository != nil {
 		if toolNames, _ := repository.ListTools(); toolNames != nil {
 			for _, name := range toolNames {
@@ -137,9 +153,6 @@ func (r *Registry) Fork() *Registry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return &Registry{
-		// Children intentionally don't carry over the repository: they
-		// represent ephemeral per-run state and shouldn't persist.
-		repository:        nil,
 		tools:             maps.Clone(r.tools),
 		validator:         r.validator,
 		executors:         maps.Clone(r.executors),
@@ -151,41 +164,50 @@ func (r *Registry) Fork() *Registry {
 
 // Register adds a tool descriptor to the registry with validation.
 func (r *Registry) Register(descriptor *ToolDescriptor) error {
+	if descriptor == nil {
+		return errors.New("tool registry: cannot register a nil descriptor")
+	}
+	if descriptor.Name == "" {
+		return errors.New("tool registry: cannot register a descriptor with an empty name")
+	}
+
+	// A child registry isolates executors, not descriptors: the host that
+	// passed a registry in reads it back to inspect and override the tool set,
+	// so descriptors must land where it can see them. See [Registry.Child].
+	if r.parent != nil {
+		return r.parent.Register(descriptor)
+	}
+
 	// Test validation setup (errors here indicate schema compilation issues, which are acceptable during registration)
 	_ = r.validator.ValidateArgs(descriptor, []byte("{}"))
 
-	// Auto-populate namespace from name before persisting
+	// Auto-populate namespace from name
 	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Persist to repository if available (under lock to prevent concurrent
-	// Register calls for the same tool from both persisting)
-	if r.repository != nil {
-		if err := r.repository.SaveTool(descriptor); err != nil {
-			return fmt.Errorf("failed to save tool to repository: %w", err)
-		}
-	}
-
-	// Cache the descriptor
 	r.tools[descriptor.Name] = descriptor
 	return nil
 }
 
-// Unregister removes a tool descriptor from the in-memory cache by name.
-// Returns true if a descriptor was removed, false if none was registered.
+// Unregister removes a tool descriptor by name. Returns true if a descriptor
+// was removed, false if none was registered.
 //
 // Used when a workflow state machine transitions into a terminal state:
 // the previous state's workflow__transition descriptor (with its
 // now-stale enum of events) must be torn down so the LLM can't call it
 // against a dead state. Safe to call concurrently with Get/List.
 //
-// Note: tools persisted to a repository (file-loaded YAML/JSON tools)
-// will be re-loaded by Get on next lookup. Unregister is intended for
-// dynamically-registered descriptors like workflow__transition that
-// don't go through the repository path.
+// Removal is final for every read path — Get, GetTool and List all read the
+// same store. There is no repository fallback to resurrect the descriptor
+// (#1951).
 func (r *Registry) Unregister(name string) bool {
+	// Descriptors live on the parent (see [Registry.Child]), so removal has to
+	// reach the registry that actually holds them.
+	if r.parent != nil {
+		return r.parent.Unregister(name)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -196,45 +218,20 @@ func (r *Registry) Unregister(name string) bool {
 	return existed
 }
 
-// Get retrieves a tool descriptor by name with repository fallback.
+// Get retrieves a tool descriptor by name, or nil when none is registered.
 func (r *Registry) Get(name string) *ToolDescriptor {
-	// Check cache first
-	r.mu.RLock()
-	tool, ok := r.tools[name]
-	r.mu.RUnlock()
-	if ok {
-		return tool
-	}
-
-	// Try loading from repository if available
-	if r.repository != nil {
-		if tool, _ := r.repository.LoadTool(name); tool != nil {
-			r.mu.Lock()
-			r.tools[name] = tool // Cache the loaded tool
-			r.mu.Unlock()
-			return tool
-		}
-	}
-
-	return nil // Not found
+	tool, _ := r.lookupTool(name)
+	return tool
 }
 
-// List returns all tool names from repository or cache.
+// List returns the names of every registered tool, sorted.
 func (r *Registry) List() []string {
-	// Try repository first for complete list
-	if r.repository != nil {
-		if names, _ := r.repository.ListTools(); len(names) > 0 {
-			return names
-		}
-	}
-
-	// Fallback to cache
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
+	visible := r.visibleTools()
+	names := make([]string, 0, len(visible))
+	for name := range visible {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -336,9 +333,7 @@ func (r *Registry) loadJSONTool(filename string, data []byte) error {
 
 // GetTool retrieves a tool descriptor by name.
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
-	r.mu.RLock()
-	tool, exists := r.tools[name]
-	r.mu.RUnlock()
+	tool, exists := r.lookupTool(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
 	}
@@ -349,14 +344,9 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
 // copy (safe to iterate/delete keys), but the *ToolDescriptor pointers are
 // shared with the registry. Callers MUST NOT mutate the returned descriptors.
 func (r *Registry) GetTools() map[string]*ToolDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	// Return a copy to prevent external modification
-	result := make(map[string]*ToolDescriptor, len(r.tools))
-	for name, tool := range r.tools {
-		result[name] = tool
-	}
-	return result
+	// visibleTools already returns a fresh map, and locks each registry in the
+	// parent chain individually.
+	return r.visibleTools()
 }
 
 // IterateTools calls fn for each loaded tool descriptor while holding the
@@ -365,9 +355,7 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor {
 // once (e.g. building a provider tool list).
 // The callback MUST NOT call back into the Registry (deadlock).
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor)) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for name, tool := range r.tools {
+	for name, tool := range r.visibleTools() {
 		fn(name, tool)
 	}
 }
@@ -387,10 +375,8 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error) {
 
 // GetByNamespace returns all tool descriptors in the given namespace.
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	var result []*ToolDescriptor
-	for _, tool := range r.tools {
+	for _, tool := range r.visibleTools() {
 		if tool.Namespace == ns {
 			result = append(result, tool)
 		}
@@ -398,11 +384,40 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
 	return result
 }
 
-// RegisterExecutor registers a tool executor.
+// RegisterExecutor registers a tool executor under its [Executor.Name].
+//
+// A registry holds exactly one executor per name, so registering a second one
+// under a name already taken EVICTS the first. That is almost always a bug:
+// two owners -- typically two conversations sharing a registry -- each believe
+// they installed the executor that serves their tool calls, and the loser
+// silently starts getting the winner's answers, along with whatever
+// per-conversation state the winner's executor holds. Every bug in
+// AltairaLabs/PromptKit#2011 was that, and all of them were invisible because
+// this used to overwrite without a word.
+//
+// So it now says so, at Warn. Nothing in PromptKit legitimately re-registers a
+// name on the same registry -- each conversation owns its own (see
+// [Registry.Child]), and a workflow state change opens a fresh conversation with
+// a fresh registry -- so in practice this fires only on the bug.
 func (r *Registry) RegisterExecutor(executor Executor) {
+	if executor == nil {
+		return
+	}
+	name := executor.Name()
+
 	r.mu.Lock()
-	r.executors[executor.Name()] = executor
+	previous, existed := r.executors[name]
+	r.executors[name] = executor
 	r.mu.Unlock()
+
+	if existed && previous != executor {
+		logger.Warn("tool executor replaced: the previous one will no longer receive calls",
+			"executor", name,
+			"previous_type", fmt.Sprintf("%T", previous),
+			"new_type", fmt.Sprintf("%T", executor),
+			"hint", "two owners sharing one registry? give each its own via Registry.Child(); "+
+				"if this replacement is intended, use ReplaceExecutor")
+	}
 }
 
 // MaxToolResultSize returns the configured maximum tool result size in bytes.
@@ -590,17 +605,20 @@ func (r *Registry) ExecuteAsync(
 // Priority order:
 // 1. Built-in mode mapping (mock, live, mcp) for backwards compatibility
 // 2. If tool.Mode matches a registered executor name, use it (enables custom executors)
+// It resolves through the parent chain (see [Registry.Child]), so a child
+// registry uses its own executors and inherits the parent's for names it never
+// claimed. It takes no lock of its own: every read goes through lookupExecutor,
+// which locks each registry in the chain individually. Holding r.mu here and
+// calling lookupExecutor would re-enter the same RLock, which deadlocks the
+// moment a writer is queued.
 func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	var executorName string
 
 	// First, handle built-in modes with their established mappings
 	switch tool.Mode {
 	case modeClient:
 		// Prefer registered "client" executor (SDK); fall back to mock
-		if _, ok := r.executors["client"]; ok {
+		if _, ok := r.lookupExecutor("client"); ok {
 			executorName = "client"
 		} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 			executorName = executorMockScripted
@@ -627,7 +645,7 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 		executorName = tool.Mode
 	}
 
-	executor, exists := r.executors[executorName]
+	executor, exists := r.lookupExecutor(executorName)
 	if !exists {
 		return nil, fmt.Errorf("executor %s not available for tool %s", executorName, tool.Name)
 	}

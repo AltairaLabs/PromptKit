@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // TestSilenceDetectorDoesNotCompleteTurnOnUnconfirmedSpeech covers a single

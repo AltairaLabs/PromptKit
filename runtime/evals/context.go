@@ -2,11 +2,15 @@ package evals
 
 import (
 	"encoding/json"
+	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-const roleAssistant = "assistant"
+const (
+	roleAssistant = "assistant"
+	roleUser      = "user"
+)
 
 // BuildEvalContext constructs an EvalContext from a message history snapshot.
 // It extracts the last assistant message as CurrentOutput, builds ToolCallRecords
@@ -38,6 +42,7 @@ func BuildEvalContext(
 		TurnIndex:     turnIndex,
 		CurrentOutput: currentOutput,
 		ToolCalls:     ExtractToolCalls(messages),
+		ToolsOffered:  ExtractToolsOffered(currentTurnMessages(messages)),
 		SessionID:     sessionID,
 		PromptID:      promptID,
 		Extras:        workflowExtras(messages, metadata),
@@ -79,6 +84,7 @@ func BuildGuardrailEvalContext(
 		CurrentOutput: currentOutput,
 		ContentScope:  ContentScopeCurrent,
 		ToolCalls:     ExtractToolCalls(messages),
+		ToolsOffered:  ExtractToolsOffered(currentTurnMessages(messages)),
 		Extras:        workflowExtras(messages, metadata),
 		Metadata:      metadata,
 		PriorResults:  validationsToPriorResults(messages),
@@ -169,6 +175,84 @@ func workflowExtras(messages []types.Message, metadata map[string]any) map[strin
 		extras[key] = v
 	}
 	return extras
+}
+
+// MetaToolsOffered re-exports the message-meta key carrying the tool names a
+// turn handed the provider. ProviderStage stamps it onto the assistant message
+// it produces, so the set survives into the transcript and is still readable
+// when evals run later against stored messages rather than a live turn.
+const MetaToolsOffered = types.MetaToolsOffered
+
+// currentTurnMessages narrows a history to the turn in progress: everything
+// from the last user message onward.
+//
+// ToolsOffered means what THIS turn handed the provider, but Messages is the
+// history up to the current turn, so extracting over all of it answers a
+// different question - one where a tools_offered check with absent:true can
+// never fail after the tool has been offered once anywhere in the
+// conversation (#2037). Only the offered set is narrowed; EvalContext.Messages
+// stays whole, because the session-scoped handlers need it.
+//
+// A turn may open with several user messages (duplex accumulates them before
+// the end-of-turn boundary), and cutting at the last one drops the earlier
+// ones. That is harmless here: a user message never carries an offered set.
+// Returns the whole history when no user message is present, which is the
+// honest answer for a transcript whose turn boundaries cannot be seen.
+func currentTurnMessages(messages []types.Message) []types.Message {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == roleUser {
+			return messages[i:]
+		}
+	}
+	return messages
+}
+
+// ExtractToolsOffered returns the union of the tool sets recorded on the
+// messages, sorted and deduplicated.
+//
+// A turn can hand the provider a different set on each tool round — that is the
+// point of skill tool grants, which widen the set mid-turn — so the union is
+// what "this turn offered" means. A caller needing per-round detail should read
+// the per-message meta directly.
+func ExtractToolsOffered(messages []types.Message) []string {
+	seen := map[string]bool{}
+	for i := range messages {
+		if messages[i].Meta == nil {
+			continue
+		}
+		for _, name := range toStringSlice(messages[i].Meta[MetaToolsOffered]) {
+			seen[name] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	offered := make([]string, 0, len(seen))
+	for name := range seen {
+		offered = append(offered, name)
+	}
+	sort.Strings(offered)
+	return offered
+}
+
+// toStringSlice coerces a meta value to a string slice. Meta survives a JSON
+// round-trip through the state store, which turns []string into []any, so both
+// shapes have to be handled or the set silently vanishes on replay.
+func toStringSlice(v any) []string {
+	switch vals := v.(type) {
+	case []string:
+		return vals
+	case []any:
+		out := make([]string, 0, len(vals))
+		for _, item := range vals {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // ExtractToolCalls builds ToolCallRecords from a message history by matching

@@ -4,8 +4,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // pricer is the optional interface that TTS Service implementations may satisfy

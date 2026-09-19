@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 // liveTTS is a TTS service that also reports the text it will actually speak.

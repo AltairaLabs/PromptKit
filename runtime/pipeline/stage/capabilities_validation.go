@@ -4,7 +4,7 @@ package stage
 import (
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // ValidateCapabilities checks format compatibility between connected stages.

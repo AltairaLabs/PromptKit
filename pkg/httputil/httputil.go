@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	runtimehttp "github.com/AltairaLabs/PromptKit/runtime/httputil"
+	runtimehttp "github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
 )
 
 // Re-exported constants.

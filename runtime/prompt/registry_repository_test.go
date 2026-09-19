@@ -3,8 +3,8 @@ package prompt_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // TestNewRegistryWithRepository verifies the new constructor works

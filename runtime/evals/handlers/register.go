@@ -1,6 +1,6 @@
 package handlers
 
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 //nolint:gochecknoinits // init registers handlers to avoid circular imports
 func init() {
@@ -10,6 +10,7 @@ func init() {
 	evals.RegisterDefault(&JSONValidHandler{})
 	evals.RegisterDefault(&JSONSchemaHandler{})
 	evals.RegisterDefault(&ToolsCalledHandler{})
+	evals.RegisterDefault(&ToolsOfferedHandler{})
 	evals.RegisterDefault(&ToolsNotCalledHandler{})
 	evals.RegisterDefault(&ToolArgsHandler{})
 	evals.RegisterDefault(&LatencyBudgetHandler{})
@@ -81,6 +82,7 @@ func init() {
 	evals.RegisterDefault(&ImageModerationHandler{})
 	evals.RegisterDefault(&TextToxicityHandler{})
 	evals.RegisterDefault(&TextSentimentHandler{})
+	evals.RegisterDefault(&TopicPolicyHandler{})
 
 	// LLM judge handlers
 	evals.RegisterDefault(&LLMJudgeHandler{})

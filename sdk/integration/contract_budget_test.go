@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/sdk"
-	"github.com/AltairaLabs/PromptKit/sdk/integration/probes"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/integration/probes"
 )
 
 // TestContract_TokenBudgetCapsProviderInput verifies that when WithTokenBudget

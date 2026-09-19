@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // DefaultBaseURL is the canonical HF Inference API endpoint. HF deprecated

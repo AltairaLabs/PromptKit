@@ -3,7 +3,7 @@
 // PromptKit EmbeddingProvider.
 //
 // This is the Go port of the in-tree EmbeddingSelector that shipped
-// before #980 deleted it. It exists as an example, not as core code:
+// before it was removed from core. It exists as an example, not as core code:
 // PromptKit no longer ships any selector implementations beyond the
 // exec client. Copy, adapt, or import directly.
 //
@@ -29,8 +29,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 const defaultTopK = 10

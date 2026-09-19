@@ -1,8 +1,8 @@
 # Selector Examples
 
-Reference implementations of the `selection.Selector` interface
-(see issue #980). PromptKit core ships only the exec client; everything
-in here is example code consumers can copy, adapt, or import directly.
+Reference implementations of the `selection.Selector` interface.
+PromptKit core ships only the exec client; everything in here is example
+code consumers can copy, adapt, or import directly.
 
 Two patterns covered:
 
@@ -21,9 +21,9 @@ hot-path latency, blast-radius isolation).
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/sdk/examples/selectors/cosine"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/examples/selectors/cosine"
 )
 
 emb, _ := openai.NewEmbeddingProvider()

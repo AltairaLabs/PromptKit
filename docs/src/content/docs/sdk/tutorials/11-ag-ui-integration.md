@@ -55,8 +55,8 @@ import (
 	aguiTypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
-	"github.com/AltairaLabs/PromptKit/sdk/agui"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 )
 
 func main() {
@@ -182,8 +182,8 @@ import (
 	aguiTypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
-	"github.com/AltairaLabs/PromptKit/sdk/agui"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 )
 
 func main() {

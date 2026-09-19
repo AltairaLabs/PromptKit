@@ -3,13 +3,14 @@ package guardrails
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Aliases of the canonical direction constants, retained for existing callers.
@@ -69,6 +70,27 @@ type GuardrailHookAdapter struct {
 	// emitter reports the validation lifecycle. Optional: a guardrail built
 	// without one behaves exactly as before, silently.
 	emitter *events.Emitter
+
+	// judge is the LLM judge a judge-backed handler evaluates through, seeded
+	// into the eval context's metadata on every call. Nil for handlers that do
+	// not need one; a handler that DOES need one is refused at construction
+	// (ErrGuardrailNeedsJudge), so this is never nil where it is required.
+	judge handlers.JudgeProvider
+}
+
+// withJudge seeds the host's judge into eval metadata under the key the
+// judge-backed handlers read. This is the producer half of #1996: the key was
+// set in exactly one place before, the offline Evaluate() path, so the same
+// handler declared as a guardrail found nothing there.
+func (a *GuardrailHookAdapter) withJudge(metadata map[string]any) map[string]any {
+	if a.judge == nil {
+		return metadata
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["judge_provider"] = a.judge
+	return metadata
 }
 
 // Compile-time interface checks.
@@ -119,7 +141,7 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	//
 	// nil latency: no call has completed, so there is nothing to judge. A
 	// latency guardrail is output-only by nature.
-	metadata := evals.SeedBudgetMetadata(req.Metadata, req.Messages, nil)
+	metadata := a.withJudge(evals.SeedBudgetMetadata(req.Metadata, req.Messages, nil))
 	evalCtx := evals.BuildGuardrailEvalContext(
 		req.Messages, lastMsg.GetContent(), metadata,
 	)
@@ -165,7 +187,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 	// Spend and tokens come off the transcript's CostInfo — including this
 	// response, which is why seeding happens after msgs is assembled. Latency is
 	// the completed call's, which only exists on this side of the provider.
-	metadata := evals.SeedBudgetMetadata(reqMetadata, msgs, &resp.LatencyMs)
+	metadata := a.withJudge(evals.SeedBudgetMetadata(reqMetadata, msgs, &resp.LatencyMs))
 
 	// Judge this response only. Scanning the whole transcript would make one
 	// tripped turn re-block every later turn in the conversation.

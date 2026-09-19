@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 )
 
 // errInjected is the canned failure fakeExec returns for simulated step errors.

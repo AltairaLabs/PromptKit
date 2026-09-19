@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // This file answers a question the per-type parity tests could not: which pack
@@ -41,7 +41,7 @@ import (
 // (a Go named string type accepts any literal). Those three are adopted or
 // re-stated now. Check the reason before trusting it.
 
-const generatedPkg = "github.com/AltairaLabs/PromptKit/runtime/packspec"
+const generatedPkg = "github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
 // pinnedStruct records what a hand-written pack struct corresponds to in the
 // PromptPack schema.

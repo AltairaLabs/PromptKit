@@ -6,8 +6,8 @@
 package persistence
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // PromptRepository provides abstract access to prompt configurations

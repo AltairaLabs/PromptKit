@@ -3,7 +3,7 @@ package hooks
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/execconfig"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/execconfig"
 )
 
 func TestResolveSandboxes_NilAndEmpty(t *testing.T) {

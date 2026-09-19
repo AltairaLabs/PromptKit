@@ -12,23 +12,23 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/skills"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
-	"github.com/AltairaLabs/PromptKit/sdk/session"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/provider"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // loggerOnce guards logger.SetLogger to avoid data races when multiple
@@ -242,9 +242,16 @@ func initConversation(
 	// don't implement MediaStorageConfigurable are skipped.
 	applyMediaStorageToPool(cfg)
 
-	// Use caller-provided tool registry or create a new one from the pack.
-	toolReg := cfg.toolRegistry
-	if toolReg == nil {
+	// Every conversation gets its OWN registry. When the host supplied one
+	// (WithToolRegistry), take a child of it: the child inherits the host's tool
+	// descriptors and executors but owns the ones this conversation registers,
+	// so two conversations over one host registry no longer overwrite each
+	// other's executors -- and with them the per-conversation state those
+	// executors hold. See #2011.
+	var toolReg *tools.Registry
+	if cfg.toolRegistry != nil {
+		toolReg = cfg.toolRegistry.Child()
+	} else {
 		toolReg = tools.NewRegistryWithRepository(pack.ToToolRepository(p))
 	}
 
@@ -270,6 +277,13 @@ func initConversation(
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
 
+	// Executors given as options reach conversations that the caller never
+	// receives — A2AOpener opens one per context ID internally, so there is no
+	// conversation to call OnToolExecutor on (#2019).
+	for name, executor := range cfg.toolExecutors {
+		conv.OnToolExecutor(name, executor)
+	}
+
 	// Auto-convert pack validators to provider hooks (before building hook registry)
 	if err := convertPackValidatorsToHooks(prompt, cfg); err != nil {
 		return nil, nil, err
@@ -277,6 +291,13 @@ func initConversation(
 
 	// RFC 0012: fail here if the pack declares providers the host has not
 	// supplied, rather than at the first request that needs one.
+	// Checks first, deliberately. Both gates can fail on the same missing
+	// provider, and the check-level one says more: which check wanted it, and
+	// whether what the host bound is missing or merely unsuitable. The
+	// requirements gate then covers what no check references.
+	if err := checkProviderKeys(p, prompt, cfg); err != nil {
+		return nil, nil, err
+	}
 	if err := checkProviderRequirements(p, cfg); err != nil {
 		return nil, nil, err
 	}
@@ -302,6 +323,9 @@ func initConversation(
 		logger.Info("capabilities initialized", "capabilities", names, "count", len(allCaps))
 	}
 	conv.capabilities = allCaps
+	// Each conversation owns its share of capability state: its own active
+	// skill set (preloads included) and its own memory scope (#2011).
+	conv.initConversationState()
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
@@ -1330,10 +1354,13 @@ func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
 // provider hooks, prepending them before any user-registered hooks. The
 // per-validator translation lives in guardrails.CompileValidatorsWithRegistry
 // so SDK and Arena exercise identical conversion semantics — same defaults,
-// same skip-and-warn behavior, same enforcement.
+// same failure policy, same enforcement.
 //
 // Validator types resolve against the registry from WithEvalRegistry when one
 // was supplied, so a custom handler can back a pack `validators:` entry (#1717).
+//
+// A validator that cannot be built fails Open() rather than being dropped: see
+// the failure policy on guardrails.CompileValidators.
 func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	if len(p.Validators) == 0 {
 		return nil
@@ -1341,16 +1368,32 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
 	for _, v := range p.Validators {
 		specs = append(specs, rtprompt.ValidatorConfig{
-			Type:    v.Type,
+			Type: v.Type,
+			// Message is a field ON the validator in the spec, not a param.
+			// PackCompiler folds it into params (foldValidatorMessages), so a
+			// compiled pack carries it either way — but a hand-authored pack,
+			// which is every example and the form the docs call normal, carries
+			// it only here. Dropping it replaced the author's wording with the
+			// generic blocked message and reported success.
+			Message: v.Message,
 			Params:  v.Params,
 			Enabled: v.Enabled,
 		})
 	}
-	packHooks, err := guardrails.CompileValidatorsWithRegistry(specs, cfg.evalRegistry)
+	// The host's default judge, for checks whose pack names no provider. A
+	// check that DOES name one resolves it per turn through the host's
+	// binding and never reaches this.
+	var guardrailOpts []guardrails.GuardrailOption
+	if cfg.judgeProvider != nil {
+		guardrailOpts = append(guardrailOpts, guardrails.WithJudge(cfg.judgeProvider))
+	}
+
+	packHooks, err := guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)
 	if err != nil {
-		// An unknown eval type is fatal: dropping it would leave the
-		// conversation silently unprotected. Unusable params are still
-		// warned about and skipped inside CompileValidators.
+		// Fatal, and deliberately so: an unknown eval type or a param set the
+		// handler itself rejects both mean this guardrail cannot run, and
+		// dropping either leaves the conversation silently unprotected while
+		// Open() reports success.
 		return err
 	}
 	if len(packHooks) > 0 {

@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // ContextualPrecisionHandler scores the fraction of retrieved chunks

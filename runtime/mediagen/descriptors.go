@@ -11,7 +11,7 @@ package mediagen
 import (
 	"encoding/json"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 const (

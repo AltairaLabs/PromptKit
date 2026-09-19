@@ -3,10 +3,10 @@ package sdk
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	intpipeline "github.com/AltairaLabs/PromptKit/sdk/v2/internal/pipeline"
 )
 
 // roleUser is the message role for a transcribed turn handed to the agent chain.

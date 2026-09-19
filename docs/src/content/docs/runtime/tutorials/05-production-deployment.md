@@ -61,14 +61,14 @@ import (
     "syscall"
     "time"
     
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/anthropic"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/anthropic"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
 type Server struct {

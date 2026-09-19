@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // text_toxicity / text_sentiment are PURE EVAL PRIMITIVES — they emit
@@ -179,7 +179,7 @@ func TestTextClassify_NoRegistryInContextSkips(t *testing.T) {
 	if !res.Skipped {
 		t.Fatalf("expected Skipped; got Error=%q", res.Error)
 	}
-	if !strings.Contains(res.SkipReason, "no classify registry configured") {
+	if !strings.Contains(res.SkipReason, "names no provider and the host set no default") {
 		t.Errorf("SkipReason %q should point at the missing wiring", res.SkipReason)
 	}
 }

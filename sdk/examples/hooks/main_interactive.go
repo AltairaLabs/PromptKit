@@ -29,11 +29,11 @@ import (
 	"regexp"
 	"strings"
 
-	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ func hookDenialReason(err error) (string, bool) {
 //
 // A blocked turn is also visible through resp.Message().FinishReason, which
 // the pipeline sets to types.FinishReasonSafety — on both the Send() and the
-// Stream() path (#1681, #1715). Use that when all you need is "was this turn
+// Stream() path. Use that when all you need is "was this turn
 // blocked?". Validations() is the complementary signal, and the only one that
 // names WHICH guardrail fired, which is what this helper returns.
 //

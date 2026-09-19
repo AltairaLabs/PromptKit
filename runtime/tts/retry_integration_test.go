@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 // TestSynthesizeWithRetry_RealOpenAI_HappyPath hits the real OpenAI TTS

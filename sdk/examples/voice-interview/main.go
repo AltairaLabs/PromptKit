@@ -43,16 +43,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/sdk"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/audio"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/interview"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/ui"
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/video"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/audio"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/interview"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/ui"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/video"
 )
 
 func main() {

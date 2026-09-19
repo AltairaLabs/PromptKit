@@ -89,8 +89,8 @@ import (
     "os"
     "strings"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/sdk/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 func main() {

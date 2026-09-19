@@ -18,8 +18,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/variables"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // UserContextProvider demonstrates a custom variable provider.

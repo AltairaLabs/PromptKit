@@ -3,8 +3,8 @@ package config_test
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

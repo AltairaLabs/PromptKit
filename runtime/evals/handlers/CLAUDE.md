@@ -22,6 +22,20 @@ Every handler in this package that takes a measurement (classify-backed, embeddi
 4. **Leave `Value` unset.** The assertion wrapper overwrites `Value` with a `bool` for pass/fail. Setting `Value` on the inner handler will be clobbered when wrapped — and confuses bare-eval usage in pack `evals:` blocks.
 5. **REJECT `min_score` / `max_score`** at param-parse time. These are threshold params; they belong on the wrapper. Silently accepting them is a config-mistake trap. Use `parseClassifyConfig` (or the equivalent helper for your handler family) — it already enforces this.
 6. **Skipped vs Error split.** Use `skippedResult` for infrastructure absence (no registry in context, no media of the right kind in the messages). Use `errorResult` for misconfigurations the user can fix (missing required param, out-of-range index). Skipped passes for free; Error fails the assertion.
+7. **One deliberate exception to rule 6: `topic_policy`.** It treats "no
+   classifier bound" as an **error** honoring its `on_error` param (default
+   deny), not as Skipped. Skipped scores 1.0 and passes, which for a guardrail
+   means the safety control silently did not run — the #1996 failure. Do not
+   "fix" it to match the other classify-backed handlers.
+8. **`topic_policy` is declared directly as a pack `validators:` entry, and
+   that is still the normal form** — but wrapping it in `type: assertion` /
+   `type: guardrail` now behaves identically. A wrapper used to resolve
+   `evals.ApplyDefaults` on the OUTER type name, so `ParamDefaults["assertion"]`
+   — nothing — was found and the `direction: input` default was lost, silently
+   reverting the check to output-only; it also skipped the inner handler's
+   `ValidateParams`. Both were fixed with the guardrail itself. Pinned by
+   `hooks/guardrails/factory_topic_policy_wrapper_test.go`, whose wrapped and
+   direct assertions are deliberately identical.
 
 ## How to wire a new eval handler
 

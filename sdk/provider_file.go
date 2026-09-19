@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 )
 
 // providerSpecFromConfig maps a loaded *pkgconfig.Provider onto the SDK's
@@ -40,7 +40,10 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 		if err != nil {
 			return fmt.Errorf("provider %q: %w", id, err)
 		}
-		if c.agentSet {
+		// getAgentProvider rather than agentSet: it also lifts a legacy
+		// c.provider field into the pool on first access, so a provider supplied
+		// that way still wins over one declared in a config file.
+		if c.getAgentProvider() != nil {
 			ensureProviderPool(c)
 			c.providers.Register(prov) // keep in pool; first-declared stays the agent
 			return nil
@@ -55,6 +58,8 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 		return WithEmbeddingProvider(providerSpecFromConfig(p))(c)
 	case pkgconfig.RoleInference:
 		return WithInferenceProvider(providerSpecFromConfig(p))(c)
+	case pkgconfig.RoleRerank:
+		return WithRerankProvider(providerSpecFromConfig(p))(c)
 	default:
 		// Unreachable in practice: ValidateRole() above rejects any role not in
 		// the known set, and every known role is handled. Kept as a defensive

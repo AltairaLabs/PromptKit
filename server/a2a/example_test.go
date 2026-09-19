@@ -3,7 +3,7 @@ package a2aserver_test
 import (
 	"fmt"
 
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // ExampleInMemoryTaskStore demonstrates the task lifecycle: create a task,

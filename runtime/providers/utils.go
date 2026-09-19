@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // StringPtr is a helper function that returns a pointer to a string.

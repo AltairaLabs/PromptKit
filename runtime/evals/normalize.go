@@ -36,10 +36,31 @@ var ParamAliases = map[string]map[string]string{
 	},
 }
 
+// topicPolicyDefaultOnUncertain is topic_policy's default outcome for both
+// on_unknown and on_error: default-deny, so an unresolved verdict doesn't
+// silently pass a guardrail through.
+const topicPolicyDefaultOnUncertain = "deny"
+
+// topicPolicyDefaultRecentTurns mirrors handlers.defaultRecentTurns — that
+// package imports this one, not the other way round, so the value is
+// duplicated rather than shared.
+const topicPolicyDefaultRecentTurns = 4
+
 // ParamDefaults provides default param values for aliased eval types.
 // These are applied when the param is not already present.
 var ParamDefaults = map[string]map[string]any{
 	"banned_words": {"match_mode": "word_boundary"},
+	// direction: a topic check that only inspects the assistant's reply never
+	// blocks the call it exists to prevent. The guardrail factory defaults to
+	// output, so this entry is what makes the check gate input.
+	"topic_policy": {
+		"direction":    "input",
+		"small_talk":   "allow",
+		"on_deny":      "block",
+		"on_unknown":   topicPolicyDefaultOnUncertain,
+		"on_error":     topicPolicyDefaultOnUncertain,
+		"recent_turns": topicPolicyDefaultRecentTurns,
+	},
 }
 
 // ApplyDefaults merges default params for the given eval type.

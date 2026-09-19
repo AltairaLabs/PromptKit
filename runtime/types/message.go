@@ -46,6 +46,19 @@ type Message struct {
 	Validations []ValidationResult `json:"validations,omitempty"`
 }
 
+// MetaToolsOffered is the Message.Meta key carrying the tool names the turn
+// handed the provider for the round that produced this message.
+//
+// It records what the model COULD call, which no other record captures:
+// ToolCalls say what it chose to do, and a tool the model was offered but never
+// used leaves no trace anywhere else. That is the difference between a skill's
+// allowed-tools grant that works and one that silently does nothing.
+//
+// The value is []string when freshly stamped and []any after a JSON round-trip
+// through a state store; read it with evals.ExtractToolsOffered, which handles
+// both.
+const MetaToolsOffered = "_tools_offered"
+
 // Canonical finish reasons. Each provider normalizes its raw wire value onto
 // one of these before populating Message.FinishReason, so consumers can
 // reliably detect e.g. an output-cap truncation regardless of provider. An

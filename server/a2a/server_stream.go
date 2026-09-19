@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // subscriberBuffer is the channel buffer size for broadcast subscribers.
@@ -179,6 +179,13 @@ type streamCtx struct {
 	rpcID     any
 	taskID    string
 	contextID string
+
+	// artifacts accumulates what was streamed, so the completed task carries
+	// its result and not just the SSE events that already went out. Without
+	// this a tasks/get after a streamed turn returns a completed task with
+	// nothing in it, while the same exchange over message/send has artifacts
+	// (#2032). Written only from the single goroutine running processEvents.
+	artifacts []a2a.Artifact
 }
 
 // emit sends an event to both the direct SSE writer and the broadcaster.
@@ -209,6 +216,13 @@ func (sc *streamCtx) fail(errText string) {
 
 // complete records a task completion and emits the completed status event.
 func (sc *streamCtx) complete() {
+	// Store before the state change: a consumer that reacts to `completed` and
+	// immediately reads the task must not race an artifact write.
+	if len(sc.artifacts) > 0 {
+		if err := sc.srv.taskStore.AddArtifacts(sc.taskID, sc.artifacts); err != nil {
+			log.Printf("a2a: task %s: failed to add streamed artifacts: %v", sc.taskID, err)
+		}
+	}
 	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateCompleted, nil); err != nil {
 		log.Printf("a2a: task %s: failed to set completed state: %v", sc.taskID, err)
 	}
@@ -236,30 +250,10 @@ func (s *Server) handleStreamMessage(
 		contextID = generateID()
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		writeRPCError(w, req.ID, -32000,
-			fmt.Sprintf("Failed to open conversation: %v", err))
-		return
-	}
-
-	streamConv, ok := conv.(StreamingConversation)
-	if !ok {
-		writeRPCError(w, req.ID, -32601,
-			"Streaming not supported by this agent")
-		return
-	}
-
-	// Check if this is a tool-result message for a resumable conversation.
-	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
-		return
-	}
-
-	pkMsg, err := a2a.MessageToMessage(&params.Message)
-	if err != nil {
-		writeRPCError(w, req.ID, -32602,
-			fmt.Sprintf("Invalid message: %v", err))
+	// Which half of the server owns conversations decides where the events come
+	// from. Resolved before the task exists, so a refusal costs nothing.
+	startTurn, handled := s.resolveStreamTurn(w, r, req, contextID, params)
+	if handled {
 		return
 	}
 
@@ -309,7 +303,7 @@ func (s *Server) handleStreamMessage(
 	s.cancels[taskID] = cancel
 	s.cancelsMu.Unlock()
 
-	events := streamConv.Stream(ctx, pkMsg)
+	events := startTurn(ctx, taskID)
 
 	sc.processEvents(ctx, events)
 }
@@ -494,14 +488,19 @@ func (sc *streamCtx) emitInputRequired(evt StreamEvent) {
 
 // emitArtifact emits a single artifact update event.
 func (sc *streamCtx) emitArtifact(idx int, parts []a2a.Part) {
+	artifact := a2a.Artifact{
+		ArtifactID: fmt.Sprintf("artifact-%d", idx),
+		Parts:      parts,
+	}
+	// Keep what went out, so complete() can persist the same thing. A client
+	// that streams and later re-reads the task — another process, a reconnect,
+	// an audit — sees what was produced.
+	sc.artifacts = append(sc.artifacts, artifact)
 	sc.emit(a2a.TaskArtifactUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
-		Artifact: a2a.Artifact{
-			ArtifactID: fmt.Sprintf("artifact-%d", idx),
-			Parts:      parts,
-		},
-		Append: true,
+		Artifact:  artifact,
+		Append:    true,
 	})
 }
 
@@ -576,4 +575,76 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 			return
 		}
 	}
+}
+
+// resolveStreamTurn produces the function that starts this request's event
+// stream, for either server mode.
+//
+// handled is true when the request is already answered — a refusal, or a
+// conversation-backed tool result, which has its own handler. The caller stops
+// in that case.
+func (s *Server) resolveStreamTurn(
+	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
+	contextID string, params a2a.SendMessageRequest,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	toolResults := extractToolResults(params.Message.Parts)
+
+	if s.handler != nil {
+		return s.statelessStreamTurn(w, req, contextID, params, toolResults)
+	}
+
+	conv, err := s.getOrCreateConversation(contextID)
+	if err != nil {
+		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to open conversation: %v", err))
+		return nil, true
+	}
+
+	streamConv, ok := conv.(StreamingConversation)
+	if !ok {
+		writeRPCError(w, req.ID, -32601, "Streaming not supported by this agent")
+		return nil, true
+	}
+
+	if len(toolResults) > 0 {
+		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
+		return nil, true
+	}
+
+	pkMsg, err := a2a.MessageToMessage(&params.Message)
+	if err != nil {
+		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
+		return nil, true
+	}
+
+	return func(ctx context.Context, _ string) <-chan StreamEvent {
+		return streamConv.Stream(ctx, pkMsg)
+	}, false
+}
+
+// statelessStreamTurn is resolveStreamTurn's handler-mode half: no conversation
+// to open, and tool results only when the handler asked for client tools.
+func (s *Server) statelessStreamTurn(
+	w http.ResponseWriter, req *a2a.JSONRPCRequest,
+	contextID string, params a2a.SendMessageRequest, toolResults []toolResultEntry,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	trh, resumable := s.handler.(ToolResultHandler)
+	if len(toolResults) > 0 && !resumable {
+		writeRPCError(w, req.ID, -32601, "Client tool results are not supported by this agent")
+		return nil, true
+	}
+
+	return func(ctx context.Context, taskID string) <-chan StreamEvent {
+		if len(toolResults) > 0 {
+			return trh.HandleToolResult(ctx, ToolResultRequest{
+				ContextID: contextID,
+				TaskID:    taskID,
+				Results:   toToolResults(toolResults),
+			})
+		}
+		return s.handler.Handle(ctx, MessageRequest{
+			ContextID: contextID,
+			TaskID:    taskID,
+			Message:   params.Message,
+		})
+	}, false
 }

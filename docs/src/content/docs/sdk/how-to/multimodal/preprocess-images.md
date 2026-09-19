@@ -43,7 +43,7 @@ conv, err := sdk.Open("./vision.pack.json", "analyst",
 For complete control over preprocessing:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 
 conv, err := sdk.Open("./vision.pack.json", "analyst",
     sdk.WithImagePreprocessing(&stage.ImagePreprocessConfig{
@@ -105,7 +105,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
@@ -135,7 +135,7 @@ func main() {
 ## Example: Mobile App with Bandwidth Constraints
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 
 // Aggressive compression for mobile
 conv, err := sdk.Open("./mobile.pack.json", "assistant",

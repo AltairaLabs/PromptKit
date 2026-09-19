@@ -3,10 +3,11 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // LLMJudgeHandler evaluates a single assistant turn using an LLM judge.
@@ -52,7 +53,7 @@ func runJudgeEval(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(handlerType, msg)
 	}
-	provider, extractErr := extractJudgeProvider(evalCtx)
+	provider, extractErr := resolveJudgeProvider(ctx, evalCtx, params)
 	if extractErr != nil {
 		// errorResult, not a bare Score: an eval that could not run has not
 		// measured 0, and Error is what routes it to eval.failed rather than
@@ -72,6 +73,50 @@ func runJudgeEval(
 	}
 
 	return buildEvalResult(handlerType, judgeResult)
+}
+
+// ProviderParam is the param a check uses to name the provider it needs, by
+// the LOGICAL key its own pack declared in `requires`. It is deliberately the
+// same word for every kind of ancillary provider — judges, classifiers and
+// whatever comes next — so a pack author learns one thing.
+//
+// The value is never a model, an endpoint or a host-side id. The pack author
+// invents the name, the host binds it to something concrete, and the host stays
+// free to rebind it without the pack changing.
+const ProviderParam = "provider"
+
+// providerKeyFrom reads the logical provider name a check declared, if any.
+func providerKeyFrom(params map[string]any) string {
+	key, _ := params[ProviderParam].(string)
+	return key
+}
+
+// resolveJudgeProvider finds the judge a check should grade with.
+//
+// The pack's own logical name comes first: a check that names one is resolved
+// through the host's binding, and a failure to resolve is reported as what it
+// is — unbound, or bound to something that cannot judge — rather than as a
+// missing measurement.
+//
+// The metadata paths that follow are host-supplied objects rather than runtime
+// conventions: the offline Evaluate() path hands in a built judge, and Arena
+// hands in target specs. Both remain, for callers driving the evals directly
+// with no pack binding in play.
+func resolveJudgeProvider(
+	ctx context.Context, evalCtx *evals.EvalContext, params map[string]any,
+) (JudgeProvider, error) {
+	if key := providerKeyFrom(params); key != "" {
+		binding := evals.BindingFromContext(ctx)
+		if binding == nil {
+			return nil, fmt.Errorf("provider %s", evals.DescribeUnresolved(key, evals.ErrNoBinding))
+		}
+		p, err := binding.LLM(key)
+		if err != nil {
+			return nil, fmt.Errorf("provider %s", evals.DescribeUnresolved(key, err))
+		}
+		return NewProviderJudge(p), nil
+	}
+	return extractJudgeProvider(evalCtx)
 }
 
 // extractJudgeProvider retrieves the JudgeProvider from eval context metadata.
@@ -116,15 +161,19 @@ func judgeProviderFromTargets(raw any) (JudgeProvider, error) {
 		return nil, fmt.Errorf("judge_targets present but empty or wrong type")
 	}
 
-	// Select first available judge (the "judge" param selection happens
-	// at the assertion config level, not here — the metadata carries
-	// the resolved target)
+	// Lowest key wins when several targets are present. Ranging over the map
+	// picked whichever entry Go's randomized iteration order happened to yield
+	// first, so a two-judge config graded with a different model between runs
+	// and the scores were not comparable. Which target a caller MEANT is
+	// selected upstream, where the metadata is assembled; this only has to be
+	// the same choice every time.
+	keys := make([]string, 0, len(targets))
 	for k := range targets {
-		spec := targets[k]
-		return NewSpecJudgeProvider(&spec), nil
+		keys = append(keys, k)
 	}
-
-	return nil, fmt.Errorf("no judge targets available")
+	sort.Strings(keys)
+	spec := targets[keys[0]]
+	return NewSpecJudgeProvider(&spec), nil
 }
 
 // coerceJudgeTargets normalizes metadata targets into a typed map.
@@ -211,8 +260,14 @@ func buildEvalResult(
 // llm_judge, safety, RAG) — see parseClassifyConfig for the
 // classify-backed call site and llm_judge.go / ragJudgeCall /
 // evalSafetyOutput for the others.
+//
+// thresholdParamNames is also read by topic_policy_params.go's
+// rejectTopicThresholdParams, which wants topic-specific wording on the
+// error and so can't just call this function directly.
+var thresholdParamNames = []string{"min_score", "max_score"}
+
 func rejectThresholdParams(params map[string]any) string {
-	for _, banned := range []string{"min_score", "max_score"} {
+	for _, banned := range thresholdParamNames {
 		if _, present := params[banned]; present {
 			return banned + " is not a valid param on an eval handler; " +
 				"wrap with `type: assertion` and put the threshold there " +

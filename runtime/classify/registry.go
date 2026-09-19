@@ -21,11 +21,13 @@ type Registry struct {
 	imageClassifiers map[string]ImageClassifier
 	videoClassifiers map[string]VideoClassifier
 	embedders        map[string]Embedder
+	topicClassifiers map[string]TopicClassifier
 	defaultAudio     string
 	defaultText      string
 	defaultImage     string
 	defaultVideo     string
 	defaultEmbedder  string
+	defaultTopic     string
 }
 
 // NewRegistry returns an empty Registry. Backends are added via
@@ -38,6 +40,7 @@ func NewRegistry() *Registry {
 		imageClassifiers: make(map[string]ImageClassifier),
 		videoClassifiers: make(map[string]VideoClassifier),
 		embedders:        make(map[string]Embedder),
+		topicClassifiers: make(map[string]TopicClassifier),
 	}
 }
 
@@ -75,6 +78,47 @@ func (r *Registry) RegisterEmbedder(id string, e Embedder) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.embedders[id] = e
+}
+
+// RegisterTopic adds a TopicClassifier.
+func (r *Registry) RegisterTopic(id string, c TopicClassifier) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.topicClassifiers[id] = c
+}
+
+// claimDefaults sets this registry's default for each named task to id, but
+// only for tasks that have no default yet — first registration wins.
+//
+// Unknown task labels are ignored: the label set comes from RegisterBackend,
+// which only emits a label for a task it actually registered, so an unknown
+// label here means a task was added to RegisterBackend without a case below.
+// The zero value of every default field is the empty string, which is also
+// what the accessors treat as "no default", so an unset task stays unset.
+func (r *Registry) claimDefaults(id string, tasks []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	set := func(field *string) {
+		if *field == "" {
+			*field = id
+		}
+	}
+	for _, task := range tasks {
+		switch task {
+		case taskAudio:
+			set(&r.defaultAudio)
+		case taskText:
+			set(&r.defaultText)
+		case taskImage:
+			set(&r.defaultImage)
+		case taskVideo:
+			set(&r.defaultVideo)
+		case taskEmbedder:
+			set(&r.defaultEmbedder)
+		case taskTopic:
+			set(&r.defaultTopic)
+		}
+	}
 }
 
 // SetDefaultAudio names the AudioClassifier used when a handler
@@ -130,6 +174,17 @@ func (r *Registry) SetDefaultEmbedder(id string) error {
 		return fmt.Errorf("classify: default embedder %q not registered", id)
 	}
 	r.defaultEmbedder = id
+	return nil
+}
+
+// SetDefaultTopic names the default TopicClassifier.
+func (r *Registry) SetDefaultTopic(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.topicClassifiers[id]; !ok {
+		return fmt.Errorf("classify: default topic classifier %q not registered", id)
+	}
+	r.defaultTopic = id
 	return nil
 }
 
@@ -218,6 +273,23 @@ func (r *Registry) Embedder(id string) (Embedder, error) {
 		return nil, fmt.Errorf("classify: embedder %q not registered", id)
 	}
 	return e, nil
+}
+
+// TopicClassifier resolves by id with default fallback.
+func (r *Registry) TopicClassifier(id string) (TopicClassifier, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if id == "" {
+		id = r.defaultTopic
+	}
+	if id == "" {
+		return nil, fmt.Errorf("classify: no topic classifier id supplied and no default configured")
+	}
+	c, ok := r.topicClassifiers[id]
+	if !ok {
+		return nil, fmt.Errorf("classify: topic classifier %q not registered", id)
+	}
+	return c, nil
 }
 
 // registryContextKey is the unexported key used to attach a Registry

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/sdk/integration/probes"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/integration/probes"
 )
 
 // TestContract_PipelineStateStoreBudget pins the cross-stage per-Send budget

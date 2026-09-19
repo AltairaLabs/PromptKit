@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1104,4 +1105,95 @@ func createTestAnnotatedSession(t *testing.T) *AnnotatedSession {
 			Duration:  time.Second,
 		},
 	}
+}
+
+// TestSessionExporter_BuildFilterArgs_MapsStreamsPerConfig covers the ffmpeg
+// argument builders, which were the uncovered half of this file: the mapping
+// and mix arguments decide which streams reach the output, so a wrong answer
+// here produces a video that silently lacks audio or subtitles rather than an
+// error. Pure string building — no ffmpeg needed.
+func TestSessionExporter_BuildFilterArgs_MapsStreamsPerConfig(t *testing.T) {
+	newExporter := func(mix string, subtitles bool) *SessionExporter {
+		cfg := DefaultExportConfig("/tmp/out.mp4")
+		cfg.AudioMix = mix
+		cfg.IncludeTranscriptions = subtitles
+		cfg.IncludeAnnotations = false
+		return NewSessionExporter(&AnnotatedSession{}, cfg)
+	}
+
+	t.Run("stereo mix maps the filtered video and mixed audio", func(t *testing.T) {
+		e := newExporter(audioMixStereo, true)
+		args := e.buildFilterArgs([]string{"a.wav", "b.wav"}, "/tmp/subs.srt")
+
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "amerge=inputs=2") {
+			t.Errorf("expected a stereo amerge filter, got %q", joined)
+		}
+		if !strings.Contains(joined, "-map [v]") {
+			t.Errorf("subtitles requested, so video must come from the filter graph: %q", joined)
+		}
+		if !strings.Contains(joined, "-map [a]") {
+			t.Errorf("audio tracks present, so audio must be mapped: %q", joined)
+		}
+	})
+
+	t.Run("mono mix uses amix rather than amerge", func(t *testing.T) {
+		e := newExporter(audioMixMono, true)
+		args := e.buildFilterArgs([]string{"a.wav", "b.wav"}, "/tmp/subs.srt")
+
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "amix=inputs=2") {
+			t.Errorf("expected a mono amix filter, got %q", joined)
+		}
+		if strings.Contains(joined, "amerge") {
+			t.Errorf("mono must not amerge: %q", joined)
+		}
+	})
+
+	t.Run("a single track is copied, not mixed", func(t *testing.T) {
+		e := newExporter(audioMixStereo, true)
+		args := e.buildFilterArgs([]string{"only.wav"}, "/tmp/subs.srt")
+
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "[1:a]acopy[a]") {
+			t.Errorf("expected acopy for one track, got %q", joined)
+		}
+	})
+
+	t.Run("no subtitles and no audio needs no filter graph at all", func(t *testing.T) {
+		e := newExporter(audioMixStereo, false)
+		if args := e.buildFilterArgs(nil, ""); args != nil {
+			t.Errorf("expected no filter args, got %v", args)
+		}
+	})
+
+	t.Run("without subtitles the video maps straight from the input", func(t *testing.T) {
+		e := newExporter(audioMixStereo, false)
+		args := e.buildMappingArgs([]string{"a.wav"})
+
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, "-map 0:v") {
+			t.Errorf("no filter graph, so video must map from input 0: %q", joined)
+		}
+		if !strings.Contains(joined, "-map [a]") {
+			t.Errorf("audio still mapped: %q", joined)
+		}
+	})
+
+	t.Run("output codecs follow the format", func(t *testing.T) {
+		for _, tc := range []struct {
+			format ExportFormat
+			want   string
+		}{
+			{ExportFormatMP4, "libx264"},
+			{ExportFormatWebM, "libvpx-vp9"},
+		} {
+			cfg := DefaultExportConfig("/tmp/out")
+			cfg.Format = tc.format
+			e := NewSessionExporter(&AnnotatedSession{}, cfg)
+			if joined := strings.Join(e.buildOutputFormatArgs(), " "); !strings.Contains(joined, tc.want) {
+				t.Errorf("format %v: expected %q in %q", tc.format, tc.want, joined)
+			}
+		}
+	})
 }

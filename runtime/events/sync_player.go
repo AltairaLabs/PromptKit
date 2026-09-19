@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
 )
 
 // Playback constants.

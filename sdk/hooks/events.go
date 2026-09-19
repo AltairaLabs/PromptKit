@@ -1,7 +1,7 @@
 package hooks
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // EventSource is an interface for objects that provide an EventBus.

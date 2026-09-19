@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // speechPCM returns 16-bit PCM sine at ~0.106 RMS, matching measured real speech

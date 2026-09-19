@@ -12,7 +12,7 @@ Connect to remote [A2A](https://a2a-protocol.org) agents so the LLM can delegate
 ## Quick Start
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk"
+import "github.com/AltairaLabs/PromptKit/sdk/v2"
 
 agent := sdk.NewA2AAgent("https://agent.example.com").
     WithAuth("Bearer", os.Getenv("AGENT_TOKEN"))
@@ -36,8 +36,8 @@ The SDK calls `/.well-known/agent.json` to discover the agent's skills, then reg
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 agent := sdk.NewA2AAgent("https://agent.example.com").
@@ -180,7 +180,7 @@ spec:
 For lower-level control, you can create a `ToolBridge` manually:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/a2a"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 
 client := a2a.NewClient("https://agent.example.com")
 bridge := a2a.NewToolBridge(client)
@@ -206,8 +206,8 @@ import (
     "log"
     "os"
 
-    "github.com/AltairaLabs/PromptKit/runtime/tools"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

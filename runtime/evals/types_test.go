@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestEvalDef_IsEnabled(t *testing.T) {
@@ -594,11 +594,11 @@ func TestEvalResult_OmitsNewOptionals(t *testing.T) {
 
 func TestEvalDef_ExtendedFieldsJSON(t *testing.T) {
 	def := EvalDef{
-		ID:      "check",
-		Type:    "contains",
-		Trigger: TriggerEveryTurn,
-		Params:  map[string]any{"text": "hello"},
-		Message: "should contain hello",
+		ID:        "check",
+		Type:      "contains",
+		Trigger:   TriggerEveryTurn,
+		Params:    map[string]any{"text": "hello"},
+		Message:   "should contain hello",
 		Threshold: &Threshold{Operator: "gte", Value: testutil.Ptr(0.8)},
 		// `when` is additionalProperties:true in the spec, so the field is the
 		// raw map and EvalWhen is promptkit's reading of it.

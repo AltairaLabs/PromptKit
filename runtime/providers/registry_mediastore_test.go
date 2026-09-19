@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/httputil"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestCreateProviderFromSpec_AppliesStorageService verifies the registry entry

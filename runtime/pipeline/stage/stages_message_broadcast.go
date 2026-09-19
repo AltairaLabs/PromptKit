@@ -3,7 +3,7 @@ package stage
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // MessageBroadcastStage publishes message.created on the EventBus for each new

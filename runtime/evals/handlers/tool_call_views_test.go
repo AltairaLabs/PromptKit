@@ -3,7 +3,7 @@ package handlers
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestStringifyResult_String(t *testing.T) {

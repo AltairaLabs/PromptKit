@@ -1,6 +1,6 @@
 package events
 
-import "github.com/AltairaLabs/PromptKit/runtime/types"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // roleTool is the message role whose text lives on ToolResult rather than
 // Content or Parts.

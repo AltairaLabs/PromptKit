@@ -24,8 +24,8 @@ import (
     "context"
     "log"
 
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
 ```
 
@@ -148,8 +148,8 @@ pipeline := stage.NewPipelineBuilder().
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
 hookRegistry := hooks.NewRegistry(
@@ -170,8 +170,8 @@ pipeline := stage.NewPipelineBuilder().
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    "github.com/AltairaLabs/PromptKit/runtime/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 redisClient := redis.NewClient(&redis.Options{
@@ -494,7 +494,7 @@ func TestPipeline(t *testing.T) {
 
 **Problem**: Pipeline executions timing out.
 
-**Solution**: Increase the idle timeout (resets on each activity — provider call, tool execution, streaming chunk):
+**Solution**: Increase the idle timeout. It resets on each activity — provider call, round completion, streaming chunk — and is held open for as long as a tool call is running, so a slow tool does not trip it (bound those with the tool's own `TimeoutMs`):
 
 ```go
 config := stage.DefaultPipelineConfig().

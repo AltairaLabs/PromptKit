@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 var stepIDRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)

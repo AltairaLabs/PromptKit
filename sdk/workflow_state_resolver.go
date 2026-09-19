@@ -6,10 +6,10 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/template"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
 
 // workflowResolverHolder is a stable stage.WorkflowStateResolver that the

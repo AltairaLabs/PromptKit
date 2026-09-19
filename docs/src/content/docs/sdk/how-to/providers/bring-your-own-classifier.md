@@ -56,7 +56,28 @@ conv, _ := sdk.Open("caller.pack.json", "assistant",
 
 ## Wiring it to a check
 
-Reference the registered id from the eval's `params.classifier_id`. `WithClassifier` registers a backend but does **not** make it the default, so name it explicitly:
+A check names the provider it needs by a **logical name the pack itself
+declares** — never a model, an endpoint, or an id that only means something in
+your deployment. The pack asks; you decide what answers.
+
+Declare it:
+
+```json
+{
+  "requires": {
+    "providers": [
+      {
+        "key": "emotion-classifier",
+        "role": "inference",
+        "description": "speech-emotion classifier scoring the caller's audio",
+        "required": true
+      }
+    ]
+  }
+}
+```
+
+Point the check at it:
 
 ```json
 {
@@ -67,10 +88,22 @@ Reference the registered id from the eval's `params.classifier_id`. `WithClassif
     "model": "wav2vec2-ser",
     "expected_label": "angry",
     "message_role": "user",
-    "classifier_id": "onnx-ser"
+    "provider": "emotion-classifier"
   }
 }
 ```
+
+Bind that name when you open the conversation:
+
+```go
+conv, _ := sdk.Open("caller.pack.json", "assistant",
+    sdk.WithClassifier("emotion-classifier", backend),
+)
+```
+
+Swapping backends is now a one-line change on your side; the pack does not move.
+A check whose name is undeclared, unbound, or bound to something that cannot do
+the job fails at `Open()` and says which of the three it is.
 
 Observe results with an [eval hook](/sdk/how-to/observability/run-evals/) (`sdk.WithEvalHook`) or your metrics recorder.
 

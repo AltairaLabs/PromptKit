@@ -1,6 +1,6 @@
 package stt
 
-import "github.com/AltairaLabs/PromptKit/runtime/providers/base"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {

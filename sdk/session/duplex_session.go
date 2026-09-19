@@ -13,13 +13,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/streaming"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/streaming"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const errSessionClosed = "session is closed"
@@ -65,6 +65,9 @@ type duplexSession struct {
 	// Pipeline execution control
 	executionStarted bool
 	executionMu      sync.Mutex
+	// warnedLateVar guards the one-time warning for a SetVar made after the
+	// pipeline started, when the value can no longer reach the provider.
+	warnedLateVar atomic.Bool
 
 	// sessionCtx is a session-level context created during NewDuplexSession.
 	// It is used for pipeline execution instead of the first SendChunk's context,
@@ -641,10 +644,26 @@ func (s *duplexSession) Variables() map[string]string {
 }
 
 // SetVar sets a session variable.
+//
+// A duplex pipeline renders the system prompt once, when the first input
+// starts it, and creates the provider session with that render as its system
+// instruction. A variable set before the first input is rendered; one set
+// afterwards is stored (GetVar still returns it) but never reaches the
+// provider, so the first such call is reported at Warn rather than dropped
+// silently.
 func (s *duplexSession) SetVar(name, value string) {
 	s.varsMu.Lock()
-	defer s.varsMu.Unlock()
 	s.variables[name] = value
+	s.varsMu.Unlock()
+
+	s.executionMu.Lock()
+	started := s.executionStarted
+	s.executionMu.Unlock()
+	if started && s.warnedLateVar.CompareAndSwap(false, true) {
+		logger.Warn("duplexSession: variable set after the session started will not reach the provider; "+
+			"the system prompt is rendered once, when the first input arrives — set variables before sending input",
+			"variable", name, "session_id", s.id)
+	}
 }
 
 // GetVar retrieves a session variable.

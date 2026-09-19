@@ -13,16 +13,16 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (
@@ -64,6 +64,22 @@ type ProviderStage struct {
 	// turn ending with the origin state still in control. Nil for
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
+	// offeredTools accumulates the tool names handed to the provider across
+	// this turn's rounds, stamped onto each assistant message. Reset per turn
+	// by newToolLoop; see resetOffered for why that matters.
+	//
+	// A turn runs on one goroutine, so it needs no lock.
+	//
+	// Held behind a pointer deliberately: a map field of its own would make
+	// ProviderStage non-comparable, which is an incompatible API change for a
+	// published exported type and blocks every subsequent minor release.
+	offeredTools *offeredToolSet
+}
+
+// offeredToolSet is the set of tool names offered during a turn. It exists so
+// ProviderStage can hold it by pointer and stay comparable; see offeredTools.
+type offeredToolSet struct {
+	names map[string]bool
 }
 
 // currentTurn returns the 1-based number of the turn being processed, or 0 when
@@ -94,9 +110,9 @@ type ProviderConfig struct {
 	// StructuredOutputMode selects when ResponseFormat is applied to a tool
 	// loop. Empty means final_turn — the schema is withheld from tool-calling
 	// rounds and the final answer is re-asked under it, because a schema on
-	// every round suppresses tool calling. See structured_output_mode.go and
-	// issue #1853. Ignored when ResponseFormat is nil or the turn uses no
-	// tools, where there is no loop to protect.
+	// every round suppresses tool calling. See structured_output_mode.go.
+	// Ignored when ResponseFormat is nil or the turn uses no tools, where
+	// there is no loop to protect.
 	StructuredOutputMode StructuredOutputMode
 	Labels               map[string]string // Optional labels propagated to events, metrics, and traces
 	Source               string            // Origin of the call: "agent" (default), "judge", "selfplay"
@@ -134,6 +150,17 @@ type ProviderConfig struct {
 	// set is used (the provider stage never crashes a turn because
 	// selection broke).
 	ToolSelector selection.Selector
+
+	// ToolGrants, when set, returns the pack tools currently granted beyond the
+	// prompt's baseline — today, the union of active skills' allowed-tools. It
+	// is a live accessor rather than a list because the set changes while a
+	// turn is running: a skill is usually activated by a tool call in round 1
+	// and its tools must be offered in round 2 of the same Send. The stage
+	// merges the grants into allowedTools on every build and rebuilds the
+	// tools array after any tool round that changed them. Grants are
+	// applied after ToolSelector narrowing, so a selector never hides a tool
+	// the model was just told it gained.
+	ToolGrants func() []string
 
 	// ApprovalChecker, when set, is consulted before each tool executes. If it
 	// returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
@@ -1013,6 +1040,9 @@ func (tl *toolLoop) warnIfCachingStalled(round int) {
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
+	// The one place both multi-round paths pass through exactly once per turn,
+	// and therefore where the turn's offered set begins.
+	s.resetOffered()
 	excluded := map[string]bool{}
 	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, excluded)
 	if err != nil {
@@ -1130,6 +1160,7 @@ func (tl *toolLoop) afterRound(
 		return false, tl.messages, nil
 	}
 
+	grantsBefore := tl.stage.grantedTools()
 	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls, rr)
 	if err != nil {
 		if _, ok := tools.IsErrToolsPending(err); ok {
@@ -1144,7 +1175,12 @@ func (tl *toolLoop) afterRound(
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
 
-	if tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded) {
+	// Rebuild the tools array when this round changed what the model may call:
+	// a tool crossed the rejection threshold (excluded), or a tool call such as
+	// skill__activate / skill__deactivate changed the granted set. Rebuilding
+	// busts the provider's cached prefix, so it happens only on a real change.
+	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
+	if excludedChanged || !stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
 		rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
 		if rebuildErr != nil {
 			return true, tl.messages, fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
@@ -1385,6 +1421,8 @@ func (s *ProviderStage) executeRound(
 		FinishReason: resp.FinishReason,
 	}
 
+	s.stampToolsOffered(&responseMsg)
+
 	// Run AfterCall hooks
 	if err := s.runAfterCallHooks(ctx, &afterCallParams{
 		messages:     messages,
@@ -1574,6 +1612,7 @@ func (s *ProviderStage) executeStreamingRound(
 		FinishReason: finishReason,
 		Validations:  chunkValidations,
 	}
+	s.stampToolsOffered(&responseMsg)
 
 	// Run AfterCall hooks
 	if err := s.runAfterCallHooks(ctx, &afterCallParams{
@@ -1904,6 +1943,10 @@ func (s *ProviderStage) executeToolCalls(
 	if s.toolRegistry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
+
+	// Running tools is activity, so hold the idle timer open until they finish.
+	// Each tool is still bounded by its own TimeoutMs (#2017).
+	defer keepIdleAlive(ctx)()
 
 	resultSlots := make([]toolCallResult, len(toolCalls))
 	var mu sync.Mutex
@@ -2638,6 +2681,76 @@ func (s *ProviderStage) updateExcludedTools(
 	return changed
 }
 
+// resetOffered starts a fresh offered set for a turn.
+//
+// The union is across a turn's ROUNDS — skill grants widen it mid-turn, which
+// is the whole point — but a ProviderStage outlives the turn: the SDK builds
+// the pipeline once per conversation and every Send reuses it, and
+// processStreaming serves a whole session inside one Process call. Without
+// this, a tool offered once is reported offered for the rest of the
+// conversation and a tools_offered check with absent:true can never fail
+// again (#2037).
+func (s *ProviderStage) resetOffered() {
+	s.offeredTools = nil
+}
+
+// recordOffered accumulates the tool names handed to the provider this turn.
+//
+// The set is a union across rounds, not a snapshot: skill tool grants widen it
+// mid-turn, which is the whole point of them, so "what this turn offered" is
+// everything the model saw at any round. Stamped onto each assistant message as
+// types.MetaToolsOffered, which is what makes the tools_offered eval possible —
+// nothing else records a tool the model was offered but never called.
+//
+// A ProviderStage serves one turn, so no locking is needed: Process and the
+// tool loop run on the same goroutine.
+func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
+	if len(descriptors) == 0 {
+		return
+	}
+	if s.offeredTools == nil {
+		s.offeredTools = &offeredToolSet{names: make(map[string]bool, len(descriptors))}
+	}
+	for _, d := range descriptors {
+		if d != nil {
+			s.offeredTools.names[d.Name] = true
+		}
+	}
+}
+
+// stampToolsOffered records on an assistant message what this turn offered the
+// model, so an eval can assert on tool availability and not just on what the
+// model chose to call.
+//
+// Both round implementations must call it. It lived inline in executeRound
+// until #2035, which meant it never ran for a streaming provider — that is
+// every provider PromptArena runs, so the eval had no evidence to judge
+// anywhere it mattered.
+func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
+	offered := s.offeredToolNames()
+	if len(offered) == 0 {
+		return
+	}
+	if msg.Meta == nil {
+		msg.Meta = map[string]interface{}{}
+	}
+	msg.Meta[types.MetaToolsOffered] = offered
+}
+
+// offeredToolNames returns the accumulated set, sorted, or nil when the turn
+// offered no tools at all.
+func (s *ProviderStage) offeredToolNames() []string {
+	if s.offeredTools == nil || len(s.offeredTools.names) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(s.offeredTools.names))
+	for name := range s.offeredTools.names {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // buildProviderTools constructs the tool descriptors sent to the provider.
 // Tools in the excluded set are omitted from the result.
 // classifyToolError determines the ToolErrorType from an execution error.
@@ -2714,6 +2827,58 @@ func (s *ProviderStage) collectProviderDescriptors(
 	return descriptors
 }
 
+// grantedTools returns the currently granted tool names, sorted, or nil when
+// no grant source is configured.
+func (s *ProviderStage) grantedTools() []string {
+	if s.config == nil || s.config.ToolGrants == nil {
+		return nil
+	}
+	grants := s.config.ToolGrants()
+	if len(grants) == 0 {
+		return nil
+	}
+	out := make([]string, len(grants))
+	copy(out, grants)
+	sort.Strings(out)
+	return out
+}
+
+// withGrantedTools returns allowedTools extended with the currently granted
+// tools that it does not already name. The input slice is not mutated.
+func (s *ProviderStage) withGrantedTools(allowedTools []string) []string {
+	grants := s.grantedTools()
+	if len(grants) == 0 {
+		return allowedTools
+	}
+	seen := make(map[string]bool, len(allowedTools))
+	for _, name := range allowedTools {
+		seen[name] = true
+	}
+	out := make([]string, 0, len(allowedTools)+len(grants))
+	out = append(out, allowedTools...)
+	for _, name := range grants {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// stringSlicesEqual reports whether two string slices hold the same elements
+// in the same order.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
@@ -2736,7 +2901,8 @@ func (s *ProviderStage) buildProviderTools(
 		return nil, "", nil
 	}
 
-	descriptors := s.collectProviderDescriptors(allowedTools, excluded)
+	descriptors := s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded)
+	s.recordOffered(descriptors)
 	if len(descriptors) == 0 {
 		return nil, "", nil
 	}

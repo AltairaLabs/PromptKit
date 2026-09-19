@@ -3,7 +3,7 @@ package claude
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // TestSupportsCaching_DefaultOnForCurrentModels verifies that supportsCaching returns true

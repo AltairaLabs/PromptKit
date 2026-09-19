@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +64,7 @@ func TestForwardResponseElements_LongAudioBurstAllForwarded(t *testing.T) {
 // conversation dies at exactly 30s (context canceled / ErrIdleTimeout).
 func TestForwardResponseElements_ResetsIdleOnActivity(t *testing.T) {
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) })
+	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, time.Second)
 
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
@@ -88,7 +88,7 @@ func TestForwardResponseElements_ResetsIdleOnActivity(t *testing.T) {
 // also keep the pipeline alive.
 func TestForwardInputElements_ResetsIdleOnActivity(t *testing.T) {
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) })
+	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, time.Second)
 
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
@@ -125,7 +125,7 @@ func TestDuplexProviderStage_ActivityDefeatsIdleTimeout(t *testing.T) {
 
 	idleCtx, cancel, reset := withIdleTimeout(context.Background(), idle)
 	defer cancel()
-	ctx := contextWithIdleReset(idleCtx, reset)
+	ctx := contextWithIdleReset(idleCtx, reset, idle)
 
 	sess := newRecordingSession()
 	s := stageWithSession(sess)

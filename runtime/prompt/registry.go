@@ -26,7 +26,7 @@
 //	registry := prompt.NewRegistryWithRepository(repo)
 //	assembled := registry.LoadWithVars("task_type", vars, "gpt-4")
 //
-// See package github.com/AltairaLabs/PromptKit/sdk for higher-level APIs.
+// See package github.com/AltairaLabs/PromptKit/sdk/v2 for higher-level APIs.
 package prompt
 
 import (
@@ -37,10 +37,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/packspec"
-	"github.com/AltairaLabs/PromptKit/runtime/template"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

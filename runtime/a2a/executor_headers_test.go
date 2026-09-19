@@ -3,7 +3,7 @@ package a2a
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func TestResolveHeaders(t *testing.T) {

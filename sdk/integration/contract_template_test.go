@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/sdk/integration/probes"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/integration/probes"
 )
 
 // TestContract_TemplateStage pins the per-Send operation budget for

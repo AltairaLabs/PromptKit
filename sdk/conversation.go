@@ -10,23 +10,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
-	intpipeline "github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
-	"github.com/AltairaLabs/PromptKit/sdk/session"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
+	intpipeline "github.com/AltairaLabs/PromptKit/sdk/v2/internal/pipeline"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // Default parameter values for LLM calls.
@@ -160,6 +162,14 @@ type Conversation struct {
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities           []Capability
 	capabilitiesRegistered bool // guards against re-registering capability tools on every pipeline build
+
+	// Per-conversation state for capabilities whose executors are shared.
+	// A tools.Registry holds exactly one executor per name, and a host may
+	// share a capability or a registry across conversations, so this state
+	// cannot live on the executor — it travels on the context of every call
+	// instead. See #2011.
+	skillSet    *skills.ActiveSet
+	memoryScope map[string]string
 
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
@@ -334,6 +344,51 @@ func extractUserText(msg *types.Message) string {
 		sb.WriteString(*part.Text)
 	}
 	return sb.String()
+}
+
+// skillToolGrants returns the pack tools the active skills currently grant
+// beyond the prompt's baseline. It is handed to the pipeline as a live
+// accessor (intpipeline.Config.ToolGrants) because the pipeline is built once
+// and skills activate mid-turn; the provider stage re-reads it on every tools
+// build. Nil when no skills capability is present (#1957).
+func (c *Conversation) skillToolGrants() []string {
+	for _, cap := range c.capabilities {
+		if sc, ok := cap.(*SkillsCapability); ok && sc.executor != nil {
+			return sc.executor.ToolsFor(c.skillSet)
+		}
+	}
+	return nil
+}
+
+// withConversationState attaches this conversation's share of the state that
+// the skills and memory executors deliberately do not hold.
+//
+// Executor *instances* are no longer shared between conversations -- each gets a
+// child registry (see sdk.initConversation and tools.Registry.Child) -- but
+// these two primitives are also driven directly by hosts that share one
+// executor on purpose, PromptArena among them, so their state stays on the call
+// rather than the object. A capability shared across opens via WithCapability
+// shares its skills executor too, and this is what keeps that honest. See
+// #2011.
+func (c *Conversation) withConversationState(ctx context.Context) context.Context {
+	ctx = skills.WithActiveSet(ctx, c.skillSet)
+	return memory.WithScope(ctx, c.memoryScope)
+}
+
+// initConversationState gives the conversation its own capability state:
+// an ActiveSet seeded with the preloaded skills, and the memory scope.
+func (c *Conversation) initConversationState() {
+	for _, cap := range c.capabilities {
+		switch typed := cap.(type) {
+		case *SkillsCapability:
+			c.skillSet = typed.NewActiveSet()
+		case *MemoryCapability:
+			c.memoryScope = typed.scope
+		}
+	}
+	if c.skillSet == nil {
+		c.skillSet = skills.NewActiveSet()
+	}
 }
 
 // refreshSelectorBoundCapabilities lets capabilities that depend on
@@ -592,13 +647,16 @@ func (c *Conversation) buildPipelineConfig(
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
 		HookRegistry:          c.hookRegistry,
 		ExecutionTimeout:      c.config.executionTimeout,
+		IdleTimeout:           c.config.idleTimeout,
 		MessageLog:            c.config.messageLog,
 		CompactionEnabled:     c.config.compactionEnabled,
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
+		ToolGrants:            c.skillToolGrants,
 		ApprovalChecker:       c.newApprovalChecker(),
 		ClassifyRegistry:      c.config.classifyRegistry,
+		ProviderBinding:       newHostBinding(c.config),
 		// A bound audio session (OpenVoice) plays response audio to a realtime
 		// speaker; pace the output so a streaming provider's whole-reply burst
 		// doesn't overrun the sink's jitter buffer and drop audio (stutter).
@@ -758,7 +816,7 @@ func (c *Conversation) executePipeline(
 	userMsg *types.Message,
 ) (*rtpipeline.ExecutionResult, error) {
 	// Execute through the unary session (only called from Send which checks mode)
-	return c.unarySession.ExecuteWithMessage(ctx, *userMsg)
+	return c.unarySession.ExecuteWithMessage(c.withConversationState(ctx), *userMsg)
 }
 
 // lastAssistantFinishReason returns the FinishReason of the most recent
@@ -921,7 +979,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 		return err
 	}
 
-	return c.duplexSession.SendChunk(ctx, chunk)
+	return c.duplexSession.SendChunk(c.withConversationState(ctx), chunk)
 }
 
 // SendText sends text in duplex mode.
@@ -934,7 +992,7 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 		return err
 	}
 
-	return c.duplexSession.SendText(ctx, text)
+	return c.duplexSession.SendText(c.withConversationState(ctx), text)
 }
 
 // SendFrame sends an image frame in duplex mode for realtime video scenarios.
@@ -956,7 +1014,7 @@ func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame)
 		return err
 	}
 
-	return c.duplexSession.SendFrame(ctx, frame)
+	return c.duplexSession.SendFrame(c.withConversationState(ctx), frame)
 }
 
 // SendVideoChunk sends a video chunk in duplex mode for encoded video streaming.
@@ -979,7 +1037,7 @@ func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoC
 		return err
 	}
 
-	return c.duplexSession.SendVideoChunk(ctx, chunk)
+	return c.duplexSession.SendVideoChunk(c.withConversationState(ctx), chunk)
 }
 
 // TriggerStart sends a text message to make the model initiate the conversation.
@@ -1001,7 +1059,7 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 		return err
 	}
 
-	return c.duplexSession.SendText(ctx, message)
+	return c.duplexSession.SendText(c.withConversationState(ctx), message)
 }
 
 // Response returns the response channel for duplex streaming.
@@ -1061,6 +1119,13 @@ func (c *Conversation) SessionError() error {
 //	conv.SetVar("customer_name", "Alice")
 //	// Template: "You are helping {{customer_name}}"
 //	// Becomes: "You are helping Alice"
+//
+// A unary conversation renders the system prompt on every Send, so a value
+// changed between sends changes the next prompt. A duplex conversation
+// (OpenDuplex) renders it once, when the first input starts the session, and
+// the provider session is created with that render as its system instruction.
+// Set duplex variables before the first SendChunk/SendText; a later SetVar is
+// stored but never reaches the provider, and the first one is logged at Warn.
 func (c *Conversation) SetVar(name, value string) {
 	c.mu.RLock()
 	closed := c.closed
@@ -1233,10 +1298,6 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	}
 
 	ctx := context.Background()
-	pipeline, err := c.buildPipelineWithParams(store, forkID, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("fork: failed to build pipeline: %w", err)
-	}
 
 	// Create a new tool registry for the fork, copying tool descriptors from the original.
 	// This prevents mutations in the fork from affecting the parent's registry.
@@ -1271,8 +1332,25 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		resolvedStore:    sdktools.NewResolvedStore(),
 		mcpRegistry:      c.mcpRegistry,  // Share MCP registry
 		hookRegistry:     c.hookRegistry, // Share hook registry
+		// Capabilities are shared -- their executors hold no conversation
+		// state -- but the fork must carry them, or nothing registers an
+		// executor into forkRegistry and its skill and memory tools resolve to
+		// descriptors with no executor behind them (#2011).
+		capabilities: c.capabilities,
 	}
 	fork.sessionHooks = newSessionHookDispatcher(fork.hookRegistry, fork.sessionInfo)
+	// A fork gets its own active skills and memory scope: what it activates
+	// must not reach the conversation it was forked from, and vice versa.
+	fork.initConversationState()
+
+	// Build the fork's pipeline from the FORK, not the parent. Building it from
+	// the parent wired the fork's tool execution to the parent's registry and
+	// the parent's capability executors, which made forkRegistry decorative --
+	// a fork's skill activation landed in the parent.
+	pipeline, err := fork.buildPipelineWithParams(store, forkID, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fork: failed to build pipeline: %w", err)
+	}
 
 	// Fork the session based on current mode
 	switch c.mode {

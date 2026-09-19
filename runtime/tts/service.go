@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
 // Common audio constants.
@@ -66,7 +66,7 @@ type StreamingService interface {
 // callers MUST treat the empty string as "do not inject any rubric" so we
 // do not waste persona tokens on tags that would be silently dropped.
 //
-// See [github.com/AltairaLabs/PromptKit/runtime/tts/markup] for the canonical
+// See [github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup] for the canonical
 // rubric strings each adapter may return.
 type PersonaRubricProvider interface {
 	PersonaRubric() string

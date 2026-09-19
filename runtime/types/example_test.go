@@ -3,7 +3,7 @@ package types_test
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ExampleCostInfo shows reading the cost of an LLM turn. The flat headline

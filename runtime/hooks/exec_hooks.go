@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox/direct"
 )
 
 const defaultExecHookTimeout = 10 * time.Second

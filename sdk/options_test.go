@@ -10,17 +10,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestWithAudioMonitor_StoresOptions(t *testing.T) {
@@ -86,6 +86,29 @@ func TestWithExecutionTimeout(t *testing.T) {
 		assert.NoError(t, err)
 		require.NotNil(t, cfg.executionTimeout)
 		assert.Equal(t, time.Duration(0), *cfg.executionTimeout)
+	})
+}
+
+func TestWithIdleTimeout(t *testing.T) {
+	t.Run("sets timeout", func(t *testing.T) {
+		cfg := &config{}
+		require.NoError(t, WithIdleTimeout(90*time.Second)(cfg))
+		require.NotNil(t, cfg.idleTimeout)
+		assert.Equal(t, 90*time.Second, *cfg.idleTimeout)
+	})
+
+	t.Run("zero disables the idle timer", func(t *testing.T) {
+		cfg := &config{}
+		require.NoError(t, WithIdleTimeout(0)(cfg))
+		require.NotNil(t, cfg.idleTimeout)
+		assert.Equal(t, time.Duration(0), *cfg.idleTimeout)
+	})
+
+	t.Run("rejects a negative timeout", func(t *testing.T) {
+		cfg := &config{}
+		err := WithIdleTimeout(-time.Second)(cfg)
+		require.Error(t, err)
+		assert.Nil(t, cfg.idleTimeout)
 	})
 }
 
@@ -1334,8 +1357,11 @@ func TestWithSelector(t *testing.T) {
 	})
 }
 
-// stubText is a minimal TextClassifier for WithClassifier tests.
-type stubText struct{}
+// stubText is a minimal TextClassifier for WithClassifier tests. The id field
+// exists so two stubs compare unequal — an empty struct makes every value
+// identical, which would let a "did the right one win?" assertion pass by
+// accident.
+type stubText struct{ id string }
 
 func (stubText) ClassifyText(_ context.Context, _ string, _ classify.TextOptions) ([]classify.LabelScore, error) {
 	return nil, nil
@@ -1431,4 +1457,77 @@ func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {
 	require.NotNil(t, p.Platform, "expected Platform to be carried through toPkgProvider")
 	require.Equal(t, "bedrock", p.Platform.Type)
 	require.Equal(t, "us-east-1", p.Platform.Region)
+}
+
+func TestWithClassifier_ClaimsDefaultTask(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("first", stubText{id: "first"})(c))
+	require.NoError(t, WithClassifier("second", stubText{id: "second"})(c))
+
+	// The empty id must resolve, and resolve to the FIRST registration —
+	// a backend registered through an option has to claim the unset default,
+	// and a later one must not steal it.
+	byDefault, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err,
+		"a classify backend registered through an option must claim the unset default, "+
+			"otherwise every handler lookup that doesn't name an id fails")
+	named, err := c.classifyRegistry.TextClassifier("first")
+	require.NoError(t, err)
+	require.Equal(t, named, byDefault, "default text classifier should be the first registered")
+}
+
+func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
+	c := &config{}
+	err := WithInferenceProvider(ProviderSpec{
+		ID:         "hf",
+		Type:       "huggingface",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+
+	// The HF backend satisfies every task interface, so each task's default
+	// must resolve to the same instance the id "hf" resolves to.
+	audioByID, err := c.classifyRegistry.AudioClassifier("hf")
+	require.NoError(t, err)
+	audioDefault, err := c.classifyRegistry.AudioClassifier("")
+	require.NoError(t, err, "role: inference must set the default audio classifier")
+	require.Equal(t, audioByID, audioDefault)
+
+	textByID, err := c.classifyRegistry.TextClassifier("hf")
+	require.NoError(t, err)
+	textDefault, err := c.classifyRegistry.TextClassifier("")
+	require.NoError(t, err, "role: inference must set the default text classifier")
+	require.Equal(t, textByID, textDefault)
+}
+
+func TestWithClassifier_DuplicateIDRejected(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := WithClassifier("dup", stubText{})(c)
+	require.Error(t, err, "registering the same classify id twice must be rejected")
+	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestWithInferenceProvider_DuplicateIDAcrossSpellings(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := WithInferenceProvider(ProviderSpec{
+		ID:         "dup",
+		Type:       "huggingface",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.Error(t, err,
+		"a duplicate classify id must be rejected across every registration path, "+
+			"not just within a single config block")
+}
+
+func TestApplyInferenceProviders_DuplicateIDAgainstProgrammatic(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("dup", stubText{})(c))
+	err := applyInferenceProviders(c, []pkgconfig.InferenceProviderConfig{
+		{ID: "dup", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+	})
+	require.Error(t, err,
+		"inference_providers: must see ids already registered programmatically; "+
+			"a block-local duplicate check silently overwrites them")
 }

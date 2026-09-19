@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 )
 
 func cred(tok string) *pkgconfig.CredentialConfig {

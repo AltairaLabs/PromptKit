@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Image moderation scores the agent's visual output by default (role:
@@ -27,7 +27,9 @@ const imageModerationDefaultRole = roleAssistant
 //   - expected_label  string  (required) — label whose score is emitted
 //   - message_role    string  (optional, default "assistant") — whose image to score
 //   - message_index   int     (optional, default -1 = latest match)
-//   - classifier_id   string  (optional) — explicit registry id; empty uses the configured default
+//   - provider        string  (optional) — a logical provider name this pack
+//     declares in requires, bound by the host; empty uses
+//     the host's configured default
 type ImageModerationHandler struct{}
 
 // Type returns the eval type identifier.
@@ -46,9 +48,9 @@ func (h *ImageModerationHandler) Eval(
 		return errorResult(h.Type(), cfgErr.Error()), nil
 	}
 
-	classifier, classifierErr := resolveImageClassifier(ctx, cfg.classifierID)
+	classifier, classifierErr := resolveImageClassifier(ctx, cfg.providerKey)
 	if classifierErr != nil {
-		return skippedResult(h.Type(), classifierErr.Error()), nil
+		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
 
 	imageParts := collectMediaContentByRole(evalCtx.Messages, types.ContentTypeImage, cfg.messageRole)
@@ -87,12 +89,14 @@ func (h *ImageModerationHandler) Eval(
 
 // resolveImageClassifier pulls the classify registry out of context and looks up
 // the requested classifier id. An empty id resolves the configured default.
-func resolveImageClassifier(ctx context.Context, id string) (classify.ImageClassifier, error) {
-	reg := classify.FromContext(ctx)
-	if reg == nil {
-		return nil, errors.New(
-			"no classify registry configured; add a providers: entry with role: inference " +
-				"and either defaults.inference.image_classifier or params.classifier_id")
+func resolveImageClassifier(ctx context.Context, key string) (classify.ImageClassifier, error) {
+	if key != "" {
+		return classifierFor(ctx, key, "image classifier",
+			func(b classify.Backend) (classify.ImageClassifier, bool) {
+				c, ok := b.(classify.ImageClassifier)
+				return c, ok
+			})
 	}
-	return reg.ImageClassifier(id)
+	return defaultClassifier(ctx, "image classifier",
+		func(r *classify.Registry) (classify.ImageClassifier, error) { return r.ImageClassifier("") })
 }

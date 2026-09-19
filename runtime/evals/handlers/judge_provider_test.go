@@ -6,10 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	_ "github.com/AltairaLabs/PromptKit/runtime/providers/mock" // register mock provider factory
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock" // register mock provider factory
 )
 
 // mockJudgeProvider implements JudgeProvider for testing.

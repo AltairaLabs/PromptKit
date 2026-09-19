@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	a2amock "github.com/AltairaLabs/PromptKit/runtime/a2a/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/sdk"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	a2amock "github.com/AltairaLabs/PromptKit/runtime/v2/a2a/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // ---------------------------------------------------------------------------

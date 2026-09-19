@@ -1,9 +1,9 @@
 package sdk
 
 import (
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/workflow"
-	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // WorkflowCapability provides the workflow__transition tool for LLM-initiated

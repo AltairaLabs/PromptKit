@@ -28,6 +28,14 @@ const (
 	// backend covers four — so engine wiring registers each backend against
 	// every interface it implements rather than per-role-per-task.
 	RoleInference = "inference"
+	// RoleRerank marks a reranking provider: given a query and a bounded
+	// candidate list it returns those candidates reordered by relevance,
+	// with scores. It is a synchronous model-backed call, not a tool or an
+	// agent — no conversation, no tool loop. Distinct from embedding, which
+	// scores each text independently against nothing; a reranker reads the
+	// query and the document together, which is why it is more accurate and
+	// why it cannot be cached per-document. See AltairaLabs/PromptKit#1993.
+	RoleRerank = "rerank"
 )
 
 // knownRoles is the set accepted by ValidateRole. An empty string is
@@ -42,6 +50,7 @@ var knownRoles = map[string]struct{}{
 	RoleImage:     {},
 	RoleVideo:     {},
 	RoleInference: {},
+	RoleRerank:    {},
 }
 
 // GetRole returns the provider's role, defaulting to "llm".
@@ -59,8 +68,9 @@ func (p *Provider) ValidateRole() error {
 		return nil
 	}
 	if _, ok := knownRoles[p.Role]; !ok {
-		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s, %s, %s)",
-			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage, RoleVideo, RoleInference)
+		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s, %s, %s, %s)",
+			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage, RoleVideo, RoleInference,
+			RoleRerank)
 	}
 	return nil
 }

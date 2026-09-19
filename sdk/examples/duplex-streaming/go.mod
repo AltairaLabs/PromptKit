@@ -3,15 +3,15 @@ module duplex-streaming
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/sdk v0.0.0-00010101000000-000000000000
-	github.com/AltairaLabs/PromptKit/sdk/examples/audiohelper v0.0.0-00010101000000-000000000000
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/sdk/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/sdk/v2/examples/audiohelper v0.0.0-00010101000000-000000000000
 )
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3 // indirect
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/pkg/v2 v2.0.0 // indirect
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
@@ -96,9 +96,9 @@ require (
 )
 
 replace (
-	github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
-	github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
-	github.com/AltairaLabs/PromptKit/sdk => ../..
-	github.com/AltairaLabs/PromptKit/sdk/examples/audiohelper => ../audiohelper
-	github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
+	github.com/AltairaLabs/PromptKit/pkg/v2 => ../../../pkg
+	github.com/AltairaLabs/PromptKit/runtime/v2 => ../../../runtime
+	github.com/AltairaLabs/PromptKit/sdk/v2 => ../..
+	github.com/AltairaLabs/PromptKit/sdk/v2/examples/audiohelper => ../audiohelper
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 => ../../../server/a2a
 )

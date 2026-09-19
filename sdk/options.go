@@ -3,38 +3,40 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/metrics"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/skills"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/storage"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/variables"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // VAD mode default configuration constants.
@@ -100,6 +102,9 @@ type config struct {
 	// Tool registry (for power users)
 	toolRegistry *tools.Registry
 
+	// Executors registered by name via WithToolExecutor, applied at Open.
+	toolExecutors map[string]tools.Executor
+
 	// Event bus for observability
 	eventBus events.Bus
 
@@ -126,6 +131,14 @@ type config struct {
 	embeddingProviders   map[string]providers.EmbeddingProvider
 	embeddingProviderIDs []string
 
+	// Declarative rerank providers, keyed by ID. Unlike embeddings these
+	// are not consumed by any built-in stage: reranking is an optional
+	// step a host drives over its own candidates, so the SDK's job is to
+	// construct and hand them back via RerankProvider/RerankProviders.
+	// See AltairaLabs/PromptKit#1993.
+	rerankProviders   map[string]providers.RerankProvider
+	rerankProviderIDs []string
+
 	// Declarative TTS / STT providers, keyed by ID. First entry
 	// becomes the default ttsService / sttService unless one is
 	// already set via WithTTS / WithVADMode.
@@ -137,6 +150,17 @@ type config struct {
 	// Inference (classify) registry, built from declarative
 	// inference_providers and/or WithInferenceProvider / WithClassifier.
 	classifyRegistry *classify.Registry
+
+	// classifyProviderIDs records every classify backend id registered
+	// through any path — inference_providers:, a providers: entry with
+	// role: inference, WithInferenceProvider, WithClassifier — so a
+	// duplicate is rejected config-wide rather than per-block. Mirrors
+	// ttsProviderIDs / sttProviderIDs.
+	classifyProviderIDs []string
+
+	// classifyBackends is every classify backend by the id it was registered
+	// under, for provider-binding lookups. See registerClassifyBackend.
+	classifyBackends map[string]classify.Backend
 
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
@@ -311,6 +335,7 @@ type config struct {
 	// When non-nil, overrides the default 30s execution timeout.
 	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
 	executionTimeout *time.Duration
+	idleTimeout      *time.Duration
 
 	// Recording configuration for session recording via RecordingStage.
 	// When set, RecordingStages are inserted into the pipeline to capture
@@ -489,12 +514,47 @@ func (c *config) getSummarizeProvider() providers.Provider {
 }
 
 // ensureClassifyRegistry lazy-initializes the classify registry.
-// Called by applyInferenceProviders and the WithInferenceProvider /
-// WithClassifier options before registering any backend.
+// Called by registerClassifyBackend before registering anything.
 func (c *config) ensureClassifyRegistry() {
 	if c.classifyRegistry == nil {
 		c.classifyRegistry = classify.NewRegistry()
 	}
+}
+
+// registerClassifyBackend registers backend under id on the classify registry,
+// claiming any task defaults that aren't set yet, and records the id.
+//
+// It is the single entry point for every classify registration path — the
+// inference_providers: block, a providers: entry with role: inference, and the
+// WithInferenceProvider / WithClassifier options — so that a duplicate id is
+// caught config-wide. Tracking duplicates per block instead let the same id
+// registered through two different paths silently overwrite the first.
+//
+// Defaults are claimed here because these paths register one backend at a time
+// with nothing running afterwards to assign them; a backend without a default
+// resolves by id and fails every lookup that omits one.
+// It returns the task labels the backend registered against, so a caller that
+// needs to compute its own first-wins ordering doesn't have to re-derive them.
+func (c *config) registerClassifyBackend(id string, backend classify.Backend) ([]string, error) {
+	if slices.Contains(c.classifyProviderIDs, id) {
+		return nil, fmt.Errorf("classify provider %q: duplicate ID", id)
+	}
+	c.ensureClassifyRegistry()
+	tasks := classify.RegisterBackendDefaulting(c.classifyRegistry, id, backend)
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("classify provider %q: backend implements no classify task interface", id)
+	}
+	c.classifyProviderIDs = append(c.classifyProviderIDs, id)
+	// Remembered by id so the provider binding can answer "what did the host
+	// bind to this logical name" for a classify-backed check. The registry
+	// itself only offers typed, per-task lookups, which cannot distinguish
+	// "bound nothing" from "bound something that does not do this task" — and
+	// that distinction is the whole point of the binding's error messages.
+	if c.classifyBackends == nil {
+		c.classifyBackends = make(map[string]classify.Backend)
+	}
+	c.classifyBackends[id] = backend
+	return tasks, nil
 }
 
 // CredentialOption configures credentials for a provider.
@@ -896,6 +956,40 @@ func WithSessionMetadata(metadata map[string]any) Option {
 func WithToolRegistry(registry *tools.Registry) Option {
 	return func(c *config) error {
 		c.toolRegistry = registry
+		return nil
+	}
+}
+
+// WithToolExecutor registers a custom executor for a tool by name, applied when
+// the conversation is opened.
+//
+// This is [Conversation.OnToolExecutor] expressed as an option, for
+// constructors that own the conversation lifecycle and never hand the
+// conversation back — [A2AOpener] above all. Without it, an embedder's tool
+// path (policy checks, credential injection, audit) cannot reach conversations
+// served over A2A, so what a deployment enforces depends on which protocol the
+// caller used.
+//
+//	opener := sdk.A2AOpener(packPath, promptName,
+//	    sdk.WithToolExecutor("search", myExecutor),
+//	    sdk.WithToolExecutor("fetch", myExecutor),
+//	)
+//
+// The tool must be declared in the pack; registering an executor for a name the
+// pack does not define fails when the model calls it, not here. Registering the
+// same name twice keeps the last executor.
+func WithToolExecutor(name string, executor tools.Executor) Option {
+	return func(c *config) error {
+		if name == "" {
+			return errors.New("WithToolExecutor: tool name must not be empty")
+		}
+		if executor == nil {
+			return fmt.Errorf("WithToolExecutor: executor for %q must not be nil", name)
+		}
+		if c.toolExecutors == nil {
+			c.toolExecutors = make(map[string]tools.Executor)
+		}
+		c.toolExecutors[name] = executor
 		return nil
 	}
 }
@@ -1334,6 +1428,28 @@ func WithMemoryContextFormatter(fn memory.ContextFormatter) MemoryOption {
 func WithExecutionTimeout(d time.Duration) Option {
 	return func(c *config) error {
 		c.executionTimeout = &d
+		return nil
+	}
+}
+
+// WithIdleTimeout overrides the default pipeline idle timeout (30s). The idle
+// timer cancels a pipeline that shows no activity — no provider tokens, no
+// tool progress — for that long. Pass 0 to disable it entirely, leaving
+// [WithExecutionTimeout] as the only bound on a turn.
+//
+// Time spent inside a tool call does not count as idle, so this does not need
+// raising for slow tools; bound those with the tool's own timeout. Raise it
+// when a provider itself goes quiet for long stretches.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithIdleTimeout(90 * time.Second),
+//	)
+func WithIdleTimeout(d time.Duration) Option {
+	return func(c *config) error {
+		if d < 0 {
+			return fmt.Errorf("WithIdleTimeout: timeout must be non-negative, got %s", d)
+		}
+		c.idleTimeout = &d
 		return nil
 	}
 }
@@ -2282,9 +2398,8 @@ func WithInferenceProvider(spec ProviderSpec) Option {
 		if err != nil {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
-		c.ensureClassifyRegistry()
-		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
-			return fmt.Errorf("WithInferenceProvider %q: backend implements no classify task interface", id)
+		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+			return fmt.Errorf("WithInferenceProvider: %w", err)
 		}
 		return nil
 	}
@@ -2298,9 +2413,8 @@ func WithClassifier(id string, backend classify.Backend) Option {
 		if id == "" {
 			return fmt.Errorf("WithClassifier: id is required")
 		}
-		c.ensureClassifyRegistry()
-		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
-			return fmt.Errorf("WithClassifier %q: backend implements no classify task interface", id)
+		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+			return fmt.Errorf("WithClassifier: %w", err)
 		}
 		return nil
 	}
@@ -2322,8 +2436,36 @@ func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 	}
 }
 
+// WithNamedProvider registers a completion provider under its ID for a pack to
+// name, WITHOUT making it the conversation's agent.
+//
+// This is how a host answers a pack's `requires` entry for an ancillary model —
+// the judge a toxicity guardrail grades with, say. [WithLLMProvider] would also
+// register it, but it sets the agent as a side effect, so binding a grader with
+// it silently replaces the model the conversation talks to.
+//
+//	conv, _ := sdk.Open(pack, "chat",
+//	    sdk.WithProvider(agent),
+//	    sdk.WithNamedProvider(sdk.ProviderSpec{ID: "grader", Type: "openai", Model: "gpt-4.1-mini"}),
+//	)
+func WithNamedProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
+		if err != nil {
+			return fmt.Errorf("WithNamedProvider %q: %w", spec.idOrType(), err)
+		}
+		ensureProviderPool(c)
+		c.providers.Register(prov)
+		return nil
+	}
+}
+
 // WithLLMProvider sets the conversation's agent (completion) provider from a
 // spec. Sugar over WithProvider for the uniform spec-based option family.
+//
+// It sets the AGENT: the last call wins, and a provider registered this way
+// becomes the model the conversation talks to. To bind an ancillary provider a
+// pack names — a judge, say — use [WithNamedProvider] instead.
 //
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithLLMProvider(spec ProviderSpec) Option {
@@ -2356,11 +2498,15 @@ func WithImageProvider(spec ProviderSpec) Option {
 
 // WithTTSProvider builds a TTS service from a spec and sets it as the default
 // ttsService (first-wins; does not overwrite one already set by WithTTS or a
-// prior WithTTSProvider call).
+// prior WithTTSProvider call). Registering the same ID twice is an error,
+// matching the declarative path (#2000).
 //
 //nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
 func WithTTSProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.ttsProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithTTSProvider %q: duplicate ID", spec.idOrType())
+		}
 		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2385,11 +2531,15 @@ func WithTTSProvider(spec ProviderSpec) Option {
 }
 
 // WithSTTProvider builds an STT service from a spec and sets it as the default
-// sttService (first-wins; does not overwrite one already set).
+// sttService (first-wins; does not overwrite one already set). Registering the
+// same ID twice is an error, matching the declarative path (#2000).
 //
 //nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
 func WithSTTProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.sttProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithSTTProvider %q: duplicate ID", spec.idOrType())
+		}
 		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2417,9 +2567,17 @@ func WithSTTProvider(spec ProviderSpec) Option {
 // the default RAG retrievalProvider (first-wins; does not overwrite one already
 // set by WithContextRetrieval or a prior WithEmbeddingProvider call).
 //
+// Registering the same ID twice is an error, matching what the declarative
+// path (a runtime config's embedding_providers) already does. Silently keeping
+// one provider while listing its ID twice made the ID list stop being a set
+// (#2000).
+//
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithEmbeddingProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		if _, exists := c.embeddingProviders[spec.idOrType()]; exists {
+			return fmt.Errorf("WithEmbeddingProvider %q: duplicate ID", spec.idOrType())
+		}
 		var platform string
 		if spec.Platform != nil {
 			platform = spec.Platform.Type
@@ -2444,6 +2602,57 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 		if c.retrievalProvider == nil {
 			c.retrievalProvider = ep
 		}
+		return nil
+	}
+}
+
+// WithRerankProvider configures a rerank provider from a spec, for hosts that
+// want to reorder a candidate list by relevance before spending prompt budget
+// on it — typically after a vector search has returned more results than the
+// context window can afford.
+//
+// Reranking is a synchronous model-backed call, not a tool: nothing in the
+// pipeline invokes it on your behalf. Retrieve the constructed provider with
+// [Conversation.RerankProvider] and call it where it belongs in your own
+// retrieval flow.
+//
+// Multiple providers may be configured; the first declared becomes the
+// default returned by RerankProvider(). Registered types are reported by
+// [RegisteredRerankProviderTypes].
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithRerankProvider(sdk.ProviderSpec{
+//	        Type: "voyageai", Model: "rerank-2.5",
+//	    }),
+//	)
+//	rr, _ := conv.RerankProvider()
+//	out, err := rr.Rerank(ctx, providers.RerankRequest{
+//	    Query: q, Documents: candidates, TopN: 5,
+//	})
+func WithRerankProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := providers.ResolveRerankCredential(
+			context.Background(), spec.Type, "", spec.Credential, spec.Platform)
+		if err != nil {
+			return fmt.Errorf("WithRerankProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		var platform string
+		if spec.Platform != nil {
+			platform = spec.Platform.Type
+		}
+		rp, err := providers.CreateRerankProviderFromSpec(providers.RerankProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+			Platform: platform, PlatformConfig: spec.Platform,
+		})
+		if err != nil {
+			return fmt.Errorf("WithRerankProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.rerankProviders == nil {
+			c.rerankProviders = make(map[string]providers.RerankProvider)
+		}
+		c.rerankProviders[spec.idOrType()] = rp
+		c.rerankProviderIDs = append(c.rerankProviderIDs, spec.idOrType())
 		return nil
 	}
 }
@@ -2712,9 +2921,9 @@ func WithResponseFormat(format *providers.ResponseFormat) Option {
 // The default, "final_turn", withholds the schema from tool-calling rounds and
 // re-asks the final answer under it. A schema applied to every round competes
 // with tool calling and suppresses it — silently, intermittently, and more the
-// more work the task requires. See issue #1853.
+// more work the task requires.
 //
-// "every_round" restores the pre-#1853 behavior. It is an escape hatch for
+// "every_round" restores the older behavior. It is an escape hatch for
 // pinning old behavior without waiting on a release, not a supported
 // alternative: it is the configuration that loses tool calls.
 //
@@ -3163,10 +3372,19 @@ func WithEvalsDisabled() Option {
 	}
 }
 
-// WithJudgeProvider configures the LLM judge provider for judge-based evals.
+// WithJudgeProvider configures the LLM judge that judge-backed checks — bias,
+// toxicity, pii_leakage, role_violation, llm_judge and the RAG primitives —
+// evaluate through, as evals and as pack `validators:` guardrails alike.
 //
-// If not set, an SDKJudgeProvider is created automatically using the
-// conversation's provider.
+// If not set, the judge is the provider registered under [JudgeProviderKey],
+// which is what a host supplies in answer to a pack's requires block. Nothing
+// falls back to the conversation's own provider: which model grades the output
+// is the host's decision, and self-grading on the agent model is a decision, not
+// a default.
+//
+// A judge-backed guardrail with no judge from either route fails Open() rather
+// than failing per turn, where it used to block every turn or none of them
+// silently (#1996).
 func WithJudgeProvider(jp handlers.JudgeProvider) Option {
 	return func(c *config) error {
 		c.judgeProvider = jp
@@ -3196,6 +3414,11 @@ func WithMaxConcurrentEvals(n int) Option {
 // Evals with no explicit groups belong to the "default" group.
 // When groups are specified, only evals with at least one matching group run.
 // If not set (nil), all evals run regardless of group.
+//
+// A requested group that matches no eval is logged at WARN, naming the group
+// and the groups the pack's evals declare. If none of the requested groups
+// match, no evals run for the conversation, so a typo here disables every
+// eval — including any that back a guardrail.
 func WithEvalGroups(groups ...string) Option {
 	return func(c *config) error {
 		c.evalGroups = groups

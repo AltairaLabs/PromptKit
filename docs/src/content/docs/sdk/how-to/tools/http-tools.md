@@ -120,8 +120,8 @@ import (
     "sync"
     "time"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // tokenCache manages OAuth token refresh with caching.
@@ -209,7 +209,7 @@ func filterCustomerFields(resp []byte) ([]byte, error) {
 For advanced use cases, implement the `RequestMapper` interface to fully control how arguments map to HTTP requests:
 
 ```go
-import rttools "github.com/AltairaLabs/PromptKit/runtime/tools"
+import rttools "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 
 type HMACRequestMapper struct {
     rttools.DefaultRequestMapper // embed default behavior

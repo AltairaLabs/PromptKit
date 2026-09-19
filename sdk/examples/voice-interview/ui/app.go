@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/interview"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/examples/voice-interview/interview"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

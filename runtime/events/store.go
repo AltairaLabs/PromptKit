@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/lru"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // File system constants.

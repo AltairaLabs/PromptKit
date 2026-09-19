@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/AltairaLabs/PromptKit/runtime/hooks/execconfig"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/execconfig"
 )
 
 // The exec/sandbox binding types moved to runtime/hooks/execconfig to break the

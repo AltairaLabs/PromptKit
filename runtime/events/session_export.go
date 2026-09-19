@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/annotations"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
 )
 
 // ExportFormat specifies the output format for session export.
@@ -41,11 +41,11 @@ const (
 
 // Video defaults.
 const (
-	defaultVideoWidth  = 1280
-	defaultVideoHeight = 720
-	defaultFontSize    = 24
-	defaultFFmpeg      = "ffmpeg"
-	subtitleDuration   = 3 * time.Second
+	defaultVideoWidth   = 1280
+	defaultVideoHeight  = 720
+	defaultFontSize     = 24
+	defaultFFmpeg       = "ffmpeg"
+	subtitleDuration    = 3 * time.Second
 	ffmpegFilterComplex = "-filter_complex"
 )
 

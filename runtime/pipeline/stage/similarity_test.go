@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestCosineSimilarity_IdenticalVectors(t *testing.T) {

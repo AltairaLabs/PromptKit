@@ -15,7 +15,7 @@ PromptKit has two ways to put outside knowledge in front of a model. They are co
 | Source | A `memory.Store` you provide | Any corpus, via a `memory.Retriever` you provide |
 | Scoped to | A subject (a user, a workspace) | Whatever your retriever chooses |
 | Reaches the model as | A tool result mid-turn | The `{{memory_context}}` template variable |
-| Configured with | `WithMemory` | `WithRetriever` |
+| Configured with | `WithMemory` | `WithRetriever`, or `WithMemoryRetriever` inside `WithMemory` |
 
 Use memory tools when the model should remember things about the person it is talking to. Use grounding when every answer should be anchored in your documentation, catalog, or knowledge base — the model never has to think to ask for it. [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) covers the tradeoff in full: what each shape costs, and when to reach for which.
 
@@ -39,8 +39,8 @@ Then wire a retriever:
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/memory/corpus"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 kb := corpus.New([]corpus.Document{
@@ -90,7 +90,7 @@ sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
 `WithMemory` gives the model four tools — `memory__remember`, `memory__recall`, `memory__list` and `memory__forget` — backed by a store you supply:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/memory"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 
 store := memory.NewInMemoryStore()
 scope := map[string]string{"user_id": "u-1234"}
@@ -100,7 +100,11 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 )
 ```
 
-The model calls them on its own initiative, so the system prompt should say when to. There is no ambient injection here: nothing reaches the prompt unless the model asks.
+The model calls them on its own initiative. It already knows they exist and what they are for: the descriptors go to the provider as tool definitions, and each ships with a description that says when to reach for it — `memory__recall` is described as *"Search your memories for relevant information. Use this to recall facts, preferences, or context from previous conversations."* You do not have to restate any of that in the system prompt.
+
+When the defaults are not right for your deployment, edit the descriptor rather than the prompt — [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/) patches the description the model sees. Keep the system prompt for policy a tool description cannot carry: when *not* to store something, or which of several sources to trust first.
+
+Configured like the above — a store and a scope, no retriever — nothing reaches the prompt unless the model calls a tool. That is the default of this configuration, not a property of the capability: `WithMemory` also accepts a retriever, and a capability carrying one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
 
 ### Scope
 
@@ -139,7 +143,50 @@ sdk.WithMemory(store, scope,
 )
 ```
 
+The two options are independent. `WithMemoryRetriever` on its own adds ambient injection while leaving the tools registered; `WithMemoryToolsDisabled` is what removes them. Drop the second line above and the model gets both paths — it can call `memory__recall`, and `{{memory_context}}` is filled every turn regardless.
+
 `WithMemoryContextFormatter` is the formatter for this path — the capability's equivalent of `WithRetrievalFormatter`. When both a capability retriever and `WithRetriever` are configured, `WithRetriever` wins.
+
+### Backend-specific arguments
+
+A store with capabilities the four tools do not model — graph expansion, point-in-time reads, a namespace — can accept extra arguments without forking PromptKit. Extend the tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride), and the executor forwards anything it does not type itself:
+
+```go
+conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+    sdk.WithMemory(store, scope),
+    sdk.WithToolDescriptorOverride(memory.RecallToolName,
+        func(d *tools.ToolDescriptor) {
+            d.Description = "Recall memories, optionally expanding the graph from a seed."
+            d.InputSchema = schemaWithSeedAndHops // adds seed_name, max_hops
+        }),
+)
+```
+
+Your store reads them off the options struct:
+
+```go
+func (s *GraphStore) Retrieve(
+    ctx context.Context, scope map[string]string, query string, opts memory.RetrieveOptions,
+) ([]*memory.Memory, error) {
+    seed, _ := opts.Extras["seed_name"].(string)
+    hops, _ := opts.Extras["max_hops"].(float64) // JSON numbers arrive as float64
+    ...
+}
+```
+
+`memory__list` works the same way through `ListOptions.Extras`, and `memory__remember` merges its extras into `Memory.Metadata` alongside the typed `metadata` argument, where a typed key wins a collision.
+
+`memory__forget` is the one that needs opting in. `Store.Delete` takes no options parameter, so implement `memory.ExtrasDeleter` and the executor prefers it:
+
+```go
+func (s *GraphStore) DeleteWithOptions(
+    ctx context.Context, scope map[string]string, memoryID string, opts memory.DeleteOptions,
+) error
+```
+
+A store that ignores `Extras`, or does not implement `ExtrasDeleter`, behaves exactly as it did before — the extras are simply dropped. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the same matrix for workflow, A2A and skills.
+
+Backend-specific fields in the **result** need nothing special: return them in each `Memory.Metadata` and they serialize into the tool result the model sees.
 
 ## Using both
 
@@ -164,7 +211,7 @@ Ambient grounding is a per-turn operation: the retrieval stage reads the turn's 
 ambient grounding (a memory retriever) is not supported with a duplex provider: ...
 ```
 
-Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable. Tracking in issue #1962.
+Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable.
 
 ## Gotchas
 

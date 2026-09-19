@@ -26,7 +26,7 @@ import (
     sdktrace "go.opentelemetry.io/otel/sdk/trace"
     semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
@@ -70,7 +70,7 @@ Open your tracing UI (e.g., Jaeger at `http://localhost:16686`) and search for t
 If you don't need custom exporter configuration, `telemetry.NewTracerProvider` creates a ready-to-use provider:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/telemetry"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 
 tp, err := telemetry.NewTracerProvider(ctx,
     "http://localhost:4318/v1/traces",
@@ -92,8 +92,8 @@ For advanced use cases (e.g., injecting a parent trace context), wire the listen
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/events"
-    "github.com/AltairaLabs/PromptKit/runtime/telemetry"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 )
 
 tracer := telemetry.Tracer(tp)
@@ -118,7 +118,7 @@ If your PromptKit application is called from another service (e.g., via A2A), yo
 ### Setup propagation (once at startup)
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/telemetry"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 
 telemetry.SetupPropagation()
 ```
@@ -309,8 +309,8 @@ OTLP traces and Prometheus metrics are complementary. Use both for full observab
 ```go
 import (
     "github.com/prometheus/client_golang/prometheus"
-    "github.com/AltairaLabs/PromptKit/runtime/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 reg := prometheus.NewRegistry()

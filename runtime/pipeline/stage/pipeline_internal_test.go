@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // TestIsRootStage tests the precomputed root stage O(1) lookup.
@@ -425,7 +425,7 @@ func (s *resetDetectorStage) Type() StageType { return StageTypeTransform }
 func (s *resetDetectorStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 	defer close(out)
 	// Check if idle reset func is in context
-	if _, ok := ctx.Value(idleResetKey{}).(func()); ok {
+	if c, ok := ctx.Value(idleResetKey{}).(idleControl); ok && c.reset != nil {
 		s.found = true
 	}
 	for elem := range in {

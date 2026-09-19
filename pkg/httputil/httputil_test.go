@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/httputil"
+	"github.com/AltairaLabs/PromptKit/pkg/v2/httputil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

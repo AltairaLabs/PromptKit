@@ -46,7 +46,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Injects current time and date information:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/variables"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 
 conv, _ := sdk.Open("./pack.json", "chat",
     sdk.WithVariableProvider(variables.NewTimeProvider()),
@@ -66,7 +66,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Extracts variables from conversation state metadata:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/variables"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 
 // StateProvider reads from statestore metadata
 stateProvider := variables.NewStateProvider(stateStore, conversationID)
@@ -87,7 +87,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 Combines multiple providers in sequence:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/variables"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 
 chain := variables.Chain(
     variables.NewTimeProvider(),
@@ -120,7 +120,7 @@ package main
 
 import (
     "context"
-    "github.com/AltairaLabs/PromptKit/runtime/variables"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
 type RAGProvider struct {
@@ -309,8 +309,8 @@ import (
     "log"
     "os"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/variables"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
 func main() {

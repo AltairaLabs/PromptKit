@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // softmax converts logits to a probability distribution, subtracting the

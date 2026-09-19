@@ -41,7 +41,7 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `providers` | Provider[] | LLM provider configurations. |
+| `providers` | Provider[] | Provider configurations, routed by each entry's `role`. |
 | `tools` | map[string]ToolSpec | Tool implementation bindings keyed by pack tool name. |
 | `mcp_servers` | MCPServerConfig[] | MCP tool server configurations. |
 | `state_store` | StateStoreConfig | Conversation state persistence. |
@@ -53,15 +53,65 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 
 ### spec.providers[]
 
-Array of LLM provider configurations. Each entry configures credentials, model selection, rate limits, and default generation parameters for one provider.
+Array of provider configurations. Each entry configures credentials, model selection, rate limits, and default generation parameters for one provider.
 
-Validation requires `type` and `model` on every entry.
+**Every entry is routed by its `role`.** Providers with a completion role
+(`llm`, `image`, `video`) go into the agent pool — the first one declared becomes
+the conversation's agent and the rest stay available by ID. Providers with a
+capability role (`tts`, `stt`, `embedding`, `inference`, `rerank`) fill that
+capability's slot, first declared winning.
+
+```yaml
+spec:
+  providers:
+    - id: main-llm
+      role: llm                    # omitted role defaults to llm
+      type: claude
+      model: claude-sonnet-4-20250514
+      credential:
+        credential_env: ANTHROPIC_API_KEY
+
+    - id: judge                    # stays in the pool, reachable by ID
+      role: llm
+      type: openai
+      model: gpt-4o
+
+    - id: voice
+      role: tts                    # fills the TTS slot, not the agent slot
+      type: elevenlabs
+      credential:
+        credential_env: ELEVENLABS_API_KEY
+
+    - id: retrieval
+      role: embedding              # becomes the default RAG provider
+      type: openai
+      model: text-embedding-3-small
+      credential:
+        credential_env: OPENAI_API_KEY
+```
+
+Validation requires `type` on every entry, and `model` on completion roles only
+— for capability roles, `model` is an optional override of the provider's own
+default. Two entries may not share an ID *within a role*; the same ID under two
+different roles is fine, since the slots are separate.
+
+A provider supplied programmatically (`WithProvider`, `WithTTS`, …) always wins
+over one declared here; the config entry is kept in the pool rather than
+discarded.
+
+:::note[Superseded blocks]
+`embedding_providers`, `tts_providers`, `stt_providers` and `inference_providers`
+are the older, per-capability spelling of the same thing. They still work, but
+`role:` is the preferred form and the four blocks are removed in v3. Declaring
+the same ID in both spellings is rejected.
+:::
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | no | Unique provider identifier. Used to reference this provider elsewhere. |
-| `type` | string | yes | Provider type. One of: `claude`, `openai`, `gemini`, `ollama`, `vllm`, `voyageai`, `mock`, `replay`. |
-| `model` | string | yes | Model name (e.g., `claude-sonnet-4-20250514`, `gpt-4o`). |
+| `id` | string | no | Unique provider identifier. Used to reference this provider elsewhere. Defaults to `type`. |
+| `role` | string | no | What this provider is for: `llm` (default), `image`, `video`, `tts`, `stt`, `embedding`, `inference`, `rerank`. |
+| `type` | string | yes | Provider type. Not an enum — it names a registered factory, and which factories exist depends on which provider packages are linked in. See [provider types](#provider-types). |
+| `model` | string | for completion roles | Model name (e.g., `claude-sonnet-4-20250514`, `gpt-4o`). Optional for capability roles, where it overrides the provider default. |
 | `base_url` | string | no | Custom API base URL. Overrides the default endpoint for the provider type. |
 | `credential` | object | no | API key configuration. See [credential](#credential). |
 | `defaults` | object | no | Default generation parameters. See [defaults](#defaults). |
@@ -76,6 +126,36 @@ Validation requires `type` and `model` on every entry.
 | `stream_retry` | object | no | Streaming retry configuration. See [stream_retry](#stream_retry). |
 | `stream_max_concurrent` | int | no | Max concurrent streaming requests in flight. Requests beyond the limit block on the caller's context. `0` = unlimited (default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
+
+#### provider types
+
+`type` is a registry key, not a fixed enum. Each role has its own registry, so
+the same name can mean different things under different roles, and a name is
+valid only when the package that registers it is linked into the binary.
+
+Importing the SDK registers these:
+
+| Role | Types |
+|------|-------|
+| `llm` | `claude`, `openai`, `gemini`, `ollama`, `mock` |
+| `image` | `imagen` |
+| `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex` |
+| `rerank` | `voyageai`, `cohere`, `mock` |
+| `inference` | `huggingface`, `nvidia-topic-control` |
+
+Others need a blank import of their package — `vllm` and `replay` (both `llm`)
+are registered by `runtime/providers/vllm` and `runtime/providers/replay`:
+
+```go
+import _ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
+```
+
+An unregistered type fails at construction rather than degrading — the
+embedding and rerank paths name the types that *are* registered, which is the
+quickest way to tell a typo from a missing import.
+
+Bedrock, Vertex and Azure hosting of a chat model is not a separate `type` —
+it is the [`platform`](#platform) block on `claude` or `openai`.
 
 #### credential
 

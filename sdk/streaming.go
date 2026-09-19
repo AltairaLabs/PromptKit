@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	streamPkg "github.com/AltairaLabs/PromptKit/sdk/stream"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	streamPkg "github.com/AltairaLabs/PromptKit/sdk/v2/stream"
 )
 
 // StreamChunk represents a single chunk in a streaming response.
@@ -278,7 +278,7 @@ func (c *Conversation) executeStreamingPipeline(
 	c.turnState.BeginTurn()
 
 	// Execute streaming through the unary session (only called from Stream which checks mode)
-	streamCh, err := c.unarySession.ExecuteStreamWithMessage(ctx, *userMsg)
+	streamCh, err := c.unarySession.ExecuteStreamWithMessage(c.withConversationState(ctx), *userMsg)
 	if err != nil {
 		return fmt.Errorf("pipeline streaming failed: %w", err)
 	}

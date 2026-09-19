@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/mcp"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // localExecutor is a tool executor for locally-handled tools (Mode: "local").
@@ -48,6 +48,24 @@ func (e *localExecutor) Name() string {
 	return "local"
 }
 
+// liveCtxHandler reads the conversation's current context-aware handler, if the
+// executor was built with an accessor.
+func (e *localExecutor) liveCtxHandler(name string) (ToolHandlerCtx, bool) {
+	if e.live == nil {
+		return nil, false
+	}
+	return e.live.getCtxHandler(name)
+}
+
+// liveHandler reads the conversation's current plain handler, if the executor
+// was built with an accessor.
+func (e *localExecutor) liveHandler(name string) (ToolHandler, bool) {
+	if e.live == nil {
+		return nil, false
+	}
+	return e.live.getHandler(name)
+}
+
 // Execute dispatches to the appropriate handler based on tool name.
 // Context-aware handlers are preferred so that tracing and cancellation propagate.
 func (e *localExecutor) Execute(
@@ -59,12 +77,14 @@ func (e *localExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
-	// Prefer context-aware handler; for each kind look at the build-time
-	// snapshot first, then live handlers via the accessor (handlers registered
-	// after the pipeline was built, e.g. after OpenDuplex).
-	ctxHandler, ok := e.ctxHandlers[descriptor.Name]
-	if !ok && e.live != nil {
-		ctxHandler, ok = e.live.getCtxHandler(descriptor.Name)
+	// Prefer context-aware handler; for each kind ask the conversation's live
+	// handlers first and fall back to the build-time snapshot. The live map is
+	// the same map the snapshot was copied from, only current: consulting the
+	// copy first would pin a tool to whatever was registered at Open and
+	// silently ignore a later re-registration for that name.
+	ctxHandler, ok := e.liveCtxHandler(descriptor.Name)
+	if !ok {
+		ctxHandler, ok = e.ctxHandlers[descriptor.Name]
 	}
 
 	var result any
@@ -73,9 +93,9 @@ func (e *localExecutor) Execute(
 	case ok:
 		result, err = ctxHandler(ctx, argsMap)
 	default:
-		handler, hok := e.handlers[descriptor.Name]
-		if !hok && e.live != nil {
-			handler, hok = e.live.getHandler(descriptor.Name)
+		handler, hok := e.liveHandler(descriptor.Name)
+		if !hok {
+			handler, hok = e.handlers[descriptor.Name]
 		}
 		if !hok {
 			return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)

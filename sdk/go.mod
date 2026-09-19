@@ -1,13 +1,11 @@
-module github.com/AltairaLabs/PromptKit/sdk
+module github.com/AltairaLabs/PromptKit/sdk/v2
 
 go 1.26.0
 
-retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.5.3
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
+	github.com/AltairaLabs/PromptKit/pkg/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/google/uuid v1.6.0
@@ -101,8 +99,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../pkg
+replace github.com/AltairaLabs/PromptKit/pkg/v2 => ../pkg
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
 
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../server/a2a
+replace github.com/AltairaLabs/PromptKit/server/a2a/v2 => ../server/a2a

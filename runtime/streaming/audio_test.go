@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
 func TestSendEndOfStream_Success(t *testing.T) {

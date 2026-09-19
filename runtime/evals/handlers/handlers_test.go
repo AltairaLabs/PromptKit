@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // --- Contains ---
@@ -1557,6 +1557,7 @@ func TestRegisterInit(t *testing.T) {
 		"contains_any",
 		"content_excludes",
 		"tools_called_session",
+		"tools_offered",
 		"tools_not_called_session",
 		"tool_args_session",
 		"tool_args_excluded_session",
@@ -1612,6 +1613,7 @@ func TestRegisterInit(t *testing.T) {
 		"image_moderation",
 		"text_toxicity",
 		"text_sentiment",
+		"topic_policy",
 
 		// LLM judge handlers
 		"llm_judge",

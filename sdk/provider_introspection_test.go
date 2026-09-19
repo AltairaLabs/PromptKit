@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,6 +17,7 @@ func TestRegisteredProviderTypes_CoversEveryRole(t *testing.T) {
 		pkgconfig.RoleLLM, pkgconfig.RoleImage, pkgconfig.RoleVideo,
 		pkgconfig.RoleTTS, pkgconfig.RoleSTT,
 		pkgconfig.RoleEmbedding, pkgconfig.RoleInference,
+		pkgconfig.RoleRerank,
 	}
 	gotRoles := make([]string, 0, len(got))
 	for role := range got {

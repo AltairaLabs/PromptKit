@@ -122,7 +122,20 @@ run_in_module() {
 # build (e.g. everything behind a //go:build portaudio tag) or that has no test
 # files has nothing to analyze/build/test — that is not a failure. Match the Go
 # toolchain / golangci-lint messages that signal "nothing to do here".
+# is_empty_module_output reports whether a module produced nothing runnable at
+# all, which the caller treats as a pass rather than a failure.
+#
+# The "nothing ran" markers must be the ONLY thing in the output. Matching them
+# anywhere is how this check silently disabled the whole test gate: `runtime`
+# emits "[no test files]" for classify/backends/all among ~80 packages, so the
+# marker was always present, the caller's `||` branch was always true, and a
+# module with failing tests still printed "tests passed". Requiring the absence
+# of any per-package result line (ok / FAIL / --- FAIL) is what makes the
+# distinction real.
 is_empty_module_output() {
+    if echo "$1" | grep -qE "^(ok[[:space:]]|FAIL|--- FAIL|panic:)"; then
+        return 1
+    fi
     echo "$1" | grep -qE "no go files to analyze|matched no packages|build constraints exclude all Go files|no test files"
 }
 
@@ -218,7 +231,13 @@ else
         print_info "Building $module..."
 
         set +e
-        build_out=$(run_in_module "$module" go build ./... 2>&1)
+        # -o /dev/null: compile only, write nothing. Without it `go build`
+        # names each main package's binary after its directory, and
+        # server/a2a/examples/a2a-auth-test has a server/ subdirectory the
+        # binary would collide with ("build output "server" already exists
+        # and is a directory") — a build failure reported for a module that
+        # compiles perfectly well.
+        build_out=$(run_in_module "$module" go build -o /dev/null ./... 2>&1)
         build_rc=$?
         set -e
         [ -n "$build_out" ] && echo "$build_out"
@@ -315,6 +334,40 @@ fi
 echo ""
 
 #
+# 2.6. Weak assertions — new tests that cannot fail
+#
+# A test asserting only NoError/Nil/NotNil passes whether or not the code under
+# test produced the right answer, while still counting toward the coverage gate
+# below — so both checks go green on a test that proves nothing. CI's "Weak
+# Assertion Guard" fails on these, which is a late and easily-avoided surprise.
+#
+# The base is HEAD, not the merge base CI uses: that flags what THIS commit
+# adds and cannot be tripped by someone else's test arriving on main, which is
+# the wrong way for a pre-commit hook to fail. Anything added earlier on the
+# branch is left to CI. Same --new-from-rev convention as the lint step above.
+STAGED_TEST_FILES=$(echo "$STAGED_GO_FILES" | grep '_test\.go$' || true)
+
+if [ -n "$STAGED_TEST_FILES" ]; then
+    print_header "Weak Assertions"
+    print_info "Checking new tests can actually fail..."
+
+    set +e
+    weak_out=$("$REPO_ROOT/scripts/check-weak-assertions.sh" HEAD 2>&1)
+    weak_rc=$?
+    set -e
+
+    if [ $weak_rc -eq 0 ]; then
+        print_success "New tests carry falsifiable assertions"
+    else
+        echo "$weak_out" | head -40
+        print_error "New tests have assertions that cannot fail"
+        CHECKS_FAILED=1
+    fi
+
+    echo ""
+fi
+
+#
 # 3. Run tests with coverage on changed packages
 #
 print_header "Testing Changed Packages"
@@ -363,7 +416,19 @@ else
                 grep -h -v "^mode:" "$cov_file" >> "$MERGED_COVERAGE" 2>/dev/null || true
             fi
         done
-        
+
+        # The two consumers below want the paths spelled differently, so keep
+        # both forms. `go tool cover -func` resolves each path as a real import
+        # path and needs the /v2 a v2 module actually has; the per-file lookup
+        # greps for the repo-relative path, where the directory on disk is
+        # runtime/memory with no v2 in it. Normalize one copy and leave the
+        # other alone — normalizing in place makes every changed file report
+        # "no coverage data", and normalizing neither makes the overall figure
+        # read 0.0%. CI applies the same normalization before SonarCloud.
+        MERGED_COVERAGE_REL="$TEMP_COVERAGE_DIR/coverage-relpaths.out"
+        sed -E 's#(github\.com/AltairaLabs/PromptKit/(runtime|pkg|sdk|server/a2a))/v[0-9]+/#\1/#' \
+            "$MERGED_COVERAGE" > "$MERGED_COVERAGE_REL"
+
         # Check coverage on changed files only (excluding *_test.go and *_interactive.go)
         echo ""
         print_info "Checking coverage on changed files..."
@@ -414,12 +479,21 @@ runtime/tts/cartesia_interactive.go"
                 if [[ "$file" == examples/* ]] || [[ "$file" == */examples/* ]] || [[ "$file" == tests/* ]]; then
                     continue
                 fi
+                # Skip trees SonarCloud does not scan at all. sonar.sources is
+                # "sdk,runtime,pkg,server", so benchmarks/ and tools/ are
+                # outside the gate this hook exists to mirror; holding them to
+                # a threshold the CI gate never applies makes the hook stricter
+                # than the thing it is checking against, and a benchmark
+                # harness main() is not code anyone will write tests for.
+                if [[ "$file" == benchmarks/* ]] || [[ "$file" == tools/* ]]; then
+                    continue
+                fi
                 
                 
                 # Calculate ACTUAL statement coverage from raw coverage.out
                 # Format: file:startLine.startCol,endLine.endCol numStatements count
                 # count > 0 means covered, count = 0 means not covered
-                FILE_COV_PERCENT=$(grep "/$file:" "$MERGED_COVERAGE" 2>/dev/null | awk -F'[ ]' '
+                FILE_COV_PERCENT=$(grep "/$file:" "$MERGED_COVERAGE_REL" 2>/dev/null | awk -F'[ ]' '
                 {
                     # Last two fields: numStatements count
                     # Split on space, get the numeric fields

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 )
 
 // EmbeddingProviderSpec is the runtime form of an embedding-provider

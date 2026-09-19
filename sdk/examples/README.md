@@ -45,6 +45,12 @@ Voice Activity Detection examples.
 ### 👤 [hitl](./hitl/)
 Human-in-the-loop workflows.
 
+### 🛡️ [topic-policy](./topic-policy/)
+Confining a conversation to a declared subject scope with the `topic_policy` guardrail.
+- Pack validator + host-side classifier, the two declaration sites
+- A denied turn never reaches the agent
+- Runs offline; points at a real topic-control endpoint via env vars
+
 ### 👋 [hello](./hello/)
 Simple getting started example.
 

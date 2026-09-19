@@ -7,23 +7,24 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/classify"
-	"github.com/AltairaLabs/PromptKit/runtime/composition"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/memory"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
-	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
-	"github.com/AltairaLabs/PromptKit/runtime/variables"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
 // ErrRetrieverUnsupportedInDuplex is returned when a memory retriever is
@@ -122,6 +123,13 @@ type Config struct {
 	// before they're sent to the provider. Optional; when nil the
 	// provider sees the full allowedTools list (existing behavior).
 	ToolSelector selection.Selector
+
+	// ToolGrants, when set, is a live accessor for pack tools granted beyond
+	// the prompt's baseline — the union of active skills' allowed-tools. The
+	// ProviderStage merges it into the tools array on every build and rebuilds
+	// mid-turn when it changes. Live because the pipeline is built once, at
+	// Open(), and skills activate afterwards (#1957).
+	ToolGrants func() []string
 
 	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
 	// approval on the standard ProviderStage: a tool the checker holds is
@@ -258,6 +266,11 @@ type Config struct {
 	// A zero value disables timeout entirely.
 	ExecutionTimeout *time.Duration
 
+	// IdleTimeout overrides the default pipeline idle timeout (30s), which
+	// cancels a pipeline that shows no activity for that long. When non-nil,
+	// the pointed-to duration is used; a zero value disables it entirely.
+	IdleTimeout *time.Duration
+
 	// RecordingConfig enables recording stages in the pipeline.
 	// When set, input and output RecordingStages are inserted to capture
 	// full binary content for session replay.
@@ -267,6 +280,11 @@ type Config struct {
 	// Required when RecordingConfig is set; without it, recording stages
 	// will not be added to the pipeline.
 	RecordingStore events.EventStore
+
+	// ProviderBinding answers a pack's logical provider names with what the
+	// host wired. Attached to the execution context so checks can resolve the
+	// ancillary providers their pack declared.
+	ProviderBinding evals.ProviderBinding
 
 	// ClassifyRegistry is attached to the pipeline execution context.
 	// When non-nil, stages and downstream consumers can resolve inference
@@ -360,8 +378,15 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 // newPipelineBuilder creates the appropriate pipeline builder for the config.
 func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
+	return stage.NewPipelineBuilderWithConfig(pipelineConfigFor(cfg))
+}
+
+// pipelineConfigFor derives the runtime pipeline config — timeouts included —
+// from the SDK config.
+func pipelineConfigFor(cfg *Config) *stage.PipelineConfig {
 	pc := stage.DefaultPipelineConfig()
 	pc.ClassifyRegistry = cfg.ClassifyRegistry
+	pc.ProviderBinding = cfg.ProviderBinding
 	switch {
 	case cfg.StreamInputProvider != nil:
 		// For duplex streaming (ASM mode), disable execution timeout
@@ -370,7 +395,12 @@ func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 	case cfg.ExecutionTimeout != nil:
 		pc.ExecutionTimeout = *cfg.ExecutionTimeout
 	}
-	return stage.NewPipelineBuilderWithConfig(pc)
+	// Applies to duplex too: the idle timer is that path's liveness check, so
+	// it is never force-disabled the way ExecutionTimeout is above.
+	if cfg.IdleTimeout != nil {
+		pc.IdleTimeout = *cfg.IdleTimeout
+	}
+	return pc
 }
 
 // buildStateStoreConfig creates a state store config if a state store is configured.
@@ -634,6 +664,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
 			ToolSelector:     cfg.ToolSelector,
+			ToolGrants:       cfg.ToolGrants,
 			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
 

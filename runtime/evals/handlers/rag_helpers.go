@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // RAG-shaped eval handlers (faithfulness, answer_relevancy,
@@ -154,7 +154,7 @@ func ragJudgeCall(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(evalType, msg), nil
 	}
-	provider, extractErr := extractJudgeProvider(evalCtx)
+	provider, extractErr := resolveJudgeProvider(ctx, evalCtx, params)
 	if extractErr != nil {
 		return ragErrorResult(evalType, extractErr.Error()), nil
 	}

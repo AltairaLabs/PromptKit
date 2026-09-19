@@ -1,15 +1,11 @@
-module github.com/AltairaLabs/PromptKit/pkg
+module github.com/AltairaLabs/PromptKit/pkg/v2
 
 go 1.26.0
 
-retract v1.8.0 // Breaking API change shipped as a minor; modules disagree on apimachinery. See #1920, #1921.
-
-retract v1.4.0 // Published prematurely; use v1.4.1+
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
+replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
 	github.com/stretchr/testify v1.12.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1

@@ -23,7 +23,7 @@ For the conceptual difference between Decision-based and observational hooks, se
 Implement `Name`, `BeforeCall`, and `AfterCall`. Return `hooks.Allow` to continue, `hooks.Deny(reason)` to abort with a `*hooks.HookDeniedError`, or `hooks.Enforced(reason, metadata)` if you mutated the request/response in place and want the pipeline to continue with the modified content.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/hooks"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 
 type PIIHook struct{}
 
@@ -141,7 +141,7 @@ Register via `sdk.WithSessionHook(&SessionLogger{logger: slog.Default()})`.
 Observational. The runner hands you a pointer to the result; you can mutate it in place (redact, enrich, attach metadata) and the mutated result is what propagates to the caller and the event bus. There is no allow/deny decision — every registered hook always runs for every result.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 type MetricsEvalHook struct {
     exporter MetricExporter

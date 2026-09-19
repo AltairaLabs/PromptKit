@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
 // ErrUnknownGuardrailType is returned when a validator names an eval type that
@@ -20,12 +21,54 @@ import (
 // CompileValidators.
 var ErrUnknownGuardrailType = errors.New("unknown guardrail type")
 
+// ErrInvalidGuardrailParams is returned when the eval type IS registered and
+// its own evals.ParamValidator rejects the params. Like ErrUnknownGuardrailType
+// it is fatal on the strict path: the handler is the authority on its own
+// config, so its rejection is a statement that this declaration cannot work —
+// not a param a newer runtime might understand. See CompileValidators.
+var ErrInvalidGuardrailParams = errors.New("invalid guardrail params")
+
+// invalidParams tags a handler's ValidateParams rejection with
+// ErrInvalidGuardrailParams without altering the message. The message shape
+// matters: sdk.ValidatePack strips a fixed `guardrail "<type>": ` prefix off it
+// to recover the handler's own text, so the sentinel is attached through a
+// second Unwrap branch rather than by inserting another clause.
+type invalidParams struct{ err error }
+
+func (e *invalidParams) Error() string   { return e.err.Error() }
+func (e *invalidParams) Unwrap() []error { return []error{e.err, ErrInvalidGuardrailParams} }
+
+// ErrGuardrailNeedsJudge is returned when a validator names a judge-backed eval
+// type and no judge provider was supplied. It is fatal on the strict path for
+// the same reason an unknown type is: the guardrail cannot run.
+//
+// Before this, the two judge-backed families failed in opposite directions and
+// both silently — a `toxicity` guardrail scored 0.0 against a 1.0 floor and
+// blocked EVERY turn while reporting a content violation, and `pii_leakage`
+// degraded open so its LLM layer never ran at all (#1996). Neither is
+// detectable without reading the blocked message, and both are decided long
+// before any turn: the pack declares the judge it needs, the host supplies it,
+// and if it did not, that is knowable at load.
+var ErrGuardrailNeedsJudge = errors.New("guardrail needs a judge provider")
+
 // GuardrailOption configures a GuardrailHookAdapter.
 type GuardrailOption func(*GuardrailHookAdapter)
 
 // WithMessage sets the user-facing message shown when content is blocked.
 func WithMessage(msg string) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.message = msg }
+}
+
+// WithJudge supplies a DEFAULT judge, used by a judge-backed guardrail whose
+// pack names no provider of its own.
+//
+// The normal route is the pack: a check names a logical provider from its
+// requires block and the host binds that name, which keeps the host free to
+// change the model behind it. This is for a host driving guardrails with no
+// pack binding in play, and for one that wants a fallback; a named provider
+// always wins over it.
+func WithJudge(judge handlers.JudgeProvider) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.judge = judge }
 }
 
 // WithEmitter gives the guardrail an event emitter so it reports its validation
@@ -43,10 +86,10 @@ func WithEmitter(emitter *events.Emitter) GuardrailOption {
 //
 // If the handler implements evals.ParamValidator, the params are normalised
 // (ApplyDefaults + NormalizeParams) and passed to ValidateParams before the
-// hook is constructed. This surfaces invalid pack validators at SDK load
-// time instead of silently failing every turn — handlers for which params
-// are unusable return an error here, and the SDK's warn-and-skip loop in
-// convertPackValidatorsToHooks logs and drops them.
+// hook is constructed. This surfaces invalid pack validators at SDK load time
+// instead of silently failing every turn: a rejection is returned wrapped in
+// ErrInvalidGuardrailParams, which the strict compile path (and therefore
+// sdk.Open) treats as fatal.
 func NewGuardrailHookFromRegistry(
 	typeName string, params map[string]any, registry *evals.EvalTypeRegistry,
 	opts ...GuardrailOption,
@@ -67,29 +110,11 @@ func NewGuardrailHookFromRegistry(
 
 	if pv, ok := handler.(evals.ParamValidator); ok {
 		if verr := pv.ValidateParams(normalized); verr != nil {
-			return nil, fmt.Errorf("guardrail %q: %w", typeName, verr)
+			return nil, fmt.Errorf("guardrail %q: %w", typeName, &invalidParams{verr})
 		}
 	}
 
-	direction := DirectionOutput
-	if raw, present := params["direction"]; present {
-		d, ok := raw.(string)
-		if !ok {
-			logger.Warn(
-				"Guardrail direction must be a string; falling back to output",
-				"type", typeName, "direction", raw)
-		} else {
-			switch d {
-			case DirectionInput, DirectionOutput, DirectionBoth:
-				direction = d
-			default:
-				logger.Warn(
-					"Guardrail has unrecognized direction; falling back to output",
-					"type", typeName, "direction", d,
-					"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
-			}
-		}
-	}
+	direction := resolveDirection(typeName, normalized, params)
 
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -99,6 +124,20 @@ func NewGuardrailHookFromRegistry(
 	}
 	for _, opt := range opts {
 		opt(adapter)
+	}
+
+	// Checked after the options are applied, because WithJudge is one of them.
+	//
+	// A judge-backed guardrail is usable when its pack NAMES the provider to
+	// grade with — the normal case, resolved per turn through the host's
+	// binding — or when the host supplied a default judge for checks that name
+	// none. With neither, it cannot run, and that is knowable now rather than
+	// on every turn (#1996).
+	if handlers.RequiresJudge(handler) && normalized[handlers.ProviderParam] == nil && adapter.judge == nil {
+		return nil, fmt.Errorf(
+			"guardrail %q: %w — add params.%s naming a provider this pack declares in "+
+				"its requires block, which the host then supplies",
+			typeName, ErrGuardrailNeedsJudge, handlers.ProviderParam)
 	}
 	return adapter, nil
 }
@@ -133,15 +172,25 @@ func registryOrDefault(registry *evals.EvalTypeRegistry) *evals.EvalTypeRegistry
 //   - "message" set on the validator becomes the user-facing blocked text,
 //     falling back to Params["message"].
 //
-// Failure policy, split by how ambiguous the mistake is:
-//   - An **unknown eval type** is FATAL and returns ErrUnknownGuardrailType.
-//     A type that is not registered has no legitimate use — it is a typo — and
-//     silently dropping it leaves the conversation with no protection while
-//     load appears to succeed. That is fail-open on a safety control.
-//   - A validator whose **params** are unusable is logged and skipped, so one
-//     bad entry does not break the others. A pack authored against a newer
-//     runtime can legitimately carry params this build does not understand;
-//     refusing to load would make packs forward-incompatible.
+// Failure policy — both shapes of "this declaration cannot work" are FATAL,
+// for the same reason:
+//   - An **unknown eval type** returns ErrUnknownGuardrailType. A type that is
+//     not registered has no legitimate use — it is a typo — and silently
+//     dropping it leaves the conversation with no protection while load appears
+//     to succeed. That is fail-open on a safety control.
+//   - A registered type whose own evals.ParamValidator **rejects the params**
+//     returns ErrInvalidGuardrailParams. The handler is the authority on its own
+//     config; its rejection says this validator cannot run, and dropping it
+//     produces exactly the same silently unprotected conversation. This path
+//     used to log and skip on a forward-compatibility argument — that a pack
+//     authored against a newer runtime may carry params this build does not
+//     understand. It does not apply: a build that does not know the type at all
+//     is already fatal, and a build that does know it has the handler's own
+//     verdict. Forward-compatibility loses to an unprotected conversation.
+//
+// Params that no handler ever inspects are unaffected — only a handler that
+// implements evals.ParamValidator can reject anything here, and a type with no
+// validator accepts whatever it is given, exactly as before.
 //
 // On a fatal error no hooks are returned, so a caller cannot accidentally
 // proceed with a partial guardrail set.
@@ -157,19 +206,34 @@ func CompileValidators(validators []prompt.ValidatorConfig) ([]hooks.ProviderHoo
 // Without this the default registry does not know a custom type, construction
 // fails, and — on the lenient path — the guardrail is logged and dropped, which
 // leaves the conversation unprotected while load appears to succeed (#1717).
+//
+// Failure policy is CompileValidators's: an unknown type and a handler-rejected
+// param set are both fatal.
 func CompileValidatorsWithRegistry(
 	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry,
 ) ([]hooks.ProviderHook, error) {
 	return compileValidators(validators, true, registry)
 }
 
-// ValidatorsToHooks is the lenient form: every unusable validator — including
-// an unknown eval type — is logged and skipped, and the usable ones are still
-// returned.
+// CompileValidatorsWithOptions is CompileValidatorsWithRegistry with options
+// applied to every guardrail it builds — WithJudge above all, which is what
+// makes a judge-backed validator usable at all.
 //
-// Deprecated: use CompileValidators. This form cannot report an unknown eval
-// type, so a typo'd validator is silently dropped and the caller proceeds
-// unprotected. Retained unchanged so existing callers keep their behavior.
+// Per-validator options (the blocked message) are applied after these, so a
+// validator's own message still wins.
+func CompileValidatorsWithOptions(
+	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry, opts ...GuardrailOption,
+) ([]hooks.ProviderHook, error) {
+	return compileValidators(validators, true, registry, opts...)
+}
+
+// ValidatorsToHooks is the lenient form: every unusable validator — an unknown
+// eval type or a param set the handler rejects — is logged and skipped, and the
+// usable ones are still returned.
+//
+// Deprecated: use CompileValidators. This form cannot report either failure, so
+// a typo'd validator is silently dropped and the caller proceeds unprotected.
+// Retained unchanged so existing callers keep their behavior.
 func ValidatorsToHooks(validators []prompt.ValidatorConfig) []hooks.ProviderHook {
 	// The lenient path never returns an error.
 	out, _ := compileValidators(validators, false, nil)
@@ -177,13 +241,13 @@ func ValidatorsToHooks(validators []prompt.ValidatorConfig) []hooks.ProviderHook
 }
 
 // ValidatorsToHooksWithRegistry is the lenient form of
-// CompileValidatorsWithRegistry: every unusable validator — including an
-// unknown eval type — is logged and skipped. A nil registry means the default
-// one.
+// CompileValidatorsWithRegistry: every unusable validator — an unknown eval
+// type or a param set the handler rejects — is logged and skipped. A nil
+// registry means the default one.
 //
-// Deprecated: use CompileValidatorsWithRegistry. This form cannot report an
-// unknown eval type, so a typo'd validator is silently dropped and the caller
-// proceeds unprotected.
+// Deprecated: use CompileValidatorsWithRegistry. This form cannot report either
+// failure, so a typo'd validator is silently dropped and the caller proceeds
+// unprotected.
 func ValidatorsToHooksWithRegistry(
 	validators []prompt.ValidatorConfig, registry *evals.EvalTypeRegistry,
 ) []hooks.ProviderHook {
@@ -191,12 +255,14 @@ func ValidatorsToHooksWithRegistry(
 	return out
 }
 
-// compileValidators builds hooks from validator specs. When fatalUnknownType is
-// true an unregistered eval type aborts the whole set (no partial guardrails);
-// when false it is logged and skipped like any other unusable entry. registry
-// resolves the eval types; nil selects the default registry.
+// compileValidators builds hooks from validator specs. When strict is true a
+// validator that cannot be constructed — an unregistered eval type, or params
+// its own handler rejects — aborts the whole set (no partial guardrails); when
+// false it is logged and skipped. registry resolves the eval types; nil selects
+// the default registry.
 func compileValidators(
-	validators []prompt.ValidatorConfig, fatalUnknownType bool, registry *evals.EvalTypeRegistry,
+	validators []prompt.ValidatorConfig, strict bool, registry *evals.EvalTypeRegistry,
+	shared ...GuardrailOption,
 ) ([]hooks.ProviderHook, error) {
 	if len(validators) == 0 {
 		return nil, nil
@@ -211,7 +277,7 @@ func compileValidators(
 			continue
 		}
 
-		var opts []GuardrailOption
+		opts := append([]GuardrailOption{}, shared...)
 		if v.Message != "" {
 			opts = append(opts, WithMessage(v.Message))
 		} else if msg, ok := v.Params["message"].(string); ok && msg != "" {
@@ -220,7 +286,9 @@ func compileValidators(
 
 		hook, err := NewGuardrailHookFromRegistry(v.Type, v.Params, reg, opts...)
 		if err != nil {
-			if fatalUnknownType && errors.Is(err, ErrUnknownGuardrailType) {
+			if strict && (errors.Is(err, ErrUnknownGuardrailType) ||
+				errors.Is(err, ErrInvalidGuardrailParams) ||
+				errors.Is(err, ErrGuardrailNeedsJudge)) {
 				return nil, fmt.Errorf("pack validator: %w", err)
 			}
 			logger.Warn("Skipping unusable pack validator", "type", v.Type, "error", err)
@@ -229,4 +297,65 @@ func compileValidators(
 		out = append(out, hook)
 	}
 	return out, nil
+}
+
+// resolveDirection picks which side of the provider call this guardrail gates.
+//
+// It reads the DEFAULTED params, not the caller's raw map: an eval type that
+// declares a direction default in evals.ParamDefaults must actually get it, and
+// reading the raw map here silently ignored that — a check meant to gate input
+// then only inspected the assistant's reply and never blocked the call it
+// existed to prevent.
+//
+// A wrapper type carries the real check in eval_type, and the default belongs
+// to that inner check rather than to the wrapper. Without this, `type: guardrail`
+// wrapping an input-gating check reverted to output and disarmed it while
+// appearing configured.
+func resolveDirection(typeName string, normalized, raw map[string]any) string {
+	if d, ok := directionFrom(normalized, typeName); ok {
+		return d
+	}
+	if inner, ok := innerEvalTypeOf(typeName, raw); ok {
+		if d, ok := directionFrom(evals.ApplyDefaults(inner, nil), typeName); ok {
+			return d
+		}
+	}
+	return DirectionOutput
+}
+
+// innerEvalTypeOf returns the eval type a wrapper delegates to, and whether
+// this type name is a wrapper at all.
+func innerEvalTypeOf(typeName string, params map[string]any) (string, bool) {
+	if typeName != evals.WrapperTypeGuardrail && typeName != evals.WrapperTypeAssertion {
+		return "", false
+	}
+	inner, ok := params["eval_type"].(string)
+	return inner, ok && inner != ""
+}
+
+// directionFrom reads and validates a direction value, warning rather than
+// guessing when it is present but unusable — a typo must not silently select a
+// side the author did not choose.
+func directionFrom(params map[string]any, typeName string) (string, bool) {
+	rawDir, present := params["direction"]
+	if !present {
+		return "", false
+	}
+	d, ok := rawDir.(string)
+	if !ok {
+		logger.Warn(
+			"Guardrail direction must be a string; falling back to output",
+			"type", typeName, "direction", rawDir)
+		return "", false
+	}
+	switch d {
+	case DirectionInput, DirectionOutput, DirectionBoth:
+		return d, true
+	default:
+		logger.Warn(
+			"Guardrail has unrecognized direction; falling back to output",
+			"type", typeName, "direction", d,
+			"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
+		return "", false
+	}
 }

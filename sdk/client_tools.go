@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 const errSerializeClientToolResult = "failed to serialize client tool result: %w"
@@ -107,6 +107,19 @@ func (a *clientHandlersMuAccessor) getHandler(name string) (ClientToolHandler, b
 	return h, ok
 }
 
+// lookupClientHandler resolves a client handler: the build-time snapshot first,
+// then live via the mutex accessor for handlers registered after the pipeline
+// was built.
+func (e *clientExecutor) lookupClientHandler(name string) (ClientToolHandler, bool) {
+	if h, ok := e.handlers[name]; ok {
+		return h, true
+	}
+	if e.handlersMu != nil {
+		return e.handlersMu.getHandler(name)
+	}
+	return nil, false
+}
+
 // Name returns "client" to match mode: "client" tools.
 func (e *clientExecutor) Name() string {
 	return "client"
@@ -123,11 +136,8 @@ func (e *clientExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
 	}
 
-	// Look up handler — first from snapshot, then live via mutex accessor
-	handler, ok := e.handlers[descriptor.Name]
-	if !ok && e.handlersMu != nil {
-		handler, ok = e.handlersMu.getHandler(descriptor.Name)
-	}
+	// Snapshot first, then live via the mutex accessor.
+	handler, ok := e.lookupClientHandler(descriptor.Name)
 	if !ok {
 		return nil, fmt.Errorf("no client handler registered for tool: %s", descriptor.Name)
 	}
@@ -267,7 +277,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	}
 
 	// Inject tool results into session history and re-execute
-	result, err := c.unarySession.ResumeWithToolResults(ctx, toolMsgs)
+	result, err := c.unarySession.ResumeWithToolResults(c.withConversationState(ctx), toolMsgs)
 	if err != nil {
 		return nil, fmt.Errorf("resume failed: %w", err)
 	}
@@ -316,7 +326,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
-		streamCh, err := c.unarySession.ResumeStreamWithToolResults(ctx, toolMsgs)
+		streamCh, err := c.unarySession.ResumeStreamWithToolResults(c.withConversationState(ctx), toolMsgs)
 		if err != nil {
 			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", err)}
 			return

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 // fakeSelector is a test double for selection.Selector.

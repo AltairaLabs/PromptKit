@@ -76,9 +76,9 @@ import (
     "log"
     "os"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/stt"
-    "github.com/AltairaLabs/PromptKit/runtime/tts"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 func main() {
@@ -95,6 +95,8 @@ func main() {
     }
     defer conv.Close()
 
+    // Set variables before the first input: a duplex session renders its
+    // system prompt once, when the first chunk starts the pipeline.
     conv.SetVar("user_name", "Alice")
 
     // Send audio chunks and receive responses
@@ -167,10 +169,10 @@ import (
     "log"
     "os"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
-    "github.com/AltairaLabs/PromptKit/runtime/types"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -265,7 +267,7 @@ The default turn detector uses silence duration:
 ### Custom Turn Detector
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/audio"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 
 // Create custom turn detector with a silence threshold
 detector := audio.NewSilenceDetector(500 * time.Millisecond)

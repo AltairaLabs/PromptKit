@@ -6,7 +6,7 @@ package a2aserver
 import (
 	"context"
 
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // SendResult is what the server needs from a completed conversation turn.
@@ -56,6 +56,15 @@ const (
 
 	// EventClientTool indicates a client tool request awaiting fulfillment.
 	EventClientTool
+
+	// EventPending indicates the turn is paused on something the server cannot
+	// see — a human approving a tool call, most often. Text carries the reason.
+	//
+	// It exists because "is this turn waiting?" cannot be inferred: a pause on
+	// a server-side approval looks exactly like a finished turn from outside,
+	// and reporting it as completed would be a control that did not run
+	// reporting clean. A handler that never pauses never emits it.
+	EventPending
 )
 
 // StreamEvent is a single event on a streaming channel.

@@ -3,10 +3,10 @@ package stage
 import (
 	"sync/atomic"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TurnState holds per-Turn invariants shared across stages within a single
@@ -83,9 +83,10 @@ type TurnState struct {
 	// not mutate it.
 	ProviderRequestMetadata map[string]interface{}
 
-	// turnIndex is the 1-based number of the turn being executed, derived by
-	// StateStoreLoadStage from the persisted transcript. Zero means no turn
-	// was established — read it through TurnIndex().
+	// turnIndex is the 1-based number of the turn being executed, derived from
+	// the persisted transcript by whichever load stage opens the turn
+	// (StateStoreLoadStage, or ContextAssemblyStage under a context window).
+	// Zero means no turn was established — read it through TurnIndex().
 	//
 	// Atomic, unlike every other field here, because it is the one field
 	// written after the stage hand-off that orders the rest. A streaming
@@ -109,8 +110,9 @@ func (t *TurnState) TurnIndex() int {
 	return int(t.turnIndex.Load())
 }
 
-// SetTurnIndex records the turn being executed. StateStoreLoadStage owns this;
-// nothing else should write it, or turns get counted twice.
+// SetTurnIndex records the turn being executed. The load stage that opens the
+// turn owns this (StateStoreLoadStage or ContextAssemblyStage, via
+// deriveTurnIndex); nothing else should write it, or turns get counted twice.
 func (t *TurnState) SetTurnIndex(n int) {
 	if t != nil {
 		t.turnIndex.Store(int64(n))

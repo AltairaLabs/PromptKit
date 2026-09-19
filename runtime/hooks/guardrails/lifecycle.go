@@ -3,7 +3,7 @@ package guardrails
 import (
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // funcValidatorType is the reported validator type for guardrails declared from

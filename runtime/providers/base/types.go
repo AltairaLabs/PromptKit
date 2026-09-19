@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ProviderType discriminates capability types. Used as a registry key,
@@ -27,6 +27,7 @@ const (
 	ProviderTypeEmbedding ProviderType = "embedding"
 	ProviderTypeImage     ProviderType = "image"
 	ProviderTypeVideo     ProviderType = "video"
+	ProviderTypeRerank    ProviderType = "rerank"
 )
 
 // AllProviderTypes returns every defined ProviderType. Used by the metric
@@ -39,6 +40,7 @@ func AllProviderTypes() []ProviderType {
 		ProviderTypeEmbedding,
 		ProviderTypeImage,
 		ProviderTypeVideo,
+		ProviderTypeRerank,
 	}
 }
 

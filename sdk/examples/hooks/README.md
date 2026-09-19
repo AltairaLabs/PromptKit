@@ -155,8 +155,8 @@ func blockedByGuardrail(resp *sdk.Response) (validatorType string, blocked bool)
 
 **The two signals, and when to use which.** The pipeline marks a blocked turn's
 message with `FinishReason == types.FinishReasonSafety`, and that now reaches
-the caller on both paths — `resp.Message().FinishReason` after `Send()` (#1681)
-and after the terminal `ChunkDone` of `Stream()` (#1715). There is no dedicated
+the caller on both paths — `resp.Message().FinishReason` after `Send()`, and
+after the terminal `ChunkDone` of `Stream()`. There is no dedicated
 `Response.FinishReason()` accessor; go through `Message()`. That's the cheapest
 check for *whether* a turn was blocked, and it also surfaces other terminal
 states such as `max_output_tokens` and `refusal`.

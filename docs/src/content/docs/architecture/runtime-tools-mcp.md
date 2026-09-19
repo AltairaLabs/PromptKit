@@ -129,12 +129,13 @@ The `Registry` manages tool lifecycle and execution:
 
 ```go
 type Registry struct {
-    repository ToolRepository            // Persistence backend
-    tools      map[string]*ToolDescriptor // Cached descriptors
+    tools      map[string]*ToolDescriptor // Every registered descriptor
     validator  *SchemaValidator           // JSON Schema validator
     executors  map[string]Executor        // Execution backends
 }
 ```
+
+The registry is the single store of descriptors. `NewRegistryWithRepository` reads a `ToolRepository` once, at construction, and copies every descriptor it lists into the registry; the repository is a loader for pack content and is not consulted again. Everything registered afterwards (capability tools such as `skill__activate`, the per-state `workflow__transition`) lives in the same map, so `Unregister` removes a descriptor from every read path.
 
 **Key Operations**:
 
@@ -142,7 +143,7 @@ type Registry struct {
 // Register a tool
 registry.Register(descriptor)
 
-// Get a tool by name (with repository fallback)
+// Get a tool by name
 tool := registry.Get("get-weather")
 
 // Execute a tool with validation

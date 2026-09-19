@@ -12,7 +12,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
@@ -60,7 +60,7 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 ### From explicit definitions
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
+import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
     EvalDefs: []evals.EvalDef{
@@ -103,7 +103,61 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 ## LLM Judge Support
 
-For `llm_judge` and `llm_judge_session` evals, provide a judge provider:
+Judge-backed checks — `llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
+`pii_leakage`, `role_violation` and the RAG primitives — need an LLM to grade
+with. They get it the same way every other ancillary provider is supplied: the
+pack names what it needs, the host decides what answers.
+
+The name is the pack author's own and means nothing outside the pack. You stay
+free to change the model behind it whenever you like, which is the point.
+
+Declare it, and point the check at it:
+
+```yaml
+requires:
+  providers:
+    - key: grader                 # any name this pack likes
+      role: llm
+      description: grades the toxicity and PII checks
+      required: true
+
+prompts:
+  chat:
+    validators:
+      - type: toxicity
+        params:
+          provider: grader        # the name declared above
+```
+
+Bind that name when you open the conversation:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProvider(agent),
+    sdk.WithLLMProvider(sdk.ProviderSpec{
+        ID: "grader", Type: "openai", Model: "gpt-4.1-mini",
+    }),
+)
+```
+
+Nothing falls back to the conversation's own provider. Which model grades the
+output is your decision, and self-grading on the agent model — with the agent's
+bill — is a decision rather than a default.
+
+Everything that can go wrong is caught at `Open()`, and the error says whose
+problem it is:
+
+| What is wrong | Whose | What you see |
+|---|---|---|
+| The check names a provider the pack never declares | pack | names the check, the name, and what the pack does declare |
+| The pack declares it, you bound nothing | host | names the key the pack asked for |
+| You bound something that cannot do the job | host | names the key and says what it needs instead — "bound to a classify provider, and this check needs one that runs completions" |
+| A judge-backed check names nothing at all | pack | tells you to add `params.provider` |
+
+For a host driving a pack whose checks name nothing, `sdk.WithJudgeProvider`
+supplies a default judge. A check that names a provider always wins over it.
+
+For the offline path, pass the judge in the options:
 
 ```go
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
@@ -156,7 +210,7 @@ Record eval results as Prometheus metrics by passing a `MetricsCollector` — th
 ```go
 import (
     "github.com/prometheus/client_golang/prometheus"
-    "github.com/AltairaLabs/PromptKit/runtime/metrics"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 )
 
 reg := prometheus.NewRegistry()
@@ -305,7 +359,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
-Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model and [Hooks Reference](/runtime/reference/hooks/#evalhook) for the interface details.
+Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model, [`EvalHook`](/runtime/reference/evals/#EvalHook) for the interface details, and [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) for the registration API.
 
 ## See Also
 
@@ -313,6 +367,7 @@ Eval hooks are observational by contract — they cannot gate execution. Every r
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
 - [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
-- [Hooks Reference](/runtime/reference/hooks/#evalhook) -- `EvalHook` and `ExecEvalHook` API
+- [Evals Reference](/runtime/reference/evals/#EvalHook) -- the `EvalHook` interface
+- [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) -- registering one
 - [Exec Hooks How-To](/sdk/how-to/hooks/exec-hooks/) -- subprocess-backed eval hooks in any language
 - [Monitor Events](/sdk/how-to/observability/monitor-events/) -- Event-based observability

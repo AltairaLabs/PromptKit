@@ -125,7 +125,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 For type-safe tool arguments, use `tools.OnTyped`:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 type SearchArgs struct {
     Query      string `map:"query"`
@@ -142,7 +142,7 @@ sdktools.OnTyped(conv, "search", func(args SearchArgs) (any, error) {
 Register tools that call external APIs:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 
 conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
     "https://api.example.com/tickets",
@@ -162,6 +162,23 @@ conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
 ```
 
 The executor must implement `runtime/tools.Executor`.
+
+### Executors for conversations you never hold
+
+`OnToolExecutor` needs a conversation. Constructors that own the conversation
+lifecycle — `A2AOpener` above all, which opens one per context ID internally —
+never hand one back, so pass the executor as an option instead:
+
+```go
+opener := sdk.A2AOpener(packPath, promptName,
+    sdk.WithToolExecutor("search", myExecutor),
+    sdk.WithToolExecutor("fetch", myExecutor),
+)
+```
+
+`WithToolExecutor` is `OnToolExecutor` applied at open time and works with any
+constructor taking options. Use it when the tool path must be the same whichever
+protocol a caller arrives on — policy checks, credential injection, audit.
 
 ## Async Tools (HITL)
 
@@ -211,7 +228,7 @@ redeploy), inject a durable store with `WithPendingStore`:
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+    sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 store := sdktools.NewRedisPendingStore(
@@ -292,7 +309,7 @@ import (
     "log"
     "time"
 
-    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {

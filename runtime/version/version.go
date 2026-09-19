@@ -1,7 +1,7 @@
 // Package version provides version information for the PromptKit runtime.
 // Version variables can be overridden at build time using ldflags:
 //
-//	go build -ldflags "-X github.com/AltairaLabs/PromptKit/runtime/version.version=1.0.0"
+//	go build -ldflags "-X github.com/AltairaLabs/PromptKit/runtime/v2/version.version=1.0.0"
 package version
 
 import (

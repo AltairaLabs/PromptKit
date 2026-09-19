@@ -19,8 +19,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/sdk"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
