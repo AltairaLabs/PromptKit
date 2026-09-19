@@ -369,7 +369,7 @@ func EncodeEvalWhen(when *EvalWhen) map[string]any
 EncodeEvalWhen is the inverse of DecodeEvalWhen: it renders promptkit's when\-conditions into the spec's open \`when\` object, for anything building an eval programmatically rather than loading one from a pack.
 
 <a name="ExtractToolsOffered"></a>
-## func [ExtractToolsOffered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L190>)
+## func [ExtractToolsOffered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L217>)
 
 ```go
 func ExtractToolsOffered(messages []types.Message) []string
@@ -399,7 +399,7 @@ Precedence:
 An expression that does not resolve, or resolves to something non\-numeric, yields no sample. Guessing would reintroduce the fabricated zero.
 
 <a name="ExtractWorkflowExtras"></a>
-## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L250>)
+## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L277>)
 
 ```go
 func ExtractWorkflowExtras(messages []types.Message) map[string]any
@@ -521,7 +521,7 @@ func SamplePercentage(e *EvalDef) float64
 SamplePercentage returns the sampling percentage, defaulting to DefaultSamplePercentage when unset.
 
 <a name="SeedBudgetMetadata"></a>
-## func [SeedBudgetMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L111-L113>)
+## func [SeedBudgetMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L114-L116>)
 
 ```go
 func SeedBudgetMetadata(metadata map[string]any, messages []types.Message, latencyMs *int64) map[string]any
@@ -731,7 +731,7 @@ type EvalContext struct {
 ```
 
 <a name="BuildEvalContext"></a>
-### func [BuildEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L19-L25>)
+### func [BuildEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L22-L28>)
 
 ```go
 func BuildEvalContext(messages []types.Message, turnIndex int, sessionID string, promptID string, metadata map[string]any) *EvalContext
@@ -742,7 +742,7 @@ BuildEvalContext constructs an EvalContext from a message history snapshot. It e
 This is the canonical way to build an EvalContext outside of a live conversation. Both Arena \(EvalOrchestrator\) and the SDK \(Evaluate\) use this function.
 
 <a name="BuildGuardrailEvalContext"></a>
-### func [BuildGuardrailEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L76-L78>)
+### func [BuildGuardrailEvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L79-L81>)
 
 ```go
 func BuildGuardrailEvalContext(messages []types.Message, currentOutput string, metadata map[string]any) *EvalContext
@@ -1548,7 +1548,7 @@ type ToolCallRecord = types.ToolCallRecord
 ```
 
 <a name="ExtractToolCalls"></a>
-### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L233>)
+### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L260>)
 
 ```go
 func ExtractToolCalls(messages []types.Message) []ToolCallRecord
