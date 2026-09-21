@@ -268,7 +268,7 @@ func (p *Provider) convertResponseFormatToResponses(rf *providers.ResponseFormat
 
 	if rf.Type == providers.ResponseFormatJSONSchema && len(rf.JSONSchema) > 0 {
 		var schema any
-		if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
+		if err := json.Unmarshal(strictResponseSchema(rf), &schema); err == nil {
 			schemaName := rf.SchemaName
 			if schemaName == "" {
 				schemaName = defaultResponseSchema

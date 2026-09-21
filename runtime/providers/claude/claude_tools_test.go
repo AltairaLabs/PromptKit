@@ -127,8 +127,60 @@ func TestClaudeBuildTooling_SingleTool(t *testing.T) {
 		t.Errorf("Expected description 'Search for information', got '%s'", tool.Description)
 	}
 
-	if string(tool.InputSchema) != string(schema) {
-		t.Errorf("Expected input_schema %s, got %s", schema, tool.InputSchema)
+	// Strict tool use is on by default, so the schema goes out adapted to
+	// Anthropic's accepted subset rather than verbatim: strict mode rejects an
+	// object node that omits additionalProperties (#2055).
+	if !tool.Strict {
+		t.Error("expected strict tool use to be enabled by default")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(tool.InputSchema, &got); err != nil {
+		t.Fatalf("input_schema is not valid JSON: %v", err)
+	}
+	if got["additionalProperties"] != false {
+		t.Errorf("expected additionalProperties:false, got input_schema %s", tool.InputSchema)
+	}
+	if _, ok := got["properties"].(map[string]any)["query"]; !ok {
+		t.Errorf("adaptation dropped the caller's property: %s", tool.InputSchema)
+	}
+	req, _ := got["required"].([]any)
+	if len(req) != 1 || req[0] != "query" {
+		t.Errorf("required must be left as the caller wrote it, got %s", tool.InputSchema)
+	}
+}
+
+// TestClaudeBuildTooling_StrictToolsDisabled pins the escape hatch: with
+// additional_config.strict_tools=false the caller's schema goes out untouched,
+// which is the only way to keep a schema Anthropic's strict grammar rejects.
+func TestClaudeBuildTooling_StrictToolsDisabled(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "claude-nostrict", Type: "claude", Model: "claude-sonnet-5",
+		BaseURL:          "https://api.anthropic.com/v1",
+		AdditionalConfig: map[string]interface{}{"strict_tools": false},
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	schema := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer","minimum":1}}}`)
+	toolsInterface, err := p.(*ToolProvider).BuildTooling([]*providers.ToolDescriptor{
+		{Name: "count", Description: "count", InputSchema: schema},
+	})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	tools, ok := toolsInterface.([]claudeTool)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected 1 claudeTool, got %T", toolsInterface)
+	}
+	if tools[0].Strict {
+		t.Error("strict_tools:false must turn strict tool use off")
+	}
+	if string(tools[0].InputSchema) != string(schema) {
+		t.Errorf("schema must be sent verbatim when strict is off: got %s", tools[0].InputSchema)
 	}
 }
 

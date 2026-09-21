@@ -119,7 +119,10 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		functions[i] = geminiFunctionDeclaration{
 			Name:        desc.Name,
 			Description: desc.Description,
-			Parameters:  types.NormalizeRawMessage(desc.InputSchema),
+			// Gemini's function-declaration parameters use the same
+			// OpenAPI-subset parser as responseSchema, so the same keywords
+			// have to come out (#2055).
+			Parameters: sanitizeGeminiSchemaRaw(types.NormalizeRawMessage(desc.InputSchema)),
 		}
 	}
 

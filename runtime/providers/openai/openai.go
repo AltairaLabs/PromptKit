@@ -715,7 +715,7 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 	if rf.Type == providers.ResponseFormatJSONSchema && len(rf.JSONSchema) > 0 {
 		// Parse the schema from raw JSON
 		var schema interface{}
-		if err := json.Unmarshal(rf.JSONSchema, &schema); err != nil {
+		if err := json.Unmarshal(strictResponseSchema(rf), &schema); err != nil {
 			// If parsing fails, just use the raw JSON
 			schema = rf.JSONSchema
 		}

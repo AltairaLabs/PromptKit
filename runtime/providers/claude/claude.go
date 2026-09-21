@@ -545,12 +545,21 @@ type claudeOutputFormat struct {
 
 // outputConfigFor maps a provider ResponseFormat to Anthropic's output_config.
 // Returns nil unless a JSON-schema response format with a schema is set.
+//
+// The schema is adapted to Anthropic's accepted subset first. Posting it
+// verbatim is what #2055 did, and a schema that is perfectly valid — and works
+// on every other provider — is rejected outright if any object node omits
+// additionalProperties: false. The caller cannot be expected to know that;
+// this adapter is the only layer that knows which vendor it is talking to.
 func outputConfigFor(rf *providers.ResponseFormat) *claudeOutputConfig {
 	if rf == nil || rf.Type != providers.ResponseFormatJSONSchema || len(rf.JSONSchema) == 0 {
 		return nil
 	}
 	return &claudeOutputConfig{
-		Format: claudeOutputFormat{Type: "json_schema", Schema: rf.JSONSchema},
+		Format: claudeOutputFormat{
+			Type:   "json_schema",
+			Schema: adaptSchemaForClaude(rf.JSONSchema),
+		},
 	}
 }
 

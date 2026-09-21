@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/schemaadapt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -104,59 +106,68 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	return tools, nil
 }
 
-// ensureAdditionalPropertiesFalse injects "additionalProperties": false into a
-// JSON schema object if not already present. Required by OpenAI strict mode.
+// strictResponseSchema prepares a caller's response schema for the wire.
+//
+// Strict mode applies the same two rules to a response schema as to a tool
+// schema, and OpenAI rejects the request when either is broken:
+// additionalProperties: false on every object, and every property listed in
+// required. BuildTooling has run ensureStrictSchema over tool schemas since
+// strict mode was added; both response-format builders posted the caller's
+// schema verbatim, so a schema with a nested object — the shape in #2055 —
+// 400s on the one path and works on the other.
+//
+// A non-strict response format is sent as written: without strict: true
+// OpenAI treats the schema as guidance and enforces neither rule, so
+// rewriting it would change the caller's contract for no gain.
+func strictResponseSchema(rf *providers.ResponseFormat) json.RawMessage {
+	if rf == nil {
+		return nil
+	}
+	if !rf.Strict {
+		return rf.JSONSchema
+	}
+	return ensureStrictSchema(rf.JSONSchema)
+}
+
 // ensureStrictSchema modifies a JSON schema for OpenAI strict mode:
 // - Sets additionalProperties: false on all object types (recursively)
 // - Ensures all properties are listed in required
+//
+// Traversal is schemaadapt.Walk rather than a private recursion. The private
+// one descended through "properties" and a map-valued "items" and nothing
+// else, so an object under $defs, under an anyOf branch, or under a
+// tuple-form items was left non-compliant and the API rejected the request —
+// the same nested-node miss #2055 reported on the Anthropic side.
 func ensureStrictSchema(schema json.RawMessage) json.RawMessage {
-	if len(schema) == 0 {
-		return schema
-	}
-	var obj map[string]any
-	if err := json.Unmarshal(schema, &obj); err != nil {
-		return schema
-	}
-
-	applyStrictToObject(obj)
-
-	result, err := json.Marshal(obj)
-	if err != nil {
-		return schema
-	}
-	return result
+	return schemaadapt.Rewrite(schema, applyStrictToObject)
 }
 
-// applyStrictToObject recursively applies strict mode constraints to a schema object.
+// applyStrictToObject applies OpenAI strict mode's two rules to one node.
 func applyStrictToObject(obj map[string]any) {
-	if props, ok := obj["properties"].(map[string]any); ok {
-		obj["additionalProperties"] = false
-
-		// Require all properties
-		allKeys := make([]string, 0, len(props))
-		for k := range props {
-			allKeys = append(allKeys, k)
+	props, ok := obj["properties"].(map[string]any)
+	if !ok {
+		if !schemaadapt.IsObjectNode(obj) {
+			return
 		}
-		obj["required"] = allKeys
-
-		// Recurse into each property
-		for _, v := range props {
-			if propObj, ok := v.(map[string]any); ok {
-				applyStrictToObject(propObj)
-			}
-		}
-	} else if objType, _ := obj["type"].(string); objType == "object" {
 		// Bare object with no properties — add empty properties and
 		// additionalProperties:false for strict compatibility.
 		obj["properties"] = map[string]any{}
 		obj["additionalProperties"] = false
 		obj["required"] = []string{}
+		return
 	}
 
-	// Handle items in array types
-	if items, ok := obj["items"].(map[string]any); ok {
-		applyStrictToObject(items)
+	obj["additionalProperties"] = false
+
+	// Strict mode requires every property in required. Sorted, because map
+	// iteration order is random and an unstable required list rewrites the
+	// request bytes on every call, which throws away the prompt cache.
+	allKeys := make([]string, 0, len(props))
+	for k := range props {
+		allKeys = append(allKeys, k)
 	}
+	sort.Strings(allKeys)
+	obj["required"] = allKeys
 }
 
 // useStrictTools returns whether tools should use strict schema mode.
