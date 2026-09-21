@@ -100,6 +100,51 @@ This covers VAD mode (`OpenVoice` and the VAD topology). Native realtime and
 duplex sessions are a separate stage with no hook support at all, tracked in
 #1682; guardrails still do not run there.
 
+### Provider adapters now rewrite your JSON Schema for the vendor
+
+A schema you write for a pack went to the wire as written, and the three
+providers enforce rules that contradict each other:
+
+| | Anthropic | Gemini | OpenAI (strict) |
+|---|---|---|---|
+| `additionalProperties: false` on every object | required | **rejected** | required |
+| every property in `required` | not required | n/a | required |
+| `minimum` / `maxItems` / `uniqueItems` / … | **rejected** | accepted | accepted |
+
+So no schema was portable, and a perfectly valid one failed on whichever
+provider you had not tried. The adapters now rewrite it on the way out —
+output schemas and tool schemas alike.
+
+**What to expect:**
+
+- A schema that used to be rejected now works. The failure was a 400 naming a
+  JSON path, arriving at the first real invocation rather than at deploy.
+- On Anthropic, constraints its grammar cannot carry (`minimum`, `maxItems`,
+  `uniqueItems`, …) are removed from the wire and restated in the node's
+  `description`, so the model still sees them. Tool arguments stay validated
+  against the schema **you** wrote — the rewrite never touches your descriptor.
+- `not` is the one keyword left in place: it has no equivalent in the accepted
+  subset, so the request still fails, with an error naming the keyword.
+
+### Claude tools use Anthropic's native strict tool use
+
+Tool definitions now carry `strict: true`, so the API constrains decoding to
+your schema and `tool_use.input` is guaranteed to validate rather than merely
+likely to.
+
+**What to expect:** better-formed tool arguments, and a schema adapted as
+above, because strict mode enforces the same rules. If you need a schema sent
+exactly as written, turn it off per provider:
+
+```yaml
+providers:
+  - id: claude
+    type: claude
+    model: claude-sonnet-5
+    additional_config:
+      strict_tools: false
+```
+
 ## v2.4.0
 
 ### Judge-backed guardrails need a judge

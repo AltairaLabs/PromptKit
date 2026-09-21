@@ -35,6 +35,10 @@ const (
 // ToolProvider extends ClaudeProvider with tool support
 type ToolProvider struct {
 	*Provider
+	// strictTools overrides the default opt-in to Anthropic's native strict
+	// tool use. nil means the default (on); set from
+	// additional_config.strict_tools.
+	strictTools *bool
 }
 
 // NewToolProvider creates a new Claude provider with tool support
@@ -60,6 +64,12 @@ type claudeTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
+	// Strict opts into Anthropic's native strict tool use: the API constrains
+	// decoding to the schema, so tool_use.input is guaranteed to validate
+	// rather than merely likely to. It is the same guarantee structured
+	// outputs give the response, and it costs nothing but the schema rules —
+	// which is why the schema is adapted before it goes out.
+	Strict bool `json:"strict,omitempty"`
 }
 
 type claudeToolUse struct {
@@ -97,16 +107,42 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		return nil, nil
 	}
 
+	strict := p.useStrictTools()
+
 	tools := make([]claudeTool, len(descriptors))
 	for i, desc := range descriptors {
+		schema := types.NormalizeRawMessage(desc.InputSchema)
+		if strict {
+			// Strict tool use enforces the same schema rules structured
+			// outputs do, so the same adaptation applies. The descriptor is
+			// not touched: tools.SchemaValidator still validates the model's
+			// arguments against what the caller actually wrote.
+			schema = adaptSchemaForClaude(schema)
+		}
 		tools[i] = claudeTool{
 			Name:        desc.Name,
 			Description: desc.Description,
-			InputSchema: types.NormalizeRawMessage(desc.InputSchema),
+			InputSchema: schema,
+			Strict:      strict,
 		}
 	}
 
 	return tools, nil
+}
+
+// useStrictTools reports whether tool definitions opt into Anthropic's native
+// strict tool use. Defaults to true; override with
+// additional_config.strict_tools: false.
+//
+// Mirrors the OpenAI adapter's convention, including the escape hatch, because
+// the guarantee and the trade are the same: arguments are constrained to the
+// schema, at the price of the keywords Anthropic's grammar does not accept
+// (which adaptSchemaForClaude moves into the description).
+func (p *ToolProvider) useStrictTools() bool {
+	if p.strictTools == nil {
+		return true
+	}
+	return *p.strictTools
 }
 
 // PredictWithTools performs a predict request with tool support
@@ -856,6 +892,20 @@ func applyThinkingConfig(p *Provider, spec providers.ProviderSpec) {
 	p.thinkingBudget = &budget
 }
 
+// applyStrictToolsConfig reads additional_config.strict_tools, the escape
+// hatch from Anthropic's native strict tool use. Absent or non-boolean leaves
+// the default (on) in place.
+func applyStrictToolsConfig(tp *ToolProvider, spec providers.ProviderSpec) {
+	if spec.AdditionalConfig == nil {
+		return
+	}
+	v, ok := spec.AdditionalConfig["strict_tools"].(bool)
+	if !ok {
+		return
+	}
+	tp.strictTools = &v
+}
+
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
 	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
@@ -868,6 +918,7 @@ func init() {
 			tp.setUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
+			applyStrictToolsConfig(tp, spec)
 			return tp, nil
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -877,6 +928,7 @@ func init() {
 			tp.setUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
+			applyStrictToolsConfig(tp, spec)
 			return tp, nil
 		},
 	))

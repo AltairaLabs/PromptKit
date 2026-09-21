@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/schemaadapt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -549,27 +550,41 @@ var geminiUnsupportedSchemaKeys = map[string]bool{
 	"additionalProperties": true,
 }
 
-// sanitizeGeminiSchema recursively removes JSON Schema keywords Gemini rejects,
-// so a standard pack output_schema can be reused as a Gemini responseSchema.
+// sanitizeGeminiSchema removes the JSON Schema keywords Gemini rejects from
+// every schema node, so a standard pack schema can be reused as a Gemini
+// responseSchema or function-declaration parameters block.
+//
+// Walking schema structure rather than every map in the document matters:
+// these keys are also legal property NAMES. A pack whose data model has a
+// field called "definitions" or "additionalProperties" used to have that field
+// deleted from its own schema.
 func sanitizeGeminiSchema(v interface{}) interface{} {
-	switch t := v.(type) {
-	case map[string]interface{}:
-		out := make(map[string]interface{}, len(t))
-		for k, val := range t {
-			if geminiUnsupportedSchemaKeys[k] {
-				continue
-			}
-			out[k] = sanitizeGeminiSchema(val)
-		}
-		return out
-	case []interface{}:
-		for i, e := range t {
-			t[i] = sanitizeGeminiSchema(e)
-		}
-		return t
-	default:
+	node, ok := v.(map[string]interface{})
+	if !ok {
 		return v
 	}
+	schemaadapt.Walk(node, func(n map[string]any) {
+		for k := range geminiUnsupportedSchemaKeys {
+			delete(n, k)
+		}
+	})
+	return node
+}
+
+// sanitizeGeminiSchemaRaw is the same rewrite over raw JSON, for the tool
+// paths, which carry schemas as json.RawMessage.
+//
+// Tool parameters need it for exactly the same reason responseSchema does:
+// `Unknown name "additionalProperties" at 'tools[0].function_declarations[0]
+// .parameters': Cannot find field`. A pack tool schema that carries the
+// keyword — which it must, to work under OpenAI or Anthropic strict mode —
+// took down the whole request.
+func sanitizeGeminiSchemaRaw(raw json.RawMessage) json.RawMessage {
+	return schemaadapt.Rewrite(raw, func(n map[string]any) {
+		for k := range geminiUnsupportedSchemaKeys {
+			delete(n, k)
+		}
+	})
 }
 
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
