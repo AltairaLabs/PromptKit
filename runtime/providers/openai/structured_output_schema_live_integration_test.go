@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,7 +71,7 @@ func TestOpenAI_ResponseFormatSchema_NestedObject_Live(t *testing.T) {
 
 	t.Run("the API rejects the schema as written", func(t *testing.T) {
 		status, body := postRawResponseFormatSchema(t, key, strictSchemaMissingAP)
-		skipIfOutOfCredit(t, status, body)
+		skipIfThrottled(t, status, body)
 		require.Equal(t, http.StatusBadRequest, status,
 			"premise gone: OpenAI strict mode now accepts a nested object without "+
 				"additionalProperties. body=%s", body)
@@ -89,7 +90,7 @@ func TestOpenAI_ResponseFormatSchema_PartialRequired_Live(t *testing.T) {
 
 	t.Run("the API rejects a partial required list", func(t *testing.T) {
 		status, body := postRawResponseFormatSchema(t, key, strictSchemaPartialRequired)
-		skipIfOutOfCredit(t, status, body)
+		skipIfThrottled(t, status, body)
 		require.Equal(t, http.StatusBadRequest, status,
 			"premise gone: OpenAI strict mode no longer requires every property "+
 				"in required. body=%s", body)
@@ -120,28 +121,41 @@ func liveOpenAISchemaModel() string {
 	return "gpt-4o-mini"
 }
 
-// skipIfOutOfCredit distinguishes "the account cannot call the API" from "the
-// API accepted the broken schema". Quota is refused before validation runs, so
-// a 429 here is no evidence either way — it must not read as a pass.
-func skipIfOutOfCredit(t *testing.T, status int, body string) {
+// skipIfThrottled distinguishes "the request never reached schema validation"
+// from "the API accepted the broken schema". Both an exhausted balance and a
+// rate limit are refused before validation runs, so a 429 is evidence of
+// nothing either way — and must not read as a pass.
+func skipIfThrottled(t *testing.T, status int, body string) {
 	t.Helper()
-	if status == http.StatusTooManyRequests && strings.Contains(body, "insufficient_quota") {
-		t.Skipf("OpenAI account has no credit; the schema was never validated. body=%s", body)
+	if status != http.StatusTooManyRequests {
+		return
 	}
+	t.Skipf("OpenAI returned 429 (%s), so the schema was never validated. body=%s",
+		throttleReason(body), body)
 }
 
-// skipIfQuotaError is the same judgement for an error returned through the
-// provider: a 429 means the request never reached schema validation, so it is
-// evidence of nothing and must not read as a pass.
-func skipIfQuotaError(t *testing.T, err error) {
+// throttleReason names which kind of 429 arrived, because "no credit" and
+// "too many requests in the last minute" call for different responses from
+// whoever reads the skip.
+func throttleReason(body string) string {
+	if strings.Contains(body, "insufficient_quota") ||
+		strings.Contains(body, "credit_balance_exhausted") {
+		return "account balance exhausted"
+	}
+	return "rate limited"
+}
+
+// skipIfThrottledErr is the same judgement for an error returned through the
+// provider, which reports the status in its message after exhausting retries.
+func skipIfThrottledErr(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
 		return
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "insufficient_quota") || strings.Contains(msg, "429") {
-		t.Skipf("OpenAI account has no credit or is rate limited; the schema was "+
-			"never validated: %v", err)
+	if strings.Contains(msg, "429") || strings.Contains(msg, "insufficient_quota") {
+		t.Skipf("OpenAI returned 429 (%s), so the schema was never validated: %v",
+			throttleReason(msg), err)
 	}
 }
 
@@ -165,7 +179,7 @@ func predictWithStrictSchema(t *testing.T, schema, prompt string) string {
 			Strict:     true, // what composition_executor.go sets
 		},
 	})
-	skipIfQuotaError(t, err)
+	skipIfThrottledErr(t, err)
 	require.NoError(t, err,
 		"a caller's schema must not 400 the call — ensureStrictSchema exists for "+
 			"exactly this and the response-format path never calls it (#2055)")
@@ -199,13 +213,7 @@ func postRawResponseFormatSchema(t *testing.T, key, schema string) (int, string)
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("content-type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, strings.TrimSpace(string(raw))
+	return postRaw(t, req, body)
 }
 
 // TestOpenAI_ToolSchema_Strict_Live is the input-schema half. ensureStrictSchema
@@ -227,7 +235,7 @@ func TestOpenAI_ToolSchema_Strict_Live(t *testing.T) {
 
 	t.Run("the API rejects the schema as written", func(t *testing.T) {
 		status, body := postRawStrictTool(t, key, toolSchema)
-		skipIfOutOfCredit(t, status, body)
+		skipIfThrottled(t, status, body)
 		require.Equal(t, http.StatusBadRequest, status,
 			"premise gone: strict mode now accepts an object under $defs without "+
 				"additionalProperties. body=%s", body)
@@ -262,7 +270,7 @@ func TestOpenAI_ToolSchema_Strict_Live(t *testing.T) {
 				}},
 				MaxTokens: 1024,
 			}, tools, "auto")
-		skipIfQuotaError(t, err)
+		skipIfThrottledErr(t, err)
 		require.NoError(t, err,
 			"a caller's tool schema must not 400 the call under strict mode (#2055)")
 		require.NotEmpty(t, calls,
@@ -272,6 +280,40 @@ func TestOpenAI_ToolSchema_Strict_Live(t *testing.T) {
 }
 
 // postRawStrictTool is the oracle for the tool path.
+// postRaw sends one request and retries a 429.
+//
+// The provider path retries internally, so without this the oracle is the only
+// call in the pair with no retry: an intermittent throttle turns a real
+// verification into a skip while the adapter assertion beside it passes. This
+// is not tolerance of a bad schema — the assertion still demands a 400.
+func postRaw(t *testing.T, req *http.Request, body []byte) (int, string) {
+	t.Helper()
+
+	const attempts = 4
+	var status int
+	var text string
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(i) * 2 * time.Second)
+			req = req.Clone(context.Background())
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		raw, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		require.NoError(t, err)
+
+		status, text = resp.StatusCode, strings.TrimSpace(string(raw))
+		if status != http.StatusTooManyRequests {
+			return status, text
+		}
+		t.Logf("attempt %d: 429 (%s), retrying", i+1, throttleReason(text))
+	}
+	return status, text
+}
+
 func postRawStrictTool(t *testing.T, key, schema string) (int, string) {
 	t.Helper()
 
@@ -299,11 +341,5 @@ func postRawStrictTool(t *testing.T, key, schema string) (int, string) {
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("content-type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, strings.TrimSpace(string(raw))
+	return postRaw(t, req, body)
 }
