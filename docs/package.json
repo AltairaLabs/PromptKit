@@ -18,7 +18,7 @@
     "@astrojs/starlight": "~0.42.2",
     "astro": "^7.3.2",
     "astro-d2": "^0.13.1",
-    "mermaid": "^11.17.2",
+    "mermaid": "^12.0.0",
     "starlight-theme-galaxy": "^1.0.0"
   },
   "devDependencies": {
