@@ -14,6 +14,12 @@
 #   verify-published-gomod.sh --file <path> <version> # check a local go.mod
 #
 # Modules are repo-relative module directories: runtime, pkg, sdk, server/a2a.
+# The proxy path carries the module's major-version suffix for v2+, so the
+# version argument decides it: v2.5.0 fetches runtime/v2, v1.9.0 fetches
+# runtime. Omitting it 404s every fetch — which is what the /v2 module-path
+# move did to this script: four modules timed out their retry budget on every
+# release, reported "never appeared on the Go proxy", and verified nothing,
+# for twelve minutes a run.
 #
 # Exit status:
 #   0  every go.mod checked is clean (or never propagated — see below)
@@ -99,9 +105,48 @@ check_gomod() {
 	return 1
 }
 
+# major_suffix <version> — the module-path suffix the proxy expects.
+# v2+ carries /vN; v0 and v1 carry nothing. Exits 2 on an unreadable version.
+major_suffix() {
+	local major="${1%%.*}"
+	case "$major" in
+		v0 | v1) printf '' ;;
+		v[0-9]*) printf '/%s' "$major" ;;
+		*)
+			annotate_error "cannot read a major version from '$1'"
+			return 2
+			;;
+	esac
+}
+
+# proxy_url <version> <module> — the .mod URL for a published module.
+#
+# The module may be given with or without a major-version suffix: callers in
+# release.yml spell it both ways. Any supplied suffix is stripped and the one
+# the version implies is applied, so `runtime`, `runtime/v2` and `runtime/v3`
+# all resolve to whatever <version> actually needs.
+proxy_url() {
+	local suffix module="$2"
+	suffix="$(major_suffix "$1")" || return 2
+	module="$(printf '%s' "$module" | sed -E 's#/v[0-9]+$##')"
+	printf '%s/%s%s/@v/%s.mod' "$PROXY_PREFIX" "$module" "$suffix" "$1"
+}
+
 if [ "$#" -lt 2 ]; then
 	usage
 	exit 2
+fi
+
+# Test seam: the URL is the half of this script the --file fixtures cannot
+# reach, and it is the half that broke silently across the /v2 move.
+if [ "$1" = "--print-url" ]; then
+	if [ "$#" -ne 3 ]; then
+		usage
+		exit 2
+	fi
+	proxy_url "$2" "$3" || exit 2
+	echo ""
+	exit 0
 fi
 
 if [ "$1" = "--file" ]; then
@@ -122,6 +167,9 @@ fi
 VERSION="$1"
 shift
 
+# Fail fast on a version whose major cannot be read, rather than once per module.
+major_suffix "$VERSION" >/dev/null || exit 2
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -129,7 +177,7 @@ failed=0
 skipped=0
 
 for module in "$@"; do
-	url="$PROXY_PREFIX/$module/@v/$VERSION.mod"
+	url="$(proxy_url "$VERSION" "$module")"
 	out="$WORK/$(echo "$module" | tr '/' '_').mod"
 	fetched=0
 

@@ -197,6 +197,85 @@ require github.com/AltairaLabs/PromptKit/runtime/v2 v0.0.0-20260101000000-abcdef
 ' "v0.0.0-"
 
 # ---------------------------------------------------------------------------
+# Proxy URL construction.
+#
+# Every case above runs in --file mode, which never builds a URL. That gap is
+# how the /v2 module-path move silently disabled the proxy half of this script:
+# all four fetches 404'd, the retry budget expired, and the release reported
+# "never appeared on the Go proxy" while verifying nothing. These cases cover
+# the URL itself, offline.
+# ---------------------------------------------------------------------------
+
+# expect_url <name> <version> <module> <want-url>
+expect_url() {
+	local name="$1" version="$2" module="$3" want="$4"
+	local got
+
+	if ! got="$("$VERIFY" --print-url "$version" "$module" 2>&1)"; then
+		echo "FAIL: $name — exited non-zero"
+		echo "$got" | indent
+		fail=$((fail + 1))
+		return
+	fi
+	if [ "$got" != "$want" ]; then
+		echo "FAIL: $name"
+		echo "want: $want" | indent
+		echo "got:  $got" | indent
+		fail=$((fail + 1))
+		return
+	fi
+	echo "OK:   $name"
+	pass=$((pass + 1))
+}
+
+PROXY="https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit"
+
+# The regression: a v2 version must reach the /v2 module path.
+expect_url "v2-appends-major-suffix" v2.5.0 runtime \
+	"$PROXY/runtime/v2/@v/v2.5.0.mod"
+
+# release.yml spells the module both ways — the post-tag call sites already
+# pass runtime/v2. Catches a fix that blindly appends and yields /v2/v2.
+expect_url "v2-suffix-not-doubled" v2.5.0 runtime/v2 \
+	"$PROXY/runtime/v2/@v/v2.5.0.mod"
+
+# v1 carries no suffix. Catches a fix that hardcodes /v2.
+expect_url "v1-has-no-suffix" v1.10.0 runtime \
+	"$PROXY/runtime/@v/v1.10.0.mod"
+
+# A v1 release must not inherit a /v2 the caller supplied out of habit.
+expect_url "v1-strips-supplied-suffix" v1.10.0 runtime/v2 \
+	"$PROXY/runtime/@v/v1.10.0.mod"
+
+# v0 is pre-major, like v1.
+expect_url "v0-has-no-suffix" v0.9.0 pkg \
+	"$PROXY/pkg/@v/v0.9.0.mod"
+
+# Catches a suffix rule that only understands single-digit majors.
+expect_url "v10-appends-major-suffix" v10.1.0 runtime \
+	"$PROXY/runtime/v10/@v/v10.1.0.mod"
+
+# A nested module path keeps its interior segments.
+# Catches a fix that strips or rewrites more than the trailing suffix.
+expect_url "nested-module-path" v2.5.0 server/a2a \
+	"$PROXY/server/a2a/v2/@v/v2.5.0.mod"
+
+expect_url "nested-module-path-suffixed" v2.5.0 server/a2a/v2 \
+	"$PROXY/server/a2a/v2/@v/v2.5.0.mod"
+
+# A version with no readable major must be rejected, not turned into a URL
+# that 404s for twenty minutes.
+got=0
+"$VERIFY" --print-url 2.5.0 runtime >/dev/null 2>&1 || got=$?
+if [ "$got" -eq 0 ]; then
+	echo "FAIL: unversioned-major-rejected — expected non-zero exit"
+	fail=$((fail + 1))
+else
+	echo "OK:   unversioned-major-rejected"
+	pass=$((pass + 1))
+fi
+
+# ---------------------------------------------------------------------------
 # Argument handling.
 # ---------------------------------------------------------------------------
 
