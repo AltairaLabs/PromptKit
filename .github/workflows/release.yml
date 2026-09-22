@@ -711,56 +711,43 @@ jobs:
     if: ${{ needs.tag-dependencies.result == 'success' }}
 
     steps:
-    - name: Dispatch to promptarena-deploy-agentcore
-      continue-on-error: true
+    # One step, not four, and no `continue-on-error`. Each adapter was its own
+    # step with `continue-on-error: true`, which swallowed the result entirely:
+    # vertex and foundry returned "Resource not accessible by personal access
+    # token (HTTP 403)" on every release -- DOWNSTREAM_DISPATCH_TOKEN is not
+    # scoped to those two repos -- and the job, and the release, still reported
+    # success. The loop keeps the one useful half of continue-on-error (a repo
+    # we cannot reach must not stop the others) and drops the harmful half.
+    - name: Dispatch to downstream adapters
       env:
         VERSION: ${{ needs.validate.outputs.version }}
         GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
       run: |
-        echo "Notifying promptarena-deploy-agentcore of runtime/$VERSION..."
-        gh api repos/AltairaLabs/promptarena-deploy-agentcore/dispatches \
-          -f event_type=promptkit-release \
-          -f "client_payload[version]=$VERSION"
-        echo "✓ Dispatched to promptarena-deploy-agentcore"
+        failed=""
+        for repo in \
+          promptarena-deploy-agentcore \
+          PromptArena-deploy-omnia \
+          promptarena-deploy-vertex \
+          promptarena-deploy-foundry
+        do
+          echo "Notifying $repo of runtime/$VERSION..."
+          if gh api "repos/AltairaLabs/$repo/dispatches" \
+               -f event_type=promptkit-release \
+               -f "client_payload[version]=$VERSION"; then
+            echo "✓ Dispatched to $repo"
+          else
+            echo "::error title=Dispatch failed::Could not notify $repo of $VERSION"
+            failed="$failed $repo"
+          fi
+        done
 
-    - name: Dispatch to promptarena-deploy-omnia
-      continue-on-error: true
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
-      run: |
-        echo "Notifying promptarena-deploy-omnia of runtime/$VERSION..."
-        gh api repos/AltairaLabs/PromptArena-deploy-omnia/dispatches \
-          -f event_type=promptkit-release \
-          -f "client_payload[version]=$VERSION"
-        echo "✓ Dispatched to promptarena-deploy-omnia"
+        if [ -n "$failed" ]; then
+          echo "::error title=Downstream not notified::No bump PR will be raised for:$failed"
+          echo "Check that DOWNSTREAM_DISPATCH_TOKEN grants those repositories access." >&2
+          exit 1
+        fi
 
-    # vertex and foundry depend on PromptKit exactly as the two above do, but
-    # were never added here, so they have been missing every release since they
-    # were written. Their bumps were raised by hand or not at all.
-    - name: Dispatch to promptarena-deploy-vertex
-      continue-on-error: true
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
-      run: |
-        echo "Notifying promptarena-deploy-vertex of runtime/$VERSION..."
-        gh api repos/AltairaLabs/promptarena-deploy-vertex/dispatches \
-          -f event_type=promptkit-release \
-          -f "client_payload[version]=$VERSION"
-        echo "✓ Dispatched to promptarena-deploy-vertex"
-
-    - name: Dispatch to promptarena-deploy-foundry
-      continue-on-error: true
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
-      run: |
-        echo "Notifying promptarena-deploy-foundry of runtime/$VERSION..."
-        gh api repos/AltairaLabs/promptarena-deploy-foundry/dispatches \
-          -f event_type=promptkit-release \
-          -f "client_payload[version]=$VERSION"
-        echo "✓ Dispatched to promptarena-deploy-foundry"
+        echo "✓ All downstream adapters notified"
 
   summary:
     name: Release Summary
