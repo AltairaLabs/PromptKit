@@ -44,12 +44,12 @@ func TestNewEmbeddingProvider(t *testing.T) {
 		assert.Equal(t, 512, p.EmbeddingDimensions())
 	})
 
-	t.Run("unknown model gets default dimensions", func(t *testing.T) {
+	t.Run("unknown model reports 0 until observed", func(t *testing.T) {
 		p := NewEmbeddingProvider(
 			WithEmbeddingModel("custom-model"),
 		)
 
-		assert.Equal(t, dimensionsNomicText, p.EmbeddingDimensions())
+		assert.Equal(t, 0, p.EmbeddingDimensions())
 	})
 }
 
@@ -69,7 +69,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 
 			resp := ollamaEmbedResponse{
 				Model:      DefaultEmbeddingModel,
-				Embeddings: [][]float32{{0.1, 0.2, 0.3}},
+				Embeddings: [][]float32{fixtureVector(dimensionsNomicText, 0.1, 0.2, 0.3)},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
@@ -83,7 +83,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Len(t, result.Embeddings, 1)
-		assert.Equal(t, []float32{0.1, 0.2, 0.3}, result.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensionsNomicText, 0.1, 0.2, 0.3), result.Embeddings[0])
 		assert.Equal(t, DefaultEmbeddingModel, result.Model)
 	})
 
@@ -99,9 +99,9 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			resp := ollamaEmbedResponse{
 				Model: DefaultEmbeddingModel,
 				Embeddings: [][]float32{
-					{0.1, 0.2, 0.3},
-					{0.4, 0.5, 0.6},
-					{0.7, 0.8, 0.9},
+					fixtureVector(dimensionsNomicText, 0.1, 0.2, 0.3),
+					fixtureVector(dimensionsNomicText, 0.4, 0.5, 0.6),
+					fixtureVector(dimensionsNomicText, 0.7, 0.8, 0.9),
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -227,11 +227,19 @@ func TestDimensionsForModel(t *testing.T) {
 		{EmbeddingModelNomicText, dimensionsNomicText},
 		{EmbeddingModelMxbaiLarge, dimensionsMxbai},
 		{EmbeddingModelAllMiniLM, dimensionsAllMiniLM},
-		{"unknown-model", dimensionsNomicText},
+		{"unknown-model", 0}, // unknown model reports 0 until observed
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
 			assert.Equal(t, tt.want, dimensionsForModel(tt.model))
 		})
 	}
+}
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider expects for its model.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
 }

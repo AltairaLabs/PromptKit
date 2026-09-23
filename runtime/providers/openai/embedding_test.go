@@ -81,7 +81,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 					{
 						Object:    "embedding",
 						Index:     0,
-						Embedding: []float32{0.1, 0.2, 0.3},
+						Embedding: fixtureVector(dimensions3Small, 0.1, 0.2, 0.3),
 					},
 				},
 				Model: "text-embedding-3-small",
@@ -107,7 +107,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Len(t, resp.Embeddings, 1)
-		assert.Equal(t, []float32{0.1, 0.2, 0.3}, resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.1, 0.2, 0.3), resp.Embeddings[0])
 		assert.Equal(t, "text-embedding-3-small", resp.Model)
 		assert.Equal(t, 2, resp.Usage.TotalTokens)
 	})
@@ -120,9 +120,9 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			resp := embeddingResponse{
 				Object: "list",
 				Data: []embeddingData{
-					{Index: 0, Embedding: []float32{0.1, 0.2}},
-					{Index: 1, Embedding: []float32{0.3, 0.4}},
-					{Index: 2, Embedding: []float32{0.5, 0.6}},
+					{Index: 0, Embedding: fixtureVector(dimensions3Small, 0.1, 0.2)},
+					{Index: 1, Embedding: fixtureVector(dimensions3Small, 0.3, 0.4)},
+					{Index: 2, Embedding: fixtureVector(dimensions3Small, 0.5, 0.6)},
 				},
 				Model: "text-embedding-3-small",
 				Usage: embeddingUsage{TotalTokens: 10},
@@ -144,9 +144,9 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Len(t, resp.Embeddings, 3)
-		assert.Equal(t, []float32{0.1, 0.2}, resp.Embeddings[0])
-		assert.Equal(t, []float32{0.3, 0.4}, resp.Embeddings[1])
-		assert.Equal(t, []float32{0.5, 0.6}, resp.Embeddings[2])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.1, 0.2), resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.3, 0.4), resp.Embeddings[1])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.5, 0.6), resp.Embeddings[2])
 	})
 
 	t.Run("handles empty input", func(t *testing.T) {
@@ -274,9 +274,9 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			// Return embeddings in reverse order
 			resp := embeddingResponse{
 				Data: []embeddingData{
-					{Index: 2, Embedding: []float32{0.5, 0.6}},
-					{Index: 0, Embedding: []float32{0.1, 0.2}},
-					{Index: 1, Embedding: []float32{0.3, 0.4}},
+					{Index: 2, Embedding: fixtureVector(dimensions3Small, 0.5, 0.6)},
+					{Index: 0, Embedding: fixtureVector(dimensions3Small, 0.1, 0.2)},
+					{Index: 1, Embedding: fixtureVector(dimensions3Small, 0.3, 0.4)},
 				},
 				Model: "text-embedding-3-small",
 				Usage: embeddingUsage{TotalTokens: 6},
@@ -297,9 +297,9 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should be reordered correctly
-		assert.Equal(t, []float32{0.1, 0.2}, resp.Embeddings[0])
-		assert.Equal(t, []float32{0.3, 0.4}, resp.Embeddings[1])
-		assert.Equal(t, []float32{0.5, 0.6}, resp.Embeddings[2])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.1, 0.2), resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.3, 0.4), resp.Embeddings[1])
+		assert.Equal(t, fixtureVector(dimensions3Small, 0.5, 0.6), resp.Embeddings[2])
 	})
 }
 
@@ -311,7 +311,7 @@ func TestEmbeddingProvider_EmbeddingDimensions(t *testing.T) {
 		{EmbeddingModelAda002, 1536},
 		{EmbeddingModel3Small, 1536},
 		{EmbeddingModel3Large, 3072},
-		{"unknown-model", 1536}, // Default
+		{"unknown-model", 0}, // unknown model reports 0 until observed
 	}
 
 	for _, tt := range tests {
@@ -392,8 +392,8 @@ func TestDimensionsForModel(t *testing.T) {
 		{EmbeddingModelAda002, 1536},
 		{EmbeddingModel3Small, 1536},
 		{EmbeddingModel3Large, 3072},
-		{"custom-model", 1536}, // Defaults to 3-small
-		{"", 1536},
+		{"custom-model", 0}, // unknown model reports 0 until observed
+		{"", 0},
 	}
 
 	for _, tt := range tests {
@@ -429,9 +429,12 @@ func TestEmbeddingProvider_Batching(t *testing.T) {
 		}))
 		defer server.Close()
 
+		// A model the provider does not know, so the fixture's short vectors
+		// set the size instead of failing the dimension check.
 		p, err := NewEmbeddingProvider(
 			WithEmbeddingAPIKey("test-key"),
 			WithEmbeddingBaseURL(server.URL),
+			WithEmbeddingModel("fixture-model"),
 		)
 		require.NoError(t, err)
 
@@ -505,3 +508,11 @@ func TestEmbeddingProvider_Batching(t *testing.T) {
 
 // Verify interface compliance
 var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider expects for its model.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
+}

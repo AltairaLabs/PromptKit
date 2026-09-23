@@ -10,21 +10,9 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			opts := []EmbeddingOption{}
-			if spec.Model != "" {
-				opts = append(opts, WithEmbeddingModel(spec.Model))
-			}
-			if tr.BaseURL != "" {
-				opts = append(opts, WithEmbeddingBaseURL(tr.BaseURL))
-			}
-			if tr.Client != nil {
-				opts = append(opts, WithEmbeddingHTTPClient(tr.Client))
-			}
+			opts := []EmbeddingOption{WithEmbeddingWiring(providers.EmbeddingWiringFrom(spec, tr))}
 			if tr.APIKey != "" {
 				opts = append(opts, WithEmbeddingAPIKey(tr.APIKey))
-			}
-			if tr.PlatformAuth {
-				opts = append(opts, WithEmbeddingPlatformAuth())
 			}
 			return NewEmbeddingProvider(opts...)
 		},

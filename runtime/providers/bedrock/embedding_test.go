@@ -62,7 +62,7 @@ func cohereProvider(t *testing.T, url string) *bedrock.EmbeddingProvider {
 // and not Cohere's {"texts"}. Sending the wrong shape is the failure this whole
 // provider exists to avoid, so it is asserted on the decoded request body.
 func TestTitan_RequestUsesInputTextShape(t *testing.T) {
-	srv, c := fakeBedrock(t, func(int) string { return `{"embedding":[0.5,0.25],"inputTextTokenCount":3}` })
+	srv, c := fakeBedrock(t, func(int) string { return titanBody(3, 0.5, 0.25) })
 
 	_, err := titanProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"hello"}})
@@ -75,13 +75,13 @@ func TestTitan_RequestUsesInputTextShape(t *testing.T) {
 }
 
 func TestTitan_ParsesEmbeddingAndTokenCount(t *testing.T) {
-	srv, _ := fakeBedrock(t, func(int) string { return `{"embedding":[0.5,0.25],"inputTextTokenCount":3}` })
+	srv, _ := fakeBedrock(t, func(int) string { return titanBody(3, 0.5, 0.25) })
 
 	got, err := titanProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"hello"}})
 
 	require.NoError(t, err)
-	assert.Equal(t, [][]float32{{0.5, 0.25}}, got.Embeddings)
+	assert.Equal(t, [][]float32{fixtureVector(fixtureDims, 0.5, 0.25)}, got.Embeddings)
 	require.NotNil(t, got.Usage)
 	assert.Equal(t, 3, got.Usage.TotalTokens)
 }
@@ -90,18 +90,16 @@ func TestTitan_ParsesEmbeddingAndTokenCount(t *testing.T) {
 // reassemble in order. A provider that sent only the first text, or that
 // collected results out of order, fails here.
 func TestTitan_FansOutOneCallPerTextPreservingOrder(t *testing.T) {
-	vectors := []string{
-		`{"embedding":[1],"inputTextTokenCount":1}`,
-		`{"embedding":[2],"inputTextTokenCount":2}`,
-		`{"embedding":[3],"inputTextTokenCount":4}`,
-	}
+	vectors := []string{titanBody(1, 1), titanBody(2, 2), titanBody(4, 3)}
 	srv, c := fakeBedrock(t, func(i int) string { return vectors[i] })
 
 	got, err := titanProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"a", "b", "c"}})
 
 	require.NoError(t, err)
-	assert.Equal(t, [][]float32{{1}, {2}, {3}}, got.Embeddings)
+	assert.Equal(t, [][]float32{
+		fixtureVector(fixtureDims, 1), fixtureVector(fixtureDims, 2), fixtureVector(fixtureDims, 3),
+	}, got.Embeddings)
 	require.Len(t, c.bodies, 3, "one call per text")
 	assert.Equal(t, []any{"a", "b", "c"},
 		[]any{c.bodies[0]["inputText"], c.bodies[1]["inputText"], c.bodies[2]["inputText"]})
@@ -111,7 +109,7 @@ func TestTitan_FansOutOneCallPerTextPreservingOrder(t *testing.T) {
 // The Bedrock invoke path carries the model id, including its ":" version
 // suffix. A provider that posted to a bare host, or dropped the model, fails.
 func TestTitan_PostsToModelInvokePath(t *testing.T) {
-	srv, c := fakeBedrock(t, func(int) string { return `{"embedding":[1],"inputTextTokenCount":1}` })
+	srv, c := fakeBedrock(t, func(int) string { return titanBody(1, 1) })
 
 	_, err := titanProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"hello"}})
@@ -135,7 +133,7 @@ func TestTitan_RequestModelOverrideRetargetsPath(t *testing.T) {
 // Cohere is natively batched and requires input_type; it must not be driven
 // through the Titan path.
 func TestCohere_RequestUsesTextsShapeWithInputType(t *testing.T) {
-	srv, c := fakeBedrock(t, func(int) string { return `{"embeddings":[[1,2],[3,4]]}` })
+	srv, c := fakeBedrock(t, func(int) string { return twoCohereVectors })
 
 	_, err := cohereProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"a", "b"}})
@@ -148,17 +146,17 @@ func TestCohere_RequestUsesTextsShapeWithInputType(t *testing.T) {
 }
 
 func TestCohere_ParsesEmbeddingsInOrder(t *testing.T) {
-	srv, _ := fakeBedrock(t, func(int) string { return `{"embeddings":[[1,2],[3,4]]}` })
+	srv, _ := fakeBedrock(t, func(int) string { return twoCohereVectors })
 
 	got, err := cohereProvider(t, srv.URL).Embed(context.Background(),
 		providers.EmbeddingRequest{Texts: []string{"a", "b"}})
 
 	require.NoError(t, err)
-	assert.Equal(t, [][]float32{{1, 2}, {3, 4}}, got.Embeddings)
+	assert.Equal(t, [][]float32{fixtureVector(fixtureDims, 1, 2), fixtureVector(fixtureDims, 3, 4)}, got.Embeddings)
 }
 
 func TestCohere_InputTypeIsConfigurable(t *testing.T) {
-	srv, c := fakeBedrock(t, func(int) string { return `{"embeddings":[[1]]}` })
+	srv, c := fakeBedrock(t, func(int) string { return cohereBody(fixtureVector(fixtureDims, 1)) })
 	p, err := bedrock.NewEmbeddingProvider(
 		bedrock.WithWiring(providers.EmbeddingWiring{
 			Model: "cohere.embed-english-v3", BaseURL: srv.URL, PlatformAuth: true,
@@ -264,3 +262,32 @@ func TestDimensionsDefaultPerFamily(t *testing.T) {
 // Interface compliance is asserted at compile time in embedding.go
 // (var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)); a runtime
 // test of the same thing can never fail, so it is not repeated here.
+
+// fixtureDims is the vector size both fixture models produce: Titan v2 and
+// Cohere v3 each emit 1024, so fake responses must too or the provider's
+// dimension check rejects them.
+const fixtureDims = 1024
+
+// fixtureVector returns an n-length vector whose leading elements are lead.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
+}
+
+// titanBody is a Titan response carrying one fixtureDims-length vector.
+func titanBody(tokens int, lead ...float32) string {
+	b, _ := json.Marshal(map[string]any{
+		"embedding": fixtureVector(fixtureDims, lead...), "inputTextTokenCount": tokens,
+	})
+	return string(b)
+}
+
+// twoCohereVectors is a Cohere response for two texts, [1,2,...] then [3,4,...].
+var twoCohereVectors = cohereBody(fixtureVector(fixtureDims, 1, 2), fixtureVector(fixtureDims, 3, 4))
+
+// cohereBody is a Cohere response carrying the given vectors in order.
+func cohereBody(vectors ...[]float32) string {
+	b, _ := json.Marshal(map[string]any{"embeddings": vectors})
+	return string(b)
+}

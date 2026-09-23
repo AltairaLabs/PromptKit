@@ -65,6 +65,9 @@ const (
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
 	inputType string // Optional: "query" or "document"
+	// dimsExplicit records that the caller set Dimensions, so it is sent as
+	// output_dimension and the model lookup must not overwrite it.
+	dimsExplicit bool
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -81,6 +84,7 @@ func WithModel(model string) EmbeddingOption {
 func WithDimensions(dims int) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		p.Dimensions = dims
+		p.dimsExplicit = dims > 0
 	}
 }
 
@@ -137,6 +141,9 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	// Apply options
 	for _, opt := range opts {
 		opt(p)
+	}
+	if !p.dimsExplicit {
+		p.Dimensions = dimensionsForModel(p.ProviderModel)
 	}
 
 	// Platform auth is applied by the HTTP client's transport; static key
@@ -200,7 +207,7 @@ func (p *EmbeddingProvider) embedTexts(
 	if p.inputType != "" {
 		voyageReq.InputType = p.inputType
 	}
-	if p.Dimensions > 0 && p.Dimensions != Dimensions1024 {
+	if p.dimsExplicit {
 		voyageReq.OutputDimension = p.Dimensions
 	}
 
@@ -243,3 +250,15 @@ func (p *EmbeddingProvider) embedTexts(
 
 // Verify interface compliance
 var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
+
+// dimensionsForModel returns the default dimensions of a known model, or 0
+// for any other name, whose size is then taken from the first response.
+func dimensionsForModel(model string) int {
+	switch model {
+	case ModelVoyage35, ModelVoyage35Lite, ModelVoyage3Large, ModelVoyageCode3,
+		ModelVoyageFinance2, ModelVoyageLaw2:
+		return Dimensions1024
+	default:
+		return 0
+	}
+}

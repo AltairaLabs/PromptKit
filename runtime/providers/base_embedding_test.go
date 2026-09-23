@@ -101,7 +101,7 @@ func TestBaseEmbeddingProvider_EmbedWithEmptyCheck(t *testing.T) {
 			assert.Equal(t, expectedTexts, texts)
 			assert.Equal(t, "test-model", model)
 			return EmbeddingResponse{
-				Embeddings: [][]float32{{0.1, 0.2}, {0.3, 0.4}},
+				Embeddings: [][]float32{fixtureVector(1024, 0.1, 0.2), fixtureVector(1024, 0.3, 0.4)},
 				Model:      model,
 			}, nil
 		}
@@ -343,4 +343,12 @@ func TestLogEmbeddingRequestWithTokens(t *testing.T) {
 	// Just verify it doesn't panic
 	start := time.Now()
 	LogEmbeddingRequestWithTokens("Test", "model-v1", 5, 100, start)
+}
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider declares.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
 }

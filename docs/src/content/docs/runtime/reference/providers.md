@@ -95,6 +95,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [type BaseEmbeddingProvider](<#BaseEmbeddingProvider>)
   - [func NewBaseEmbeddingProvider\(providerID, defaultModel, defaultBaseURL string, defaultDimensions, defaultBatchSize int, defaultTimeout time.Duration\) \*BaseEmbeddingProvider](<#NewBaseEmbeddingProvider>)
   - [func \(b \*BaseEmbeddingProvider\) ApplyWiring\(w EmbeddingWiring\) \(dimsExplicit bool\)](<#BaseEmbeddingProvider.ApplyWiring>)
+  - [func \(b \*BaseEmbeddingProvider\) CheckDimensions\(embeddings \[\]\[\]float32\) error](<#BaseEmbeddingProvider.CheckDimensions>)
   - [func \(b \*BaseEmbeddingProvider\) DoEmbeddingRequest\(ctx context.Context, cfg HTTPRequestConfig\) \(\[\]byte, error\)](<#BaseEmbeddingProvider.DoEmbeddingRequest>)
   - [func \(b \*BaseEmbeddingProvider\) EmbedWithEmptyCheck\(ctx context.Context, req EmbeddingRequest, embedFn EmbedFunc\) \(EmbeddingResponse, error\)](<#BaseEmbeddingProvider.EmbedWithEmptyCheck>)
   - [func \(b \*BaseEmbeddingProvider\) EmbeddingDimensions\(\) int](<#BaseEmbeddingProvider.EmbeddingDimensions>)
@@ -532,7 +533,7 @@ func DefaultRetryPolicy() pipeline.RetryPolicy
 DefaultRetryPolicy returns a RetryPolicy with sensible defaults: 3 retries, exponential backoff, 500ms initial delay.
 
 <a name="DoAncillaryJSONRequest"></a>
-## func [DoAncillaryJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L153-L158>)
+## func [DoAncillaryJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L202-L207>)
 
 ```go
 func DoAncillaryJSONRequest(ctx context.Context, client *http.Client, providerID, apiKey string, cfg HTTPRequestConfig) ([]byte, error)
@@ -561,7 +562,7 @@ func ExtractAPIKey(cred Credential) string
 ExtractAPIKey extracts an API key string from a Credential, if it is an APIKeyCredential. Returns an empty string if the credential is nil, not an api\_key type, or does not implement the APIKey\(\) method.
 
 <a name="ExtractOrderedEmbeddings"></a>
-## func [ExtractOrderedEmbeddings](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L203-L208>)
+## func [ExtractOrderedEmbeddings](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L252-L257>)
 
 ```go
 func ExtractOrderedEmbeddings[T any](data []T, getIndex func(T) int, getEmbedding func(T) []float32, expectedCount int) ([][]float32, error)
@@ -693,7 +694,7 @@ Deprecated: Use MediaLoader.GetBase64Data instead for better functionality inclu
 This function is kept for backward compatibility but will be removed in a future version. It now delegates to the new MediaLoader implementation.
 
 <a name="LogEmbeddingRequest"></a>
-## func [LogEmbeddingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L237>)
+## func [LogEmbeddingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L286>)
 
 ```go
 func LogEmbeddingRequest(provider, model string, textCount int, start time.Time)
@@ -702,7 +703,7 @@ func LogEmbeddingRequest(provider, model string, textCount int, start time.Time)
 LogEmbeddingRequest logs a completed embedding request with common fields.
 
 <a name="LogEmbeddingRequestWithTokens"></a>
-## func [LogEmbeddingRequestWithTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L246>)
+## func [LogEmbeddingRequestWithTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L295>)
 
 ```go
 func LogEmbeddingRequestWithTokens(provider, model string, textCount, tokens int, start time.Time)
@@ -720,7 +721,7 @@ func LogRerankRequest(provider, model string, docCount, tokens int, start time.T
 LogRerankRequest records a completed rerank at debug level, matching the embedding path's logging so the two roles read alike in a trace.
 
 <a name="MarshalRequest"></a>
-## func [MarshalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L220>)
+## func [MarshalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L269>)
 
 ```go
 func MarshalRequest(req any) ([]byte, error)
@@ -955,7 +956,7 @@ func UnmarshalJSON(respBody []byte, v any, predictResp *PredictionResponse, star
 UnmarshalJSON unmarshals JSON with error recovery that sets latency and raw response
 
 <a name="UnmarshalResponse"></a>
-## func [UnmarshalResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L229>)
+## func [UnmarshalResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L278>)
 
 ```go
 func UnmarshalResponse(body []byte, resp any) error
@@ -1069,7 +1070,7 @@ func (b BargeInSignal) SignalBargeIn()
 SignalBargeIn delivers one barge\-in notification, best\-effort and non\-blocking: it coalesces if a prior signal is unconsumed, and no\-ops on a zero\-value \(uninitialized\) signal. Safe to call from the receive goroutine.
 
 <a name="BaseEmbeddingProvider"></a>
-## type [BaseEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L24-L36>)
+## type [BaseEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L25-L45>)
 
 BaseEmbeddingProvider provides common functionality for embedding providers. Embed this struct in provider\-specific implementations to reduce duplication.
 
@@ -1079,18 +1080,23 @@ type BaseEmbeddingProvider struct {
     BaseURL       string
     APIKey        string
     HTTPClient    *http.Client
-    Dimensions    int
-    ProviderID    string
-    BatchSize     int
+    // Dimensions is the vector length the configured model produces: the
+    // size the caller declared, else the size of a model the provider knows.
+    // It is 0 when neither applies — the provider then takes the length of
+    // the first vector it gets back rather than guessing one.
+    Dimensions int
+    ProviderID string
+    BatchSize  int
     // PlatformAuth indicates the HTTPClient's transport applies
     // hyperscaler-platform auth (Azure Bearer, etc.) per request, so the
     // per-provider empty-API-key guard must be skipped.
     PlatformAuth bool
+    // contains filtered or unexported fields
 }
 ```
 
 <a name="NewBaseEmbeddingProvider"></a>
-### func [NewBaseEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L39-L43>)
+### func [NewBaseEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L48-L52>)
 
 ```go
 func NewBaseEmbeddingProvider(providerID, defaultModel, defaultBaseURL string, defaultDimensions, defaultBatchSize int, defaultTimeout time.Duration) *BaseEmbeddingProvider
@@ -1107,8 +1113,17 @@ func (b *BaseEmbeddingProvider) ApplyWiring(w EmbeddingWiring) (dimsExplicit boo
 
 ApplyWiring applies the transport\-derived settings, leaving each field alone when the wiring does not carry one. It reports whether Dimensions was set, so the caller knows not to overwrite it with a model\-family default — a comparison against the default value cannot tell "unset" from "set to the same number".
 
+<a name="BaseEmbeddingProvider.CheckDimensions"></a>
+### func \(\*BaseEmbeddingProvider\) [CheckDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L87>)
+
+```go
+func (b *BaseEmbeddingProvider) CheckDimensions(embeddings [][]float32) error
+```
+
+CheckDimensions verifies every vector has the length EmbeddingDimensions reports, recording the first length seen when no size is known yet. A mismatch is an error: a caller that sized storage from EmbeddingDimensions would otherwise fail later, far from the cause.
+
 <a name="BaseEmbeddingProvider.DoEmbeddingRequest"></a>
-### func \(\*BaseEmbeddingProvider\) [DoEmbeddingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L136-L139>)
+### func \(\*BaseEmbeddingProvider\) [DoEmbeddingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L185-L188>)
 
 ```go
 func (b *BaseEmbeddingProvider) DoEmbeddingRequest(ctx context.Context, cfg HTTPRequestConfig) ([]byte, error)
@@ -1117,7 +1132,7 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(ctx context.Context, cfg HTTP
 DoEmbeddingRequest performs a common HTTP POST request for embeddings. Returns the response body and any error.
 
 <a name="BaseEmbeddingProvider.EmbedWithEmptyCheck"></a>
-### func \(\*BaseEmbeddingProvider\) [EmbedWithEmptyCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L109-L113>)
+### func \(\*BaseEmbeddingProvider\) [EmbedWithEmptyCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L147-L151>)
 
 ```go
 func (b *BaseEmbeddingProvider) EmbedWithEmptyCheck(ctx context.Context, req EmbeddingRequest, embedFn EmbedFunc) (EmbeddingResponse, error)
@@ -1126,16 +1141,16 @@ func (b *BaseEmbeddingProvider) EmbedWithEmptyCheck(ctx context.Context, req Emb
 EmbedWithEmptyCheck wraps embedding logic with empty request handling.
 
 <a name="BaseEmbeddingProvider.EmbeddingDimensions"></a>
-### func \(\*BaseEmbeddingProvider\) [EmbeddingDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L65>)
+### func \(\*BaseEmbeddingProvider\) [EmbeddingDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L76>)
 
 ```go
 func (b *BaseEmbeddingProvider) EmbeddingDimensions() int
 ```
 
-EmbeddingDimensions returns the dimensionality of embedding vectors.
+EmbeddingDimensions returns the dimensionality of embedding vectors: the declared or known size, else the size observed on the first response, else 0 when neither is available yet.
 
 <a name="BaseEmbeddingProvider.EmptyResponseForModel"></a>
-### func \(\*BaseEmbeddingProvider\) [EmptyResponseForModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L76>)
+### func \(\*BaseEmbeddingProvider\) [EmptyResponseForModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L114>)
 
 ```go
 func (b *BaseEmbeddingProvider) EmptyResponseForModel(model string) EmbeddingResponse
@@ -1144,7 +1159,7 @@ func (b *BaseEmbeddingProvider) EmptyResponseForModel(model string) EmbeddingRes
 EmptyResponseForModel returns an empty EmbeddingResponse with the given model. Use this for handling empty input cases.
 
 <a name="BaseEmbeddingProvider.HandleEmptyRequest"></a>
-### func \(\*BaseEmbeddingProvider\) [HandleEmptyRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L96-L98>)
+### func \(\*BaseEmbeddingProvider\) [HandleEmptyRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L134-L136>)
 
 ```go
 func (b *BaseEmbeddingProvider) HandleEmptyRequest(req EmbeddingRequest) (EmbeddingResponse, bool)
@@ -1153,7 +1168,7 @@ func (b *BaseEmbeddingProvider) HandleEmptyRequest(req EmbeddingRequest) (Embedd
 HandleEmptyRequest checks if the request has no texts and returns early if so. Returns \(response, true\) if empty, \(zero, false\) if not empty.
 
 <a name="BaseEmbeddingProvider.ID"></a>
-### func \(\*BaseEmbeddingProvider\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L55>)
+### func \(\*BaseEmbeddingProvider\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L64>)
 
 ```go
 func (b *BaseEmbeddingProvider) ID() string
@@ -1162,7 +1177,7 @@ func (b *BaseEmbeddingProvider) ID() string
 ID returns the provider identifier.
 
 <a name="BaseEmbeddingProvider.MaxBatchSize"></a>
-### func \(\*BaseEmbeddingProvider\) [MaxBatchSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L70>)
+### func \(\*BaseEmbeddingProvider\) [MaxBatchSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L108>)
 
 ```go
 func (b *BaseEmbeddingProvider) MaxBatchSize() int
@@ -1171,7 +1186,7 @@ func (b *BaseEmbeddingProvider) MaxBatchSize() int
 MaxBatchSize returns the maximum texts per single API request.
 
 <a name="BaseEmbeddingProvider.Model"></a>
-### func \(\*BaseEmbeddingProvider\) [Model](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L60>)
+### func \(\*BaseEmbeddingProvider\) [Model](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L69>)
 
 ```go
 func (b *BaseEmbeddingProvider) Model() string
@@ -1180,7 +1195,7 @@ func (b *BaseEmbeddingProvider) Model() string
 Model returns the current embedding model.
 
 <a name="BaseEmbeddingProvider.ResolveModel"></a>
-### func \(\*BaseEmbeddingProvider\) [ResolveModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L87>)
+### func \(\*BaseEmbeddingProvider\) [ResolveModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L125>)
 
 ```go
 func (b *BaseEmbeddingProvider) ResolveModel(reqModel string) string
@@ -1761,7 +1776,7 @@ type DoRequestFunc func() (*http.Response, error)
 ```
 
 <a name="EmbedFunc"></a>
-## type [EmbedFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L106>)
+## type [EmbedFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L144>)
 
 EmbedFunc is the signature for provider\-specific embedding logic.
 
@@ -1770,7 +1785,7 @@ type EmbedFunc func(ctx context.Context, texts []string, model string) (Embeddin
 ```
 
 <a name="EmbeddingProvider"></a>
-## type [EmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding.go#L46-L63>)
+## type [EmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding.go#L46-L66>)
 
 EmbeddingProvider generates text embeddings for semantic similarity operations. Implementations exist for OpenAI, Gemini, and other embedding APIs.
 
@@ -1793,8 +1808,11 @@ type EmbeddingProvider interface {
     // Implementations should handle batching internally if the request exceeds MaxBatchSize.
     Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error)
 
-    // EmbeddingDimensions returns the dimensionality of embedding vectors.
-    // Common values: 1536 (OpenAI ada-002/3-small), 768 (Gemini), 3072 (OpenAI 3-large)
+    // EmbeddingDimensions returns the dimensionality of embedding vectors:
+    // the size configured for the provider, else the known size of its model,
+    // else the size observed on the first Embed call. It returns 0 when none
+    // of these is available yet — embed one text first if you need the size
+    // before storing vectors.
     EmbeddingDimensions() int
 
     // MaxBatchSize returns the maximum number of texts per single API request.
@@ -1994,7 +2012,7 @@ type FrameDetector interface {
 ```
 
 <a name="HTTPRequestConfig"></a>
-## type [HTTPRequestConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L122-L132>)
+## type [HTTPRequestConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L171-L181>)
 
 HTTPRequestConfig configures how to make an HTTP request.
 

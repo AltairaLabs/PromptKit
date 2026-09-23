@@ -47,6 +47,11 @@ func skipIfNoAWS(t *testing.T) {
 // rather than a hand-assembled struct.
 func liveProvider(t *testing.T, model string) providers.EmbeddingProvider {
 	t.Helper()
+	return liveProviderWithConfig(t, model, nil)
+}
+
+func liveProviderWithConfig(t *testing.T, model string, extra map[string]any) providers.EmbeddingProvider {
+	t.Helper()
 	skipIfNoAWS(t)
 
 	cred, err := credentials.NewAWSCredential(context.Background(), integrationRegion())
@@ -60,10 +65,26 @@ func liveProvider(t *testing.T, model string) providers.EmbeddingProvider {
 		PlatformConfig: &credentials.PlatformConfig{
 			Type: "bedrock", Region: integrationRegion(),
 		},
-		Credential: cred,
+		Credential:       cred,
+		AdditionalConfig: extra,
 	})
 	require.NoError(t, err)
 	return p
+}
+
+// A declared size must reach Titan v2, which then returns vectors of that
+// size; before the fix the setting was reported but never sent, so the
+// endpoint returned its 1024 default.
+func TestLiveTitanV2HonorsDeclaredDimensions(t *testing.T) {
+	p := liveProviderWithConfig(t, "amazon.titan-embed-text-v2:0", map[string]any{"dimensions": 256})
+
+	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"hello", "world"}})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Embeddings, 2)
+	assert.Len(t, resp.Embeddings[0], 256)
+	assert.Len(t, resp.Embeddings[1], 256)
+	assert.Equal(t, 256, p.EmbeddingDimensions())
 }
 
 func TestLiveTitanEmbedsSingleText(t *testing.T) {

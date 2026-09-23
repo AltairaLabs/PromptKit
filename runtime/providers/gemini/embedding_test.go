@@ -65,7 +65,7 @@ func TestGeminiEmbeddingProvider_Embed(t *testing.T) {
 
 			resp := geminiEmbedResponse{
 				Embedding: &geminiEmbeddingData{
-					Values: []float32{0.1, 0.2, 0.3},
+					Values: fixtureVector(dimensionsGeminiEmbedding, 0.1, 0.2, 0.3),
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -85,7 +85,7 @@ func TestGeminiEmbeddingProvider_Embed(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Len(t, resp.Embeddings, 1)
-		assert.Equal(t, []float32{0.1, 0.2, 0.3}, resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensionsGeminiEmbedding, 0.1, 0.2, 0.3), resp.Embeddings[0])
 		assert.Equal(t, DefaultGeminiEmbeddingModel, resp.Model)
 	})
 
@@ -99,9 +99,9 @@ func TestGeminiEmbeddingProvider_Embed(t *testing.T) {
 
 			resp := geminiBatchEmbedResponse{
 				Embeddings: []geminiEmbeddingData{
-					{Values: []float32{0.1, 0.2}},
-					{Values: []float32{0.3, 0.4}},
-					{Values: []float32{0.5, 0.6}},
+					{Values: fixtureVector(dimensionsGeminiEmbedding, 0.1, 0.2)},
+					{Values: fixtureVector(dimensionsGeminiEmbedding, 0.3, 0.4)},
+					{Values: fixtureVector(dimensionsGeminiEmbedding, 0.5, 0.6)},
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -121,9 +121,9 @@ func TestGeminiEmbeddingProvider_Embed(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Len(t, resp.Embeddings, 3)
-		assert.Equal(t, []float32{0.1, 0.2}, resp.Embeddings[0])
-		assert.Equal(t, []float32{0.3, 0.4}, resp.Embeddings[1])
-		assert.Equal(t, []float32{0.5, 0.6}, resp.Embeddings[2])
+		assert.Equal(t, fixtureVector(dimensionsGeminiEmbedding, 0.1, 0.2), resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(dimensionsGeminiEmbedding, 0.3, 0.4), resp.Embeddings[1])
+		assert.Equal(t, fixtureVector(dimensionsGeminiEmbedding, 0.5, 0.6), resp.Embeddings[2])
 	})
 
 	t.Run("handles empty input", func(t *testing.T) {
@@ -314,9 +314,12 @@ func TestGeminiEmbeddingProvider_Batching(t *testing.T) {
 		}))
 		defer server.Close()
 
+		// A model the provider does not know, so the fixture's short vectors
+		// set the size instead of failing the dimension check.
 		p, err := NewEmbeddingProvider(
 			WithGeminiEmbeddingAPIKey("test-key"),
 			WithGeminiEmbeddingBaseURL(server.URL),
+			WithGeminiEmbeddingModel("fixture-model"),
 		)
 		require.NoError(t, err)
 
@@ -384,8 +387,8 @@ func TestGeminiEmbeddingProvider_EmbeddingDimensions(t *testing.T) {
 	// RETIRED models, kept so the mapping stays honest about what they were —
 	// the endpoint returns NOT_FOUND for both now.
 	//
-	// An unknown model defaults to the current generation's 3072 rather than
-	// the retired 768, since that is the better guess for anything new.
+	// An unknown model reports 0 until a response is observed: any guessed
+	// size would be wrong for some model, and wrong silently.
 	tests := []struct {
 		model    string
 		expected int
@@ -394,7 +397,7 @@ func TestGeminiEmbeddingProvider_EmbeddingDimensions(t *testing.T) {
 		{EmbeddingModelGemini2, 3072},
 		{EmbeddingModel001, 768},
 		{EmbeddingModel004, 768},
-		{"unknown-model", 3072},
+		{"unknown-model", 0}, // unknown model reports 0 until observed
 	}
 
 	for _, tt := range tests {
@@ -454,7 +457,7 @@ func TestGeminiEmbeddingProvider_WithHTTPClient(t *testing.T) {
 func TestGeminiDimensionsForModel(t *testing.T) {
 	// See TestGeminiEmbeddingProvider_EmbeddingDimensions: 3072 is measured
 	// against the live API, 768 describes the two retired models, and anything
-	// unrecognized defaults to the current generation.
+	// unrecognized reports 0 rather than a guess.
 	tests := []struct {
 		model    string
 		expected int
@@ -463,8 +466,8 @@ func TestGeminiDimensionsForModel(t *testing.T) {
 		{EmbeddingModelGemini2, 3072},
 		{EmbeddingModel001, 768},
 		{EmbeddingModel004, 768},
-		{"custom-model", 3072},
-		{"", 3072},
+		{"custom-model", 0}, // unknown model reports 0 until observed
+		{"", 0},
 	}
 
 	for _, tt := range tests {
@@ -476,3 +479,11 @@ func TestGeminiDimensionsForModel(t *testing.T) {
 
 // Verify interface compliance
 var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider expects for its model.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
+}

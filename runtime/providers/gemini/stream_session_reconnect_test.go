@@ -17,15 +17,21 @@ import (
 // This simulates Gemini's behavior of dropping connections mid-conversation.
 func TestStreamSession_ReconnectOnUnexpectedClose(t *testing.T) {
 	var connectionCount atomic.Int32
-	// Use a done channel to prevent t.Log calls after test completion (avoids data race).
-	done := make(chan struct{})
-	t.Cleanup(func() { close(done) })
+	// The server handler outlives the test, so t.Logf is guarded by a lock
+	// that cleanup takes too: checking a done channel and then logging leaves
+	// a window where the test completes between the two (a data race).
+	var logMu sync.Mutex
+	finished := false
+	t.Cleanup(func() {
+		logMu.Lock()
+		finished = true
+		logMu.Unlock()
+	})
 
 	logf := func(format string, args ...interface{}) {
-		select {
-		case <-done:
-			return
-		default:
+		logMu.Lock()
+		defer logMu.Unlock()
+		if !finished {
 			t.Logf(format, args...)
 		}
 	}

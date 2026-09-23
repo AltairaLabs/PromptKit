@@ -45,6 +45,9 @@ const DefaultOllamaURL = "http://localhost:11434"
 // No API key is needed — Ollama runs locally or on a private network.
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
+	// dimsExplicit records that the caller set Dimensions, so it is sent as
+	// the request's dimensions and the model lookup must not overwrite it.
+	dimsExplicit bool
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -54,7 +57,6 @@ type EmbeddingOption func(*EmbeddingProvider)
 func WithEmbeddingModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		p.ProviderModel = model
-		p.Dimensions = dimensionsForModel(model)
 	}
 }
 
@@ -72,11 +74,12 @@ func WithEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	}
 }
 
-// WithEmbeddingDimensions overrides the default dimensions for the model.
-// Use this for custom or fine-tuned models with non-standard dimensions.
+// WithEmbeddingDimensions sets the output size. It is sent as the request's
+// dimensions, which Ollama honors by shortening the vector.
 func WithEmbeddingDimensions(dims int) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		p.Dimensions = dims
+		p.dimsExplicit = dims > 0
 	}
 }
 
@@ -97,14 +100,18 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) *EmbeddingProvider {
 	for _, opt := range opts {
 		opt(p)
 	}
+	if !p.dimsExplicit {
+		p.Dimensions = dimensionsForModel(p.ProviderModel)
+	}
 
 	return p
 }
 
 // ollamaEmbedRequest is the Ollama /api/embed request format.
 type ollamaEmbedRequest struct {
-	Model string `json:"model"`
-	Input any    `json:"input"` // string or []string
+	Model      string `json:"model"`
+	Input      any    `json:"input"` // string or []string
+	Dimensions int    `json:"dimensions,omitempty"`
 }
 
 // ollamaEmbedResponse is the Ollama /api/embed response format.
@@ -136,6 +143,9 @@ func (p *EmbeddingProvider) embedTexts(
 	reqBody := ollamaEmbedRequest{
 		Model: model,
 		Input: input,
+	}
+	if p.dimsExplicit {
+		reqBody.Dimensions = p.Dimensions
 	}
 
 	jsonBody, err := providers.MarshalRequest(reqBody)
@@ -173,7 +183,8 @@ func (p *EmbeddingProvider) embedTexts(
 	}, nil
 }
 
-// dimensionsForModel returns the expected dimensions for a known model.
+// dimensionsForModel returns the dimensions of a known model, or 0 for any
+// other name, whose size is then taken from the first response.
 func dimensionsForModel(model string) int {
 	switch model {
 	case EmbeddingModelNomicText:
@@ -183,6 +194,6 @@ func dimensionsForModel(model string) int {
 	case EmbeddingModelAllMiniLM:
 		return dimensionsAllMiniLM
 	default:
-		return dimensionsNomicText // safe default
+		return 0
 	}
 }

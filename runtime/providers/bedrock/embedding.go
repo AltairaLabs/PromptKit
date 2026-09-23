@@ -39,6 +39,9 @@ const (
 	titanV1Dimensions  = 1536
 	cohereDimensions   = 1024
 	titanV1ModelSuffix = "text-v1"
+	// titanV2ModelSuffix marks the only Titan model whose body accepts
+	// dimensions; v1 and the image model reject it.
+	titanV2ModelSuffix = "text-v2"
 )
 
 // Batch limits. Titan's InvokeModel body carries a single string, so a
@@ -137,7 +140,8 @@ func (p *EmbeddingProvider) invokeURL(model string) string {
 
 // titanRequest is Amazon Titan's InvokeModel body: exactly one text.
 type titanRequest struct {
-	InputText string `json:"inputText"`
+	InputText  string `json:"inputText"`
+	Dimensions int    `json:"dimensions,omitempty"`
 }
 
 type titanResponse struct {
@@ -181,7 +185,11 @@ func (p *EmbeddingProvider) embedTitan(
 	total := 0
 
 	for i, text := range texts {
-		body, err := providers.MarshalRequest(titanRequest{InputText: text})
+		tr := titanRequest{InputText: text}
+		if p.dimsExplicit && strings.Contains(model, titanV2ModelSuffix) {
+			tr.Dimensions = p.Dimensions
+		}
+		body, err := providers.MarshalRequest(tr)
 		if err != nil {
 			return providers.EmbeddingResponse{}, err
 		}

@@ -8,6 +8,25 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Embedding providers no longer guess a model's vector size
+
+`EmbeddingDimensions()` used to answer with a fixed default for any model a
+provider did not recognize (1536 for `openai`, 3072 for `gemini`, 768 for
+`ollama`, 1024 for `voyageai`), so a self-hosted model reached as `type: openai`
+reported 1536 while returning 768-length vectors. A declared `dimensions` was
+also ignored by `openai` and `gemini`, and never sent by `ollama` or Bedrock
+Titan v2.
+
+Now the size is the declared `dimensions`, else the known size of the model,
+else the length of the first vector returned. A declared size is sent to the
+API, and every response is checked against the reported size.
+
+| If you | You will see | Change |
+|---|---|---|
+| Call `EmbeddingDimensions()` before any `Embed` for a model the provider does not know | `0` | set `dimensions`, or embed one text first and read the size then |
+| Declare a `dimensions` the model cannot produce | `Embed` errors, naming both sizes (or the API rejects the field, e.g. `text-embedding-ada-002`) | set it to the model's real size, or remove it |
+| Rely on a declared `dimensions` for `openai`/`gemini` that was previously ignored | vectors now come back at that size | size existing vector storage to match, or remove the setting |
+
 ### Checks name the provider they need, and the host binds it
 
 Checks that need a model they do not own — a judge for `toxicity`, a classifier

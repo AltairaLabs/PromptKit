@@ -88,8 +88,8 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			resp := voyageResponse{
 				Object: "list",
 				Data: []voyageEmbedding{
-					{Object: "embedding", Embedding: []float32{0.1, 0.2, 0.3}, Index: 0},
-					{Object: "embedding", Embedding: []float32{0.4, 0.5, 0.6}, Index: 1},
+					{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1, 0.2, 0.3), Index: 0},
+					{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.4, 0.5, 0.6), Index: 1},
 				},
 				Model: DefaultModel,
 				Usage: voyageUsage{TotalTokens: 10},
@@ -110,8 +110,8 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Len(t, resp.Embeddings, 2)
-		assert.Equal(t, []float32{0.1, 0.2, 0.3}, resp.Embeddings[0])
-		assert.Equal(t, []float32{0.4, 0.5, 0.6}, resp.Embeddings[1])
+		assert.Equal(t, fixtureVector(Dimensions1024, 0.1, 0.2, 0.3), resp.Embeddings[0])
+		assert.Equal(t, fixtureVector(Dimensions1024, 0.4, 0.5, 0.6), resp.Embeddings[1])
 		assert.Equal(t, DefaultModel, resp.Model)
 		assert.Equal(t, 10, resp.Usage.TotalTokens)
 	})
@@ -179,7 +179,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 			resp := voyageResponse{
 				Object: "list",
 				Data: []voyageEmbedding{
-					{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
+					{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1), Index: 0},
 				},
 				Model: DefaultModel,
 				Usage: voyageUsage{TotalTokens: 5},
@@ -300,9 +300,9 @@ func TestEmbeddingProvider_PreservesOrderWithOutOfOrderResponse(t *testing.T) {
 		resp := voyageResponse{
 			Object: "list",
 			Data: []voyageEmbedding{
-				{Object: "embedding", Embedding: []float32{0.5, 0.6}, Index: 2},
-				{Object: "embedding", Embedding: []float32{0.3, 0.4}, Index: 1},
-				{Object: "embedding", Embedding: []float32{0.1, 0.2}, Index: 0},
+				{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.5, 0.6), Index: 2},
+				{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.3, 0.4), Index: 1},
+				{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1, 0.2), Index: 0},
 			},
 			Model: DefaultModel,
 			Usage: voyageUsage{TotalTokens: 15},
@@ -325,9 +325,9 @@ func TestEmbeddingProvider_PreservesOrderWithOutOfOrderResponse(t *testing.T) {
 
 	// Should be reordered by index
 	assert.Len(t, resp.Embeddings, 3)
-	assert.Equal(t, []float32{0.1, 0.2}, resp.Embeddings[0])
-	assert.Equal(t, []float32{0.3, 0.4}, resp.Embeddings[1])
-	assert.Equal(t, []float32{0.5, 0.6}, resp.Embeddings[2])
+	assert.Equal(t, fixtureVector(Dimensions1024, 0.1, 0.2), resp.Embeddings[0])
+	assert.Equal(t, fixtureVector(Dimensions1024, 0.3, 0.4), resp.Embeddings[1])
+	assert.Equal(t, fixtureVector(Dimensions1024, 0.5, 0.6), resp.Embeddings[2])
 }
 
 func TestEmbeddingProvider_WithHTTPClient(t *testing.T) {
@@ -352,7 +352,7 @@ func TestEmbeddingProvider_EmbedSingleText(t *testing.T) {
 		resp := voyageResponse{
 			Object: "list",
 			Data: []voyageEmbedding{
-				{Object: "embedding", Embedding: []float32{0.1, 0.2, 0.3, 0.4}, Index: 0},
+				{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1, 0.2, 0.3, 0.4), Index: 0},
 			},
 			Model: DefaultModel,
 			Usage: voyageUsage{TotalTokens: 3},
@@ -372,7 +372,7 @@ func TestEmbeddingProvider_EmbedSingleText(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, resp.Embeddings, 1)
-	assert.Equal(t, []float32{0.1, 0.2, 0.3, 0.4}, resp.Embeddings[0])
+	assert.Equal(t, fixtureVector(Dimensions1024, 0.1, 0.2, 0.3, 0.4), resp.Embeddings[0])
 	assert.Equal(t, 3, resp.Usage.TotalTokens)
 }
 
@@ -386,7 +386,7 @@ func TestEmbeddingProvider_InputTypeDocument(t *testing.T) {
 		resp := voyageResponse{
 			Object: "list",
 			Data: []voyageEmbedding{
-				{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
+				{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1), Index: 0},
 			},
 			Model: DefaultModel,
 			Usage: voyageUsage{TotalTokens: 5},
@@ -431,7 +431,7 @@ func TestEmbeddingProvider_DomainSpecificModels(t *testing.T) {
 				resp := voyageResponse{
 					Object: "list",
 					Data: []voyageEmbedding{
-						{Object: "embedding", Embedding: []float32{0.1}, Index: 0},
+						{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 0.1), Index: 0},
 					},
 					Model: req.Model,
 					Usage: voyageUsage{TotalTokens: 5},
@@ -535,4 +535,12 @@ func TestEmbeddingProvider_DefaultDimensionNotSent(t *testing.T) {
 	require.NoError(t, err)
 	// Default dimension (1024) should not be sent in the request
 	assert.Equal(t, 0, receivedDimension)
+}
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider expects for its model.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
 }

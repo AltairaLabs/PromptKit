@@ -49,8 +49,11 @@ type EmbeddingProvider interface {
 	// Implementations should handle batching internally if the request exceeds MaxBatchSize.
 	Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error)
 
-	// EmbeddingDimensions returns the dimensionality of embedding vectors.
-	// Common values: 1536 (OpenAI ada-002/3-small), 768 (Gemini), 3072 (OpenAI 3-large)
+	// EmbeddingDimensions returns the dimensionality of embedding vectors:
+	// the size configured for the provider, else the known size of its model,
+	// else the size observed on the first Embed call. It returns 0 when none
+	// of these is available yet — embed one text first if you need the size
+	// before storing vectors.
 	EmbeddingDimensions() int
 
 	// MaxBatchSize returns the maximum number of texts per single API request.
