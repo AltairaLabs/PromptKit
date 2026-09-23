@@ -63,8 +63,13 @@ const referenceRedirects = {
 };
 
 // https://astro.build/config
+// Declared once: `site` below needs it, and so does every absolute URL in the
+// link-preview tags, which a scraper fetches with no page to resolve against.
+const SITE = 'https://promptkit.altairalabs.ai';
+const OG_ALT = 'PromptKit — the Go runtime for production agents';
+
 export default defineConfig({
-  site: 'https://promptkit.altairalabs.ai',
+  site: SITE,
   redirects: { ...howToRedirects, ...referenceRedirects },
   integrations: [
     d2(),
@@ -214,6 +219,22 @@ export default defineConfig({
             src: '/mermaid-init.js',
           },
         },
+        // The link-preview card. Starlight already emits og:title,
+        // og:description and twitter:card per page; what it has no opinion
+        // about is the IMAGE, and a summary_large_image card with no image is
+        // what Slack renders as a bare line of text.
+        //
+        // A PNG, not the SVG the favicon uses: Slack, LinkedIn and X all
+        // decline to rasterise SVG. Absolute, because a scraper resolves this
+        // URL with no page to be relative to.
+        //
+        // Regenerate from src/assets/og-card.svg:
+        //   rsvg-convert -w 1200 -h 630 -o public/og-image.png src/assets/og-card.svg
+        { tag: 'meta', attrs: { property: 'og:image', content: `${SITE}/og-image.png` } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { property: 'og:image:alt', content: OG_ALT } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: `${SITE}/og-image.png` } },
       ],
     }),
   ],

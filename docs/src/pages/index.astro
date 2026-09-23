@@ -30,6 +30,31 @@ import SiteFooter from '@altairalabs/brand/SiteFooter.astro';
     />
     <link rel="icon" href="/atlas/logo-promptkit.svg" type="image/svg+xml" />
     <link rel="canonical" href="https://promptkit.altairalabs.ai/" />
+    <!--
+      Written out by hand, because this page is not a Starlight page and
+      therefore inherits none of Starlight's head — so the one URL anyone
+      actually pastes into Slack had no card at all. Keep these in step with
+      the title and description above.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PromptKit" />
+    <meta property="og:url" content="https://promptkit.altairalabs.ai/" />
+    <meta property="og:title" content="PromptKit — The Go runtime for production agents" />
+    <meta
+      property="og:description"
+      content="The high-performance Go runtime and SDK for production LLM applications. Multi-provider streaming with bounded back-pressure, native MCP tools, A2A orchestration, workflow state machines, voice and multimodal — one pipeline."
+    />
+    <meta property="og:image" content="https://promptkit.altairalabs.ai/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="PromptKit — the Go runtime for production agents" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PromptKit — The Go runtime for production agents" />
+    <meta
+      name="twitter:description"
+      content="Multi-provider streaming, native MCP tools, A2A orchestration, workflows, voice and multimodal — one Go pipeline."
+    />
+    <meta name="twitter:image" content="https://promptkit.altairalabs.ai/og-image.png" />
     <script is:inline>
       // Pre-hydration theme init: localStorage -> prefers-color-scheme.
       const t =
