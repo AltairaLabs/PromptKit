@@ -68,8 +68,16 @@ spellings is rejected rather than silently resolved.
 
 `additional_config` carries provider-specific extras. Currently honored:
 
-- **VoyageAI** — `dimensions` (int), `input_type` (`query` | `document`)
-- **Ollama** — `dimensions` (int)
+- **All types** — `dimensions` (int): the vector size you want. It is sent to
+  the API (`dimensions`, `outputDimensionality` or `output_dimension`), which
+  shortens the vector where the model supports it. Every response is checked
+  against it, so a model that cannot produce that size fails loudly instead of
+  returning vectors your storage was not sized for.
+- **VoyageAI** — `input_type` (`query` | `document`)
+
+Without `dimensions`, the provider reports the size of a model it knows, and
+for any other model — typically one behind an OpenAI-compatible server —
+reports `0` until the first response gives the real size. It never guesses.
 
 ## Programmatic Path Still Works
 

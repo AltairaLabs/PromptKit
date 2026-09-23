@@ -50,6 +50,9 @@ const (
 // EmbeddingProvider implements embedding generation via OpenAI API.
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
+	// dimsExplicit records that the caller set Dimensions, so it is sent as
+	// the request's dimensions and the model lookup must not overwrite it.
+	dimsExplicit bool
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -59,7 +62,27 @@ type EmbeddingOption func(*EmbeddingProvider)
 func WithEmbeddingModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		p.ProviderModel = model
-		p.Dimensions = dimensionsForModel(model)
+	}
+}
+
+// WithEmbeddingDimensions sets the output size. It is sent as the request's
+// dimensions, which text-embedding-3-* honors by shortening the vector; a
+// fixed-size model rejects it, which is the right outcome for a size it
+// cannot produce.
+func WithEmbeddingDimensions(dims int) EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		p.Dimensions = dims
+		p.dimsExplicit = dims > 0
+	}
+}
+
+// WithEmbeddingWiring applies the transport-derived settings the factory
+// resolved, including a declared dimensions.
+func WithEmbeddingWiring(w providers.EmbeddingWiring) EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		if p.ApplyWiring(w) {
+			p.dimsExplicit = true
+		}
 	}
 }
 
@@ -110,6 +133,9 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	for _, opt := range opts {
 		opt(p)
 	}
+	if !p.dimsExplicit {
+		p.Dimensions = dimensionsForModel(p.ProviderModel)
+	}
 
 	// Platform auth is applied by the HTTP client's transport; the static
 	// key path (env fallback + guard) only applies when not in platform mode.
@@ -132,8 +158,9 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 
 // embeddingRequest is the OpenAI embeddings API request format.
 type embeddingRequest struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model      string   `json:"model"`
+	Input      []string `json:"input"`
+	Dimensions int      `json:"dimensions,omitempty"`
 }
 
 // embeddingResponse is the OpenAI embeddings API response format.
@@ -187,6 +214,9 @@ func (p *EmbeddingProvider) embedSingle(
 	reqBody := embeddingRequest{
 		Model: model,
 		Input: texts,
+	}
+	if p.dimsExplicit {
+		reqBody.Dimensions = p.Dimensions
 	}
 
 	jsonBody, err := providers.MarshalRequest(reqBody)
@@ -278,7 +308,10 @@ func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 	return float64(tokens) * pricePerMillion / tokensPerMillion
 }
 
-// dimensionsForModel returns the embedding dimensions for a given model.
+// dimensionsForModel returns the embedding dimensions of a known OpenAI model,
+// or 0 for any other name. A model reached through an OpenAI-compatible
+// server (LiteLLM, vLLM, Azure deployments) usually has a name not listed
+// here; its size is then taken from the first response, never assumed.
 func dimensionsForModel(model string) int {
 	switch model {
 	case EmbeddingModelAda002:
@@ -288,7 +321,7 @@ func dimensionsForModel(model string) int {
 	case EmbeddingModel3Large:
 		return dimensions3Large
 	default:
-		return dimensions3Small // Default to 3-small dimensions
+		return 0
 	}
 }
 

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,7 +54,12 @@ func TestOpenAIEmbeddingFactory_AzurePlatform(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotQuery = r.URL.RawQuery
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1}}`))
+		_ = json.NewEncoder(w).Encode(embeddingResponse{
+			Object: "list",
+			Data:   []embeddingData{{Object: "embedding", Index: 0, Embedding: fixtureVector(dimensions3Small, 0.1, 0.2)}},
+			Model:  "text-embedding-3-small",
+			Usage:  embeddingUsage{PromptTokens: 1, TotalTokens: 1},
+		})
 	}))
 	defer srv.Close()
 

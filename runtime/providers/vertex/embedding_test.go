@@ -52,7 +52,7 @@ func predictServer(t *testing.T, values []float32, tokens int) (*httptest.Server
 }
 
 func TestEmbeddingProvider_SendsVertexPredictBody(t *testing.T) {
-	srv, got := predictServer(t, []float32{0.1, 0.2, 0.3}, 7)
+	srv, got := predictServer(t, fixtureVector(textEmbeddingDimensions, 0.1, 0.2, 0.3), 7)
 
 	p, err := NewEmbeddingProvider(
 		WithWiring(providers.EmbeddingWiring{
@@ -80,7 +80,7 @@ func TestEmbeddingProvider_SendsVertexPredictBody(t *testing.T) {
 	assert.Equal(t, "hello", first["content"], "each instance carries its text under content")
 
 	require.Len(t, resp.Embeddings, 2)
-	assert.Equal(t, []float32{0.1, 0.2, 0.3}, resp.Embeddings[0],
+	assert.Equal(t, fixtureVector(textEmbeddingDimensions, 0.1, 0.2, 0.3), resp.Embeddings[0],
 		"values must be read from predictions[].embeddings.values")
 	require.NotNil(t, resp.Usage)
 	assert.Equal(t, 14, resp.Usage.TotalTokens, "token_count sums across predictions")
@@ -89,7 +89,7 @@ func TestEmbeddingProvider_SendsVertexPredictBody(t *testing.T) {
 // task_type steers Vertex between indexing and query embeddings, and the two
 // are not interchangeable for retrieval quality.
 func TestEmbeddingProvider_SendsTaskType(t *testing.T) {
-	srv, got := predictServer(t, []float32{1}, 1)
+	srv, got := predictServer(t, fixtureVector(textEmbeddingDimensions, 1), 1)
 
 	p, err := NewEmbeddingProvider(
 		WithWiring(providers.EmbeddingWiring{
@@ -109,7 +109,8 @@ func TestEmbeddingProvider_SendsTaskType(t *testing.T) {
 
 // outputDimensionality is a request parameter, not a client-side truncation.
 func TestEmbeddingProvider_SendsOutputDimensionality(t *testing.T) {
-	srv, got := predictServer(t, []float32{1}, 1)
+	// The server honors the requested size, as Vertex does.
+	srv, got := predictServer(t, fixtureVector(256, 1), 1)
 
 	p, err := NewEmbeddingProvider(
 		WithWiring(providers.EmbeddingWiring{
@@ -196,4 +197,12 @@ func TestEmbeddingProvider_PerRequestModelOverride(t *testing.T) {
 
 	assert.True(t, strings.HasSuffix((*got)[0].path, "/text-embedding-004:predict"),
 		"got %q", (*got)[0].path)
+}
+
+// fixtureVector returns an n-length vector whose leading elements are lead,
+// so a fake response matches the size the provider expects for its model.
+func fixtureVector(n int, lead ...float32) []float32 {
+	v := make([]float32, n)
+	copy(v, lead)
+	return v
 }

@@ -73,6 +73,9 @@ const (
 // EmbeddingProvider implements embedding generation via Gemini API.
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
+	// dimsExplicit records that the caller set Dimensions, so it is sent as
+	// outputDimensionality and the model lookup must not overwrite it.
+	dimsExplicit bool
 }
 
 // EmbeddingOption configures the EmbeddingProvider.
@@ -82,7 +85,25 @@ type EmbeddingOption func(*EmbeddingProvider)
 func WithGeminiEmbeddingModel(model string) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		p.ProviderModel = model
-		p.Dimensions = geminiDimensionsForModel(model)
+	}
+}
+
+// WithGeminiEmbeddingDimensions sets the output size, sent as
+// outputDimensionality so the API shortens the vector to match.
+func WithGeminiEmbeddingDimensions(dims int) EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		p.Dimensions = dims
+		p.dimsExplicit = dims > 0
+	}
+}
+
+// WithGeminiEmbeddingWiring applies the transport-derived settings the
+// factory resolved, including a declared dimensions.
+func WithGeminiEmbeddingWiring(w providers.EmbeddingWiring) EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		if p.ApplyWiring(w) {
+			p.dimsExplicit = true
+		}
 	}
 }
 
@@ -132,6 +153,9 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	for _, opt := range opts {
 		opt(p)
 	}
+	if !p.dimsExplicit {
+		p.Dimensions = geminiDimensionsForModel(p.ProviderModel)
+	}
 
 	// Platform auth is applied by the HTTP client's transport; static key
 	// path only applies when not in platform mode.
@@ -151,8 +175,21 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 // Gemini embedding API request/response structures
 
 type geminiEmbedRequest struct {
-	Model   string             `json:"model"`
-	Content geminiEmbedContent `json:"content"`
+	Model                string             `json:"model"`
+	Content              geminiEmbedContent `json:"content"`
+	OutputDimensionality int                `json:"outputDimensionality,omitempty"`
+}
+
+// embedRequest builds the request for one text, carrying a declared size.
+func (p *EmbeddingProvider) embedRequest(text, model string) geminiEmbedRequest {
+	r := geminiEmbedRequest{
+		Model:   fmt.Sprintf("models/%s", model),
+		Content: geminiEmbedContent{Parts: []geminiEmbedPart{{Text: text}}},
+	}
+	if p.dimsExplicit {
+		r.OutputDimensionality = p.Dimensions
+	}
+	return r
 }
 
 type geminiEmbedContent struct {
@@ -211,12 +248,7 @@ func (p *EmbeddingProvider) embedSingle(
 	ctx context.Context,
 	text, model string,
 ) (providers.EmbeddingResponse, error) {
-	reqBody := geminiEmbedRequest{
-		Model: fmt.Sprintf("models/%s", model),
-		Content: geminiEmbedContent{
-			Parts: []geminiEmbedPart{{Text: text}},
-		},
-	}
+	reqBody := p.embedRequest(text, model)
 
 	jsonBody, err := providers.MarshalRequest(reqBody)
 	if err != nil {
@@ -284,12 +316,7 @@ func (p *EmbeddingProvider) embedBatchSingle(
 ) (providers.EmbeddingResponse, error) {
 	requests := make([]geminiEmbedRequest, len(texts))
 	for i, text := range texts {
-		requests[i] = geminiEmbedRequest{
-			Model: fmt.Sprintf("models/%s", model),
-			Content: geminiEmbedContent{
-				Parts: []geminiEmbedPart{{Text: text}},
-			},
-		}
+		requests[i] = p.embedRequest(text, model)
 	}
 
 	reqBody := geminiBatchEmbedRequest{Requests: requests}
@@ -388,20 +415,21 @@ func (p *EmbeddingProvider) EstimateCost(tokens int) float64 {
 	return float64(tokens) * pricePerMillion / tokensPerMillion
 }
 
-// geminiDimensionsForModel returns the embedding dimensions for a given model.
+// geminiDimensionsForModel returns the embedding dimensions of a known model,
+// or 0 for any other name, whose size is then taken from the first response.
 //
 // The live models return 3072, verified against the API. The two 768 entries
-// are the retired models, kept accurate rather than removed. Defaulting to 3072
-// is the right guess for anything new, since that is what the current
-// generation returns.
+// are the retired models, kept accurate rather than removed.
 func geminiDimensionsForModel(model string) int {
 	switch model {
 	case EmbeddingModel001:
 		return dimensionsEmbedding001
 	case EmbeddingModel004:
 		return dimensionsEmbedding004
-	default:
+	case EmbeddingModelGemini001, EmbeddingModelGemini2:
 		return dimensionsGeminiEmbedding
+	default:
+		return 0
 	}
 }
 

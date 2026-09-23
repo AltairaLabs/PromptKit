@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -26,13 +27,21 @@ type BaseEmbeddingProvider struct {
 	BaseURL       string
 	APIKey        string
 	HTTPClient    *http.Client
-	Dimensions    int
-	ProviderID    string
-	BatchSize     int
+	// Dimensions is the vector length the configured model produces: the
+	// size the caller declared, else the size of a model the provider knows.
+	// It is 0 when neither applies — the provider then takes the length of
+	// the first vector it gets back rather than guessing one.
+	Dimensions int
+	ProviderID string
+	BatchSize  int
 	// PlatformAuth indicates the HTTPClient's transport applies
 	// hyperscaler-platform auth (Azure Bearer, etc.) per request, so the
 	// per-provider empty-API-key guard must be skipped.
 	PlatformAuth bool
+
+	// observedDims is the vector length seen on the first response when
+	// Dimensions is 0. Atomic because Embed may run concurrently.
+	observedDims atomic.Int64
 }
 
 // NewBaseEmbeddingProvider creates a base embedding provider with defaults.
@@ -61,9 +70,38 @@ func (b *BaseEmbeddingProvider) Model() string {
 	return b.ProviderModel
 }
 
-// EmbeddingDimensions returns the dimensionality of embedding vectors.
+// EmbeddingDimensions returns the dimensionality of embedding vectors: the
+// declared or known size, else the size observed on the first response, else
+// 0 when neither is available yet.
 func (b *BaseEmbeddingProvider) EmbeddingDimensions() int {
-	return b.Dimensions
+	if b.Dimensions > 0 {
+		return b.Dimensions
+	}
+	return int(b.observedDims.Load())
+}
+
+// CheckDimensions verifies every vector has the length EmbeddingDimensions
+// reports, recording the first length seen when no size is known yet. A
+// mismatch is an error: a caller that sized storage from EmbeddingDimensions
+// would otherwise fail later, far from the cause.
+func (b *BaseEmbeddingProvider) CheckDimensions(embeddings [][]float32) error {
+	for i, v := range embeddings {
+		if len(v) == 0 {
+			return fmt.Errorf("%s: embedding %d is empty", b.ProviderID, i)
+		}
+		want := b.EmbeddingDimensions()
+		if want == 0 {
+			b.observedDims.CompareAndSwap(0, int64(len(v)))
+			want = b.EmbeddingDimensions()
+		}
+		if len(v) != want {
+			return fmt.Errorf(
+				"%s: model %q returned %d-dimension embeddings, expected %d; "+
+					"set dimensions to the size the model actually produces",
+				b.ProviderID, b.ProviderModel, len(v), want)
+		}
+	}
+	return nil
 }
 
 // MaxBatchSize returns the maximum texts per single API request.
@@ -115,7 +153,18 @@ func (b *BaseEmbeddingProvider) EmbedWithEmptyCheck(
 		return resp, nil
 	}
 	model := b.ResolveModel(req.Model)
-	return embedFn(ctx, req.Texts, model)
+	resp, err := embedFn(ctx, req.Texts, model)
+	if err != nil {
+		return resp, err
+	}
+	// Dimensions describes the configured model; a per-request model override
+	// may legitimately produce a different size.
+	if model == b.ProviderModel {
+		if err := b.CheckDimensions(resp.Embeddings); err != nil {
+			return EmbeddingResponse{}, err
+		}
+	}
+	return resp, nil
 }
 
 // HTTPRequestConfig configures how to make an HTTP request.
