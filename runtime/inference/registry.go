@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 // Registry holds named Provider instances keyed by an id supplied at config
@@ -104,4 +106,28 @@ func FromContext(ctx context.Context) *Registry {
 		return r
 	}
 	return nil
+}
+
+// emitterContextKey is the unexported key used to attach an events.Emitter
+// to a context.Context. The type-as-key idiom avoids collisions with other
+// context values.
+type emitterContextKey struct{}
+
+// WithEmitter returns ctx with e attached. Instrument uses the attached
+// emitter to publish inference.call.completed / inference.call.failed
+// events; a Provider wrapped by Instrument is a no-op passthrough for
+// telemetry when the context carries no emitter.
+func WithEmitter(ctx context.Context, e *events.Emitter) context.Context {
+	return context.WithValue(ctx, emitterContextKey{}, e)
+}
+
+// emitterFromContext returns the events.Emitter attached to ctx, or nil if
+// none. Returning nil is safe: every Emitter method used by Instrument is a
+// nil-receiver no-op.
+func emitterFromContext(ctx context.Context) *events.Emitter {
+	if ctx == nil {
+		return nil
+	}
+	e, _ := ctx.Value(emitterContextKey{}).(*events.Emitter)
+	return e
 }

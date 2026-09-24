@@ -757,6 +757,22 @@ func (e *Emitter) STTCallFailedCtx(ctx context.Context, data *STTCallFailedData)
 	e.emitCtx(ctx, EventSTTCallFailed, data)
 }
 
+// InferenceCallCompletedCtx emits an inference.call.completed event with trace context for exemplar correlation.
+func (e *Emitter) InferenceCallCompletedCtx(ctx context.Context, data *InferenceCallCompletedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventInferenceCallCompleted, data)
+}
+
+// InferenceCallFailedCtx emits an inference.call.failed event with trace context for exemplar correlation.
+func (e *Emitter) InferenceCallFailedCtx(ctx context.Context, data *InferenceCallFailedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventInferenceCallFailed, data)
+}
+
 // errString converts err to its message string, returning "" for nil.
 func errString(err error) string {
 	if err == nil {

@@ -194,6 +194,8 @@ func TestAncillaryEventTypes_Constants(t *testing.T) {
 		{EventEmbeddingCallStarted, "embedding.call.started"},
 		{EventEmbeddingCallCompleted, "embedding.call.completed"},
 		{EventEmbeddingCallFailed, "embedding.call.failed"},
+		{EventInferenceCallCompleted, "inference.call.completed"},
+		{EventInferenceCallFailed, "inference.call.failed"},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.eventType), func(t *testing.T) {
@@ -215,6 +217,51 @@ func TestAncillaryEventData_Interfaces(t *testing.T) {
 	var _ EventData = &STTCallFailedData{}
 	var _ EventData = &EmbeddingCallCompletedData{}
 	var _ EventData = &EmbeddingCallFailedData{}
+	var _ EventData = &InferenceCallCompletedData{}
+	var _ EventData = &InferenceCallFailedData{}
+}
+
+func TestInferenceCallCompletedData_Fields(t *testing.T) {
+	d := &InferenceCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "hf",
+			Model:      "facebook/bart-large-mnli",
+			Capability: "inference",
+			Source:     "huggingface",
+			Duration:   100 * time.Millisecond,
+			Cost:       0.0002,
+		},
+		InputTokens: 42,
+	}
+	if d.Provider != "hf" {
+		t.Errorf("Provider = %q, want %q", d.Provider, "hf")
+	}
+	if d.InputTokens != 42 {
+		t.Errorf("InputTokens = %d, want 42", d.InputTokens)
+	}
+	if d.Cost != 0.0002 {
+		t.Errorf("Cost = %f, want 0.0002", d.Cost)
+	}
+	// Marker method must not panic.
+	d.eventData()
+}
+
+func TestInferenceCallFailedData_Fields(t *testing.T) {
+	d := &InferenceCallFailedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "hf",
+			Model:      "facebook/bart-large-mnli",
+			Capability: "inference",
+			Source:     "huggingface",
+			Duration:   50 * time.Millisecond,
+		},
+		Error: "rate limit exceeded",
+	}
+	if d.Error != "rate limit exceeded" {
+		t.Errorf("Error = %q, want %q", d.Error, "rate limit exceeded")
+	}
+	// Marker method must not panic.
+	d.eventData()
 }
 
 func TestImageGenCallCompletedData_Fields(t *testing.T) {

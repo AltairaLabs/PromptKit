@@ -1179,6 +1179,107 @@ func TestCollector_HandlesSTTCallFailed(t *testing.T) {
 	}
 }
 
+func TestCollector_HandlesInferenceCallCompleted(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventInferenceCallCompleted,
+		Data: &events.InferenceCallCompletedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "hf",
+				Model:    "facebook/bart-large-mnli",
+				Source:   "huggingface",
+				Duration: 120 * time.Millisecond,
+				Cost:     0.0002,
+			},
+			InputTokens: 42,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	checks := []string{
+		"test_inference_request_duration_seconds",
+		"test_inference_requests_total",
+		"test_inference_input_tokens_total",
+		"test_inference_cost_total",
+		`provider="hf"`,
+		`model="facebook/bart-large-mnli"`,
+		`status="success"`,
+	}
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Errorf("expected %q in output:\n%s", check, output)
+		}
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics: %v", err)
+	}
+
+	var requestsTotal float64
+	var durationCount uint64
+	for _, fam := range families {
+		switch fam.GetName() {
+		case "test_inference_requests_total":
+			for _, m := range fam.GetMetric() {
+				if labelValue(m, "status") == "success" {
+					requestsTotal += m.GetCounter().GetValue()
+				}
+			}
+		case "test_inference_request_duration_seconds":
+			for _, m := range fam.GetMetric() {
+				durationCount += m.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	if requestsTotal != 1 {
+		t.Errorf("inference_requests_total{status=\"success\"} = %v, want 1", requestsTotal)
+	}
+	if durationCount != 1 {
+		t.Errorf("inference_request_duration_seconds sample count = %d, want 1", durationCount)
+	}
+}
+
+func TestCollector_HandlesInferenceCallFailed(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventInferenceCallFailed,
+		Data: &events.InferenceCallFailedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "hf",
+				Model:    "facebook/bart-large-mnli",
+				Source:   "huggingface",
+				Duration: 30 * time.Millisecond,
+			},
+			Error: "rate limit exceeded",
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	if !strings.Contains(output, "test_inference_requests_total") {
+		t.Error("expected test_inference_requests_total metric")
+	}
+	if !strings.Contains(output, `status="error"`) {
+		t.Error("expected status=error label in inference_requests_total")
+	}
+}
+
+// labelValue returns the value of a named label on a gathered metric, or "".
+func labelValue(m *dto.Metric, name string) string {
+	for _, lp := range m.GetLabel() {
+		if lp.GetName() == name {
+			return lp.GetValue()
+		}
+	}
+	return ""
+}
+
 // TestMetricContext_EvalBooleanUsesMetricValue pins that a boolean metric goes
 // through ExtractValue like every other type.
 //
