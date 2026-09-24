@@ -299,9 +299,20 @@ func (s *DuplexProviderStage) Process(
 		var err error
 		s.session, err = s.provider.CreateStreamSession(ctx, sessionConfig)
 		if err != nil {
-			// Wait for drain goroutine to complete before returning
+			// Release the drain goroutine — it otherwise waits for EndOfStream or
+			// input close, withholding this error until the caller hangs up — and
+			// wait for it to complete before returning.
+			close(sessionCreated)
 			<-drainDone
-			return fmt.Errorf("duplex provider stage: failed to create session: %w", err)
+			// Report it downstream too, as provider chunk errors are: the
+			// pipeline only logs a stage's returned error, so without this
+			// element the consumer sees its output close with no reason.
+			createErr := fmt.Errorf("duplex provider stage: failed to create session: %w", err)
+			select {
+			case output <- NewErrorElement(createErr):
+			case <-ctx.Done():
+			}
+			return createErr
 		}
 		logger.Debug("DuplexProviderStage: session created")
 		defer s.session.Close()

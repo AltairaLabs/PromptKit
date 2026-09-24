@@ -7,9 +7,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 )
 
 const execExecutorName = "exec"
+
+// execWaitDelay bounds how long a timed-out process's output is drained after
+// it is killed, before its pipes are closed regardless.
+const execWaitDelay = 100 * time.Millisecond
 
 // ExecExecutor runs tool invocations as one-shot subprocesses.
 // The tool arguments are written as JSON to stdin; the subprocess result is read from stdout.
@@ -94,6 +99,10 @@ func runExecProcess(
 ) (stdout, stderr []byte, err error) {
 	cmd := exec.CommandContext(ctx, command, args...) //#nosec G204 -- command comes from trusted config
 	cmd.Stdin = bytes.NewReader(stdin)
+	// Killing the process on timeout does not close its output pipes while a
+	// child it spawned still holds them; without a bound, Run waits for that
+	// child and the timeout is not enforced.
+	cmd.WaitDelay = execWaitDelay
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

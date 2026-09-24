@@ -107,11 +107,28 @@ type GuardrailHookAdapter struct {
 // timeout applied after WithGuardrail specs are built.
 func (a *GuardrailHookAdapter) SetEvalTimeout(d time.Duration) { a.evalTimeout = d }
 
+// TimeoutSettable is implemented by every guardrail hook this package builds —
+// eval-backed and func-backed alike — so a host applies one guardrail timeout
+// (sdk.WithGuardrailTimeout) to all of them.
+type TimeoutSettable interface {
+	SetEvalTimeout(d time.Duration)
+}
+
+var (
+	_ TimeoutSettable = (*GuardrailHookAdapter)(nil)
+	_ TimeoutSettable = (*funcGuardrail)(nil)
+)
+
 // evalTimeoutOrDefault returns the configured bound on handler.Eval, or
 // evals.DefaultEvalTimeout when none was set.
 func (a *GuardrailHookAdapter) evalTimeoutOrDefault() time.Duration {
-	if a.evalTimeout > 0 {
-		return a.evalTimeout
+	return timeoutOrDefault(a.evalTimeout)
+}
+
+// timeoutOrDefault returns d, or evals.DefaultEvalTimeout when d is unset.
+func timeoutOrDefault(d time.Duration) time.Duration {
+	if d > 0 {
+		return d
 	}
 	return evals.DefaultEvalTimeout
 }
@@ -474,12 +491,18 @@ func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision
 // from an ordinary classifier fault — see the timeout wrapped around
 // a.handler.Eval above.
 func (a *GuardrailHookAdapter) enforcedFailure(err error) hooks.Decision {
+	return failureDecision(a.evalType, err)
+}
+
+// failureDecision is the fail-closed decision for a check that produced no
+// verdict — its handler errored, or it ran past the guardrail timeout.
+func failureDecision(validatorType string, err error) hooks.Decision {
 	reason := reasonError
 	if errors.Is(err, context.DeadlineExceeded) {
 		reason = reasonTimeout
 	}
 	return hooks.Enforced("guardrail "+reason+": "+err.Error(), map[string]any{
-		"validator_type": a.evalType,
+		"validator_type": validatorType,
 		"reason":         reason,
 	})
 }

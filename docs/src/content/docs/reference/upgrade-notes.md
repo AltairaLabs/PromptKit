@@ -43,10 +43,22 @@ guardrail returned empty text (#2064).
 | If you | You will see | Change |
 |---|---|---|
 | Run a guardrail whose judge regularly takes over 30s, having raised `WithIdleTimeout` for it | the turn is blocked with the validator's message at 30s | raise the bound with `sdk.WithGuardrailTimeout(d)` |
+| Declare a guardrail with `guardrails.InputFunc` / `OutputFunc` whose function can run past the bound | the turn is blocked with the default blocked message, `reason: timeout` | return sooner, or raise the bound with `sdk.WithGuardrailTimeout(d)` — it applies to func guardrails too |
+
+A func guardrail's function receives a context carrying the deadline. One
+that ignores it keeps running in the background after the turn moves on; its
+result is discarded and it can no longer change the response.
 
 Inference calls also emit `inference_requests_total`,
 `inference_request_duration_seconds`, `inference_input_tokens_total` and
 `inference_cost_total` (labels `provider`, `model`, `source`, plus `status`).
+
+Provider HTTP retries — every LLM and inference provider — are counted in
+`provider_retries_total{provider, outcome}` (under the metrics collector's namespace): `retry` per retried
+attempt, `success` when a call recovers after retrying, `exhausted` when
+every attempt fails. A backend that only answers on its second try is now
+visible. The OpenAI inference provider's retries can be configured with
+`openai.Config.RetryPolicy`.
 
 ### Embedding providers no longer guess a model's vector size
 

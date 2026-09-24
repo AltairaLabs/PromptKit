@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -182,11 +182,19 @@ func TestA2AEvalHandler_AgentError(t *testing.T) {
 
 func TestA2AEvalHandler_Timeout(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(2 * time.Second)
+	// Answer only after the handler's 100ms timeout, and without holding
+	// server shutdown for a fixed sleep once the client has gone.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-release:
+		}
 		w.Write([]byte("{}"))
 	}))
 	defer server.Close()
+	defer close(release)
 
 	h := &A2AEvalHandler{}
 	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
@@ -201,6 +209,9 @@ func TestA2AEvalHandler_Timeout(t *testing.T) {
 	}
 	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for timeout")
+	}
+	if !strings.Contains(result.Explanation, "deadline exceeded") {
+		t.Errorf("expected the timeout in the explanation, got %q", result.Explanation)
 	}
 }
 

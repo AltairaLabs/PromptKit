@@ -245,8 +245,8 @@ func TestMediaLoader_GetBase64Data_PriorityOrder(t *testing.T) {
 func TestMediaLoader_GetBase64Data_ContextCancellation(t *testing.T) {
 	// Create test server with slow response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
-		w.WriteHeader(http.StatusOK)
+		// Never answer; release when the client abandons the request.
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
@@ -263,8 +263,12 @@ func TestMediaLoader_GetBase64Data_ContextCancellation(t *testing.T) {
 		MIMEType: "text/plain",
 	}
 
+	start := time.Now()
 	_, err := loader.GetBase64Data(ctx, media)
 	assert.Error(t, err)
+	// The caller's 100ms deadline must end the fetch, not the loader's own
+	// 5s HTTP timeout.
+	assert.Less(t, time.Since(start), time.Second)
 }
 
 func TestLoadFileAsBase64_BackwardCompatibility(t *testing.T) {

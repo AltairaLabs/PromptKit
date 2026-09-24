@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
 func TestNewBaseProvider(t *testing.T) {
@@ -883,6 +884,7 @@ func TestBaseProvider_MakeRawRequest(t *testing.T) {
 
 			client := &http.Client{Timeout: 30 * time.Second}
 			base := NewBaseProvider("test-provider", false, client)
+			base.SetRetryPolicy(pipeline.RetryPolicy{MaxRetries: 2, Backoff: "fixed", InitialDelayMs: 1})
 
 			ctx := t.Context()
 			result, err := base.MakeRawRequest(ctx, server.URL, tt.requestBody, tt.headers, "TestProvider")

@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -180,11 +180,19 @@ func TestRestEvalHandler_InvalidJSON(t *testing.T) {
 
 func TestRestEvalHandler_Timeout(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(2 * time.Second)
+	// Answer only after the handler's 100ms timeout, and without holding
+	// server shutdown for a fixed sleep once the client has gone.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-release:
+		}
 		w.Write([]byte(`{"passed": true, "score": 1.0}`))
 	}))
 	defer server.Close()
+	defer close(release)
 
 	h := &RestEvalHandler{}
 	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
@@ -199,6 +207,9 @@ func TestRestEvalHandler_Timeout(t *testing.T) {
 	}
 	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for timeout")
+	}
+	if !strings.Contains(result.Explanation, "deadline exceeded") {
+		t.Errorf("expected the timeout in the explanation, got %q", result.Explanation)
 	}
 }
 

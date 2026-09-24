@@ -3,6 +3,7 @@ package guardrails
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -116,6 +117,10 @@ type funcGuardrail struct {
 	// emitter reports the validation lifecycle. Supplied by the provider stage
 	// via SetEmitter; nil until then, and nil forever for direct construction.
 	emitter *events.Emitter
+
+	// timeout bounds each call of the func; zero means
+	// evals.DefaultEvalTimeout. Set via SetEvalTimeout.
+	timeout time.Duration
 }
 
 var (
@@ -128,6 +133,28 @@ func (g *funcGuardrail) Name() string { return g.name }
 
 // SetEmitter implements hooks.EmitterAware.
 func (g *funcGuardrail) SetEmitter(e *events.Emitter) { g.emitter = e }
+
+// SetEvalTimeout implements TimeoutSettable.
+func (g *funcGuardrail) SetEvalTimeout(d time.Duration) { g.timeout = d }
+
+// runBounded runs fn under the guardrail timeout and returns ctx's error if
+// the timeout (or the caller's ctx) ends first. The turn fails closed and
+// moves on at that point; Go cannot stop a func that ignores its ctx, so such
+// a func keeps running in its goroutine until it returns, its result unused.
+func runBounded(
+	ctx context.Context, d time.Duration, fn func(context.Context) hooks.Decision,
+) (hooks.Decision, error) {
+	bounded, cancel := context.WithTimeout(ctx, timeoutOrDefault(d))
+	defer cancel()
+	done := make(chan hooks.Decision, 1)
+	go func() { done <- fn(bounded) }()
+	select {
+	case d := <-done:
+		return d, nil
+	case <-bounded.Done():
+		return hooks.Decision{}, bounded.Err()
+	}
+}
 
 // lifecycleFor builds the emitter pair for one direction. A func guardrail has
 // no eval type, so it reports "func" — the listener maps that to
@@ -161,7 +188,11 @@ func (g *funcGuardrail) BeforeCall(
 	lc := g.lifecycleFor(DirectionInput)
 	start := lc.start()
 
-	d := g.input(ctx, in)
+	d, err := runBounded(ctx, g.timeout, func(c context.Context) hooks.Decision { return g.input(c, in) })
+	if err != nil {
+		req.Replacement = prompt.DefaultBlockedMessage
+		return failureDecision(funcValidatorType, err)
+	}
 	if d.Allow {
 		lc.pass(start, nil)
 	}
@@ -185,11 +216,19 @@ func (g *funcGuardrail) AfterCall(
 	lc := g.lifecycleFor(DirectionOutput)
 	start := lc.start()
 
-	d := g.output(ctx, &hooks.OutputRequest{
-		Content: resp.Message.GetContent(),
-		Message: &resp.Message,
-		Round:   resp.Round,
+	// The func rewrites a copy, adopted only if it answers in time — so a
+	// func still running past the timeout cannot touch the response the turn
+	// has already moved on with.
+	msg := resp.Message
+	d, err := runBounded(ctx, g.timeout, func(c context.Context) hooks.Decision {
+		return g.output(c, &hooks.OutputRequest{Content: msg.GetContent(), Message: &msg, Round: resp.Round})
 	})
+	if err != nil {
+		// Nothing was judged: the un-judged response must not ship.
+		resp.Message.Content = prompt.DefaultBlockedMessage
+		return failureDecision(funcValidatorType, err)
+	}
+	resp.Message = msg
 	if d.Allow {
 		lc.pass(start, nil)
 	}

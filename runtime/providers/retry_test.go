@@ -652,6 +652,10 @@ func TestDoWithRetry_ZeroRetries(t *testing.T) {
 }
 
 func TestDoWithRetry_RespectsRetryAfterHeader(t *testing.T) {
+	// Retry-After has one-second resolution, so rather than sit out that
+	// second the test cancels the wait early: with the 10ms policy backoff a
+	// retry would already have happened (and succeeded) by then, so still
+	// waiting on the first attempt proves the header set the delay.
 	policy := pipeline.RetryPolicy{
 		MaxRetries:     1,
 		Backoff:        "exponential",
@@ -659,7 +663,6 @@ func TestDoWithRetry_RespectsRetryAfterHeader(t *testing.T) {
 	}
 
 	var attempts int32
-	start := time.Now()
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			n := atomic.AddInt32(&attempts, 1)
@@ -679,19 +682,18 @@ func TestDoWithRetry_RespectsRetryAfterHeader(t *testing.T) {
 		return http.Get(server.URL)
 	}
 
-	resp, err := DoWithRetry(t.Context(), policy, "test", doFn)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	resp, err := DoWithRetry(ctx, policy, "test", doFn)
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
-	defer resp.Body.Close()
 
-	// Should have waited at least ~1 second for Retry-After
-	if elapsed < 900*time.Millisecond {
-		t.Errorf(
-			"expected at least ~1s delay from Retry-After, got %v",
-			elapsed,
-		)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the Retry-After wait to outlast the 150ms deadline, got resp=%v err=%v", resp, err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("expected no retry inside the Retry-After window, got %d attempts", got)
 	}
 }
 

@@ -108,10 +108,14 @@ echo '{"score": 1.0}'
 
 	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
 
+	// sleep is a child of the script's shell and holds its stdout open after
+	// the shell is killed; the timeout must still end the call.
+	start := time.Now()
 	result, err := h.Eval(context.Background(), evalCtx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Contains(t, result.Explanation, "exec eval failed")
+	assert.Less(t, time.Since(start), time.Second, "a script's child process must not outlive the timeout")
 }
 
 func TestExecEvalHandler_Eval_DefaultTimeout(t *testing.T) {

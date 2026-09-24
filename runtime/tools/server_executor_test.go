@@ -151,11 +151,12 @@ func TestServerExecutor_Execute_ProcessStartFailure(t *testing.T) {
 }
 
 func TestServerExecutor_Execute_ContextCanceled(t *testing.T) {
-	// Server that never responds
+	// Server that never responds, but exits as soon as stdin closes so
+	// e.Close() doesn't wait out serverShutdownTimeout before killing it.
 	script := writeServerScript(t, "server.py", `#!/usr/bin/env python3
-import sys, time
+import sys
 for line in sys.stdin:
-    time.sleep(60)
+    pass
 `)
 
 	e := &ServerExecutor{}
@@ -169,7 +170,7 @@ for line in sys.stdin:
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	_, err := e.Execute(ctx, desc, json.RawMessage(`{}`))

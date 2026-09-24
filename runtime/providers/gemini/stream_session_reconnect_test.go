@@ -191,18 +191,17 @@ func TestStreamSession_ReconnectWithCloseCode(t *testing.T) {
 			}
 			defer session.Close()
 
-			// Wait for reconnection attempt
-			time.Sleep(300 * time.Millisecond)
-
-			count := connectionCount.Load()
-			if tc.expectRecover {
-				if count < 2 {
-					t.Errorf("Expected reconnection (at least 2 connections), got %d", count)
-				}
+			if !tc.expectRecover {
+				// The WebSocket manager's shouldRetry() should prevent this
+				// reconnection, but the session-level reconnect currently
+				// tries anyway, so there is no distinct outcome to assert.
+				return
 			}
-			// Note: For policy violations, the WebSocket manager's shouldRetry()
-			// should prevent reconnection, but the session-level reconnect
-			// currently tries anyway. This test documents current behavior.
+			waitUntil(t, 2*time.Second, func() bool { return connectionCount.Load() >= 2 })
+
+			if count := connectionCount.Load(); count < 2 {
+				t.Errorf("Expected reconnection (at least 2 connections), got %d", count)
+			}
 		})
 	}
 }
@@ -382,8 +381,15 @@ func TestStreamSession_ReconnectExhaustsRetries(t *testing.T) {
 	}
 	defer session.Close()
 
-	// Wait for all reconnection attempts to exhaust
-	time.Sleep(1500 * time.Millisecond)
+	// All reconnection attempts exhausting surfaces as a session error.
+	var sessionErr error
+	waitUntil(t, 2*time.Second, func() bool {
+		sessionErr = session.Error()
+		return sessionErr != nil
+	})
+	if sessionErr == nil {
+		t.Fatal("reconnection never gave up: no session error")
+	}
 
 	count := connectionCount.Load()
 	// Should have initial connection + maxRetries reconnection attempts
@@ -469,5 +475,14 @@ func TestStreamSession_SendChunkDuringReconnect(t *testing.T) {
 	err = session.SendChunk(ctx, chunk)
 	if err != nil {
 		t.Logf("SendChunk after reconnect failed: %v (may be expected if reconnection failed)", err)
+	}
+}
+
+// waitUntil polls cond every few milliseconds until it holds or limit passes.
+func waitUntil(t *testing.T, limit time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(limit)
+	for !cond() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
 }

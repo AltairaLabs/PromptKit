@@ -205,8 +205,12 @@ echo '{"result": {}}'
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
+	// sleep is a child of the script's shell and holds its stdout open after
+	// the shell is killed; the timeout must still end the call.
+	start := time.Now()
 	_, err := e.Execute(ctx, desc, json.RawMessage(`{}`))
 	require.Error(t, err)
+	assert.Less(t, time.Since(start), time.Second, "a script's child process must not outlive the timeout")
 }
 
 func TestExecExecutor_Execute_FullResponse(t *testing.T) {

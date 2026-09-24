@@ -210,8 +210,9 @@ func TestStreamContextCancellation(t *testing.T) {
 			f.Flush()
 		}
 
-		// Wait longer than context timeout
-		time.Sleep(2 * time.Second)
+		// Hold the stream open until the client goes away (its context
+		// deadline fires); returning then lets server.Close finish at once.
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 

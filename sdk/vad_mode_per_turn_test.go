@@ -259,9 +259,10 @@ func openVADModeConvWithTTS(
 	return conv
 }
 
-// speakOneUtterance feeds speech then silence at real time, which is what makes
-// AudioTurnStage open and then close exactly one turn. Bulk-sending the same
-// bytes never closes a turn — the stage re-evaluates only on element arrival.
+// speakOneUtterance feeds speech then silence, which makes AudioTurnStage open
+// and then close exactly one turn. The stage measures speech and silence in
+// AUDIO time (sample counts) and re-evaluates on each element's arrival, so
+// the frames are sent back to back — no real-time pacing.
 func speakOneUtterance(t *testing.T, conv *Conversation) {
 	t.Helper()
 	ctx := context.Background()
@@ -273,11 +274,9 @@ func speakOneUtterance(t *testing.T, conv *Conversation) {
 	const frame = 20 * time.Millisecond
 	for i := 0; i < 30; i++ {
 		send(pcmSpeech(frame, perTurnTestSampleRate))
-		time.Sleep(frame)
 	}
 	for i := 0; i < 30; i++ {
 		send(pcmSilence(frame, perTurnTestSampleRate))
-		time.Sleep(frame)
 	}
 }
 
@@ -288,7 +287,7 @@ func speakOneUtterance(t *testing.T, conv *Conversation) {
 // they hung up.
 func TestVADModeFiresLLMDuringSessionNotAtClose(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives a real VAD turn in wall-clock time")
+		t.Skip("drives a real VAD turn")
 	}
 	sttSvc := newScriptedSTT("what is the capital of france")
 	provider := &turnRecordingProvider{}
@@ -311,7 +310,7 @@ func TestVADModeFiresLLMDuringSessionNotAtClose(t *testing.T) {
 // pinned here because CI has no API keys.
 func TestVADModeSpeaksTheReplyNotTheCallersOwnWords(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives a real VAD turn in wall-clock time")
+		t.Skip("drives a real VAD turn")
 	}
 	const transcript = "what is the capital of france"
 	sttSvc := newScriptedSTT(transcript)
@@ -336,7 +335,7 @@ func TestVADModeSpeaksTheReplyNotTheCallersOwnWords(t *testing.T) {
 // fires the model again, and that call still carries the first exchange.
 func TestVADModeThreadsHistoryAcrossTurns(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives two real VAD turns in wall-clock time")
+		t.Skip("drives two real VAD turns")
 	}
 	sttSvc := newScriptedSTT("first question", "second question")
 	provider := &turnRecordingProvider{}

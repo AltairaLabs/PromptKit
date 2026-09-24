@@ -215,25 +215,30 @@ func (s *Session) receiveLoop() {
 			return
 
 		case data := <-msgCh:
-			s.handleMessage(data)
+			if !s.handleMessage(data) {
+				return
+			}
 		}
 	}
 }
 
-func (s *Session) handleMessage(data []byte) {
+// handleMessage forwards a message's chunks and reports whether the session
+// continues: a handler error is fatal (see MessageHandler) and ends it.
+func (s *Session) handleMessage(data []byte) bool {
 	chunks, err := s.cfg.OnMessage(data)
 	if err != nil {
 		s.cfg.Logger.Error("message handler error", "error", err)
 		s.emitError(err)
-		return
+		return false
 	}
 	for i := range chunks {
 		select {
 		case s.responseCh <- chunks[i]:
 		case <-s.ctx.Done():
-			return
+			return false
 		}
 	}
+	return true
 }
 
 func (s *Session) tryReconnect(err error) bool {

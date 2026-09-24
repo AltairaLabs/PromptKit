@@ -71,24 +71,42 @@ func TestPredictWithTools_Integration(t *testing.T) {
 		_ = toolCalls
 	})
 
-	t.Run("Tool validation with invalid request", func(t *testing.T) {
+	t.Run("No tools sends no tool fields", func(t *testing.T) {
+		// OpenAI rejects tool_choice and parallel_tool_calls unless tools are
+		// declared, so a call with no tools must omit all three.
+		var sent map[string]json.RawMessage
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(openAIResponse{
+				Choices: []openAIChoice{{Message: openAIMessage{Content: "ok"}}},
+			})
+		}))
+		defer server.Close()
+
 		provider := &ToolProvider{
 			Provider: &Provider{
 				BaseProvider: providers.NewBaseProvider("test", false, &http.Client{}),
 				model:        "gpt-4",
-				baseURL:      "http://test",
+				baseURL:      server.URL,
 				apiKey:       "test-key",
 				defaults:     providers.ProviderDefaults{},
 			},
 		}
 
-		// Test with empty messages
 		_, _, err := provider.PredictWithTools(context.Background(), providers.PredictionRequest{
 			Messages: []types.Message{},
 		}, nil, "")
 
-		// Should handle gracefully (may or may not error depending on implementation)
-		_ = err
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		for _, key := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
+			if _, ok := sent[key]; ok {
+				t.Errorf("request carried %q with no tools declared", key)
+			}
+		}
 	})
 }
 

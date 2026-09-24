@@ -37,7 +37,7 @@ func writeVADVarPack(t *testing.T) string {
 // one's prompt. The ASM-mode counterpart is in sdk/integration.
 func TestVADModeSetVar_RendersOncePerSession(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives two real VAD turns in wall-clock time")
+		t.Skip("drives two real VAD turns")
 	}
 	sttSvc := newScriptedSTT("first utterance", "second utterance")
 	provider := &turnRecordingProvider{}

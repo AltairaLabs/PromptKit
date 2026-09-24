@@ -32,11 +32,11 @@ func vadSilencePCM(samples int) []byte { return make([]byte, samples*2) }
 // AudioTurnStage + SimpleVAD and asserts it segments into TWO turns — i.e. the
 // VAD detected speech and used the silence to close a turn mid-stream.
 //
-// AudioTurnStage times silence by WALL-CLOCK (time.Since), so the audio MUST be
-// fed in real time (100 ms per 100 ms chunk) for the silence gap to elapse — an
-// instant feed would never accumulate silence and would emit a single dump at
-// EndOfStream. A miscalibrated/broken VAD (the pre-recalibration state) never
-// detects speech and yields ONE turn, failing this test. No live keys, no STT.
+// AudioTurnStage and the VAD state machine both time speech and silence in
+// AUDIO time (sample counts), never wall-clock, so the feed is instant: the
+// silence gap elapses in the samples themselves. A miscalibrated/broken VAD
+// (the pre-recalibration state) never detects speech and yields ONE turn (the
+// EndOfStream dump), failing this test. No live keys, no STT.
 func TestAudioTurnStage_SegmentsTwoUtterancesOnSilence(t *testing.T) {
 	s, err := stage.NewAudioTurnStage(stage.DefaultAudioTurnConfig())
 	if err != nil {
@@ -44,7 +44,6 @@ func TestAudioTurnStage_SegmentsTwoUtterancesOnSilence(t *testing.T) {
 	}
 
 	const chunkSamples = 1600 // 100 ms @ 16 kHz
-	const chunkDur = 100 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -56,12 +55,11 @@ func TestAudioTurnStage_SegmentsTwoUtterancesOnSilence(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	// Real-time paced feed: two utterances separated by >0.8 s silence (default
+	// Two utterances separated by >0.8 s of silence audio (default
 	// SilenceDuration), so the VAD must close turn 1 on silence before turn 2.
 	feed := func(gen func(int) []byte, chunks int) {
 		for i := 0; i < chunks; i++ {
 			input <- makeAudioElement(gen(chunkSamples), 16000)
-			time.Sleep(chunkDur)
 		}
 	}
 	go func() {
@@ -117,7 +115,6 @@ func TestAudioTurnStage_SegmentsQuietMicWithAdaptiveVAD(t *testing.T) {
 	}
 
 	const chunkSamples = 1600 // 100 ms @ 16 kHz
-	const chunkDur = 100 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -131,7 +128,6 @@ func TestAudioTurnStage_SegmentsQuietMicWithAdaptiveVAD(t *testing.T) {
 	feed := func(gen func(int) []byte, chunks int) {
 		for i := 0; i < chunks; i++ {
 			input <- makeAudioElement(gen(chunkSamples), 16000)
-			time.Sleep(chunkDur)
 		}
 	}
 	go func() {

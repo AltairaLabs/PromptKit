@@ -15,6 +15,10 @@ import (
 // defaultExecEvalTimeout is the default timeout for exec eval subprocesses.
 const defaultExecEvalTimeout = 30 * time.Second
 
+// execWaitDelay bounds how long a timed-out process's output is drained after
+// it is killed, before its pipes are closed regardless.
+const execWaitDelay = 100 * time.Millisecond
+
 // ExecEvalHandler evaluates content by spawning an external subprocess.
 // The subprocess receives an ExecEvalRequest as JSON on stdin and must
 // return an ExecEvalResponse as JSON on stdout.
@@ -159,6 +163,10 @@ func (h *ExecEvalHandler) timeout() time.Duration {
 func (h *ExecEvalHandler) runProcess(ctx context.Context, stdin []byte) (stdout, stderr []byte, err error) {
 	cmd := exec.CommandContext(ctx, h.command, h.args...) //nolint:gosec // command comes from trusted config
 	cmd.Stdin = bytes.NewReader(stdin)
+	// Killing the process on timeout does not close its output pipes while a
+	// child it spawned still holds them; without a bound, Run waits for that
+	// child and the timeout is not enforced.
+	cmd.WaitDelay = execWaitDelay
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

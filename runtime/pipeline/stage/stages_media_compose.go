@@ -17,6 +17,10 @@ import (
 const (
 	// DefaultCompletionTimeout is the default timeout for waiting for all message parts.
 	DefaultCompletionTimeout = 30 * time.Second
+
+	// defaultTimeoutCheckInterval is how often pending messages are checked
+	// for CompletionTimeout.
+	defaultTimeoutCheckInterval = time.Second
 )
 
 // MediaComposeConfig configures the MediaComposeStage behavior.
@@ -69,14 +73,19 @@ type MediaComposeStage struct {
 	config  MediaComposeConfig
 	pending map[string]*pendingMessage // message_id -> pending
 	mu      sync.Mutex
+
+	// timeoutCheckInterval is how often pending messages are checked against
+	// CompletionTimeout. Unexported: tests shorten it instead of sleeping.
+	timeoutCheckInterval time.Duration
 }
 
 // NewMediaComposeStage creates a new media composition stage.
 func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 	return &MediaComposeStage{
-		BaseStage: NewBaseStage("media-compose", StageTypeAccumulate),
-		config:    config,
-		pending:   make(map[string]*pendingMessage),
+		BaseStage:            NewBaseStage("media-compose", StageTypeAccumulate),
+		config:               config,
+		pending:              make(map[string]*pendingMessage),
+		timeoutCheckInterval: defaultTimeoutCheckInterval,
 	}
 }
 
@@ -398,7 +407,7 @@ func (s *MediaComposeStage) checkTimeouts(
 ) {
 	defer close(exited) // Signal that this goroutine has exited
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(s.timeoutCheckInterval)
 	defer ticker.Stop()
 
 	for {

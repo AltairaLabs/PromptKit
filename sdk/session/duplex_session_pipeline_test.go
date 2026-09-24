@@ -91,9 +91,6 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		err = session.SendText(ctx, "test message")
 		require.NoError(t, err)
 
-		// Wait a bit for pipeline to start
-		time.Sleep(100 * time.Millisecond)
-
 		// Close should work
 		err = session.Close()
 		assert.NoError(t, err)
@@ -121,44 +118,41 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Send a text chunk
+		// Send a text chunk that ends the turn: the provider stage fires on the
+		// turn boundary, not on every chunk.
 		ctx := context.Background()
-		err = session.SendText(ctx, "test message")
+		err = session.SendChunk(ctx, &providers.StreamChunk{
+			Content:  "test message",
+			Metadata: map[string]interface{}{"end_of_stream": true},
+		})
 		require.NoError(t, err)
 
-		// Get response channel
 		responseChan := session.Response()
 		require.NotNil(t, responseChan)
 
-		// Wait for chunks (with timeout)
-		timeout := time.After(2 * time.Second)
-		receivedChunks := 0
-
-		done := false
-		for !done {
+		// Read until the pipeline finishes the turn and closes the channel. The
+		// bound only fails a pipeline that never answers; a passing run never
+		// waits on it.
+		var reply string
+		deadline := time.After(2 * time.Second)
+	read:
+		for {
 			select {
 			case chunk, ok := <-responseChan:
 				if !ok {
-					// Channel closed
-					done = true
-					break
+					break read
 				}
-				receivedChunks++
-				t.Logf("Received chunk %d: delta=%s, finish=%v, error=%v", receivedChunks, chunk.Delta, chunk.FinishReason, chunk.Error)
-
-				// Break if final chunk
-				if chunk.FinishReason != nil || chunk.Error != nil {
-					done = true
+				require.NoError(t, chunk.Error)
+				if chunk.Delta != "" {
+					reply += chunk.Delta
+				} else {
+					reply += chunk.Content
 				}
-			case <-timeout:
-				t.Log("timeout waiting for response")
-				done = true
+			case <-deadline:
+				t.Fatalf("pipeline never finished the turn; got %q", reply)
 			}
 		}
-
-		// We should have received at least one chunk
-		// Note: The mock provider should send chunks
-		t.Logf("Total chunks received: %d", receivedChunks)
+		assert.Contains(t, reply, "Hello from mock provider", "the provider's reply must reach the caller")
 
 		// Close session
 		err = session.Close()
