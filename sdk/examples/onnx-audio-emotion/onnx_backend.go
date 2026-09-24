@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	ort "github.com/yalue/onnxruntime_go"
 )
 
@@ -27,10 +30,10 @@ type onnxConfig struct {
 // ortInitOnce guards process-global ONNX Runtime environment setup.
 var ortInitOnce sync.Once
 
-// onnxAudioClassifier implements classify.AudioClassifier by running a
+// onnxAudioClassifier implements inference.Provider by running a
 // wav2vec2 speech-emotion-recognition model via ONNX Runtime. It is the
-// worked demonstration of the classify pluggability seam: the runtime and
-// SDK know only the classify.AudioClassifier interface; the cgo/ONNX
+// worked demonstration of the inference pluggability seam: the runtime and
+// SDK know only the inference.Provider interface; the cgo/ONNX
 // dependency lives entirely in this example module.
 type onnxAudioClassifier struct {
 	session    *ort.DynamicAdvancedSession
@@ -40,7 +43,7 @@ type onnxAudioClassifier struct {
 }
 
 // compile-time proof the example satisfies the runtime interface.
-var _ classify.AudioClassifier = (*onnxAudioClassifier)(nil)
+var _ inference.Provider = (*onnxAudioClassifier)(nil)
 
 func newONNXAudioClassifier(cfg onnxConfig) (*onnxAudioClassifier, error) {
 	if cfg.InputName == "" {
@@ -79,13 +82,42 @@ func newONNXAudioClassifier(cfg onnxConfig) (*onnxAudioClassifier, error) {
 	}, nil
 }
 
-// ClassifyAudio decodes raw WAV bytes, normalizes the waveform, runs the
-// SER model, and returns softmaxed label scores. The eval handler hands us
-// the raw audio bytes; owning decode->normalize->run->softmax here is
-// exactly what makes this a drop-in classify.AudioClassifier.
-func (c *onnxAudioClassifier) ClassifyAudio(
-	_ context.Context, audio []byte, _ classify.AudioOptions,
-) ([]classify.LabelScore, error) {
+// Infer takes the first audio part of the request, decodes the WAV bytes,
+// normalizes the waveform, runs the SER model, and returns softmaxed label
+// scores. Owning decode->normalize->run->softmax here is exactly what makes
+// this a drop-in inference provider.
+func (c *onnxAudioClassifier) Infer(_ context.Context, req inference.Request) (inference.Response, error) {
+	audio, err := firstAudio(req.Inputs)
+	if err != nil {
+		return inference.Response{}, err
+	}
+	scores, err := c.classifyAudio(audio)
+	if err != nil {
+		return inference.Response{}, err
+	}
+	return inference.Response{Scores: scores}, nil
+}
+
+// firstAudio returns the bytes of the first audio part in inputs.
+func firstAudio(inputs []types.Message) ([]byte, error) {
+	for _, msg := range inputs {
+		for _, part := range msg.Parts {
+			if part.Type != types.ContentTypeAudio || part.Media == nil {
+				continue
+			}
+			reader, err := part.Media.ReadData()
+			if err != nil {
+				return nil, fmt.Errorf("read audio: %w", err)
+			}
+			defer func() { _ = reader.Close() }()
+			return io.ReadAll(reader)
+		}
+	}
+	return nil, errors.New("request carries no audio part")
+}
+
+// classifyAudio runs the model over raw WAV bytes.
+func (c *onnxAudioClassifier) classifyAudio(audio []byte) ([]inference.LabelScore, error) {
 	samples, _, err := decodeWAV(audio)
 	if err != nil {
 		return nil, fmt.Errorf("decode audio: %w", err)

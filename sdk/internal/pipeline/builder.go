@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -286,10 +286,10 @@ type Config struct {
 	// ancillary providers their pack declared.
 	ProviderBinding evals.ProviderBinding
 
-	// ClassifyRegistry is attached to the pipeline execution context.
+	// InferenceRegistry is attached to the pipeline execution context.
 	// When non-nil, stages and downstream consumers can resolve inference
-	// backends via classify.FromContext.
-	ClassifyRegistry *classify.Registry
+	// providers via inference.FromContext.
+	InferenceRegistry *inference.Registry
 
 	// ActiveComposition, when non-nil, makes the work stage a CompositionStage
 	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
@@ -385,7 +385,7 @@ func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 // from the SDK config.
 func pipelineConfigFor(cfg *Config) *stage.PipelineConfig {
 	pc := stage.DefaultPipelineConfig()
-	pc.ClassifyRegistry = cfg.ClassifyRegistry
+	pc.InferenceRegistry = cfg.InferenceRegistry
 	pc.ProviderBinding = cfg.ProviderBinding
 	switch {
 	case cfg.StreamInputProvider != nil:

@@ -151,7 +151,7 @@ problem it is:
 |---|---|---|
 | The check names a provider the pack never declares | pack | names the check, the name, and what the pack does declare |
 | The pack declares it, you bound nothing | host | names the key the pack asked for |
-| You bound something that cannot do the job | host | names the key and says what it needs instead — "bound to a classify provider, and this check needs one that runs completions" |
+| You bound something that cannot do the job | host | names the key and says what it needs instead — "bound to an inference provider, and this check needs one that runs completions" |
 | A judge-backed check names nothing at all | pack | tells you to add `params.provider` |
 
 For a host driving a pack whose checks name nothing, `sdk.WithJudgeProvider`

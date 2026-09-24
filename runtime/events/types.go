@@ -1026,6 +1026,11 @@ const (
 	EventEmbeddingCallCompleted EventType = "embedding.call.completed"
 	// EventEmbeddingCallFailed marks embedding call failure.
 	EventEmbeddingCallFailed EventType = "embedding.call.failed"
+
+	// EventInferenceCallCompleted marks inference call completion.
+	EventInferenceCallCompleted EventType = "inference.call.completed"
+	// EventInferenceCallFailed marks inference call failure.
+	EventInferenceCallFailed EventType = "inference.call.failed"
 )
 
 // ImageGenCallCompletedData carries image-gen-specific completion metrics.
@@ -1077,6 +1082,20 @@ type EmbeddingCallCompletedData struct {
 
 // EmbeddingCallFailedData carries embedding failure metrics.
 type EmbeddingCallFailedData struct {
+	CapabilityCallData
+	Error string
+}
+
+// InferenceCallCompletedData carries generic inference call completion
+// metrics (zero-shot classification, topic control, moderation, and similar
+// label-scoring calls made through runtime/inference.Provider).
+type InferenceCallCompletedData struct {
+	CapabilityCallData
+	InputTokens int
+}
+
+// InferenceCallFailedData carries generic inference call failure metrics.
+type InferenceCallFailedData struct {
 	CapabilityCallData
 	Error string
 }

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	sdk "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
@@ -58,13 +58,11 @@ type stubTextClassifier struct {
 	calls int
 }
 
-func (s *stubTextClassifier) ClassifyText(
-	_ context.Context, _ string, _ classify.TextOptions,
-) ([]classify.LabelScore, error) {
+func (s *stubTextClassifier) Infer(context.Context, inference.Request) (inference.Response, error) {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
-	return []classify.LabelScore{{Label: "positive", Score: 0.9}}, nil
+	return inference.Response{Scores: []inference.LabelScore{{Label: "positive", Score: 0.9}}}, nil
 }
 
 func (s *stubTextClassifier) count() int {
@@ -141,7 +139,7 @@ func TestProviderBinding_WrongKindFailsAtOpen(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "screener")
-	assert.Contains(t, err.Error(), "needs a classify provider",
+	assert.Contains(t, err.Error(), "needs an inference provider",
 		"the error must say what the check needed, not merely that something is missing")
 }
 

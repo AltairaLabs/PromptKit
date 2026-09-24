@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 )
 
 // Shared infrastructure for every classify-backed eval handler
@@ -105,7 +105,7 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 // when the model didn't emit that label at all (a distinct outcome
 // from "found but low score").
 func findExpectedLabel(
-	scores []classify.LabelScore, expectedLabel string,
+	scores []inference.LabelScore, expectedLabel string,
 ) (foundScore float64, foundLabel string) {
 	for _, s := range scores {
 		if strings.EqualFold(s.Label, expectedLabel) {
@@ -118,7 +118,7 @@ func findExpectedLabel(
 // labelsFromScores returns the label names from a scored output. Used
 // in error messages so handlers can tell users "you asked for X; the
 // model returned [a, b, c]".
-func labelsFromScores(scores []classify.LabelScore) []string {
+func labelsFromScores(scores []inference.LabelScore) []string {
 	out := make([]string, len(scores))
 	for i, s := range scores {
 		out[i] = s.Label

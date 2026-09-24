@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
@@ -262,6 +264,8 @@ func (r *EvalRunner) executeHandler(
 ) *EvalResult {
 	evalCtx2, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	// Inference providers a handler calls report through the runner's emitter.
+	evalCtx2 = inference.WithEmitter(evalCtx2, r.emitter)
 
 	start := time.Now()
 

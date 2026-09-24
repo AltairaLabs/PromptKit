@@ -1387,6 +1387,13 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 	if cfg.judgeProvider != nil {
 		guardrailOpts = append(guardrailOpts, guardrails.WithJudge(cfg.judgeProvider))
 	}
+	// The host's guardrail-check timeout (sdk.WithGuardrailTimeout), applied to
+	// every pack-declared validator. Zero means unset: leave
+	// evals.DefaultEvalTimeout in effect rather than passing a zero override
+	// that would disable the guardrail's own bound entirely.
+	if cfg.guardrailTimeout > 0 {
+		guardrailOpts = append(guardrailOpts, guardrails.WithEvalTimeout(cfg.guardrailTimeout))
+	}
 
 	packHooks, err := guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)
 	if err != nil {

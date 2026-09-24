@@ -1021,11 +1021,11 @@ func TestApplyInferenceProviders_BuildsRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyInferenceProviders: %v", err)
 	}
-	if c.classifyRegistry == nil {
-		t.Fatal("expected classifyRegistry to be set")
+	if c.inferenceRegistry == nil {
+		t.Fatal("expected inferenceRegistry to be set")
 	}
-	if _, err := c.classifyRegistry.TextClassifier("hf"); err != nil {
-		t.Fatalf("hf text classifier should resolve: %v", err)
+	if _, err := c.inferenceRegistry.Get("hf"); err != nil {
+		t.Fatalf("hf inference provider should resolve: %v", err)
 	}
 }
 
@@ -1045,7 +1045,7 @@ func TestApplyInferenceProviders_Empty(t *testing.T) {
 	if err := applyInferenceProviders(c, nil); err != nil {
 		t.Fatalf("empty should be a no-op: %v", err)
 	}
-	if c.classifyRegistry != nil {
+	if c.inferenceRegistry != nil {
 		t.Fatal("expected no registry for empty config")
 	}
 }
@@ -1088,7 +1088,7 @@ func TestApplyRuntimeConfig_RoutesByRole(t *testing.T) {
 		"a role: tts entry must not be constructed as the chat agent")
 }
 
-func TestApplyRuntimeConfig_RoleInferenceReachesClassifyRegistry(t *testing.T) {
+func TestApplyRuntimeConfig_RoleInferenceReachesInferenceRegistry(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		Providers: []pkgconfig.Provider{
 			{ID: "hf", Role: pkgconfig.RoleInference, Type: "huggingface",
@@ -1099,13 +1099,13 @@ func TestApplyRuntimeConfig_RoleInferenceReachesClassifyRegistry(t *testing.T) {
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
 
-	require.NotNil(t, c.classifyRegistry, "role: inference should build a classify registry")
-	byID, err := c.classifyRegistry.TextClassifier("hf")
+	require.NotNil(t, c.inferenceRegistry, "role: inference should build an inference registry")
+	byID, err := c.inferenceRegistry.Get("hf")
 	require.NoError(t, err, "the declared id should resolve")
-	byDefault, err := c.classifyRegistry.TextClassifier("")
-	require.NoError(t, err, "role: inference must leave a usable default classifier")
+	byDefault, err := c.inferenceRegistry.Get("")
+	require.NoError(t, err, "role: inference must leave a usable default provider")
 	assert.Equal(t, byID, byDefault,
-		"the default classifier must be the declared provider, not some other registration")
+		"the default must be the declared provider, not some other registration")
 }
 
 func TestApplyRuntimeConfig_RoleEmbeddingReachesRetrieval(t *testing.T) {

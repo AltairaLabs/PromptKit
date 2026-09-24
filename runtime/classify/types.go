@@ -27,6 +27,10 @@
 // it takes a structured TopicRequest (a policy plus the message under
 // judgment) and returns a TopicDecision, because a topic-scope verdict is
 // not a ranked label set.
+//
+// Superseded by runtime/inference, whose single inference.Provider interface
+// replaces these per-task interfaces. Nothing in PromptKit uses this package
+// any more; it remains only so v2 stays compatible, and is removed in v3.
 package classify
 
 // LabelScore pairs a classifier label with a confidence score in

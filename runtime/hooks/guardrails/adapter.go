@@ -2,6 +2,10 @@ package guardrails
 
 import (
 	"context"
+	"errors"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
@@ -25,6 +29,16 @@ const (
 
 // roleUser is the message role an input guardrail gates on.
 const roleUser = "user"
+
+// Decision metadata "reason" values for a guardrail that failed closed on a
+// raw handler error or timeout rather than a scored result. Shared between
+// enforcedFailure (a handler that bubbles its own error) and evaluateMessage
+// (a handler, like TopicPolicyHandler, that absorbs the same failure into a
+// scored EvalResult instead) so both paths tag a timeout identically.
+const (
+	reasonTimeout = "timeout"
+	reasonError   = "error"
+)
 
 // lastUserTurn returns the trailing user message an input guardrail gates on.
 // ok is false when there is no trailing user message: BeforeCall runs once per
@@ -76,6 +90,30 @@ type GuardrailHookAdapter struct {
 	// not need one; a handler that DOES need one is refused at construction
 	// (ErrGuardrailNeedsJudge), so this is never nil where it is required.
 	judge handlers.JudgeProvider
+
+	// evalTimeout bounds handler.Eval (see evaluateMessage). Zero or unset
+	// falls back to evals.DefaultEvalTimeout via evalTimeoutOrDefault — set via
+	// WithEvalTimeout (construction) or SetEvalTimeout (post-construction, for
+	// a hook the SDK built before the host's timeout preference was known).
+	evalTimeout time.Duration
+}
+
+// SetEvalTimeout overrides the bound on handler.Eval calls, for a host that
+// needs longer than evals.DefaultEvalTimeout (a slow-judge deployment) or
+// wants a shorter one (tests exercising the timeout path itself). d <= 0
+// restores the default. Mirrors SetEmitter: both exist because the SDK builds
+// a guardrail before some of its own configuration is fully known —
+// SetEmitter for the conversation's emitter, this for a host-wide guardrail
+// timeout applied after WithGuardrail specs are built.
+func (a *GuardrailHookAdapter) SetEvalTimeout(d time.Duration) { a.evalTimeout = d }
+
+// evalTimeoutOrDefault returns the configured bound on handler.Eval, or
+// evals.DefaultEvalTimeout when none was set.
+func (a *GuardrailHookAdapter) evalTimeoutOrDefault() time.Duration {
+	if a.evalTimeout > 0 {
+		return a.evalTimeout
+	}
+	return evals.DefaultEvalTimeout
 }
 
 // withJudge seeds the host's judge into eval metadata under the key the
@@ -280,18 +318,58 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 	}
 	start := lc.start()
 
-	result, err := a.handler.Eval(ctx, evalCtx, params)
+	// Bounded independently of the pipeline's own idle/execution ceilings: a
+	// handler that blocks on a slow classifier (e.g. topic_policy's backend)
+	// must not hang the turn forever. context.WithTimeout takes the earlier of
+	// ctx's existing deadline and this one, so a caller-supplied shorter budget
+	// is never extended.
+	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
+	defer cancel()
+
+	// Inference providers the guardrail's handler calls report through the
+	// adapter's emitter.
+	handlerCtx = inference.WithEmitter(handlerCtx, a.emitter)
+	result, err := a.handler.Eval(handlerCtx, evalCtx, params)
+	// Checked whether Eval returned an error or not: TopicPolicyHandler's
+	// on_error/timeout outcome absorbs classifier errors (including this
+	// context's own timeout) into a *scored result* rather than a Go error, so
+	// handlerCtx can be the thing that actually timed out even on the success
+	// path below. Read once, used on both branches, so "timeout" is recorded
+	// consistently regardless of which one produced the outcome.
+	timedOut := errors.Is(handlerCtx.Err(), context.DeadlineExceeded)
 	if err != nil {
-		// No passed emitted here: the decision is a denial, so the pipeline
-		// stage emits the failure that closes the span.
-		return hooks.Deny("guardrail error: " + err.Error())
+		// A handler that converts its own failures into a scored EvalResult
+		// (e.g. TopicPolicyHandler's on_error/timeout outcome) never reaches
+		// this branch — this is the fallback for one that bubbles a raw Go
+		// error instead, most commonly context.DeadlineExceeded from the
+		// timeout just above. Guardrails fail closed: a denial-with-no-message
+		// here would abort the whole turn via HookDeniedError (see
+		// runBeforeCallHooks) instead of substituting the canned response, and
+		// drop the validator's message besides (#2064). Enforced carries it
+		// exactly like the deny and error-result paths already do.
+		if enforceTarget != nil {
+			// Nothing was judged, so the replacement is always the validator's
+			// configured message — never enforcedContent's length truncation,
+			// which assumes a scored result exists to measure. Using it here
+			// would fail OPEN on an output guardrail: applyEnforcedResponse
+			// copies this content verbatim into the response the caller
+			// receives, so leaving it at the model's original, un-judged text
+			// would ship exactly what the guardrail exists to catch (#2064
+			// round 1).
+			enforceTarget.Content = a.failureMessage()
+		}
+		return a.enforcedFailure(err)
 	}
 
 	if thresholds.Triggered(result) {
 		if enforceTarget != nil {
 			a.enforce(enforceTarget, params)
 		}
-		return a.enforced(result)
+		d := a.enforced(result)
+		if timedOut {
+			d.Metadata["reason"] = reasonTimeout
+		}
+		return d
 	}
 
 	var score *float64
@@ -387,6 +465,35 @@ func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision
 		"score":          result.Score,
 		"value":          result.Value,
 	})
+}
+
+// enforcedFailure builds an Enforced decision for a handler.Eval call that
+// returned a Go error directly instead of converting the failure into a
+// scored EvalResult itself. "timeout" is distinguished from a generic "error"
+// in the metadata because it is the case an operator most needs to tell apart
+// from an ordinary classifier fault — see the timeout wrapped around
+// a.handler.Eval above.
+func (a *GuardrailHookAdapter) enforcedFailure(err error) hooks.Decision {
+	reason := reasonError
+	if errors.Is(err, context.DeadlineExceeded) {
+		reason = reasonTimeout
+	}
+	return hooks.Enforced("guardrail "+reason+": "+err.Error(), map[string]any{
+		"validator_type": a.evalType,
+		"reason":         reason,
+	})
+}
+
+// failureMessage returns the user-facing text substituted when a guardrail
+// fails closed on a raw handler error or timeout. Unlike enforcedContent,
+// this never applies length truncation: nothing was judged, there is no
+// scored result to measure a length against, and truncating unjudged model
+// output would still ship it to the caller instead of replacing it.
+func (a *GuardrailHookAdapter) failureMessage() string {
+	if a.message != "" {
+		return a.message
+	}
+	return prompt.DefaultBlockedMessage
 }
 
 // extractMaxLen extracts the max length parameter from params.

@@ -8,6 +8,46 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Inference providers share one interface; `runtime/classify` is superseded
+
+`role: inference` providers now implement a single interface,
+`inference.Provider` (`Infer`: content in, a probability per label out),
+replacing the per-task `runtime/classify` interfaces. Each `type` calls one
+vendor API: `huggingface`, `openai` (chat completions read through logprobs)
+and `systemone` (TypeSafe's Jev, direct or through the Vercel AI Gateway). Pack
+params for every check are unchanged. `runtime/classify` still compiles but
+nothing uses it; it is removed in v3.
+
+| If you | You will see | Change |
+|---|---|---|
+| Pass a custom backend to `sdk.WithClassifier` | `Open()` fails: the value "is not an inference.Provider" | implement `Infer(ctx, inference.Request) (inference.Response, error)`; audio and image arrive as media parts on `Request.Inputs` |
+| Implement `evals.ProviderBinding` | a check whose `Classifier(key)` returns a classify backend errors: the bound value "is not an inference provider" | return an `inference.Provider` from `Classifier` |
+| Set `stage.PipelineConfig.ClassifyRegistry` | it is ignored | set `InferenceRegistry` |
+| Declare several inference providers without naming them in checks | every check now uses the **first** one registered | name the provider a check needs with `params.provider` (a key the pack declares in `requires`) |
+| Use HF embeddings through the inference role | they are no longer served there | declare `role: embedding`, `type: huggingface` |
+| Use `type: nvidia-topic-control` | no change needed, if the endpoint returns logprobs (NIM does) | it is now an alias for `type: openai` with NemoGuard topic control's model, keeping its 20s call timeout; `topic_policy` records the label's probability as `confidence` |
+| Point `type: openai` at a non-OpenAI `base_url` without a `credential` | no key is sent (`OPENAI_API_KEY` is only sent to OpenAI) | add an explicit `credential` for that host |
+
+`topic_policy` now sends every backend NemoGuard topic control's trained prompt
+and asks for `on-topic` or `off-topic`, allowing whichever gets the higher
+probability.
+
+### Guardrail checks are bounded, and a timed-out guardrail returns its message
+
+A guardrail's check is now bounded by a timeout (default 30s,
+`evals.DefaultEvalTimeout`). A check that exceeds it — or whose classifier
+errors — is enforced with the validator's `message`, where previously an
+output guardrail could release the unchecked response and a timed-out input
+guardrail returned empty text (#2064).
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a guardrail whose judge regularly takes over 30s, having raised `WithIdleTimeout` for it | the turn is blocked with the validator's message at 30s | raise the bound with `sdk.WithGuardrailTimeout(d)` |
+
+Inference calls also emit `inference_requests_total`,
+`inference_request_duration_seconds`, `inference_input_tokens_total` and
+`inference_cost_total` (labels `provider`, `model`, `source`, plus `status`).
+
 ### Embedding providers no longer guess a model's vector size
 
 `EmbeddingDimensions()` used to answer with a fixed default for any model a

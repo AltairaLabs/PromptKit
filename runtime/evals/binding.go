@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -49,17 +48,18 @@ type ProviderBinding interface {
 	// something that is not one.
 	LLM(key string) (providers.Provider, error)
 
-	// Classifier returns the classify backend bound to the logical key.
-	// classify.Backend is an open type, so the caller still asserts the task
-	// interface it needs; the binding answers "this is what the host bound,
-	// and it is a classifier at all".
-	Classifier(key string) (classify.Backend, error)
+	// Classifier returns the inference provider bound to the logical key —
+	// what a classifier-backed check needs — as an inference.Provider.
+	// ErrWrongKind when the host bound something that is not one. The return
+	// type is any only to keep the v2 signature; callers assert
+	// inference.Provider.
+	Classifier(key string) (any, error)
 }
 
 type bindingContextKey struct{}
 
 // WithProviderBinding attaches a host's binding to ctx. Mirrors
-// classify.WithRegistry: the pipeline attaches it once and every stage and
+// inference.WithRegistry: the pipeline attaches it once and every stage and
 // handler below reads it from the context it was given.
 func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context {
 	if b == nil {

@@ -1332,6 +1332,131 @@ func TestEmitter_STTCallFailedCtx_NilData(t *testing.T) {
 	emitter.STTCallFailedCtx(context.Background(), nil)
 }
 
+func TestEmitter_InferenceCallCompletedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-inf1", "session-inf1", "conv-inf1")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventInferenceCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.InferenceCallCompletedCtx(context.Background(), &InferenceCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "hf",
+			Model:      "facebook/bart-large-mnli",
+			Capability: "inference",
+			Source:     "huggingface",
+			Duration:   120 * time.Millisecond,
+			Cost:       0.0002,
+		},
+		InputTokens: 42,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for inference.call.completed event")
+	}
+
+	data, ok := got.Data.(*InferenceCallCompletedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Provider != "hf" {
+		t.Errorf("Provider = %q, want %q", data.Provider, "hf")
+	}
+	if data.InputTokens != 42 {
+		t.Errorf("InputTokens = %d, want 42", data.InputTokens)
+	}
+	if data.Cost != 0.0002 {
+		t.Errorf("Cost = %f, want 0.0002", data.Cost)
+	}
+}
+
+func TestEmitter_InferenceCallFailedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-inf2", "session-inf2", "conv-inf2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventInferenceCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.InferenceCallFailedCtx(context.Background(), &InferenceCallFailedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "hf",
+			Model:      "facebook/bart-large-mnli",
+			Capability: "inference",
+			Source:     "huggingface",
+			Duration:   30 * time.Millisecond,
+		},
+		Error: "rate limit exceeded",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for inference.call.failed event")
+	}
+
+	data, ok := got.Data.(*InferenceCallFailedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Error != "rate limit exceeded" {
+		t.Errorf("Error = %q, want %q", data.Error, "rate limit exceeded")
+	}
+}
+
+func TestEmitter_InferenceCallCompletedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-inf3", "session-inf3", "conv-inf3")
+
+	got := make(chan *Event, 1)
+	bus.SubscribeAll(func(e *Event) { got <- e })
+
+	// Must not panic AND must not publish an event: a mutation that dropped
+	// the nil guard would still call bus.Publish, just with a data pointer
+	// that is nil underneath the EventData interface.
+	emitter.InferenceCallCompletedCtx(context.Background(), nil)
+
+	select {
+	case e := <-got:
+		t.Fatalf("expected no event published for nil data, got %v", e.Type)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestEmitter_InferenceCallFailedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-inf4", "session-inf4", "conv-inf4")
+
+	got := make(chan *Event, 1)
+	bus.SubscribeAll(func(e *Event) { got <- e })
+
+	// Must not panic AND must not publish an event: a mutation that dropped
+	// the nil guard would still call bus.Publish, just with a data pointer
+	// that is nil underneath the EventData interface.
+	emitter.InferenceCallFailedCtx(context.Background(), nil)
+
+	select {
+	case e := <-got:
+		t.Fatalf("expected no event published for nil data, got %v", e.Type)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestEventBus_PublishStampsSequence(t *testing.T) {
 	t.Parallel()
 

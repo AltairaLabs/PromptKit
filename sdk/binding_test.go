@@ -7,17 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
 
 type textClassifierStub struct{}
 
-func (textClassifierStub) ClassifyText(
-	_ context.Context, _ string, _ classify.TextOptions,
-) ([]classify.LabelScore, error) {
-	return []classify.LabelScore{{Label: "positive", Score: 1}}, nil
+func (textClassifierStub) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return inference.Response{Scores: []inference.LabelScore{{Label: "positive", Score: 1}}}, nil
 }
 
 func bindingWith(t *testing.T, llmIDs []string, classifierIDs []string) evals.ProviderBinding {
@@ -28,8 +26,7 @@ func bindingWith(t *testing.T, llmIDs []string, classifierIDs []string) evals.Pr
 		cfg.providers.Register(mock.NewProvider(id, "mock-model", false))
 	}
 	for _, id := range classifierIDs {
-		_, err := cfg.registerClassifyBackend(id, textClassifierStub{})
-		require.NoError(t, err)
+		require.NoError(t, cfg.registerInferenceProvider(id, textClassifierStub{}))
 	}
 	return newHostBinding(cfg)
 }
@@ -41,9 +38,9 @@ func TestHostBinding_ResolvesWhatTheHostBound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "grader", llm.ID())
 
-	backend, err := b.Classifier("screener")
+	provider, err := b.Classifier("screener")
 	require.NoError(t, err)
-	assert.IsType(t, textClassifierStub{}, backend)
+	assert.IsType(t, textClassifierStub{}, provider)
 }
 
 // A name nobody bound is unbound — not "wrong kind", which would send the host

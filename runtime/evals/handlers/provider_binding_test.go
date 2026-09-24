@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
@@ -16,10 +16,11 @@ import (
 // bindingStub stands in for a host: it answers the names it was told about and
 // reports the right kind of failure for everything else.
 type bindingStub struct {
-	llm        providers.Provider
-	classifier classify.Backend
-	llmErr     error
-	classErr   error
+	llm       providers.Provider
+	inference inference.Provider
+	llmErr    error
+	inferErr  error
+	other     any // a bound value that is not an inference.Provider
 }
 
 func (b bindingStub) LLM(string) (providers.Provider, error) {
@@ -29,113 +30,101 @@ func (b bindingStub) LLM(string) (providers.Provider, error) {
 	return b.llm, nil
 }
 
-func (b bindingStub) Classifier(string) (classify.Backend, error) {
-	if b.classErr != nil {
-		return nil, b.classErr
+func (b bindingStub) Classifier(string) (any, error) {
+	if b.inferErr != nil {
+		return nil, b.inferErr
 	}
-	return b.classifier, nil
+	if b.other != nil {
+		return b.other, nil
+	}
+	return b.inference, nil
 }
 
-type textStub struct{}
+// labelStub answers every request with one fixed label, so a test can tell
+// which provider it was handed.
+type labelStub struct{ label string }
 
-func (textStub) ClassifyText(
-	_ context.Context, _ string, _ classify.TextOptions,
-) ([]classify.LabelScore, error) {
-	return []classify.LabelScore{{Label: "positive", Score: 1}}, nil
+func (s labelStub) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return inference.Response{Scores: []inference.LabelScore{{Label: s.label, Score: 1}}}, nil
 }
 
-func assertText(b classify.Backend) (classify.TextClassifier, bool) {
-	c, ok := b.(classify.TextClassifier)
-	return c, ok
+func inferLabel(t *testing.T, p inference.Provider) string {
+	t.Helper()
+	resp, err := p.Infer(context.Background(), inference.Request{})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Scores)
+	return resp.Scores[0].Label
 }
 
-func TestClassifierFor_ResolvesThroughTheBinding(t *testing.T) {
-	ctx := evals.WithProviderBinding(context.Background(), bindingStub{classifier: textStub{}})
+func TestResolveInference_ResolvesANamedKeyThroughTheBinding(t *testing.T) {
+	ctx := evals.WithProviderBinding(context.Background(), bindingStub{inference: labelStub{"bound"}})
 
-	got, err := classifierFor(ctx, "screener", "text classifier", assertText)
+	got, err := resolveInference(ctx, "screener", "text classifier")
 
 	require.NoError(t, err)
-	require.NotNil(t, got)
-
-	// It is the host's backend, not some default: ask it something.
-	scores, err := got.ClassifyText(context.Background(), "lovely", classify.TextOptions{})
-	require.NoError(t, err)
-	require.NotEmpty(t, scores)
-	assert.Equal(t, "positive", scores[0].Label,
-		"the resolved classifier is not the one the host bound")
+	assert.Equal(t, "bound", inferLabel(t, got), "the resolved provider is not the one the host bound")
 }
 
 // Each failure has to name the key and say what kind of thing was wanted, so
 // the person reading it knows where to look.
-func TestClassifierFor_Failures(t *testing.T) {
-	t.Run("no key named", func(t *testing.T) {
-		ctx := evals.WithProviderBinding(context.Background(), bindingStub{classifier: textStub{}})
-
-		_, err := classifierFor(ctx, "", "text classifier", assertText)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), ProviderParam,
-			"it must name the param a pack uses to point at its provider")
-		assert.Contains(t, err.Error(), "requires")
-	})
-
+func TestResolveInference_Failures(t *testing.T) {
 	t.Run("no binding at all", func(t *testing.T) {
-		_, err := classifierFor(context.Background(), "screener", "text classifier", assertText)
+		_, err := resolveInference(context.Background(), "screener", "text classifier")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "screener")
+		assert.Contains(t, err.Error(), "text classifier")
 	})
 
 	t.Run("host bound nothing", func(t *testing.T) {
-		ctx := evals.WithProviderBinding(context.Background(),
-			bindingStub{classErr: evals.ErrUnboundKey})
+		ctx := evals.WithProviderBinding(context.Background(), bindingStub{inferErr: evals.ErrUnboundKey})
 
-		_, err := classifierFor(ctx, "screener", "text classifier", assertText)
+		_, err := resolveInference(ctx, "screener", "text classifier")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "screener")
 		assert.Contains(t, err.Error(), "supply a provider")
 	})
 
-	t.Run("bound a classifier that does not do this task", func(t *testing.T) {
-		// A backend the host bound, which simply is not a text classifier.
-		ctx := evals.WithProviderBinding(context.Background(),
-			bindingStub{classifier: struct{}{}})
+	t.Run("binding returned a value that does not implement Infer", func(t *testing.T) {
+		ctx := evals.WithProviderBinding(context.Background(), bindingStub{other: struct{}{}})
 
-		_, err := classifierFor(ctx, "screener", "text classifier", assertText)
+		_, err := resolveInference(ctx, "screener", "text classifier")
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "is not a text classifier",
-			"a backend bound to the name but unable to do the task must say so")
+		assert.Contains(t, err.Error(), "screener")
+		assert.Contains(t, err.Error(), "not an inference provider")
+	})
+
+	t.Run("bound something that is not an inference provider", func(t *testing.T) {
+		ctx := evals.WithProviderBinding(context.Background(), bindingStub{inferErr: evals.ErrWrongKind})
+
+		_, err := resolveInference(ctx, "screener", "text classifier")
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "cannot do what the check needs")
 	})
 }
 
-func TestDefaultClassifier_NoRegistry(t *testing.T) {
-	_, err := defaultClassifier(context.Background(), "text classifier",
-		func(r *classify.Registry) (classify.TextClassifier, error) { return r.TextClassifier("") })
+func TestResolveInference_NoKeyAndNoRegistry(t *testing.T) {
+	_, err := resolveInference(context.Background(), "", "text classifier")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "names no provider")
 	assert.Contains(t, err.Error(), ProviderParam)
 }
 
-func TestDefaultClassifier_UsesTheHostsDefault(t *testing.T) {
-	reg := classify.NewRegistry()
-	reg.RegisterText("host-default", textStub{})
-	require.NoError(t, reg.SetDefaultText("host-default"))
-	ctx := classify.WithRegistry(context.Background(), reg)
+func TestResolveInference_NoKeyUsesTheHostsDefault(t *testing.T) {
+	reg := inference.NewRegistry()
+	require.NoError(t, reg.Register("host-default", labelStub{"default"}))
+	require.NoError(t, reg.Register("other", labelStub{"other"}))
+	ctx := inference.WithRegistry(context.Background(), reg)
 
-	got, err := defaultClassifier(ctx, "text classifier",
-		func(r *classify.Registry) (classify.TextClassifier, error) { return r.TextClassifier("") })
+	got, err := resolveInference(ctx, "", "text classifier")
 
 	require.NoError(t, err)
-	require.NotNil(t, got, "a check that names nothing falls back to what the HOST made default")
-
-	scores, err := got.ClassifyText(context.Background(), "lovely", classify.TextOptions{})
-	require.NoError(t, err)
-	require.NotEmpty(t, scores)
-	assert.Equal(t, "positive", scores[0].Label,
-		"the fallback resolved something other than the host's registered default")
+	assert.Equal(t, "default", inferLabel(t, got),
+		"a check that names nothing falls back to what the HOST made default")
 }
 
 // The judge side of the same mechanism: a named provider resolves through the

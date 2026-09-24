@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -14,14 +16,15 @@ import (
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
@@ -147,20 +150,16 @@ type config struct {
 	sttProviders   map[string]stt.Service
 	sttProviderIDs []string
 
-	// Inference (classify) registry, built from declarative
-	// inference_providers and/or WithInferenceProvider / WithClassifier.
-	classifyRegistry *classify.Registry
+	// Inference registry, built from declarative inference providers and/or
+	// WithInferenceProvider / WithClassifier. The first provider registered
+	// is the default for checks that name none.
+	inferenceRegistry *inference.Registry
 
-	// classifyProviderIDs records every classify backend id registered
-	// through any path — inference_providers:, a providers: entry with
-	// role: inference, WithInferenceProvider, WithClassifier — so a
-	// duplicate is rejected config-wide rather than per-block. Mirrors
-	// ttsProviderIDs / sttProviderIDs.
-	classifyProviderIDs []string
-
-	// classifyBackends is every classify backend by the id it was registered
-	// under, for provider-binding lookups. See registerClassifyBackend.
-	classifyBackends map[string]classify.Backend
+	// inferenceProviderIDs records every inference provider id in
+	// registration order, through any path — inference_providers:, a
+	// providers: entry with role: inference, WithInferenceProvider,
+	// WithClassifier. Mirrors ttsProviderIDs / sttProviderIDs.
+	inferenceProviderIDs []string
 
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
@@ -336,6 +335,13 @@ type config struct {
 	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
 	executionTimeout *time.Duration
 	idleTimeout      *time.Duration
+
+	// Per-guardrail-check timeout override (WithGuardrailTimeout). Zero means
+	// "unset" here — unlike idleTimeout/executionTimeout there is no "disable"
+	// sense to preserve: a guardrail check bounds a single classifier/judge
+	// call, and evals.DefaultEvalTimeout (30s) is always a sane fallback, so a
+	// plain zero value distinguishes unset from a pointer without needing one.
+	guardrailTimeout time.Duration
 
 	// Recording configuration for session recording via RecordingStage.
 	// When set, RecordingStages are inserted into the pipeline to capture
@@ -513,48 +519,82 @@ func (c *config) getSummarizeProvider() providers.Provider {
 	return p
 }
 
-// ensureClassifyRegistry lazy-initializes the classify registry.
-// Called by registerClassifyBackend before registering anything.
-func (c *config) ensureClassifyRegistry() {
-	if c.classifyRegistry == nil {
-		c.classifyRegistry = classify.NewRegistry()
+// registerInferenceProvider registers p under id on the inference registry and
+// records the id.
+//
+// It is the single entry point for every inference registration path — the
+// inference_providers: block, a providers: entry with role: inference, and the
+// WithInferenceProvider / WithClassifier options — so a duplicate id is caught
+// config-wide rather than letting one path silently overwrite another. The
+// first provider registered becomes the default for checks that name none.
+func (c *config) registerInferenceProvider(id string, p inference.Provider) error {
+	if slices.Contains(c.inferenceProviderIDs, id) {
+		return fmt.Errorf("inference provider %q: duplicate ID", id)
 	}
+	if c.inferenceRegistry == nil {
+		c.inferenceRegistry = inference.NewRegistry()
+	}
+	if err := c.inferenceRegistry.Register(id, p); err != nil {
+		return fmt.Errorf("inference provider %q: %w", id, err)
+	}
+	c.inferenceProviderIDs = append(c.inferenceProviderIDs, id)
+	return nil
 }
 
-// registerClassifyBackend registers backend under id on the classify registry,
-// claiming any task defaults that aren't set yet, and records the id.
-//
-// It is the single entry point for every classify registration path — the
-// inference_providers: block, a providers: entry with role: inference, and the
-// WithInferenceProvider / WithClassifier options — so that a duplicate id is
-// caught config-wide. Tracking duplicates per block instead let the same id
-// registered through two different paths silently overwrite the first.
-//
-// Defaults are claimed here because these paths register one backend at a time
-// with nothing running afterwards to assign them; a backend without a default
-// resolves by id and fails every lookup that omits one.
-// It returns the task labels the backend registered against, so a caller that
-// needs to compute its own first-wins ordering doesn't have to re-derive them.
-func (c *config) registerClassifyBackend(id string, backend classify.Backend) ([]string, error) {
-	if slices.Contains(c.classifyProviderIDs, id) {
-		return nil, fmt.Errorf("classify provider %q: duplicate ID", id)
+// vendorKeyHosts lists, for types whose default key env var belongs to one
+// vendor, the hosts that key may be sent to.
+var vendorKeyHosts = map[string][]string{
+	"openai":      {"api.openai.com"},
+	"huggingface": {"huggingface.co", "huggingface.cloud"},
+}
+
+// envKeyAllowedFor reports whether a type's default key env var may be used for
+// baseURL: always for the vendor's own endpoint (an empty base_url means the
+// default), never for another host — a gateway or self-hosted server gets an
+// explicit credential or none, so a vendor key is never sent to the wrong host.
+func envKeyAllowedFor(providerType, baseURL string) bool {
+	hosts, ok := vendorKeyHosts[providerType]
+	if !ok || strings.TrimSpace(baseURL) == "" {
+		return true
 	}
-	c.ensureClassifyRegistry()
-	tasks := classify.RegisterBackendDefaulting(c.classifyRegistry, id, backend)
-	if len(tasks) == 0 {
-		return nil, fmt.Errorf("classify provider %q: backend implements no classify task interface", id)
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
 	}
-	c.classifyProviderIDs = append(c.classifyProviderIDs, id)
-	// Remembered by id so the provider binding can answer "what did the host
-	// bind to this logical name" for a classify-backed check. The registry
-	// itself only offers typed, per-task lookups, which cannot distinguish
-	// "bound nothing" from "bound something that does not do this task" — and
-	// that distinction is the whole point of the binding's error messages.
-	if c.classifyBackends == nil {
-		c.classifyBackends = make(map[string]classify.Backend)
+	host := strings.ToLower(u.Hostname())
+	for _, h := range hosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return true
+		}
 	}
-	c.classifyBackends[id] = backend
-	return tasks, nil
+	return false
+}
+
+// buildInferenceProvider resolves credentials, constructs the provider for the
+// spec's type, and wraps it so every call reports inference metrics.
+func buildInferenceProvider(
+	id, providerType, model, baseURL string, cred *pkgconfig.CredentialConfig, additional map[string]any,
+) (inference.Provider, error) {
+	var resolved credentials.Credential
+	if cred != nil || envKeyAllowedFor(providerType, baseURL) {
+		var err error
+		resolved, err = inference.ResolveCredential(context.Background(), providerType, "", cred)
+		if err != nil {
+			return nil, fmt.Errorf("resolving credential: %w", err)
+		}
+	}
+	p, err := inference.CreateFromSpec(inference.ProviderSpec{
+		ID:               id,
+		Type:             providerType,
+		Model:            model,
+		BaseURL:          baseURL,
+		Credential:       resolved,
+		AdditionalConfig: additional,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return inference.Instrument(p, id, providerType), nil
 }
 
 // CredentialOption configures credentials for a provider.
@@ -1454,6 +1494,30 @@ func WithIdleTimeout(d time.Duration) Option {
 	}
 }
 
+// WithGuardrailTimeout bounds how long a single guardrail check — its
+// classifier or judge call — may run before it fails closed. Exceeding it
+// enforces the validator's configured message on the turn, exactly as an
+// explicit deny would: a guardrail must never leave the caller with an empty
+// response (#2064). Zero or unset uses the runtime default
+// (evals.DefaultEvalTimeout, 30s).
+//
+// Raise it for a slow-judge host — an LLM-backed check against a loaded model
+// that legitimately takes longer than 30s. Lower it in a test that needs to
+// exercise a guardrail's timeout path without waiting on the default.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithGuardrailTimeout(5 * time.Second),
+//	)
+func WithGuardrailTimeout(d time.Duration) Option {
+	return func(c *config) error {
+		if d < 0 {
+			return fmt.Errorf("WithGuardrailTimeout: timeout must be non-negative, got %s", d)
+		}
+		c.guardrailTimeout = d
+		return nil
+	}
+}
+
 // WithMaxMessageSize sets the maximum allowed user message size in bytes.
 //
 // When a message exceeds this limit, Send() and Stream() return
@@ -1735,6 +1799,17 @@ func (c *config) resolveGuardrails() error {
 		h, err := pending.spec.HookWithRegistry(c.evalRegistry)
 		if err != nil {
 			return fmt.Errorf("guardrail: %w", err)
+		}
+		// Applied post-construction, not as a GuardrailOption at the Spec's own
+		// call site: WithGuardrailTimeout is a host-wide preference that may be
+		// (and typically is) set via a separate sdk.Open option, seen after
+		// every guardrails.Input/Output call already built its Spec closure.
+		// Func-backed guardrails (InputFunc/OutputFunc) don't call handler.Eval
+		// at all, so there is nothing to bound on those.
+		if c.guardrailTimeout > 0 {
+			if adapter, ok := h.(*guardrails.GuardrailHookAdapter); ok {
+				adapter.SetEvalTimeout(c.guardrailTimeout)
+			}
 		}
 		built = append(built, h)
 	}
@@ -2373,47 +2448,44 @@ func (s ProviderSpec) idOrType() string {
 	return s.Type
 }
 
-// WithInferenceProvider registers an inference (classify) provider that the
-// SDK constructs and credential-resolves. The backend is registered against
-// every classify task interface it implements (AudioClassifier, TextClassifier,
-// etc.). The HuggingFace factory is available via the backends/all blank import
-// in runtime_config.go (same package).
+// WithInferenceProvider registers an inference provider (role: inference) that
+// the SDK constructs and credential-resolves. The type names the vendor API it
+// calls — huggingface, openai, systemone, or nvidia-topic-control (an alias for
+// openai with NemoGuard topic control's model). The first inference provider
+// registered is the default for checks that name none.
 //
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithInferenceProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		id := spec.idOrType()
-		cred, err := classify.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
-		if err != nil {
-			return fmt.Errorf("WithInferenceProvider %q: resolving credential: %w", id, err)
-		}
-		backend, err := classify.CreateFromSpec(classify.ProviderSpec{
-			ID:               id,
-			Type:             spec.Type,
-			Model:            spec.Model,
-			BaseURL:          spec.BaseURL,
-			Credential:       cred,
-			AdditionalConfig: spec.AdditionalConfig,
-		})
+		p, err := buildInferenceProvider(id, spec.Type, spec.Model, spec.BaseURL, spec.Credential, spec.AdditionalConfig)
 		if err != nil {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
-		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+		if err := c.registerInferenceProvider(id, p); err != nil {
 			return fmt.Errorf("WithInferenceProvider: %w", err)
 		}
 		return nil
 	}
 }
 
-// WithClassifier registers an already-constructed classify backend (a value
-// implementing one or more of classify's task interfaces) under id. Escape
-// hatch for in-process classifiers and test doubles; no credential resolution.
-func WithClassifier(id string, backend classify.Backend) Option {
+// WithClassifier registers an already-constructed inference provider under id.
+// Escape hatch for in-process classifiers and test doubles; no credential
+// resolution. Calls report inference metrics like any other provider.
+//
+// provider must implement inference.Provider; it is typed any only to keep the
+// v2 signature, and anything else is rejected when the option is applied.
+func WithClassifier(id string, provider any) Option {
 	return func(c *config) error {
 		if id == "" {
 			return fmt.Errorf("WithClassifier: id is required")
 		}
-		if _, err := c.registerClassifyBackend(id, backend); err != nil {
+		p, ok := provider.(inference.Provider)
+		if !ok {
+			return fmt.Errorf("WithClassifier %q: %T is not an inference.Provider (it needs an Infer method)",
+				id, provider)
+		}
+		if err := c.registerInferenceProvider(id, inference.Instrument(p, id, "custom")); err != nil {
 			return fmt.Errorf("WithClassifier: %w", err)
 		}
 		return nil

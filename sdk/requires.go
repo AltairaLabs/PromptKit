@@ -91,7 +91,7 @@ func (c *config) providerInventory() prompt.ProviderInventory {
 	// host that wired exactly what the pack asked for — WithClassifier, or an
 	// inference provider — was told it had supplied nothing, because the
 	// inventory only knew about the llm/embedding/tts/stt roles.
-	addRole(inv, "inference", c.classifyProviderIDs, false)
+	addRole(inv, "inference", c.inferenceProviderIDs, false)
 	addRole(inv, "embedding", c.embeddingProviderIDs, c.retrievalProvider != nil)
 	addRole(inv, "tts", c.ttsProviderIDs, c.ttsService != nil)
 	addRole(inv, "stt", c.sttProviderIDs, c.sttService != nil)

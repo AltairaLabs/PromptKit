@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
 
 type fakeBinding struct {
 	llm        providers.Provider
-	classifier classify.Backend
+	classifier inference.Provider
 	err        error
 }
 
@@ -23,7 +23,7 @@ func (f fakeBinding) LLM(string) (providers.Provider, error) {
 	return f.llm, f.err
 }
 
-func (f fakeBinding) Classifier(string) (classify.Backend, error) {
+func (f fakeBinding) Classifier(string) (any, error) {
 	return f.classifier, f.err
 }
 

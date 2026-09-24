@@ -3,9 +3,11 @@ package stage
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 )
 
 const (
@@ -66,8 +68,14 @@ type PipelineConfig struct {
 	ProviderBinding evals.ProviderBinding
 
 	// ClassifyRegistry, when non-nil, is attached to the execution
-	// context (via classify.WithRegistry) so stages and downstream
-	// consumers resolve inference backends with classify.FromContext.
+	// context (via inference.WithRegistry) so stages and downstream
+	// consumers resolve inference providers with inference.FromContext.
+	InferenceRegistry *inference.Registry
+
+	// ClassifyRegistry is ignored.
+	//
+	// Deprecated: use InferenceRegistry. Kept only for v2 compatibility;
+	// removed in v3.
 	ClassifyRegistry *classify.Registry
 }
 

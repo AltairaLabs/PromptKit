@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -86,9 +86,9 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	}
 
 	// Attach the classify registry so stages resolve inference backends
-	// via classify.FromContext, mirroring Arena's eval-orchestrator wiring.
-	if p.config.ClassifyRegistry != nil {
-		execCtx = classify.WithRegistry(execCtx, p.config.ClassifyRegistry)
+	// via inference.FromContext, mirroring Arena's eval-orchestrator wiring.
+	if p.config.InferenceRegistry != nil {
+		execCtx = inference.WithRegistry(execCtx, p.config.InferenceRegistry)
 	}
 
 	// The host's answer to "which provider did you bind to the name this pack

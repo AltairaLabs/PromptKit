@@ -5,6 +5,7 @@ package guardrails
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
@@ -69,6 +70,13 @@ func WithMessage(msg string) GuardrailOption {
 // always wins over it.
 func WithJudge(judge handlers.JudgeProvider) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.judge = judge }
+}
+
+// WithEvalTimeout bounds how long the guardrail's handler.Eval call (its
+// classifier or judge) may run before the guardrail fails closed and enforces
+// the validator's message. d <= 0 leaves evals.DefaultEvalTimeout in effect.
+func WithEvalTimeout(d time.Duration) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.evalTimeout = d }
 }
 
 // WithEmitter gives the guardrail an event emitter so it reports its validation

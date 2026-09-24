@@ -3412,7 +3412,7 @@ func (ps *PassthroughStage) Process(ctx context.Context, input <-chan StreamElem
 Process passes all elements through unchanged.
 
 <a name="PipelineBuilder"></a>
-## type [PipelineBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L11-L16>)
+## type [PipelineBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L12-L17>)
 
 PipelineBuilder constructs a pipeline DAG. It provides methods for creating linear chains and branching topologies.
 
@@ -3535,7 +3535,7 @@ Pipeline created with 2 stages
 </details>
 
 <a name="NewPipelineBuilder"></a>
-### func [NewPipelineBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L19>)
+### func [NewPipelineBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L20>)
 
 ```go
 func NewPipelineBuilder() *PipelineBuilder
@@ -3544,7 +3544,7 @@ func NewPipelineBuilder() *PipelineBuilder
 NewPipelineBuilder creates a new PipelineBuilder with default configuration.
 
 <a name="NewPipelineBuilderWithConfig"></a>
-### func [NewPipelineBuilderWithConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L28>)
+### func [NewPipelineBuilderWithConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L29>)
 
 ```go
 func NewPipelineBuilderWithConfig(config *PipelineConfig) *PipelineBuilder
@@ -3553,7 +3553,7 @@ func NewPipelineBuilderWithConfig(config *PipelineConfig) *PipelineBuilder
 NewPipelineBuilderWithConfig creates a new PipelineBuilder with custom configuration.
 
 <a name="PipelineBuilder.AddStage"></a>
-### func \(\*PipelineBuilder\) [AddStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L53>)
+### func \(\*PipelineBuilder\) [AddStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L54>)
 
 ```go
 func (b *PipelineBuilder) AddStage(stage Stage) *PipelineBuilder
@@ -3562,7 +3562,7 @@ func (b *PipelineBuilder) AddStage(stage Stage) *PipelineBuilder
 AddStage adds a stage to the builder without connecting it. This is useful when building complex topologies manually.
 
 <a name="PipelineBuilder.Branch"></a>
-### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L106>)
+### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L107>)
 
 ```go
 func (b *PipelineBuilder) Branch(fromStage string, toStages ...string) *PipelineBuilder
@@ -3580,7 +3580,7 @@ pipeline := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Build"></a>
-### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L124>)
+### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L125>)
 
 ```go
 func (b *PipelineBuilder) Build() (*StreamPipeline, error)
@@ -3589,7 +3589,7 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error)
 Build constructs the pipeline from the builder's configuration. It validates the pipeline structure and returns an error if invalid.
 
 <a name="PipelineBuilder.Chain"></a>
-### func \(\*PipelineBuilder\) [Chain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L71>)
+### func \(\*PipelineBuilder\) [Chain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L72>)
 
 ```go
 func (b *PipelineBuilder) Chain(stages ...Stage) *PipelineBuilder
@@ -3610,7 +3610,7 @@ pipeline := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L346>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L355>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
@@ -3619,7 +3619,7 @@ func (b *PipelineBuilder) Clone() *PipelineBuilder
 Clone creates a deep copy of the builder.
 
 <a name="PipelineBuilder.Connect"></a>
-### func \(\*PipelineBuilder\) [Connect](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L89>)
+### func \(\*PipelineBuilder\) [Connect](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L90>)
 
 ```go
 func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder
@@ -3628,7 +3628,7 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder
 Connect creates a directed edge from one stage to another. The output of fromStage will be connected to the input of toStage.
 
 <a name="PipelineBuilder.Merge"></a>
-### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L115>)
+### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L116>)
 
 ```go
 func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder
@@ -3637,7 +3637,7 @@ func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder
 Merge wires multiple upstream stages into a single downstream fan\-in node. The target stage must implement MultiInputStage \(e.g. MergeStage\).
 
 <a name="PipelineBuilder.WithConfig"></a>
-### func \(\*PipelineBuilder\) [WithConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L40>)
+### func \(\*PipelineBuilder\) [WithConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L41>)
 
 ```go
 func (b *PipelineBuilder) WithConfig(config *PipelineConfig) *PipelineBuilder
@@ -3646,7 +3646,7 @@ func (b *PipelineBuilder) WithConfig(config *PipelineConfig) *PipelineBuilder
 WithConfig sets the pipeline configuration.
 
 <a name="PipelineBuilder.WithEventEmitter"></a>
-### func \(\*PipelineBuilder\) [WithEventEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L46>)
+### func \(\*PipelineBuilder\) [WithEventEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L47>)
 
 ```go
 func (b *PipelineBuilder) WithEventEmitter(emitter *events.Emitter) *PipelineBuilder
@@ -3655,7 +3655,7 @@ func (b *PipelineBuilder) WithEventEmitter(emitter *events.Emitter) *PipelineBui
 WithEventEmitter sets the event emitter for the pipeline.
 
 <a name="PipelineConfig"></a>
-## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L33-L72>)
+## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L35-L80>)
 
 PipelineConfig defines configuration options for pipeline execution.
 
@@ -3696,14 +3696,20 @@ type PipelineConfig struct {
     ProviderBinding evals.ProviderBinding
 
     // ClassifyRegistry, when non-nil, is attached to the execution
-    // context (via classify.WithRegistry) so stages and downstream
-    // consumers resolve inference backends with classify.FromContext.
+    // context (via inference.WithRegistry) so stages and downstream
+    // consumers resolve inference providers with inference.FromContext.
+    InferenceRegistry *inference.Registry
+
+    // ClassifyRegistry is ignored.
+    //
+    // Deprecated: use InferenceRegistry. Kept only for v2 compatibility;
+    // removed in v3.
     ClassifyRegistry *classify.Registry
 }
 ```
 
 <a name="DefaultPipelineConfig"></a>
-### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L75>)
+### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L83>)
 
 ```go
 func DefaultPipelineConfig() *PipelineConfig
@@ -3712,7 +3718,7 @@ func DefaultPipelineConfig() *PipelineConfig
 DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
 
 <a name="PipelineConfig.Validate"></a>
-### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L86>)
+### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L94>)
 
 ```go
 func (c *PipelineConfig) Validate() error
@@ -3721,7 +3727,7 @@ func (c *PipelineConfig) Validate() error
 Validate checks if the configuration is valid.
 
 <a name="PipelineConfig.WithChannelBufferSize"></a>
-### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L106>)
+### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L114>)
 
 ```go
 func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
@@ -3730,7 +3736,7 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
 WithChannelBufferSize sets the channel buffer size.
 
 <a name="PipelineConfig.WithExecutionTimeout"></a>
-### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L118>)
+### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L126>)
 
 ```go
 func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig
@@ -3739,7 +3745,7 @@ func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineCo
 WithExecutionTimeout sets the execution timeout.
 
 <a name="PipelineConfig.WithGracefulShutdownTimeout"></a>
-### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L130>)
+### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L138>)
 
 ```go
 func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig
@@ -3748,7 +3754,7 @@ func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *Pip
 WithGracefulShutdownTimeout sets the graceful shutdown timeout.
 
 <a name="PipelineConfig.WithIdleTimeout"></a>
-### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L124>)
+### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L132>)
 
 ```go
 func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
@@ -3757,7 +3763,7 @@ func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
 WithIdleTimeout sets the idle timeout.
 
 <a name="PipelineConfig.WithMaxConcurrentPipelines"></a>
-### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L112>)
+### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L120>)
 
 ```go
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig

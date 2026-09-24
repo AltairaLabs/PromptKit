@@ -5,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -48,7 +47,7 @@ func (h *ImageModerationHandler) Eval(
 		return errorResult(h.Type(), cfgErr.Error()), nil
 	}
 
-	classifier, classifierErr := resolveImageClassifier(ctx, cfg.providerKey)
+	provider, classifierErr := resolveInference(ctx, cfg.providerKey, "image classifier")
 	if classifierErr != nil {
 		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
@@ -68,15 +67,15 @@ func (h *ImageModerationHandler) Eval(
 		return errorResult(h.Type(), readErr.Error()), nil
 	}
 
-	scores, classifyErr := classifier.ClassifyImage(ctx, imageBytes, classify.ImageOptions{
-		Model:    cfg.model,
-		MIMEType: media.MIMEType,
+	resp, classifyErr := provider.Infer(ctx, inference.Request{
+		Model:  cfg.model,
+		Inputs: []types.Message{mediaMessage(cfg.messageRole, types.ContentTypeImage, imageBytes, media.MIMEType)},
 	})
 	if classifyErr != nil {
-		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
+		if errors.Is(classifyErr, inference.ErrModelLoading) {
 			return skippedResult(h.Type(), "model still loading after retries"), nil
 		}
-		if errors.Is(classifyErr, classifyhf.ErrModelNotSupported) {
+		if errors.Is(classifyErr, inference.ErrModelNotSupported) {
 			return skippedResult(h.Type(),
 				"model not supported by the configured inference path "+
 					"(deploy an HF Inference Endpoint or pick a supported model)"), nil
@@ -84,19 +83,5 @@ func (h *ImageModerationHandler) Eval(
 		return errorResult(h.Type(), fmt.Sprintf("classify failed: %v", classifyErr)), nil
 	}
 
-	return gradeExpectedLabel(h.Type(), &cfg, scores), nil
-}
-
-// resolveImageClassifier pulls the classify registry out of context and looks up
-// the requested classifier id. An empty id resolves the configured default.
-func resolveImageClassifier(ctx context.Context, key string) (classify.ImageClassifier, error) {
-	if key != "" {
-		return classifierFor(ctx, key, "image classifier",
-			func(b classify.Backend) (classify.ImageClassifier, bool) {
-				c, ok := b.(classify.ImageClassifier)
-				return c, ok
-			})
-	}
-	return defaultClassifier(ctx, "image classifier",
-		func(r *classify.Registry) (classify.ImageClassifier, error) { return r.ImageClassifier("") })
+	return gradeExpectedLabel(h.Type(), &cfg, resp.Scores), nil
 }

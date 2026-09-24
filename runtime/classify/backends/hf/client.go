@@ -187,6 +187,8 @@ func (c *Client) modelURL(model string) (string, error) {
 // TODO(#1214): no per-client rate limiting yet. HF free tier limits
 // per IP; the proposal calls for a token bucket sized from arena
 // config. Add when the first concurrent eval handler lands.
+//
+//nolint:gocognit // frozen: this package is kept only for v2 compatibility and removed in v3
 func (c *Client) do(ctx context.Context, modelURL, contentType string, body []byte) ([]byte, error) {
 	// Total attempts = 1 initial + modelLoadingMaxRetries.
 	totalAttempts := 1 + modelLoadingMaxRetries

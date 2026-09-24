@@ -56,7 +56,7 @@ func NewEventBusHealthCollector(bus *events.EventBus, namespace string, constLab
 NewEventBusHealthCollector builds the collector for a bus. A nil bus yields a collector whose Describe/Collect are safe no\-ops \(nothing to export\).
 
 <a name="Collector"></a>
-## type [Collector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L101-L154>)
+## type [Collector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L101-L160>)
 
 Collector records both pipeline and eval metrics into a Prometheus registry. Created once per process via NewCollector\(\). Shared across conversations.
 
@@ -71,7 +71,7 @@ type Collector struct {
 ```
 
 <a name="NewCollector"></a>
-### func [NewCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L166>)
+### func [NewCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L172>)
 
 ```go
 func NewCollector(opts CollectorOpts) *Collector
@@ -80,7 +80,7 @@ func NewCollector(opts CollectorOpts) *Collector
 NewCollector creates a unified metrics collector and registers pipeline metrics into the provided Registerer \(or prometheus.DefaultRegisterer\).
 
 <a name="NewEvalOnlyCollector"></a>
-### func [NewEvalOnlyCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L219>)
+### func [NewEvalOnlyCollector](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L225>)
 
 ```go
 func NewEvalOnlyCollector(opts CollectorOpts) *Collector
@@ -99,7 +99,7 @@ metrics.NewCollector(metrics.CollectorOpts{
 Use this for standalone eval workers \(e.g. sdk.Evaluate\(\)\) that don't run a live pipeline and therefore don't need provider, tool, or pipeline metrics.
 
 <a name="Collector.Bind"></a>
-### func \(\*Collector\) [Bind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L237>)
+### func \(\*Collector\) [Bind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L243>)
 
 ```go
 func (c *Collector) Bind(instanceLabels map[string]string) *MetricContext
@@ -112,7 +112,7 @@ Label key ordering in the map does not matter — the Collector sorts InstanceLa
 If the Collector has no InstanceLabels, pass nil.
 
 <a name="Collector.Registry"></a>
-### func \(\*Collector\) [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L226>)
+### func \(\*Collector\) [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L232>)
 
 ```go
 func (c *Collector) Registry() *prometheus.Registry
@@ -161,7 +161,7 @@ type CollectorOpts struct {
 ```
 
 <a name="MetricContext"></a>
-## type [MetricContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L455-L458>)
+## type [MetricContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L484-L487>)
 
 MetricContext is a per\-conversation handle that carries instance label values. It implements events.Listener \(via OnEvent\) and evals.MetricRecorder \(via Record\), forwarding observations to the shared Collector with bound labels.
 
@@ -172,7 +172,7 @@ type MetricContext struct {
 ```
 
 <a name="MetricContext.OnEvent"></a>
-### func \(\*MetricContext\) [OnEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L491>)
+### func \(\*MetricContext\) [OnEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L520>)
 
 ```go
 func (mc *MetricContext) OnEvent(event *events.Event)
@@ -181,7 +181,7 @@ func (mc *MetricContext) OnEvent(event *events.Event)
 OnEvent processes a pipeline event and records relevant metrics. This method is designed to be used with EventBus.SubscribeAll.
 
 <a name="MetricContext.Record"></a>
-### func \(\*MetricContext\) [Record](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L853>)
+### func \(\*MetricContext\) [Record](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L916>)
 
 ```go
 func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef) error

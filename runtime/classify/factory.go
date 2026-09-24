@@ -39,8 +39,6 @@ func RegisterFactory(providerType string, f Factory) {
 func RegisteredTypes() []string { return classifyRegistry.Types() }
 
 // CreateFromSpec builds a Backend for the spec's Type.
-//
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func CreateFromSpec(spec ProviderSpec) (Backend, error) {
 	return classifyRegistry.Create(spec)
 }
@@ -145,8 +143,6 @@ func RegisterBackendDefaulting(reg *Registry, id string, b Backend) []string {
 // STT/TTS service defaults). Returns (nil, nil) when specs is empty —
 // classification is optional; callers that don't use it must not require
 // a token.
-//
-//nolint:gocritic // RegistryDefaults is a flat value type; pointer indirection adds no benefit here.
 func BuildRegistry(specs []ProviderSpec, defaults RegistryDefaults) (*Registry, error) {
 	if len(specs) == 0 {
 		return nil, nil
@@ -174,7 +170,6 @@ func BuildRegistry(specs []ProviderSpec, defaults RegistryDefaults) (*Registry, 
 	return reg, nil
 }
 
-//nolint:gocritic // RegistryDefaults is a flat value type; pointer indirection adds no benefit here.
 func applyDefaults(reg *Registry, d RegistryDefaults, first map[string]string) error {
 	pick := func(explicit, task string) string {
 		if explicit != "" {

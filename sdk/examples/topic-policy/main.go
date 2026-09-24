@@ -38,8 +38,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers" // register built-in eval handlers
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
@@ -65,20 +65,30 @@ var (
 	smallTalkKeywords = []string{"hello", "hi ", "thanks", "thank you", "good morning"}
 )
 
-// The error is always nil — this classifier cannot fail. The signature is
-// classify.TopicClassifier's, and a real backend returns transport errors here.
+// Infer judges the last input — the message under judgment — and answers with
+// a probability per label, as a real topic backend does. The error is always
+// nil: this classifier cannot fail, but a real backend returns transport
+// errors here.
 //
 //nolint:unparam // interface conformance
-func (keywordClassifier) ClassifyTopic(
-	_ context.Context, req classify.TopicRequest,
-) (classify.TopicResult, error) {
-	msg := strings.ToLower(req.Message)
+func (keywordClassifier) Infer(_ context.Context, req inference.Request) (inference.Response, error) {
+	var msg string
+	if n := len(req.Inputs); n > 0 {
+		msg = strings.ToLower(req.Inputs[n-1].GetContent())
+	}
 	for _, kw := range append(inScopeKeywords, smallTalkKeywords...) {
 		if strings.Contains(msg, kw) {
-			return classify.TopicResult{Decision: classify.TopicAllow, Raw: "on-topic"}, nil
+			return topicAnswer("on-topic", "off-topic"), nil
 		}
 	}
-	return classify.TopicResult{Decision: classify.TopicDeny, Raw: "off-topic"}, nil
+	return topicAnswer("off-topic", "on-topic"), nil
+}
+
+// topicAnswer puts all the probability on the chosen label.
+func topicAnswer(chosen, other string) inference.Response {
+	return inference.Response{Raw: chosen, Scores: []inference.LabelScore{
+		{Label: chosen, Score: 1}, {Label: other, Score: 0},
+	}}
 }
 
 // ---------------------------------------------------------------------------

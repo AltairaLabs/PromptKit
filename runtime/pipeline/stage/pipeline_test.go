@@ -4,18 +4,18 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-func TestPipeline_AttachesClassifyRegistry(t *testing.T) {
-	reg := classify.NewRegistry()
+func TestPipeline_AttachesInferenceRegistry(t *testing.T) {
+	reg := inference.NewRegistry()
 
-	var seen *classify.Registry
+	var seen *inference.Registry
 	probe := NewStageFunc("probe", StageTypeTransform, func(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 		defer close(out)
-		seen = classify.FromContext(ctx)
+		seen = inference.FromContext(ctx)
 		for e := range in {
 			out <- e
 		}
@@ -23,7 +23,7 @@ func TestPipeline_AttachesClassifyRegistry(t *testing.T) {
 	})
 
 	cfg := DefaultPipelineConfig()
-	cfg.ClassifyRegistry = reg
+	cfg.InferenceRegistry = reg
 	p, err := NewPipelineBuilderWithConfig(cfg).Chain(probe).Build()
 	if err != nil {
 		t.Fatalf("build: %v", err)

@@ -138,6 +138,12 @@ type Collector struct {
 	imageGenImagesTotal     *prometheus.CounterVec
 	imageGenCostTotal       *prometheus.CounterVec
 
+	// Inference metric families (runtime/inference.Instrument)
+	inferenceRequestDuration  *prometheus.HistogramVec
+	inferenceRequestsTotal    *prometheus.CounterVec
+	inferenceInputTokensTotal *prometheus.CounterVec
+	inferenceCostTotal        *prometheus.CounterVec
+
 	// Dynamic eval metrics (created on first observation)
 	evalMetrics map[string]evalMetricEntry
 	mu          sync.RWMutex
@@ -411,6 +417,29 @@ func (c *Collector) registerPipelineMetrics() {
 		"Total cost in USD from image generation calls",
 		[]string{"provider", "model", "source"},
 	)
+
+	// Inference
+	c.inferenceRequestDuration = c.mustRegisterHistogramVec(
+		"inference_request_duration_seconds",
+		"Duration of generic inference provider calls in seconds",
+		providerBuckets,
+		[]string{"provider", "model", "source"},
+	)
+	c.inferenceRequestsTotal = c.mustRegisterCounterVec(
+		"inference_requests_total",
+		"Total number of generic inference provider calls",
+		[]string{"provider", "model", "source", "status"},
+	)
+	c.inferenceInputTokensTotal = c.mustRegisterCounterVec(
+		"inference_input_tokens_total",
+		"Total input tokens sent to generic inference providers",
+		[]string{"provider", "model", "source"},
+	)
+	c.inferenceCostTotal = c.mustRegisterCounterVec(
+		"inference_cost_total",
+		"Total cost in USD from generic inference provider calls",
+		[]string{"provider", "model", "source"},
+	)
 }
 
 // allLabels returns instance labels + event-level labels as the full label set
@@ -523,6 +552,10 @@ func (mc *MetricContext) OnEvent(event *events.Event) {
 		mc.handleSTTCallCompleted(event)
 	case events.EventSTTCallFailed:
 		mc.handleSTTCallFailed(event)
+	case events.EventInferenceCallCompleted:
+		mc.handleInferenceCallCompleted(event)
+	case events.EventInferenceCallFailed:
+		mc.handleInferenceCallFailed(event)
 	}
 }
 
@@ -831,6 +864,36 @@ func (mc *MetricContext) handleSTTCallFailed(event *events.Event) {
 			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
 		),
 		exemplar,
+	)
+}
+
+func (mc *MetricContext) handleInferenceCallCompleted(event *events.Event) {
+	data, ok := event.Data.(*events.InferenceCallCompletedData)
+	if !ok {
+		return
+	}
+	mc.observeAncillaryCallCompleted(
+		mc.collector.inferenceRequestDuration,
+		mc.collector.inferenceRequestsTotal,
+		mc.collector.inferenceCostTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, data.Cost, event.SpanContext,
+	)
+	mc.collector.inferenceInputTokensTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(float64(data.InputTokens))
+}
+
+func (mc *MetricContext) handleInferenceCallFailed(event *events.Event) {
+	data, ok := event.Data.(*events.InferenceCallFailedData)
+	if !ok {
+		return
+	}
+	mc.observeAncillaryCallFailed(
+		mc.collector.inferenceRequestDuration,
+		mc.collector.inferenceRequestsTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, event.SpanContext,
 	)
 }
 

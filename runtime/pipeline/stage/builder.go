@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // PipelineBuilder constructs a pipeline DAG.
@@ -125,6 +126,14 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 	// Validate the pipeline
 	if err := b.validate(); err != nil {
 		return nil, err
+	}
+
+	if b.config != nil && b.config.ClassifyRegistry != nil && b.config.InferenceRegistry == nil {
+		// Deprecated field set, replacement not: inference-backed checks will
+		// find no provider (skipping, or denying for topic_policy). Say so
+		// rather than let it fail silently.
+		logger.Warn("PipelineConfig.ClassifyRegistry is deprecated and ignored; set InferenceRegistry — " +
+			"inference-backed checks have no provider on this pipeline")
 	}
 
 	// Precompute root stages (stages with no incoming edges) and

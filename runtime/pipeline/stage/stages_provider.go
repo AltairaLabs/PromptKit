@@ -2172,6 +2172,14 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		return nil
 	}
 
+	// An output guardrail's judge call is activity, not idle silence — hold the
+	// idle timer open across it exactly as tool execution does (#2017), so a
+	// classifier slower than IdleTimeout does not cancel the very context the
+	// pipeline needs to emit the enforced (or allowed) result on (#2064). The
+	// handler itself stays bounded — see GuardrailHookAdapter's own timeout
+	// around handler.Eval.
+	defer keepIdleAlive(ctx)()
+
 	hookReq := &hooks.ProviderRequest{
 		ProviderID:   s.provider.ID(),
 		Model:        s.provider.Model(),
@@ -2230,6 +2238,20 @@ func (s *ProviderStage) runBeforeCallHooks(
 	if s.hookRegistry == nil {
 		return types.Message{}, false, nil
 	}
+
+	// An input guardrail's classifier call is activity, not idle silence — hold
+	// the idle timer open across it exactly as tool execution does (#2017), so
+	// a classifier slower than IdleTimeout does not cancel the very context the
+	// pipeline needs to emit the enforced (or allowed) result on afterward.
+	// Before this fix a classifier that timed out lost the race with its own
+	// idle-timeout cancellation: BeforeCall correctly built the canned blocked
+	// message, but by the time it returned, the shared ctx was already done, so
+	// emitResponseMessages/emitBlockedTurnText's select dropped the message
+	// instead of sending it, and Send() returned an empty response with no
+	// error (#2064). The handler itself stays bounded — see
+	// GuardrailHookAdapter's own timeout around handler.Eval.
+	defer keepIdleAlive(ctx)()
+
 	hookReq := &hooks.ProviderRequest{
 		ProviderID:   s.provider.ID(),
 		Model:        s.provider.Model(),

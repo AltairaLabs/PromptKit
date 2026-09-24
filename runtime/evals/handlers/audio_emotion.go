@@ -2,15 +2,15 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -77,7 +77,7 @@ func (h *AudioEmotionHandler) Eval(
 		return errorResult(h.Type(), cfgErr.Error()), nil
 	}
 
-	classifier, classifierErr := resolveAudioClassifier(ctx, cfg.providerKey)
+	provider, classifierErr := resolveInference(ctx, cfg.providerKey, "audio classifier")
 	if classifierErr != nil {
 		return providerResult(h.Type(), cfg.providerKey, classifierErr, skippedResult, errorResult), nil
 	}
@@ -102,16 +102,15 @@ func (h *AudioEmotionHandler) Eval(
 		return errorResult(h.Type(), readErr.Error()), nil
 	}
 
-	opts := classify.AudioOptions{
-		Model:    cfg.model,
-		MIMEType: media.MIMEType,
-	}
-	scores, classifyErr := classifier.ClassifyAudio(ctx, audioBytes, opts)
+	resp, classifyErr := provider.Infer(ctx, inference.Request{
+		Model:  cfg.model,
+		Inputs: []types.Message{mediaMessage(cfg.messageRole, types.ContentTypeAudio, audioBytes, media.MIMEType)},
+	})
 	if classifyErr != nil {
-		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
+		if errors.Is(classifyErr, inference.ErrModelLoading) {
 			return skippedResult(h.Type(), "model still loading after retries"), nil
 		}
-		if errors.Is(classifyErr, classifyhf.ErrModelNotSupported) {
+		if errors.Is(classifyErr, inference.ErrModelNotSupported) {
 			// The configured model can't be served on the configured
 			// inference path — typically a retired free-tier SER model
 			// on `router.huggingface.co/hf-inference`. Skip cleanly so
@@ -125,7 +124,7 @@ func (h *AudioEmotionHandler) Eval(
 		return errorResult(h.Type(), fmt.Sprintf("classify failed: %v", classifyErr)), nil
 	}
 
-	return gradeExpectedLabel(h.Type(), &cfg, scores), nil
+	return gradeExpectedLabel(h.Type(), &cfg, resp.Scores), nil
 }
 
 // skippedResult builds an EvalResult that records "didn't run, didn't fail"
@@ -147,22 +146,6 @@ func skippedResult(handlerType, reason string) *evals.EvalResult {
 // params (e.g. sample-rate-resampling toggles) have a place to land.
 func parseAudioEmotionParams(params map[string]any) (classifyConfig, error) {
 	return parseClassifyConfig(params, audioEmotionDefaultRole)
-}
-
-// resolveAudioClassifier pulls the registry out of context and looks up the
-// requested classifier id. An empty id resolves the configured default, so
-// arenas with `defaults.inference.audio_classifier` set don't need to repeat
-// the id on every handler.
-func resolveAudioClassifier(ctx context.Context, key string) (classify.AudioClassifier, error) {
-	if key != "" {
-		return classifierFor(ctx, key, "audio classifier",
-			func(b classify.Backend) (classify.AudioClassifier, bool) {
-				c, ok := b.(classify.AudioClassifier)
-				return c, ok
-			})
-	}
-	return defaultClassifier(ctx, "audio classifier",
-		func(r *classify.Registry) (classify.AudioClassifier, error) { return r.AudioClassifier("") })
 }
 
 // pickMediaPart selects one part from a non-empty slice of audio parts. A
@@ -257,7 +240,7 @@ func readMediaBytes(media *types.MediaContent) ([]byte, error) {
 // a wrapper-supplied threshold get the right outcome (any positive
 // min_score fails; "label not returned" is louder in the report).
 func gradeExpectedLabel(
-	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
+	handlerType string, cfg *classifyConfig, scores []inference.LabelScore,
 ) *evals.EvalResult {
 	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)
 	if foundLabel == "" {
@@ -301,4 +284,16 @@ func errorResult(handlerType, msg string) *evals.EvalResult {
 		Error:       msg,
 		Explanation: msg,
 	}
+}
+
+// mediaMessage wraps media bytes the handler already read as an inline part, so
+// the provider receives exactly the bytes the handler resolved (storage
+// references included) rather than re-resolving the source itself.
+func mediaMessage(role, contentType string, data []byte, mimeType string) types.Message {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	part := types.NewAudioPartFromData(encoded, mimeType)
+	if contentType == types.ContentTypeImage {
+		part = types.NewImagePartFromData(encoded, mimeType, nil)
+	}
+	return types.Message{Role: role, Parts: []types.ContentPart{part}}
 }

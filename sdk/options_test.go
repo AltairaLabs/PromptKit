@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -12,9 +14,9 @@ import (
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -1357,27 +1359,45 @@ func TestWithSelector(t *testing.T) {
 	})
 }
 
-// stubText is a minimal TextClassifier for WithClassifier tests. The id field
+// stubText is a minimal inference provider for WithClassifier tests. The id field
 // exists so two stubs compare unequal — an empty struct makes every value
 // identical, which would let a "did the right one win?" assertion pass by
 // accident.
 type stubText struct{ id string }
 
-func (stubText) ClassifyText(_ context.Context, _ string, _ classify.TextOptions) ([]classify.LabelScore, error) {
-	return nil, nil
+func (s stubText) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return inference.Response{Raw: s.id}, nil
+}
+
+// rawOf calls p and returns its Raw answer, identifying which stub it is.
+func rawOf(t *testing.T, p inference.Provider) string {
+	t.Helper()
+	resp, err := p.Infer(context.Background(), inference.Request{})
+	require.NoError(t, err)
+	return resp.Raw
 }
 
 func TestWithClassifier_RegistersBackend(t *testing.T) {
 	c := &config{}
-	require.NoError(t, WithClassifier("stub", stubText{})(c))
-	_, err := c.classifyRegistry.TextClassifier("stub")
-	require.NoError(t, err, "stub text classifier should resolve")
+	require.NoError(t, WithClassifier("stub", stubText{id: "stub"})(c))
+	p, err := c.inferenceRegistry.Get("stub")
+	require.NoError(t, err, "stub provider should resolve")
+	assert.Equal(t, "stub", rawOf(t, p))
 }
 
-func TestWithClassifier_RejectsNonBackend(t *testing.T) {
+func TestWithClassifier_RejectsAValueThatIsNotAnInferenceProvider(t *testing.T) {
 	c := &config{}
-	err := WithClassifier("nope", struct{}{})(c)
-	require.Error(t, err, "expected error: value implements no classify task interface")
+	err := WithClassifier("old-style", struct{}{})(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not an inference.Provider")
+	assert.Nil(t, c.inferenceRegistry, "nothing may be registered for a rejected provider")
+}
+
+func TestWithClassifier_RejectsNilProvider(t *testing.T) {
+	c := &config{}
+	err := WithClassifier("nope", nil)(c)
+	require.Error(t, err, "a nil provider must be rejected, not registered")
+	assert.Nil(t, c.inferenceRegistry, "nothing may be registered for a rejected provider")
 }
 
 func TestWithInferenceProvider_BuildsBackend(t *testing.T) {
@@ -1388,8 +1408,8 @@ func TestWithInferenceProvider_BuildsBackend(t *testing.T) {
 		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
 	})(c)
 	require.NoError(t, err)
-	_, err = c.classifyRegistry.AudioClassifier("hf")
-	require.NoError(t, err, "hf audio classifier should resolve")
+	_, err = c.inferenceRegistry.Get("hf")
+	require.NoError(t, err, "hf inference provider should resolve")
 }
 
 func TestWithLLMProvider_SetsAgentProvider(t *testing.T) {
@@ -1467,13 +1487,11 @@ func TestWithClassifier_ClaimsDefaultTask(t *testing.T) {
 	// The empty id must resolve, and resolve to the FIRST registration —
 	// a backend registered through an option has to claim the unset default,
 	// and a later one must not steal it.
-	byDefault, err := c.classifyRegistry.TextClassifier("")
+	byDefault, err := c.inferenceRegistry.Get("")
 	require.NoError(t, err,
-		"a classify backend registered through an option must claim the unset default, "+
+		"a provider registered through an option must claim the unset default, "+
 			"otherwise every handler lookup that doesn't name an id fails")
-	named, err := c.classifyRegistry.TextClassifier("first")
-	require.NoError(t, err)
-	require.Equal(t, named, byDefault, "default text classifier should be the first registered")
+	assert.Equal(t, "first", rawOf(t, byDefault), "the default should be the first registered")
 }
 
 func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
@@ -1485,19 +1503,12 @@ func TestWithInferenceProvider_ClaimsDefaultTasks(t *testing.T) {
 	})(c)
 	require.NoError(t, err)
 
-	// The HF backend satisfies every task interface, so each task's default
-	// must resolve to the same instance the id "hf" resolves to.
-	audioByID, err := c.classifyRegistry.AudioClassifier("hf")
+	// The first inference provider registered is the default.
+	byID, err := c.inferenceRegistry.Get("hf")
 	require.NoError(t, err)
-	audioDefault, err := c.classifyRegistry.AudioClassifier("")
-	require.NoError(t, err, "role: inference must set the default audio classifier")
-	require.Equal(t, audioByID, audioDefault)
-
-	textByID, err := c.classifyRegistry.TextClassifier("hf")
-	require.NoError(t, err)
-	textDefault, err := c.classifyRegistry.TextClassifier("")
-	require.NoError(t, err, "role: inference must set the default text classifier")
-	require.Equal(t, textByID, textDefault)
+	byDefault, err := c.inferenceRegistry.Get("")
+	require.NoError(t, err, "role: inference must set the default inference provider")
+	require.Equal(t, byID, byDefault)
 }
 
 func TestWithClassifier_DuplicateIDRejected(t *testing.T) {
@@ -1530,4 +1541,50 @@ func TestApplyInferenceProviders_DuplicateIDAgainstProgrammatic(t *testing.T) {
 	require.Error(t, err,
 		"inference_providers: must see ids already registered programmatically; "+
 			"a block-local duplicate check silently overwrites them")
+}
+
+func TestWithInferenceProvider_DuplicateIDRejected(t *testing.T) {
+	spec := ProviderSpec{ID: "hf", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}}
+	c := &config{}
+	require.NoError(t, WithInferenceProvider(spec)(c))
+
+	err := WithInferenceProvider(spec)(c)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate")
+	assert.Equal(t, []string{"hf"}, c.inferenceProviderIDs, "the duplicate must not be recorded")
+}
+
+// A default key env var belongs to one vendor. With a base_url pointing at a
+// different host (a gateway, vLLM), sending OPENAI_API_KEY would leak it.
+func TestWithInferenceProvider_EnvKeyNeverGoesToAnotherHost(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-must-not-leak")
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"choices":[{"logprobs":{"content":[{"token":"on","logprob":0,` +
+			`"top_logprobs":[{"token":"on","logprob":0}]}]}}]}`))
+	}))
+	defer srv.Close()
+	c := &config{}
+	require.NoError(t, WithInferenceProvider(ProviderSpec{ID: "gw", Type: "openai", Model: "m", BaseURL: srv.URL})(c))
+	p, err := c.inferenceRegistry.Get("gw")
+	require.NoError(t, err)
+
+	_, err = p.Infer(context.Background(), inference.Request{Labels: []string{"on-topic", "off-topic"}})
+
+	require.NoError(t, err)
+	assert.Empty(t, gotAuth, "the OpenAI key must not be sent to a non-OpenAI base_url")
+}
+
+func TestEnvKeyAllowedFor(t *testing.T) {
+	assert.True(t, envKeyAllowedFor("openai", ""), "the vendor's default endpoint")
+	assert.True(t, envKeyAllowedFor("openai", "https://api.openai.com/v1"))
+	assert.False(t, envKeyAllowedFor("openai", "https://ai-gateway.example.com/v1"))
+	assert.False(t, envKeyAllowedFor("openai", "http://localhost:8000/v1"))
+	assert.True(t, envKeyAllowedFor("huggingface", "https://x.us-east-1.aws.endpoints.huggingface.cloud"),
+		"a dedicated HF endpoint is still HF")
+	assert.False(t, envKeyAllowedFor("openai", "https://api.openai.com.evil.example/v1"))
+	assert.True(t, envKeyAllowedFor("systemone", "https://ai-gateway.vercel.sh/typesafe/v1"),
+		"types with no vendor key are unaffected (they have no env default)")
 }
