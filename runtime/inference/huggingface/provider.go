@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -72,6 +73,16 @@ const modelLoadingMaxRetries = 3
 // which HF surface (router or dedicated endpoint) served the call.
 const providerName = "huggingface"
 
+// transientMaxRetries and transientInitialDelayMs configure
+// transientRetryPolicy: the 429/502/504/network-level retry budget
+// underneath the HF-specific 503 model-loading loop. Short delays keep
+// it production-reasonable for HF's own rate limits and gateway blips
+// while letting tests run fast.
+const (
+	transientMaxRetries     = 2
+	transientInitialDelayMs = 20
+)
+
 // zeroShotSuffix is appended to the model URL when Request.Labels is set,
 // routing the call to HF's zero-shot-classification pipeline instead of
 // the model's own default pipeline.
@@ -98,6 +109,10 @@ type Config struct {
 	// Endpoints (the paid dedicated host shape).
 	Dedicated bool
 
+	// Model is the provider's configured default model, used when a
+	// Request doesn't carry its own Model. Mirrors openai.Config.Model.
+	Model string
+
 	// HTTPClient lets the caller provide a custom transport (test
 	// httptest server, timeouts, retry middleware). Default is a
 	// 60s-timeout client.
@@ -109,11 +124,8 @@ type Provider struct {
 	apiKey    string
 	baseURL   string
 	dedicated bool
-	// model is the configured default model (from a provider spec),
-	// used when a Request doesn't carry its own Model. Set directly by
-	// register.go's factory, since Config deliberately doesn't carry a
-	// per-provider default model — HF's classify backends always took
-	// the model per call.
+	// model is Config.Model: the configured default, used when a Request
+	// doesn't carry its own Model. Request.Model always wins over it.
 	model string
 	http  *http.Client
 }
@@ -137,6 +149,7 @@ func New(cfg Config) (*Provider, error) {
 		apiKey:    cfg.APIKey,
 		baseURL:   strings.TrimRight(base, "/"),
 		dedicated: cfg.Dedicated,
+		model:     strings.TrimSpace(cfg.Model),
 		http:      httpClient,
 	}, nil
 }
@@ -364,18 +377,20 @@ func (p *Provider) endpointURL(model, suffix string) (string, error) {
 // configured inference path, or a *providers.ProviderHTTPError for any
 // other non-200.
 //
-// Retry policy: 503 is the model-loading signal and is retried honoring
-// HF's estimated_time (capped). This is HF-specific behavior distinct
-// from providers.DoWithRetry's generic 429/502/503/504 retry: a 503 here
-// means "warming up, try later with this exact wait", not "transient
-// infra blip, back off and retry the same call". 502/504 are NOT
-// retried — the HF Inference API surfaces real gateway errors with those
-// codes too, and a tight retry loop risks compounding upstream load.
+// Retry policy: 503 is the model-loading signal. It is retried here,
+// honoring HF's estimated_time (capped) — HF-specific behavior distinct
+// from providers.DoWithRetry's generic backoff: a 503 means "warming up,
+// try later with this exact wait", not "transient infra blip, back off
+// and retry the same call". Every other transient failure — 429, 502,
+// 504, and network-level errors — is retried by sendWithTransientRetry
+// via providers.DoWithRetry before this loop ever sees them; only after
+// that retry budget is exhausted does one of those become the
+// *providers.ProviderHTTPError returned here.
 func (p *Provider) do(ctx context.Context, endpoint, contentType string, body []byte) ([]byte, error) {
 	// Total attempts = 1 initial + modelLoadingMaxRetries.
 	totalAttempts := 1 + modelLoadingMaxRetries
 	for attempt := 0; attempt < totalAttempts; attempt++ {
-		respBody, statusCode, err := p.sendOnce(ctx, endpoint, contentType, body)
+		respBody, statusCode, err := p.sendWithTransientRetry(ctx, endpoint, contentType, body)
 		if err != nil {
 			return nil, err
 		}
@@ -402,22 +417,86 @@ func (p *Provider) do(ctx context.Context, endpoint, contentType string, body []
 	return nil, errors.New("huggingface: retry loop exited without resolution (internal bug)")
 }
 
-// sendOnce performs a single HTTP round trip and returns the response body
-// and status code. Retry/error-classification decisions are the caller's.
-func (p *Provider) sendOnce(ctx context.Context, endpoint, contentType string, body []byte) ([]byte, int, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, 0, fmt.Errorf("huggingface: build request: %w", err)
+// transientRetryPolicy governs the 429/502/504/network-level retry that
+// sendWithTransientRetry applies via providers.DoWithRetry, underneath
+// the HF-specific 503 model-loading loop in do.
+func transientRetryPolicy() pipeline.RetryPolicy {
+	return pipeline.RetryPolicy{
+		MaxRetries:     transientMaxRetries,
+		Backoff:        "exponential",
+		InitialDelayMs: transientInitialDelayMs,
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", contentType)
+}
 
-	resp, err := p.http.Do(httpReq)
-	if err != nil {
-		return nil, 0, fmt.Errorf("huggingface: send request: %w", err)
+// modelLoadingSignal carries a 503 response's body out of
+// providers.DoWithRetry without letting DoWithRetry's own generic
+// classification retry it with fixed backoff: 503 is one of
+// DoWithRetry's built-in retryable status codes, so left alone it would
+// consume (and close, unread) the exact body do's outer loop needs to
+// read estimated_time from. modelLoadingSignal deliberately doesn't
+// satisfy net.Error or any interface providers' isRetryableError checks,
+// so DoWithRetry treats it as terminal and returns immediately —
+// handing the 503 back to do's own retry loop untouched.
+type modelLoadingSignal struct {
+	body []byte
+}
+
+func (e *modelLoadingSignal) Error() string {
+	return "huggingface: model is loading (503)"
+}
+
+// sendWithTransientRetry performs one logical HTTP call, transparently
+// retrying 429/502/504 responses and network-level failures via
+// providers.DoWithRetry. A 503 is intercepted before DoWithRetry's own
+// classification can retry it generically, and is reported back as
+// (body, http.StatusServiceUnavailable, nil) so do's model-loading loop
+// can apply HF's estimated_time wait instead of DoWithRetry's backoff.
+func (p *Provider) sendWithTransientRetry(
+	ctx context.Context, endpoint, contentType string, body []byte,
+) ([]byte, int, error) {
+	doFn := func() (*http.Response, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("huggingface: build request: %w", err)
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		httpReq.Header.Set("Content-Type", contentType)
+
+		resp, err := p.http.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("huggingface: send request: %w", err)
+		}
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			return resp, nil
+		}
+		loadingBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("huggingface: read response: %w", readErr)
+		}
+		return nil, &modelLoadingSignal{body: loadingBody}
 	}
+
+	resp, err := providers.DoWithRetry(ctx, transientRetryPolicy(), providerName, doFn)
+
+	var loading *modelLoadingSignal
+	if errors.As(err, &loading) {
+		return loading.body, http.StatusServiceUnavailable, nil
+	}
+	if err != nil {
+		// A *providers.RetryableHTTPError means DoWithRetry exhausted its
+		// own retries on a 429/502/504 — the response body was already
+		// closed inside DoWithRetry's classification, so it can't be
+		// recovered here; do's caller still gets a real status code to
+		// build a *providers.ProviderHTTPError from.
+		var retryErr *providers.RetryableHTTPError
+		if errors.As(err, &retryErr) {
+			return nil, retryErr.StatusCode, nil
+		}
+		return nil, 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
 	respBody, readErr := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
 	if readErr != nil {
 		return nil, 0, fmt.Errorf("huggingface: read response: %w", readErr)
 	}

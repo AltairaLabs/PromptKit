@@ -64,6 +64,16 @@ func TestNew_DefaultsBaseURL(t *testing.T) {
 	}
 }
 
+func TestNew_UsesConfigModelAsDefault(t *testing.T) {
+	p, err := New(Config{APIKey: "x", Model: "  configured-model  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.model != "configured-model" {
+		t.Errorf("model = %q, want %q (trimmed)", p.model, "configured-model")
+	}
+}
+
 func TestInfer_Audio_HappyPath(t *testing.T) {
 	var gotPath, gotAuth, gotContentType string
 	var gotBody []byte
@@ -352,10 +362,12 @@ func TestInfer_Model_OverridesConfiguredModel(t *testing.T) {
 		fmt.Fprintln(w, `[{"label":"x","score":1}]`)
 	}))
 	defer srv.Close()
-	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
-	p.model = "configured-model"
+	p, err := New(Config{APIKey: "k", BaseURL: srv.URL, Model: "configured-model", HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, err := p.Infer(context.Background(), inference.Request{
+	_, err = p.Infer(context.Background(), inference.Request{
 		Model:  "request-model",
 		Inputs: []types.Message{{Role: "user", Content: "hi"}},
 	})
@@ -374,10 +386,12 @@ func TestInfer_UsesConfiguredModel_WhenRequestModelEmpty(t *testing.T) {
 		fmt.Fprintln(w, `[{"label":"x","score":1}]`)
 	}))
 	defer srv.Close()
-	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
-	p.model = "configured-model"
+	p, err := New(Config{APIKey: "k", BaseURL: srv.URL, Model: "configured-model", HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, err := p.Infer(context.Background(), inference.Request{
+	_, err = p.Infer(context.Background(), inference.Request{
 		Inputs: []types.Message{{Role: "user", Content: "hi"}},
 	})
 	if err != nil {
@@ -431,6 +445,64 @@ func TestInfer_ModelLoadingExhausted(t *testing.T) {
 	})
 	if !errors.Is(err, inference.ErrModelLoading) {
 		t.Errorf("after exhausting retries, err = %v, want ErrModelLoading", err)
+	}
+}
+
+func TestInfer_TransientRetry_429ThenSucceeds(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		fmt.Fprintln(w, `[{"label":"angry","score":0.8}]`)
+	}))
+	defer srv.Close()
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	resp, err := p.Infer(context.Background(), inference.Request{
+		Model:  "m",
+		Inputs: []types.Message{audioPart([]byte("x"), "")},
+	})
+	if err != nil {
+		t.Fatalf("after retrying 429, Infer: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("server got %d calls, want 2 (1 rate-limited + 1 success)", calls)
+	}
+	if len(resp.Scores) != 1 {
+		t.Errorf("got %v, want one label after retry", resp.Scores)
+	}
+}
+
+func TestInfer_TransientRetry_502Exhausted_ReturnsProviderHTTPError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprintln(w, `bad gateway`)
+	}))
+	defer srv.Close()
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	_, err := p.Infer(context.Background(), inference.Request{
+		Model:  "m",
+		Inputs: []types.Message{audioPart([]byte("x"), "")},
+	})
+	if err == nil {
+		t.Fatal("502 exhausting retries must surface as an error")
+	}
+	var httpErr *providers.ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("err = %v, want *providers.ProviderHTTPError", err)
+	}
+	if httpErr.StatusCode != http.StatusBadGateway {
+		t.Errorf("StatusCode = %d, want 502", httpErr.StatusCode)
+	}
+	// transientRetryPolicy: 1 initial + 2 retries.
+	if calls != 3 {
+		t.Errorf("server got %d calls, want 3 (1 initial + 2 retries)", calls)
 	}
 }
 
