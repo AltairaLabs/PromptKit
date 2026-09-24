@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -71,6 +72,29 @@ func TestNew_UsesConfigModelAsDefault(t *testing.T) {
 	}
 	if p.model != "configured-model" {
 		t.Errorf("model = %q, want %q (trimmed)", p.model, "configured-model")
+	}
+}
+
+func TestNew_DefaultsToProvidersDefaultRetryPolicy(t *testing.T) {
+	p, err := New(Config{APIKey: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.retryPolicy != providers.DefaultRetryPolicy() {
+		t.Errorf("retryPolicy = %+v, want providers.DefaultRetryPolicy() %+v",
+			p.retryPolicy, providers.DefaultRetryPolicy())
+	}
+}
+
+// fastRetryPolicy is a transient-retry policy tests can inject via
+// Provider.retryPolicy so exhausted-retry cases don't pay
+// providers.DefaultRetryPolicy()'s real (500ms+) backoff. Production always
+// uses providers.DefaultRetryPolicy(), set by New().
+func fastRetryPolicy() pipeline.RetryPolicy {
+	return pipeline.RetryPolicy{
+		MaxRetries:     2,
+		Backoff:        "exponential",
+		InitialDelayMs: 5,
 	}
 }
 
@@ -460,6 +484,7 @@ func TestInfer_TransientRetry_429ThenSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+	p.retryPolicy = fastRetryPolicy()
 
 	resp, err := p.Infer(context.Background(), inference.Request{
 		Model:  "m",
@@ -485,6 +510,7 @@ func TestInfer_TransientRetry_502Exhausted_ReturnsProviderHTTPError(t *testing.T
 	}))
 	defer srv.Close()
 	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+	p.retryPolicy = fastRetryPolicy()
 
 	_, err := p.Infer(context.Background(), inference.Request{
 		Model:  "m",
@@ -500,7 +526,7 @@ func TestInfer_TransientRetry_502Exhausted_ReturnsProviderHTTPError(t *testing.T
 	if httpErr.StatusCode != http.StatusBadGateway {
 		t.Errorf("StatusCode = %d, want 502", httpErr.StatusCode)
 	}
-	// transientRetryPolicy: 1 initial + 2 retries.
+	// fastRetryPolicy: 1 initial + 2 retries.
 	if calls != 3 {
 		t.Errorf("server got %d calls, want 3 (1 initial + 2 retries)", calls)
 	}

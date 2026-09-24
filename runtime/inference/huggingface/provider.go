@@ -73,16 +73,6 @@ const modelLoadingMaxRetries = 3
 // which HF surface (router or dedicated endpoint) served the call.
 const providerName = "huggingface"
 
-// transientMaxRetries and transientInitialDelayMs configure
-// transientRetryPolicy: the 429/502/504/network-level retry budget
-// underneath the HF-specific 503 model-loading loop. Short delays keep
-// it production-reasonable for HF's own rate limits and gateway blips
-// while letting tests run fast.
-const (
-	transientMaxRetries     = 2
-	transientInitialDelayMs = 20
-)
-
 // zeroShotSuffix is appended to the model URL when Request.Labels is set,
 // routing the call to HF's zero-shot-classification pipeline instead of
 // the model's own default pipeline.
@@ -128,6 +118,12 @@ type Provider struct {
 	// doesn't carry its own Model. Request.Model always wins over it.
 	model string
 	http  *http.Client
+	// retryPolicy governs sendWithTransientRetry's 429/502/504/network
+	// retry via providers.DoWithRetry. Defaults to
+	// providers.DefaultRetryPolicy() in New(); same-package tests may
+	// override it with a faster policy so exhausted-retry cases don't
+	// pay DefaultRetryPolicy's real backoff.
+	retryPolicy pipeline.RetryPolicy
 }
 
 var _ inference.Provider = (*Provider)(nil)
@@ -146,11 +142,12 @@ func New(cfg Config) (*Provider, error) {
 		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	return &Provider{
-		apiKey:    cfg.APIKey,
-		baseURL:   strings.TrimRight(base, "/"),
-		dedicated: cfg.Dedicated,
-		model:     strings.TrimSpace(cfg.Model),
-		http:      httpClient,
+		apiKey:      cfg.APIKey,
+		baseURL:     strings.TrimRight(base, "/"),
+		dedicated:   cfg.Dedicated,
+		model:       strings.TrimSpace(cfg.Model),
+		http:        httpClient,
+		retryPolicy: providers.DefaultRetryPolicy(),
 	}, nil
 }
 
@@ -417,17 +414,6 @@ func (p *Provider) do(ctx context.Context, endpoint, contentType string, body []
 	return nil, errors.New("huggingface: retry loop exited without resolution (internal bug)")
 }
 
-// transientRetryPolicy governs the 429/502/504/network-level retry that
-// sendWithTransientRetry applies via providers.DoWithRetry, underneath
-// the HF-specific 503 model-loading loop in do.
-func transientRetryPolicy() pipeline.RetryPolicy {
-	return pipeline.RetryPolicy{
-		MaxRetries:     transientMaxRetries,
-		Backoff:        "exponential",
-		InitialDelayMs: transientInitialDelayMs,
-	}
-}
-
 // modelLoadingSignal carries a 503 response's body out of
 // providers.DoWithRetry without letting DoWithRetry's own generic
 // classification retry it with fixed backoff: 503 is one of
@@ -447,10 +433,12 @@ func (e *modelLoadingSignal) Error() string {
 
 // sendWithTransientRetry performs one logical HTTP call, transparently
 // retrying 429/502/504 responses and network-level failures via
-// providers.DoWithRetry. A 503 is intercepted before DoWithRetry's own
-// classification can retry it generically, and is reported back as
-// (body, http.StatusServiceUnavailable, nil) so do's model-loading loop
-// can apply HF's estimated_time wait instead of DoWithRetry's backoff.
+// providers.DoWithRetry under p.retryPolicy (providers.DefaultRetryPolicy()
+// in production; same-package tests may set a faster p.retryPolicy). A 503
+// is intercepted before DoWithRetry's own classification can retry it
+// generically, and is reported back as (body, http.StatusServiceUnavailable,
+// nil) so do's model-loading loop can apply HF's estimated_time wait
+// instead of DoWithRetry's backoff.
 func (p *Provider) sendWithTransientRetry(
 	ctx context.Context, endpoint, contentType string, body []byte,
 ) ([]byte, int, error) {
@@ -477,7 +465,7 @@ func (p *Provider) sendWithTransientRetry(
 		return nil, &modelLoadingSignal{body: loadingBody}
 	}
 
-	resp, err := providers.DoWithRetry(ctx, transientRetryPolicy(), providerName, doFn)
+	resp, err := providers.DoWithRetry(ctx, p.retryPolicy, providerName, doFn)
 
 	var loading *modelLoadingSignal
 	if errors.As(err, &loading) {
