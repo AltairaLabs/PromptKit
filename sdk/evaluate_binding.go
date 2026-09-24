@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -54,10 +53,10 @@ func (b judgeTargetBinding) LLM(key string) (providers.Provider, error) {
 	return p, nil
 }
 
-// Inference reports that judge targets hold no inference providers, rather
+// Classifier reports that judge targets hold no inference providers, rather
 // than pretending a name is unbound: the caller supplied something for it, just
 // not a thing that classifies.
-func (b judgeTargetBinding) Inference(key string) (inference.Provider, error) {
+func (b judgeTargetBinding) Classifier(key string) (any, error) {
 	if _, ok := b[key]; !ok {
 		return nil, evals.ErrUnboundKey
 	}

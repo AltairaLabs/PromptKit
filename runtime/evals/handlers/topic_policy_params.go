@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
 )
 
 // topicPolicyConfig is the handler's view of a validated policy declaration.

@@ -23,7 +23,7 @@ func (f fakeBinding) LLM(string) (providers.Provider, error) {
 	return f.llm, f.err
 }
 
-func (f fakeBinding) Inference(string) (inference.Provider, error) {
+func (f fakeBinding) Classifier(string) (any, error) {
 	return f.classifier, f.err
 }
 

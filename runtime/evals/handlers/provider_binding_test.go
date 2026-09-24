@@ -20,6 +20,7 @@ type bindingStub struct {
 	inference inference.Provider
 	llmErr    error
 	inferErr  error
+	other     any // a bound value that is not an inference.Provider
 }
 
 func (b bindingStub) LLM(string) (providers.Provider, error) {
@@ -29,9 +30,12 @@ func (b bindingStub) LLM(string) (providers.Provider, error) {
 	return b.llm, nil
 }
 
-func (b bindingStub) Inference(string) (inference.Provider, error) {
+func (b bindingStub) Classifier(string) (any, error) {
 	if b.inferErr != nil {
 		return nil, b.inferErr
+	}
+	if b.other != nil {
+		return b.other, nil
 	}
 	return b.inference, nil
 }
@@ -80,6 +84,16 @@ func TestResolveInference_Failures(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "screener")
 		assert.Contains(t, err.Error(), "supply a provider")
+	})
+
+	t.Run("binding returned a value that does not implement Infer", func(t *testing.T) {
+		ctx := evals.WithProviderBinding(context.Background(), bindingStub{other: struct{}{}})
+
+		_, err := resolveInference(ctx, "screener", "text classifier")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "screener")
+		assert.Contains(t, err.Error(), "not an inference provider")
 	})
 
 	t.Run("bound something that is not an inference provider", func(t *testing.T) {

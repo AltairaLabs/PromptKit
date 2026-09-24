@@ -3,6 +3,8 @@ package stage
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
@@ -69,6 +71,12 @@ type PipelineConfig struct {
 	// context (via inference.WithRegistry) so stages and downstream
 	// consumers resolve inference providers with inference.FromContext.
 	InferenceRegistry *inference.Registry
+
+	// ClassifyRegistry is ignored.
+	//
+	// Deprecated: use InferenceRegistry. Kept only for v2 compatibility;
+	// removed in v3.
+	ClassifyRegistry *classify.Registry
 }
 
 // DefaultPipelineConfig returns a PipelineConfig with sensible defaults.

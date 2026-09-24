@@ -107,7 +107,7 @@ func collectProviderKeyRefs(prompt *pack.Prompt, cfg *config) []providerKeyRef {
 				resolve: func(b evals.ProviderBinding) error { _, err := b.LLM(key); return err }})
 		case handlers.RequiresClassifier(handler):
 			refs = append(refs, providerKeyRef{check: checkType, key: key,
-				resolve: func(b evals.ProviderBinding) error { _, err := b.Inference(key); return err }})
+				resolve: func(b evals.ProviderBinding) error { _, err := b.Classifier(key); return err }})
 		}
 	}
 

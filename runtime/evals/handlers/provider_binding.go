@@ -41,9 +41,14 @@ func resolveInference(ctx context.Context, key, want string) (inference.Provider
 	if binding == nil {
 		return nil, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, evals.ErrNoBinding))
 	}
-	provider, err := binding.Inference(key)
+	bound, err := binding.Classifier(key)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, err))
+	}
+	provider, ok := bound.(inference.Provider)
+	if !ok {
+		return nil, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key,
+			fmt.Errorf("%w: the provider bound to it is not an inference provider", evals.ErrWrongKind)))
 	}
 	return provider, nil
 }

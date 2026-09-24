@@ -46,8 +46,9 @@ func (b *hostBinding) LLM(key string) (providers.Provider, error) {
 	return nil, evals.ErrUnboundKey
 }
 
-// Inference returns the inference provider bound to key.
-func (b *hostBinding) Inference(key string) (inference.Provider, error) {
+// Classifier returns the inference provider bound to key, typed any to keep
+// the v2 signature.
+func (b *hostBinding) Classifier(key string) (any, error) {
 	if b == nil || b.cfg == nil {
 		return nil, evals.ErrNoBinding
 	}

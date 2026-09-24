@@ -3,8 +3,6 @@ package sdk
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -87,14 +85,14 @@ func TestJudgeTargetBinding_Failures(t *testing.T) {
 	})
 
 	t.Run("a classify check cannot use a judge target", func(t *testing.T) {
-		_, err := b.Inference("grader")
+		_, err := b.Classifier("grader")
 		require.ErrorIs(t, err, evals.ErrWrongKind)
 		assert.Contains(t, err.Error(), "ProviderBinding",
 			"it must point at the option that would supply a classifier")
 	})
 
 	t.Run("classifier for a name nobody supplied", func(t *testing.T) {
-		_, err := b.Inference("missing")
+		_, err := b.Classifier("missing")
 		require.ErrorIs(t, err, evals.ErrUnboundKey)
 		assert.Equal(t, evals.ErrUnboundKey.Error(), err.Error(),
 			"nothing was supplied for this name, so it is unbound rather than the wrong kind")
@@ -118,4 +116,4 @@ type testOnlyBinding struct{}
 
 func (testOnlyBinding) LLM(string) (providers.Provider, error) { return nil, evals.ErrUnboundKey }
 
-func (testOnlyBinding) Inference(string) (inference.Provider, error) { return nil, evals.ErrUnboundKey }
+func (testOnlyBinding) Classifier(string) (any, error) { return nil, evals.ErrUnboundKey }

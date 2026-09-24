@@ -37,7 +37,7 @@ func (b testBinding) LLM(key string) (providers.Provider, error) {
 	return b.llm, nil
 }
 
-func (b testBinding) Inference(key string) (inference.Provider, error) {
+func (b testBinding) Classifier(key string) (any, error) {
 	if b.classifier == nil || key != "screener" {
 		return nil, evals.ErrUnboundKey
 	}

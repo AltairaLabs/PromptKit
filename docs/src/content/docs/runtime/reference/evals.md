@@ -351,7 +351,7 @@ func DefaultGroupsForType(evalType string) []string
 DefaultGroupsForType returns the well\-known groups for a given eval type. The result always includes DefaultEvalGroup plus any classification groups based on the handler's characteristics.
 
 <a name="DescribeUnresolved"></a>
-## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L82>)
+## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L83>)
 
 ```go
 func DescribeUnresolved(key string, err error) string
@@ -624,7 +624,7 @@ ValidateEvals validates a slice of EvalDef for correctness. The scope parameter 
 - Metric type is one of gauge/counter/histogram/boolean
 
 <a name="WithProviderBinding"></a>
-## func [WithProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L63>)
+## func [WithProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L64>)
 
 ```go
 func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context
@@ -1391,7 +1391,7 @@ type ParamValidator interface {
 ```
 
 <a name="ProviderBinding"></a>
-## type [ProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L46-L56>)
+## type [ProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L45-L57>)
 
 ProviderBinding resolves a pack's logical provider names against what the host bound to them.
 
@@ -1404,15 +1404,17 @@ type ProviderBinding interface {
     // something that is not one.
     LLM(key string) (providers.Provider, error)
 
-    // Inference returns the inference provider bound to the logical key —
-    // what a classifier-backed check needs. ErrWrongKind when the host bound
-    // something that is not one.
-    Inference(key string) (inference.Provider, error)
+    // Classifier returns the inference provider bound to the logical key —
+    // what a classifier-backed check needs — as an inference.Provider.
+    // ErrWrongKind when the host bound something that is not one. The return
+    // type is any only to keep the v2 signature; callers assert
+    // inference.Provider.
+    Classifier(key string) (any, error)
 }
 ```
 
 <a name="BindingFromContext"></a>
-### func [BindingFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L71>)
+### func [BindingFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L72>)
 
 ```go
 func BindingFromContext(ctx context.Context) ProviderBinding

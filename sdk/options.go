@@ -2436,13 +2436,18 @@ func WithInferenceProvider(spec ProviderSpec) Option {
 // WithClassifier registers an already-constructed inference provider under id.
 // Escape hatch for in-process classifiers and test doubles; no credential
 // resolution. Calls report inference metrics like any other provider.
-func WithClassifier(id string, p inference.Provider) Option {
+//
+// provider must implement inference.Provider; it is typed any only to keep the
+// v2 signature, and anything else is rejected when the option is applied.
+func WithClassifier(id string, provider any) Option {
 	return func(c *config) error {
 		if id == "" {
 			return fmt.Errorf("WithClassifier: id is required")
 		}
-		if p == nil {
-			return fmt.Errorf("WithClassifier %q: provider is nil", id)
+		p, ok := provider.(inference.Provider)
+		if !ok || p == nil {
+			return fmt.Errorf("WithClassifier %q: %T is not an inference.Provider (it needs an Infer method)",
+				id, provider)
 		}
 		if err := c.registerInferenceProvider(id, inference.Instrument(p, id, "custom")); err != nil {
 			return fmt.Errorf("WithClassifier: %w", err)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -49,10 +48,12 @@ type ProviderBinding interface {
 	// something that is not one.
 	LLM(key string) (providers.Provider, error)
 
-	// Inference returns the inference provider bound to the logical key —
-	// what a classifier-backed check needs. ErrWrongKind when the host bound
-	// something that is not one.
-	Inference(key string) (inference.Provider, error)
+	// Classifier returns the inference provider bound to the logical key —
+	// what a classifier-backed check needs — as an inference.Provider.
+	// ErrWrongKind when the host bound something that is not one. The return
+	// type is any only to keep the v2 signature; callers assert
+	// inference.Provider.
+	Classifier(key string) (any, error)
 }
 
 type bindingContextKey struct{}

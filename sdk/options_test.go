@@ -1383,6 +1383,14 @@ func TestWithClassifier_RegistersBackend(t *testing.T) {
 	assert.Equal(t, "stub", rawOf(t, p))
 }
 
+func TestWithClassifier_RejectsAValueThatIsNotAnInferenceProvider(t *testing.T) {
+	c := &config{}
+	err := WithClassifier("old-style", struct{}{})(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not an inference.Provider")
+	assert.Nil(t, c.inferenceRegistry, "nothing may be registered for a rejected provider")
+}
+
 func TestWithClassifier_RejectsNilProvider(t *testing.T) {
 	c := &config{}
 	err := WithClassifier("nope", nil)(c)

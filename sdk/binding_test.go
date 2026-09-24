@@ -38,7 +38,7 @@ func TestHostBinding_ResolvesWhatTheHostBound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "grader", llm.ID())
 
-	provider, err := b.Inference("screener")
+	provider, err := b.Classifier("screener")
 	require.NoError(t, err)
 	assert.IsType(t, textClassifierStub{}, provider)
 }
@@ -49,7 +49,7 @@ func TestHostBinding_UnboundName(t *testing.T) {
 	b := bindingWith(t, []string{"grader"}, []string{"screener"})
 
 	_, llmErr := b.LLM("nobody")
-	_, classErr := b.Inference("nobody")
+	_, classErr := b.Classifier("nobody")
 
 	assert.ErrorIs(t, llmErr, evals.ErrUnboundKey)
 	assert.ErrorIs(t, classErr, evals.ErrUnboundKey)
@@ -66,7 +66,7 @@ func TestHostBinding_WrongKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "runs completions",
 		"asking for an LLM and finding a classifier must say what was needed")
 
-	_, err = b.Inference("grader")
+	_, err = b.Classifier("grader")
 	require.ErrorIs(t, err, evals.ErrWrongKind)
 	assert.Contains(t, err.Error(), "role: inference",
 		"asking for a classifier and finding an LLM must point at the provider role to use")
@@ -91,7 +91,7 @@ func TestHostBinding_NilReceiverReportsNoBinding(t *testing.T) {
 	var b *hostBinding
 
 	_, llmErr := b.LLM("grader")
-	_, classErr := b.Inference("grader")
+	_, classErr := b.Classifier("grader")
 
 	assert.ErrorIs(t, llmErr, evals.ErrNoBinding)
 	assert.ErrorIs(t, classErr, evals.ErrNoBinding)
