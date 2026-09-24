@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -222,6 +223,63 @@ func TestGuardrailHookAdapter_HandlerError(t *testing.T) {
 	}
 }
 
+// TestGuardrailHookAdapter_AfterCall_HandlerError_ReplacesUnjudgedContent is
+// the round-1 fix for #2064: an output guardrail whose handler bubbles a raw
+// error must not fail OPEN. Before this fix, evaluateMessage's error branch
+// returned Enforced without calling a.enforce, so applyEnforcedResponse
+// (stages_provider.go) copied resp.Message.Content verbatim — the original,
+// UNJUDGED model output — into the response the caller receives, while still
+// stamping it a safety stop. Nothing was judged, so the replacement must
+// always be the validator's message, never the original content.
+func TestGuardrailHookAdapter_AfterCall_HandlerError_ReplacesUnjudgedContent(t *testing.T) {
+	handler := &stubHandler{
+		typeName: "test_error",
+		err:      errors.New("eval failed"),
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_error",
+		params:    map[string]any{},
+		direction: "output",
+		message:   "policy message",
+	}
+
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{Content: "original unjudged model output"},
+	}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+
+	require.True(t, decision.Enforced, "an errored output guardrail must fail closed as Enforced")
+	assert.Equal(t, "policy message", resp.Message.Content,
+		"an errored guardrail must replace unjudged output with the validator's message, not leak it")
+}
+
+// TestGuardrailHookAdapter_AfterCall_HandlerTimeout_ReplacesUnjudgedContent is
+// the timeout half of the test above.
+func TestGuardrailHookAdapter_AfterCall_HandlerTimeout_ReplacesUnjudgedContent(t *testing.T) {
+	handler := &stubHandler{
+		typeName: "test_timeout",
+		err:      context.DeadlineExceeded,
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_timeout",
+		params:    map[string]any{},
+		direction: "output",
+		message:   "policy message",
+	}
+
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{Content: "original unjudged model output"},
+	}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+
+	require.True(t, decision.Enforced, "a timed-out output guardrail must fail closed as Enforced")
+	assert.Equal(t, "policy message", resp.Message.Content,
+		"a timed-out guardrail must replace unjudged output with the validator's message, not leak it")
+	assert.Equal(t, "timeout", decision.Metadata["reason"])
+}
+
 // TestGuardrailHookAdapter_HandlerTimeout_EnforcesWithMessage pins the #2064
 // fix: a handler that bubbles context.DeadlineExceeded directly (rather than
 // converting it to a scored EvalResult itself, as TopicPolicyHandler's
@@ -282,6 +340,36 @@ func TestGuardrailHookAdapter_HandlerError_IsEnforcedNotDenied(t *testing.T) {
 	require.True(t, decision.Enforced, "a handler error must fail closed as Enforced, not a bare Deny")
 	assert.Equal(t, "error", decision.Metadata["reason"])
 	assert.Equal(t, "policy message", req.Replacement)
+}
+
+// TestGuardrailHookAdapter_EvalTimeout_DefaultsWhenUnset pins the "unset"
+// half of the host-configurable guardrail timeout: an adapter built without
+// WithEvalTimeout/SetEvalTimeout falls back to evals.DefaultEvalTimeout.
+func TestGuardrailHookAdapter_EvalTimeout_DefaultsWhenUnset(t *testing.T) {
+	adapter := &GuardrailHookAdapter{}
+	assert.Equal(t, evals.DefaultEvalTimeout, adapter.evalTimeoutOrDefault())
+}
+
+// TestGuardrailHookAdapter_EvalTimeout_ZeroFallsBackToDefault pins that an
+// explicit zero (e.g. WithEvalTimeout(0), or SetEvalTimeout(0) resetting a
+// prior override) is treated as "unset", not "no timeout at all" — a
+// guardrail must always have SOME bound on its classifier/judge call.
+func TestGuardrailHookAdapter_EvalTimeout_ZeroFallsBackToDefault(t *testing.T) {
+	adapter := &GuardrailHookAdapter{evalTimeout: 0}
+	assert.Equal(t, evals.DefaultEvalTimeout, adapter.evalTimeoutOrDefault())
+}
+
+// TestGuardrailHookAdapter_EvalTimeout_Override pins the override half: both
+// the GuardrailOption (construction) and SetEvalTimeout (post-construction,
+// the path sdk.WithGuardrailTimeout uses for WithGuardrail-declared specs)
+// take effect.
+func TestGuardrailHookAdapter_EvalTimeout_Override(t *testing.T) {
+	adapter := &GuardrailHookAdapter{}
+	WithEvalTimeout(5 * time.Second)(adapter)
+	assert.Equal(t, 5*time.Second, adapter.evalTimeoutOrDefault())
+
+	adapter.SetEvalTimeout(250 * time.Millisecond)
+	assert.Equal(t, 250*time.Millisecond, adapter.evalTimeoutOrDefault())
 }
 
 func TestGuardrailHookAdapter_Name(t *testing.T) {

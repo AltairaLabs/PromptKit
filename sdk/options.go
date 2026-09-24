@@ -337,6 +337,13 @@ type config struct {
 	executionTimeout *time.Duration
 	idleTimeout      *time.Duration
 
+	// Per-guardrail-check timeout override (WithGuardrailTimeout). Zero means
+	// "unset" here — unlike idleTimeout/executionTimeout there is no "disable"
+	// sense to preserve: a guardrail check bounds a single classifier/judge
+	// call, and evals.DefaultEvalTimeout (30s) is always a sane fallback, so a
+	// plain zero value distinguishes unset from a pointer without needing one.
+	guardrailTimeout time.Duration
+
 	// Recording configuration for session recording via RecordingStage.
 	// When set, RecordingStages are inserted into the pipeline to capture
 	// full message content (including binary data) for session replay.
@@ -1454,6 +1461,30 @@ func WithIdleTimeout(d time.Duration) Option {
 	}
 }
 
+// WithGuardrailTimeout bounds how long a single guardrail check — its
+// classifier or judge call — may run before it fails closed. Exceeding it
+// enforces the validator's configured message on the turn, exactly as an
+// explicit deny would: a guardrail must never leave the caller with an empty
+// response (#2064). Zero or unset uses the runtime default
+// (evals.DefaultEvalTimeout, 30s).
+//
+// Raise it for a slow-judge host — an LLM-backed check against a loaded model
+// that legitimately takes longer than 30s. Lower it in a test that needs to
+// exercise a guardrail's timeout path without waiting on the default.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithGuardrailTimeout(5 * time.Second),
+//	)
+func WithGuardrailTimeout(d time.Duration) Option {
+	return func(c *config) error {
+		if d < 0 {
+			return fmt.Errorf("WithGuardrailTimeout: timeout must be non-negative, got %s", d)
+		}
+		c.guardrailTimeout = d
+		return nil
+	}
+}
+
 // WithMaxMessageSize sets the maximum allowed user message size in bytes.
 //
 // When a message exceeds this limit, Send() and Stream() return
@@ -1735,6 +1766,17 @@ func (c *config) resolveGuardrails() error {
 		h, err := pending.spec.HookWithRegistry(c.evalRegistry)
 		if err != nil {
 			return fmt.Errorf("guardrail: %w", err)
+		}
+		// Applied post-construction, not as a GuardrailOption at the Spec's own
+		// call site: WithGuardrailTimeout is a host-wide preference that may be
+		// (and typically is) set via a separate sdk.Open option, seen after
+		// every guardrails.Input/Output call already built its Spec closure.
+		// Func-backed guardrails (InputFunc/OutputFunc) don't call handler.Eval
+		// at all, so there is nothing to bound on those.
+		if c.guardrailTimeout > 0 {
+			if adapter, ok := h.(*guardrails.GuardrailHookAdapter); ok {
+				adapter.SetEvalTimeout(c.guardrailTimeout)
+			}
 		}
 		built = append(built, h)
 	}

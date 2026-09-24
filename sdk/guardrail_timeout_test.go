@@ -149,16 +149,25 @@ func TestGuardrailTimeout_ErrorsImmediately(t *testing.T) {
 }
 
 // TestGuardrailTimeout_ClassifierTimesOut is the failing case from #2064: a
-// classifier that blocks past the eval's timeout budget, honoring ctx.Done(),
-// must still block the turn and carry the validator's message — not an empty
-// response. This is a ~30s test (the eval runner's default timeout); it is
-// intentionally the only timeout case in this file.
+// classifier that blocks past the guardrail's timeout budget, honoring
+// ctx.Done(), must still block the turn and carry the validator's message —
+// not an empty response.
+//
+// Uses WithGuardrailTimeout to shrink the guardrail's own bound to well under
+// a second instead of racing the runtime default (evals.DefaultEvalTimeout,
+// 30s): the classifier blocks far longer than the configured timeout, so
+// whichever bound is in effect is what actually fires, and 200ms is enough
+// margin over a short CI-noisy scheduler tick without the test itself being
+// slow.
 func TestGuardrailTimeout_ClassifierTimesOut(t *testing.T) {
+	const guardrailTimeout = 200 * time.Millisecond
+
 	provider := newCountingMockProvider()
 	conv, err := Open(guardrailTimeoutPack, "support",
 		WithProvider(provider),
 		WithSkipSchemaValidation(),
-		WithClassifier("topic-control", slowClassifier{d: 40 * time.Second}),
+		WithGuardrailTimeout(guardrailTimeout),
+		WithClassifier("topic-control", slowClassifier{d: 10 * guardrailTimeout}),
 	)
 	require.NoError(t, err)
 	defer conv.Close()
@@ -169,4 +178,14 @@ func TestGuardrailTimeout_ClassifierTimesOut(t *testing.T) {
 	assert.Equal(t, 0, provider.callCount(), "a timed-out classification must never reach the agent")
 	assert.Equal(t, guardrailTimeoutMessage, resp.Text(),
 		"a timed-out enforced guardrail must return the validator's message, not empty text (#2064)")
+
+	// Round-1 fix: topic_policy absorbs the classifier's timeout internally
+	// (on_error) and never returns a raw Go error to GuardrailHookAdapter, so
+	// this is the ONLY path that exercises "reason: timeout" being stamped —
+	// a stub handler returning a raw error is a different code path
+	// (enforcedFailure) and does not cover this one.
+	validations := resp.Validations()
+	require.NotEmpty(t, validations, "a guardrail firing must be recorded")
+	assert.Equal(t, "timeout", validations[0].Details["reason"],
+		"a timed-out topic_policy guardrail must record reason:timeout in the firing's details")
 }
