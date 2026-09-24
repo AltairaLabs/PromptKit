@@ -222,6 +222,68 @@ func TestGuardrailHookAdapter_HandlerError(t *testing.T) {
 	}
 }
 
+// TestGuardrailHookAdapter_HandlerTimeout_EnforcesWithMessage pins the #2064
+// fix: a handler that bubbles context.DeadlineExceeded directly (rather than
+// converting it to a scored EvalResult itself, as TopicPolicyHandler's
+// on_error does) must still fail CLOSED with the validator's message, not
+// abort the turn with an empty response. A bare Deny here would hit
+// runBeforeCallHooks' "!d.Enforced" branch and return a HookDeniedError
+// instead of substituting the canned response.
+func TestGuardrailHookAdapter_HandlerTimeout_EnforcesWithMessage(t *testing.T) {
+	handler := &stubHandler{
+		typeName: "test_timeout",
+		err:      context.DeadlineExceeded,
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_timeout",
+		params:    map[string]any{},
+		direction: "input",
+		message:   "policy message",
+	}
+
+	req := &hooks.ProviderRequest{
+		Messages: []types.Message{{Role: "user", Content: "hello"}},
+	}
+	decision := adapter.BeforeCall(context.Background(), req)
+
+	require.False(t, decision.Allow, "a timed-out guardrail must deny")
+	require.True(t, decision.Enforced,
+		"a timeout must fail closed as Enforced, not a bare Deny — a bare Deny aborts the "+
+			"pipeline via HookDeniedError instead of substituting the canned response (#2064)")
+	assert.Equal(t, "timeout", decision.Metadata["reason"])
+	assert.Equal(t, "test_timeout", decision.Metadata["validator_type"])
+	assert.Equal(t, "policy message", req.Replacement,
+		"BeforeCall must still carry the validator's message on a timeout, exactly as the deny/error paths do")
+}
+
+// TestGuardrailHookAdapter_HandlerError_IsEnforcedNotDenied is the
+// discriminating half of the timeout test above: a NON-timeout error must
+// also enforce (not bare-deny), but must be distinguishable from a timeout in
+// the decision metadata.
+func TestGuardrailHookAdapter_HandlerError_IsEnforcedNotDenied(t *testing.T) {
+	handler := &stubHandler{
+		typeName: "test_error",
+		err:      errors.New("eval failed"),
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_error",
+		params:    map[string]any{},
+		direction: "input",
+		message:   "policy message",
+	}
+
+	req := &hooks.ProviderRequest{
+		Messages: []types.Message{{Role: "user", Content: "hello"}},
+	}
+	decision := adapter.BeforeCall(context.Background(), req)
+
+	require.True(t, decision.Enforced, "a handler error must fail closed as Enforced, not a bare Deny")
+	assert.Equal(t, "error", decision.Metadata["reason"])
+	assert.Equal(t, "policy message", req.Replacement)
+}
+
 func TestGuardrailHookAdapter_Name(t *testing.T) {
 	adapter := &GuardrailHookAdapter{
 		evalType: "my_guardrail",

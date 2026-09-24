@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"context"
+	"errors"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
@@ -280,11 +281,26 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 	}
 	start := lc.start()
 
-	result, err := a.handler.Eval(ctx, evalCtx, params)
+	// Bounded independently of the pipeline's own idle/execution ceilings: a
+	// handler that blocks on a slow classifier (e.g. topic_policy's backend)
+	// must not hang the turn forever. context.WithTimeout takes the earlier of
+	// ctx's existing deadline and this one, so a caller-supplied shorter budget
+	// is never extended.
+	handlerCtx, cancel := context.WithTimeout(ctx, evals.DefaultEvalTimeout)
+	defer cancel()
+
+	result, err := a.handler.Eval(handlerCtx, evalCtx, params)
 	if err != nil {
-		// No passed emitted here: the decision is a denial, so the pipeline
-		// stage emits the failure that closes the span.
-		return hooks.Deny("guardrail error: " + err.Error())
+		// A handler that converts its own failures into a scored EvalResult
+		// (e.g. TopicPolicyHandler's on_error/timeout outcome) never reaches
+		// this branch — this is the fallback for one that bubbles a raw Go
+		// error instead, most commonly context.DeadlineExceeded from the
+		// timeout just above. Guardrails fail closed: a denial-with-no-message
+		// here would abort the whole turn via HookDeniedError (see
+		// runBeforeCallHooks) instead of substituting the canned response, and
+		// drop the validator's message besides (#2064). Enforced carries it
+		// exactly like the deny and error-result paths already do.
+		return a.enforcedFailure(err)
 	}
 
 	if thresholds.Triggered(result) {
@@ -386,6 +402,23 @@ func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision
 		"validator_type": a.evalType,
 		"score":          result.Score,
 		"value":          result.Value,
+	})
+}
+
+// enforcedFailure builds an Enforced decision for a handler.Eval call that
+// returned a Go error directly instead of converting the failure into a
+// scored EvalResult itself. "timeout" is distinguished from a generic "error"
+// in the metadata because it is the case an operator most needs to tell apart
+// from an ordinary classifier fault — see the timeout wrapped around
+// a.handler.Eval above.
+func (a *GuardrailHookAdapter) enforcedFailure(err error) hooks.Decision {
+	reason := "error"
+	if errors.Is(err, context.DeadlineExceeded) {
+		reason = "timeout"
+	}
+	return hooks.Enforced("guardrail "+reason+": "+err.Error(), map[string]any{
+		"validator_type": a.evalType,
+		"reason":         reason,
 	})
 }
 
