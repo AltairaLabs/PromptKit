@@ -61,6 +61,7 @@ type StreamMetrics struct {
 	streamFirstChunkLatency     *prometheus.HistogramVec
 	streamErrorChunksForwarded  *prometheus.HistogramVec
 	streamRetriesTotal          *prometheus.CounterVec
+	providerRetriesTotal        *prometheus.CounterVec
 	streamRetryBudgetAvailable  *prometheus.GaugeVec
 	streamConcurrencyRejections *prometheus.CounterVec
 	httpConnsInUse              *prometheus.GaugeVec
@@ -128,6 +129,14 @@ func NewStreamMetrics(
 			Namespace:   namespace,
 			Name:        "stream_retries_total",
 			Help:        "Total streaming retry attempts, labeled by outcome (success, failed, budget_exhausted).",
+			ConstLabels: constLabels,
+		}, []string{"provider", "outcome"}),
+		providerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "provider_retries_total",
+			Help: "Non-streaming provider request retries (DoWithRetry), labeled by outcome: " +
+				"retry (a transient failure that is being retried), success (the call recovered " +
+				"after at least one retry) and exhausted (every attempt failed).",
 			ConstLabels: constLabels,
 		}, []string{"provider", "outcome"}),
 		streamRetryBudgetAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -214,6 +223,7 @@ func NewStreamMetrics(
 		m.streamFirstChunkLatency,
 		m.streamErrorChunksForwarded,
 		m.streamRetriesTotal,
+		m.providerRetriesTotal,
 		m.streamRetryBudgetAvailable,
 		m.streamConcurrencyRejections,
 		m.httpConnsInUse,
@@ -316,6 +326,16 @@ func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 		return
 	}
 	m.streamRetriesTotal.WithLabelValues(provider, outcome).Inc()
+}
+
+// ProviderRetry records one non-streaming retry event from DoWithRetry.
+// Outcome values: "retry", "success" (recovered after retrying) and
+// "exhausted". Nil-safe.
+func (m *StreamMetrics) ProviderRetry(provider, outcome string) {
+	if m == nil {
+		return
+	}
+	m.providerRetriesTotal.WithLabelValues(provider, outcome).Inc()
 }
 
 // ConcurrencyRejected records one streaming request rejected by the

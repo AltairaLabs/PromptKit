@@ -295,17 +295,17 @@ func TestBidirectionalSession_Error(t *testing.T) {
 		err = session.SendText(ctx, "test")
 		require.NoError(t, err) // SendText succeeds (just queues the element)
 
-		// Error will be reported through the response channel
-		responseChan := session.Response()
+		// The error must be reported through the response channel while the
+		// session is still open — the caller should not have to hang up to
+		// learn the provider never connected. The bound only fails a stage
+		// that withholds the error; a passing run never waits on it.
 		select {
-		case resp, ok := <-responseChan:
-			if !ok {
-				t.Log("Response channel closed")
-			} else if resp.Error != nil {
-				assert.Contains(t, resp.Error.Error(), "test error")
-			}
+		case resp, ok := <-session.Response():
+			require.True(t, ok, "response channel closed without reporting the error")
+			require.Error(t, resp.Error)
+			assert.Contains(t, resp.Error.Error(), "test error")
 		case <-time.After(2 * time.Second):
-			t.Log("Timeout waiting for error - this may be expected if pipeline handles error differently")
+			t.Fatal("session-creation error was never reported while the session was open")
 		}
 	})
 }

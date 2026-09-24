@@ -161,7 +161,7 @@ func pcmSilence(d time.Duration, sampleRate int) []byte {
 // TestVADModeFiresLLMDuringSessionNotAtClose in vad_mode_per_turn_test.go.
 func TestOpenDuplexVADModeDeliversTranscriptToTextProvider(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives a real VAD turn in wall-clock time and closes a duplex session")
+		t.Skip("drives a real VAD turn and closes a duplex session")
 	}
 	const sampleRate = 16000
 	packFile := writeIngestionTestPack(t)
@@ -198,17 +198,15 @@ func TestOpenDuplexVADModeDeliversTranscriptToTextProvider(t *testing.T) {
 
 	// One utterance: speech long enough to open a turn, then silence long
 	// enough to close it. convMockSTTService transcribes anything as "hello".
-	// Frames are streamed at their real duration because AudioTurnStage
-	// measures speech and silence with time.Since and only re-evaluates the
-	// turn on element arrival — bulk-sending the same bytes never closes a turn.
+	// AudioTurnStage measures speech and silence in AUDIO time (sample counts)
+	// and re-evaluates on each element's arrival, so frames are sent back to
+	// back — no real-time pacing.
 	const frame = 20 * time.Millisecond
 	for i := 0; i < 30; i++ {
 		send(pcmSpeech(frame, sampleRate))
-		time.Sleep(frame)
 	}
 	for i := 0; i < 30; i++ {
 		send(pcmSilence(frame, sampleRate))
-		time.Sleep(frame)
 	}
 
 	// Close both flushes the turn and, today, reports a drain timeout on this

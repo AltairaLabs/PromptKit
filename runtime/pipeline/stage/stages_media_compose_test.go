@@ -568,12 +568,13 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 }
 
 func TestMediaComposeStage_Timeout(t *testing.T) {
-	// Use a very short timeout - note the checkTimeouts ticker runs every second
 	config := MediaComposeConfig{
-		CompletionTimeout: 100 * time.Millisecond,
+		CompletionTimeout: 20 * time.Millisecond,
 	}
 	stg := NewMediaComposeStage(config)
-	ctx := context.Background()
+	stg.timeoutCheckInterval = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	input := make(chan StreamElement, 10)
 	output := make(chan StreamElement, 10)
@@ -595,44 +596,23 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 	go func() {
 		errChan <- stg.Process(ctx, input, output)
 	}()
-
-	// Send the element
 	input <- elem
 
-	// Wait for timeout to be detected by checkTimeouts (ticker is 1 second)
-	time.Sleep(1200 * time.Millisecond)
-
-	// Now close input to let Process finish
-	close(input)
-
-	// Collect results
-	var results []StreamElement
-	for {
-		select {
-		case e, ok := <-output:
-			if !ok {
-				goto done
-			}
-			results = append(results, e)
-		case <-time.After(500 * time.Millisecond):
-			goto done
-		}
-	}
-done:
-
-	// Wait for process to finish
+	// Input stays OPEN: closing it flushes pending messages regardless of the
+	// timeout, so only the timeout checker can produce this element. The
+	// bound fails a checker that never fires; a passing run never waits on it.
 	select {
-	case err := <-errChan:
-		if err != nil {
-			t.Errorf("Process returned error: %v", err)
+	case e := <-output:
+		if e.Message == nil || len(e.Message.Parts) != 1 {
+			t.Fatalf("expected the incomplete message with its 1 received part, got %+v", e)
 		}
-	case <-time.After(time.Second):
-		// Process may still be running
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed-out message was never emitted while input was open")
 	}
 
-	// Should have received the incomplete message after timeout
-	if len(results) == 0 {
-		t.Error("Expected at least 1 result after timeout")
+	close(input)
+	if err := <-errChan; err != nil {
+		t.Errorf("Process returned error: %v", err)
 	}
 }
 

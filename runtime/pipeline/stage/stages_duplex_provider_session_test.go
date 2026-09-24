@@ -612,3 +612,35 @@ func TestReplayAndMerge_ReplaysThenForwards(t *testing.T) {
 	}
 	assert.Equal(t, []string{"a", "b"}, texts)
 }
+
+// A provider that fails to connect must be reported at once, while input is
+// still open: the pre-session drain goroutine waits for EndOfStream or input
+// close, and used to hold the error back until the caller hung up.
+func TestProcess_CreateSessionErrorReportedWhileInputOpen(t *testing.T) {
+	provider := providersmock.NewStreamingProvider("t", "m", false).
+		WithCreateSessionError(errors.New("connect refused"))
+	s := NewDuplexProviderStage(provider, baseConfig())
+
+	input := make(chan StreamElement, 1)
+	defer close(input)
+	output := make(chan StreamElement, 4)
+	text := "hello"
+	input <- StreamElement{Text: &text} // not EndOfStream: the drain goroutine starts
+
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, "connect refused")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Process withheld the session-creation error while input was open")
+	}
+
+	elems := make([]StreamElement, 0, 1)
+	for e := range output {
+		elems = append(elems, e)
+	}
+	require.Len(t, elems, 1, "the consumer must get the error as an element, not just a closed output")
+	require.ErrorContains(t, elems[0].Error, "connect refused")
+}

@@ -1495,7 +1495,8 @@ func WithIdleTimeout(d time.Duration) Option {
 }
 
 // WithGuardrailTimeout bounds how long a single guardrail check — its
-// classifier or judge call — may run before it fails closed. Exceeding it
+// classifier or judge call, or a func guardrail's function — may run before it
+// fails closed. Exceeding it
 // enforces the validator's configured message on the turn, exactly as an
 // explicit deny would: a guardrail must never leave the caller with an empty
 // response (#2064). Zero or unset uses the runtime default
@@ -1804,11 +1805,11 @@ func (c *config) resolveGuardrails() error {
 		// call site: WithGuardrailTimeout is a host-wide preference that may be
 		// (and typically is) set via a separate sdk.Open option, seen after
 		// every guardrails.Input/Output call already built its Spec closure.
-		// Func-backed guardrails (InputFunc/OutputFunc) don't call handler.Eval
-		// at all, so there is nothing to bound on those.
+		// Func-backed guardrails (InputFunc/OutputFunc) take it too: a func that
+		// never answers must not hold the turn any longer than a classifier.
 		if c.guardrailTimeout > 0 {
-			if adapter, ok := h.(*guardrails.GuardrailHookAdapter); ok {
-				adapter.SetEvalTimeout(c.guardrailTimeout)
+			if settable, ok := h.(guardrails.TimeoutSettable); ok {
+				settable.SetEvalTimeout(c.guardrailTimeout)
 			}
 		}
 		built = append(built, h)

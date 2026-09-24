@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -171,13 +173,38 @@ func TestInfer_RetriesOn429ThenSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := openai.New(openai.Config{BaseURL: srv.URL, Model: "gpt-test"})
+	p, err := openai.New(openai.Config{BaseURL: srv.URL, Model: "gpt-test", RetryPolicy: fastRetryPolicy()})
 	require.NoError(t, err)
 
 	resp, err := p.Infer(context.Background(), inference.Request{Labels: []string{"on-topic", "off-topic"}})
 	require.NoError(t, err)
 	assert.Equal(t, 2, requests)
 	require.Len(t, resp.Scores, 2)
+}
+
+// fastRetryPolicy keeps retry tests at millisecond backoff instead of
+// providers.DefaultRetryPolicy()'s real one.
+func fastRetryPolicy() *pipeline.RetryPolicy {
+	return &pipeline.RetryPolicy{MaxRetries: 2, Backoff: "fixed", InitialDelayMs: 1}
+}
+
+// A configured policy replaces the default: with no retries, one 429 is the
+// answer.
+func TestInfer_ConfiguredRetryPolicyReplacesTheDefault(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	p, err := openai.New(openai.Config{BaseURL: srv.URL, Model: "gpt-test",
+		RetryPolicy: &pipeline.RetryPolicy{MaxRetries: 0}})
+	require.NoError(t, err)
+
+	_, err = p.Infer(context.Background(), inference.Request{Labels: []string{"on-topic", "off-topic"}})
+	require.Error(t, err)
+	assert.Equal(t, 1, requests)
 }
 
 func TestInfer_NonRetryableStatus_ReturnsProviderHTTPError(t *testing.T) {

@@ -151,7 +151,11 @@ func TestRedisPendingStore_DecodeError(t *testing.T) {
 func TestRedisPendingStore_ConnError(t *testing.T) {
 	ctx := context.Background()
 	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	// Disable go-redis's command retries and shrink its dial retries: every
+	// call below would otherwise wait out both backoffs against the dead
+	// backend.
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1,
+		DialerRetries: 1, DialerRetryTimeout: time.Millisecond})
 	store := NewRedisPendingStore(client)
 	mr.Close() // kill the backend
 

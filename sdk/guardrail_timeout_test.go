@@ -11,7 +11,10 @@ import (
 
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers" // register built-in eval handlers
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
@@ -221,5 +224,50 @@ func TestGuardrail_InferenceCallIsReportedOnTheEventBus(t *testing.T) {
 		assert.Equal(t, "topic-control", data.Provider)
 	case <-time.After(time.Second):
 		t.Fatal("no inference call event was published for the guardrail's classifier call")
+	}
+}
+
+// WithGuardrailTimeout reaches code-declared func guardrails too: one that
+// never answers blocks the turn with the default message within the host's
+// budget instead of holding it for evals.DefaultEvalTimeout.
+func TestGuardrailTimeout_AppliesToFuncGuardrails(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+
+	provider := newCountingMockProvider()
+	conv, err := Open(guardrailTestPack, "chat",
+		WithProvider(provider),
+		WithSkipSchemaValidation(),
+		WithGuardrailTimeout(20*time.Millisecond),
+		WithGuardrail(guardrails.InputFunc("hangs",
+			func(context.Context, *hooks.InputRequest) hooks.Decision {
+				<-release
+				return hooks.Allow
+			})),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	type result struct {
+		text string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, sendErr := conv.Send(context.Background(), "hello")
+		if sendErr != nil {
+			done <- result{err: sendErr}
+			return
+		}
+		done <- result{text: resp.Text()}
+	}()
+
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		assert.Equal(t, prompt.DefaultBlockedMessage, r.text)
+		assert.Equal(t, 0, provider.callCount(), "a timed-out input guardrail must never reach the agent")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the func guardrail held the turn past WithGuardrailTimeout")
 	}
 }

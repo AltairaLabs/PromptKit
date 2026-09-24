@@ -202,6 +202,9 @@ func DoWithRetry(
 		case attemptOutcomeCtxCanceled:
 			return nil, result.err
 		case attemptOutcomeSuccess:
+			if attempt > 0 {
+				DefaultStreamMetrics().ProviderRetry(providerName, "success")
+			}
 			return result.resp, nil
 		case attemptOutcomeTerminal:
 			if result.err != nil {
@@ -215,6 +218,7 @@ func DoWithRetry(
 		}
 
 		if attempt >= maxAttempts-1 {
+			DefaultStreamMetrics().ProviderRetry(providerName, "exhausted")
 			logger.Warn("provider request failed after all retries",
 				"provider", providerName,
 				"attempts", maxAttempts,
@@ -222,6 +226,7 @@ func DoWithRetry(
 			break
 		}
 
+		DefaultStreamMetrics().ProviderRetry(providerName, "retry")
 		waitErr := waitBeforeRetry(
 			ctx, policy, providerName, attempt,
 			result.resp, result.retryAfter, state.lastErr,

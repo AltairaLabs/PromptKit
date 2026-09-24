@@ -645,7 +645,7 @@ type ExecConfig struct {
 ```
 
 <a name="ExecExecutor"></a>
-## type [ExecExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L28>)
+## type [ExecExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L33>)
 
 ExecExecutor runs tool invocations as one\-shot subprocesses. The tool arguments are written as JSON to stdin; the subprocess result is read from stdout. Stderr output is captured and logged on failure.
 
@@ -660,7 +660,7 @@ type ExecExecutor struct{}
 ```
 
 <a name="ExecExecutor.Execute"></a>
-### func \(\*ExecExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L52-L54>)
+### func \(\*ExecExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L57-L59>)
 
 ```go
 func (e *ExecExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -669,7 +669,7 @@ func (e *ExecExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, 
 Execute runs the tool as a one\-shot subprocess.
 
 <a name="ExecExecutor.Name"></a>
-### func \(\*ExecExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L31>)
+### func \(\*ExecExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L36>)
 
 ```go
 func (e *ExecExecutor) Name() string

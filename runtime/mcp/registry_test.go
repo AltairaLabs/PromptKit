@@ -541,6 +541,13 @@ func TestRegistry_ActiveProcessCount_WithLimit(t *testing.T) {
 
 func TestRegistry_ProcessLimit_CreateNewClientFails(t *testing.T) {
 	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+	// The real stdio client, with millisecond start-retry backoff so the
+	// failing starts below don't wait out the default 100ms-doubling schedule.
+	registry.newClientFunc = func(c ServerConfig) Client {
+		opts := DefaultClientOptions()
+		opts.RetryDelay = time.Millisecond
+		return NewStdioClientWithOptions(c, opts)
+	}
 
 	// Register two servers
 	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent/cmd1"})
@@ -551,6 +558,7 @@ func TestRegistry_ProcessLimit_CreateNewClientFails(t *testing.T) {
 	assert.Error(t, err) // Init fails
 
 	// Slot should have been released, so another attempt should be possible
+	assert.Empty(t, registry.processSem, "a failed start must release its process slot")
 	_, err = registry.GetClient(context.Background(), "server2")
 	assert.Error(t, err) // Init fails too, but slot was acquired
 }

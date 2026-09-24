@@ -534,7 +534,11 @@ func TestPredictStream_ContextCancelled(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			w.Write([]byte(`data: {"choices":[{"delta":{"content":"x"},"finish_reason":null}]}` + "\n\n"))
 			flusher.Flush()
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-r.Context().Done():
+				return // client canceled; stop streaming so server.Close returns
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	}))
 	defer server.Close()
@@ -566,6 +570,7 @@ func TestPredictStream_ContextCancelled(t *testing.T) {
 			return // Success - context cancellation worked
 		}
 	}
+	t.Fatalf("stream ended after %d chunks without reporting context.Canceled", count)
 }
 
 func TestPrepareMessages_EmptySystem(t *testing.T) {

@@ -2,8 +2,11 @@ package annotations
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/lru"
 )
 
 func TestNewFileStore(t *testing.T) {
@@ -539,9 +542,20 @@ func TestFileStore_LRUEviction(t *testing.T) {
 		t.Fatalf("create store: %v", err)
 	}
 	defer store.Close()
+	if got := store.files.MaxSize(); got != DefaultMaxAnnotationFiles {
+		t.Errorf("NewFileStore bounds open files at %d, want %d", got, DefaultMaxAnnotationFiles)
+	}
 
-	// Write to many sessions
-	for i := 0; i < DefaultMaxAnnotationFiles+10; i++ {
+	// A small bound keeps this fast: every eviction and Close fsyncs, and
+	// DefaultMaxAnnotationFiles (256) of them took over a second on macOS.
+	const maxFiles = 4
+	store.files = lru.New[string, *os.File](maxFiles, func(_ string, f *os.File) {
+		_ = f.Sync()
+		_ = f.Close()
+	})
+
+	// Write to more sessions than the bound
+	for i := 0; i < maxFiles+10; i++ {
 		ann := &Annotation{
 			Type:      TypeLabel,
 			SessionID: "sess-" + time.Now().Format("20060102150405.000000000") + "-" + string(rune('a'+i%26)),
@@ -559,8 +573,8 @@ func TestFileStore_LRUEviction(t *testing.T) {
 	fileCount := store.files.Len()
 	store.mu.RUnlock()
 
-	if fileCount > DefaultMaxAnnotationFiles {
-		t.Errorf("expected at most %d files, got %d", DefaultMaxAnnotationFiles, fileCount)
+	if fileCount > maxFiles {
+		t.Errorf("expected at most %d files, got %d", maxFiles, fileCount)
 	}
 }
 

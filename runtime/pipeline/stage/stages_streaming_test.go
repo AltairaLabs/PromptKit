@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -594,38 +595,17 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		// Wait for session to be created
-		time.Sleep(50 * time.Millisecond)
-
-		// Emit response chunks directly to the session
-		session := provider.GetSession()
-		require.NotNil(t, session, "Session should be created")
+		// Emit response chunks directly to the session, then end it: the
+		// provider closing its response channel ends the stage, which closes
+		// output once every chunk has been handled.
+		session := awaitMockSession(t, provider)
 		for _, chunk := range responseChunks {
 			session.EmitChunk(&chunk)
 		}
+		_ = session.Close()
 
-		// Give time for chunks to be processed
-		time.Sleep(50 * time.Millisecond)
-
-		// Now close input to end the session
+		outputElements := drainUntilClosed(t, output)
 		close(input)
-
-		// Collect output elements
-		var outputElements []StreamElement
-		timeout := time.After(500 * time.Millisecond)
-	collectLoop:
-		for {
-			select {
-			case elem, ok := <-output:
-				if !ok {
-					break collectLoop
-				}
-				outputElements = append(outputElements, elem)
-			case <-timeout:
-				break collectLoop
-			}
-		}
-		cancel()
 
 		// Find the interrupted message and final message
 		var interruptedMsg, finalMsg *types.Message
@@ -691,9 +671,7 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		time.Sleep(50 * time.Millisecond)
-		session := provider.GetSession()
-		require.NotNil(t, session)
+		session := awaitMockSession(t, provider)
 
 		// Simulate Gemini's interruption flow:
 		// 1. Some content arrives
@@ -713,38 +691,6 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			// No content - this is just closing the interrupted turn
 		})
 
-		time.Sleep(50 * time.Millisecond)
-
-		// Collect elements so far - should NOT have EndOfStream yet
-		var elementsBeforeFinal []StreamElement
-		collectTimeout := time.After(100 * time.Millisecond)
-	collectBeforeFinal:
-		for {
-			select {
-			case elem := <-output:
-				elementsBeforeFinal = append(elementsBeforeFinal, elem)
-			case <-collectTimeout:
-				break collectBeforeFinal
-			}
-		}
-
-		// Verify no EndOfStream was emitted for the empty turnComplete
-		hasEndOfStreamBeforeFinal := false
-		hasInterruptedTurnComplete := false
-		for _, elem := range elementsBeforeFinal {
-			if elem.EndOfStream {
-				hasEndOfStreamBeforeFinal = true
-			}
-			if elem.Meta.InterruptedTurnComplete {
-				hasInterruptedTurnComplete = true
-			}
-		}
-
-		assert.False(t, hasEndOfStreamBeforeFinal,
-			"Empty turnComplete after interruption should NOT emit EndOfStream")
-		assert.True(t, hasInterruptedTurnComplete,
-			"Should emit interrupted_turn_complete metadata")
-
 		// 4. Now the real response arrives
 		session.EmitChunk(&providers.StreamChunk{
 			Content: "Absolutely! We have a demo.",
@@ -757,37 +703,27 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			FinishReason: &finishReasonComplete,
 		})
 
-		time.Sleep(50 * time.Millisecond)
+		_ = session.Close()
+		elements := drainUntilClosed(t, output)
 		close(input)
 
-		// Collect remaining elements
-		var finalElements []StreamElement
-		finalTimeout := time.After(500 * time.Millisecond)
-	collectFinal:
-		for {
-			select {
-			case elem, ok := <-output:
-				if !ok {
-					break collectFinal
-				}
-				finalElements = append(finalElements, elem)
-			case <-finalTimeout:
-				break collectFinal
+		// The empty turnComplete that closed the interrupted turn must be
+		// marked interrupted_turn_complete and must NOT end the stream: the
+		// ONLY EndOfStream is the final response's.
+		hasInterruptedTurnComplete := false
+		var endOfStreams []StreamElement
+		for _, elem := range elements {
+			if elem.Meta.InterruptedTurnComplete {
+				hasInterruptedTurnComplete = true
 			}
-		}
-		cancel()
-
-		// Now we should have EndOfStream with content
-		hasEndOfStreamFinal := false
-		var finalMessage *types.Message
-		for _, elem := range finalElements {
 			if elem.EndOfStream {
-				hasEndOfStreamFinal = true
-				finalMessage = elem.Message
+				endOfStreams = append(endOfStreams, elem)
 			}
 		}
-
-		assert.True(t, hasEndOfStreamFinal, "Final turnComplete should emit EndOfStream")
+		assert.True(t, hasInterruptedTurnComplete, "Should emit interrupted_turn_complete metadata")
+		require.Len(t, endOfStreams, 1,
+			"Empty turnComplete after interruption should NOT emit EndOfStream; only the final response does")
+		finalMessage := endOfStreams[0].Message
 		assert.NotNil(t, finalMessage, "Final response should have a message")
 		if finalMessage != nil {
 			assert.Equal(t, "Absolutely! We have a demo.", finalMessage.Content)
@@ -818,9 +754,7 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		time.Sleep(50 * time.Millisecond)
-		session := provider.GetSession()
-		require.NotNil(t, session)
+		session := awaitMockSession(t, provider)
 
 		// Interruption with NO prior content (Gemini hadn't started responding)
 		session.EmitChunk(&providers.StreamChunk{
@@ -832,20 +766,11 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			FinishReason: &finishReasonComplete,
 		})
 
-		time.Sleep(50 * time.Millisecond)
-
-		// Collect elements - should have interrupted_turn_complete, NOT EndOfStream
-		var elements []StreamElement
-		collectTimeout := time.After(100 * time.Millisecond)
-	collect:
-		for {
-			select {
-			case elem := <-output:
-				elements = append(elements, elem)
-			case <-collectTimeout:
-				break collect
-			}
-		}
+		// End the session and take everything the stage emitted. Nothing was
+		// accumulated, so closing adds no EndOfStream of its own — any
+		// EndOfStream here came from the empty turnComplete.
+		_ = session.Close()
+		elements := drainUntilClosed(t, output)
 
 		hasEndOfStream := false
 		hasInterruptedTurnComplete := false
@@ -864,7 +789,6 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			"Should emit interrupted_turn_complete metadata")
 
 		close(input)
-		cancel()
 	})
 }
 
@@ -903,14 +827,9 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 			done <- stage.Process(ctx, input, output)
 		}()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-
 		// Verify video was forwarded
-		session := provider.GetSession()
-		require.NotNil(t, session)
-		chunks := session.GetChunks()
+		chunks := awaitSessionChunks(t, provider, 1)
+		cancel()
 		// Note: video is forwarded through SendChunk which populates GetChunks()
 		// The actual verification depends on mock implementation
 		require.NotEmpty(t, chunks, "Expected video chunks to be forwarded")
@@ -949,14 +868,9 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 			done <- stage.Process(ctx, input, output)
 		}()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-
 		// Verify image was forwarded
-		session := provider.GetSession()
-		require.NotNil(t, session)
-		chunks := session.GetChunks()
+		chunks := awaitSessionChunks(t, provider, 1)
+		cancel()
 		require.NotEmpty(t, chunks, "Expected image chunks to be forwarded")
 	})
 
@@ -1002,30 +916,24 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 			done <- stage.Process(ctx, input, output)
 		}()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-
 		// Verify all media types were forwarded
-		session := provider.GetSession()
-		require.NotNil(t, session)
-		chunks := session.GetChunks()
+		chunks := awaitSessionChunks(t, provider, 3)
+		cancel()
 		require.GreaterOrEqual(t, len(chunks), 3, "Expected all media chunks to be forwarded")
 	})
 
 	t.Run("Skips video elements with empty data", func(t *testing.T) {
-		provider := providersmock.NewStreamingProvider("test", "test-model", false).
-			WithAutoRespond("Test response")
-		stage := NewDuplexProviderStage(provider, baseConfig())
+		// A recording session sees every SendChunk, including empty ones the
+		// mock provider's session would silently drop — so the stage's own
+		// skip is what this observes.
+		sess := newRecordingSession()
+		stage := stageWithSession(sess)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-
-		// Send system prompt first
-		input <- elementWithSystemPrompt("Test system prompt")
 
 		// Send video element with empty data - should be skipped
 		input <- StreamElement{
@@ -1045,37 +953,26 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 		}
 		close(input)
 
-		// Process in background
-		done := make(chan error, 1)
-		go func() {
-			done <- stage.Process(ctx, input, output)
-		}()
-
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
-		cancel()
+		go func() { _ = stage.Process(ctx, input, output) }()
 
 		// Verify only non-empty elements were forwarded
-		session := provider.GetSession()
-		require.NotNil(t, session)
-		chunks := session.GetChunks()
-		// Should have audio chunk but not empty video chunk
+		chunks := awaitChunkWithData(t, sess, []byte("audio data"))
+		cancel()
 		require.Len(t, chunks, 1, "Expected only audio chunk (video with empty data should be skipped)")
 	})
 
 	t.Run("Skips image elements with empty data", func(t *testing.T) {
-		provider := providersmock.NewStreamingProvider("test", "test-model", false).
-			WithAutoRespond("Test response")
-		stage := NewDuplexProviderStage(provider, baseConfig())
+		// A recording session sees every SendChunk, including empty ones the
+		// mock provider's session would silently drop — so the stage's own
+		// skip is what this observes.
+		sess := newRecordingSession()
+		stage := stageWithSession(sess)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
-
-		// Send system prompt first
-		input <- elementWithSystemPrompt("Test system prompt")
 
 		// Send image element with empty data - should be skipped
 		input <- StreamElement{
@@ -1095,20 +992,11 @@ func TestDuplexProviderStage_VideoImageForwarding(t *testing.T) {
 		}
 		close(input)
 
-		// Process in background
-		done := make(chan error, 1)
-		go func() {
-			done <- stage.Process(ctx, input, output)
-		}()
-
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
-		cancel()
+		go func() { _ = stage.Process(ctx, input, output) }()
 
 		// Verify only non-empty elements were forwarded
-		session := provider.GetSession()
-		require.NotNil(t, session)
-		chunks := session.GetChunks()
+		chunks := awaitChunkWithData(t, sess, []byte("audio data"))
+		cancel()
 		require.Len(t, chunks, 1, "Expected only audio chunk (image with empty data should be skipped)")
 	})
 }
@@ -1390,4 +1278,67 @@ func TestDuplexProviderStage_StreamingMaterializesUserTurn(t *testing.T) {
 		elements := runStreamingTranscriptMaterialization(t, transcript, assistantText)
 		assertUserTranscriptBeforeAssistant(t, elements, transcript, assistantText)
 	})
+}
+
+// awaitMockSession waits for the stage to create its session on the mock
+// provider, polling rather than sleeping a fixed guess.
+func awaitMockSession(t *testing.T, provider *providersmock.StreamingProvider) *providersmock.MockStreamSession {
+	t.Helper()
+	require.Eventually(t, func() bool { return provider.GetSession() != nil },
+		2*time.Second, time.Millisecond, "session was never created")
+	return provider.GetSession()
+}
+
+// awaitSessionChunks waits until the session has received at least n media
+// chunks and returns them. Input is forwarded in order, so once the last
+// element's chunk has arrived every earlier element has been handled.
+func awaitSessionChunks(t *testing.T, provider *providersmock.StreamingProvider, n int) []*types.MediaChunk {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		session := provider.GetSession()
+		return session != nil && len(session.GetChunks()) >= n
+	}, 2*time.Second, time.Millisecond, "expected at least %d media chunks forwarded to the session", n)
+	return provider.GetSession().GetChunks()
+}
+
+// awaitChunkWithData waits until sess has received a chunk carrying data and
+// returns every chunk sent so far. Waiting on the LAST element sent (rather
+// than a count) means an earlier element that should have been skipped has
+// had its chance to show up.
+func awaitChunkWithData(t *testing.T, sess *recordingSession, data []byte) []*types.MediaChunk {
+	t.Helper()
+	sentChunks := func() []*types.MediaChunk {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		return append([]*types.MediaChunk(nil), sess.chunks...)
+	}
+	require.Eventually(t, func() bool {
+		for _, c := range sentChunks() {
+			if bytes.Equal(c.Data, data) {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, time.Millisecond, "chunk %q was never sent to the session", data)
+	return sentChunks()
+}
+
+// drainUntilClosed collects output until the stage closes it. The bound only
+// fails a stage that never finishes; a passing run never waits on it.
+func drainUntilClosed(t *testing.T, output <-chan StreamElement) []StreamElement {
+	t.Helper()
+	var elems []StreamElement
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				return elems
+			}
+			elems = append(elems, elem)
+		case <-deadline:
+			t.Fatal("stage never closed its output")
+			return nil
+		}
+	}
 }

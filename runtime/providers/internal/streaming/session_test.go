@@ -245,6 +245,8 @@ func TestSession_ErrorOnFatalMessage(t *testing.T) {
 		return []providers.StreamChunk{{Delta: msg["text"]}}, nil
 	}
 
+	// The deadline is only a backstop: a fatal handler error must end the
+	// session on its own, well before it.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -255,10 +257,10 @@ func TestSession_ErrorOnFatalMessage(t *testing.T) {
 	require.NoError(t, err)
 	defer session.Close()
 
-	// Wait for the response channel to drain/close
 	for range session.Response() {
-		// drain
+		// drain until the session ends
 	}
+	require.NoError(t, ctx.Err(), "the session outlived the fatal message; only the deadline ended it")
 
 	// Error should be available
 	sessionErr := session.Error()

@@ -2797,7 +2797,7 @@ func (ms *MapStage) Process(ctx context.Context, input <-chan StreamElement, out
 Process transforms each element using the map function.
 
 <a name="MediaComposeConfig"></a>
-## type [MediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L23-L31>)
+## type [MediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L27-L35>)
 
 MediaComposeConfig configures the MediaComposeStage behavior.
 
@@ -2814,7 +2814,7 @@ type MediaComposeConfig struct {
 ```
 
 <a name="DefaultMediaComposeConfig"></a>
-### func [DefaultMediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L34>)
+### func [DefaultMediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L38>)
 
 ```go
 func DefaultMediaComposeConfig() MediaComposeConfig
@@ -2823,7 +2823,7 @@ func DefaultMediaComposeConfig() MediaComposeConfig
 DefaultMediaComposeConfig returns sensible defaults for media composition.
 
 <a name="MediaComposeStage"></a>
-## type [MediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L67-L72>)
+## type [MediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L71-L80>)
 
 MediaComposeStage collects processed media and composes back into messages. Elements are correlated by message ID from MediaExtractStage metadata.
 
@@ -2841,7 +2841,7 @@ type MediaComposeStage struct {
 ```
 
 <a name="NewMediaComposeStage"></a>
-### func [NewMediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L75>)
+### func [NewMediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L83>)
 
 ```go
 func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage
@@ -2850,7 +2850,7 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage
 NewMediaComposeStage creates a new media composition stage.
 
 <a name="MediaComposeStage.GetConfig"></a>
-### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L463>)
+### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L472>)
 
 ```go
 func (s *MediaComposeStage) GetConfig() MediaComposeConfig
@@ -2859,7 +2859,7 @@ func (s *MediaComposeStage) GetConfig() MediaComposeConfig
 GetConfig returns the stage configuration.
 
 <a name="MediaComposeStage.Process"></a>
-### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L87-L91>)
+### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L96-L100>)
 
 ```go
 func (s *MediaComposeStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

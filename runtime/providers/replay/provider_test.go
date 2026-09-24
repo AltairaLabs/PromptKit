@@ -261,16 +261,15 @@ func TestProvider_ContextCancellation(t *testing.T) {
 	p, err := NewProvider(rec, cfg)
 	require.NoError(t, err)
 
-	// First turn to set up timing
-	_, _ = p.Predict(context.Background(), providers.PredictionRequest{})
-
-	// Cancel context during second turn
+	// The first turn's recorded response arrives 1s in; a canceled context
+	// must abandon that wait instead of serving it out.
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
+	start := time.Now()
 	_, err = p.Predict(ctx, providers.PredictionRequest{})
-	// Should return quickly due to context cancellation
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
 }
 
 func TestProvider_CostInfoPreserved(t *testing.T) {

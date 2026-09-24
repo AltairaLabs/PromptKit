@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/internal/streaming"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -101,11 +103,17 @@ func TestWebSocketManager_Connect(t *testing.T) {
 
 func TestWebSocketManager_Connect_ContextCanceled(t *testing.T) {
 	// Create a server that doesn't respond to handshake
+	// Never complete the handshake; hold until the client gives up (or the
+	// test ends) so server shutdown doesn't wait out a fixed sleep.
+	release := make(chan struct{})
 	blockingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Block forever, don't complete handshake
-		time.Sleep(10 * time.Second)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
 	}))
 	defer blockingServer.Close()
+	defer close(release)
 
 	url := "ws" + strings.TrimPrefix(blockingServer.URL, "http")
 	wm := NewWebSocketManager(url, "test-key")
@@ -326,7 +334,7 @@ func TestWebSocketManager_ConnectWithRetry(t *testing.T) {
 	defer server.Close()
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	wm := NewWebSocketManager(url, "test-key")
+	wm := newFastRetryWebSocketManager(url)
 
 	ctx := context.Background()
 	err := wm.ConnectWithRetry(ctx)
@@ -360,7 +368,7 @@ func TestWebSocketManager_ConnectWithRetry_AllFail(t *testing.T) {
 	defer server.Close()
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	wm := NewWebSocketManager(url, "test-key")
+	wm := newFastRetryWebSocketManager(url)
 
 	ctx := context.Background()
 	err := wm.ConnectWithRetry(ctx)
@@ -368,8 +376,33 @@ func TestWebSocketManager_ConnectWithRetry_AllFail(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error after all retry attempts failed")
 	}
+	mu.Lock()
+	got := attempts
+	mu.Unlock()
+	if got != geminiMaxRetries {
+		t.Errorf("Expected %d attempts, got %d", geminiMaxRetries, got)
+	}
 
 	_ = wm.Close()
+}
+
+// newFastRetryWebSocketManager is NewWebSocketManager with millisecond retry
+// backoff, so retry tests don't wait out the production 1s-60s schedule.
+func newFastRetryWebSocketManager(url string) *WebSocketManager {
+	wm := NewWebSocketManager(url, "test-key")
+	headers := http.Header{}
+	headers.Set(apiKeyHeader, "test-key")
+	wm.conn = streaming.NewConn(&streaming.ConnConfig{
+		URL:              url,
+		Headers:          headers,
+		DialTimeout:      geminiDialTimeout,
+		MaxMessageSize:   MaxMessageSize,
+		MaxRetries:       geminiMaxRetries,
+		RetryBackoffBase: time.Millisecond,
+		RetryBackoffMax:  5 * time.Millisecond,
+		Logger:           &geminiLoggerAdapter{},
+	})
+	return wm
 }
 
 func TestWebSocketManager_Close(t *testing.T) {

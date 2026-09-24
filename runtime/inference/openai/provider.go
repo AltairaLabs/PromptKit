@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
@@ -59,6 +61,9 @@ type Config struct {
 	Model      string // the chat model that answers; overridable per-Request
 	Timeout    time.Duration
 	HTTPClient *http.Client
+	// RetryPolicy governs retries of transient failures (429, 502-504,
+	// network errors). Nil uses providers.DefaultRetryPolicy().
+	RetryPolicy *pipeline.RetryPolicy
 }
 
 // Provider answers inference.Request calls using a chat model's logprobs
@@ -66,6 +71,7 @@ type Config struct {
 type Provider struct {
 	baseURL, apiKey, model string
 	http                   *http.Client
+	retryPolicy            pipeline.RetryPolicy
 }
 
 var _ inference.Provider = (*Provider)(nil)
@@ -84,7 +90,11 @@ func New(cfg Config) (*Provider, error) {
 		}
 		hc = &http.Client{Timeout: timeout}
 	}
-	return &Provider{baseURL: base, apiKey: cfg.APIKey, model: cfg.Model, http: hc}, nil
+	retry := providers.DefaultRetryPolicy()
+	if cfg.RetryPolicy != nil {
+		retry = *cfg.RetryPolicy
+	}
+	return &Provider{baseURL: base, apiKey: cfg.APIKey, model: cfg.Model, http: hc, retryPolicy: retry}, nil
 }
 
 // HTTPTimeout reports the per-call timeout this Provider will apply.
@@ -283,7 +293,7 @@ func (p *Provider) complete(
 		return p.http.Do(httpReq)
 	}
 
-	resp, err := providers.DoWithRetry(ctx, providers.DefaultRetryPolicy(), providerName, doFn)
+	resp, err := providers.DoWithRetry(ctx, p.retryPolicy, providerName, doFn)
 	if err != nil {
 		return nil, inference.Usage{}, "", fmt.Errorf("inference: call model: %w", err)
 	}

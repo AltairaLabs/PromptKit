@@ -23,7 +23,7 @@ import (
 // scripted speech, and asserts the store has the turn BEFORE Close is called.
 func TestVADMode_PersistsTurnsMidSession(t *testing.T) {
 	if testing.Short() {
-		t.Skip("drives a real VAD turn in wall-clock time")
+		t.Skip("drives a real VAD turn")
 	}
 
 	ctx := context.Background()
