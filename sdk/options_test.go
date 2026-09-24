@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -1551,4 +1553,38 @@ func TestWithInferenceProvider_DuplicateIDRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate")
 	assert.Equal(t, []string{"hf"}, c.inferenceProviderIDs, "the duplicate must not be recorded")
+}
+
+// A default key env var belongs to one vendor. With a base_url pointing at a
+// different host (a gateway, vLLM), sending OPENAI_API_KEY would leak it.
+func TestWithInferenceProvider_EnvKeyNeverGoesToAnotherHost(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-must-not-leak")
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"choices":[{"logprobs":{"content":[{"token":"on","logprob":0,` +
+			`"top_logprobs":[{"token":"on","logprob":0}]}]}}]}`))
+	}))
+	defer srv.Close()
+	c := &config{}
+	require.NoError(t, WithInferenceProvider(ProviderSpec{ID: "gw", Type: "openai", Model: "m", BaseURL: srv.URL})(c))
+	p, err := c.inferenceRegistry.Get("gw")
+	require.NoError(t, err)
+
+	_, err = p.Infer(context.Background(), inference.Request{Labels: []string{"on-topic", "off-topic"}})
+
+	require.NoError(t, err)
+	assert.Empty(t, gotAuth, "the OpenAI key must not be sent to a non-OpenAI base_url")
+}
+
+func TestEnvKeyAllowedFor(t *testing.T) {
+	assert.True(t, envKeyAllowedFor("openai", ""), "the vendor's default endpoint")
+	assert.True(t, envKeyAllowedFor("openai", "https://api.openai.com/v1"))
+	assert.False(t, envKeyAllowedFor("openai", "https://ai-gateway.example.com/v1"))
+	assert.False(t, envKeyAllowedFor("openai", "http://localhost:8000/v1"))
+	assert.True(t, envKeyAllowedFor("huggingface", "https://x.us-east-1.aws.endpoints.huggingface.cloud"),
+		"a dedicated HF endpoint is still HF")
+	assert.False(t, envKeyAllowedFor("openai", "https://api.openai.com.evil.example/v1"))
+	assert.True(t, envKeyAllowedFor("systemone", "https://ai-gateway.vercel.sh/typesafe/v1"),
+		"types with no vendor key are unaffected (they have no env default)")
 }

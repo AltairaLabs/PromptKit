@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -15,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -538,14 +541,47 @@ func (c *config) registerInferenceProvider(id string, p inference.Provider) erro
 	return nil
 }
 
+// vendorKeyHosts lists, for types whose default key env var belongs to one
+// vendor, the hosts that key may be sent to.
+var vendorKeyHosts = map[string][]string{
+	"openai":      {"api.openai.com"},
+	"huggingface": {"huggingface.co", "huggingface.cloud"},
+}
+
+// envKeyAllowedFor reports whether a type's default key env var may be used for
+// baseURL: always for the vendor's own endpoint (an empty base_url means the
+// default), never for another host — a gateway or self-hosted server gets an
+// explicit credential or none, so a vendor key is never sent to the wrong host.
+func envKeyAllowedFor(providerType, baseURL string) bool {
+	hosts, ok := vendorKeyHosts[providerType]
+	if !ok || strings.TrimSpace(baseURL) == "" {
+		return true
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, h := range hosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return true
+		}
+	}
+	return false
+}
+
 // buildInferenceProvider resolves credentials, constructs the provider for the
 // spec's type, and wraps it so every call reports inference metrics.
 func buildInferenceProvider(
 	id, providerType, model, baseURL string, cred *pkgconfig.CredentialConfig, additional map[string]any,
 ) (inference.Provider, error) {
-	resolved, err := inference.ResolveCredential(context.Background(), providerType, "", cred)
-	if err != nil {
-		return nil, fmt.Errorf("resolving credential: %w", err)
+	var resolved credentials.Credential
+	if cred != nil || envKeyAllowedFor(providerType, baseURL) {
+		var err error
+		resolved, err = inference.ResolveCredential(context.Background(), providerType, "", cred)
+		if err != nil {
+			return nil, fmt.Errorf("resolving credential: %w", err)
+		}
 	}
 	p, err := inference.CreateFromSpec(inference.ProviderSpec{
 		ID:               id,
@@ -2445,7 +2481,7 @@ func WithClassifier(id string, provider any) Option {
 			return fmt.Errorf("WithClassifier: id is required")
 		}
 		p, ok := provider.(inference.Provider)
-		if !ok || p == nil {
+		if !ok {
 			return fmt.Errorf("WithClassifier %q: %T is not an inference.Provider (it needs an Infer method)",
 				id, provider)
 		}

@@ -614,20 +614,20 @@ probability as `confidence`.
 
 | `type` | Backend | Notes |
 |---|---|---|
-| `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required |
-| `openai` | Any OpenAI-compatible chat model that returns logprobs (OpenAI, vLLM, LiteLLM) | `model` is required |
+| `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required, and the endpoint must return logprobs |
+| `openai` | Any OpenAI-compatible chat model that returns logprobs (OpenAI, vLLM, LiteLLM) | `model` is required. `OPENAI_API_KEY` is used only for OpenAI's own endpoint; any other `base_url` needs an explicit `credential` |
 | `systemone` | TypeSafe's Jev, through the Vercel AI Gateway (`base_url: https://ai-gateway.vercel.sh/typesafe/v1`, `model: typesafe-ai/jev`) or a self-hosted server speaking the same API | Needs an explicit `credential` unless `base_url` is loopback |
 
 :::caution[Do not point this at a reasoning model]
 A reasoning model starts its answer with its thinking rather than a bare
-label, so neither label appears in the first token's probabilities. Every
-classification then errors, `on_error` denies, and **the guardrail blocks every
-turn**. It fails closed rather than leaking traffic, but the conversation stops
+label. An answer that is not a label is not a decision, so every classification
+falls to `on_unknown`, which denies, and **the guardrail blocks every turn**. It fails closed rather than leaking traffic, but the conversation stops
 working. Pick a model that will comply with "respond with `on-topic` or
 `off-topic`" and nothing else.
 :::
 
-**`timeout_seconds`** bounds a single classification. The default of 20s is
+**`timeout_seconds`** (the `openai` and `nvidia-topic-control` types) bounds a
+single classification call. For `nvidia-topic-control` the default of 20s is
 deliberately tight — this call sits in the request path ahead of the agent's own
 call. Raise it for a NIM answering from cold or a shared endpoint under load: a
 timeout is an error, `on_error` denies, so a too-short timeout takes the

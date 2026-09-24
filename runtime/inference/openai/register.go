@@ -22,6 +22,10 @@ const (
 	// per-call HTTP timeout, in seconds. Named here so the producer and
 	// the doc page cannot drift apart on a typo.
 	timeoutConfigKey = "timeout_seconds"
+
+	// nemoGuardHTTPTimeout is topic control's per-call default. It stays
+	// under the guardrail's 30s bound so a hung attempt leaves room to retry.
+	nemoGuardHTTPTimeout = 20 * time.Second
 )
 
 //nolint:gochecknoinits // Factory registration requires init.
@@ -46,11 +50,15 @@ func init() {
 		if strings.TrimSpace(model) == "" {
 			model = NemoGuardModel
 		}
+		timeout := timeoutFromConfig(spec.AdditionalConfig, timeoutConfigKey)
+		if timeout <= 0 {
+			timeout = nemoGuardHTTPTimeout
+		}
 		return New(Config{
 			APIKey:  base.APIKeyFromCredential(spec.Credential),
 			BaseURL: spec.BaseURL,
 			Model:   model,
-			Timeout: timeoutFromConfig(spec.AdditionalConfig, timeoutConfigKey),
+			Timeout: timeout,
 		})
 	})
 }

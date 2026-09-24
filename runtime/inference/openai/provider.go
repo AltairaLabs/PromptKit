@@ -115,6 +115,14 @@ func (p *Provider) Infer(ctx context.Context, req inference.Request) (inference.
 		return inference.Response{}, err
 	}
 
+	// The answer the model actually gave must be a label. Otherwise the
+	// labels' leftover tail probability would decide — letting a message that
+	// talks the model into a non-answer steer the result — so return no
+	// scores and let the caller's "no usable label" policy apply.
+	if !isLabelToken(raw, req.Labels) {
+		return inference.Response{Model: model, Usage: usage, Raw: raw}, nil
+	}
+
 	scores, err := distribution(top, req.Labels)
 	if err != nil {
 		return inference.Response{}, err
@@ -133,6 +141,17 @@ func firstTokenPrefix(label string) string {
 		s = s[:i]
 	}
 	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// isLabelToken reports whether token is the first token of one of labels.
+func isLabelToken(token string, labels []string) bool {
+	norm := strings.ToLower(strings.TrimSpace(token))
+	for _, label := range labels {
+		if norm == firstTokenPrefix(label) {
+			return true
+		}
+	}
+	return false
 }
 
 // distribution renormalizes the labels' probabilities over the returned
@@ -214,22 +233,22 @@ type chatResponse struct {
 // req.Inputs: the system prompt and the final label-instruction turn.
 const extraMessages = 2
 
-// buildMessages assembles the chat turns: an optional system prompt, the
-// input messages verbatim, then a final instruction naming the allowed
-// labels.
+// buildMessages assembles the chat turns: one system message, then the input
+// messages verbatim, so the judged message is the last turn — the one a
+// fine-tuned classifier such as NemoGuard topic control is trained to judge.
+// A caller's Prompt is the system message as-is (it names its own labels);
+// without one, the system message names the allowed labels.
 func buildMessages(req inference.Request) []chatMessage {
 	msgs := make([]chatMessage, 0, len(req.Inputs)+extraMessages)
-	if req.Prompt != "" {
-		msgs = append(msgs, chatMessage{Role: "system", Content: req.Prompt})
+	system := req.Prompt
+	if system == "" {
+		system = "Answer with exactly one of: " + strings.Join(req.Labels, ", ")
 	}
+	msgs = append(msgs, chatMessage{Role: "system", Content: system})
 	for i := range req.Inputs {
 		m := &req.Inputs[i]
 		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.GetContent()})
 	}
-	msgs = append(msgs, chatMessage{
-		Role:    "user",
-		Content: "Answer with exactly one of: " + strings.Join(req.Labels, ", "),
-	})
 	return msgs
 }
 
