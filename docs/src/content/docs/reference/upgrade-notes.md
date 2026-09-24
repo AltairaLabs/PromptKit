@@ -8,25 +8,23 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
-### Inference providers share one interface; `runtime/classify` is gone
+### Inference providers share one interface; `runtime/classify` is superseded
 
 `role: inference` providers now implement a single interface,
 `inference.Provider` (`Infer`: content in, a probability per label out),
-replacing the per-task `runtime/classify` interfaces (`TextClassifier`,
-`AudioClassifier`, `ImageClassifier`, `VideoClassifier`, `TopicClassifier`,
-`Embedder`). Each `type` calls one vendor API: `huggingface`, `openai`
-(chat completions read through logprobs) and `systemone` (TypeSafe's Jev,
-direct or through the Vercel AI Gateway). Pack params for every check are
-unchanged.
+replacing the per-task `runtime/classify` interfaces. Each `type` calls one
+vendor API: `huggingface`, `openai` (chat completions read through logprobs)
+and `systemone` (TypeSafe's Jev, direct or through the Vercel AI Gateway). Pack
+params for every check are unchanged. `runtime/classify` still compiles but
+nothing uses it; it is removed in v3.
 
 | If you | You will see | Change |
 |---|---|---|
-| Import `runtime/classify` | a compile error | import `runtime/inference`; implement `Infer(ctx, inference.Request) (inference.Response, error)` |
-| Call `sdk.WithClassifier(id, backend)` with a custom backend | a compile error | make the backend an `inference.Provider`; audio and image arrive as media parts on `Request.Inputs` |
-| Implement `evals.ProviderBinding` | a compile error | rename `Classifier(key)` to `Inference(key string) (inference.Provider, error)` |
-| Set `stage.PipelineConfig.ClassifyRegistry` | a compile error | set `InferenceRegistry` |
+| Pass a custom backend to `sdk.WithClassifier` | `Open()` fails: the value "is not an inference.Provider" | implement `Infer(ctx, inference.Request) (inference.Response, error)`; audio and image arrive as media parts on `Request.Inputs` |
+| Implement `evals.ProviderBinding` | nothing, if `Classifier(key)` returns your provider | return an `inference.Provider` from `Classifier` |
+| Set `stage.PipelineConfig.ClassifyRegistry` | it is ignored | set `InferenceRegistry` |
 | Declare several inference providers without naming them in checks | every check now uses the **first** one registered | name the provider a check needs with `params.provider` (a key the pack declares in `requires`) |
-| Use HF embeddings through the inference role | the classify embedder no longer exists | declare `role: embedding`, `type: huggingface` |
+| Use HF embeddings through the inference role | they are no longer served there | declare `role: embedding`, `type: huggingface` |
 | Use `type: nvidia-topic-control` | no change needed | it is now an alias for `type: openai` with NemoGuard topic control's model, and `topic_policy` records the label's probability as `confidence` |
 
 `topic_policy` now sends every backend NemoGuard topic control's trained prompt
