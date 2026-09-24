@@ -8,7 +8,7 @@ import (
 )
 
 // wantSampleRate is the only sample rate this example accepts. SER models
-// expect 16 kHz mono; the classify AudioOptions contract makes delivering
+// expect 16 kHz mono; the inference request contract makes delivering
 // audio at the target rate the caller's responsibility, so we validate
 // rather than resample.
 const wantSampleRate = 16000

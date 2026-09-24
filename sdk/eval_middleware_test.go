@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
@@ -1251,12 +1251,12 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 
 // classifyProbeEval is a custom eval handler that records the classify
 // registry visible in its Eval context. It lets a test assert that
-// classify-backed evals can resolve their backend via classify.FromContext
+// inference-backed evals can resolve their provider via inference.FromContext
 // when run through the eval middleware.
 type classifyProbeEval struct {
 	mu   sync.Mutex
 	ran  bool
-	seen *classify.Registry
+	seen *inference.Registry
 }
 
 func (*classifyProbeEval) Type() string { return "classify_probe" }
@@ -1267,17 +1267,17 @@ func (e *classifyProbeEval) Eval(
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ran = true
-	e.seen = classify.FromContext(ctx)
+	e.seen = inference.FromContext(ctx)
 	return &evals.EvalResult{Type: "classify_probe"}, nil
 }
 
-// TestEvalMiddleware_AttachesClassifyRegistry is the regression test for the
+// TestEvalMiddleware_AttachesInferenceRegistry is the regression test for the
 // SDK wiring gap the ONNX example surfaced: the eval middleware runs turn
 // evals on a background-derived context that never passed through the
-// pipeline's classify.WithRegistry attach, so classify-backed evals
+// pipeline's inference.WithRegistry attach, so classify-backed evals
 // (audio_emotion, text_toxicity, …) skipped with "no classify registry
-// configured". The middleware must attach conv.config.classifyRegistry itself.
-func TestEvalMiddleware_AttachesClassifyRegistry(t *testing.T) {
+// configured". The middleware must attach conv.config.inferenceRegistry itself.
+func TestEvalMiddleware_AttachesInferenceRegistry(t *testing.T) {
 	probe := &classifyProbeEval{}
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(probe)
@@ -1305,8 +1305,8 @@ func TestEvalMiddleware_AttachesClassifyRegistry(t *testing.T) {
 	probe.mu.Lock()
 	defer probe.mu.Unlock()
 	require.True(t, probe.ran, "eval handler should have run")
-	require.NotNil(t, probe.seen, "classify registry must be visible via classify.FromContext in the eval context")
-	_, err := probe.seen.TextClassifier("stub")
+	require.NotNil(t, probe.seen, "the inference registry must be visible via inference.FromContext in the eval context")
+	_, err := probe.seen.Get("stub")
 	require.NoError(t, err, "the backend registered via WithClassifier should resolve")
 }
 

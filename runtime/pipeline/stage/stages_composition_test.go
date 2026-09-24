@@ -3,10 +3,11 @@ package stage
 import (
 	"context"
 	"encoding/json"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"

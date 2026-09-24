@@ -150,3 +150,20 @@ func TestInstrument_NilProvider_ReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "m", resp.Model)
 }
+
+// A nil emitter (a runner or adapter configured without one) must not hide an
+// emitter an outer caller already put on the context.
+func TestWithEmitter_NilDoesNotReplaceAnOuterEmitter(t *testing.T) {
+	bus := events.NewEventBus()
+	outer := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+	ch := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventInferenceCallCompleted, func(e *events.Event) { ch <- e })
+
+	ctx := inference.WithEmitter(context.Background(), outer)
+	ctx = inference.WithEmitter(ctx, nil)
+	_, err := inference.Instrument(&fakeInferProvider{}, "p", "t").Infer(ctx, inference.Request{})
+
+	require.NoError(t, err)
+	ev := waitForEvent(t, ch, time.Second)
+	assert.Equal(t, events.EventInferenceCallCompleted, ev.Type)
+}

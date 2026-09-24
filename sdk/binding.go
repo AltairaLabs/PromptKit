@@ -3,8 +3,8 @@ package sdk
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -18,7 +18,7 @@ import (
 // runtime, gets to decide which concrete provider serves a role.
 //
 // A key resolves to whatever the host registered under that id: an LLM from the
-// provider pool, a classify backend from the classify registry.
+// provider pool, an inference provider from the inference registry.
 type hostBinding struct{ cfg *config }
 
 var _ evals.ProviderBinding = (*hostBinding)(nil)
@@ -38,28 +38,26 @@ func (b *hostBinding) LLM(key string) (providers.Provider, error) {
 			return p, nil
 		}
 	}
-	if _, isClassifier := b.cfg.classifyBackends[key]; isClassifier {
+	if _, isInference := b.inference(key); isInference {
 		return nil, fmt.Errorf(
-			"%w: it is bound to a classify provider, and this check needs one that runs completions",
+			"%w: it is bound to an inference provider, and this check needs one that runs completions",
 			evals.ErrWrongKind)
 	}
 	return nil, evals.ErrUnboundKey
 }
 
-// Classifier returns the classify backend bound to key. The caller asserts the
-// task interface it needs; this only answers whether the host bound a
-// classifier at all.
-func (b *hostBinding) Classifier(key string) (classify.Backend, error) {
+// Inference returns the inference provider bound to key.
+func (b *hostBinding) Inference(key string) (inference.Provider, error) {
 	if b == nil || b.cfg == nil {
 		return nil, evals.ErrNoBinding
 	}
-	if backend, ok := b.cfg.classifyBackends[key]; ok {
-		return backend, nil
+	if p, ok := b.inference(key); ok {
+		return p, nil
 	}
 	if b.cfg.providers != nil {
 		if _, isLLM := b.cfg.providers.Get(key); isLLM {
 			return nil, fmt.Errorf(
-				"%w: it is bound to an LLM provider, and this check needs a classify provider "+
+				"%w: it is bound to an LLM provider, and this check needs an inference provider "+
 					"(a providers: entry with role: inference)",
 				evals.ErrWrongKind)
 		}
@@ -73,8 +71,18 @@ func newHostBinding(c *config) evals.ProviderBinding {
 	if c == nil {
 		return nil
 	}
-	if c.providers == nil && len(c.classifyBackends) == 0 {
+	if c.providers == nil && c.inferenceRegistry == nil {
 		return nil
 	}
 	return &hostBinding{cfg: c}
+}
+
+// inference looks key up in the inference registry by exact id. A named key
+// never falls back to the registry's default: the pack asked for that name.
+func (b *hostBinding) inference(key string) (inference.Provider, bool) {
+	if key == "" || b.cfg.inferenceRegistry == nil {
+		return nil, false
+	}
+	p, err := b.cfg.inferenceRegistry.Get(key)
+	return p, err == nil
 }

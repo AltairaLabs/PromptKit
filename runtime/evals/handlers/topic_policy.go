@@ -6,16 +6,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TopicPolicyHandler confines a conversation to a declared subject scope,
-// decided by a classify.TopicClassifier rather than by the model being
-// governed. Declared as a guardrail, it gates input by default and a denied
-// turn never reaches the primary provider.
+// decided by an inference provider rather than by the model being governed.
+// Declared as a guardrail, it gates input by default and a denied turn never
+// reaches the primary provider.
 //
 // Pack validator (the normal declaration site):
 //
@@ -116,65 +116,70 @@ func (h *TopicPolicyHandler) Eval(
 			"turn carried no judgable text (media-only or empty message); topic_policy classifies text", ""), nil
 	}
 
-	classifier, err := h.resolveClassifier(ctx, cfg)
+	provider, err := h.resolveProvider(ctx, cfg)
 	if err != nil {
 		return h.outcomeResult(cfg, cfg.onError, err.Error(), ""), nil
 	}
 
-	res, err := classifier.ClassifyTopic(ctx, classify.TopicRequest{
-		Policy:  cfg.policy,
-		History: recentTopicTurns(evalCtx, cfg.recentTurns),
-		Message: message,
+	inputs := recentTopicTurns(evalCtx, cfg.recentTurns)
+	inputs = append(inputs, types.Message{Role: roleUser, Content: message})
+	resp, err := provider.Infer(ctx, inference.Request{
+		Prompt: renderTopicPrompt(cfg.policy),
+		Inputs: inputs,
+		Labels: []string{labelOnTopic, labelOffTopic},
 	})
 	if err != nil {
 		return h.outcomeResult(cfg, cfg.onError, err.Error(), ""), nil
 	}
 
-	switch res.Decision {
-	case classify.TopicAllow:
-		return h.decisionResult(cfg, classify.TopicAllow, 1.0, res), nil
-	case classify.TopicDeny:
-		return h.decisionResult(cfg, classify.TopicDeny, 0.0, res), nil
-	case classify.TopicUnknown:
-		// Handled below, along with any decision value the classifier package
-		// hasn't defined yet — the classifier didn't decide, so policy does.
+	// The backend returns a probability per label. A distribution that carries
+	// neither label, or no mass on either, is not a decision — policy decides,
+	// never an implicit allow.
+	onTopic, _ := resp.Score(labelOnTopic)
+	offTopic, _ := resp.Score(labelOffTopic)
+	switch {
+	case onTopic > offTopic:
+		return h.decisionResult(cfg, topicAllow, 1.0, onTopic, resp.Raw), nil
+	case offTopic > onTopic:
+		return h.decisionResult(cfg, topicDeny, 0.0, offTopic, resp.Raw), nil
 	}
 	return h.outcomeResult(cfg, cfg.onUnknown,
-		"classifier returned no usable label", res.Raw), nil
+		"classifier returned no usable label", resp.Raw), nil
 }
 
-// resolveClassifier deliberately does NOT return a skipped result when nothing
+// Labels every topic backend answers with. They are NemoGuard topic control's
+// trained output labels; renderTopicPrompt's closing sentence names them.
+const (
+	labelOnTopic  = "on-topic"
+	labelOffTopic = "off-topic"
+)
+
+// Recorded decisions.
+const (
+	topicAllow   = "allow"
+	topicDeny    = "deny"
+	topicUnknown = "unknown"
+)
+
+// resolveProvider deliberately does NOT return a skipped result when nothing
 // is bound — the convention the other classify-backed handlers follow. Skipped
 // scores 1.0 and passes, which for a safety control means it silently does not
 // run (#1996). Here an unbound classifier is an error and obeys on_error, which
 // defaults to deny.
-func (h *TopicPolicyHandler) resolveClassifier(
+func (h *TopicPolicyHandler) resolveProvider(
 	ctx context.Context, cfg topicPolicyConfig,
-) (classify.TopicClassifier, error) {
-	if cfg.providerKey != "" {
-		classifier, err := classifierFor(ctx, cfg.providerKey, "topic classifier",
-			func(b classify.Backend) (classify.TopicClassifier, bool) {
-				c, ok := b.(classify.TopicClassifier)
-				return c, ok
-			})
-		if err != nil {
-			return nil, h.warnUnbound(cfg, err.Error())
-		}
-		return classifier, nil
-	}
-
-	classifier, err := defaultClassifier(ctx, "topic classifier",
-		func(r *classify.Registry) (classify.TopicClassifier, error) { return r.TopicClassifier("") })
+) (inference.Provider, error) {
+	provider, err := resolveInference(ctx, cfg.providerKey, "topic classifier")
 	if err != nil {
 		return nil, h.warnUnbound(cfg, err.Error())
 	}
-	return classifier, nil
+	return provider, nil
 }
 
 func (h *TopicPolicyHandler) warnUnbound(cfg topicPolicyConfig, reason string) error {
 	err := fmt.Errorf(
-		"topic_policy: %s; declare a provider with role: inference whose backend implements "+
-			"topic classification (e.g. type: nvidia-topic-control), and name it with "+
+		"topic_policy: %s; declare a provider with role: inference (e.g. type: openai, "+
+			"systemone or nvidia-topic-control), and name it with "+
 			"params.provider using the key the pack declares in requires", reason)
 
 	digest := topicPolicyDigest(cfg.policy)
@@ -222,30 +227,23 @@ const (
 )
 
 // decisionResult builds the result for a decision the backend actually made.
+// confidence is the probability of the chosen label, as the backend reported it.
 func (h *TopicPolicyHandler) decisionResult(
-	cfg topicPolicyConfig, decision classify.TopicDecision, score float64, res classify.TopicResult,
+	cfg topicPolicyConfig, decision string, score, confidence float64, raw string,
 ) *evals.EvalResult {
-	details := map[string]any{
-		detailDecision:     string(decision),
-		detailRaw:          res.Raw,
+	return scoredTopicResult(score, map[string]any{
+		detailDecision:     decision,
+		detailRaw:          raw,
 		paramProvider:      cfg.providerKey,
 		paramOnDeny:        cfg.onDeny,
 		detailPolicyDigest: topicPolicyDigest(cfg.policy),
-	}
-	if res.Reason != "" {
-		details["reason"] = res.Reason
-	}
-	// Never manufacture a confidence: a label-emitting model has none, and an
-	// absent key is honest where a zero would look like certainty of denial.
-	if res.Confidence != nil {
-		details["confidence"] = *res.Confidence
-	}
-	return scoredTopicResult(score, details)
+		"confidence":       confidence,
+	})
 }
 
 // outcomeResult builds the result for unknown or error, where the score comes
 // from policy rather than from the classifier. The decision is always
-// TopicUnknown: every path here is one where the classifier did not decide, so
+// topicUnknown: every path here is one where the classifier did not decide, so
 // the recorded decision is fixed and only the outcome (deny or allow, chosen by
 // on_unknown / on_error) and the reason vary.
 func (h *TopicPolicyHandler) outcomeResult(
@@ -256,7 +254,7 @@ func (h *TopicPolicyHandler) outcomeResult(
 		score = 1.0
 	}
 	return scoredTopicResult(score, map[string]any{
-		detailDecision:     string(classify.TopicUnknown),
+		detailDecision:     topicUnknown,
 		"reason":           reason,
 		detailRaw:          raw,
 		paramProvider:      cfg.providerKey,
@@ -294,9 +292,9 @@ func judgedMessage(evalCtx *evals.EvalContext) string {
 	return ""
 }
 
-// recentTopicTurns flattens the last n conversational turns before the judged
-// message. GetContent() rather than .Content: user text can live in Parts while
-// assistant text lives on Content.
+// recentTopicTurns returns the last n conversational turns before the judged
+// message, as plain-text messages. GetContent() rather than .Content: user text
+// can live in Parts while assistant text lives on Content.
 //
 // Filter first, then slice — never the other way round. A transcript carries
 // tool-result messages (role "tool") alongside the conversation, so slicing the
@@ -304,7 +302,7 @@ func judgedMessage(evalCtx *evals.EvalContext) string {
 // tool results with recent_turns: 4 leave the classifier zero history, and an
 // anaphoric but perfectly in-scope follow-up ("What about Azure?") is judged bare
 // and denied.
-func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
+func recentTopicTurns(evalCtx *evals.EvalContext, n int) []types.Message {
 	if evalCtx == nil || n <= 0 || len(evalCtx.Messages) == 0 {
 		return nil
 	}
@@ -314,7 +312,7 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 	if last := len(history) - 1; last >= 0 && history[last].Role == roleUser {
 		history = history[:last]
 	}
-	out := make([]classify.TopicTurn, 0, len(history))
+	out := make([]types.Message, 0, len(history))
 	for i := range history {
 		if !isTopicConversationRole(history[i].Role) {
 			continue
@@ -326,7 +324,7 @@ func recentTopicTurns(evalCtx *evals.EvalContext, n int) []classify.TopicTurn {
 		if text == "" {
 			continue
 		}
-		out = append(out, classify.TopicTurn{Role: history[i].Role, Text: text})
+		out = append(out, types.Message{Role: history[i].Role, Content: text})
 	}
 	if len(out) > n {
 		out = out[len(out)-n:]

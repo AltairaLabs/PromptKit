@@ -7,9 +7,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -331,18 +331,18 @@ func (em *evalMiddleware) recordMetrics(results []evals.EvalResult) {
 
 // buildEvalContext creates an EvalContext from the conversation state.
 // It caches messages and only reloads when the turn count changes.
-// evalContextWithRegistry attaches the conversation's classify registry to
-// base so classify-backed eval handlers (audio_emotion, text_toxicity, …)
-// can resolve their backend via classify.FromContext. Turn evals run on the
+// evalContextWithRegistry attaches the conversation's inference registry to
+// base so inference-backed eval handlers (audio_emotion, text_toxicity, …)
+// can resolve their provider via inference.FromContext. Turn evals run on the
 // middleware's background-derived lifecycle context and session evals on the
 // Close() context; neither passes through the pipeline's execCtx where the
 // registry is otherwise attached, so the wiring has to happen here too.
 // No-op (returns base) when no inference provider was configured.
 func (em *evalMiddleware) evalContextWithRegistry(base context.Context) context.Context {
-	if em.conv == nil || em.conv.config == nil || em.conv.config.classifyRegistry == nil {
+	if em.conv == nil || em.conv.config == nil || em.conv.config.inferenceRegistry == nil {
 		return base
 	}
-	return classify.WithRegistry(base, em.conv.config.classifyRegistry)
+	return inference.WithRegistry(base, em.conv.config.inferenceRegistry)
 }
 
 // evalContextWithBinding attaches the host's provider binding, so a per-turn

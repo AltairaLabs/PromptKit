@@ -75,7 +75,7 @@ func TestCheckProviderKeys_NothingWiredAtAll(t *testing.T) {
 func TestCheckProviderKeys_WrongKind(t *testing.T) {
 	p, prompt := packRequiring("grader", "llm", "toxicity", "grader")
 	cfg := &config{}
-	_, err := cfg.registerClassifyBackend("grader", textClassifierStub{})
+	err := cfg.registerInferenceProvider("grader", textClassifierStub{})
 	require.NoError(t, err)
 
 	err = checkProviderKeys(p, prompt, cfg)

@@ -7,24 +7,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-type cannedTopicClassifier struct{ decision classify.TopicDecision }
+type cannedTopicClassifier struct{ decision string }
 
-func (c *cannedTopicClassifier) ClassifyTopic(
-	_ context.Context, _ classify.TopicRequest,
-) (classify.TopicResult, error) {
-	return classify.TopicResult{Decision: c.decision, Raw: string(c.decision)}, nil
+func (c *cannedTopicClassifier) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return inference.Response{Raw: c.decision, Scores: cannedTopicScores(c.decision)}, nil
+}
+
+// cannedTopicScores is the label distribution a topic backend returns for a
+// decision: "deny" favors off-topic, anything else favors on-topic.
+func cannedTopicScores(decision string) []inference.LabelScore {
+	if decision == "deny" {
+		return []inference.LabelScore{{Label: "off-topic", Score: 0.9}, {Label: "on-topic", Score: 0.1}}
+	}
+	return []inference.LabelScore{{Label: "on-topic", Score: 0.9}, {Label: "off-topic", Score: 0.1}}
 }
 
 // runProviderStageWithCtx mirrors runProviderStage but lets the caller supply
-// the context, which is how the classify registry reaches the handler.
+// the context, which is how the inference registry reaches the handler.
 func runProviderStageWithCtx(
 	t *testing.T, ctx context.Context, stage *ProviderStage, userContent string,
 ) ([]StreamElement, error) {
@@ -65,11 +72,13 @@ func topicStage(t *testing.T, provider *redactionRecordingProvider) *ProviderSta
 	return NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, reg)
 }
 
-func topicCtx(t *testing.T, decision classify.TopicDecision) context.Context {
+func topicCtx(t *testing.T, decision string) context.Context {
 	t.Helper()
-	reg := classify.NewRegistry()
-	classify.RegisterBackendDefaulting(reg, "topic-control", &cannedTopicClassifier{decision: decision})
-	return classify.WithRegistry(context.Background(), reg)
+	reg := inference.NewRegistry()
+	if err := reg.Register("topic-control", &cannedTopicClassifier{decision: decision}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 // TestProviderStage_TopicPolicy_DeniedTurnNeverCallsProvider is the assertion
@@ -79,7 +88,7 @@ func TestProviderStage_TopicPolicy_DeniedTurnNeverCallsProvider(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	elems, err := runProviderStageWithCtx(t, topicCtx(t, classify.TopicDeny), stage, "Who should I vote for?")
+	elems, err := runProviderStageWithCtx(t, topicCtx(t, "deny"), stage, "Who should I vote for?")
 
 	require.NoError(t, err, "an enforced guardrail continues the pipeline rather than erroring")
 	assert.Equal(t, 0, provider.callCount(), "a denied turn must not reach the agent provider")
@@ -93,7 +102,7 @@ func TestProviderStage_TopicPolicy_AllowedTurnCallsProvider(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	_, err := runProviderStageWithCtx(t, topicCtx(t, classify.TopicAllow), stage, "Can Omnia run on OpenShift?")
+	_, err := runProviderStageWithCtx(t, topicCtx(t, "allow"), stage, "Can Omnia run on OpenShift?")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, provider.callCount(), "an in-scope turn must reach the agent provider")
@@ -120,7 +129,7 @@ func TestProviderStage_TopicPolicy_GatesInputByDefault(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	_, err := runProviderStageWithCtx(t, topicCtx(t, classify.TopicDeny), stage, "off topic please")
+	_, err := runProviderStageWithCtx(t, topicCtx(t, "deny"), stage, "off topic please")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, provider.callCount(),

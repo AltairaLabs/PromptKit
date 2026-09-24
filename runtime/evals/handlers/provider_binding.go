@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 )
 
-// Resolving a check's ancillary provider, in one place for every classify-backed
-// family.
+// Resolving a check's ancillary provider, in one place for every
+// inference-backed family.
 //
 // A check names a LOGICAL key its own pack declared in `requires`; the host
 // binds that key to something concrete and may rebind it freely. Naming nothing
@@ -17,58 +17,35 @@ import (
 // task", which is a host decision rather than a pack one. What is never
 // legitimate is this package picking a name, or a pack naming a host-side id.
 
-// classifierFor resolves the classify backend a check should use and asserts
-// that it can do the task asked of it.
+// resolveInference resolves the inference provider a check should use.
 //
-// want names the task for the error message ("text classifier"), and assert
-// narrows the backend to the interface the caller needs. A host that bound
-// something unsuited to the key gets told which key, what the check needed and
-// that the binding is the thing to change — rather than an absence, which reads
-// as "not configured" and sends them looking in the wrong place.
-func classifierFor[T any](
-	ctx context.Context, key, want string, assert func(classify.Backend) (T, bool),
-) (T, error) {
-	var zero T
-
+// A named key goes through the host's binding; no key means the host's default
+// inference provider, which the host set, so following it breaks no rule. want
+// names what the check needs ("text classifier") for error messages: a host
+// that bound nothing, or something that is not an inference provider, is told
+// which key and that the binding is the thing to change — rather than an
+// absence, which reads as "not configured" and sends them looking elsewhere.
+func resolveInference(ctx context.Context, key, want string) (inference.Provider, error) {
 	if key == "" {
-		return zero, fmt.Errorf("no %s named; add %q to the check's params, "+
-			"naming a provider the pack declares in requires", want, ProviderParam)
+		reg := inference.FromContext(ctx)
+		if reg == nil {
+			return nil, fmt.Errorf(
+				"no %s configured: the check names no provider and the host set no default. "+
+					"Either name one with %q — a key the pack declares in requires — or configure a default",
+				want, ProviderParam)
+		}
+		return reg.Get("")
 	}
 
 	binding := evals.BindingFromContext(ctx)
 	if binding == nil {
-		return zero, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, evals.ErrNoBinding))
+		return nil, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, evals.ErrNoBinding))
 	}
-
-	backend, err := binding.Classifier(key)
+	provider, err := binding.Inference(key)
 	if err != nil {
-		return zero, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, err))
+		return nil, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key, err))
 	}
-
-	typed, ok := assert(backend)
-	if !ok {
-		return zero, fmt.Errorf("%s: %s", want, evals.DescribeUnresolved(key,
-			fmt.Errorf("%w: the provider bound to it is not a %s", evals.ErrWrongKind, want)))
-	}
-	return typed, nil
-}
-
-// defaultClassifier falls back to the host's configured default for a task,
-// used when a check names no provider. The host set that default, so following
-// it breaks no rule; the registry is asked directly because a default has no
-// logical key to resolve.
-func defaultClassifier[T any](
-	ctx context.Context, want string, get func(*classify.Registry) (T, error),
-) (T, error) {
-	var zero T
-	reg := classify.FromContext(ctx)
-	if reg == nil {
-		return zero, fmt.Errorf(
-			"no %s configured: the check names no provider and the host set no default. "+
-				"Either name one with %q — a key the pack declares in requires — or configure a default",
-			want, ProviderParam)
-	}
-	return get(reg)
+	return provider, nil
 }
 
 // providerResult turns a resolution failure into the right KIND of result.

@@ -118,6 +118,10 @@ type emitterContextKey struct{}
 // events; a Provider wrapped by Instrument is a no-op passthrough for
 // telemetry when the context carries no emitter.
 func WithEmitter(ctx context.Context, e *events.Emitter) context.Context {
+	if e == nil {
+		// Leave any emitter an outer caller attached in place.
+		return ctx
+	}
 	return context.WithValue(ctx, emitterContextKey{}, e)
 }
 

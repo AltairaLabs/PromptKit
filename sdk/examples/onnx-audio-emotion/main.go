@@ -1,4 +1,4 @@
-// Package main demonstrates plugging a custom classify backend into the
+// Package main demonstrates plugging a custom inference provider into the
 // PromptKit SDK. It registers an ONNX wav2vec2 speech-emotion classifier
 // via sdk.WithClassifier and scores the caller's audio with the built-in
 // audio_emotion eval handler — no runtime changes, no HF token, offline.

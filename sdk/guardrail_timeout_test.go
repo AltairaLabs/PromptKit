@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers" // register built-in eval handlers
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
@@ -76,20 +77,21 @@ func newCountingMockProvider() *countingProvider {
 // green.
 type immediateDenyClassifier struct{}
 
-func (immediateDenyClassifier) ClassifyTopic(
-	_ context.Context, _ classify.TopicRequest,
-) (classify.TopicResult, error) {
-	return classify.TopicResult{Decision: classify.TopicDeny, Raw: "off-topic"}, nil
+func (immediateDenyClassifier) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return offTopicResponse(), nil
+}
+
+// offTopicResponse is what a topic backend returns for an off-topic message.
+func offTopicResponse() inference.Response {
+	return inference.Response{Raw: "off-topic", Scores: []inference.LabelScore{{Label: "off-topic", Score: 0.9}, {Label: "on-topic", Score: 0.1}}}
 }
 
 // immediateErrorClassifier fails every classification with no delay. Combined
 // with topic_policy's on_error default (deny), this is the second control.
 type immediateErrorClassifier struct{}
 
-func (immediateErrorClassifier) ClassifyTopic(
-	_ context.Context, _ classify.TopicRequest,
-) (classify.TopicResult, error) {
-	return classify.TopicResult{}, assert.AnError
+func (immediateErrorClassifier) Infer(context.Context, inference.Request) (inference.Response, error) {
+	return inference.Response{}, assert.AnError
 }
 
 // slowClassifier blocks for d, honoring ctx.Done() so it does not leak a
@@ -97,19 +99,17 @@ func (immediateErrorClassifier) ClassifyTopic(
 // from issue #2064.
 type slowClassifier struct{ d time.Duration }
 
-func (s slowClassifier) ClassifyTopic(
-	ctx context.Context, _ classify.TopicRequest,
-) (classify.TopicResult, error) {
+func (s slowClassifier) Infer(ctx context.Context, _ inference.Request) (inference.Response, error) {
 	select {
 	case <-time.After(s.d):
-		return classify.TopicResult{Decision: classify.TopicDeny}, nil
+		return offTopicResponse(), nil
 	case <-ctx.Done():
-		return classify.TopicResult{}, ctx.Err()
+		return inference.Response{}, ctx.Err()
 	}
 }
 
 // TestGuardrailTimeout_DenyImmediately is the first control: an immediate
-// TopicDeny must block the turn and return the validator's message. Must stay
+// off-topic answer must block the turn and return the validator's message. Must stay
 // green through the fix.
 func TestGuardrailTimeout_DenyImmediately(t *testing.T) {
 	provider := newCountingMockProvider()
@@ -188,4 +188,38 @@ func TestGuardrailTimeout_ClassifierTimesOut(t *testing.T) {
 	require.NotEmpty(t, validations, "a guardrail firing must be recorded")
 	assert.Equal(t, "timeout", validations[0].Details["reason"],
 		"a timed-out topic_policy guardrail must record reason:timeout in the firing's details")
+}
+
+// TestGuardrail_InferenceCallIsReportedOnTheEventBus proves the metrics path is
+// wired end to end: a guardrail's inference call publishes an inference call
+// event on the conversation's bus, which the metrics collector records.
+func TestGuardrail_InferenceCallIsReportedOnTheEventBus(t *testing.T) {
+	bus := events.NewEventBus()
+	got := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventInferenceCallCompleted, func(e *events.Event) {
+		select {
+		case got <- e:
+		default:
+		}
+	})
+	conv, err := Open(guardrailTimeoutPack, "support",
+		WithProvider(newCountingMockProvider()),
+		WithSkipSchemaValidation(),
+		WithEventBus(bus),
+		WithClassifier("topic-control", immediateDenyClassifier{}),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	_, err = conv.Send(context.Background(), "Who should I vote for?")
+	require.NoError(t, err)
+
+	select {
+	case e := <-got:
+		data, ok := e.Data.(*events.InferenceCallCompletedData)
+		require.True(t, ok, "unexpected event data %T", e.Data)
+		assert.Equal(t, "topic-control", data.Provider)
+	case <-time.After(time.Second):
+		t.Fatal("no inference call event was published for the guardrail's classifier call")
+	}
 }

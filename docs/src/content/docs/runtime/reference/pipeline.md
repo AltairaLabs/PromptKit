@@ -3696,9 +3696,9 @@ type PipelineConfig struct {
     ProviderBinding evals.ProviderBinding
 
     // ClassifyRegistry, when non-nil, is attached to the execution
-    // context (via classify.WithRegistry) so stages and downstream
-    // consumers resolve inference backends with classify.FromContext.
-    ClassifyRegistry *classify.Registry
+    // context (via inference.WithRegistry) so stages and downstream
+    // consumers resolve inference providers with inference.FromContext.
+    InferenceRegistry *inference.Registry
 }
 ```
 

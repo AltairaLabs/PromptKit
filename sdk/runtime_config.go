@@ -10,7 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
@@ -23,7 +22,7 @@ import (
 	// Side-effect imports register provider factories so CreateFromSpec
 	// can resolve declarative entries.
 	// Chat-provider factories register through other SDK paths.
-	_ "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/all"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/inference/all"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/bedrock"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/cohere"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
@@ -430,73 +429,23 @@ func applySTTProviders(c *config, specs []pkgconfig.STTProviderConfig) error {
 	return nil
 }
 
-// applyInferenceProviders builds classify backends from the declarative
-// inference_providers block and registers them on the SDK's classify
-// registry. The first declared provider implementing a task becomes that
-// task's default (first-wins, matching tts/stt service defaults). Merges
-// into any registry already created by WithInferenceProvider /
-// WithClassifier (programmatic registration runs first).
+// applyInferenceProviders builds inference providers from the declarative
+// inference_providers block and registers them on the SDK's inference
+// registry, after any registered by WithInferenceProvider / WithClassifier
+// (programmatic registration runs first). The first provider registered is the
+// default.
 func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfig) error {
-	if len(specs) == 0 {
-		return nil
-	}
-	c.ensureClassifyRegistry()
-	first := make(map[string]string)
 	for i := range specs {
 		ip := &specs[i]
 		id := ip.ID
 		if id == "" {
 			id = ip.Type
 		}
-		cred, err := classify.ResolveCredential(context.Background(), ip.Type, "", ip.Credential)
-		if err != nil {
-			return fmt.Errorf("inference provider %q: resolving credential: %w", id, err)
-		}
-		backend, err := classify.CreateFromSpec(classify.ProviderSpec{
-			ID:               id,
-			Type:             ip.Type,
-			Model:            ip.Model,
-			BaseURL:          ip.BaseURL,
-			Credential:       cred,
-			AdditionalConfig: ip.AdditionalConfig,
-		})
+		p, err := buildInferenceProvider(id, ip.Type, ip.Model, ip.BaseURL, ip.Credential, ip.AdditionalConfig)
 		if err != nil {
 			return fmt.Errorf("inference provider %q: %w", id, err)
 		}
-		tasks, err := c.registerClassifyBackend(id, backend)
-		if err != nil {
-			return fmt.Errorf("inference provider %q: %w", id, err)
-		}
-		for _, task := range tasks {
-			if _, ok := first[task]; !ok {
-				first[task] = id
-			}
-		}
-	}
-	return applyInferenceFirstWins(c.classifyRegistry, first)
-}
-
-// applyInferenceFirstWins sets each task's default to the first declared
-// provider that implements it. Ignores SetDefault errors that can only
-// occur from an unregistered id (impossible here — ids come from the
-// registration loop).
-func applyInferenceFirstWins(reg *classify.Registry, first map[string]string) error {
-	type taskSetter struct {
-		task string
-		set  func(string) error
-	}
-	for _, ts := range []taskSetter{
-		{"audio", reg.SetDefaultAudio},
-		{contentTypeText, reg.SetDefaultText},
-		{"image", reg.SetDefaultImage},
-		{"video", reg.SetDefaultVideo},
-		{"embedder", reg.SetDefaultEmbedder},
-	} {
-		id, ok := first[ts.task]
-		if !ok {
-			continue
-		}
-		if err := ts.set(id); err != nil {
+		if err := c.registerInferenceProvider(id, p); err != nil {
 			return err
 		}
 	}

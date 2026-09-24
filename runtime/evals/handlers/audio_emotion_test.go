@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	hfinference "github.com/AltairaLabs/PromptKit/runtime/v2/inference/huggingface"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -34,7 +34,7 @@ import (
 // HF audio-classification response JSON (or a 503 model-loading payload
 // when loading is true). Keeping the helper close to the handler tests
 // avoids reaching into the hf package's test fixtures.
-func hfTestServer(t *testing.T, scores []classify.LabelScore, loading bool) *httptest.Server {
+func hfTestServer(t *testing.T, scores []inference.LabelScore, loading bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if loading {
@@ -50,19 +50,15 @@ func hfTestServer(t *testing.T, scores []classify.LabelScore, loading bool) *htt
 
 func ctxWithRegistry(t *testing.T, srvURL string) context.Context {
 	t.Helper()
-	client, err := classifyhf.NewClient(classifyhf.Config{
-		APIKey:  "test-token",
-		BaseURL: srvURL,
-	})
+	provider, err := hfinference.New(hfinference.Config{APIKey: "test-token", BaseURL: srvURL})
 	if err != nil {
-		t.Fatalf("hf client: %v", err)
+		t.Fatalf("hf provider: %v", err)
 	}
-	reg := classify.NewRegistry()
-	reg.RegisterAudio("hf", client)
-	if err := reg.SetDefaultAudio("hf"); err != nil {
-		t.Fatalf("SetDefaultAudio: %v", err)
+	reg := inference.NewRegistry()
+	if err := reg.Register("hf", provider); err != nil {
+		t.Fatalf("register: %v", err)
 	}
-	return classify.WithRegistry(context.Background(), reg)
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 // audioMessage returns a single user message carrying base64-encoded
@@ -83,7 +79,7 @@ func audioMessage(role, body string) types.Message {
 }
 
 func TestAudioEmotion_EmitsScoreForExpectedLabel(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{
+	srv := hfTestServer(t, []inference.LabelScore{
 		{Label: "angry", Score: 0.82},
 		{Label: "neutral", Score: 0.10},
 	}, false)
@@ -126,7 +122,7 @@ func TestAudioEmotion_EmitsScoreForExpectedLabel(t *testing.T) {
 // ToolResult.Parts, which is the agent's output for that turn. Scoring the
 // assistant role must reach it.
 func TestAudioEmotion_ScoresToolResultAudio(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.6}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "angry", Score: 0.6}}, false)
 	defer srv.Close()
 
 	ctx := ctxWithRegistry(t, srv.URL)
@@ -157,7 +153,7 @@ func TestAudioEmotion_ScoresToolResultAudio(t *testing.T) {
 }
 
 func TestAudioEmotion_EmitsZeroWhenLabelNotReturned(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{
+	srv := hfTestServer(t, []inference.LabelScore{
 		{Label: "happy", Score: 0.9},
 	}, false)
 	defer srv.Close()
@@ -246,7 +242,7 @@ func TestAudioEmotion_RejectsThresholdParams(t *testing.T) {
 	// min_score / max_score on the eval handler itself is a config
 	// mistake; the handler should surface it loudly, not silently
 	// accept a no-op param.
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	h := &AudioEmotionHandler{}
 	for _, banned := range []string{"min_score", "max_score"} {
 		res, _ := h.Eval(ctx, &evals.EvalContext{}, map[string]any{
@@ -264,7 +260,7 @@ func TestAudioEmotion_RejectsThresholdParams(t *testing.T) {
 }
 
 func TestAudioEmotion_MissingModelParam(t *testing.T) {
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	h := &AudioEmotionHandler{}
 	res, _ := h.Eval(ctx, &evals.EvalContext{}, map[string]any{
 		"expected_label": "angry",
@@ -275,7 +271,7 @@ func TestAudioEmotion_MissingModelParam(t *testing.T) {
 }
 
 func TestAudioEmotion_MissingExpectedLabelParam(t *testing.T) {
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	h := &AudioEmotionHandler{}
 	res, _ := h.Eval(ctx, &evals.EvalContext{}, map[string]any{
 		"model": "some/model",
@@ -327,7 +323,7 @@ func TestAudioEmotion_NoAudioInMessages(t *testing.T) {
 }
 
 func TestAudioEmotion_MessageIndexPicksSpecificPart(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.9}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "angry", Score: 0.9}}, false)
 	defer srv.Close()
 	ctx := ctxWithRegistry(t, srv.URL)
 	msgs := []types.Message{
@@ -348,7 +344,7 @@ func TestAudioEmotion_MessageIndexPicksSpecificPart(t *testing.T) {
 }
 
 func TestAudioEmotion_MessageIndexOutOfRange(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.9}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "angry", Score: 0.9}}, false)
 	defer srv.Close()
 	ctx := ctxWithRegistry(t, srv.URL)
 	h := &AudioEmotionHandler{}
@@ -376,7 +372,7 @@ func TestAudioEmotion_StorageReferencePath(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.91}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "angry", Score: 0.91}}, false)
 	defer srv.Close()
 	ctx := ctxWithRegistry(t, srv.URL)
 

@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -18,11 +18,10 @@ import (
 // countingTopicClassifier records whether it was consulted at all.
 type countingTopicClassifier struct{ calls int }
 
-func (c *countingTopicClassifier) ClassifyTopic(
-	_ context.Context, _ classify.TopicRequest,
-) (classify.TopicResult, error) {
+func (c *countingTopicClassifier) Infer(context.Context, inference.Request) (inference.Response, error) {
 	c.calls++
-	return classify.TopicResult{Decision: classify.TopicDeny, Raw: "off-topic"}, nil
+	return inference.Response{Raw: "off-topic", Scores: []inference.LabelScore{
+		{Label: "off-topic", Score: 0.9}, {Label: "on-topic", Score: 0.1}}}, nil
 }
 
 func topicPolicyParams() map[string]any {
@@ -33,11 +32,13 @@ func topicPolicyParams() map[string]any {
 	}
 }
 
-func ctxWithTopicClassifier(t *testing.T, c classify.TopicClassifier) context.Context {
+func ctxWithTopicClassifier(t *testing.T, c inference.Provider) context.Context {
 	t.Helper()
-	reg := classify.NewRegistry()
-	classify.RegisterBackendDefaulting(reg, "topic-control", c)
-	return classify.WithRegistry(context.Background(), reg)
+	reg := inference.NewRegistry()
+	if err := reg.Register("topic-control", c); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 func offTopicRequest() *hooks.ProviderRequest {

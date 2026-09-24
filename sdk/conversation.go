@@ -655,7 +655,7 @@ func (c *Conversation) buildPipelineConfig(
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
 		ToolGrants:            c.skillToolGrants,
 		ApprovalChecker:       c.newApprovalChecker(),
-		ClassifyRegistry:      c.config.classifyRegistry,
+		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),
 		// A bound audio session (OpenVoice) plays response audio to a realtime
 		// speaker; pace the output so a streaming provider's whole-reply burst

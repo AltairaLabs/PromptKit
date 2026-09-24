@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 )
 
 // softmax converts logits to a probability distribution, subtracting the
@@ -37,14 +37,14 @@ func softmax(logits []float32) []float32 {
 // labelScores softmaxes the model logits and pairs each probability with
 // its label, returning the pairs sorted by descending score. labels must
 // be in the model's output-index order.
-func labelScores(logits []float32, labels []string) ([]classify.LabelScore, error) {
+func labelScores(logits []float32, labels []string) ([]inference.LabelScore, error) {
 	if len(logits) != len(labels) {
 		return nil, fmt.Errorf("logits (%d) and labels (%d) length mismatch", len(logits), len(labels))
 	}
 	probs := softmax(logits)
-	out := make([]classify.LabelScore, len(labels))
+	out := make([]inference.LabelScore, len(labels))
 	for i, label := range labels {
-		out[i] = classify.LabelScore{Label: label, Score: float64(probs[i])}
+		out[i] = inference.LabelScore{Label: label, Score: float64(probs[i])}
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Score > out[b].Score })
 	return out, nil

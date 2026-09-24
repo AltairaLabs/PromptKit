@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	hfinference "github.com/AltairaLabs/PromptKit/runtime/v2/inference/huggingface"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -22,19 +22,15 @@ import (
 
 func ctxWithImageRegistry(t *testing.T, srvURL string) context.Context {
 	t.Helper()
-	client, err := classifyhf.NewClient(classifyhf.Config{
-		APIKey:  "test-token",
-		BaseURL: srvURL,
-	})
+	provider, err := hfinference.New(hfinference.Config{APIKey: "test-token", BaseURL: srvURL})
 	if err != nil {
-		t.Fatalf("hf client: %v", err)
+		t.Fatalf("hf provider: %v", err)
 	}
-	reg := classify.NewRegistry()
-	reg.RegisterImage("hf", client)
-	if err := reg.SetDefaultImage("hf"); err != nil {
-		t.Fatalf("SetDefaultImage: %v", err)
+	reg := inference.NewRegistry()
+	if err := reg.Register("hf", provider); err != nil {
+		t.Fatalf("register: %v", err)
 	}
-	return classify.WithRegistry(context.Background(), reg)
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 func imageMessage(role, body string) types.Message {
@@ -52,7 +48,7 @@ func imageMessage(role, body string) types.Message {
 }
 
 func TestImageModeration_EmitsScoreForExpectedLabel(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{
+	srv := hfTestServer(t, []inference.LabelScore{
 		{Label: "nsfw", Score: 0.93},
 		{Label: "normal", Score: 0.07},
 	}, false)
@@ -94,7 +90,7 @@ func TestImageModeration_EmitsScoreForExpectedLabel(t *testing.T) {
 // (assistant = the agent's output) must still find it, since the tool ran
 // during the assistant's turn.
 func TestImageModeration_ModeratesToolResultImage(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{
+	srv := hfTestServer(t, []inference.LabelScore{
 		{Label: "nsfw", Score: 0.71},
 		{Label: "normal", Score: 0.29},
 	}, false)
@@ -183,7 +179,7 @@ func TestImageModeration_SkippedOnModelLoading(t *testing.T) {
 }
 
 func TestImageModeration_EmitsZeroWhenLabelNotReturned(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "normal", Score: 0.99}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "normal", Score: 0.99}}, false)
 	defer srv.Close()
 	ctx := ctxWithImageRegistry(t, srv.URL)
 
@@ -218,7 +214,7 @@ func TestImageModeration_SkippedOnModelNotSupported(t *testing.T) {
 }
 
 func TestImageModeration_MessageIndexOutOfRange(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{{Label: "nsfw", Score: 0.4}}, false)
+	srv := hfTestServer(t, []inference.LabelScore{{Label: "nsfw", Score: 0.4}}, false)
 	defer srv.Close()
 	ctx := ctxWithImageRegistry(t, srv.URL)
 
@@ -235,7 +231,7 @@ func TestImageModeration_MessageIndexOutOfRange(t *testing.T) {
 }
 
 func TestImageModeration_RejectsThresholdParams(t *testing.T) {
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	h := &ImageModerationHandler{}
 	for _, banned := range []string{"min_score", "max_score"} {
 		res, _ := h.Eval(ctx, &evals.EvalContext{}, map[string]any{

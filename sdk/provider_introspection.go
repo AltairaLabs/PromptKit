@@ -4,7 +4,7 @@ import (
 	"slices"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
@@ -38,7 +38,7 @@ func RegisteredProviderTypes() map[string][]string {
 		pkgconfig.RoleTTS:       tts.RegisteredTypes(),
 		pkgconfig.RoleSTT:       stt.RegisteredTypes(),
 		pkgconfig.RoleEmbedding: providers.RegisteredEmbeddingProviderTypes(),
-		pkgconfig.RoleInference: classify.RegisteredTypes(),
+		pkgconfig.RoleInference: inference.RegisteredTypes(),
 		pkgconfig.RoleRerank:    providers.RegisteredRerankProviderTypes(),
 	}
 }

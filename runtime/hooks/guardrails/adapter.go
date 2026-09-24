@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -324,6 +326,9 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
 	defer cancel()
 
+	// Inference providers the guardrail's handler calls report through the
+	// adapter's emitter.
+	handlerCtx = inference.WithEmitter(handlerCtx, a.emitter)
 	result, err := a.handler.Eval(handlerCtx, evalCtx, params)
 	// Checked whether Eval returned an error or not: TopicPolicyHandler's
 	// on_error/timeout outcome absorbs classifier errors (including this

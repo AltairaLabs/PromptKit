@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
@@ -19,10 +18,10 @@ import (
 func TestTopicPolicyHandler_WarnKeyIsPolicyNotSession(t *testing.T) {
 	h := &TopicPolicyHandler{}
 
-	a := topicPolicyConfig{policy: classify.TopicPolicy{
+	a := topicPolicyConfig{policy: topicPolicy{
 		Description: "products", Allowed: []string{"omnia"},
 	}}
-	b := topicPolicyConfig{policy: classify.TopicPolicy{
+	b := topicPolicyConfig{policy: topicPolicy{
 		Description: "billing", Allowed: []string{"invoices"},
 	}}
 	aOtherClassifier := a

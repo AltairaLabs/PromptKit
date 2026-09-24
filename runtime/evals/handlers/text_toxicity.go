@@ -12,7 +12,7 @@ import (
 // chosen expected_label. Distinct from the legacy `toxicity` handler,
 // which is an LLM-judge with the same name — `text_toxicity` is the
 // deterministic classifier path that depends on
-// `classify.TextClassifier` and an `inference` provider.
+// an `inference` provider (role: inference).
 //
 // Threshold judgment lives on the `type: assertion` wrapper:
 //

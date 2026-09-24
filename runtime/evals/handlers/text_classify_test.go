@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	hfinference "github.com/AltairaLabs/PromptKit/runtime/v2/inference/huggingface"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -28,11 +28,11 @@ import (
 // labels in the nested HF text-classification shape — `[[{label, score},
 // ...]]`. That matches what HF emits when `return_all_scores: true` is
 // set, which is the mode the handler always requests.
-func hfTextTestServer(t *testing.T, scores []classify.LabelScore) *httptest.Server {
+func hfTextTestServer(t *testing.T, scores []inference.LabelScore) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		nested := [][]classify.LabelScore{scores}
+		nested := [][]inference.LabelScore{scores}
 		_ = json.NewEncoder(w).Encode(nested)
 	}))
 }
@@ -41,16 +41,15 @@ func hfTextTestServer(t *testing.T, scores []classify.LabelScore) *httptest.Serv
 // text classification to a single HF client pointed at srvURL.
 func ctxWithTextRegistry(t *testing.T, srvURL string) context.Context {
 	t.Helper()
-	client, err := classifyhf.NewClient(classifyhf.Config{APIKey: "test-token", BaseURL: srvURL})
+	provider, err := hfinference.New(hfinference.Config{APIKey: "test-token", BaseURL: srvURL})
 	if err != nil {
-		t.Fatalf("hf client: %v", err)
+		t.Fatalf("hf provider: %v", err)
 	}
-	reg := classify.NewRegistry()
-	reg.RegisterText("hf", client)
-	if err := reg.SetDefaultText("hf"); err != nil {
-		t.Fatalf("SetDefaultText: %v", err)
+	reg := inference.NewRegistry()
+	if err := reg.Register("hf", provider); err != nil {
+		t.Fatalf("register: %v", err)
 	}
-	return classify.WithRegistry(context.Background(), reg)
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 // textMessage returns a single message carrying inline text content.
@@ -59,7 +58,7 @@ func textMessage(role, body string) types.Message {
 }
 
 func TestTextSentiment_EmitsScoreForExpectedLabel(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{
+	srv := hfTextTestServer(t, []inference.LabelScore{
 		{Label: "POSITIVE", Score: 0.91},
 		{Label: "NEGATIVE", Score: 0.09},
 	})
@@ -91,7 +90,7 @@ func TestTextSentiment_EmitsScoreForExpectedLabel(t *testing.T) {
 }
 
 func TestTextToxicity_EmitsScoreForExpectedLabel(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{
+	srv := hfTextTestServer(t, []inference.LabelScore{
 		{Label: "toxic", Score: 0.84},
 		{Label: "severe_toxic", Score: 0.41},
 	})
@@ -117,7 +116,7 @@ func TestTextClassify_RejectsThresholdParams(t *testing.T) {
 	// Threshold judgment is the job of `type: assertion`. Putting
 	// min_score / max_score on the eval handler itself is a config
 	// mistake; both classify-backed text handlers surface it loudly.
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	type fixture struct {
 		name string
 		h    evals.EvalTypeHandler
@@ -141,7 +140,7 @@ func TestTextClassify_RejectsThresholdParams(t *testing.T) {
 }
 
 func TestTextClassify_LabelMissingFromModelOutputEmitsZero(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{
+	srv := hfTextTestServer(t, []inference.LabelScore{
 		{Label: "neutral", Score: 0.95},
 	})
 	defer srv.Close()
@@ -211,7 +210,7 @@ func TestTextClassify_SkippedOnModelNotSupported(t *testing.T) {
 }
 
 func TestTextClassify_NoTextInMessagesSkips(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{{Label: "POSITIVE", Score: 0.9}})
+	srv := hfTextTestServer(t, []inference.LabelScore{{Label: "POSITIVE", Score: 0.9}})
 	defer srv.Close()
 
 	ctx := ctxWithTextRegistry(t, srv.URL)
@@ -240,7 +239,7 @@ func TestTextClassify_NoTextInMessagesSkips(t *testing.T) {
 }
 
 func TestTextClassify_MissingParamsErrors(t *testing.T) {
-	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	ctx := inference.WithRegistry(context.Background(), inference.NewRegistry())
 	h := &TextSentimentHandler{}
 
 	// Missing model
@@ -257,7 +256,7 @@ func TestTextClassify_MissingParamsErrors(t *testing.T) {
 }
 
 func TestTextClassify_MessageIndexPicksSpecificMessage(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{{Label: "POSITIVE", Score: 0.9}})
+	srv := hfTextTestServer(t, []inference.LabelScore{{Label: "POSITIVE", Score: 0.9}})
 	defer srv.Close()
 	ctx := ctxWithTextRegistry(t, srv.URL)
 	h := &TextSentimentHandler{}
@@ -278,7 +277,7 @@ func TestTextClassify_MessageIndexPicksSpecificMessage(t *testing.T) {
 }
 
 func TestTextClassify_MessageIndexOutOfRangeErrors(t *testing.T) {
-	srv := hfTextTestServer(t, []classify.LabelScore{{Label: "POSITIVE", Score: 0.9}})
+	srv := hfTextTestServer(t, []inference.LabelScore{{Label: "POSITIVE", Score: 0.9}})
 	defer srv.Close()
 	ctx := ctxWithTextRegistry(t, srv.URL)
 	h := &TextSentimentHandler{}
@@ -299,7 +298,7 @@ func TestTextClassify_MultipartTextMerged(t *testing.T) {
 	// contribute by sending a model that always returns POSITIVE 0.99
 	// regardless of input — we're just asserting no Error path is hit
 	// and the score flows through.
-	srv := hfTextTestServer(t, []classify.LabelScore{{Label: "POSITIVE", Score: 0.99}})
+	srv := hfTextTestServer(t, []inference.LabelScore{{Label: "POSITIVE", Score: 0.99}})
 	defer srv.Close()
 	ctx := ctxWithTextRegistry(t, srv.URL)
 	h := &TextSentimentHandler{}

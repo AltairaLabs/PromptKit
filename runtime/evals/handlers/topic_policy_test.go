@@ -9,37 +9,59 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// fakeTopicClassifier records what it was asked and answers with a canned
-// decision, or fails.
+// fakeTopicClassifier records what it was asked and answers with the label
+// distribution a backend would return for a canned decision, or fails.
 type fakeTopicClassifier struct {
-	decision classify.TopicDecision
+	decision string // "allow", "deny", or anything else for no usable label
 	err      error
-	seen     classify.TopicRequest
+	seen     inference.Request
 	calls    int
 }
 
-func (f *fakeTopicClassifier) ClassifyTopic(
-	_ context.Context, req classify.TopicRequest,
-) (classify.TopicResult, error) {
+func (f *fakeTopicClassifier) Infer(_ context.Context, req inference.Request) (inference.Response, error) {
 	f.calls++
 	f.seen = req
 	if f.err != nil {
-		return classify.TopicResult{}, f.err
+		return inference.Response{}, f.err
 	}
-	return classify.TopicResult{Decision: f.decision, Raw: string(f.decision)}, nil
+	switch f.decision {
+	case "allow":
+		return inference.Response{Raw: f.decision, Scores: []inference.LabelScore{
+			{Label: "on-topic", Score: 0.9}, {Label: "off-topic", Score: 0.1}}}, nil
+	case "deny":
+		return inference.Response{Raw: f.decision, Scores: []inference.LabelScore{
+			{Label: "off-topic", Score: 0.8}, {Label: "on-topic", Score: 0.2}}}, nil
+	}
+	return inference.Response{Raw: f.decision, Scores: []inference.LabelScore{{Label: "maybe", Score: 1}}}, nil
 }
 
-func ctxWithTopic(t *testing.T, c classify.TopicClassifier) context.Context {
+// message is the judged message: the last input the handler sent.
+func (f *fakeTopicClassifier) message() string {
+	if len(f.seen.Inputs) == 0 {
+		return ""
+	}
+	return f.seen.Inputs[len(f.seen.Inputs)-1].GetContent()
+}
+
+// history is every input before the judged message.
+func (f *fakeTopicClassifier) history() []types.Message {
+	if len(f.seen.Inputs) == 0 {
+		return nil
+	}
+	return f.seen.Inputs[:len(f.seen.Inputs)-1]
+}
+
+func ctxWithTopic(t *testing.T, p inference.Provider) context.Context {
 	t.Helper()
-	reg := classify.NewRegistry()
-	classify.RegisterBackendDefaulting(reg, "topic-control", c)
-	return classify.WithRegistry(context.Background(), reg)
+	reg := inference.NewRegistry()
+	require.NoError(t, reg.Register("topic-control", p))
+	return inference.WithRegistry(context.Background(), reg)
 }
 
 func topicParams(overrides map[string]any) map[string]any {
@@ -65,7 +87,7 @@ func topicEvalCtx(message string, history ...types.Message) *evals.EvalContext {
 }
 
 func TestTopicPolicy_AllowScoresOne(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	res, err := h.Eval(ctxWithTopic(t, fake), topicEvalCtx("Can Omnia run on OpenShift?"), topicParams(nil))
@@ -74,13 +96,13 @@ func TestTopicPolicy_AllowScoresOne(t *testing.T) {
 
 	assert.InDelta(t, 1.0, *res.Score, 0.0001)
 	assert.Equal(t, "allow", res.Details["decision"])
-	assert.NotContains(t, res.Details, "confidence",
-		"a label-emitting backend has no confidence; the key must be absent, not zero")
+	assert.InDelta(t, 0.9, res.Details["confidence"], 0.0001,
+		"confidence is the probability the backend gave the chosen label")
 	assert.Nil(t, res.Value, "eval primitives never set Value")
 }
 
 func TestTopicPolicy_DenyScoresZero(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicDeny}
+	fake := &fakeTopicClassifier{decision: "deny"}
 	h := &handlers.TopicPolicyHandler{}
 
 	res, err := h.Eval(ctxWithTopic(t, fake), topicEvalCtx("Who should I vote for?"), topicParams(nil))
@@ -102,7 +124,7 @@ func TestTopicPolicy_UnknownHonorsOnUnknown(t *testing.T) {
 		{"allow", 1.0},
 	} {
 		t.Run(tc.onUnknown, func(t *testing.T) {
-			fake := &fakeTopicClassifier{decision: classify.TopicUnknown}
+			fake := &fakeTopicClassifier{decision: "unknown"}
 			h := &handlers.TopicPolicyHandler{}
 
 			res, err := h.Eval(
@@ -173,7 +195,7 @@ func TestTopicPolicy_NoClassifierBoundHonorsOnErrorAllow(t *testing.T) {
 // TestTopicPolicy_SendsPolicyAndBoundedHistory proves recent_turns actually
 // slices history and that the judged message is the current user turn.
 func TestTopicPolicy_SendsPolicyAndBoundedHistory(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	history := []types.Message{
@@ -189,13 +211,17 @@ func TestTopicPolicy_SendsPolicyAndBoundedHistory(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, "What about Azure?", fake.seen.Message)
-	assert.Len(t, fake.seen.History, 2, "recent_turns: 2 must send two prior turns")
-	assert.Equal(t, "turn two", fake.seen.History[0].Text)
-	assert.Equal(t, "reply two", fake.seen.History[1].Text)
-	assert.Equal(t, "Helps users operate AltairaLabs products.", fake.seen.Policy.Description)
-	assert.Equal(t, []string{"Omnia and PromptKit"}, fake.seen.Policy.Allowed)
-	assert.Equal(t, classify.SmallTalkAllow, fake.seen.Policy.SmallTalk)
+	assert.Equal(t, "What about Azure?", fake.message())
+	assert.Len(t, fake.history(), 2, "recent_turns: 2 must send two prior turns")
+	assert.Equal(t, "turn two", fake.history()[0].Content)
+	assert.Equal(t, "reply two", fake.history()[1].Content)
+	assert.Equal(t, "user", fake.seen.Inputs[len(fake.seen.Inputs)-1].Role, "the judged message goes last, as the user")
+	assert.Contains(t, fake.seen.Prompt, "Helps users operate AltairaLabs products.")
+	assert.Contains(t, fake.seen.Prompt, "- Omnia and PromptKit")
+	assert.Contains(t, fake.seen.Prompt, "Small talk — greetings, thanks and pleasantries — is on-topic.")
+	assert.True(t, strings.HasSuffix(fake.seen.Prompt, `You must respond with "on-topic" or "off-topic".`),
+		"every backend gets NemoGuard's trained prompt, ending with its required closing sentence")
+	assert.Equal(t, []string{"on-topic", "off-topic"}, fake.seen.Labels)
 }
 
 // TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory — a denied turn is
@@ -207,7 +233,7 @@ func TestTopicPolicy_SendsPolicyAndBoundedHistory(t *testing.T) {
 // The real agent turn either side must survive, or this would be indis-
 // tinguishable from dropping assistant history altogether.
 func TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	history := []types.Message{
@@ -228,8 +254,8 @@ func TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	var texts []string
-	for _, turn := range fake.seen.History {
-		texts = append(texts, turn.Text)
+	for _, turn := range fake.history() {
+		texts = append(texts, turn.Content)
 	}
 	assert.NotContains(t, texts, "I can only help with AltairaLabs products.",
 		"the guardrail's own substituted reply is not the agent's voice")
@@ -243,7 +269,7 @@ func TestTopicPolicy_ExcludesItsOwnBlockedTurnFromHistory(t *testing.T) {
 // the recent_turns slice, so a blocked turn does not evict real history. With
 // the order reversed, recent_turns: 2 here would yield a single turn.
 func TestTopicPolicy_BlockedTurnDoesNotConsumeTheWindow(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	history := []types.Message{
@@ -260,8 +286,8 @@ func TestTopicPolicy_BlockedTurnDoesNotConsumeTheWindow(t *testing.T) {
 	require.NoError(t, err)
 
 	var texts []string
-	for _, turn := range fake.seen.History {
-		texts = append(texts, turn.Text)
+	for _, turn := range fake.history() {
+		texts = append(texts, turn.Content)
 	}
 	assert.Equal(t, []string{"Yes, on 4.14 and later.", "Who should I vote for?"}, texts,
 		"the window holds the last two REAL turns; filtering before slicing is what "+
@@ -269,7 +295,7 @@ func TestTopicPolicy_BlockedTurnDoesNotConsumeTheWindow(t *testing.T) {
 }
 
 func TestTopicPolicy_RecentTurnsZeroSendsNoHistory(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicDeny}
+	fake := &fakeTopicClassifier{decision: "deny"}
 	h := &handlers.TopicPolicyHandler{}
 
 	_, err := h.Eval(
@@ -278,7 +304,7 @@ func TestTopicPolicy_RecentTurnsZeroSendsNoHistory(t *testing.T) {
 		topicParams(map[string]any{"recent_turns": 0}),
 	)
 	require.NoError(t, err)
-	assert.Empty(t, fake.seen.History, "recent_turns: 0 means the current message only")
+	assert.Empty(t, fake.history(), "recent_turns: 0 means the current message only")
 }
 
 func TestTopicPolicy_ValidateParams(t *testing.T) {
@@ -433,7 +459,7 @@ func TestTopicPolicy_ValidateParams(t *testing.T) {
 // claims to be. It answers "which policy governed this?" and nothing more: list
 // order and whitespace must not move it, a wording change must.
 func TestTopicPolicy_DigestIgnoresCosmeticsButNotWording(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	digestFor := func(allowed []any) string {
@@ -482,7 +508,7 @@ func TestTopicPolicy_NonTextTurnIsUnknown(t *testing.T) {
 		{"allow", 1.0},
 	} {
 		t.Run(tc.onUnknown, func(t *testing.T) {
-			fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+			fake := &fakeTopicClassifier{decision: "allow"}
 			h := &handlers.TopicPolicyHandler{}
 
 			res, err := h.Eval(
@@ -509,7 +535,7 @@ func TestTopicPolicy_NonTextTurnIsUnknown(t *testing.T) {
 // "What about Azure?" reached the classifier bare — and was denied. Filtering
 // before slicing is what makes recent_turns count conversational turns.
 func TestTopicPolicy_ToolMessagesDoNotEvictHistory(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	history := []types.Message{
@@ -527,17 +553,17 @@ func TestTopicPolicy_ToolMessagesDoNotEvictHistory(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.Len(t, fake.seen.History, 2,
+	require.Len(t, fake.history(), 2,
 		"tool messages must be filtered out before the window is applied, not after")
-	assert.Equal(t, "Can Omnia run on OpenShift?", fake.seen.History[0].Text)
-	assert.Equal(t, "Yes — here is how.", fake.seen.History[1].Text)
-	assert.Equal(t, "What about Azure?", fake.seen.Message)
+	assert.Equal(t, "Can Omnia run on OpenShift?", fake.history()[0].Content)
+	assert.Equal(t, "Yes — here is how.", fake.history()[1].Content)
+	assert.Equal(t, "What about Azure?", fake.message())
 }
 
 // TestTopicPolicy_WindowCountsConversationalTurnsOnly is the other half: once
 // tool messages are filtered out, recent_turns still bounds what is sent.
 func TestTopicPolicy_WindowCountsConversationalTurnsOnly(t *testing.T) {
-	fake := &fakeTopicClassifier{decision: classify.TopicAllow}
+	fake := &fakeTopicClassifier{decision: "allow"}
 	h := &handlers.TopicPolicyHandler{}
 
 	history := []types.Message{
@@ -556,7 +582,7 @@ func TestTopicPolicy_WindowCountsConversationalTurnsOnly(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.Len(t, fake.seen.History, 2)
-	assert.Equal(t, "turn two", fake.seen.History[0].Text)
-	assert.Equal(t, "reply two", fake.seen.History[1].Text)
+	require.Len(t, fake.history(), 2)
+	assert.Equal(t, "turn two", fake.history()[0].Content)
+	assert.Equal(t, "reply two", fake.history()[1].Content)
 }

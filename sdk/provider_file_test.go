@@ -53,8 +53,8 @@ func TestApplyProviderConfig_Inference(t *testing.T) {
 	if err := c.applyProviderConfig(&pkgconfig.Provider{ID: "hf", Type: "huggingface", Role: pkgconfig.RoleInference, Credential: cred("tok")}); err != nil {
 		t.Fatalf("inference: %v", err)
 	}
-	if _, err := c.classifyRegistry.AudioClassifier("hf"); err != nil {
-		t.Fatalf("hf classifier should resolve: %v", err)
+	if _, err := c.inferenceRegistry.Get("hf"); err != nil {
+		t.Fatalf("hf inference provider should resolve: %v", err)
 	}
 }
 

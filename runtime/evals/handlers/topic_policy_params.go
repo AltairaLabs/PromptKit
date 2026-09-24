@@ -8,12 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
 // topicPolicyConfig is the handler's view of a validated policy declaration.
 type topicPolicyConfig struct {
-	policy      classify.TopicPolicy
+	policy      topicPolicy
 	onDeny      string
 	onUnknown   string
 	onError     string
@@ -101,8 +100,8 @@ func parseTopicPolicyParams(params map[string]any) (topicPolicyConfig, error) {
 		return cfg, err
 	}
 
-	smallTalk, err := enumParam(params, "small_talk", classify.SmallTalkAllow,
-		classify.SmallTalkAllow, classify.SmallTalkDeny)
+	smallTalk, err := enumParam(params, "small_talk", smallTalkAllow,
+		smallTalkAllow, smallTalkDeny)
 	if err != nil {
 		return cfg, err
 	}
@@ -122,7 +121,7 @@ func parseTopicPolicyParams(params map[string]any) (topicPolicyConfig, error) {
 		return cfg, err
 	}
 
-	cfg.policy = classify.TopicPolicy{
+	cfg.policy = topicPolicy{
 		Description: description,
 		Allowed:     allowed,
 		Disallowed:  disallowed,
@@ -239,8 +238,8 @@ func toAnySlice(raw any) ([]any, error) {
 	}
 }
 
-func parseTopicExamples(params map[string]any) (classify.TopicExamples, error) {
-	var out classify.TopicExamples
+func parseTopicExamples(params map[string]any) (topicExamples, error) {
+	var out topicExamples
 	raw, ok := params["examples"]
 	if !ok || raw == nil {
 		return out, nil
@@ -315,7 +314,7 @@ func nonNegativeIntParam(params map[string]any, key string, fallback int) (int, 
 // the best available answer to "which policy was in force?". Lists are sorted
 // and entries trimmed before hashing so cosmetic reordering does not change it,
 // but a wording change does — and the digest cannot say what changed.
-func topicPolicyDigest(p classify.TopicPolicy) string {
+func topicPolicyDigest(p topicPolicy) string {
 	normalize := func(items []string) []string {
 		out := make([]string, 0, len(items))
 		for _, item := range items {

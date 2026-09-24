@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
-	classifyhf "github.com/AltairaLabs/PromptKit/runtime/v2/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -21,22 +20,6 @@ import (
 // output. Toxicity and sentiment assertions are almost always about
 // what the model said, not what the user said.
 const textClassifyDefaultRole = "assistant"
-
-// resolveTextClassifier pulls the classify.Registry out of context and
-// looks up the requested classifier. An empty id resolves the
-// configured default. The error returned here surfaces as Skipped at
-// the handler so keyless-CI paths stay clean.
-func resolveTextClassifier(ctx context.Context, key string) (classify.TextClassifier, error) {
-	if key != "" {
-		return classifierFor(ctx, key, "text classifier",
-			func(b classify.Backend) (classify.TextClassifier, bool) {
-				c, ok := b.(classify.TextClassifier)
-				return c, ok
-			})
-	}
-	return defaultClassifier(ctx, "text classifier",
-		func(r *classify.Registry) (classify.TextClassifier, error) { return r.TextClassifier("") })
-}
 
 // collectTextsByRole returns the text content for every message whose
 // Role matches the chosen role. Each returned entry is Message.Content
@@ -94,7 +77,7 @@ func pickText(texts []string, index int) (string, error) {
 // Explanation; downstream wrapper-driven thresholds compute the right
 // pass/fail outcome from the zero.
 func gradeTextClassify(
-	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
+	handlerType string, cfg *classifyConfig, scores []inference.LabelScore,
 ) *evals.EvalResult {
 	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)
 	if foundLabel == "" {
@@ -143,7 +126,7 @@ func runTextClassifyEval(
 		return errorResult(handlerType, cfgErr.Error())
 	}
 
-	classifier, classifierErr := resolveTextClassifier(ctx, cfg.providerKey)
+	provider, classifierErr := resolveInference(ctx, cfg.providerKey, "text classifier")
 	if classifierErr != nil {
 		return providerResult(handlerType, cfg.providerKey, classifierErr, skippedResult, errorResult)
 	}
@@ -167,16 +150,17 @@ func runTextClassifyEval(
 		return errorResult(handlerType, pickErr.Error())
 	}
 
-	opts := classify.TextOptions{
-		Model:      cfg.model,
-		MultiLabel: true, // request scores for every label so any expected_label can be looked up
-	}
-	scores, classifyErr := classifier.ClassifyText(ctx, text, opts)
+	resp, classifyErr := provider.Infer(ctx, inference.Request{
+		Model:  cfg.model,
+		Inputs: []types.Message{{Role: cfg.messageRole, Content: text}},
+		// Request scores for every label so any expected_label can be looked up.
+		Params: map[string]any{"multi_label": true},
+	})
 	if classifyErr != nil {
-		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
+		if errors.Is(classifyErr, inference.ErrModelLoading) {
 			return skippedResult(handlerType, "model still loading after retries")
 		}
-		if errors.Is(classifyErr, classifyhf.ErrModelNotSupported) {
+		if errors.Is(classifyErr, inference.ErrModelNotSupported) {
 			// Symmetric with audio_emotion's handling — when the
 			// configured model can't be served on the configured
 			// inference path, skip cleanly so keyless / free-tier
@@ -188,5 +172,5 @@ func runTextClassifyEval(
 		return errorResult(handlerType, fmt.Sprintf("classify failed: %v", classifyErr))
 	}
 
-	return gradeTextClassify(handlerType, &cfg, scores)
+	return gradeTextClassify(handlerType, &cfg, resp.Scores)
 }

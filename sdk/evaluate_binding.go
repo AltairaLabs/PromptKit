@@ -3,8 +3,8 @@ package sdk
 import (
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -54,15 +54,15 @@ func (b judgeTargetBinding) LLM(key string) (providers.Provider, error) {
 	return p, nil
 }
 
-// Classifier reports that judge targets hold no classifiers, rather than
-// pretending a name is unbound: the caller supplied something for it, just not
-// a thing that classifies.
-func (b judgeTargetBinding) Classifier(key string) (classify.Backend, error) {
+// Inference reports that judge targets hold no inference providers, rather
+// than pretending a name is unbound: the caller supplied something for it, just
+// not a thing that classifies.
+func (b judgeTargetBinding) Inference(key string) (inference.Provider, error) {
 	if _, ok := b[key]; !ok {
 		return nil, evals.ErrUnboundKey
 	}
 	return nil, fmt.Errorf(
-		"%w: %q is a judge target, and this check needs a classify provider. "+
+		"%w: %q is a judge target, and this check needs an inference provider. "+
 			"Pass EvaluateOpts.ProviderBinding to supply one",
 		evals.ErrWrongKind, key)
 }

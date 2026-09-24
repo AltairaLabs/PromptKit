@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -27,7 +27,7 @@ import (
 
 type testBinding struct {
 	llm        providers.Provider
-	classifier classify.Backend
+	classifier inference.Provider
 }
 
 func (b testBinding) LLM(key string) (providers.Provider, error) {
@@ -37,7 +37,7 @@ func (b testBinding) LLM(key string) (providers.Provider, error) {
 	return b.llm, nil
 }
 
-func (b testBinding) Classifier(key string) (classify.Backend, error) {
+func (b testBinding) Inference(key string) (inference.Provider, error) {
 	if b.classifier == nil || key != "screener" {
 		return nil, evals.ErrUnboundKey
 	}

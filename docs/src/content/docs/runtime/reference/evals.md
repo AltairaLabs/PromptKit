@@ -351,7 +351,7 @@ func DefaultGroupsForType(evalType string) []string
 DefaultGroupsForType returns the well\-known groups for a given eval type. The result always includes DefaultEvalGroup plus any classification groups based on the handler's characteristics.
 
 <a name="DescribeUnresolved"></a>
-## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L83>)
+## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L82>)
 
 ```go
 func DescribeUnresolved(key string, err error) string
@@ -624,13 +624,13 @@ ValidateEvals validates a slice of EvalDef for correctness. The scope parameter 
 - Metric type is one of gauge/counter/histogram/boolean
 
 <a name="WithProviderBinding"></a>
-## func [WithProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L64>)
+## func [WithProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L63>)
 
 ```go
 func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context
 ```
 
-WithProviderBinding attaches a host's binding to ctx. Mirrors classify.WithRegistry: the pipeline attaches it once and every stage and handler below reads it from the context it was given.
+WithProviderBinding attaches a host's binding to ctx. Mirrors inference.WithRegistry: the pipeline attaches it once and every stage and handler below reads it from the context it was given.
 
 <a name="AssertionEvalHandler"></a>
 ## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L150-L152>)
@@ -903,7 +903,7 @@ type EvalResult struct {
 ```
 
 <a name="EvalRunner"></a>
-## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L17-L22>)
+## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L19-L24>)
 
 EvalRunner executes evals in\-process. It is the leaf execution unit used by all dispatch modes \(in\-proc, event\-driven, worker\).
 
@@ -914,7 +914,7 @@ type EvalRunner struct {
 ```
 
 <a name="NewEvalRunner"></a>
-### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L79-L81>)
+### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L81-L83>)
 
 ```go
 func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
@@ -923,7 +923,7 @@ func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
 NewEvalRunner creates an EvalRunner with the given registry and options.
 
 <a name="EvalRunner.AddHook"></a>
-### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L71>)
+### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L73>)
 
 ```go
 func (r *EvalRunner) AddHook(h EvalHook)
@@ -932,7 +932,7 @@ func (r *EvalRunner) AddHook(h EvalHook)
 AddHook appends an EvalHook to the runner. Intended to be called during setup, before evals start running — there is no locking. Nil hooks are silently ignored.
 
 <a name="EvalRunner.Clone"></a>
-### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L51>)
+### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L53>)
 
 ```go
 func (r *EvalRunner) Clone() *EvalRunner
@@ -943,7 +943,7 @@ Clone creates a copy of the runner with the same registry, timeout, and hooks bu
 Hooks are copied into a new slice so appending to the clone does not mutate the source. The emitter is intentionally dropped — callers are expected to wire a fresh emitter per\-use.
 
 <a name="EvalRunner.RunConversationEvals"></a>
-### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L124-L128>)
+### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L126-L130>)
 
 ```go
 func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -952,7 +952,7 @@ func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, e
 RunConversationEvals runs conversation\-level evals \(on\_conversation\_complete trigger\). Call this when a multi\-turn conversation ends \(e.g., Arena self\-play completion\).
 
 <a name="EvalRunner.RunSessionEvals"></a>
-### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L109-L113>)
+### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L111-L115>)
 
 ```go
 func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -961,7 +961,7 @@ func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCt
 RunSessionEvals runs session\-level evals \(on\_session\_complete and sample\_sessions triggers\). Call this when a session ends.
 
 <a name="EvalRunner.RunTurnEvals"></a>
-### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L94-L98>)
+### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L96-L100>)
 
 ```go
 func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -970,7 +970,7 @@ func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *
 RunTurnEvals runs turn\-level evals \(every\_turn and sample\_turns triggers\). It filters by enabled state and trigger, then executes matching handlers.
 
 <a name="EvalRunner.SetEmitter"></a>
-### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L64>)
+### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L66>)
 
 ```go
 func (r *EvalRunner) SetEmitter(e *events.Emitter)
@@ -1391,7 +1391,7 @@ type ParamValidator interface {
 ```
 
 <a name="ProviderBinding"></a>
-## type [ProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L46-L57>)
+## type [ProviderBinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L46-L56>)
 
 ProviderBinding resolves a pack's logical provider names against what the host bound to them.
 
@@ -1404,16 +1404,15 @@ type ProviderBinding interface {
     // something that is not one.
     LLM(key string) (providers.Provider, error)
 
-    // Classifier returns the classify backend bound to the logical key.
-    // classify.Backend is an open type, so the caller still asserts the task
-    // interface it needs; the binding answers "this is what the host bound,
-    // and it is a classifier at all".
-    Classifier(key string) (classify.Backend, error)
+    // Inference returns the inference provider bound to the logical key —
+    // what a classifier-backed check needs. ErrWrongKind when the host bound
+    // something that is not one.
+    Inference(key string) (inference.Provider, error)
 }
 ```
 
 <a name="BindingFromContext"></a>
-### func [BindingFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L72>)
+### func [BindingFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L71>)
 
 ```go
 func BindingFromContext(ctx context.Context) ProviderBinding
@@ -1442,7 +1441,7 @@ type ResultWriter interface {
 ```
 
 <a name="RunnerOption"></a>
-## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L25>)
+## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L27>)
 
 RunnerOption configures an EvalRunner.
 
@@ -1451,7 +1450,7 @@ type RunnerOption func(*EvalRunner)
 ```
 
 <a name="WithEmitter"></a>
-### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L33>)
+### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L35>)
 
 ```go
 func WithEmitter(e *events.Emitter) RunnerOption
@@ -1460,7 +1459,7 @@ func WithEmitter(e *events.Emitter) RunnerOption
 WithEmitter configures the runner to emit eval.completed/eval.failed events.
 
 <a name="WithEvalHook"></a>
-### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L40>)
+### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L42>)
 
 ```go
 func WithEvalHook(h EvalHook) RunnerOption
@@ -1469,7 +1468,7 @@ func WithEvalHook(h EvalHook) RunnerOption
 WithEvalHook registers an EvalHook that observes every eval result the runner produces. Multiple hooks may be registered; they are invoked in registration order, before the result is emitted on the event bus.
 
 <a name="WithTimeout"></a>
-### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L28>)
+### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L30>)
 
 ```go
 func WithTimeout(d time.Duration) RunnerOption

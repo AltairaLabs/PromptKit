@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	mock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -46,14 +46,14 @@ func (probeToolCallRepo) GetTurn(_ context.Context, params mock.ResponseParams) 
 // TestInferenceRegistry_VisibleDuringSend proves the full path:
 //
 //	WithClassifier("stub", stubText{})
-//	  → config.classifyRegistry
-//	  → intpipeline.Config.ClassifyRegistry
-//	  → PipelineConfig.ClassifyRegistry
-//	  → classify.WithRegistry(execCtx, registry) in StreamPipeline.Execute
-//	  → classify.FromContext(ctx) resolves inside OnToolCtx during Send.
+//	  → config.inferenceRegistry
+//	  → intpipeline.Config.InferenceRegistry
+//	  → PipelineConfig.InferenceRegistry
+//	  → inference.WithRegistry(execCtx, registry) in StreamPipeline.Execute
+//	  → inference.FromContext(ctx) resolves inside OnToolCtx during Send.
 //
 // The probe tool is called by the mock provider on turn 1, and the OnToolCtx
-// handler captures the classify.Registry from context, asserting both that it
+// handler captures the inference.Registry from context, asserting both that it
 // is non-nil and that the "stub" backend registered via WithClassifier resolves.
 func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 	// ---- 1. Build a Conversation with a tool-call-capable mock provider ----
@@ -75,7 +75,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 		},
 	}}
 
-	// Apply WithClassifier to wire the classify registry onto the config.
+	// Apply WithClassifier to wire the inference registry onto the config.
 	cfg := &config{}
 	require.NoError(t, WithClassifier("stub", stubText{})(cfg))
 	cfg.provider = mockProv
@@ -102,10 +102,10 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 		Mode:        "local",
 	}))
 
-	// ---- 3. Register an OnToolCtx handler that captures classify.FromContext ----
-	var seen *classify.Registry
+	// ---- 3. Register an OnToolCtx handler that captures inference.FromContext ----
+	var seen *inference.Registry
 	conv.OnToolCtx("probe", func(ctx context.Context, _ map[string]any) (any, error) {
-		seen = classify.FromContext(ctx)
+		seen = inference.FromContext(ctx)
 		return "ok", nil
 	})
 
@@ -127,9 +127,9 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 
 	// ---- 6. Assert the registry was visible in the pipeline context ----
 	if seen == nil {
-		t.Fatal("classify registry not visible via classify.FromContext during Send")
+		t.Fatal("inference registry not visible via inference.FromContext during Send")
 	}
-	if _, err := seen.TextClassifier("stub"); err != nil {
+	if _, err := seen.Get("stub"); err != nil {
 		t.Fatalf("registered 'stub' classifier should resolve: %v", err)
 	}
 }
