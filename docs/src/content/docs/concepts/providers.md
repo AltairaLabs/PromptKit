@@ -48,10 +48,10 @@ it implements:
 - `embedding` — vector embeddings via `Embed()`.
 - `image` — image generation; Predict-compatible, so eligible for the
   arena matrix alongside `llm`.
-- `inference` — non-LLM inference (audio/text/image classifiers,
-  embedders) via the `runtime/classify` task interfaces. Powers
-  assertion handlers like `audio_emotion`. Today the only shipped
-  backend is HuggingFace; see
+- `inference` — non-LLM classification through one interface,
+  `inference.Provider`: content in, a probability per label out. Powers
+  checks like `audio_emotion`, `text_toxicity` and `topic_policy`. Types:
+  `huggingface`, `openai` (logprobs), `systemone` (Jev); see
   [Inference Providers](https://promptarena.altairalabs.ai/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
   in the configure-providers how-to.
 

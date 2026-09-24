@@ -424,9 +424,9 @@ conversation_assertions:
 
 ---
 
-## Classify-backed Checks
+## Inference-backed Checks
 
-These eval primitives call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
+These eval primitives call an `inference` provider through its one interface, `Infer` (content in, a probability per label out), and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
 They depend on a provider with `role: inference` being declared in the arena config. Without one — for example a keyless CI run with no `HF_TOKEN` — most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. That difference is deliberate — a safety control that silently does not run is the failure it exists to prevent.
 
@@ -449,7 +449,7 @@ conversation_assertions:
       max_score: 0.3
 ```
 
-Putting `min_score` or `max_score` directly on a classify-backed handler is rejected at parse time; the error points at the wrapper. This stops the eval and assertion roles from drifting into one undifferentiated blob.
+Putting `min_score` or `max_score` directly on one of these handlers is rejected at parse time; the error points at the wrapper. This stops the eval and assertion roles from drifting into one undifferentiated blob.
 
 **Common params** (shared across the family):
 
@@ -463,7 +463,7 @@ Putting `min_score` or `max_score` directly on a classify-backed handler is reje
 
 ### `audio_emotion`
 
-Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through an `AudioClassifier`, and emits the model's score for the chosen emotion label. Used in the voice-refund-demo (wrapped in `type: assertion`) to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
+Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through the bound inference provider, and emits the model's score for the chosen emotion label. Used in the voice-refund-demo (wrapped in `type: assertion`) to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
 
 **Surfaces:** A E (conversation assertion when wrapped; runtime eval when declared in `evals:`)
 
@@ -520,9 +520,9 @@ guardrails:
       max_score: 0.3
 ```
 
-Like every classify-backed eval, `image_moderation` is a pure primitive — it emits
+Like every inference-backed eval, `image_moderation` is a pure primitive — it emits
 the raw score and rejects `min_score`/`max_score` on `eval_params`; the threshold
-lives on the `assertion`/`guardrail` wrapper. With no classify registry configured
+lives on the `assertion`/`guardrail` wrapper. With no inference provider configured
 (keyless CI) it skips cleanly.
 
 ### `text_toxicity`
@@ -574,8 +574,8 @@ Classifier-backed sentiment eval. Emits the model's score for `expected_label`. 
 
 ### `topic_policy`
 
-Confines a conversation to a declared subject scope, decided by a
-`classify.TopicClassifier` rather than by the model being governed. Unlike the
+Confines a conversation to a declared subject scope, decided by an inference
+provider rather than by the model being governed. Unlike the
 rest of this family it is declared and used as a **guardrail**, not an eval or
 assertion: it gates the user's message before the primary provider is called,
 and a denied turn is replaced with the configured message and never reaches
@@ -606,18 +606,22 @@ additional_config:
   timeout_seconds: 20   # optional; default 20
 ```
 
-**Choosing the model.** The backend is an OpenAI-compatible chat client that
-asks for one of two labels, so it works against any endpoint speaking that
-protocol — the purpose-built
-`nvidia/llama-3.1-nemoguard-8b-topic-control`, or a general
-instruction-following model via `model:`. Verified live against
-`meta/llama-3.2-11b-vision-instruct`, which returns the expected labels for
-in-scope, small-talk, out-of-scope and multi-turn anaphora cases.
+**Choosing the backend.** Every backend receives the same prompt — NemoGuard
+topic control's trained format: the policy as the instruction, ending with its
+required closing sentence — and is asked for `on-topic` or `off-topic`. The
+check allows whichever label gets the higher probability and records that
+probability as `confidence`.
+
+| `type` | Backend | Notes |
+|---|---|---|
+| `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required |
+| `openai` | Any OpenAI-compatible chat model that returns logprobs (OpenAI, vLLM, LiteLLM) | `model` is required |
+| `systemone` | TypeSafe's Jev, through the Vercel AI Gateway (`base_url: https://ai-gateway.vercel.sh/typesafe/v1`, `model: typesafe-ai/jev`) or a self-hosted server speaking the same API | Needs an explicit `credential` unless `base_url` is loopback |
 
 :::caution[Do not point this at a reasoning model]
-A reasoning model answers with its thinking (`"Here's a thinking process:
-1. **Analyze User Input**..."`) rather than a bare label. Every classification
-then parses as unknown, `on_unknown` denies, and **the guardrail blocks every
+A reasoning model starts its answer with its thinking rather than a bare
+label, so neither label appears in the first token's probabilities. Every
+classification then errors, `on_error` denies, and **the guardrail blocks every
 turn**. It fails closed rather than leaking traffic, but the conversation stops
 working. Pick a model that will comply with "respond with `on-topic` or
 `off-topic`" and nothing else.

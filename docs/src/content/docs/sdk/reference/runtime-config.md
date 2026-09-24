@@ -141,7 +141,12 @@ Importing the SDK registers these:
 | `image` | `imagen` |
 | `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex` |
 | `rerank` | `voyageai`, `cohere`, `mock` |
-| `inference` | `huggingface`, `nvidia-topic-control` |
+| `inference` | `huggingface`, `openai`, `systemone`, `nvidia-topic-control` (alias: `openai` + NemoGuard topic control) |
+
+Each type calls exactly one vendor API; `base_url`, `credential` and
+`additional_config` only adjust calls to that API. A gateway that serves the
+same API — the Vercel AI Gateway for `systemone`, LiteLLM or vLLM for `openai` —
+is just a `base_url` and a credential, not a new type.
 
 Others need a blank import of their package — `vllm` and `replay` (both `llm`)
 are registered by `runtime/providers/vllm` and `runtime/providers/replay`:
