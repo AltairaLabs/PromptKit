@@ -4148,7 +4148,7 @@ The retriever is handed the turn's messages and decides relevance itself; Prompt
 This is a different mechanism from the memory tools. Grounding happens whether or not the model asks for it and needs no store, no scope and no memory capability — the retrieved content need not be "memory" at all. Use [WithMemory](<#WithMemory>) when you want the model to manage facts about its subject; use this when you want it grounded in your content. A retriever set here takes precedence over one configured via [WithMemoryRetriever](<#WithMemoryRetriever>).
 
 <a name="WithRuntimeConfig"></a>
-### func [WithRuntimeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/runtime_config.go#L95>)
+### func [WithRuntimeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/runtime_config.go#L96>)
 
 ```go
 func WithRuntimeConfig(path string) Option

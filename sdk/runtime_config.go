@@ -26,6 +26,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/bedrock"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/cohere"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/huggingface"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/imagen"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"

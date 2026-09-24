@@ -139,7 +139,7 @@ Importing the SDK registers these:
 |------|-------|
 | `llm` | `claude`, `openai`, `gemini`, `ollama`, `mock` |
 | `image` | `imagen` |
-| `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex` |
+| `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex`, `huggingface` |
 | `rerank` | `voyageai`, `cohere`, `mock` |
 | `inference` | `huggingface`, `openai`, `systemone`, `nvidia-topic-control` (alias: `openai` + NemoGuard topic control) |
 
