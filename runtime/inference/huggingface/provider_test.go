@@ -704,3 +704,26 @@ func TestIsUnsupportedModelResponse(t *testing.T) {
 		})
 	}
 }
+
+// The serverless router answers zero-shot classification with the same
+// [{label, score}] list classification pipelines use — verified live against
+// facebook/bart-large-mnli on 2026-09-24 — not the older parallel-arrays shape.
+func TestInfer_ZeroShot_RouterListShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `[{"label":"cooking","score":0.01},{"label":"investing","score":0.98},{"label":"banking","score":0.01}]`)
+	}))
+	defer srv.Close()
+	p, _ := New(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	resp, err := p.Infer(context.Background(), inference.Request{
+		Model:  "facebook/bart-large-mnli",
+		Inputs: []types.Message{{Role: "user", Content: "Which stocks should I buy?"}},
+		Labels: []string{"banking", "investing", "cooking"},
+	})
+	if err != nil {
+		t.Fatalf("Infer zero-shot: %v", err)
+	}
+	if len(resp.Scores) != 3 || resp.Scores[0].Label != "investing" {
+		t.Errorf("got %v, want investing first", resp.Scores)
+	}
+}

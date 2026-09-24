@@ -291,8 +291,9 @@ type zeroShotRequest struct {
 	Parameters map[string]any `json:"parameters"`
 }
 
-// zeroShotResponse is HF's zero-shot-classification response shape:
-// parallel labels/scores arrays, typically already sorted highest first.
+// zeroShotResponse is the older zero-shot-classification response shape:
+// parallel labels/scores arrays. The serverless router instead returns the
+// [{label, score}] list (see inferZeroShot).
 type zeroShotResponse struct {
 	Sequence string    `json:"sequence"`
 	Labels   []string  `json:"labels"`
@@ -321,6 +322,18 @@ func (p *Provider) inferZeroShot(
 	respBody, err := p.do(ctx, endpoint, "application/json", payload)
 	if err != nil {
 		return inference.Response{}, err
+	}
+
+	// The serverless router answers with the [{label, score}] list that
+	// classification pipelines use; older deployments return parallel
+	// labels/scores arrays. Accept both.
+	if trimmed := bytes.TrimSpace(respBody); len(trimmed) > 0 && trimmed[0] == '[' {
+		scores, err := decodeLabelScores(respBody)
+		if err != nil {
+			return inference.Response{}, err
+		}
+		sortScoresDescending(scores)
+		return inference.Response{Model: model, Scores: scores, Raw: string(respBody)}, nil
 	}
 
 	var decoded zeroShotResponse
