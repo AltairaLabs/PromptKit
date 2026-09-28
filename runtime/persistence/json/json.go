@@ -182,7 +182,7 @@ func (r *ToolRepository) LoadToolFromFile(filename string) error {
 			return fmt.Errorf("missing metadata.name")
 		}
 
-		toolConfig.Spec.Name = toolConfig.Metadata.Name
+		toolConfig.Spec.Name = toolConfig.FunctionName()
 		r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
 		return nil
 	}

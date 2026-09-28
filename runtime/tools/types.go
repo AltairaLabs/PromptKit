@@ -97,6 +97,16 @@ type ToolConfig struct {
 	Spec       ToolDescriptor    `json:"spec" yaml:"spec"`
 }
 
+// FunctionName is the name the LLM calls the tool by: spec.name when set,
+// otherwise metadata.name. metadata.name is a resource name, where hyphens are
+// conventional, so it cannot always be a function name (issue #2081).
+func (c *ToolConfig) FunctionName() string {
+	if c.Spec.Name != "" {
+		return c.Spec.Name
+	}
+	return c.Metadata.Name
+}
+
 // ToolDescriptor represents a normalized tool definition
 type ToolDescriptor struct {
 	Name         string          `json:"name" yaml:"name"`
