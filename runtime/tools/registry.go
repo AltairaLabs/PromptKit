@@ -285,8 +285,7 @@ func (r *Registry) loadK8sManifest(filename string, temp any) error {
 		return err
 	}
 
-	// Use metadata.name as tool name (spec.name is not needed in K8s manifests)
-	toolConfig.Spec.Name = toolConfig.Metadata.Name
+	toolConfig.Spec.Name = toolConfig.FunctionName()
 
 	if err := r.validateDescriptor(&toolConfig.Spec); err != nil {
 		return fmt.Errorf(errInvalidToolDescriptor, filename, err)

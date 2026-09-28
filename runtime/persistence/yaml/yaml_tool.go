@@ -145,8 +145,7 @@ func (r *ToolRepository) loadK8sManifest(filename string, temp interface{}) erro
 		return err
 	}
 
-	// Use metadata.name as tool name
-	toolConfig.Spec.Name = toolConfig.Metadata.Name
+	toolConfig.Spec.Name = toolConfig.FunctionName()
 	r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
 	return nil
 }
