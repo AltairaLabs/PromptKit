@@ -474,3 +474,26 @@ func TestOpenStream_JSONErrorIsReturned(t *testing.T) {
 	require.ErrorAs(t, err, &rpcErr)
 	assert.Equal(t, ErrCodeUnsupportedOperation, rpcErr.Code)
 }
+
+// An agent whose result does not decode fails the call with an error naming
+// the method, rather than returning a zero value.
+func TestClient_UndecodableResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rpcResult(w, decodeRPC(r).ID, "not an object")
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, WithProtocolVersion(ProtocolVersion10))
+	ctx := context.Background()
+
+	_, err := c.SendMessage(ctx, &SendMessageRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1SendMessage+": decode result")
+
+	_, err = c.GetTask(ctx, "t")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1GetTask+": decode result")
+
+	_, err = c.ListTasks(ctx, &ListTasksRequest{ContextID: "c"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1ListTasks+": decode result")
+}
