@@ -39,8 +39,8 @@ tutorial](/sdk/tutorials/10-a2a-server/) uses.
 What you are accepting: the server decides conversation lifetime, and its cache
 is keyed on the `contextID` the **caller** sends. Two callers presenting the
 same one share a conversation — unless you scope tasks by caller with
-`WithTaskOwner` (below), which refuses a message into a context another caller
-started.
+`WithTaskOwner` (below), which refuses a message into a conversation another
+caller opened.
 
 ## Stateless: `NewStatelessServer`
 
@@ -127,8 +127,15 @@ With `WithTaskOwner`, every task records the caller that created it. For
 anyone else, `GetTask`, `CancelTask` and `SubscribeToTask` answer
 `TaskNotFound`, so the task's existence is not revealed. `ListTasks` returns
 only the caller's tasks, and without a `contextId` it lists all of them. A
-message into a context that another caller started is refused. A request whose
-owner is empty is refused with 401.
+request whose owner is empty is refused with 401.
+
+With `NewServer`, a conversation belongs to the caller that opened it. Another
+caller naming its `contextId` is refused. This also holds after the
+conversation is evicted from the cache, for as long as the caller's tasks in
+that context remain. With `NewStatelessServer`, your handler owns contexts and
+decides what a shared one means. An opener that restores conversation state
+from a store shared across replicas should key that state on the caller as
+well as the context.
 
 Without `WithTaskOwner`, the server cannot tell callers apart, so `ListTasks`
 requires a `contextId`.

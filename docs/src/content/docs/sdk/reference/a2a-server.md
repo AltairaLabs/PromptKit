@@ -511,7 +511,7 @@ func WithReadTimeout(d time.Duration) Option
 WithReadTimeout sets the maximum duration for reading the entire request. Default: 30s.
 
 <a name="WithTaskCanceler"></a>
-### func [WithTaskCanceler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L170>)
+### func [WithTaskCanceler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L174>)
 
 ```go
 func WithTaskCanceler(c TaskCanceler) Option
@@ -520,7 +520,7 @@ func WithTaskCanceler(c TaskCanceler) Option
 WithTaskCanceler sets how CancelTask reaches the instance running a task. Default: in\-process only.
 
 <a name="WithTaskEventBus"></a>
-### func [WithTaskEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L164>)
+### func [WithTaskEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L168>)
 
 ```go
 func WithTaskEventBus(bus TaskEventBus) Option
@@ -529,13 +529,13 @@ func WithTaskEventBus(bus TaskEventBus) Option
 WithTaskEventBus sets how task updates reach SubscribeToTask callers. Default: in\-process only.
 
 <a name="WithTaskOwner"></a>
-### func [WithTaskOwner](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L48>)
+### func [WithTaskOwner](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L49>)
 
 ```go
 func WithTaskOwner(owner OwnerFunc) Option
 ```
 
-WithTaskOwner scopes every task to the caller that created it. owner identifies the caller of each request; GetTask, CancelTask, ListTasks and SubscribeToTask then see only the caller's own tasks, ListTasks without a contextId lists them all, and a message into a context another caller started is refused.
+WithTaskOwner scopes every task to the caller that created it. owner identifies the caller of each request; GetTask, CancelTask, ListTasks and SubscribeToTask then see only the caller's own tasks, and ListTasks without a contextId lists them all. With NewServer, a message into a conversation another caller opened is refused; with NewStatelessServer the handler owns contexts and decides.
 
 The task store must implement OwnedTaskStore \(the default in\-memory store does\); NewServer panics otherwise, since serving with scoping silently off would be worse than not starting. A request whose owner is empty is refused.
 
@@ -650,7 +650,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L201-L247>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L201-L252>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -661,7 +661,7 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L256>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L261>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
@@ -683,7 +683,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations — because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L302>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L309>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -692,7 +692,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L333>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L340>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -703,7 +703,7 @@ ListenAndServe starts the HTTP server on the configured port.
 WriteTimeout is set to 0 \(disabled\) because SSE streaming endpoints \(message/stream, tasks/subscribe\) hold the connection open indefinitely. A non\-zero WriteTimeout would kill long\-lived SSE connections. Non\-streaming endpoints rely on the request context deadline for timeout enforcement.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L403>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L411>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -712,7 +712,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener. See ListenAndServe for the rationale behind WriteTimeout: 0.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L355>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L362>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -768,7 +768,7 @@ type StreamingConversation interface {
 ```
 
 <a name="TaskCanceler"></a>
-## type [TaskCanceler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L150-L160>)
+## type [TaskCanceler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L154-L164>)
 
 TaskCanceler stops a task's in\-flight turn wherever it runs.
 
@@ -812,7 +812,7 @@ func (e TaskEvent) IsFinal() bool
 IsFinal reports whether the event ends a task's stream: a status update to a terminal or interrupted state.
 
 <a name="TaskEventBus"></a>
-## type [TaskEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L136-L143>)
+## type [TaskEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/ownership.go#L140-L147>)
 
 TaskEventBus carries task updates to SubscribeToTask callers.
 

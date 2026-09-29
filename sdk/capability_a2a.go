@@ -26,9 +26,8 @@ type A2ACapability struct {
 	agentBridges []*a2a.ToolBridge
 	// agentSettings holds per-bridge discovery settings, keyed by bridge.
 	agentSettings map[*a2a.ToolBridge]a2aBridgeSettings
-	// discovered records the builder bridges whose card has been fetched,
-	// so a failed discovery is retried on the next pipeline build and a
-	// successful one is never repeated (RegisterAgent appends).
+	// discovered records the builder bridges whose card has been fetched, so
+	// a successful discovery is never repeated (RegisterAgent appends).
 	discovered map[*a2a.ToolBridge]bool
 	discoverMu sync.Mutex
 
@@ -67,9 +66,9 @@ type a2aBridgeSettings struct {
 // Init initializes the capability with pack context.
 // If the pack has an agents section, it creates an AgentToolResolver.
 // Builder agents (WithA2AAgent) are discovered here, so their skills are
-// tools from the first turn. A failed discovery is logged and retried on the
-// next pipeline build, unless the agent was marked Required, in which case
-// Init fails.
+// tools from the first turn. A failed discovery is logged and the conversation
+// runs without that agent's tools, unless the agent was marked Required, in
+// which case Init fails.
 func (c *A2ACapability) Init(ctx CapabilityContext) error {
 	if err := c.discoverAgents(); err != nil {
 		return err
@@ -107,7 +106,6 @@ func (c *A2ACapability) registerBridgeTools(registry *tools.Registry) {
 			hasTools = true
 		}
 	}
-	_ = c.discoverAgents() // retry agents that were unreachable at Init
 	for _, bridge := range c.agentBridges {
 		for _, td := range bridge.GetToolDescriptors() {
 			_ = registry.Register(td)
@@ -140,8 +138,7 @@ func (e namedExecutor) Name() string { return e.name }
 
 // discoverAgents fetches the agent card of every builder bridge not yet
 // discovered and turns its skills into tool descriptors. It returns an error
-// only when a Required agent fails; other failures are logged, and the agent
-// is retried on the next call.
+// only when a Required agent fails; other failures are logged.
 func (c *A2ACapability) discoverAgents() error {
 	c.discoverMu.Lock()
 	defer c.discoverMu.Unlock()
@@ -164,7 +161,8 @@ func (c *A2ACapability) discoverAgents() error {
 			if settings.required {
 				return fmt.Errorf("a2a agent %s: %w", settings.url, err)
 			}
-			logger.Warn("a2a agent tools not registered: discovery failed; retrying on next pipeline build",
+			logger.Warn("a2a agent tools not registered: discovery failed; "+
+				"the conversation runs without them (mark the agent Required to fail Open instead)",
 				"agent", settings.url, "error", err)
 			continue
 		}
@@ -198,7 +196,9 @@ func (c *A2ACapability) registerAgentTools(registry *tools.Registry) {
 	if c.localExecutor != nil {
 		registry.RegisterExecutor(c.localExecutor)
 	} else {
-		registry.RegisterExecutor(sdka2a.NewExecutor())
+		// The same executor as bridge tools: the host's, when it gave one,
+		// so pack agents cannot slip past its policy by replacing it.
+		registry.RegisterExecutor(c.bridgeExecutor())
 	}
 }
 

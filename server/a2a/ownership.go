@@ -38,9 +38,10 @@ type OwnedTaskStore interface {
 
 // WithTaskOwner scopes every task to the caller that created it. owner
 // identifies the caller of each request; GetTask, CancelTask, ListTasks and
-// SubscribeToTask then see only the caller's own tasks, ListTasks without a
-// contextId lists them all, and a message into a context another caller
-// started is refused.
+// SubscribeToTask then see only the caller's own tasks, and ListTasks without
+// a contextId lists them all. With NewServer, a message into a conversation
+// another caller opened is refused; with NewStatelessServer the handler owns
+// contexts and decides.
 //
 // The task store must implement OwnedTaskStore (the default in-memory store
 // does); NewServer panics otherwise, since serving with scoping silently off
@@ -104,27 +105,30 @@ func (s *Server) getTaskFor(call *rpcCall, taskID string) *a2a.Task {
 	return task
 }
 
-// checkContextAccess refuses a message into a context another caller
-// started: with a server-owned conversation that would hand the caller the
-// other's history. It answers the call itself and returns false on refusal.
-func (s *Server) checkContextAccess(call *rpcCall, contextID string) bool {
+// errContextTaken is returned when a caller names a context whose
+// conversation another caller opened.
+var errContextTaken = errors.New("a2a: context belongs to another caller")
+
+// checkContextTasks refuses to open a conversation for contextID when the
+// context's tasks belong to another caller — as they do after that caller's
+// conversation was evicted, or when it lives on another replica. It reads the
+// store, so it runs only when a conversation is opened, not per message.
+func (s *Server) checkContextTasks(call *rpcCall, contextID string) error {
 	owned := s.ownedStore()
 	if owned == nil {
-		return true
+		return nil
 	}
 	page, err := queryTasks(s.taskStore, TaskQuery{ContextID: contextID, Limit: 1})
 	if err != nil {
-		call.internalError(fmt.Sprintf("check access to context %s", contextID), err)
-		return false
+		return fmt.Errorf("check access to context %s: %w", contextID, err)
 	}
 	if len(page.Tasks) == 0 {
-		return true
+		return nil
 	}
 	if owner, ownerErr := owned.Owner(page.Tasks[0].ID); ownerErr == nil && owner == call.owner {
-		return true
+		return nil
 	}
-	call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId is not available to this caller")
-	return false
+	return errContextTaken
 }
 
 // TaskEventBus carries task updates to SubscribeToTask callers.

@@ -107,7 +107,7 @@ Skills can override the agent's default input/output modes with their own `input
 
 A card should also say how to authenticate. Set `SecuritySchemes` (for example an `HTTPAuth` Bearer scheme) and `SecurityRequirements` on the `a2a.AgentCard`; the server publishes them in each version's shape.
 
-The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request and honoring `X-Forwarded-Proto` and `X-Forwarded-Host`. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
 ---
 

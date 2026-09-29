@@ -134,6 +134,20 @@ func (v ProtocolVersion) Method(op Operation) string {
 	return methodNames[v][op]
 }
 
+// declaredVersion returns the version the card's JSON-RPC interfaces call
+// for, and whether they declare one at all.
+func (card *AgentCard) declaredVersion() (ProtocolVersion, bool) {
+	if card == nil {
+		return "", false
+	}
+	for _, iface := range card.SupportedInterfaces {
+		if strings.EqualFold(iface.ProtocolBinding, ProtocolBindingJSONRPC) {
+			return card.PreferredVersion(), true
+		}
+	}
+	return "", false
+}
+
 // PreferredVersion picks the protocol version to speak to the agent that
 // published card: 1.0 when any JSON-RPC interface declares it (or the card
 // declares nothing), otherwise 0.3.

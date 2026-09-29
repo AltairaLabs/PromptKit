@@ -190,6 +190,17 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 	}})
 }
 
+// abandon marks the task canceled after its caller went away mid-stream and
+// tells its subscribers. A task CancelTask already finished is left alone.
+func (st *streamTurn) abandon() {
+	if err := st.srv.taskStore.Cancel(st.taskID); err != nil {
+		return
+	}
+	if task, err := st.srv.taskStore.Get(st.taskID); err == nil {
+		st.srv.publishStatus(task.ID, task.ContextID, task.Status)
+	}
+}
+
 // reportActualState tells the caller the task's stored status.
 func (st *streamTurn) reportActualState() {
 	task, err := st.srv.taskStore.Get(st.taskID)
@@ -207,11 +218,16 @@ func (st *streamTurn) process(ctx, reqCtx context.Context, events <-chan StreamE
 		select {
 		case <-ctx.Done():
 			// Still connected means CancelTask stopped the turn: tell the
-			// caller how its task ended. A disconnect needs no answer.
+			// caller how its task ended.
 			if reqCtx.Err() == nil {
 				st.flushText()
 				st.reportActualState()
+				return
 			}
+			// The caller disconnected, which ended the turn. Record that,
+			// so the task does not sit "working" forever and subscribers
+			// get the final event that ends their streams.
+			st.abandon()
 			return
 
 		case evt, ok := <-events:
@@ -295,9 +311,9 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 		return
 	}
 
-	contextID, ok := s.resolveContext(call, params.Message.ContextID)
-	if !ok {
-		return
+	contextID := params.Message.ContextID
+	if contextID == "" {
+		contextID = generateID()
 	}
 
 	out := newStreamWriter(call)
@@ -415,9 +431,8 @@ func (s *Server) resolveStreamTurn(
 		return s.statelessStreamTurn(call, contextID, params, toolResults)
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		call.internalError(fmt.Sprintf("failed to open conversation for context %s", contextID), err)
+	conv := s.openConversation(call, contextID)
+	if conv == nil {
 		return nil, false
 	}
 

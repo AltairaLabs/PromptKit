@@ -164,3 +164,62 @@ func TestIsA2ARetryableError_Timeouts(t *testing.T) {
 	assert.False(t, isA2ARetryableError(&net.OpError{Op: "read", Err: timeoutErr{}}))
 	assert.True(t, isA2ARetryableError(&net.OpError{Op: "read", Err: errors.New("connection reset")}))
 }
+
+func TestWaitForTask_PollsThroughATransientFailure(t *testing.T) {
+	var polls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		switch polls.Add(1) {
+		case 1:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			rpcResult(w, req.ID, &Task{ID: "t", Status: TaskStatus{State: TaskStateCompleted}})
+		}
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, WithProtocolVersion(ProtocolVersion10)).
+		WaitForTask(context.Background(), &Task{ID: "t", Status: TaskStatus{State: TaskStateWorking}})
+	require.NoError(t, err, "one 503 while polling must not fail the wait")
+	assert.Equal(t, TaskStateCompleted, got.Status.State)
+}
+
+func TestWaitForTask_GivesUpAfterRepeatedFailures(t *testing.T) {
+	var polls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		polls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, WithProtocolVersion(ProtocolVersion10)).
+		WaitForTask(context.Background(), &Task{ID: "t", Status: TaskStatus{State: TaskStateWorking}})
+	var httpErr *HTTPStatusError
+	require.ErrorAs(t, err, &httpErr)
+	assert.Equal(t, int32(waitMaxConsecutiveFailures), polls.Load())
+}
+
+// A pre-1.0 PromptKit server: a card with no interfaces, and only the 0.3
+// method names. Discovering it must not pin 1.0 and so rule out the fallback.
+func TestDiscover_CardWithoutInterfacesKeepsNegotiating(t *testing.T) {
+	agent := &versionedAgent{speaks: ProtocolVersion03}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == LegacyAgentCardPath {
+			_, _ = w.Write([]byte(`{"name":"old"}`))
+			return
+		}
+		if r.Method == http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		agent.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Discover(context.Background())
+	require.NoError(t, err)
+	_, err = c.SendMessage(context.Background(), &SendMessageRequest{})
+	require.NoError(t, err, "the 0.3 fallback must still be available after discovery")
+	assert.Equal(t, ProtocolVersion03, c.ProtocolVersion())
+}

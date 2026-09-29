@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/stretchr/testify/assert"
@@ -329,21 +330,23 @@ func TestWithA2AAgent_RequiredAgentFailsOpen(t *testing.T) {
 	assert.Contains(t, err.Error(), srv.URL)
 }
 
-// TestA2ACapability_RetriesFailedDiscovery pins that an agent unreachable at
-// Init gets its tools on a later pipeline build, and that a discovered agent is
-// not rediscovered (RegisterAgent appends, so that would duplicate tools).
-func TestA2ACapability_RetriesFailedDiscovery(t *testing.T) {
-	var up atomic.Bool
+// TestA2ACapability_DiscoversOnceAtInit pins that discovery happens in Init
+// and nowhere else: RegisterTools runs on the first pipeline build, and
+// repeating a failed discovery there would stall that build for another
+// timeout; repeating a successful one would duplicate tools (RegisterAgent
+// appends).
+func TestA2ACapability_DiscoversOnceAtInit(t *testing.T) {
 	var cardFetches atomic.Int32
 	inner := a2aTestServer(t, "Flaky", "lookup", "ok")
 	defer inner.Close()
+	var up atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			cardFetches.Add(1)
+		}
 		if !up.Load() {
 			http.Error(w, "starting", http.StatusServiceUnavailable)
 			return
-		}
-		if r.URL.Path == a2a.LegacyAgentCardPath {
-			cardFetches.Add(1)
 		}
 		resp, err := http.Get(inner.URL + r.URL.Path)
 		if err != nil {
@@ -356,25 +359,63 @@ func TestA2ACapability_RetriesFailedDiscovery(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cap := NewA2ACapability()
-	wireA2AConfig([]Capability{cap}, &config{a2aAgents: []a2aAgentConfig{
-		{url: srv.URL, config: NewA2AAgent(srv.URL).Build()},
-	}})
-	require.NoError(t, cap.Init(CapabilityContext{Pack: &pack.Pack{}}))
+	newCap := func() *A2ACapability {
+		cap := NewA2ACapability()
+		wireA2AConfig([]Capability{cap}, &config{a2aAgents: []a2aAgentConfig{
+			{url: srv.URL, config: NewA2AAgent(srv.URL).Build()},
+		}})
+		require.NoError(t, cap.Init(CapabilityContext{Pack: &pack.Pack{}}))
+		return cap
+	}
 
-	first := tools.NewRegistry()
-	cap.RegisterTools(first)
-	assert.Nil(t, first.Get("a2a__flaky__lookup"), "agent is down: no tools yet")
-
+	down := newCap()
+	fetchesAtInit := cardFetches.Load()
 	up.Store(true)
-	second := tools.NewRegistry()
-	cap.RegisterTools(second)
-	assert.NotNil(t, second.Get("a2a__flaky__lookup"), "retried discovery must register the tool")
+	registry := tools.NewRegistry()
+	down.RegisterTools(registry)
+	assert.Nil(t, registry.Get("a2a__flaky__lookup"), "an agent down at Init contributes no tools")
+	assert.Equal(t, fetchesAtInit, cardFetches.Load(), "RegisterTools must not repeat discovery")
 
-	third := tools.NewRegistry()
-	cap.RegisterTools(third)
-	assert.Len(t, third.GetTools(), 1, "a discovered agent must not be rediscovered")
-	assert.Equal(t, int32(1), cardFetches.Load())
+	healthy := newCap()
+	for i := 0; i < 2; i++ {
+		registry = tools.NewRegistry()
+		healthy.RegisterTools(registry)
+		assert.Len(t, registry.GetTools(), 1, "a discovered agent's tools, once")
+	}
+}
+
+// okA2AExecutor answers every call with a fixed result.
+type okA2AExecutor struct{}
+
+func (okA2AExecutor) Name() string { return "ok" }
+
+func (okA2AExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"response":"ok"}`), nil
+}
+
+// A pack's agents section must not replace the host's executor: agent tools
+// run on it just as bridge tools do.
+func TestWithA2AToolExecutor_CoversPackAgentsToo(t *testing.T) {
+	host := &policyExecutor{next: okA2AExecutor{}}
+	cap := NewA2ACapability()
+	cap.toolExecutor = host
+	cap.endpointResolver = &StaticEndpointResolver{BaseURL: "http://localhost:9000"}
+	p := &pack.Pack{Pack: packspec.Pack{
+		ID:      "test",
+		Prompts: map[string]*pack.Prompt{"orchestrator": {ID: "orchestrator", Tools: []string{"worker"}}},
+		Agents: &pack.AgentsConfig{
+			Entry:   "orchestrator",
+			Members: map[string]*pack.AgentDef{"worker": {Description: "A worker agent"}},
+		},
+	}}
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	res, err := registry.Execute(context.Background(), "a2a__worker", json.RawMessage(`{"query":"hi"}`))
+	require.NoError(t, err)
+	assert.Empty(t, res.Error)
+	assert.Equal(t, int32(1), host.calls.Load(), "the pack agent's call bypassed the host executor")
 }
 
 // policyExecutor records calls and delegates, standing in for a host's

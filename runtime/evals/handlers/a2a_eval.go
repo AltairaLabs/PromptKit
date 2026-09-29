@@ -116,6 +116,11 @@ func executeA2AEval(
 			Blocking: true,
 		},
 	})
+	if err == nil {
+		// A server may answer before the turn is done (a capped blocking
+		// wait, or a 0.3 agent that does not block): wait for it.
+		task, err = client.WaitForTask(ctx, task)
+	}
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,

@@ -242,8 +242,13 @@ type Server struct {
 	canceler       TaskCanceler
 	stopCancelFeed func()
 
-	// owner, when set, scopes every task to the caller that created it.
-	owner OwnerFunc
+	// owner, when set, scopes every task to the caller that created it;
+	// convOwner (under convsMu) records who opened each conversation.
+	owner     OwnerFunc
+	convOwner map[string]string
+
+	// handlers serves each protocol operation.
+	handlers map[a2a.Operation]func(*rpcCall)
 }
 
 // NewServer creates a new A2A server that OWNS its conversations: it opens one
@@ -264,6 +269,7 @@ func newServer(opts ...Option) *Server {
 	s := &Server{
 		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
+		convOwner:    make(map[string]string),
 		cancels:      make(map[string]context.CancelFunc),
 		readTimeout:  defaultReadTimeout,
 		writeTimeout: defaultWriteTimeout,
@@ -287,6 +293,7 @@ func newServer(opts ...Option) *Server {
 		s.canceler = &localCanceler{}
 	}
 	s.stopCancelFeed = s.canceler.Listen(s.cancelLocal)
+	s.handlers = s.rpcHandlers()
 
 	// Start background eviction if at least one TTL is enabled.
 	if s.taskTTL > 0 || s.convTTL > 0 {
@@ -392,6 +399,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			firstErr = err
 		}
 		delete(s.convs, id)
+		delete(s.convOwner, id)
 	}
 	s.convsMu.Unlock()
 
@@ -534,10 +542,11 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.rpcHandlers()[op](call)
+	s.handlers[op](call)
 }
 
-// rpcHandlers maps every operation to the handler that serves it.
+// rpcHandlers maps every operation to the handler that serves it. It is
+// built once, in newServer.
 func (s *Server) rpcHandlers() map[a2a.Operation]func(*rpcCall) {
 	return map[a2a.Operation]func(*rpcCall){
 		a2a.OpSendMessage:          s.handleSendMessage,
@@ -565,9 +574,9 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
-	contextID, ok := s.resolveContext(call, params.Message.ContextID)
-	if !ok {
-		return
+	contextID := params.Message.ContextID
+	if contextID == "" {
+		contextID = generateID()
 	}
 
 	// Stateless mode short-circuits everything about conversation ownership:
@@ -578,9 +587,8 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		call.internalError(fmt.Sprintf("failed to open conversation for context %s", contextID), err)
+	conv := s.openConversation(call, contextID)
+	if conv == nil {
 		return
 	}
 
@@ -610,16 +618,6 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 	bgCtx := context.WithoutCancel(call.r.Context())
 	done := s.runConversation(bgCtx, taskID, contextID, conv, pkMsg)
 	s.awaitTurn(call, taskID, done, params.Configuration)
-}
-
-// resolveContext returns the context a message goes to: the caller's, once it
-// is checked the caller may use it, or a new one. ok is false when the call
-// has been refused.
-func (s *Server) resolveContext(call *rpcCall, requested string) (contextID string, ok bool) {
-	if requested == "" {
-		return generateID(), true
-	}
-	return requested, s.checkContextAccess(call, requested)
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
@@ -1055,24 +1053,52 @@ func (s *Server) handleListTasks(call *rpcCall) {
 // getOrCreateConversation retrieves an existing conversation for the context ID
 // or creates a new one via the opener (double-check lock pattern).
 // It also updates the last-use timestamp for conversation TTL tracking.
-func (s *Server) getOrCreateConversation(contextID string) (Conversation, error) {
+//
+// With tasks scoped by caller, a conversation belongs to the caller that
+// opened it, checked under the same lock that creates it: another caller
+// naming its context gets errContextTaken, however the two race.
+func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conversation, error) {
 	// Acquire write lock directly to avoid a TOCTOU gap between RUnlock and
 	// Lock that could allow duplicate conversation creation.
 	s.convsMu.Lock()
 	defer s.convsMu.Unlock()
 
 	if conv, ok := s.convs[contextID]; ok {
+		if s.owner != nil && s.convOwner[contextID] != call.owner {
+			return nil, errContextTaken
+		}
 		s.convLastUse[contextID] = time.Now()
 		return conv, nil
 	}
 
+	if err := s.checkContextTasks(call, contextID); err != nil {
+		return nil, err
+	}
 	conv, err := s.opener(contextID)
 	if err != nil {
 		return nil, err
 	}
 	s.convs[contextID] = conv
 	s.convLastUse[contextID] = time.Now()
+	if s.owner != nil {
+		s.convOwner[contextID] = call.owner
+	}
 	return conv, nil
+}
+
+// openConversation answers the call itself when the conversation for
+// contextID cannot be had, and returns nil.
+func (s *Server) openConversation(call *rpcCall, contextID string) Conversation {
+	conv, err := s.getOrCreateConversation(call, contextID)
+	switch {
+	case errors.Is(err, errContextTaken):
+		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId is not available to this caller")
+		return nil
+	case err != nil:
+		call.internalError(fmt.Sprintf("failed to open conversation for context %s", contextID), err)
+		return nil
+	}
+	return conv
 }
 
 // generateID returns a random hex string suitable for task and context IDs.
@@ -1171,6 +1197,7 @@ func (s *Server) evictIdleConversations(now time.Time) {
 				delete(s.convs, id)
 			}
 			delete(s.convLastUse, id)
+			delete(s.convOwner, id)
 		}
 	}
 }

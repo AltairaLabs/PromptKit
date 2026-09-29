@@ -251,8 +251,11 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 
 	c.mu.Lock()
 	c.agentCard = card
-	if !c.versionPinned {
-		c.version = card.PreferredVersion()
+	// Only a card that says which versions it serves settles the question.
+	// One that declares no interfaces — a pre-1.0 PromptKit server's, say —
+	// leaves negotiation on, so the 0.3 fallback still works.
+	if v, declared := card.declaredVersion(); declared && !c.versionPinned {
+		c.version = v
 		c.versionPinned = true
 	}
 	c.mu.Unlock()
@@ -582,6 +585,9 @@ const (
 	waitInitialInterval = 100 * time.Millisecond
 	waitMaxInterval     = time.Second
 	waitBackoffFactor   = 2
+	// waitMaxConsecutiveFailures is how many polls in a row may fail before
+	// WaitForTask gives up.
+	waitMaxConsecutiveFailures = 5
 )
 
 // WaitForTask polls task until it finishes or needs the caller (a terminal or
@@ -594,6 +600,7 @@ const (
 // that caps how long it holds a request.
 func (c *Client) WaitForTask(ctx context.Context, task *Task) (*Task, error) {
 	interval := waitInitialInterval
+	failures := 0
 	for !task.Status.State.IsTerminal() && !task.Status.State.IsInterrupted() {
 		timer := time.NewTimer(interval)
 		select {
@@ -602,14 +609,33 @@ func (c *Client) WaitForTask(ctx context.Context, task *Task) (*Task, error) {
 			return task, ctx.Err()
 		case <-timer.C:
 		}
+		interval = min(interval*waitBackoffFactor, waitMaxInterval)
+
 		next, err := c.GetTask(ctx, task.ID)
 		if err != nil {
-			return task, err
+			// GetTask is safe to repeat, so a blip — a 503, a reset, a
+			// timeout — is polled through; an answer from the agent (task
+			// not found) or repeated failure is not.
+			failures++
+			if !isTransientPollError(err) || failures >= waitMaxConsecutiveFailures {
+				return task, err
+			}
+			continue
 		}
+		failures = 0
 		task = next
-		interval = min(interval*waitBackoffFactor, waitMaxInterval)
 	}
 	return task, nil
+}
+
+// isTransientPollError reports whether a failed GetTask is worth repeating:
+// anything but an agent's JSON-RPC answer or the caller giving up.
+func isTransientPollError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var rpcErr *RPCError
+	return !errors.As(err, &rpcErr)
 }
 
 // GetTask retrieves a task by ID (GetTask; 0.3: tasks/get).

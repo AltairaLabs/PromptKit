@@ -126,7 +126,7 @@ var bindingAliases = map[string]bool{
 // the JSON-RPC interface declared for both versions the server speaks.
 //
 // A card with no interfaces gets one pointing at this server's /a2a endpoint,
-// derived from the request. A JSON-RPC interface under any of the names
+// derived from the request's Host. A JSON-RPC interface under any of the names
 // PromptKit used before 1.0 is renamed "JSONRPC", one without a version is
 // 1.0, and if no 0.3 JSON-RPC interface is declared a twin of the first 1.0 one
 // is added, so 0.3 clients (which read url/preferredTransport) and 1.0 clients
@@ -193,18 +193,14 @@ func firstJSONRPCInterface(ifaces []a2a.AgentInterface) (*a2a.AgentInterface, ma
 }
 
 // requestBaseURL reconstructs the scheme and host a caller reached the server
-// on, honoring the usual reverse-proxy headers.
+// on. X-Forwarded-* headers are deliberately ignored: any caller can set them,
+// and a cached card that trusted them would send other callers — and their
+// credentials — wherever the header pointed. Behind a proxy, declare the
+// public URL in the card's SupportedInterfaces instead.
 func requestBaseURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = strings.TrimSpace(strings.Split(proto, ",")[0])
-	}
-	host := r.Host
-	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		host = strings.TrimSpace(strings.Split(fwd, ",")[0])
-	}
-	return scheme + "://" + host
+	return scheme + "://" + r.Host
 }

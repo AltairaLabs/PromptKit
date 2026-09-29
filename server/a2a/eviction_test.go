@@ -213,7 +213,7 @@ func TestServer_ConversationLastUseUpdated(t *testing.T) {
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
 	// First call creates the conversation and sets last-use.
-	_, err := srv.getOrCreateConversation("ctx-1")
+	_, err := srv.getOrCreateConversation(&rpcCall{}, "ctx-1")
 	require.NoError(t, err)
 
 	srv.convsMu.RLock()
@@ -225,7 +225,7 @@ func TestServer_ConversationLastUseUpdated(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	// Second call should update last-use.
-	_, err = srv.getOrCreateConversation("ctx-1")
+	_, err = srv.getOrCreateConversation(&rpcCall{}, "ctx-1")
 	require.NoError(t, err)
 
 	srv.convsMu.RLock()

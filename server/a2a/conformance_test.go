@@ -146,16 +146,18 @@ func TestConformance_CardWithoutInterfacesPointsAtThisServer(t *testing.T) {
 	_, ts := newTestServer(nopOpener, WithCard(&a2a.AgentCard{Name: "bare"}))
 	defer ts.Close()
 
+	// Forwarded headers are caller-controlled; a card that trusted them could
+	// be poisoned in a cache to send other callers elsewhere.
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+a2a.AgentCardPath, http.NoBody)
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-Host", "public.example")
+	req.Header.Set("X-Forwarded-Host", "evil.example")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	var card a2a.AgentCard
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
 	require.Len(t, card.SupportedInterfaces, 2)
-	assert.Equal(t, "https://public.example/a2a", card.SupportedInterfaces[0].URL)
+	assert.Equal(t, ts.URL+"/a2a", card.SupportedInterfaces[0].URL)
 	assert.Equal(t, a2a.ProtocolVersion10, card.PreferredVersion())
 
 	bad, err := http.NewRequest(http.MethodGet, ts.URL+a2a.AgentCardPath, http.NoBody)

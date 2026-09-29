@@ -2166,8 +2166,9 @@ func WithA2ATools(bridge *a2a.ToolBridge) Option {
 	}
 }
 
-// WithA2AToolExecutor runs A2A bridge tools (from [WithA2ATools] and
-// [WithA2AAgent]) on executor instead of the SDK's own A2A executor, so a host
+// WithA2AToolExecutor runs A2A tools (from [WithA2ATools], [WithA2AAgent] and
+// a pack's agents section) on executor instead of the SDK's own A2A executor,
+// so a host
 // can put its own governance — policy checks, receipts, audit — in front of
 // remote agent calls. The executor receives each call's full descriptor,
 // including its A2AConfig; wrap [a2a.NewExecutor] to keep the default
@@ -2281,8 +2282,8 @@ func (b *A2AAgentBuilder) WithSkillFilter(filter *tools.A2ASkillFilter) *A2AAgen
 
 // Required makes the agent's discovery a precondition of opening the
 // conversation: if its agent card cannot be fetched, Open fails. Without it a
-// failed discovery is logged and retried on the next pipeline build, and the
-// conversation runs without that agent's tools meanwhile.
+// failed discovery is logged and the conversation runs without that agent's
+// tools.
 func (b *A2AAgentBuilder) Required() *A2AAgentBuilder {
 	b.required = true
 	return b

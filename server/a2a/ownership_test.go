@@ -280,3 +280,47 @@ func TestCancel_CancelerFailureStillCancelsTheTask(t *testing.T) {
 	require.Nil(t, resp.Error)
 	assert.Equal(t, a2a.TaskStateCanceled, decodeTaskResult(t, resp.Result).Status.State)
 }
+
+// Two callers racing to open the same context: whichever opens the
+// conversation owns it, and the other is refused — the check is made under
+// the lock that creates the conversation, not from tasks that may not exist
+// yet.
+func TestOwnership_ConversationBelongsToWhoeverOpenedIt(t *testing.T) {
+	srv := NewServer(func(string) (Conversation, error) { return completingMock(), nil },
+		WithTaskOwner(ownerFromHeader))
+	defer func() { _ = srv.Shutdown(context.Background()) }()
+
+	alice, bob := &rpcCall{owner: "alice"}, &rpcCall{owner: "bob"}
+	_, err := srv.getOrCreateConversation(alice, "shared")
+	require.NoError(t, err, "no task exists yet, and alice opens the conversation")
+	_, err = srv.getOrCreateConversation(bob, "shared")
+	assert.ErrorIs(t, err, errContextTaken)
+	_, err = srv.getOrCreateConversation(alice, "shared")
+	assert.NoError(t, err)
+}
+
+// After alice's conversation is evicted her tasks remain, and they still keep
+// bob out of the context.
+func TestOwnership_EvictedConversationStaysScoped(t *testing.T) {
+	srv, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil },
+		WithTaskOwner(ownerFromHeader))
+	defer ts.Close()
+
+	sent := as(t, ts, "alice", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
+	require.Nil(t, sent.Error)
+
+	srv.convsMu.Lock()
+	srv.convLastUse["ctx-evict"] = time.Now().Add(-48 * time.Hour)
+	srv.convsMu.Unlock()
+	srv.convTTL = time.Hour
+	srv.evictIdleConversations(time.Now())
+	srv.convsMu.RLock()
+	_, cached := srv.convs["ctx-evict"]
+	srv.convsMu.RUnlock()
+	require.False(t, cached)
+
+	requireCode(t, as(t, ts, "bob", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")}),
+		a2a.ErrCodeInvalidParams, "send into an evicted conversation's context")
+	resp := as(t, ts, "alice", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
+	assert.Nil(t, resp.Error, "alice may reopen her own context")
+}
