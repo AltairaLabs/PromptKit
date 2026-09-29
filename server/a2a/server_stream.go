@@ -3,245 +3,311 @@ package a2aserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// subscriberBuffer is the channel buffer size for broadcast subscribers.
-const subscriberBuffer = 64
-
-// maxSubscribers is the maximum number of concurrent subscribers per broadcaster.
-const maxSubscribers = 1000
-
-// ErrTooManySubscribers is returned when a broadcaster has reached its subscriber limit.
-var ErrTooManySubscribers = fmt.Errorf("a2a: too many subscribers")
-
-// ssePayload is a single SSE payload ready to be broadcast.
-type ssePayload struct {
-	Data []byte // JSON-encoded JSON-RPC response
+// streamWriter writes events to one SSE caller, in that caller's protocol
+// version and under its JSON-RPC id.
+type streamWriter struct {
+	w       http.ResponseWriter
+	flusher http.Flusher
+	id      any
+	v       a2a.ProtocolVersion
+	started bool
 }
 
-// taskBroadcaster fans out SSE events to multiple subscribers for a single task.
-// Subscribers are stored in a map keyed by auto-incrementing ID for O(1) removal.
-type taskBroadcaster struct {
-	mu     sync.Mutex
-	subs   map[uint64]chan ssePayload
-	nextID uint64
-	closed bool
-}
-
-// subscribe adds a new subscriber and returns its receive channel and an ID for unsubscription.
-func (b *taskBroadcaster) subscribe() (_ <-chan ssePayload, subID uint64, _ error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	ch := make(chan ssePayload, subscriberBuffer)
-	if b.closed {
-		close(ch)
-		return ch, 0, nil
-	}
-	if b.subs == nil {
-		b.subs = make(map[uint64]chan ssePayload)
-	}
-	if len(b.subs) >= maxSubscribers {
-		return nil, 0, ErrTooManySubscribers
-	}
-	id := b.nextID
-	b.nextID++
-	b.subs[id] = ch
-	return ch, id, nil
-}
-
-// unsubscribe removes a subscriber by ID.
-func (b *taskBroadcaster) unsubscribe(id uint64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.subs, id)
-}
-
-// send broadcasts an event to all subscribers.
-func (b *taskBroadcaster) send(evt ssePayload) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed {
-		return
-	}
-	for _, ch := range b.subs {
-		select {
-		case ch <- evt:
-		default:
-			log.Printf("a2a: broadcaster: dropped event for slow subscriber (buffer full)")
-		}
-	}
-}
-
-// close marks the broadcaster as closed and closes all subscriber channels.
-func (b *taskBroadcaster) close() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed {
-		return
-	}
-	b.closed = true
-	for _, ch := range b.subs {
-		close(ch)
-	}
-	b.subs = nil
-}
-
-// getBroadcaster returns or creates a broadcaster for the given task ID.
-func (s *Server) getBroadcaster(taskID string) *taskBroadcaster {
-	s.subsMu.Lock()
-	defer s.subsMu.Unlock()
-	b, ok := s.subs[taskID]
+// newStreamWriter prepares an SSE response for call, answering with an error
+// itself and returning nil when the connection cannot stream.
+func newStreamWriter(call *rpcCall) *streamWriter {
+	flusher, ok := call.w.(http.Flusher)
 	if !ok {
-		b = &taskBroadcaster{}
-		s.subs[taskID] = b
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported on this connection")
+		return nil
 	}
-	return b
+	return &streamWriter{w: call.w, flusher: flusher, id: call.req.ID, v: call.v}
 }
 
-// removeBroadcaster removes a broadcaster from the map.
-func (s *Server) removeBroadcaster(taskID string) {
-	s.subsMu.Lock()
-	defer s.subsMu.Unlock()
-	delete(s.subs, taskID)
-}
-
-// closeAllBroadcasters closes all active broadcasters.
-func (s *Server) closeAllBroadcasters() {
-	s.subsMu.Lock()
-	defer s.subsMu.Unlock()
-	for id, b := range s.subs {
-		b.close()
-		delete(s.subs, id)
+// write sends one event: a *Task, *Message, *TaskStatusUpdateEvent or
+// *TaskArtifactUpdateEvent.
+func (sw *streamWriter) write(event any) {
+	if !sw.started {
+		h := sw.w.Header()
+		h.Set("Content-Type", "text/event-stream")
+		h.Set("Cache-Control", "no-cache")
+		h.Set("Connection", "keep-alive")
+		sw.started = true
 	}
-}
-
-// marshalRaw marshals v to json.RawMessage, returning an error if serialization fails.
-func marshalRaw(v any) (json.RawMessage, error) {
-	data, err := json.Marshal(v)
+	payload, err := sw.v.WireStreamEvent(event)
 	if err != nil {
-		return nil, fmt.Errorf("marshalRaw: %w", err)
-	}
-	return data, nil
-}
-
-// writeSSE writes a single SSE event to the response.
-func writeSSE(w http.ResponseWriter, flusher http.Flusher, id, event any) {
-	raw, err := marshalRaw(event)
-	if err != nil {
-		log.Printf("a2a: writeSSE: failed to marshal event: %v", err)
+		log.Printf("a2a: stream: %v", err)
 		return
 	}
-	data, err := json.Marshal(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Result:  raw,
-	})
+	result, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("a2a: writeSSE: failed to marshal response: %v", err)
+		log.Printf("a2a: stream: failed to marshal event: %v", err)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
-	flusher.Flush()
+	data, err := json.Marshal(a2a.JSONRPCResponse{JSONRPC: jsonRPCVersion, ID: sw.id, Result: result})
+	if err != nil {
+		log.Printf("a2a: stream: failed to marshal response: %v", err)
+		return
+	}
+	_, _ = fmt.Fprintf(sw.w, "data: %s\n\n", data)
+	sw.flusher.Flush()
 }
 
-// broadcastEvent builds an ssePayload and sends it to the broadcaster.
-func broadcastEvent(b *taskBroadcaster, rpcID, event any) {
-	raw, err := marshalRaw(event)
-	if err != nil {
-		log.Printf("a2a: broadcastEvent: failed to marshal event: %v", err)
-		return
-	}
-	data, err := json.Marshal(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      rpcID,
-		Result:  raw,
-	})
-	if err != nil {
-		log.Printf("a2a: broadcastEvent: failed to marshal response: %v", err)
-		return
-	}
-	b.send(ssePayload{Data: data})
-}
-
-// streamCtx bundles the common parameters for streaming SSE to a client.
-type streamCtx struct {
+// streamTurn runs one streamed turn: it turns the conversation's events into
+// A2A events for the caller and the task's subscribers, and records the
+// result on the task.
+type streamTurn struct {
 	srv       *Server
-	w         http.ResponseWriter
-	flusher   http.Flusher
-	b         *taskBroadcaster
-	rpcID     any
+	out       *streamWriter
 	taskID    string
 	contextID string
 
-	// artifacts accumulates what was streamed, so the completed task carries
-	// its result and not just the SSE events that already went out. Without
-	// this a tasks/get after a streamed turn returns a completed task with
-	// nothing in it, while the same exchange over message/send has artifacts
-	// (#2032). Written only from the single goroutine running processEvents.
+	// text is the text run being streamed, if any. Contiguous text chunks are
+	// one artifact: the first chunk opens it, later ones extend it with
+	// append, and the last carries lastChunk. A chunk is held back until the
+	// next arrives, because only then is it known not to be the last.
+	text *textRun
+	// nextArtifact numbers artifacts within the task.
+	nextArtifact int
+	// artifacts accumulates what was streamed, so the finished task carries
+	// its result and not just the events that already went out (#2032).
 	artifacts []a2a.Artifact
+	// pending records an EventPending: the turn ends waiting on something the
+	// server cannot see, which is input-required, not completed.
+	pending bool
 }
 
-// emit sends an event to both the direct SSE writer and the broadcaster.
-func (sc *streamCtx) emit(event any) {
-	writeSSE(sc.w, sc.flusher, sc.rpcID, event)
-	broadcastEvent(sc.b, sc.rpcID, event)
+// textRun is one text artifact being streamed.
+type textRun struct {
+	id      string
+	started bool
+	held    *string
+	all     strings.Builder
 }
 
-// fail records a task failure in the store and emits the failed status event.
-func (sc *streamCtx) fail(errText string) {
-	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateFailed, &a2a.Message{
-		Role:  a2a.RoleAgent,
-		Parts: []a2a.Part{{Text: &errText}},
-	}); err != nil {
-		log.Printf("a2a: task %s: failed to set failed state: %v", sc.taskID, err)
+// emit sends an event to the caller and to the task's subscribers.
+func (st *streamTurn) emit(evt TaskEvent) {
+	st.out.write(evt.payload())
+	st.srv.publish(st.taskID, evt)
+}
+
+func (st *streamTurn) newArtifactID() string {
+	st.nextArtifact++
+	return fmt.Sprintf("artifact-%d", st.nextArtifact)
+}
+
+// addText streams a text chunk as part of the current text artifact.
+func (st *streamTurn) addText(text string) {
+	if text == "" {
+		return
 	}
-	sc.emit(a2a.TaskStatusUpdateEvent{
-		TaskID:    sc.taskID,
-		ContextID: sc.contextID,
-		Status: a2a.TaskStatus{
-			State:   a2a.TaskStateFailed,
-			Message: &a2a.Message{Role: a2a.RoleAgent, Parts: []a2a.Part{{Text: &errText}}},
-		},
-	})
-	sc.b.close()
-	sc.srv.removeBroadcaster(sc.taskID)
+	if st.text == nil {
+		st.text = &textRun{id: st.newArtifactID()}
+	}
+	if st.text.held != nil {
+		st.emitTextChunk(*st.text.held, false)
+	}
+	st.text.held = &text
+	st.text.all.WriteString(text)
 }
 
-// complete records a task completion and emits the completed status event.
-func (sc *streamCtx) complete() {
-	// Store before the state change: a consumer that reacts to `completed` and
-	// immediately reads the task must not race an artifact write.
-	if len(sc.artifacts) > 0 {
-		if err := sc.srv.taskStore.AddArtifacts(sc.taskID, sc.artifacts); err != nil {
-			log.Printf("a2a: task %s: failed to add streamed artifacts: %v", sc.taskID, err)
+// emitTextChunk sends one chunk of the current text artifact.
+func (st *streamTurn) emitTextChunk(text string, last bool) {
+	run := st.text
+	st.emit(TaskEvent{ArtifactUpdate: &a2a.TaskArtifactUpdateEvent{
+		TaskID:    st.taskID,
+		ContextID: st.contextID,
+		Artifact:  a2a.Artifact{ArtifactID: run.id, Parts: []a2a.Part{{Text: &text}}},
+		Append:    run.started,
+		LastChunk: last,
+	}})
+	run.started = true
+}
+
+// flushText closes the current text artifact: the held chunk goes out as the
+// last one, and the whole run is kept for the task.
+func (st *streamTurn) flushText() {
+	run := st.text
+	if run == nil {
+		return
+	}
+	if run.held != nil {
+		st.emitTextChunk(*run.held, true)
+	}
+	all := run.all.String()
+	st.artifacts = append(st.artifacts, a2a.Artifact{ArtifactID: run.id, Parts: []a2a.Part{{Text: &all}}})
+	st.text = nil
+}
+
+// addPart streams a non-text part as an artifact of its own.
+func (st *streamTurn) addPart(part a2a.Part) {
+	st.flushText()
+	artifact := a2a.Artifact{ArtifactID: st.newArtifactID(), Parts: []a2a.Part{part}}
+	st.artifacts = append(st.artifacts, artifact)
+	st.emit(TaskEvent{ArtifactUpdate: &a2a.TaskArtifactUpdateEvent{
+		TaskID: st.taskID, ContextID: st.contextID, Artifact: artifact, LastChunk: true,
+	}})
+}
+
+// finish records the turn's outcome and sends the status that ends the
+// stream.
+//
+// Only a completed turn stores its artifacts, as the task's result: a failed
+// or interrupted one must not leave a partial answer behind as its output.
+// They are stored before the state changes, so a consumer that reacts to the
+// final state and immediately reads the task cannot race the write. If the
+// state cannot be set — CancelTask got there first — the caller is told the
+// state the task actually has, and nothing is published, because whoever set
+// that state already did.
+func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
+	st.flushText()
+	if state == a2a.TaskStateCompleted && len(st.artifacts) > 0 {
+		if err := st.srv.taskStore.AddArtifacts(st.taskID, st.artifacts); err != nil {
+			log.Printf("a2a: task %s: failed to add streamed artifacts: %v", st.taskID, err)
 		}
 	}
-	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateCompleted, nil); err != nil {
-		log.Printf("a2a: task %s: failed to set completed state: %v", sc.taskID, err)
+	if msg != nil {
+		msg.MessageID, msg.ContextID, msg.TaskID = generateID(), st.contextID, st.taskID
+		msg.Role = a2a.RoleAgent
 	}
-	sc.emit(a2a.TaskStatusUpdateEvent{
-		TaskID:    sc.taskID,
-		ContextID: sc.contextID,
-		Status:    a2a.TaskStatus{State: a2a.TaskStateCompleted},
-	})
-	sc.b.close()
-	sc.srv.removeBroadcaster(sc.taskID)
+	if err := st.srv.taskStore.SetState(st.taskID, state, msg); err != nil {
+		log.Printf("a2a: task %s: failed to set %s state: %v", st.taskID, state, err)
+		st.reportActualState()
+		return
+	}
+	st.emit(TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
+		TaskID: st.taskID, ContextID: st.contextID, Status: a2a.TaskStatus{State: state, Message: msg},
+	}})
 }
 
-// handleStreamMessage processes a message/stream request.
-func (s *Server) handleStreamMessage(
-	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
-) {
+// abandon marks the task canceled after its caller went away mid-stream and
+// tells its subscribers. A task CancelTask already finished is left alone.
+func (st *streamTurn) abandon() {
+	if err := st.srv.taskStore.Cancel(st.taskID); err != nil {
+		return
+	}
+	if task, err := st.srv.taskStore.Get(st.taskID); err == nil {
+		st.srv.publishStatus(task.ID, task.ContextID, task.Status)
+	}
+}
+
+// reportActualState tells the caller the task's stored status.
+func (st *streamTurn) reportActualState() {
+	task, err := st.srv.taskStore.Get(st.taskID)
+	if err != nil {
+		return
+	}
+	st.out.write(&a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status})
+}
+
+// process consumes the conversation's events until the turn ends. It watches
+// ctx so a client disconnect or a CancelTask ends the loop promptly instead of
+// blocking on a channel read (and leaking the goroutine).
+func (st *streamTurn) process(ctx, reqCtx context.Context, events <-chan StreamEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			// Still connected means CancelTask stopped the turn: tell the
+			// caller how its task ended.
+			if reqCtx.Err() == nil {
+				st.flushText()
+				st.reportActualState()
+				return
+			}
+			// The caller disconnected, which ended the turn. Record that,
+			// so the task does not sit "working" forever and subscribers
+			// get the final event that ends their streams.
+			st.abandon()
+			return
+
+		case evt, ok := <-events:
+			if !ok {
+				st.finishDone()
+				return
+			}
+			if st.handle(evt) {
+				return
+			}
+		}
+	}
+}
+
+// finishDone ends a turn whose producer finished normally.
+func (st *streamTurn) finishDone() {
+	if st.pending {
+		st.finish(a2a.TaskStateInputRequired, nil)
+		return
+	}
+	st.finish(a2a.TaskStateCompleted, nil)
+}
+
+// handle processes one stream event and reports whether the turn is over.
+func (st *streamTurn) handle(evt StreamEvent) (done bool) {
+	if evt.Error != nil {
+		errText := evt.Error.Error()
+		st.finish(a2a.TaskStateFailed, &a2a.Message{Parts: []a2a.Part{{Text: &errText}}})
+		return true
+	}
+
+	switch evt.Kind {
+	case EventText:
+		st.addText(evt.Text)
+
+	case EventMedia:
+		if evt.Media == nil {
+			return false
+		}
+		part, err := a2a.ContentPartToA2APart(types.ContentPart{
+			Type:  a2a.InferContentType(evt.Media.MIMEType),
+			Media: evt.Media,
+		})
+		if err != nil {
+			return false
+		}
+		st.addPart(part)
+
+	case EventToolCall:
+		// Suppressed — agent opacity. Task stays working.
+
+	case EventClientTool:
+		var msg *a2a.Message
+		if evt.ClientTool != nil {
+			msg = &a2a.Message{Parts: []a2a.Part{clientToolPart(*evt.ClientTool)}}
+		}
+		st.finish(a2a.TaskStateInputRequired, msg)
+		return true
+
+	case EventPending:
+		// As on the SendMessage path: the turn will end waiting, so it must
+		// not be reported completed.
+		st.pending = true
+		st.addText(evt.Text)
+
+	case EventDone:
+		st.finishDone()
+		return true
+	}
+	return false
+}
+
+// handleStreamMessage processes SendStreamingMessage (0.3: message/stream).
+//
+// The stream opens with the Task (A2A 1.0 §3.1.2), then carries artifact and
+// status updates, and ends with the status that finishes or interrupts the
+// task.
+func (s *Server) handleStreamMessage(call *rpcCall) {
 	var params a2a.SendMessageRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+	if !call.decodeParams(&params) {
 		return
 	}
 
@@ -250,327 +316,103 @@ func (s *Server) handleStreamMessage(
 		contextID = generateID()
 	}
 
+	out := newStreamWriter(call)
+	if out == nil {
+		return
+	}
+
 	// Which half of the server owns conversations decides where the events come
 	// from. Resolved before the task exists, so a refusal costs nothing.
-	startTurn, handled := s.resolveStreamTurn(w, r, req, contextID, params)
-	if handled {
+	startTurn, ok := s.resolveStreamTurn(call, contextID, params)
+	if !ok {
 		return
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		writeRPCError(w, req.ID, -32000,
-			fmt.Sprintf("Failed to create task: %v", err))
+	if err := s.createTask(call, taskID, contextID); err != nil {
+		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+	s.setState(taskID, contextID, a2a.TaskStateWorking, nil)
+	task, err := s.taskStore.Get(taskID)
+	if err != nil {
+		call.internalError(fmt.Sprintf("failed to read task %s", taskID), err)
 		return
 	}
-
-	// Set SSE headers.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	sc := &streamCtx{
-		srv:       s,
-		w:         w,
-		flusher:   flusher,
-		b:         s.getBroadcaster(taskID),
-		rpcID:     req.ID,
-		taskID:    taskID,
-		contextID: contextID,
-	}
-
-	// Set task to working.
-	if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-		log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-	}
-	sc.emit(a2a.TaskStatusUpdateEvent{
-		TaskID:    taskID,
-		ContextID: contextID,
-		Status:    a2a.TaskStatus{State: a2a.TaskStateWorking},
-	})
+	out.write(task)
 
 	// Use request context so client disconnect cancels the stream.
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(call.r.Context())
 	defer cancel()
+	s.registerCancel(taskID, cancel)
+	defer s.unregisterCancel(taskID)
 
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
-
-	events := startTurn(ctx, taskID)
-
-	sc.processEvents(ctx, events)
+	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID}
+	st.process(ctx, call.r.Context(), startTurn(ctx, taskID))
 }
 
-// handleStreamToolResultMessage processes a streaming message/send that carries
-// client tool results. It submits results, then resumes via ResumeStream.
-func (s *Server) handleStreamToolResultMessage(
-	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
-	conv StreamingConversation, contextID string, results []toolResultEntry,
-) {
-	resumable, ok := conv.(ResumableConversation)
-	if !ok {
-		writeRPCError(w, req.ID, -32000, "Conversation does not support client tool results")
+// handleTaskSubscribe processes SubscribeToTask (0.3: tasks/resubscribe).
+//
+// The stream opens with the task as it stands (A2A 1.0 §3.1.6), then carries
+// the task's updates until it finishes or is interrupted. A task that has
+// already finished cannot be subscribed to.
+func (s *Server) handleTaskSubscribe(call *rpcCall) {
+	var params a2a.SubscribeTaskRequest
+	if !call.decodeParams(&params) {
 		return
 	}
 
-	for _, tr := range results {
-		if tr.Rejected {
-			resumable.RejectClientTool(tr.CallID, tr.Reason)
-		} else {
-			if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
-				writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to submit tool result: %v", err))
-				return
-			}
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
+		return
+	}
+	if task.Status.State.IsTerminal() {
+		call.fail(a2a.ErrCodeUnsupportedOperation,
+			fmt.Sprintf("Task is %s; a finished task cannot be subscribed to", task.Status.State.V03Name()))
+		return
+	}
+
+	out := newStreamWriter(call)
+	if out == nil {
+		return
+	}
+
+	// Subscribe before reading the task again, so no update can fall between
+	// the snapshot and the first event; a duplicate is harmless, a gap is not.
+	ctx := call.r.Context()
+	events, err := s.events.Subscribe(ctx, params.ID)
+	if err != nil {
+		if errors.Is(err, ErrTooManySubscribers) {
+			call.fail(a2a.ErrCodeInternal, "Too many subscribers for this task")
+			return
 		}
-	}
-
-	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to create task: %v", err))
+		call.internalError(fmt.Sprintf("subscribe to task %s", params.ID), err)
 		return
 	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+	if task, err = s.taskStore.Get(params.ID); err != nil {
+		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	sc := &streamCtx{
-		srv:       s,
-		w:         w,
-		flusher:   flusher,
-		b:         s.getBroadcaster(taskID),
-		rpcID:     req.ID,
-		taskID:    taskID,
-		contextID: contextID,
+	out.write(task)
+	if state := task.Status.State; state.IsTerminal() || state.IsInterrupted() {
+		return
 	}
-
-	if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-		log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-	}
-	sc.emit(a2a.TaskStatusUpdateEvent{
-		TaskID:    taskID,
-		ContextID: contextID,
-		Status:    a2a.TaskStatus{State: a2a.TaskStateWorking},
-	})
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
-
-	events := resumable.ResumeStream(ctx)
-	sc.processEvents(ctx, events)
+	relayEvents(ctx, out, events)
 }
 
-// processEvents iterates over the stream channel and emits SSE events.
-// It monitors ctx for client disconnects so the loop exits promptly instead
-// of blocking on a channel read indefinitely (preventing goroutine leaks).
-func (sc *streamCtx) processEvents(ctx context.Context, events <-chan StreamEvent) {
-	artifactIdx := 0
-
+// relayEvents writes a subscription's events to out until a final event, the
+// end of the subscription, or the caller going away.
+func relayEvents(ctx context.Context, out *streamWriter, events <-chan TaskEvent) {
 	for {
 		select {
-		case <-ctx.Done():
-			// Client disconnected or context canceled. Clean up the
-			// broadcaster so subscribers are notified, then exit.
-			sc.b.close()
-			sc.srv.removeBroadcaster(sc.taskID)
-			return
-
 		case evt, ok := <-events:
 			if !ok {
-				// Channel closed without a Done event — treat as completed.
-				sc.complete()
 				return
 			}
-
-			done, idx := sc.handleEvent(evt, artifactIdx)
-			if done {
+			out.write(evt.payload())
+			if evt.IsFinal() {
 				return
 			}
-			artifactIdx = idx
-		}
-	}
-}
-
-// handleEvent processes a single stream event and returns whether the stream
-// is finished and the updated artifact index.
-func (sc *streamCtx) handleEvent(evt StreamEvent, artifactIdx int) (done bool, nextIdx int) {
-	if evt.Error != nil {
-		sc.fail(evt.Error.Error())
-		return true, artifactIdx
-	}
-
-	switch evt.Kind {
-	case EventText:
-		sc.emitArtifact(artifactIdx, []a2a.Part{{Text: &evt.Text}})
-		return false, artifactIdx + 1
-
-	case EventMedia:
-		if evt.Media == nil {
-			return false, artifactIdx
-		}
-		part, convErr := a2a.ContentPartToA2APart(types.ContentPart{
-			Type:  a2a.InferContentType(evt.Media.MIMEType),
-			Media: evt.Media,
-		})
-		if convErr != nil {
-			return false, artifactIdx
-		}
-		sc.emitArtifact(artifactIdx, []a2a.Part{part})
-		return false, artifactIdx + 1
-
-	case EventToolCall:
-		// Suppressed — agent opacity. Task stays working.
-		return false, artifactIdx
-
-	case EventClientTool:
-		sc.emitInputRequired(evt)
-		return true, artifactIdx
-
-	case EventDone:
-		sc.complete()
-		return true, artifactIdx
-
-	default:
-		return false, artifactIdx
-	}
-}
-
-// emitInputRequired emits a task status update with input_required state
-// and client tool metadata so the A2A client can fulfill the tool request.
-func (sc *streamCtx) emitInputRequired(evt StreamEvent) {
-	var msg *a2a.Message
-	if evt.ClientTool != nil {
-		text := fmt.Sprintf("Client tool required: %s", evt.ClientTool.ToolName)
-		msg = &a2a.Message{
-			Role: a2a.RoleAgent,
-			Parts: []a2a.Part{{
-				Text: &text,
-				Metadata: map[string]any{
-					"tool_call_id":    evt.ClientTool.CallID,
-					"tool_name":       evt.ClientTool.ToolName,
-					"tool_args":       evt.ClientTool.Args,
-					"consent_message": evt.ClientTool.ConsentMsg,
-				},
-			}},
-		}
-	}
-	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateInputRequired, msg); err != nil {
-		log.Printf("a2a: task %s: failed to set input_required state: %v", sc.taskID, err)
-	}
-	sc.emit(a2a.TaskStatusUpdateEvent{
-		TaskID:    sc.taskID,
-		ContextID: sc.contextID,
-		Status: a2a.TaskStatus{
-			State:   a2a.TaskStateInputRequired,
-			Message: msg,
-		},
-	})
-	sc.b.close()
-	sc.srv.removeBroadcaster(sc.taskID)
-}
-
-// emitArtifact emits a single artifact update event.
-func (sc *streamCtx) emitArtifact(idx int, parts []a2a.Part) {
-	artifact := a2a.Artifact{
-		ArtifactID: fmt.Sprintf("artifact-%d", idx),
-		Parts:      parts,
-	}
-	// Keep what went out, so complete() can persist the same thing. A client
-	// that streams and later re-reads the task — another process, a reconnect,
-	// an audit — sees what was produced.
-	sc.artifacts = append(sc.artifacts, artifact)
-	sc.emit(a2a.TaskArtifactUpdateEvent{
-		TaskID:    sc.taskID,
-		ContextID: sc.contextID,
-		Artifact:  artifact,
-		Append:    true,
-	})
-}
-
-// handleTaskSubscribe processes a tasks/subscribe request.
-func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
-	var params a2a.SubscribeTaskRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
-		return
-	}
-
-	// Look up existing broadcaster.
-	s.subsMu.Lock()
-	broadcaster, hasBroadcaster := s.subs[params.ID]
-	s.subsMu.Unlock()
-
-	if !hasBroadcaster {
-		// No active broadcaster. Check if task exists and is terminal.
-		task, err := s.taskStore.Get(params.ID)
-		if err != nil {
-			writeRPCError(w, req.ID, -32001, fmt.Sprintf("Task not found: %v", err))
-			return
-		}
-
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			writeRPCError(w, req.ID, -32000, "Streaming not supported")
-			return
-		}
-
-		// Task exists but no active stream. Send its current status.
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-
-		writeSSE(w, flusher, req.ID, a2a.TaskStatusUpdateEvent{
-			TaskID:    task.ID,
-			ContextID: task.ContextID,
-			Status:    task.Status,
-		})
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeRPCError(w, req.ID, -32000, "Streaming not supported")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	ch, subID, subErr := broadcaster.subscribe()
-	if subErr != nil {
-		writeRPCError(w, req.ID, -32000, "Too many subscribers")
-		return
-	}
-	defer broadcaster.unsubscribe(subID)
-
-	ctx := r.Context()
-	for {
-		select {
-		case evt, ok := <-ch:
-			if !ok {
-				// Broadcaster closed — stream ended.
-				return
-			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", evt.Data)
-			flusher.Flush()
 		case <-ctx.Done():
 			return
 		}
@@ -578,59 +420,58 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 }
 
 // resolveStreamTurn produces the function that starts this request's event
-// stream, for either server mode.
-//
-// handled is true when the request is already answered — a refusal, or a
-// conversation-backed tool result, which has its own handler. The caller stops
-// in that case.
+// stream, for either server mode. ok is false when the request has already
+// been answered with an error.
 func (s *Server) resolveStreamTurn(
-	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
-	contextID string, params a2a.SendMessageRequest,
-) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	call *rpcCall, contextID string, params a2a.SendMessageRequest,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, ok bool) {
 	toolResults := extractToolResults(params.Message.Parts)
 
 	if s.handler != nil {
-		return s.statelessStreamTurn(w, req, contextID, params, toolResults)
+		return s.statelessStreamTurn(call, contextID, params, toolResults)
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to open conversation: %v", err))
-		return nil, true
+	conv := s.openConversation(call, contextID)
+	if conv == nil {
+		return nil, false
 	}
 
-	streamConv, ok := conv.(StreamingConversation)
-	if !ok {
-		writeRPCError(w, req.ID, -32601, "Streaming not supported by this agent")
-		return nil, true
+	streamConv, isStreaming := conv.(StreamingConversation)
+	if !isStreaming {
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported by this agent")
+		return nil, false
 	}
 
 	if len(toolResults) > 0 {
-		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
-		return nil, true
+		resumable := submitToolResults(call, streamConv, toolResults)
+		if resumable == nil {
+			return nil, false
+		}
+		return func(ctx context.Context, _ string) <-chan StreamEvent {
+			return resumable.ResumeStream(ctx)
+		}, true
 	}
 
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
-		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
-		return nil, true
+		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
+		return nil, false
 	}
 
 	return func(ctx context.Context, _ string) <-chan StreamEvent {
 		return streamConv.Stream(ctx, pkMsg)
-	}, false
+	}, true
 }
 
 // statelessStreamTurn is resolveStreamTurn's handler-mode half: no conversation
 // to open, and tool results only when the handler asked for client tools.
 func (s *Server) statelessStreamTurn(
-	w http.ResponseWriter, req *a2a.JSONRPCRequest,
-	contextID string, params a2a.SendMessageRequest, toolResults []toolResultEntry,
-) (start func(ctx context.Context, taskID string) <-chan StreamEvent, handled bool) {
+	call *rpcCall, contextID string, params a2a.SendMessageRequest, toolResults []toolResultEntry,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, ok bool) {
 	trh, resumable := s.handler.(ToolResultHandler)
 	if len(toolResults) > 0 && !resumable {
-		writeRPCError(w, req.ID, -32601, "Client tool results are not supported by this agent")
-		return nil, true
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Client tool results are not supported by this agent")
+		return nil, false
 	}
 
 	return func(ctx context.Context, taskID string) <-chan StreamEvent {
@@ -646,5 +487,5 @@ func (s *Server) statelessStreamTurn(
 			TaskID:    taskID,
 			Message:   params.Message,
 		})
-	}, false
+	}, true
 }

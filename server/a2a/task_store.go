@@ -64,26 +64,168 @@ type TaskStore interface {
 	EvictTerminal(olderThan time.Time) []string
 }
 
-// InMemoryTaskStore is a concurrency-safe, in-memory implementation of TaskStore.
+// TaskQuery selects a page of tasks for ListTasks.
+type TaskQuery struct {
+	// Owner, when set, restricts the query to the tasks that caller created
+	// (see OwnedTaskStore).
+	Owner string
+	// ContextID, when set, restricts the query to one context.
+	ContextID string
+	// Status, when set, keeps only tasks in that state.
+	Status *a2a.TaskState
+	// StatusAfter, when set, keeps only tasks whose status changed after it.
+	StatusAfter *time.Time
+	// Limit and Offset select the page within the ordered result.
+	Limit  int
+	Offset int
+}
+
+// TaskPage is one page of a TaskQuery's result.
+type TaskPage struct {
+	// Tasks are ordered most recently updated first (A2A 1.0 §3.1.4).
+	Tasks []*a2a.Task
+	// Total is the number of tasks matching the query across all pages.
+	Total int
+}
+
+// TaskQuerier is optionally implemented by a TaskStore that can filter, order
+// and page tasks itself. Without it the server pages through List and does
+// the filtering and ordering in memory, which is correct but reads every task
+// in the context on each call.
+type TaskQuerier interface {
+	Query(q TaskQuery) (TaskPage, error)
+}
+
+// queryTasks runs q against store, natively when the store supports it.
+func queryTasks(store TaskStore, q TaskQuery) (TaskPage, error) {
+	if querier, ok := store.(TaskQuerier); ok {
+		return querier.Query(q)
+	}
+	all, err := listAll(store, q.ContextID)
+	if err != nil {
+		return TaskPage{}, err
+	}
+	if q.Owner != "" {
+		all = ownedBy(store, all, q.Owner)
+	}
+	return pageTasks(all, q), nil
+}
+
+// listAll reads every task in a context (every task, for an empty one)
+// through List, a batch at a time.
+func listAll(store TaskStore, contextID string) ([]*a2a.Task, error) {
+	const batch = 500
+	var all []*a2a.Task
+	for offset := 0; ; offset += batch {
+		tasks, err := store.List(contextID, batch, offset)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, tasks...)
+		if len(tasks) < batch {
+			return all, nil
+		}
+	}
+}
+
+// ownedBy keeps the tasks owner created. A store that cannot say who owns a
+// task keeps none of them.
+func ownedBy(store TaskStore, tasks []*a2a.Task, owner string) []*a2a.Task {
+	owned, ok := store.(OwnedTaskStore)
+	if !ok {
+		return nil
+	}
+	kept := tasks[:0]
+	for _, t := range tasks {
+		if o, err := owned.Owner(t.ID); err == nil && o == owner {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+// pageTasks filters, orders and pages tasks in memory.
+func pageTasks(tasks []*a2a.Task, q TaskQuery) TaskPage {
+	matched := make([]*a2a.Task, 0, len(tasks))
+	for _, t := range tasks {
+		if matchesQuery(t, q) {
+			matched = append(matched, t)
+		}
+	}
+	sortByRecency(matched)
+	page := TaskPage{Total: len(matched)}
+	if q.Offset >= len(matched) {
+		return page
+	}
+	matched = matched[q.Offset:]
+	if q.Limit > 0 && q.Limit < len(matched) {
+		matched = matched[:q.Limit]
+	}
+	page.Tasks = matched
+	return page
+}
+
+// matchesQuery reports whether t satisfies q's filters.
+func matchesQuery(t *a2a.Task, q TaskQuery) bool {
+	if q.ContextID != "" && t.ContextID != q.ContextID {
+		return false
+	}
+	if q.Status != nil && t.Status.State != *q.Status {
+		return false
+	}
+	if q.StatusAfter != nil && (t.Status.Timestamp == nil || !t.Status.Timestamp.After(*q.StatusAfter)) {
+		return false
+	}
+	return true
+}
+
+// sortByRecency orders tasks by status timestamp, most recent first, with the
+// ID breaking ties so pagination is deterministic.
+func sortByRecency(tasks []*a2a.Task) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		ti, tj := tasks[i].Status.Timestamp, tasks[j].Status.Timestamp
+		switch {
+		case ti != nil && tj != nil && !ti.Equal(*tj):
+			return ti.After(*tj)
+		case (ti == nil) != (tj == nil):
+			return ti != nil
+		default:
+			return tasks[i].ID < tasks[j].ID
+		}
+	})
+}
+
+// InMemoryTaskStore is a concurrency-safe, in-memory implementation of
+// TaskStore, TaskQuerier and OwnedTaskStore.
 type InMemoryTaskStore struct {
-	mu    sync.RWMutex
-	tasks map[string]*a2a.Task
+	mu     sync.RWMutex
+	tasks  map[string]*a2a.Task
+	owners map[string]string // task_id → owner, for tasks created with one
 }
 
 // NewInMemoryTaskStore creates a new InMemoryTaskStore.
 func NewInMemoryTaskStore() *InMemoryTaskStore {
 	return &InMemoryTaskStore{
-		tasks: make(map[string]*a2a.Task),
+		tasks:  make(map[string]*a2a.Task),
+		owners: make(map[string]string),
 	}
 }
 
 // Create initializes a new task in the submitted state.
 func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) {
+	return s.CreateOwned(taskID, contextID, "")
+}
+
+// CreateOwned implements OwnedTaskStore.
+func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, exists := s.tasks[taskID]; exists {
 		return nil, ErrTaskAlreadyExists
+	}
+	if owner != "" {
+		s.owners[taskID] = owner
 	}
 
 	now := time.Now().UTC()
@@ -98,6 +240,16 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) 
 	s.tasks[taskID] = task
 
 	return task, nil
+}
+
+// Owner implements OwnedTaskStore. A task created without an owner has "".
+func (s *InMemoryTaskStore) Owner(taskID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.tasks[taskID]; !ok {
+		return "", ErrTaskNotFound
+	}
+	return s.owners[taskID], nil
 }
 
 // Get retrieves a deep copy of a task by ID. The returned task is safe to
@@ -191,15 +343,36 @@ func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string {
 		}
 		if task.Status.Timestamp != nil && task.Status.Timestamp.Before(cutoff) {
 			delete(s.tasks, id)
+			delete(s.owners, id)
 			evicted = append(evicted, id)
 		}
 	}
 	return evicted
 }
 
+// Query implements TaskQuerier.
+func (s *InMemoryTaskStore) Query(q TaskQuery) (TaskPage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	candidates := make([]*a2a.Task, 0, len(s.tasks))
+	for id, task := range s.tasks {
+		if q.Owner != "" && s.owners[id] != q.Owner {
+			continue
+		}
+		candidates = append(candidates, task)
+	}
+	page := pageTasks(candidates, q)
+	for i, t := range page.Tasks {
+		page.Tasks[i] = cloneTask(t)
+	}
+	return page, nil
+}
+
 // List returns deep copies of tasks matching the given contextID with pagination.
-// If contextID is empty, all tasks are returned. Results are sorted by ID for
-// deterministic pagination. Offset and limit control pagination.
+// If contextID is empty, all tasks are returned. Results are ordered most
+// recently updated first, ID breaking ties, for deterministic pagination.
+// Offset and limit control pagination.
 func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -211,10 +384,7 @@ func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Ta
 		}
 	}
 
-	// Sort by ID for deterministic pagination.
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].ID < matched[j].ID
-	})
+	sortByRecency(matched)
 
 	// Apply offset.
 	if offset >= len(matched) {

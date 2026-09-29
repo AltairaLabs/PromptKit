@@ -12,32 +12,62 @@ import (
 
 func TestTaskState_JSON(t *testing.T) {
 	tests := []struct {
-		name  string
-		state TaskState
-		json  string
+		state  TaskState
+		v1     string
+		v03    string
+		legacy string
 	}{
-		{"submitted", TaskStateSubmitted, `"submitted"`},
-		{"working", TaskStateWorking, `"working"`},
-		{"completed", TaskStateCompleted, `"completed"`},
-		{"failed", TaskStateFailed, `"failed"`},
-		{"canceled", TaskStateCanceled, `"canceled"`},
-		{"input_required", TaskStateInputRequired, `"input_required"`},
-		{"rejected", TaskStateRejected, `"rejected"`},
-		{"auth_required", TaskStateAuthRequired, `"auth_required"`},
+		{TaskStateSubmitted, "TASK_STATE_SUBMITTED", "submitted", "submitted"},
+		{TaskStateWorking, "TASK_STATE_WORKING", "working", "working"},
+		{TaskStateCompleted, "TASK_STATE_COMPLETED", "completed", "completed"},
+		{TaskStateFailed, "TASK_STATE_FAILED", "failed", "failed"},
+		{TaskStateCanceled, "TASK_STATE_CANCELED", "canceled", "canceled"},
+		{TaskStateInputRequired, "TASK_STATE_INPUT_REQUIRED", "input-required", "input_required"},
+		{TaskStateRejected, "TASK_STATE_REJECTED", "rejected", "rejected"},
+		{TaskStateAuthRequired, "TASK_STATE_AUTH_REQUIRED", "auth-required", "auth_required"},
+		{TaskStateUnknown, "TASK_STATE_UNSPECIFIED", "unknown", "unknown"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(string(tt.state), func(t *testing.T) {
 			data, err := json.Marshal(tt.state)
 			require.NoError(t, err)
-			assert.Equal(t, tt.json, string(data))
+			assert.Equal(t, `"`+tt.v1+`"`, string(data), "marshals to the 1.0 name")
+			assert.Equal(t, tt.v03, tt.state.V03Name())
 
-			var got TaskState
-			err = json.Unmarshal(data, &got)
-			require.NoError(t, err)
-			assert.Equal(t, tt.state, got)
+			for _, spelling := range []string{tt.v1, tt.v03, tt.legacy} {
+				var got TaskState
+				require.NoError(t, json.Unmarshal([]byte(`"`+spelling+`"`), &got), spelling)
+				assert.Equal(t, tt.state, got, spelling)
+			}
 		})
 	}
+}
+
+func TestRole_JSON(t *testing.T) {
+	data, err := json.Marshal(RoleUser)
+	require.NoError(t, err)
+	assert.Equal(t, `"ROLE_USER"`, string(data))
+	data, err = json.Marshal(RoleAgent)
+	require.NoError(t, err)
+	assert.Equal(t, `"ROLE_AGENT"`, string(data))
+
+	for spelling, want := range map[string]Role{
+		"ROLE_USER": RoleUser, "user": RoleUser, "ROLE_AGENT": RoleAgent, "agent": RoleAgent,
+	} {
+		var got Role
+		require.NoError(t, json.Unmarshal([]byte(`"`+spelling+`"`), &got))
+		assert.Equal(t, want, got, spelling)
+	}
+}
+
+func TestTaskState_Classification(t *testing.T) {
+	assert.True(t, TaskStateCompleted.IsTerminal())
+	assert.True(t, TaskStateRejected.IsTerminal())
+	assert.False(t, TaskStateInputRequired.IsTerminal())
+	assert.True(t, TaskStateInputRequired.IsInterrupted())
+	assert.True(t, TaskStateAuthRequired.IsInterrupted())
+	assert.False(t, TaskStateWorking.IsInterrupted())
 }
 
 func TestTaskState_InvalidJSON(t *testing.T) {
@@ -414,9 +444,12 @@ func TestStreamingEvents_RoundTrip(t *testing.T) {
 }
 
 func TestMethodConstants(t *testing.T) {
-	assert.Equal(t, "message/send", MethodSendMessage)
-	assert.Equal(t, "message/stream", MethodSendStreamingMessage)
-	assert.Equal(t, "tasks/get", MethodGetTask)
-	assert.Equal(t, "tasks/cancel", MethodCancelTask)
-	assert.Equal(t, "tasks/list", MethodListTasks)
+	assert.Equal(t, "SendMessage", MethodSendMessage)
+	assert.Equal(t, "SendStreamingMessage", MethodSendStreamingMessage)
+	assert.Equal(t, "GetTask", MethodGetTask)
+	assert.Equal(t, "CancelTask", MethodCancelTask)
+	assert.Equal(t, "ListTasks", MethodListTasks)
+	assert.Equal(t, "SubscribeToTask", MethodSubscribeToTask)
+	assert.Equal(t, "message/send", MethodV03SendMessage)
+	assert.Equal(t, "tasks/resubscribe", MethodV03Resubscribe)
 }

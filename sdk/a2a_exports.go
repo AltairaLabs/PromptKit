@@ -41,7 +41,7 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 
 // Re-exported option functions with backwards-compatible names.
 
-// WithA2ACard sets the agent card served at /.well-known/agent.json.
+// WithA2ACard sets the agent card served at /.well-known/agent-card.json.
 func WithA2ACard(card *a2a.AgentCard) A2AServerOption {
 	return a2aserver.WithCard(card)
 }

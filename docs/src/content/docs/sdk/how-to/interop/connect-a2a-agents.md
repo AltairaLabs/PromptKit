@@ -26,7 +26,7 @@ if err != nil {
 defer conv.Close()
 ```
 
-The SDK calls `/.well-known/agent.json` to discover the agent's skills, then registers each skill as a callable tool.
+The SDK calls `/.well-known/agent-card.json` to discover the agent's skills, then registers each skill as a callable tool.
 
 ---
 

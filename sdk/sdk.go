@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -1323,10 +1324,25 @@ func wireA2AConfig(caps []Capability, cfg *config) {
 				if len(headers) > 0 {
 					opts = append(opts, a2a.WithHeaders(headers))
 				}
+				timeout := time.Duration(agentCfg.config.TimeoutMs) * time.Millisecond
+				if timeout > 0 {
+					opts = append(opts, a2a.WithRequestTimeout(timeout))
+				}
 				client := a2a.NewClient(agentCfg.url, opts...)
 				bridge := a2a.NewToolBridgeWithConfig(client, agentCfg.config)
 				a2aCap.agentBridges = append(a2aCap.agentBridges, bridge)
+				if a2aCap.agentSettings == nil {
+					a2aCap.agentSettings = make(map[*a2a.ToolBridge]a2aBridgeSettings, len(cfg.a2aAgents))
+				}
+				a2aCap.agentSettings[bridge] = a2aBridgeSettings{
+					url:      agentCfg.url,
+					timeout:  timeout,
+					required: agentCfg.required,
+				}
 			}
+		}
+		if cfg.a2aToolExecutor != nil && a2aCap.toolExecutor == nil {
+			a2aCap.toolExecutor = cfg.a2aToolExecutor
 		}
 	}
 }

@@ -6,7 +6,7 @@
 //	go run ./examples/a2a-demo/server
 //
 // The server listens on port 9999 and serves an agent card at
-// http://localhost:9999/.well-known/agent.json.
+// http://localhost:9999/.well-known/agent-card.json.
 package main
 
 import (
@@ -52,7 +52,7 @@ func main() {
 	}()
 
 	fmt.Println("A2A server listening on http://localhost:9999")
-	fmt.Println("Agent card: http://localhost:9999/.well-known/agent.json")
+	fmt.Println("Agent card: http://localhost:9999/.well-known/agent-card.json")
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}

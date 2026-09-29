@@ -119,7 +119,8 @@ func (m *A2AServer) URL() string {
 // handler builds the http.Handler for the mock server.
 func (m *A2AServer) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/agent.json", m.handleAgentCard)
+	mux.HandleFunc("GET "+a2a.AgentCardPath, m.handleAgentCard)
+	mux.HandleFunc("GET "+a2a.LegacyAgentCardPath, m.handleAgentCard)
 	mux.HandleFunc("POST /a2a", m.handleRPC)
 	return mux
 }
@@ -138,16 +139,20 @@ func (m *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch req.Method {
-	case a2a.MethodSendMessage:
-		m.handleSendMessage(w, &req)
-	default:
-		writeRPCError(w, req.ID, -32601, "Method not found")
+	op, v, ok := a2a.LookupMethod(req.Method)
+	if !ok || op != a2a.OpSendMessage {
+		writeRPCError(w, req.ID, a2a.ErrCodeMethodNotFound, "Method not found")
+		return
 	}
+	if hv, err := a2a.ParseProtocolVersion(r.Header.Get(a2a.HeaderVersion)); err == nil && hv != "" {
+		v = hv
+	}
+	m.handleSendMessage(w, &req, v)
 }
 
-// handleSendMessage processes a message/send request.
-func (m *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+// handleSendMessage processes a SendMessage (0.3: message/send) request,
+// answering in the caller's protocol version.
+func (m *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCRequest, v a2a.ProtocolVersion) {
 	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -172,12 +177,12 @@ func (m *A2AServer) handleSendMessage(w http.ResponseWriter, req *a2a.JSONRPCReq
 		taskID := fmt.Sprintf("mock-task-%d", m.taskSeq.Add(1))
 
 		if rule.errMsg != "" {
-			writeRPCResult(w, req.ID, m.failedTask(taskID, rule.errMsg))
+			writeRPCResult(w, req.ID, v.WireSendResult(m.failedTask(taskID, rule.errMsg)))
 			return
 		}
 
 		if rule.response != nil {
-			writeRPCResult(w, req.ID, m.completedTask(taskID, rule.response.Parts))
+			writeRPCResult(w, req.ID, v.WireSendResult(m.completedTask(taskID, rule.response.Parts)))
 			return
 		}
 	}

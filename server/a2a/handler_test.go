@@ -151,7 +151,9 @@ func TestStateless_StreamReachesTheHandler(t *testing.T) {
 	task, err := srv.taskStore.Get(taskIDFromEvents(t, events))
 	require.NoError(t, err)
 	assert.Equal(t, a2a.TaskStateCompleted, task.Status.State)
-	assert.Len(t, task.Artifacts, 2, "streamed artifacts are stored in this mode too")
+	require.Len(t, task.Artifacts, 1, "streamed artifacts are stored in this mode too")
+	require.NotNil(t, task.Artifacts[0].Parts[0].Text)
+	assert.Equal(t, "onetwo", *task.Artifacts[0].Parts[0].Text, "one text run is one artifact")
 }
 
 // An error event fails the task rather than completing it emptily.
@@ -246,6 +248,7 @@ func TestStateless_ToolResultsRefusedWithoutAToolResultHandler(t *testing.T) {
 				Metadata: map[string]any{"tool_call_id": "call-1", "tool_result": "x"},
 			}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 
 	require.NotNil(t, resp.Error, "a server with nothing to resume must refuse, not fabricate")

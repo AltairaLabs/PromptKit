@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -115,9 +116,20 @@ func a2aRPCRequestTask(t *testing.T, ts *httptest.Server, method string, params 
 	if resp.Error != nil {
 		t.Fatalf("unexpected RPC error: %d %s", resp.Error.Code, resp.Error.Message)
 	}
+	return decodeTaskResult(t, resp.Result)
+}
+
+// decodeTaskResult reads a task from a result in any version's shape: 1.0's
+// SendMessage wraps it as {"task": ...}, everything else sends it bare.
+func decodeTaskResult(t *testing.T, raw json.RawMessage) *a2a.Task {
+	t.Helper()
+	var wrapped a2a.SendMessageResponse
+	if err := json.Unmarshal(raw, &wrapped); err == nil && wrapped.Task != nil {
+		return wrapped.Task
+	}
 	var task a2a.Task
-	if err := json.Unmarshal(resp.Result, &task); err != nil {
-		t.Fatalf("unmarshal task: %v", err)
+	if err := json.Unmarshal(raw, &task); err != nil {
+		t.Fatalf("unmarshal task: %v (result %s)", err, raw)
 	}
 	return &task
 }
@@ -379,12 +391,16 @@ func TestServer_SendMessage_OpenerError(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 	if resp.Error == nil {
 		t.Fatal("expected error when opener fails")
 	}
-	if resp.Error.Code != -32000 {
-		t.Fatalf("error code = %d, want -32000", resp.Error.Code)
+	if resp.Error.Code != a2a.ErrCodeInternal {
+		t.Fatalf("error code = %d, want %d", resp.Error.Code, a2a.ErrCodeInternal)
+	}
+	if strings.Contains(resp.Error.Message, "opener failed") {
+		t.Errorf("internal error detail leaked to the caller: %q", resp.Error.Message)
 	}
 }
 
@@ -458,14 +474,12 @@ func TestServer_CancelTask(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
-	var task a2a.Task
-	if err := json.Unmarshal(resp.Result, &task); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	task := *decodeTaskResult(t, resp.Result)
 
 	<-sendStarted
 
@@ -474,10 +488,7 @@ func TestServer_CancelTask(t *testing.T) {
 		t.Fatalf("cancel error: %d %s", cancelResp.Error.Code, cancelResp.Error.Message)
 	}
 
-	var cancelledTask a2a.Task
-	if err := json.Unmarshal(cancelResp.Result, &cancelledTask); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	cancelledTask := *decodeTaskResult(t, cancelResp.Result)
 	if cancelledTask.Status.State != a2a.TaskStateCanceled {
 		t.Fatalf("state = %q, want canceled", cancelledTask.Status.State)
 	}
@@ -1251,6 +1262,7 @@ func TestServer_SendMessage_NonBlocking(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 
 	if task.Status.State == a2a.TaskStateCompleted {
@@ -1324,7 +1336,7 @@ func TestServer_SendMessage_InvalidPart(t *testing.T) {
 	}
 }
 
-func TestServer_ListTasks_StatusFilterIgnored(t *testing.T) {
+func TestServer_ListTasks_StatusFilter(t *testing.T) {
 	mock := completingMock()
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
@@ -1332,21 +1344,25 @@ func TestServer_ListTasks_StatusFilterIgnored(t *testing.T) {
 	a2aSendMessage(t, ts, "ctx-filter", "msg1")
 	a2aSendMessage(t, ts, "ctx-filter", "msg2")
 
-	failedState := a2a.TaskStateFailed
-	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
-		ContextID: "ctx-filter",
-		Status:    &failedState,
-	})
-	if resp.Error != nil {
-		t.Fatalf("list error: %d %s", resp.Error.Code, resp.Error.Message)
+	list := func(state a2a.TaskState) a2a.ListTasksResponse {
+		resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+			ContextID: "ctx-filter",
+			Status:    &state,
+		})
+		if resp.Error != nil {
+			t.Fatalf("list error: %d %s", resp.Error.Code, resp.Error.Message)
+		}
+		var listResp a2a.ListTasksResponse
+		if err := json.Unmarshal(resp.Result, &listResp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return listResp
 	}
-
-	var listResp a2a.ListTasksResponse
-	if err := json.Unmarshal(resp.Result, &listResp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if got := list(a2a.TaskStateFailed); len(got.Tasks) != 0 || got.TotalSize != 0 {
+		t.Fatalf("failed filter: got %d tasks (total %d), want none", len(got.Tasks), got.TotalSize)
 	}
-	if len(listResp.Tasks) != 2 {
-		t.Fatalf("got %d tasks, want 2 (status filter should be ignored)", len(listResp.Tasks))
+	if got := list(a2a.TaskStateCompleted); len(got.Tasks) != 2 || got.TotalSize != 2 {
+		t.Fatalf("completed filter: got %d tasks (total %d), want 2", len(got.Tasks), got.TotalSize)
 	}
 }
 
@@ -1421,6 +1437,7 @@ func TestServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("slow")}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 
 	<-sendStarted
@@ -2059,8 +2076,8 @@ func TestServer_ClientTool_NonResumable(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("expected RPC error for non-resumable conversation")
 	}
-	if resp.Error.Code != -32000 {
-		t.Errorf("error code = %d, want -32000", resp.Error.Code)
+	if resp.Error.Code != a2a.ErrCodeUnsupportedOperation {
+		t.Errorf("error code = %d, want %d", resp.Error.Code, a2a.ErrCodeUnsupportedOperation)
 	}
 }
 

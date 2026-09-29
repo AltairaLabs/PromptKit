@@ -1,9 +1,7 @@
 package integration
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -45,11 +43,12 @@ func TestWithToolExecutor_OverA2AHTTP(t *testing.T) {
 	assert.Contains(t, *task.Artifacts[0].Parts[0].Text, "sunny")
 }
 
-// a2aSend posts a blocking message/send and returns the resulting task.
+// a2aSend sends a blocking message through the runtime A2A client and returns
+// the resulting task.
 func a2aSend(t *testing.T, ts *httptest.Server, contextID, text string) *a2a.Task {
 	t.Helper()
 
-	params, err := json.Marshal(a2a.SendMessageRequest{
+	task, err := a2a.NewClient(ts.URL).SendMessage(context.Background(), &a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: contextID,
 			Role:      a2a.RoleUser,
@@ -57,25 +56,6 @@ func a2aSend(t *testing.T, ts *httptest.Server, contextID, text string) *a2a.Tas
 		},
 		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
 	})
-	require.NoError(t, err)
-
-	body, err := json.Marshal(a2a.JSONRPCRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  a2a.MethodSendMessage,
-		Params:  params,
-	})
-	require.NoError(t, err)
-
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	var rpcResp a2a.JSONRPCResponse
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&rpcResp))
-	require.Nil(t, rpcResp.Error, "RPC error from message/send")
-
-	var task a2a.Task
-	require.NoError(t, json.Unmarshal(rpcResp.Result, &task))
-	return &task
+	require.NoError(t, err, "SendMessage")
+	return task
 }
