@@ -47,8 +47,8 @@ func TestExecutor_Execute_BasicTextQuery(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
-		if req.Method != MethodSendMessage {
-			t.Errorf("method = %q, want %q", req.Method, MethodSendMessage)
+		if req.Method != MethodV1SendMessage {
+			t.Errorf("method = %q, want %q", req.Method, MethodV1SendMessage)
 		}
 		rpcResult(w, req.ID, task)
 	}))

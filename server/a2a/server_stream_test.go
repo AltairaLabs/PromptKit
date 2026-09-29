@@ -80,7 +80,7 @@ func TestServer_StreamMessage_TextOnly(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream",
 			Role:      a2a.RoleUser,
@@ -149,7 +149,7 @@ func TestServer_StreamMessage_WithToolCalls(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-tool",
 			Role:      a2a.RoleUser,
@@ -196,7 +196,7 @@ func TestServer_StreamMessage_Media(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-media",
 			Role:      a2a.RoleUser,
@@ -239,7 +239,7 @@ func TestServer_StreamMessage_Error(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-err",
 			Role:      a2a.RoleUser,
@@ -289,7 +289,7 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 	body, _ := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendStreamingMessage,
+		Method:  a2a.MethodV1SendStreamingMessage,
 		Params:  paramsJSON,
 	})
 
@@ -348,7 +348,7 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	body, _ := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendStreamingMessage,
+		Method:  a2a.MethodV1SendStreamingMessage,
 		Params:  paramsJSON,
 	})
 
@@ -393,7 +393,7 @@ func TestServer_StreamMessage_NotStreamable(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nostream",
 			Role:      a2a.RoleUser,
@@ -428,7 +428,7 @@ func TestServer_StreamMessage_StreamInitError(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-init-err",
 			Role:      a2a.RoleUser,
@@ -465,7 +465,7 @@ func TestServer_StreamMessage_ChannelCloseWithoutDone(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nodone",
 			Role:      a2a.RoleUser,
@@ -510,7 +510,7 @@ func TestServer_TaskSubscribe(t *testing.T) {
 	var streamEvents []a2a.StreamEvent
 	var streamWg sync.WaitGroup
 	streamWg.Go(func() {
-		streamEvents = readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		streamEvents = readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 			Message: a2a.Message{
 				ContextID: "ctx-sub",
 				Role:      a2a.RoleUser,
@@ -539,7 +539,7 @@ func TestServer_TaskSubscribe(t *testing.T) {
 	var subEvents []a2a.StreamEvent
 	var subWg sync.WaitGroup
 	subWg.Go(func() {
-		subEvents = readSSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
+		subEvents = readSSEEvents(t, ts, a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{
 			ID: taskID,
 		})
 	})
@@ -584,11 +584,11 @@ func TestServer_TaskSubscribe_CompletedTask(t *testing.T) {
 	task := a2aSendMessage(t, ts, "ctx-completed", "Hello")
 	require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID})
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID})
 	require.NotNil(t, resp.Error, "subscribing to a finished task must be refused")
 	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, resp.Error.Code)
 
-	resp = a2aRPCRequest(t, ts, a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: "missing"})
+	resp = a2aRPCRequest(t, ts, a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: "missing"})
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, a2a.ErrCodeTaskNotFound, resp.Error.Code)
 }
@@ -597,7 +597,7 @@ func TestServer_TaskSubscribe_NotFound(t *testing.T) {
 	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{
 		ID: "nonexistent-task",
 	})
 
@@ -639,7 +639,7 @@ func TestServer_StreamMessage_MediaDataIntegrity(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-media-integrity",
 			Role:      a2a.RoleUser,
@@ -691,7 +691,7 @@ func TestServer_StreamMessage_URLMedia(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream-url",
 			Role:      a2a.RoleUser,
@@ -745,7 +745,7 @@ func TestServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-mixed-stream",
 			Role:      a2a.RoleUser,
@@ -803,7 +803,7 @@ func TestServer_StreamMessage_NilMedia(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nil-media",
 			Role:      a2a.RoleUser,
@@ -850,7 +850,7 @@ func TestServer_StreamMessage_MediaConversionError(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-conv-err",
 			Role:      a2a.RoleUser,
@@ -897,7 +897,7 @@ func TestServer_StreamMessage_ArtifactIDs(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-artifact-ids",
 			Role:      a2a.RoleUser,
@@ -942,7 +942,7 @@ func TestServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-store-stream",
 			Role:      a2a.RoleUser,
@@ -963,7 +963,7 @@ func TestServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
 	}
 
 	// Verify via tasks/get.
-	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: taskID})
+	got := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: taskID})
 	if got.Status.State != a2a.TaskStateCompleted {
 		t.Fatalf("state = %q, want completed", got.Status.State)
 	}
@@ -999,7 +999,7 @@ func TestServer_StreamMessage_ClientTool_InputRequired(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream-client",
 			Role:      a2a.RoleUser,
@@ -1096,7 +1096,7 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 	defer ts.Close()
 
 	// Step 1: stream triggers input_required.
-	events1 := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events1 := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream-resume",
 			Role:      a2a.RoleUser,
@@ -1115,7 +1115,7 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 	}
 
 	// Step 2: send tool results via streaming, triggering ResumeStream.
-	events2 := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events2 := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream-resume",
 			Role:      a2a.RoleUser,

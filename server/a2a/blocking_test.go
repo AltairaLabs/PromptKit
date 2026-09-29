@@ -34,7 +34,7 @@ func TestBlockingSend_CapAnswersWithTheWorkingTask(t *testing.T) {
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
 	begin := time.Now()
-	result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodSendMessage,
+	result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-hung-cap")}))
 	assert.Less(t, time.Since(begin), 2*time.Second, "the cap must bound the wait")
 	task := result["task"].(map[string]any)
@@ -42,7 +42,7 @@ func TestBlockingSend_CapAnswersWithTheWorkingTask(t *testing.T) {
 
 	// The turn runs on, and can still be canceled by id.
 	assert.NoError(t, (<-turnCtx).Err())
-	canceled := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task["id"].(string)}))
+	canceled := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task["id"].(string)}))
 	assert.Equal(t, "TASK_STATE_CANCELED", canceled["status"].(map[string]any)["state"])
 }
 
@@ -61,7 +61,7 @@ func TestBlockingSend_CallerDisconnectReleasesTheHandler(t *testing.T) {
 	defer ts.Close()
 
 	params, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-hung-leave")})
-	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodSendMessage, Params: params})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendMessage, Params: params})
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
 	req.Header.Set(a2a.HeaderVersion, "1.0")

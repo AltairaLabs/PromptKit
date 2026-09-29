@@ -443,7 +443,7 @@ func (c *Client) SendMessage(ctx context.Context, params *SendMessageRequest) (*
 	}
 	task, err := decodeSendResult(raw)
 	if err != nil {
-		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodSendMessage, err)
+		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodV1SendMessage, err)
 	}
 	return task, nil
 }
@@ -646,7 +646,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	}
 	var task Task
 	if err := json.Unmarshal(raw, &task); err != nil {
-		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodGetTask, err)
+		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodV1GetTask, err)
 	}
 	return &task, nil
 }
@@ -667,7 +667,7 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 	}
 	var resp ListTasksResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodListTasks, err)
+		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodV1ListTasks, err)
 	}
 	tasks := make([]*Task, len(resp.Tasks))
 	for i := range resp.Tasks {

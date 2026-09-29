@@ -109,8 +109,8 @@ func TestDiscover_Caching(t *testing.T) {
 func TestSendMessage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
-		if req.Method != MethodSendMessage {
-			t.Errorf("method = %q, want %q", req.Method, MethodSendMessage)
+		if req.Method != MethodV1SendMessage {
+			t.Errorf("method = %q, want %q", req.Method, MethodV1SendMessage)
 		}
 		rpcResult(w, req.ID, Task{
 			ID:     "task-1",
@@ -140,8 +140,8 @@ func TestSendMessage(t *testing.T) {
 func TestGetTask(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
-		if req.Method != MethodGetTask {
-			t.Errorf("method = %q, want %q", req.Method, MethodGetTask)
+		if req.Method != MethodV1GetTask {
+			t.Errorf("method = %q, want %q", req.Method, MethodV1GetTask)
 		}
 		var params GetTaskRequest
 		_ = json.Unmarshal(req.Params, &params)
@@ -168,8 +168,8 @@ func TestGetTask(t *testing.T) {
 func TestCancelTask(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
-		if req.Method != MethodCancelTask {
-			t.Errorf("method = %q, want %q", req.Method, MethodCancelTask)
+		if req.Method != MethodV1CancelTask {
+			t.Errorf("method = %q, want %q", req.Method, MethodV1CancelTask)
 		}
 		rpcResult(w, req.ID, Task{
 			ID:     "task-1",
@@ -187,8 +187,8 @@ func TestCancelTask(t *testing.T) {
 func TestListTasks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
-		if req.Method != MethodListTasks {
-			t.Errorf("method = %q, want %q", req.Method, MethodListTasks)
+		if req.Method != MethodV1ListTasks {
+			t.Errorf("method = %q, want %q", req.Method, MethodV1ListTasks)
 		}
 		var params ListTasksRequest
 		_ = json.Unmarshal(req.Params, &params)
@@ -696,13 +696,13 @@ func TestHappyPath_DiscoverSendPollComplete(t *testing.T) {
 		case "/a2a":
 			req := decodeRPC(r)
 			switch req.Method {
-			case MethodSendMessage:
+			case MethodV1SendMessage:
 				rpcResult(w, req.ID, Task{
 					ID:        "task-1",
 					ContextID: "ctx-1",
 					Status:    TaskStatus{State: TaskStateWorking},
 				})
-			case MethodGetTask:
+			case MethodV1GetTask:
 				n := atomic.AddInt32(&pollCount, 1)
 				task := Task{ID: "task-1"}
 				if n >= 2 {
@@ -773,12 +773,12 @@ func TestErrorPath_DiscoverSendFail(t *testing.T) {
 		case "/a2a":
 			req := decodeRPC(r)
 			switch req.Method {
-			case MethodSendMessage:
+			case MethodV1SendMessage:
 				rpcResult(w, req.ID, Task{
 					ID:     "task-1",
 					Status: TaskStatus{State: TaskStateWorking},
 				})
-			case MethodGetTask:
+			case MethodV1GetTask:
 				rpcResult(w, req.ID, Task{
 					ID:     "task-1",
 					Status: TaskStatus{State: TaskStateFailed},

@@ -163,27 +163,37 @@ const (
 )
 ```
 
-<a name="MethodSendMessage"></a>A2A JSON\-RPC method names, as A2A 1.0 \(§5.3\) names them.
+<a name="MethodV1SendMessage"></a>A2A 1.0 JSON\-RPC method names \(A2A 1.0 §5.3\).
 
 ```go
 const (
-    MethodSendMessage          = "SendMessage"
-    MethodSendStreamingMessage = "SendStreamingMessage"
-    MethodGetTask              = "GetTask"
-    MethodCancelTask           = "CancelTask"
-    MethodListTasks            = "ListTasks"
-    MethodSubscribeToTask      = "SubscribeToTask"
-    MethodGetExtendedAgentCard = "GetExtendedAgentCard"
+    MethodV1SendMessage          = "SendMessage"
+    MethodV1SendStreamingMessage = "SendStreamingMessage"
+    MethodV1GetTask              = "GetTask"
+    MethodV1CancelTask           = "CancelTask"
+    MethodV1ListTasks            = "ListTasks"
+    MethodV1SubscribeToTask      = "SubscribeToTask"
+    MethodV1GetExtendedAgentCard = "GetExtendedAgentCard"
 
-    MethodCreateTaskPushNotificationConfig = "CreateTaskPushNotificationConfig"
-    MethodGetTaskPushNotificationConfig    = "GetTaskPushNotificationConfig"
-    MethodListTaskPushNotificationConfigs  = "ListTaskPushNotificationConfigs"
-    MethodDeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig"
+    MethodV1CreateTaskPushNotificationConfig = "CreateTaskPushNotificationConfig"
+    MethodV1GetTaskPushNotificationConfig    = "GetTaskPushNotificationConfig"
+    MethodV1ListTaskPushNotificationConfigs  = "ListTaskPushNotificationConfigs"
+    MethodV1DeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig"
+)
+```
 
-    // MethodTaskSubscribe is the pre-1.0 name of [MethodSubscribeToTask].
-    //
-    // Deprecated: use MethodSubscribeToTask.
-    MethodTaskSubscribe = MethodSubscribeToTask
+<a name="MethodSendMessage"></a>The method names PromptKit used before it spoke A2A 1.0 and 0.3 by version. They keep their values: a server still answers every one of them, and code comparing against them keeps working.
+
+Deprecated: use the MethodV1\* names for A2A 1.0 and MethodV03\* for 0.3, or resolve a method with [LookupMethod](<#LookupMethod>).
+
+```go
+const (
+    MethodSendMessage          = "message/send"
+    MethodSendStreamingMessage = "message/stream"
+    MethodGetTask              = "tasks/get"
+    MethodCancelTask           = "tasks/cancel"
+    MethodListTasks            = "tasks/list"
+    MethodTaskSubscribe        = "tasks/subscribe"
 )
 ```
 
@@ -207,8 +217,8 @@ const (
     // servers before A2A 1.0 conformance answered to; they are in neither
     // 0.3 nor 1.0 and are accepted only so older PromptKit clients keep
     // working.
-    MethodLegacyListTasks = "tasks/list"
-    MethodLegacySubscribe = "tasks/subscribe"
+    MethodLegacyListTasks = MethodListTasks
+    MethodLegacySubscribe = MethodTaskSubscribe
 )
 ```
 
@@ -399,7 +409,7 @@ type APIKeySecurityScheme struct {
 ```
 
 <a name="AgentCapabilities"></a>
-## type [AgentCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L354-L359>)
+## type [AgentCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L364-L369>)
 
 AgentCapabilities describes what the agent supports.
 
@@ -413,7 +423,7 @@ type AgentCapabilities struct {
 ```
 
 <a name="AgentCard"></a>
-## type [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L313-L332>)
+## type [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L323-L342>)
 
 AgentCard describes an agent's capabilities and endpoints.
 
@@ -459,21 +469,20 @@ func (card *AgentCard) UnmarshalJSON(data []byte) error
 UnmarshalJSON implements json.Unmarshaler. A 0.3 card declares its endpoint in url/preferredTransport/additionalInterfaces rather than supportedInterfaces, and its requirements in "security"; both are folded into the 1.0 fields when the card does not carry them itself.
 
 <a name="AgentExtension"></a>
-## type [AgentExtension](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L373-L378>)
+## type [AgentExtension](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L383-L387>)
 
 AgentExtension describes an optional protocol extension.
 
 ```go
 type AgentExtension struct {
-    URI         string         `json:"uri"`
-    Description string         `json:"description,omitempty"`
-    Required    bool           `json:"required,omitempty"`
-    Params      map[string]any `json:"params,omitempty"`
+    URI         string `json:"uri"`
+    Description string `json:"description,omitempty"`
+    Required    bool   `json:"required,omitempty"`
 }
 ```
 
 <a name="AgentInterface"></a>
-## type [AgentInterface](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L362-L370>)
+## type [AgentInterface](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L372-L380>)
 
 AgentInterface describes a protocol endpoint.
 
@@ -490,7 +499,7 @@ type AgentInterface struct {
 ```
 
 <a name="AgentProvider"></a>
-## type [AgentProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L348-L351>)
+## type [AgentProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L358-L361>)
 
 AgentProvider identifies the organization behind an agent.
 
@@ -502,7 +511,7 @@ type AgentProvider struct {
 ```
 
 <a name="AgentSkill"></a>
-## type [AgentSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L335-L345>)
+## type [AgentSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L345-L355>)
 
 AgentSkill describes a specific skill an agent can perform.
 
@@ -521,7 +530,7 @@ type AgentSkill struct {
 ```
 
 <a name="Artifact"></a>
-## type [Artifact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L284-L291>)
+## type [Artifact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L294-L301>)
 
 Artifact is a named output generated by an agent.
 
@@ -546,15 +555,14 @@ func ContentPartsToArtifacts(parts []types.ContentPart) ([]Artifact, error)
 ContentPartsToArtifacts converts PromptKit ContentParts into A2A Artifacts. It creates a single Artifact containing all non\-empty parts. Returns nil if parts is empty or all parts fail to convert.
 
 <a name="CancelTaskRequest"></a>
-## type [CancelTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L449-L453>)
+## type [CancelTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L458-L461>)
 
 CancelTaskRequest is the params for CancelTask \(0.3: tasks/cancel\).
 
 ```go
 type CancelTaskRequest struct {
-    Tenant   string         `json:"tenant,omitempty"`
-    ID       string         `json:"id"`
-    Metadata map[string]any `json:"metadata,omitempty"`
+    Tenant string `json:"tenant,omitempty"`
+    ID     string `json:"id"`
 }
 ```
 
@@ -819,7 +827,7 @@ func WithRetryPolicy(policy RetryPolicy) ExecutorOption
 WithRetryPolicy sets the retry policy for the A2A executor.
 
 <a name="GetTaskRequest"></a>
-## type [GetTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L442-L446>)
+## type [GetTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L451-L455>)
 
 GetTaskRequest is the params for GetTask \(0.3: tasks/get\).
 
@@ -866,7 +874,7 @@ func (e *HTTPStatusError) Error() string
 
 
 <a name="JSONRPCError"></a>
-## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L399-L403>)
+## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L408-L412>)
 
 JSONRPCError is a JSON\-RPC 2.0 error object.
 
@@ -879,7 +887,7 @@ type JSONRPCError struct {
 ```
 
 <a name="JSONRPCRequest"></a>
-## type [JSONRPCRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L383-L388>)
+## type [JSONRPCRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L392-L397>)
 
 JSONRPCRequest is a JSON\-RPC 2.0 request.
 
@@ -893,7 +901,7 @@ type JSONRPCRequest struct {
 ```
 
 <a name="JSONRPCResponse"></a>
-## type [JSONRPCResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L391-L396>)
+## type [JSONRPCResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L400-L405>)
 
 JSONRPCResponse is a JSON\-RPC 2.0 response.
 
@@ -907,7 +915,7 @@ type JSONRPCResponse struct {
 ```
 
 <a name="ListTasksRequest"></a>
-## type [ListTasksRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L456-L467>)
+## type [ListTasksRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L464-L475>)
 
 ListTasksRequest is the params for ListTasks \(1.0 only\).
 
@@ -927,7 +935,7 @@ type ListTasksRequest struct {
 ```
 
 <a name="ListTasksResponse"></a>
-## type [ListTasksResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L471-L476>)
+## type [ListTasksResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L479-L484>)
 
 ListTasksResponse is the result for ListTasks. NextPageToken is empty on the last page.
 
@@ -941,7 +949,7 @@ type ListTasksResponse struct {
 ```
 
 <a name="Message"></a>
-## type [Message](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L272-L281>)
+## type [Message](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L282-L291>)
 
 Message is a communication unit in the A2A protocol.
 
@@ -1051,7 +1059,7 @@ const (
 ```
 
 <a name="Part"></a>
-## type [Part](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L238-L247>)
+## type [Part](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L248-L257>)
 
 Part represents a piece of content within a message or artifact. Exactly one of Text, Raw, URL, or Data should be set.
 
@@ -1078,7 +1086,7 @@ func ContentPartToA2APart(part types.ContentPart) (Part, error)
 ContentPartToA2APart converts a PromptKit ContentPart to an A2A Part.
 
 <a name="Part.UnmarshalJSON"></a>
-### func \(\*Part\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L252>)
+### func \(\*Part\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L262>)
 
 ```go
 func (p *Part) UnmarshalJSON(data []byte) error
@@ -1213,7 +1221,7 @@ func DefaultRetryPolicy() RetryPolicy
 DefaultRetryPolicy returns the default retry policy for A2A calls.
 
 <a name="Role"></a>
-## type [Role](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L184>)
+## type [Role](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L194>)
 
 Role identifies the sender of a message.
 
@@ -1233,7 +1241,7 @@ const (
 ```
 
 <a name="Role.MarshalJSON"></a>
-### func \(Role\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L212>)
+### func \(Role\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L222>)
 
 ```go
 func (r Role) MarshalJSON() ([]byte, error)
@@ -1242,7 +1250,7 @@ func (r Role) MarshalJSON() ([]byte, error)
 MarshalJSON implements json.Marshaler, writing the A2A 1.0 name.
 
 <a name="Role.UnmarshalJSON"></a>
-### func \(\*Role\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L218>)
+### func \(\*Role\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L228>)
 
 ```go
 func (r *Role) UnmarshalJSON(data []byte) error
@@ -1251,7 +1259,7 @@ func (r *Role) UnmarshalJSON(data []byte) error
 UnmarshalJSON implements json.Unmarshaler, accepting either version's spelling. An unrecognized role is kept verbatim.
 
 <a name="Role.V1Name"></a>
-### func \(Role\) [V1Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L200>)
+### func \(Role\) [V1Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L210>)
 
 ```go
 func (r Role) V1Name() string
@@ -1322,7 +1330,7 @@ func (s *SecurityScheme) UnmarshalJSON(data []byte) error
 UnmarshalJSON implements json.Unmarshaler for both versions' shapes.
 
 <a name="SendMessageConfiguration"></a>
-## type [SendMessageConfiguration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L422-L429>)
+## type [SendMessageConfiguration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L431-L438>)
 
 SendMessageConfiguration controls message handling.
 
@@ -1340,7 +1348,7 @@ type SendMessageConfiguration struct {
 ```
 
 <a name="SendMessageConfiguration.WaitsForCompletion"></a>
-### func \(\*SendMessageConfiguration\) [WaitsForCompletion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L434>)
+### func \(\*SendMessageConfiguration\) [WaitsForCompletion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L443>)
 
 ```go
 func (c *SendMessageConfiguration) WaitsForCompletion(v ProtocolVersion) bool
@@ -1349,7 +1357,7 @@ func (c *SendMessageConfiguration) WaitsForCompletion(v ProtocolVersion) bool
 WaitsForCompletion reports whether a SendMessage under version v should wait for the task to finish or be interrupted before answering. A nil configuration takes the version's default.
 
 <a name="SendMessageRequest"></a>
-## type [SendMessageRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L409-L414>)
+## type [SendMessageRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L418-L423>)
 
 SendMessageRequest is the params for SendMessage and SendStreamingMessage \(0.3: message/send, message/stream\).
 
@@ -1363,7 +1371,7 @@ type SendMessageRequest struct {
 ```
 
 <a name="SendMessageResponse"></a>
-## type [SendMessageResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L487-L490>)
+## type [SendMessageResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L495-L498>)
 
 SendMessageResponse is the A2A 1.0 result of SendMessage: exactly one of Task or Message is set. \(0.3 returns the Task or Message bare.\)
 
@@ -1389,7 +1397,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamResponse"></a>
-## type [StreamResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L494-L499>)
+## type [StreamResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L502-L507>)
 
 StreamResponse is one A2A 1.0 streaming result: exactly one field is set. \(0.3 sends each object bare, discriminated by its "kind".\)
 
@@ -1403,7 +1411,7 @@ type StreamResponse struct {
 ```
 
 <a name="SubscribeTaskRequest"></a>
-## type [SubscribeTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L480-L483>)
+## type [SubscribeTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L488-L491>)
 
 SubscribeTaskRequest is the params for SubscribeToTask \(0.3: tasks/resubscribe\).
 
@@ -1415,7 +1423,7 @@ type SubscribeTaskRequest struct {
 ```
 
 <a name="Task"></a>
-## type [Task](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L301-L308>)
+## type [Task](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L311-L318>)
 
 Task is the top\-level unit of work in the A2A protocol.
 
@@ -1431,7 +1439,7 @@ type Task struct {
 ```
 
 <a name="TaskArtifactUpdateEvent"></a>
-## type [TaskArtifactUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L512-L519>)
+## type [TaskArtifactUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L520-L527>)
 
 TaskArtifactUpdateEvent is sent during streaming when an artifact is produced.
 
@@ -1447,7 +1455,7 @@ type TaskArtifactUpdateEvent struct {
 ```
 
 <a name="TaskState"></a>
-## type [TaskState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L83>)
+## type [TaskState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L93>)
 
 TaskState represents the state of an A2A task.
 
@@ -1475,7 +1483,7 @@ const (
 ```
 
 <a name="ParseTaskState"></a>
-### func [ParseTaskState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L149>)
+### func [ParseTaskState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L159>)
 
 ```go
 func ParseTaskState(str string) (TaskState, error)
@@ -1484,7 +1492,7 @@ func ParseTaskState(str string) (TaskState, error)
 ParseTaskState resolves a wire spelling \(1.0, 0.3 or legacy PromptKit\) to a TaskState.
 
 <a name="TaskState.IsInterrupted"></a>
-### func \(TaskState\) [IsInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L143>)
+### func \(TaskState\) [IsInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L153>)
 
 ```go
 func (s TaskState) IsInterrupted() bool
@@ -1493,7 +1501,7 @@ func (s TaskState) IsInterrupted() bool
 IsInterrupted reports whether s pauses the task for the client \(input\-required or auth\-required\). A stream ends at an interrupted state.
 
 <a name="TaskState.IsTerminal"></a>
-### func \(TaskState\) [IsTerminal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L139>)
+### func \(TaskState\) [IsTerminal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L149>)
 
 ```go
 func (s TaskState) IsTerminal() bool
@@ -1502,7 +1510,7 @@ func (s TaskState) IsTerminal() bool
 IsTerminal reports whether no further transitions are possible from s.
 
 <a name="TaskState.MarshalJSON"></a>
-### func \(TaskState\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L158>)
+### func \(TaskState\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L168>)
 
 ```go
 func (s TaskState) MarshalJSON() ([]byte, error)
@@ -1511,7 +1519,7 @@ func (s TaskState) MarshalJSON() ([]byte, error)
 MarshalJSON implements json.Marshaler, writing the A2A 1.0 name.
 
 <a name="TaskState.UnmarshalJSON"></a>
-### func \(\*TaskState\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L167>)
+### func \(\*TaskState\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L177>)
 
 ```go
 func (s *TaskState) UnmarshalJSON(data []byte) error
@@ -1520,7 +1528,7 @@ func (s *TaskState) UnmarshalJSON(data []byte) error
 UnmarshalJSON implements json.Unmarshaler, accepting any version's spelling.
 
 <a name="TaskState.V03Name"></a>
-### func \(TaskState\) [V03Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L128>)
+### func \(TaskState\) [V03Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L138>)
 
 ```go
 func (s TaskState) V03Name() string
@@ -1529,7 +1537,7 @@ func (s TaskState) V03Name() string
 V03Name returns the state's A2A 0.3 wire name, e.g. input\-required.
 
 <a name="TaskState.V1Name"></a>
-### func \(TaskState\) [V1Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L125>)
+### func \(TaskState\) [V1Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L135>)
 
 ```go
 func (s TaskState) V1Name() string
@@ -1538,7 +1546,7 @@ func (s TaskState) V1Name() string
 V1Name returns the state's A2A 1.0 wire name, e.g. TASK\_STATE\_COMPLETED.
 
 <a name="TaskStatus"></a>
-## type [TaskStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L294-L298>)
+## type [TaskStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L304-L308>)
 
 TaskStatus describes the current status of a task.
 
@@ -1551,7 +1559,7 @@ type TaskStatus struct {
 ```
 
 <a name="TaskStatusUpdateEvent"></a>
-## type [TaskStatusUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L504-L509>)
+## type [TaskStatusUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L512-L517>)
 
 TaskStatusUpdateEvent is sent during streaming when a task's status changes.
 

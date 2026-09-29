@@ -136,7 +136,7 @@ func decodeTaskResult(t *testing.T, raw json.RawMessage) *a2a.Task {
 
 func a2aSendMessage(t *testing.T, ts *httptest.Server, contextID, text string) *a2a.Task {
 	t.Helper()
-	return a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	return a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: contextID,
 			Role:      a2a.RoleUser,
@@ -165,7 +165,7 @@ func completingMock() *mockConv {
 
 func a2aSendMessageWithParts(t *testing.T, ts *httptest.Server, contextID string, parts []a2a.Part) *a2a.Task {
 	t.Helper()
-	return a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	return a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: contextID,
 			Role:      a2a.RoleUser,
@@ -316,7 +316,7 @@ func TestServer_SendMessage_Multimodal(t *testing.T) {
 	defer ts.Close()
 
 	imgURL := "https://example.com/image.png"
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-multi",
 			Role:      a2a.RoleUser,
@@ -385,7 +385,7 @@ func TestServer_SendMessage_OpenerError(t *testing.T) {
 	})
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-err",
 			Role:      a2a.RoleUser,
@@ -409,7 +409,7 @@ func TestServer_SendMessage_NoContextID(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			Role:  a2a.RoleUser,
 			Parts: []a2a.Part{{Text: serverTextPtr("Hello")}},
@@ -432,7 +432,7 @@ func TestServer_GetTask(t *testing.T) {
 
 	task := a2aSendMessage(t, ts, "ctx-get", "Hello")
 
-	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+	got := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
 
 	if got.ID != task.ID {
 		t.Fatalf("got task ID %q, want %q", got.ID, task.ID)
@@ -446,7 +446,7 @@ func TestServer_GetTask_NotFound(t *testing.T) {
 	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: "nonexistent"})
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: "nonexistent"})
 	if resp.Error == nil {
 		t.Fatal("expected error for nonexistent task")
 	}
@@ -468,7 +468,7 @@ func TestServer_CancelTask(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-cancel",
 			Role:      a2a.RoleUser,
@@ -483,7 +483,7 @@ func TestServer_CancelTask(t *testing.T) {
 
 	<-sendStarted
 
-	cancelResp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
+	cancelResp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
 	if cancelResp.Error != nil {
 		t.Fatalf("cancel error: %d %s", cancelResp.Error.Code, cancelResp.Error.Message)
 	}
@@ -498,7 +498,7 @@ func TestServer_CancelTask_NotFound(t *testing.T) {
 	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: "nonexistent"})
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: "nonexistent"})
 	if resp.Error == nil {
 		t.Fatal("expected error for nonexistent task")
 	}
@@ -632,7 +632,7 @@ func TestServer_ListTasks(t *testing.T) {
 	a2aSendMessage(t, ts, "ctx-list", "msg1")
 	a2aSendMessage(t, ts, "ctx-list", "msg2")
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1ListTasks, a2a.ListTasksRequest{
 		ContextID: "ctx-list",
 	})
 	if resp.Error != nil {
@@ -739,7 +739,7 @@ func TestTraceContextPropagation_SendMessage(t *testing.T) {
 	body, _ := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendMessage,
+		Method:  a2a.MethodV1SendMessage,
 		Params:  paramsJSON,
 	})
 
@@ -811,7 +811,7 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 	body, _ := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendStreamingMessage,
+		Method:  a2a.MethodV1SendStreamingMessage,
 		Params:  paramsJSON,
 	})
 
@@ -1120,7 +1120,7 @@ func TestServer_SendMessage_MessageMetadata(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-msg-meta",
 			Role:      a2a.RoleUser,
@@ -1180,7 +1180,7 @@ func TestServer_GetTask_ReturnsArtifacts(t *testing.T) {
 
 	task := a2aSendMessage(t, ts, "ctx-get-art", "Show me")
 
-	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+	got := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
 
 	if len(got.Artifacts) == 0 {
 		t.Fatal("tasks/get returned no artifacts")
@@ -1256,7 +1256,7 @@ func TestServer_SendMessage_NonBlocking(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nonblock",
 			Role:      a2a.RoleUser,
@@ -1279,7 +1279,7 @@ func TestServer_ListTasks_PageSize(t *testing.T) {
 		a2aSendMessage(t, ts, "ctx-page", "msg"+string(rune('0'+i)))
 	}
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1ListTasks, a2a.ListTasksRequest{
 		ContextID: "ctx-page",
 		PageSize:  2,
 	})
@@ -1302,7 +1302,7 @@ func TestServer_SendMessage_InvalidParams(t *testing.T) {
 	})
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, map[string]any{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, map[string]any{
 		"message": "not-a-message-object",
 	})
 
@@ -1320,7 +1320,7 @@ func TestServer_SendMessage_InvalidPart(t *testing.T) {
 	})
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-invalid-part",
 			Role:      a2a.RoleUser,
@@ -1345,7 +1345,7 @@ func TestServer_ListTasks_StatusFilter(t *testing.T) {
 	a2aSendMessage(t, ts, "ctx-filter", "msg2")
 
 	list := func(state a2a.TaskState) a2a.ListTasksResponse {
-		resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
+		resp := a2aRPCRequest(t, ts, a2a.MethodV1ListTasks, a2a.ListTasksRequest{
 			ContextID: "ctx-filter",
 			Status:    &state,
 		})
@@ -1374,7 +1374,7 @@ func TestServer_GetTask_HistoryLengthIgnored(t *testing.T) {
 	task := a2aSendMessage(t, ts, "ctx-histlen", "Hello")
 
 	histLen := 0
-	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{
+	got := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{
 		ID:            task.ID,
 		HistoryLength: &histLen,
 	})
@@ -1431,7 +1431,7 @@ func TestServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-cancel-processing",
 			Role:      a2a.RoleUser,
@@ -1442,14 +1442,14 @@ func TestServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 
 	<-sendStarted
 
-	cancelResp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
+	cancelResp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
 	if cancelResp.Error != nil {
 		t.Fatalf("cancel error: %d %s", cancelResp.Error.Code, cancelResp.Error.Message)
 	}
 
 	time.Sleep(50 * time.Millisecond)
 
-	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+	got := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
 	if got.Status.State != a2a.TaskStateCanceled {
 		t.Fatalf("state = %q, want canceled (not failed)", got.Status.State)
 	}
@@ -1461,7 +1461,7 @@ func TestServer_SendMessage_DataPartRejected(t *testing.T) {
 	})
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-data-part",
 			Role:      a2a.RoleUser,
@@ -1597,7 +1597,7 @@ func TestServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
 	body, _ := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendMessage,
+		Method:  a2a.MethodV1SendMessage,
 		Params:  params,
 	})
 
@@ -1737,7 +1737,7 @@ func TestServerListenAndServeWithTraffic(t *testing.T) {
 	reqBody := a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendMessage,
+		Method:  a2a.MethodV1SendMessage,
 	}
 	params, _ := json.Marshal(a2a.SendMessageRequest{
 		Message: a2a.Message{
@@ -1957,7 +1957,7 @@ func TestServer_ClientTool_ResumeCompleted(t *testing.T) {
 	}
 
 	// Second: send tool result on same context ID.
-	task2 := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task2 := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-resume",
 			Role:      a2a.RoleUser,
@@ -2015,7 +2015,7 @@ func TestServer_ClientTool_Reject(t *testing.T) {
 	a2aSendMessage(t, ts, "ctx-reject", "Where am I?")
 
 	// Reject the tool.
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-reject",
 			Role:      a2a.RoleUser,
@@ -2057,7 +2057,7 @@ func TestServer_ClientTool_NonResumable(t *testing.T) {
 	a2aSendMessage(t, ts, "ctx-nonresumable", "Hello")
 
 	// Try to send tool results to a non-resumable conversation.
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nonresumable",
 			Role:      a2a.RoleUser,
@@ -2210,7 +2210,7 @@ func TestServer_AuthErrorNoLeak(t *testing.T) {
 	_, ts := newTestServer(nopOpener, WithAuthenticator(&mockAuthenticator{err: secretErr}))
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: "t1"})
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: "t1"})
 	if resp.Error == nil {
 		t.Fatal("expected error response")
 	}

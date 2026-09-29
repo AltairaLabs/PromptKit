@@ -137,7 +137,7 @@ func TestStateless_StreamReachesTheHandler(t *testing.T) {
 	srv, ts := statelessServer(t, h)
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stateless-stream",
 			Role:      a2a.RoleUser,
@@ -209,7 +209,7 @@ func TestStateless_ToolResultsReachTheHandler(t *testing.T) {
 	_, ts := statelessServer(t, h)
 	defer ts.Close()
 
-	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stateless-resume",
 			Role:      a2a.RoleUser,
@@ -240,7 +240,7 @@ func TestStateless_ToolResultsRefusedWithoutAToolResultHandler(t *testing.T) {
 	_, ts := statelessServer(t, h)
 	defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stateless-noresume",
 			Role:      a2a.RoleUser,

@@ -168,7 +168,7 @@ func liveA2ASend(t *testing.T, ts *httptest.Server, contextID, text string) *a2a
 	body, err := json.Marshal(a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      1,
-		Method:  a2a.MethodSendMessage,
+		Method:  a2a.MethodV1SendMessage,
 		Params:  params,
 	})
 	require.NoError(t, err)

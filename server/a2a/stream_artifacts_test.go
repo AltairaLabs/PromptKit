@@ -38,7 +38,7 @@ func TestStream_StoresArtifactsOnTheCompletedTask(t *testing.T) {
 	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-artifacts",
 			Role:      a2a.RoleUser,
@@ -71,7 +71,7 @@ func TestStream_StoredArtifactsMatchWhatWasEmitted(t *testing.T) {
 	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-artifacts-match",
 			Role:      a2a.RoleUser,
@@ -113,7 +113,7 @@ func TestStream_FailedTurnStoresNothing(t *testing.T) {
 	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-artifacts-fail",
 			Role:      a2a.RoleUser,

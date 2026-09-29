@@ -292,7 +292,7 @@ func TestJSONRPCRequest_RoundTrip(t *testing.T) {
 	req := JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      float64(1),
-		Method:  MethodSendMessage,
+		Method:  MethodV1SendMessage,
 		Params:  params,
 	}
 
@@ -303,7 +303,7 @@ func TestJSONRPCRequest_RoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &got))
 	assert.Equal(t, "2.0", got.JSONRPC)
 	assert.Equal(t, float64(1), got.ID)
-	assert.Equal(t, MethodSendMessage, got.Method)
+	assert.Equal(t, MethodV1SendMessage, got.Method)
 
 	var sendReq SendMessageRequest
 	require.NoError(t, json.Unmarshal(got.Params, &sendReq))
@@ -444,12 +444,21 @@ func TestStreamingEvents_RoundTrip(t *testing.T) {
 }
 
 func TestMethodConstants(t *testing.T) {
-	assert.Equal(t, "SendMessage", MethodSendMessage)
-	assert.Equal(t, "SendStreamingMessage", MethodSendStreamingMessage)
-	assert.Equal(t, "GetTask", MethodGetTask)
-	assert.Equal(t, "CancelTask", MethodCancelTask)
-	assert.Equal(t, "ListTasks", MethodListTasks)
-	assert.Equal(t, "SubscribeToTask", MethodSubscribeToTask)
+	assert.Equal(t, "SendMessage", MethodV1SendMessage)
+	assert.Equal(t, "SendStreamingMessage", MethodV1SendStreamingMessage)
+	assert.Equal(t, "GetTask", MethodV1GetTask)
+	assert.Equal(t, "CancelTask", MethodV1CancelTask)
+	assert.Equal(t, "ListTasks", MethodV1ListTasks)
+	assert.Equal(t, "SubscribeToTask", MethodV1SubscribeToTask)
 	assert.Equal(t, "message/send", MethodV03SendMessage)
+
+	// The pre-1.0 names keep their v2.7 values; changing a released
+	// constant's value is a breaking change.
+	assert.Equal(t, "message/send", MethodSendMessage)
+	assert.Equal(t, "message/stream", MethodSendStreamingMessage)
+	assert.Equal(t, "tasks/get", MethodGetTask)
+	assert.Equal(t, "tasks/cancel", MethodCancelTask)
+	assert.Equal(t, "tasks/list", MethodListTasks)
+	assert.Equal(t, "tasks/subscribe", MethodTaskSubscribe)
 	assert.Equal(t, "tasks/resubscribe", MethodV03Resubscribe)
 }
