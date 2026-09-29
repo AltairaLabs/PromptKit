@@ -134,7 +134,7 @@ func TestMockReturnsSkillResponse(t *testing.T) {
 	m.Start()
 	defer m.Close()
 
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "hello"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "hello"))
 	task := decodeTask(t, resp)
 
 	if task.Status.State != a2a.TaskStateCompleted {
@@ -163,14 +163,14 @@ func TestMockMatchesInputContains(t *testing.T) {
 	defer m.Close()
 
 	// Should match the input matcher.
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "say the magic word"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "say the magic word"))
 	task := decodeTask(t, resp)
 	if got := *task.Artifacts[0].Parts[0].Text; got != "found magic" {
 		t.Errorf("text = %q, want %q", got, "found magic")
 	}
 
 	// Should fall through to default.
-	resp2 := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "ordinary message"))
+	resp2 := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "ordinary message"))
 	task2 := decodeTask(t, resp2)
 	if got := *task2.Artifacts[0].Parts[0].Text; got != "default echo" {
 		t.Errorf("text = %q, want %q", got, "default echo")
@@ -199,7 +199,7 @@ func TestMockReturnsError(t *testing.T) {
 	m.Start()
 	defer m.Close()
 
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("fail", "do something"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("fail", "do something"))
 	task := decodeTask(t, resp)
 
 	if task.Status.State != a2a.TaskStateFailed {
@@ -225,7 +225,7 @@ func TestMockLatencyInjection(t *testing.T) {
 	defer m.Close()
 
 	start := time.Now()
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "hi"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "hi"))
 	elapsed := time.Since(start)
 
 	decodeTask(t, resp) // verify valid response
@@ -245,7 +245,7 @@ func TestMockDefaultResponse(t *testing.T) {
 	defer m.Close()
 
 	// Any message with skill "echo" should match.
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "anything"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "anything"))
 	task := decodeTask(t, resp)
 
 	if got := *task.Artifacts[0].Parts[0].Text; got != "default" {
@@ -268,14 +268,14 @@ func TestMockRuleOrdering(t *testing.T) {
 	defer m.Close()
 
 	// First rule should match.
-	resp1 := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "something special"))
+	resp1 := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "something special"))
 	task1 := decodeTask(t, resp1)
 	if got := *task1.Artifacts[0].Parts[0].Text; got != "special response" {
 		t.Errorf("text = %q, want %q", got, "special response")
 	}
 
 	// Second rule (catch-all) should match.
-	resp2 := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "normal"))
+	resp2 := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "normal"))
 	task2 := decodeTask(t, resp2)
 	if got := *task2.Artifacts[0].Parts[0].Text; got != "catch-all" {
 		t.Errorf("text = %q, want %q", got, "catch-all")
@@ -327,21 +327,21 @@ func TestOptionsFromConfig(t *testing.T) {
 	defer m.Close()
 
 	// Contains-match rule.
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "hello world"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "hello world"))
 	task := decodeTask(t, resp)
 	if got := *task.Artifacts[0].Parts[0].Text; got != "hello response" {
 		t.Errorf("text = %q, want %q", got, "hello response")
 	}
 
 	// Default rule.
-	resp2 := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "other"))
+	resp2 := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "other"))
 	task2 := decodeTask(t, resp2)
 	if got := *task2.Artifacts[0].Parts[0].Text; got != "default" {
 		t.Errorf("text = %q, want %q", got, "default")
 	}
 
 	// Error rule.
-	resp3 := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("fail", "x"))
+	resp3 := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("fail", "x"))
 	task3 := decodeTask(t, resp3)
 	if task3.Status.State != a2a.TaskStateFailed {
 		t.Fatalf("state = %q, want failed", task3.Status.State)
@@ -391,7 +391,7 @@ func TestMockNoMatchingRule(t *testing.T) {
 	m.Start()
 	defer m.Close()
 
-	resp := sendRPC(t, m.URL(), a2a.MethodSendMessage, sendMsg("echo", "hi"))
+	resp := sendRPC(t, m.URL(), a2a.MethodV1SendMessage, sendMsg("echo", "hi"))
 	if resp.Error == nil {
 		t.Fatal("expected error response")
 	}

@@ -77,7 +77,7 @@ func TestServer_Stream_PreservesCallerContextValues(t *testing.T) {
 	ts := newTestServerWithCallerValue(func(string) (Conversation, error) { return mock, nil }, "caller-identity")
 	defer ts.Close()
 
-	readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-values-stream",
 			Role:      a2a.RoleUser,
@@ -125,7 +125,7 @@ func TestServer_ToolResult_PreservesCallerContextValues(t *testing.T) {
 
 	a2aSendMessage(t, ts, "ctx-values-resume", "Where am I?")
 
-	a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-values-resume",
 			Role:      a2a.RoleUser,
@@ -174,7 +174,7 @@ func TestServer_SendMessage_SurvivesRequestCancellation(t *testing.T) {
 
 	// Non-blocking: the handler returns after the settle time while Send is
 	// still parked on release, which cancels the request context.
-	a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	a2aRPCRequestTask(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-values-cancel",
 			Role:      a2a.RoleUser,

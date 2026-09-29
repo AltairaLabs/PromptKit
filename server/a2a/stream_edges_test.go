@@ -55,12 +55,12 @@ func TestStream_RefusedWithoutFlusher(t *testing.T) {
 	srv := NewServer(func(string) (Conversation, error) { return streamConv(), nil })
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
-	for _, method := range []string{a2a.MethodSendStreamingMessage, a2a.MethodSubscribeToTask} {
+	for _, method := range []string{a2a.MethodV1SendStreamingMessage, a2a.MethodV1SubscribeToTask} {
 		_, err := srv.taskStore.Create("t-"+method, "c")
 		require.NoError(t, err)
 		w := &plainWriter{}
 		var params any = a2a.SendMessageRequest{Message: userMessage("ctx-noflush")}
-		if method == a2a.MethodSubscribeToTask {
+		if method == a2a.MethodV1SubscribeToTask {
 			params = a2a.SubscribeTaskRequest{ID: "t-" + method}
 		}
 		callDirect(t, srv, w, method, params)
@@ -102,7 +102,7 @@ func TestStream_TaskCreateFailureIsAnInternalError(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return streamConv(), nil }, WithTaskStore(store))
 	defer ts.Close()
 
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-create-fail")}))
 	assert.Equal(t, a2a.ErrCodeInternal, e.Code)
 	assert.NotContains(t, e.Message, "store down")
@@ -117,7 +117,7 @@ func TestStream_ReportsTheStoredStateWhenFinishLosesTheRace(t *testing.T) {
 	}, WithTaskStore(store))
 	defer ts.Close()
 
-	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-race")}))
 	last := events[len(events)-1]["statusUpdate"].(map[string]any)
 	assert.Equal(t, "TASK_STATE_WORKING", last["status"].(map[string]any)["state"])
@@ -127,7 +127,7 @@ func TestStream_InvalidParams(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return streamConv(), nil })
 	defer ts.Close()
 
-	for _, method := range []string{a2a.MethodSendStreamingMessage, a2a.MethodSubscribeToTask} {
+	for _, method := range []string{a2a.MethodV1SendStreamingMessage, a2a.MethodV1SubscribeToTask} {
 		resp, err := http.Post(ts.URL+"/a2a", "application/json",
 			bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"`+method+`","params":"nope"}`)))
 		require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestSubscribe_InterruptedTaskEndsAfterTheSnapshot(t *testing.T) {
 	require.NoError(t, srv.taskStore.SetState("waiting", a2a.TaskStateWorking, nil))
 	require.NoError(t, srv.taskStore.SetState("waiting", a2a.TaskStateInputRequired, nil))
 
-	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: "waiting"}))
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: "waiting"}))
 	require.Len(t, events, 1, "an interrupted task gets its snapshot and nothing to wait for")
 	assert.Equal(t, "TASK_STATE_INPUT_REQUIRED",
 		events[0]["task"].(map[string]any)["status"].(map[string]any)["state"])
@@ -163,7 +163,7 @@ func TestSubscribe_TooManySubscribers(t *testing.T) {
 		require.NoError(t, subErr)
 	}
 
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: "busy"}))
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: "busy"}))
 	assert.Equal(t, a2a.ErrCodeInternal, e.Code)
 }
 
@@ -195,7 +195,7 @@ func TestStateless_StreamToolResults(t *testing.T) {
 	// A handler without the client-tool half refuses them.
 	_, plain := statelessServer(t, &recordingHandler{})
 	defer plain.Close()
-	e := rawError(t, rawRPC(t, plain, "1.0", a2a.MethodSendStreamingMessage,
+	e := rawError(t, rawRPC(t, plain, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-tools", toolPart)}))
 	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code)
 
@@ -203,7 +203,7 @@ func TestStateless_StreamToolResults(t *testing.T) {
 	h := &resumableHandler{}
 	_, ts := statelessServer(t, h)
 	defer ts.Close()
-	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-tools", toolPart)}))
 	last := events[len(events)-1]["statusUpdate"].(map[string]any)
 	assert.Equal(t, "TASK_STATE_COMPLETED", last["status"].(map[string]any)["state"])
@@ -218,7 +218,7 @@ func TestStream_ConversationToolResultsNeedAResumableConversation(t *testing.T) 
 	_, ts := newTestServer(func(string) (Conversation, error) { return streamConv(), nil })
 	defer ts.Close()
 
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-conv-tools", toolPart)}))
 	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code)
 }
@@ -227,7 +227,7 @@ func TestStream_OpenerFailureIsAnInternalError(t *testing.T) {
 	_, ts := newTestServer(func(string) (Conversation, error) { return nil, errors.New("no conversation") })
 	defer ts.Close()
 
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-open-fail")}))
 	assert.Equal(t, a2a.ErrCodeInternal, e.Code)
 }
@@ -270,7 +270,7 @@ func TestStream_DisconnectCancelsTheTaskAndReleasesSubscribers(t *testing.T) {
 	defer ts.Close()
 
 	params, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-leave")})
-	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodSendStreamingMessage, Params: params})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendStreamingMessage, Params: params})
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
 	req.Header.Set(a2a.HeaderVersion, "1.0")
@@ -291,7 +291,7 @@ func TestStream_DisconnectCancelsTheTaskAndReleasesSubscribers(t *testing.T) {
 
 	subscribed := make(chan []map[string]any)
 	go func() {
-		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: taskID}))
+		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: taskID}))
 		subscribed <- events
 	}()
 	require.Eventually(t, func() bool {

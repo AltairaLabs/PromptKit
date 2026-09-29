@@ -10,25 +10,35 @@ import (
 	"time"
 )
 
-// A2A JSON-RPC method names, as A2A 1.0 (§5.3) names them.
+// A2A 1.0 JSON-RPC method names (A2A 1.0 §5.3).
 const (
-	MethodSendMessage          = "SendMessage"
-	MethodSendStreamingMessage = "SendStreamingMessage"
-	MethodGetTask              = "GetTask"
-	MethodCancelTask           = "CancelTask"
-	MethodListTasks            = "ListTasks"
-	MethodSubscribeToTask      = "SubscribeToTask"
-	MethodGetExtendedAgentCard = "GetExtendedAgentCard"
+	MethodV1SendMessage          = "SendMessage"
+	MethodV1SendStreamingMessage = "SendStreamingMessage"
+	MethodV1GetTask              = "GetTask"
+	MethodV1CancelTask           = "CancelTask"
+	MethodV1ListTasks            = "ListTasks"
+	MethodV1SubscribeToTask      = "SubscribeToTask"
+	MethodV1GetExtendedAgentCard = "GetExtendedAgentCard"
 
-	MethodCreateTaskPushNotificationConfig = "CreateTaskPushNotificationConfig"
-	MethodGetTaskPushNotificationConfig    = "GetTaskPushNotificationConfig"
-	MethodListTaskPushNotificationConfigs  = "ListTaskPushNotificationConfigs"
-	MethodDeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig"
+	MethodV1CreateTaskPushNotificationConfig = "CreateTaskPushNotificationConfig"
+	MethodV1GetTaskPushNotificationConfig    = "GetTaskPushNotificationConfig"
+	MethodV1ListTaskPushNotificationConfigs  = "ListTaskPushNotificationConfigs"
+	MethodV1DeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig"
+)
 
-	// MethodTaskSubscribe is the pre-1.0 name of [MethodSubscribeToTask].
-	//
-	// Deprecated: use MethodSubscribeToTask.
-	MethodTaskSubscribe = MethodSubscribeToTask
+// The method names PromptKit used before it spoke A2A 1.0 and 0.3 by version.
+// They keep their values: a server still answers every one of them, and code
+// comparing against them keeps working.
+//
+// Deprecated: use the MethodV1* names for A2A 1.0 and MethodV03* for 0.3, or
+// resolve a method with [LookupMethod].
+const (
+	MethodSendMessage          = "message/send"
+	MethodSendStreamingMessage = "message/stream"
+	MethodGetTask              = "tasks/get"
+	MethodCancelTask           = "tasks/cancel"
+	MethodListTasks            = "tasks/list"
+	MethodTaskSubscribe        = "tasks/subscribe"
 )
 
 // A2A 0.3 JSON-RPC method names. A 0.3 server knows only these.
@@ -49,8 +59,8 @@ const (
 	// servers before A2A 1.0 conformance answered to; they are in neither
 	// 0.3 nor 1.0 and are accepted only so older PromptKit clients keep
 	// working.
-	MethodLegacyListTasks = "tasks/list"
-	MethodLegacySubscribe = "tasks/subscribe"
+	MethodLegacyListTasks = MethodListTasks
+	MethodLegacySubscribe = MethodTaskSubscribe
 )
 
 // A2A-specific JSON-RPC error codes (A2A 1.0 §5.4, identical in 0.3).
@@ -371,10 +381,9 @@ type AgentInterface struct {
 
 // AgentExtension describes an optional protocol extension.
 type AgentExtension struct {
-	URI         string         `json:"uri"`
-	Description string         `json:"description,omitempty"`
-	Required    bool           `json:"required,omitempty"`
-	Params      map[string]any `json:"params,omitempty"`
+	URI         string `json:"uri"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
 }
 
 // --- JSON-RPC Envelope ---
@@ -447,9 +456,8 @@ type GetTaskRequest struct {
 
 // CancelTaskRequest is the params for CancelTask (0.3: tasks/cancel).
 type CancelTaskRequest struct {
-	Tenant   string         `json:"tenant,omitempty"`
-	ID       string         `json:"id"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Tenant string `json:"tenant,omitempty"`
+	ID     string `json:"id"`
 }
 
 // ListTasksRequest is the params for ListTasks (1.0 only).

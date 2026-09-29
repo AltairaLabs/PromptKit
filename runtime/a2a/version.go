@@ -67,17 +67,17 @@ var methodTable = map[string]struct {
 	op Operation
 	v  ProtocolVersion
 }{
-	MethodSendMessage:                      {OpSendMessage, ProtocolVersion10},
-	MethodSendStreamingMessage:             {OpSendStreamingMessage, ProtocolVersion10},
-	MethodGetTask:                          {OpGetTask, ProtocolVersion10},
-	MethodCancelTask:                       {OpCancelTask, ProtocolVersion10},
-	MethodListTasks:                        {OpListTasks, ProtocolVersion10},
-	MethodSubscribeToTask:                  {OpSubscribeToTask, ProtocolVersion10},
-	MethodGetExtendedAgentCard:             {OpGetExtendedAgentCard, ProtocolVersion10},
-	MethodCreateTaskPushNotificationConfig: {OpPushNotificationConfig, ProtocolVersion10},
-	MethodGetTaskPushNotificationConfig:    {OpPushNotificationConfig, ProtocolVersion10},
-	MethodListTaskPushNotificationConfigs:  {OpPushNotificationConfig, ProtocolVersion10},
-	MethodDeleteTaskPushNotificationConfig: {OpPushNotificationConfig, ProtocolVersion10},
+	MethodV1SendMessage:                      {OpSendMessage, ProtocolVersion10},
+	MethodV1SendStreamingMessage:             {OpSendStreamingMessage, ProtocolVersion10},
+	MethodV1GetTask:                          {OpGetTask, ProtocolVersion10},
+	MethodV1CancelTask:                       {OpCancelTask, ProtocolVersion10},
+	MethodV1ListTasks:                        {OpListTasks, ProtocolVersion10},
+	MethodV1SubscribeToTask:                  {OpSubscribeToTask, ProtocolVersion10},
+	MethodV1GetExtendedAgentCard:             {OpGetExtendedAgentCard, ProtocolVersion10},
+	MethodV1CreateTaskPushNotificationConfig: {OpPushNotificationConfig, ProtocolVersion10},
+	MethodV1GetTaskPushNotificationConfig:    {OpPushNotificationConfig, ProtocolVersion10},
+	MethodV1ListTaskPushNotificationConfigs:  {OpPushNotificationConfig, ProtocolVersion10},
+	MethodV1DeleteTaskPushNotificationConfig: {OpPushNotificationConfig, ProtocolVersion10},
 
 	MethodV03SendMessage:                  {OpSendMessage, ProtocolVersion03},
 	MethodV03SendStreamingMessage:         {OpSendStreamingMessage, ProtocolVersion03},
@@ -105,13 +105,13 @@ func LookupMethod(method string) (op Operation, v ProtocolVersion, ok bool) {
 // notification config has several methods and no single name.
 var methodNames = map[ProtocolVersion]map[Operation]string{
 	ProtocolVersion10: {
-		OpSendMessage:          MethodSendMessage,
-		OpSendStreamingMessage: MethodSendStreamingMessage,
-		OpGetTask:              MethodGetTask,
-		OpCancelTask:           MethodCancelTask,
-		OpListTasks:            MethodListTasks,
-		OpSubscribeToTask:      MethodSubscribeToTask,
-		OpGetExtendedAgentCard: MethodGetExtendedAgentCard,
+		OpSendMessage:          MethodV1SendMessage,
+		OpSendStreamingMessage: MethodV1SendStreamingMessage,
+		OpGetTask:              MethodV1GetTask,
+		OpCancelTask:           MethodV1CancelTask,
+		OpListTasks:            MethodV1ListTasks,
+		OpSubscribeToTask:      MethodV1SubscribeToTask,
+		OpGetExtendedAgentCard: MethodV1GetExtendedAgentCard,
 	},
 	ProtocolVersion03: {
 		OpSendMessage:          MethodV03SendMessage,

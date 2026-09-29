@@ -329,7 +329,7 @@ func (a *versionedAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task := &Task{ID: "t", ContextID: "c", Status: TaskStatus{State: TaskStateCompleted}}
-	if strings := req.Method; strings == MethodSendStreamingMessage || strings == MethodV03SendStreamingMessage {
+	if strings := req.Method; strings == MethodV1SendStreamingMessage || strings == MethodV03SendStreamingMessage {
 		w.Header().Set("Content-Type", "text/event-stream")
 		evt, _ := a.speaks.WireStreamEvent(task)
 		_, _ = w.Write([]byte(sseEvent(JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(evt)})))
@@ -352,7 +352,7 @@ func TestClient_SpeaksV1WithHeader(t *testing.T) {
 	task, err := c.SendMessage(context.Background(), &SendMessageRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, "t", task.ID, "the {task} wrapper is unwrapped")
-	assert.Equal(t, []string{MethodSendMessage}, agent.methods)
+	assert.Equal(t, []string{MethodV1SendMessage}, agent.methods)
 	assert.Equal(t, []string{"1.0"}, agent.versions)
 	assert.Equal(t, ProtocolVersion10, c.ProtocolVersion())
 }
@@ -370,7 +370,7 @@ func TestClient_FallsBackToV03AndRemembers(t *testing.T) {
 
 	_, err = c.GetTask(context.Background(), "t")
 	require.NoError(t, err)
-	assert.Equal(t, []string{MethodSendMessage, MethodV03SendMessage, MethodV03GetTask}, agent.methods,
+	assert.Equal(t, []string{MethodV1SendMessage, MethodV03SendMessage, MethodV03GetTask}, agent.methods,
 		"after one fallback the client speaks 0.3 without probing again")
 	assert.Equal(t, []string{"1.0", "0.3", "0.3"}, agent.versions)
 }
@@ -389,7 +389,7 @@ func TestClient_StreamFallsBackToV03(t *testing.T) {
 	}
 	require.Len(t, events, 1)
 	require.NotNil(t, events[0].Task, "the kind-tagged 0.3 task is decoded as a Task event")
-	assert.Equal(t, []string{MethodSendStreamingMessage, MethodV03SendStreamingMessage}, agent.methods)
+	assert.Equal(t, []string{MethodV1SendStreamingMessage, MethodV03SendStreamingMessage}, agent.methods)
 }
 
 func TestClient_PinnedVersionDoesNotFallBack(t *testing.T) {
@@ -440,11 +440,13 @@ func TestParseStreamEvent_AllShapes(t *testing.T) {
 		data  string
 		check func(StreamEvent) bool
 	}{
-		"v1 task":      {`{"result":{"task":{"id":"t","status":{"state":"TASK_STATE_WORKING"}}}}`, func(e StreamEvent) bool { return e.Task != nil }},
-		"v1 status":    {`{"result":{"statusUpdate":{"taskId":"t","status":{"state":"TASK_STATE_COMPLETED"}}}}`, func(e StreamEvent) bool { return e.StatusUpdate != nil }},
-		"v1 artifact":  {`{"result":{"artifactUpdate":{"taskId":"t","artifact":{"artifactId":"a","parts":[]}}}}`, func(e StreamEvent) bool { return e.ArtifactUpdate != nil }},
-		"v1 message":   {`{"result":{"message":{"messageId":"m","role":"ROLE_AGENT","parts":[]}}}`, func(e StreamEvent) bool { return e.Message != nil }},
-		"v03 status":   {`{"kind":"status-update","taskId":"t","status":{"state":"input-required"},"final":true}`, func(e StreamEvent) bool { return e.StatusUpdate != nil && e.StatusUpdate.Status.State == TaskStateInputRequired }},
+		"v1 task":     {`{"result":{"task":{"id":"t","status":{"state":"TASK_STATE_WORKING"}}}}`, func(e StreamEvent) bool { return e.Task != nil }},
+		"v1 status":   {`{"result":{"statusUpdate":{"taskId":"t","status":{"state":"TASK_STATE_COMPLETED"}}}}`, func(e StreamEvent) bool { return e.StatusUpdate != nil }},
+		"v1 artifact": {`{"result":{"artifactUpdate":{"taskId":"t","artifact":{"artifactId":"a","parts":[]}}}}`, func(e StreamEvent) bool { return e.ArtifactUpdate != nil }},
+		"v1 message":  {`{"result":{"message":{"messageId":"m","role":"ROLE_AGENT","parts":[]}}}`, func(e StreamEvent) bool { return e.Message != nil }},
+		"v03 status": {`{"kind":"status-update","taskId":"t","status":{"state":"input-required"},"final":true}`, func(e StreamEvent) bool {
+			return e.StatusUpdate != nil && e.StatusUpdate.Status.State == TaskStateInputRequired
+		}},
 		"v03 artifact": {`{"kind":"artifact-update","taskId":"t","artifact":{"artifactId":"a","parts":[{"kind":"text","text":"x"}]}}`, func(e StreamEvent) bool { return e.ArtifactUpdate != nil }},
 		"v03 message":  {`{"kind":"message","messageId":"m","role":"agent","parts":[]}`, func(e StreamEvent) bool { return e.Message != nil }},
 		"legacy task":  {`{"id":"t","status":{"state":"working"}}`, func(e StreamEvent) bool { return e.Task != nil }},
@@ -471,4 +473,27 @@ func TestOpenStream_JSONErrorIsReturned(t *testing.T) {
 	var rpcErr *RPCError
 	require.ErrorAs(t, err, &rpcErr)
 	assert.Equal(t, ErrCodeUnsupportedOperation, rpcErr.Code)
+}
+
+// An agent whose result does not decode fails the call with an error naming
+// the method, rather than returning a zero value.
+func TestClient_UndecodableResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rpcResult(w, decodeRPC(r).ID, "not an object")
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, WithProtocolVersion(ProtocolVersion10))
+	ctx := context.Background()
+
+	_, err := c.SendMessage(ctx, &SendMessageRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1SendMessage+": decode result")
+
+	_, err = c.GetTask(ctx, "t")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1GetTask+": decode result")
+
+	_, err = c.ListTasks(ctx, &ListTasksRequest{ContextID: "c"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), MethodV1ListTasks+": decode result")
 }

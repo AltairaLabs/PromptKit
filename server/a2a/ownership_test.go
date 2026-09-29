@@ -65,7 +65,7 @@ func TestOwnership_CallersSeeOnlyTheirOwnTasks(t *testing.T) {
 	defer ts.Close()
 	defer close(release)
 
-	sent := as(t, ts, "alice", a2a.MethodSendMessage, a2a.SendMessageRequest{
+	sent := as(t, ts, "alice", a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message:       userMessage("ctx-alice"),
 		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
@@ -73,11 +73,11 @@ func TestOwnership_CallersSeeOnlyTheirOwnTasks(t *testing.T) {
 	task := decodeTaskResult(t, sent.Result)
 
 	// Bob cannot read, cancel or subscribe to it: to him it does not exist.
-	requireCode(t, as(t, ts, "bob", a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID}),
 		a2a.ErrCodeTaskNotFound, "get")
-	requireCode(t, as(t, ts, "bob", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}),
 		a2a.ErrCodeTaskNotFound, "cancel")
-	requireCode(t, as(t, ts, "bob", a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID}),
 		a2a.ErrCodeTaskNotFound, "subscribe")
 	stored, err := srv.taskStore.Get(task.ID)
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestOwnership_CallersSeeOnlyTheirOwnTasks(t *testing.T) {
 	// Nor list it, with or without its context.
 	for _, req := range []a2a.ListTasksRequest{{}, {ContextID: "ctx-alice"}} {
 		var list a2a.ListTasksResponse
-		resp := as(t, ts, "bob", a2a.MethodListTasks, req)
+		resp := as(t, ts, "bob", a2a.MethodV1ListTasks, req)
 		require.Nil(t, resp.Error)
 		require.NoError(t, json.Unmarshal(resp.Result, &list))
 		assert.Empty(t, list.Tasks, "bob listed alice's tasks with %+v", req)
@@ -94,22 +94,22 @@ func TestOwnership_CallersSeeOnlyTheirOwnTasks(t *testing.T) {
 	}
 
 	// Nor send into her context, which would hand him her conversation.
-	requireCode(t, as(t, ts, "bob", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
 		a2a.ErrCodeInvalidParams, "send into another caller's context")
-	requireCode(t, as(t, ts, "bob", a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
 		a2a.ErrCodeInvalidParams, "stream into another caller's context")
 
 	// Alice sees her task everywhere, including a list without a context.
-	got := as(t, ts, "alice", a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
+	got := as(t, ts, "alice", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
 	require.Nil(t, got.Error)
 	var list a2a.ListTasksResponse
-	resp := as(t, ts, "alice", a2a.MethodListTasks, a2a.ListTasksRequest{})
+	resp := as(t, ts, "alice", a2a.MethodV1ListTasks, a2a.ListTasksRequest{})
 	require.Nil(t, resp.Error)
 	require.NoError(t, json.Unmarshal(resp.Result, &list))
 	require.Len(t, list.Tasks, 1)
 	assert.Equal(t, task.ID, list.Tasks[0].ID)
 
-	canceled := as(t, ts, "alice", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
+	canceled := as(t, ts, "alice", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
 	require.Nil(t, canceled.Error)
 }
 
@@ -118,7 +118,7 @@ func TestOwnership_AnonymousCallerIsRefused(t *testing.T) {
 	defer ts.Close()
 
 	paramsJSON, _ := json.Marshal(a2a.GetTaskRequest{ID: "x"})
-	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodGetTask, Params: paramsJSON})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1GetTask, Params: paramsJSON})
 	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -218,7 +218,7 @@ func TestReplicas_SharedBusAndCanceler(t *testing.T) {
 	defer replicaB.Close()
 
 	send := func() *a2a.Task {
-		return decodeTaskResult(t, a2aRPCRequest(t, replicaA, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		return decodeTaskResult(t, a2aRPCRequest(t, replicaA, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 			Message:       userMessage(""),
 			Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 		}).Result)
@@ -229,7 +229,7 @@ func TestReplicas_SharedBusAndCanceler(t *testing.T) {
 	<-started
 	got := make(chan []map[string]any)
 	go func() {
-		_, events := rawStream(t, rawRPC(t, replicaB, "1.0", a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: first.ID}))
+		_, events := rawStream(t, rawRPC(t, replicaB, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: first.ID}))
 		got <- events
 	}()
 	require.Eventually(t, func() bool {
@@ -249,7 +249,7 @@ func TestReplicas_SharedBusAndCanceler(t *testing.T) {
 	// Cancel through B a turn running on A.
 	second := send()
 	<-started
-	resp := a2aRPCRequest(t, replicaB, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: second.ID})
+	resp := a2aRPCRequest(t, replicaB, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: second.ID})
 	require.Nil(t, resp.Error)
 	select {
 	case <-turnCanceled:
@@ -270,13 +270,13 @@ func TestCancel_CancelerFailureStillCancelsTheTask(t *testing.T) {
 	defer ts.Close()
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
-	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message:       userMessage("ctx-cancel-fail"),
 		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	}).Result)
 	<-started
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
 	require.Nil(t, resp.Error)
 	assert.Equal(t, a2a.TaskStateCanceled, decodeTaskResult(t, resp.Result).Status.State)
 }
@@ -306,7 +306,7 @@ func TestOwnership_EvictedConversationStaysScoped(t *testing.T) {
 		WithTaskOwner(ownerFromHeader))
 	defer ts.Close()
 
-	sent := as(t, ts, "alice", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
+	sent := as(t, ts, "alice", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
 	require.Nil(t, sent.Error)
 
 	srv.convsMu.Lock()
@@ -319,8 +319,8 @@ func TestOwnership_EvictedConversationStaysScoped(t *testing.T) {
 	srv.convsMu.RUnlock()
 	require.False(t, cached)
 
-	requireCode(t, as(t, ts, "bob", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")}),
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")}),
 		a2a.ErrCodeInvalidParams, "send into an evicted conversation's context")
-	resp := as(t, ts, "alice", a2a.MethodSendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
+	resp := as(t, ts, "alice", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
 	assert.Nil(t, resp.Error, "alice may reopen her own context")
 }

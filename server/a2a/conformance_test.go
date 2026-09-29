@@ -176,7 +176,7 @@ func TestConformance_SendMessageShapes(t *testing.T) {
 	blocking := &a2a.SendMessageConfiguration{Blocking: true}
 
 	// 1.0: result wrapped as {task}, ProtoJSON enums, no kind.
-	v1 := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodSendMessage,
+	v1 := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-v1")}))
 	task := v1["task"].(map[string]any)
 	assert.Equal(t, "TASK_STATE_COMPLETED", task["status"].(map[string]any)["state"],
@@ -192,12 +192,12 @@ func TestConformance_SendMessageShapes(t *testing.T) {
 	assert.Equal(t, "text", part["kind"])
 
 	// The header wins over the method name.
-	forced := rawResult(t, rawRPC(t, ts, "0.3", a2a.MethodSendMessage,
+	forced := rawResult(t, rawRPC(t, ts, "0.3", a2a.MethodV1SendMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-forced"), Configuration: blocking}))
 	assert.Equal(t, "task", forced["kind"])
 
 	// An unsupported version is refused with VersionNotSupported.
-	e := rawError(t, rawRPC(t, ts, "2.0", a2a.MethodSendMessage,
+	e := rawError(t, rawRPC(t, ts, "2.0", a2a.MethodV1SendMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-bad")}))
 	assert.Equal(t, a2a.ErrCodeVersionNotSupported, e.Code)
 }
@@ -234,7 +234,7 @@ func TestConformance_SendMessageReturnImmediately(t *testing.T) {
 	defer ts.Close()
 	defer close(release)
 
-	result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodSendMessage, a2a.SendMessageRequest{
+	result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message:       userMessage("ctx-now"),
 		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	}))
@@ -268,7 +268,7 @@ func TestConformance_StreamShapes(t *testing.T) {
 	defer ts.Close()
 
 	// 1.0: Task first, every result wrapped, no final flag.
-	ids, v1 := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+	ids, v1 := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-s1")}))
 	require.Len(t, v1, 4)
 	assert.Contains(t, v1[0], "task", "the stream opens with the Task")
@@ -321,26 +321,26 @@ func TestConformance_CancelTask(t *testing.T) {
 	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message:       userMessage("ctx-cancel"),
 		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	}).Result)
 	<-started
 
-	canceled := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID}))
+	canceled := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}))
 	assert.Equal(t, "TASK_STATE_CANCELED", canceled["status"].(map[string]any)["state"])
 
 	// Canceling it again: the task is terminal, which is TaskNotCancelable.
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID}))
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}))
 	assert.Equal(t, a2a.ErrCodeTaskNotCancelable, e.Code)
 
-	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: "missing"}))
+	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: "missing"}))
 	assert.Equal(t, a2a.ErrCodeTaskNotFound, e.Code)
 
 	// A failed cancel never reaches a registered turn.
 	interrupted := false
 	srv.registerCancel(task.ID, func() { interrupted = true })
-	_ = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID}))
+	_ = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}))
 	assert.False(t, interrupted, "canceling a finished task must not interrupt anything")
 }
 
@@ -360,7 +360,7 @@ func TestConformance_CancelDuringStreamTellsTheStreamer(t *testing.T) {
 
 	done := make(chan []map[string]any)
 	go func() {
-		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodSendStreamingMessage,
+		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
 			a2a.SendMessageRequest{Message: userMessage("ctx-stream-cancel")}))
 		done <- events
 	}()
@@ -375,7 +375,7 @@ func TestConformance_CancelDuringStreamTellsTheStreamer(t *testing.T) {
 		}
 		return taskID != ""
 	}, time.Second, 5*time.Millisecond)
-	_ = rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: taskID}))
+	_ = rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID}))
 
 	select {
 	case events := <-done:
@@ -391,16 +391,16 @@ func TestConformance_UnsupportedOperations(t *testing.T) {
 	defer ts.Close()
 
 	for _, method := range []string{
-		a2a.MethodCreateTaskPushNotificationConfig, a2a.MethodV03SetPushNotificationConfig,
+		a2a.MethodV1CreateTaskPushNotificationConfig, a2a.MethodV03SetPushNotificationConfig,
 	} {
 		e := rawError(t, rawRPC(t, ts, "", method, map[string]any{"taskId": "t"}))
 		assert.Equal(t, a2a.ErrCodePushNotificationNotSupported, e.Code, method)
 	}
-	e := rawError(t, rawRPC(t, ts, "", a2a.MethodGetExtendedAgentCard, map[string]any{}))
+	e := rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeExtendedAgentCardNotConfigured, e.Code)
 	e = rawError(t, rawRPC(t, ts, "", "tasks/frobnicate", map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeMethodNotFound, e.Code)
-	e = rawError(t, rawRPC(t, ts, "", a2a.MethodGetTask, nil))
+	e = rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetTask, nil))
 	assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code)
 }
 
@@ -418,7 +418,7 @@ func TestConformance_GetTaskHistoryLength(t *testing.T) {
 	store.mu.Unlock()
 
 	get := func(n *int) []any {
-		result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodGetTask, a2a.GetTaskRequest{ID: "t", HistoryLength: n}))
+		result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: "t", HistoryLength: n}))
 		h, _ := result["history"].([]any)
 		return h
 	}
@@ -437,14 +437,14 @@ func TestConformance_ListTasksPaging(t *testing.T) {
 		a2aSendMessage(t, ts, "ctx-page", "hi")
 	}
 
-	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodListTasks, a2a.ListTasksRequest{}))
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks, a2a.ListTasksRequest{}))
 	assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code, "listing without a context is refused")
 
 	seen := map[string]bool{}
 	token := ""
 	for page := 0; ; page++ {
 		require.Less(t, page, 3, "paging did not terminate")
-		result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodListTasks,
+		result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
 			a2a.ListTasksRequest{ContextID: "ctx-page", PageSize: 2, PageToken: token}))
 		assert.Equal(t, float64(3), result["totalSize"])
 		assert.Equal(t, float64(2), result["pageSize"])
@@ -461,11 +461,11 @@ func TestConformance_ListTasksPaging(t *testing.T) {
 	}
 	assert.Len(t, seen, 3)
 
-	withArtifacts := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodListTasks,
+	withArtifacts := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
 		a2a.ListTasksRequest{ContextID: "ctx-page", IncludeArtifacts: true}))
 	assert.Contains(t, withArtifacts["tasks"].([]any)[0], "artifacts")
 
-	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodListTasks,
+	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
 		a2a.ListTasksRequest{ContextID: "ctx-page", PageToken: "garbage!"}))
 	assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code)
 }
@@ -480,7 +480,7 @@ func TestConformance_SubscribeOpensWithTheTask(t *testing.T) {
 	defer ts.Close()
 
 	// A task from SendMessage — not a stream — can be subscribed to, too.
-	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
 		Message:       userMessage("ctx-sub"),
 		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	}).Result)

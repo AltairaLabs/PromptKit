@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/stretchr/testify/assert"
