@@ -26,15 +26,18 @@ A2A solves this by treating **agents as services** — each agent publishes a ca
 
 A2A uses **JSON-RPC 2.0 over HTTP**. All method calls go to a single endpoint (`POST /a2a`), and agent discovery uses a well-known URL.
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `GET /.well-known/agent.json` | HTTP GET | Agent discovery |
-| `POST /a2a` | `message/send` | Send a message (synchronous) |
-| `POST /a2a` | `message/stream` | Send a message (SSE streaming) |
-| `POST /a2a` | `tasks/get` | Get task by ID |
-| `POST /a2a` | `tasks/cancel` | Cancel a running task |
-| `POST /a2a` | `tasks/list` | List tasks by context ID |
-| `POST /a2a` | `tasks/subscribe` | Subscribe to task updates (SSE) |
+PromptKit speaks two versions of the protocol on the same endpoint: **A2A 1.0** and **A2A 0.3**. Each request is answered in the version it asked for. That is the `A2A-Version` header when present. Otherwise it is the version whose method name the request used. The spec reads a request with no version as 0.3.
+
+| Operation | A2A 1.0 method | A2A 0.3 method |
+|-----------|----------------|----------------|
+| Send a message | `SendMessage` | `message/send` |
+| Send a message (SSE streaming) | `SendStreamingMessage` | `message/stream` |
+| Get a task by ID | `GetTask` | `tasks/get` |
+| Cancel a running task | `CancelTask` | `tasks/cancel` |
+| List tasks in a context | `ListTasks` | (1.0 only) |
+| Subscribe to a task's updates (SSE) | `SubscribeToTask` | `tasks/resubscribe` |
+
+Agent discovery is `GET /.well-known/agent-card.json`. The legacy `/.well-known/agent.json` path serves the same card.
 
 Every request is a standard JSON-RPC envelope:
 
@@ -42,16 +45,31 @@ Every request is a standard JSON-RPC envelope:
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "message/send",
+  "method": "SendMessage",
   "params": { ... }
 }
 ```
+
+The two versions differ on the wire, not in meaning:
+
+| | A2A 1.0 | A2A 0.3 |
+|-|---------|---------|
+| Task states | `TASK_STATE_COMPLETED`, `TASK_STATE_INPUT_REQUIRED`, ... | `completed`, `input-required`, ... |
+| Roles | `ROLE_USER`, `ROLE_AGENT` | `user`, `agent` |
+| `SendMessage` result | `{"task": {...}}` | the task, with `"kind": "task"` |
+| Stream events | `{"task"\|"statusUpdate"\|"artifactUpdate": {...}}` | the event, with `"kind"` and, on status updates, `"final"` |
+| File parts | `{"raw": ...}` / `{"url": ...}` with `mediaType` | `{"kind": "file", "file": {"bytes"\|"uri": ...}}` |
+| Blocking `SendMessage` | by default; `returnImmediately: true` opts out | only with `blocking: true` |
+
+A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting, and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. The runtime's A2A tool executor does not block at all. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It never resends a message after a response timeout, because the agent may already have started the turn.
+
+The runtime client sends `A2A-Version: 1.0`. If the agent rejects a 1.0 method as unknown, the client retries once in 0.3 and remembers the answer; `a2a.WithProtocolVersion` pins a version instead. The client reads every version's shapes, so its callers see one set of Go types.
 
 ---
 
 ## Agent Cards
 
-An **Agent Card** is a JSON document served at `/.well-known/agent.json` that describes an agent's identity and capabilities:
+An **Agent Card** is a JSON document served at `/.well-known/agent-card.json` that describes an agent's identity and capabilities:
 
 ```json
 {
@@ -87,6 +105,10 @@ Key fields:
 
 Skills can override the agent's default input/output modes with their own `inputModes` and `outputModes`.
 
+A card should also say how to authenticate. Set `SecuritySchemes` (for example an `HTTPAuth` Bearer scheme) and `SecurityRequirements` on the `a2a.AgentCard`; the server publishes them in each version's shape.
+
+The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+
 ---
 
 ## Task Lifecycle
@@ -121,6 +143,10 @@ stateDiagram-v2
 | `rejected` | Agent declined the task |
 
 Terminal states (`completed`, `failed`, `canceled`, `rejected`) cannot transition further. The `input_required` and `auth_required` states allow the caller to provide additional input and resume processing.
+
+These are PromptKit's Go names (`a2a.TaskStateInputRequired`). On the wire each state takes its version's spelling: `TASK_STATE_INPUT_REQUIRED` in 1.0, `input-required` in 0.3.
+
+Canceling a task that has already finished fails with `TaskNotCancelableError` (`-32002`). Subscribing to one fails with `UnsupportedOperationError` (`-32004`).
 
 ---
 
@@ -176,41 +202,29 @@ A single task can produce multiple artifacts (e.g., text response + generated im
 
 ## SSE Streaming
 
-The `message/stream` method returns Server-Sent Events (SSE) instead of a single JSON response. The server sends two types of events:
+`SendStreamingMessage` (0.3: `message/stream`) returns Server-Sent Events instead of a single JSON response. The stream follows A2A 1.0 §3.1.2:
 
-**TaskStatusUpdateEvent** — emitted when the task state changes:
+1. **The Task** comes first, already `working`.
+2. **Artifact updates** follow as the agent produces output. A run of text is a single artifact: the first chunk opens it, later chunks carry `append: true`, and the last carries `lastChunk: true`. Media parts are artifacts of their own.
+3. **A status update** ends the stream when the task finishes (`completed`, `failed`, `canceled`) or needs the caller (`input-required`).
 
-```json
-{
-  "taskId": "abc123",
-  "contextId": "ctx456",
-  "status": { "state": "working" }
-}
-```
-
-**TaskArtifactUpdateEvent** — emitted as the agent produces output:
-
-```json
-{
-  "taskId": "abc123",
-  "contextId": "ctx456",
-  "artifact": {
-    "artifactId": "artifact-0",
-    "parts": [{ "text": "The capital" }]
-  },
-  "append": true
-}
-```
-
-Each SSE event is wrapped in a JSON-RPC response envelope:
+In 1.0 each result is wrapped by what it is:
 
 ```
-data: {"jsonrpc":"2.0","id":1,"result":{"taskId":"abc123","status":{"state":"working"}}}
+data: {"jsonrpc":"2.0","id":1,"result":{"task":{"id":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_WORKING"}}}}
 
-data: {"jsonrpc":"2.0","id":1,"result":{"taskId":"abc123","artifact":{"artifactId":"artifact-0","parts":[{"text":"Hello"}]},"append":true}}
+data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"abc123","contextId":"ctx456","artifact":{"artifactId":"artifact-1","parts":[{"text":"Hello"}]}}}}
+
+data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"abc123","contextId":"ctx456","artifact":{"artifactId":"artifact-1","parts":[{"text":" world"}]},"append":true,"lastChunk":true}}}
+
+data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_COMPLETED"}}}}
 ```
 
-The client parses these events and delivers them as a channel of `StreamEvent` values, each containing either a `StatusUpdate` or `ArtifactUpdate`.
+In 0.3 each result is sent bare, tagged with `"kind"` (`task`, `artifact-update`, `status-update`), and the closing status update carries `"final": true`.
+
+`SubscribeToTask` (0.3: `tasks/resubscribe`) streams the same updates for a task already running. That includes a task started with a non-streaming `SendMessage`. The subscription opens with the task as it stands.
+
+The client parses every version's events and delivers them as a channel of `StreamEvent` values. Each holds exactly one of `Task`, `Message`, `StatusUpdate` or `ArtifactUpdate`.
 
 ---
 

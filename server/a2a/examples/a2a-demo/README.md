@@ -17,7 +17,7 @@ go run ./server/a2a/examples/a2a-demo/server
 ```
 
 The server listens on `http://localhost:9999` and serves:
-- Agent card at `/.well-known/agent.json`
+- Agent card at `/.well-known/agent-card.json`
 - JSON-RPC endpoint at `/a2a`
 
 ### 2. Client — Discover and call the agent

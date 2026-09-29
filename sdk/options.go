@@ -198,6 +198,8 @@ type config struct {
 	// A2A tool bridge for remote agent tools
 	a2aBridge *a2a.ToolBridge
 	a2aAgents []a2aAgentConfig // builder-based A2A agent registrations
+	// a2aToolExecutor runs A2A bridge tools in place of the SDK's executor.
+	a2aToolExecutor tools.Executor
 
 	// Variable providers for dynamic variable resolution
 	variableProviders []variables.Provider
@@ -2164,10 +2166,36 @@ func WithA2ATools(bridge *a2a.ToolBridge) Option {
 	}
 }
 
+// WithA2AToolExecutor runs A2A tools (from [WithA2ATools], [WithA2AAgent] and
+// a pack's agents section) on executor instead of the SDK's own A2A executor,
+// so a host
+// can put its own governance — policy checks, receipts, audit — in front of
+// remote agent calls. The executor receives each call's full descriptor,
+// including its A2AConfig; wrap [a2a.NewExecutor] to keep the default
+// transport:
+//
+//	inner := a2a.NewExecutor()
+//	conv, _ := sdk.Open(packPath, "assistant",
+//	    sdk.WithA2AAgent(agent),
+//	    sdk.WithA2AToolExecutor(myPolicyExecutor{next: inner}),
+//	)
+//
+// Whatever name executor reports, it is registered as "a2a".
+func WithA2AToolExecutor(executor tools.Executor) Option {
+	return func(c *config) error {
+		if executor == nil {
+			return errors.New("WithA2AToolExecutor: executor must not be nil")
+		}
+		c.a2aToolExecutor = executor
+		return nil
+	}
+}
+
 // a2aAgentConfig holds the configuration for a builder-based A2A agent registration.
 type a2aAgentConfig struct {
-	url    string
-	config *tools.A2AConfig
+	url      string
+	config   *tools.A2AConfig
+	required bool
 }
 
 // A2AAgentBuilder provides a fluent interface for configuring A2A agent connections.
@@ -2181,6 +2209,7 @@ type A2AAgentBuilder struct {
 	timeoutMs    int
 	retryPolicy  *tools.A2ARetryConfig
 	skillFilter  *tools.A2ASkillFilter
+	required     bool
 }
 
 // NewA2AAgent creates a new A2A agent configuration builder.
@@ -2226,7 +2255,9 @@ func (b *A2AAgentBuilder) WithHeaderFromEnv(headerEnv string) *A2AAgentBuilder {
 	return b
 }
 
-// WithTimeout sets the request timeout in milliseconds.
+// WithTimeout sets the request timeout in milliseconds. It bounds agent card
+// discovery and each non-streaming request to the agent, as well as each tool
+// call. Unset, discovery gives up after 10s and requests after 60s.
 func (b *A2AAgentBuilder) WithTimeout(ms int) *A2AAgentBuilder {
 	b.timeoutMs = ms
 	return b
@@ -2246,6 +2277,15 @@ func (b *A2AAgentBuilder) WithRetryPolicy(maxRetries, initialDelayMs, maxDelayMs
 // are exposed to the LLM.
 func (b *A2AAgentBuilder) WithSkillFilter(filter *tools.A2ASkillFilter) *A2AAgentBuilder {
 	b.skillFilter = filter
+	return b
+}
+
+// Required makes the agent's discovery a precondition of opening the
+// conversation: if its agent card cannot be fetched, Open fails. Without it a
+// failed discovery is logged and the conversation runs without that agent's
+// tools.
+func (b *A2AAgentBuilder) Required() *A2AAgentBuilder {
+	b.required = true
 	return b
 }
 
@@ -2270,7 +2310,9 @@ func (b *A2AAgentBuilder) Build() *tools.A2AConfig {
 }
 
 // WithA2AAgent registers an A2A agent using the builder pattern.
-// The agent's skills are discovered at pipeline build time and registered as tools.
+// The agent card is fetched when the conversation opens, and each of its skills
+// is registered as an a2a__<agent>__<skill> tool. See [A2AAgentBuilder.Required]
+// for what happens when the agent cannot be reached.
 //
 //	agent := sdk.NewA2AAgent("https://agent.example.com").
 //	    WithAuth("Bearer", os.Getenv("AGENT_TOKEN"))
@@ -2282,8 +2324,9 @@ func WithA2AAgent(builder *A2AAgentBuilder) Option {
 	return func(c *config) error {
 		cfg := builder.Build()
 		c.a2aAgents = append(c.a2aAgents, a2aAgentConfig{
-			url:    builder.url,
-			config: cfg,
+			url:      builder.url,
+			config:   cfg,
+			required: builder.required,
 		})
 		return nil
 	}

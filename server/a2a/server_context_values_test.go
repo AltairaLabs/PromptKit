@@ -180,6 +180,7 @@ func TestServer_SendMessage_SurvivesRequestCancellation(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("hello")}},
 		},
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
 	})
 
 	var convCtx context.Context

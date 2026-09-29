@@ -498,3 +498,34 @@ func TestBuildA2AMessageText(t *testing.T) {
 		}
 	})
 }
+
+// A server may answer SendMessage before the judge's turn is done — a capped
+// blocking wait, or a 0.3 agent that never blocks. The handler waits for the
+// task rather than scoring an empty answer.
+func TestA2AEvalHandler_WaitsForAWorkingTask(t *testing.T) {
+	t.Parallel()
+	verdict := `{"passed": true, "score": 0.8, "reasoning": "fine"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rpcReq a2a.JSONRPCRequest
+		_ = json.NewDecoder(r.Body).Decode(&rpcReq)
+		task := a2a.Task{ID: "judge-1", Status: a2a.TaskStatus{State: a2a.TaskStateWorking}}
+		if op, _, _ := a2a.LookupMethod(rpcReq.Method); op == a2a.OpGetTask {
+			text := verdict
+			task.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted,
+				Message: &a2a.Message{Role: a2a.RoleAgent, Parts: []a2a.Part{{Text: &text}}}}
+		}
+		taskJSON, _ := json.Marshal(task)
+		_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{JSONRPC: "2.0", ID: rpcReq.ID, Result: taskJSON})
+	}))
+	defer server.Close()
+
+	result, err := (&A2AEvalHandler{}).Eval(context.Background(),
+		&evals.EvalContext{CurrentOutput: "x"},
+		map[string]any{"agent_url": server.URL, "criteria": "ok?"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Score == nil || *result.Score != 0.8 {
+		t.Errorf("expected score 0.8 from the finished task, got %v (%s)", result.Score, result.Explanation)
+	}
+}

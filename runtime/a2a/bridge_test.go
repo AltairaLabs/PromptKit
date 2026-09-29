@@ -11,7 +11,8 @@ import (
 )
 
 // serveAgentCard returns an httptest.Server that serves the given AgentCard
-// at /.well-known/agent.json.
+// at the legacy /.well-known/agent.json path only, so bridge tests also cover
+// the client's fallback from /.well-known/agent-card.json.
 func serveAgentCard(t *testing.T, card AgentCard) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

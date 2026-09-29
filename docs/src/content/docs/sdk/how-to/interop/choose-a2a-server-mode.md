@@ -38,8 +38,9 @@ tutorial](/sdk/tutorials/10-a2a-server/) uses.
 
 What you are accepting: the server decides conversation lifetime, and its cache
 is keyed on the `contextID` the **caller** sends. Two callers presenting the
-same one share a conversation. If your callers are not mutually trusting, that
-is a reason to choose the other mode.
+same one share a conversation — unless you scope tasks by caller with
+`WithTaskOwner` (below), which refuses a message into a conversation another
+caller opened.
 
 ## Stateless: `NewStatelessServer`
 
@@ -64,8 +65,9 @@ on, so caller identity, tenant and trace are readable exactly where you decide
 what to do. You map `contextID` to whatever a session means in your system —
 including deciding that two callers sharing one share nothing.
 
-Nothing is held in the process, so any replica can serve any request; the task
-store is the only thing that has to be shared.
+No conversation is held in the process, so any replica can serve any message;
+the task store is shared. Canceling and subscribing to a task that another
+replica is running need more. See [Callers and replicas](#callers-and-replicas).
 
 ### Answering with events
 
@@ -105,6 +107,73 @@ A stateless server whose handler does not implement it refuses tool-result
 messages rather than delivering them as a fresh turn — it is holding nothing to
 resume, and pretending otherwise would produce a turn with no history behind it.
 
+## Callers and replicas
+
+Both modes take the same options for serving more than one caller and running
+more than one instance.
+
+### Scope tasks to the caller that created them
+
+```go
+srv := a2aserver.NewStatelessServer(handler,
+    a2aserver.WithTaskStore(store),
+    a2aserver.WithTaskOwner(func(r *http.Request) string {
+        return auth.IdentityFromContext(r.Context()).Subject
+    }),
+)
+```
+
+With `WithTaskOwner`, every task records the caller that created it. For
+anyone else, `GetTask`, `CancelTask` and `SubscribeToTask` answer
+`TaskNotFound`, so the task's existence is not revealed. `ListTasks` returns
+only the caller's tasks, and without a `contextId` it lists all of them. A
+request whose owner is empty is refused with 401.
+
+With `NewServer`, a conversation belongs to the caller that opened it. Another
+caller naming its `contextId` is refused. This also holds after the
+conversation is evicted from the cache, for as long as the caller's tasks in
+that context remain. With `NewStatelessServer`, your handler owns contexts and
+decides what a shared one means. An opener that restores conversation state
+from a store shared across replicas should key that state on the caller as
+well as the context.
+
+Without `WithTaskOwner`, the server cannot tell callers apart, so `ListTasks`
+requires a `contextId`.
+
+The task store must implement `OwnedTaskStore` (`CreateOwned`, `Owner`). The
+in-memory store does. A store that also implements `TaskQuerier` must filter by
+`TaskQuery.Owner`. `NewServer` panics if `WithTaskOwner` is given a store that
+cannot record owners, rather than serve with scoping silently off.
+
+### Run several replicas
+
+A task's turn runs on the instance that received its message. Two operations
+have to reach that instance:
+
+- **`CancelTask`** marks the task canceled in the shared store, then has to
+  stop the running turn. That goes through a `TaskCanceler`.
+- **`SubscribeToTask`** needs the turn's updates. Those go through a
+  `TaskEventBus`.
+
+Both default to in-process. For several replicas behind one task store,
+either pin each caller's requests to one replica (session affinity), or supply
+shared implementations — Redis pub/sub, NATS, or whatever you already run:
+
+```go
+srv := a2aserver.NewServer(opener,
+    a2aserver.WithTaskStore(redisStore),
+    a2aserver.WithTaskEventBus(redisBus),     // Publish / Subscribe
+    a2aserver.WithTaskCanceler(redisCancels), // Cancel / Listen
+)
+```
+
+A `TaskEvent` is version-neutral JSON, so it can cross a process boundary. Each
+subscriber encodes it for its own protocol version and request id. The server
+calls `TaskCanceler.Listen` once at start-up. It passes the function that stops
+a turn running locally, and that function is a no-op for tasks the instance is
+not running. So a broadcast canceler only has to deliver every cancel to every
+instance.
+
 ## Which one
 
 Choose `NewStatelessServer` if any of these is true:
@@ -112,7 +181,9 @@ Choose `NewStatelessServer` if any of these is true:
 - your runtime runs in a different process or service;
 - you already have sessions, with their own storage and expiry;
 - your handler needs to know who is calling;
-- you want to run more than one replica behind a load balancer;
-- callers are not mutually trusting and may present each other's `contextID`.
+- you want to run more than one replica behind a load balancer without
+  sharing conversation state;
+- callers are not mutually trusting and you want to decide what a shared
+  `contextID` means yourself (with `NewServer`, `WithTaskOwner` refuses it).
 
 Otherwise `NewServer` is less to write.

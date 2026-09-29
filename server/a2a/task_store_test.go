@@ -459,21 +459,82 @@ func TestInMemoryTaskStore_ListReturnsDeepCopies(t *testing.T) {
 
 func TestInMemoryTaskStore_ListDeterministicOrder(t *testing.T) {
 	store := NewInMemoryTaskStore()
-	ids := []string{"c", "a", "b", "e", "d"}
-	for _, id := range ids {
+	base := time.Now().UTC()
+	// Status time decides the order (most recent first); ties fall back to ID.
+	stamps := map[string]time.Duration{"c": 3, "a": 1, "b": 1, "e": 5, "d": 4}
+	for id, offset := range stamps {
 		_, err := store.Create(id, "ctx")
 		require.NoError(t, err)
+		setTaskTimestamp(store, id, base.Add(offset*time.Second))
 	}
 
 	tasks, err := store.List("ctx", 0, 0)
 	require.NoError(t, err)
-	require.Len(t, tasks, 5)
-
-	// Results must be sorted by ID.
-	for i := 1; i < len(tasks); i++ {
-		assert.True(t, tasks[i-1].ID < tasks[i].ID,
-			"expected %s < %s", tasks[i-1].ID, tasks[i].ID)
+	ids := make([]string, len(tasks))
+	for i, task := range tasks {
+		ids[i] = task.ID
 	}
+	assert.Equal(t, []string{"e", "d", "c", "a", "b"}, ids)
+}
+
+func TestInMemoryTaskStore_Query(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	base := time.Now().UTC()
+	for i, id := range []string{"t1", "t2", "t3", "t4"} {
+		_, err := store.Create(id, "ctx")
+		require.NoError(t, err)
+		setTaskTimestamp(store, id, base.Add(time.Duration(i)*time.Second))
+	}
+	_, err := store.Create("other", "ctx-2")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("t2", a2a.TaskStateWorking, nil))
+	setTaskTimestamp(store, "t2", base.Add(10*time.Second))
+
+	page, err := store.Query(TaskQuery{ContextID: "ctx", Limit: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 4, page.Total)
+	require.Len(t, page.Tasks, 2)
+
+	working := a2a.TaskStateWorking
+	page, err = store.Query(TaskQuery{ContextID: "ctx", Status: &working})
+	require.NoError(t, err)
+	require.Len(t, page.Tasks, 1)
+	assert.Equal(t, "t2", page.Tasks[0].ID)
+
+	after := base.Add(1500 * time.Millisecond)
+	page, err = store.Query(TaskQuery{ContextID: "ctx", StatusAfter: &after})
+	require.NoError(t, err)
+	ids := []string{}
+	for _, task := range page.Tasks {
+		ids = append(ids, task.ID)
+	}
+	assert.ElementsMatch(t, []string{"t2", "t3", "t4"}, ids, "t2 was just updated")
+
+	page, err = store.Query(TaskQuery{ContextID: "ctx", Offset: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Tasks)
+	assert.Equal(t, 4, page.Total)
+}
+
+// listOnlyStore hides the in-memory store's Query, so the server has to page
+// through List itself.
+type listOnlyStore struct{ TaskStore }
+
+func TestQueryTasks_FallsBackToList(t *testing.T) {
+	inner := NewInMemoryTaskStore()
+	base := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("t%d", i)
+		_, err := inner.Create(id, "ctx")
+		require.NoError(t, err)
+		setTaskTimestamp(inner, id, base.Add(time.Duration(i)*time.Second))
+	}
+	page, err := queryTasks(listOnlyStore{inner}, TaskQuery{ContextID: "ctx", Limit: 2, Offset: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 3, page.Total)
+	require.Len(t, page.Tasks, 2)
+	assert.Equal(t, "t1", page.Tasks[0].ID)
+	assert.Equal(t, "t0", page.Tasks[1].ID)
 }
 
 func TestInMemoryTaskStore_EvictTerminal_Empty(t *testing.T) {

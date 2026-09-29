@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -85,32 +88,37 @@ func TestServer_StreamMessage_TextOnly(t *testing.T) {
 		},
 	})
 
-	// Expect: working status, 2 artifact updates, completed status
-	if len(events) < 4 {
-		t.Fatalf("got %d events, want at least 4", len(events))
+	// Expect: the task, 2 chunks of one artifact, completed status.
+	if len(events) != 4 {
+		t.Fatalf("got %d events, want 4", len(events))
 	}
 
-	// First event: working status.
-	if events[0].StatusUpdate == nil || events[0].StatusUpdate.Status.State != a2a.TaskStateWorking {
-		t.Errorf("event 0: expected working status, got %+v", events[0])
+	// First event: the task itself (A2A 1.0 §3.1.2), already working.
+	if events[0].Task == nil || events[0].Task.Status.State != a2a.TaskStateWorking {
+		t.Errorf("event 0: expected the working task, got %+v", events[0])
 	}
 
-	// Middle events: artifact updates.
-	if events[1].ArtifactUpdate == nil {
-		t.Fatalf("event 1: expected artifact update, got %+v", events[1])
+	// The two chunks are one artifact: the first opens it, the second
+	// extends it and is the last chunk.
+	first, second := events[1].ArtifactUpdate, events[2].ArtifactUpdate
+	if first == nil || second == nil {
+		t.Fatalf("events 1-2: expected artifact updates, got %+v, %+v", events[1], events[2])
 	}
-	if events[1].ArtifactUpdate.Artifact.Parts[0].Text == nil || *events[1].ArtifactUpdate.Artifact.Parts[0].Text != "Hello " {
-		t.Errorf("event 1: text = %v, want 'Hello '", events[1].ArtifactUpdate.Artifact.Parts[0].Text)
+	if first.Artifact.Parts[0].Text == nil || *first.Artifact.Parts[0].Text != "Hello " {
+		t.Errorf("event 1: text = %v, want 'Hello '", first.Artifact.Parts[0].Text)
 	}
-	if !events[1].ArtifactUpdate.Append {
-		t.Error("event 1: expected Append=true")
+	if first.Append || first.LastChunk {
+		t.Errorf("event 1: Append=%v LastChunk=%v, want a fresh artifact that continues", first.Append, first.LastChunk)
 	}
-
-	if events[2].ArtifactUpdate == nil {
-		t.Fatalf("event 2: expected artifact update, got %+v", events[2])
+	if second.Artifact.Parts[0].Text == nil || *second.Artifact.Parts[0].Text != "World" {
+		t.Errorf("event 2: text = %v, want 'World'", second.Artifact.Parts[0].Text)
 	}
-	if events[2].ArtifactUpdate.Artifact.Parts[0].Text == nil || *events[2].ArtifactUpdate.Artifact.Parts[0].Text != "World" {
-		t.Errorf("event 2: text = %v, want 'World'", events[2].ArtifactUpdate.Artifact.Parts[0].Text)
+	if !second.Append || !second.LastChunk {
+		t.Errorf("event 2: Append=%v LastChunk=%v, want the closing chunk", second.Append, second.LastChunk)
+	}
+	if first.Artifact.ArtifactID != second.Artifact.ArtifactID {
+		t.Errorf("chunks of one text run must share an artifact id: %q vs %q",
+			first.Artifact.ArtifactID, second.Artifact.ArtifactID)
 	}
 
 	// Last event: completed status.
@@ -369,13 +377,13 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 		t.Fatal("timed out: processEvents did not exit after client disconnect (goroutine leak)")
 	}
 
-	// Wait briefly for async cleanup, then verify broadcaster was removed.
+	// Wait briefly for async cleanup, then verify the turn was unregistered.
 	time.Sleep(50 * time.Millisecond)
-	srv.subsMu.Lock()
-	remaining := len(srv.subs)
-	srv.subsMu.Unlock()
+	srv.cancelsMu.Lock()
+	remaining := len(srv.cancels)
+	srv.cancelsMu.Unlock()
 	if remaining != 0 {
-		t.Errorf("expected 0 active broadcasters after disconnect, got %d", remaining)
+		t.Errorf("expected 0 in-flight turns after disconnect, got %d", remaining)
 	}
 }
 
@@ -396,8 +404,8 @@ func TestServer_StreamMessage_NotStreamable(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("expected error for non-streaming conversation")
 	}
-	if resp.Error.Code != -32601 {
-		t.Errorf("error code = %d, want -32601", resp.Error.Code)
+	if resp.Error.Code != a2a.ErrCodeUnsupportedOperation {
+		t.Errorf("error code = %d, want %d (UnsupportedOperation)", resp.Error.Code, a2a.ErrCodeUnsupportedOperation)
 	}
 }
 
@@ -514,17 +522,17 @@ func TestServer_TaskSubscribe(t *testing.T) {
 	// Wait for stream to be ready.
 	<-streamReady
 
-	// Find the task ID from the server's subs map.
+	// Find the task ID of the in-flight turn.
 	var taskID string
-	srv.subsMu.Lock()
-	for id := range srv.subs {
+	srv.cancelsMu.Lock()
+	for id := range srv.cancels {
 		taskID = id
 		break
 	}
-	srv.subsMu.Unlock()
+	srv.cancelsMu.Unlock()
 
 	if taskID == "" {
-		t.Fatal("no broadcaster found")
+		t.Fatal("no in-flight turn found")
 	}
 
 	// Subscribe in background.
@@ -567,27 +575,22 @@ func TestServer_TaskSubscribe(t *testing.T) {
 	}
 }
 
+// A finished task cannot be subscribed to (A2A 1.0 §3.1.6).
 func TestServer_TaskSubscribe_CompletedTask(t *testing.T) {
 	mock := completingMock()
 	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	// Create a completed task.
 	task := a2aSendMessage(t, ts, "ctx-completed", "Hello")
+	require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
 
-	// Subscribe to the completed task.
-	events := readSSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
-		ID: task.ID,
-	})
+	resp := a2aRPCRequest(t, ts, a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID})
+	require.NotNil(t, resp.Error, "subscribing to a finished task must be refused")
+	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, resp.Error.Code)
 
-	if len(events) == 0 {
-		t.Fatal("expected at least one event for completed task")
-	}
-
-	// Should get a status event with completed state.
-	if events[0].StatusUpdate == nil || events[0].StatusUpdate.Status.State != a2a.TaskStateCompleted {
-		t.Errorf("expected completed status event, got %+v", events[0])
-	}
+	resp = a2aRPCRequest(t, ts, a2a.MethodSubscribeToTask, a2a.SubscribeTaskRequest{ID: "missing"})
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, a2a.ErrCodeTaskNotFound, resp.Error.Code)
 }
 
 func TestServer_TaskSubscribe_NotFound(t *testing.T) {
@@ -760,9 +763,9 @@ func TestServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
 		t.Fatalf("expected 3 artifact events, got %d", len(artifacts))
 	}
 
-	// Check artifact IDs increment.
+	// Text, media, text: three artifacts, numbered from 1.
 	for i, art := range artifacts {
-		wantID := fmt.Sprintf("artifact-%d", i)
+		wantID := fmt.Sprintf("artifact-%d", i+1)
 		if art.Artifact.ArtifactID != wantID {
 			t.Errorf("artifact[%d] ID = %q, want %q", i, art.Artifact.ArtifactID, wantID)
 		}
@@ -909,13 +912,13 @@ func TestServer_StreamMessage_ArtifactIDs(t *testing.T) {
 		}
 	}
 
+	// Five chunks of one text run are five updates of one artifact.
 	if len(artifactIDs) != 5 {
 		t.Fatalf("got %d artifact events, want 5", len(artifactIDs))
 	}
 	for i, id := range artifactIDs {
-		want := fmt.Sprintf("artifact-%d", i)
-		if id != want {
-			t.Errorf("artifact[%d] ID = %q, want %q", i, id, want)
+		if id != "artifact-1" {
+			t.Errorf("artifact[%d] ID = %q, want artifact-1", i, id)
 		}
 	}
 }
@@ -1141,61 +1144,5 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 	defer mock.mu.Unlock()
 	if len(mock.toolResults) != 1 || mock.toolResults[0].CallID != "call-1" {
 		t.Errorf("tool results = %+v, want [{call-1 ...}]", mock.toolResults)
-	}
-}
-
-// --- L23: Broadcaster subscriber limit ---
-
-func TestBroadcaster_SubscriberLimit(t *testing.T) {
-	b := &taskBroadcaster{}
-
-	// Fill up to maxSubscribers and track the first subscriber ID.
-	var firstSubID uint64
-	for i := 0; i < maxSubscribers; i++ {
-		ch, subID, err := b.subscribe()
-		if err != nil {
-			t.Fatalf("subscribe %d failed: %v", i, err)
-		}
-		if ch == nil {
-			t.Fatalf("subscribe %d returned nil channel", i)
-		}
-		if i == 0 {
-			firstSubID = subID
-		}
-	}
-
-	// Next subscribe should fail.
-	ch, _, err := b.subscribe()
-	if !errors.Is(err, ErrTooManySubscribers) {
-		t.Errorf("expected ErrTooManySubscribers, got %v", err)
-	}
-	if ch != nil {
-		t.Error("expected nil channel on error")
-	}
-
-	// After unsubscribing one, should be able to subscribe again.
-	b.unsubscribe(firstSubID)
-
-	ch, _, err = b.subscribe()
-	if err != nil {
-		t.Errorf("subscribe after unsubscribe failed: %v", err)
-	}
-	if ch == nil {
-		t.Error("expected non-nil channel after unsubscribe")
-	}
-}
-
-func TestBroadcaster_SubscribeClosed(t *testing.T) {
-	b := &taskBroadcaster{}
-	b.close()
-
-	ch, _, err := b.subscribe()
-	if err != nil {
-		t.Errorf("unexpected error subscribing to closed broadcaster: %v", err)
-	}
-	// Channel should be closed immediately.
-	_, ok := <-ch
-	if ok {
-		t.Error("expected closed channel from closed broadcaster")
 	}
 }

@@ -110,7 +110,7 @@ mode](/sdk/how-to/interop/choose-a2a-server-mode/).
     }()
 
     fmt.Println("A2A server listening on http://localhost:9999")
-    fmt.Println("Agent card: http://localhost:9999/.well-known/agent.json")
+    fmt.Println("Agent card: http://localhost:9999/.well-known/agent-card.json")
     if err := server.ListenAndServe(); err != nil {
         log.Fatal(err)
     }
@@ -126,7 +126,7 @@ go run main.go
 Verify the agent card:
 
 ```bash
-curl http://localhost:9999/.well-known/agent.json | jq .
+curl http://localhost:9999/.well-known/agent-card.json | jq .
 ```
 
 ---
@@ -198,7 +198,7 @@ http.ListenAndServe(":8080", mux)
 
 | Option | Description |
 |--------|-------------|
-| `sdk.WithA2ACard(card)` | Sets the agent card served at `/.well-known/agent.json` |
+| `sdk.WithA2ACard(card)` | Sets the agent card served at `/.well-known/agent-card.json` |
 | `sdk.WithA2APort(port)` | Sets the TCP port for `ListenAndServe` |
 | `sdk.WithA2ATaskStore(store)` | Sets a custom task store (default: in-memory) |
 

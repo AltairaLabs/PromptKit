@@ -3,12 +3,17 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -271,4 +276,184 @@ func TestExtractResponseText(t *testing.T) {
 		}
 		assert.Equal(t, "from status", a2a.ExtractResponseText(task))
 	})
+}
+
+// openWithA2AAgent opens a conversation on the template test pack with the
+// given A2A agent builders and options.
+func openWithA2AAgent(t *testing.T, opts ...Option) (*Conversation, error) {
+	t.Helper()
+	base := []Option{
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+	}
+	conv, err := Open(writeTestPack(t), "chat", append(base, opts...)...)
+	if conv != nil {
+		t.Cleanup(func() { _ = conv.Close() })
+	}
+	return conv, err
+}
+
+// TestWithA2AAgent_DiscoversAndRegistersTools is the #2087 regression: the
+// builder path used to hand the capability an undiscovered bridge, so the
+// agent's skills never became tools.
+func TestWithA2AAgent_DiscoversAndRegistersTools(t *testing.T) {
+	srv := a2aTestServer(t, "Remote", "summarize", "done")
+	defer srv.Close()
+
+	conv, err := openWithA2AAgent(t, WithA2AAgent(NewA2AAgent(srv.URL)))
+	require.NoError(t, err)
+
+	td := conv.ToolRegistry().Get("a2a__remote__summarize")
+	require.NotNil(t, td, "the agent's skill must be registered as a tool")
+	assert.Equal(t, "a2a", td.Mode)
+	require.NotNil(t, td.A2AConfig)
+	assert.Equal(t, "summarize", td.A2AConfig.SkillID)
+}
+
+func TestWithA2AAgent_UnreachableAgentDoesNotFailOpen(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	conv, err := openWithA2AAgent(t, WithA2AAgent(NewA2AAgent(srv.URL).WithTimeout(2000)))
+	require.NoError(t, err)
+	for _, td := range conv.ToolRegistry().GetTools() {
+		assert.NotEqual(t, "a2a", td.Mode, "no a2a tools expected from an unreachable agent")
+	}
+}
+
+func TestWithA2AAgent_RequiredAgentFailsOpen(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	_, err := openWithA2AAgent(t, WithA2AAgent(NewA2AAgent(srv.URL).Required()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), srv.URL)
+}
+
+// TestA2ACapability_DiscoversOnceAtInit pins that discovery happens in Init
+// and nowhere else: RegisterTools runs on the first pipeline build, and
+// repeating a failed discovery there would stall that build for another
+// timeout; repeating a successful one would duplicate tools (RegisterAgent
+// appends).
+func TestA2ACapability_DiscoversOnceAtInit(t *testing.T) {
+	var cardFetches atomic.Int32
+	inner := a2aTestServer(t, "Flaky", "lookup", "ok")
+	defer inner.Close()
+	var up atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			cardFetches.Add(1)
+		}
+		if !up.Load() {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		resp, err := http.Get(inner.URL + r.URL.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer srv.Close()
+
+	newCap := func() *A2ACapability {
+		cap := NewA2ACapability()
+		wireA2AConfig([]Capability{cap}, &config{a2aAgents: []a2aAgentConfig{
+			{url: srv.URL, config: NewA2AAgent(srv.URL).Build()},
+		}})
+		require.NoError(t, cap.Init(CapabilityContext{Pack: &pack.Pack{}}))
+		return cap
+	}
+
+	down := newCap()
+	fetchesAtInit := cardFetches.Load()
+	up.Store(true)
+	registry := tools.NewRegistry()
+	down.RegisterTools(registry)
+	assert.Nil(t, registry.Get("a2a__flaky__lookup"), "an agent down at Init contributes no tools")
+	assert.Equal(t, fetchesAtInit, cardFetches.Load(), "RegisterTools must not repeat discovery")
+
+	healthy := newCap()
+	for i := 0; i < 2; i++ {
+		registry = tools.NewRegistry()
+		healthy.RegisterTools(registry)
+		assert.Len(t, registry.GetTools(), 1, "a discovered agent's tools, once")
+	}
+}
+
+// okA2AExecutor answers every call with a fixed result.
+type okA2AExecutor struct{}
+
+func (okA2AExecutor) Name() string { return "ok" }
+
+func (okA2AExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"response":"ok"}`), nil
+}
+
+// A pack's agents section must not replace the host's executor: agent tools
+// run on it just as bridge tools do.
+func TestWithA2AToolExecutor_CoversPackAgentsToo(t *testing.T) {
+	host := &policyExecutor{next: okA2AExecutor{}}
+	cap := NewA2ACapability()
+	cap.toolExecutor = host
+	cap.endpointResolver = &StaticEndpointResolver{BaseURL: "http://localhost:9000"}
+	p := &pack.Pack{Pack: packspec.Pack{
+		ID:      "test",
+		Prompts: map[string]*pack.Prompt{"orchestrator": {ID: "orchestrator", Tools: []string{"worker"}}},
+		Agents: &pack.AgentsConfig{
+			Entry:   "orchestrator",
+			Members: map[string]*pack.AgentDef{"worker": {Description: "A worker agent"}},
+		},
+	}}
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	res, err := registry.Execute(context.Background(), "a2a__worker", json.RawMessage(`{"query":"hi"}`))
+	require.NoError(t, err)
+	assert.Empty(t, res.Error)
+	assert.Equal(t, int32(1), host.calls.Load(), "the pack agent's call bypassed the host executor")
+}
+
+// policyExecutor records calls and delegates, standing in for a host's
+// governance layer.
+type policyExecutor struct {
+	next  tools.Executor
+	calls atomic.Int32
+}
+
+func (p *policyExecutor) Name() string { return "host-policy" }
+
+func (p *policyExecutor) Execute(
+	ctx context.Context, d *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+	p.calls.Add(1)
+	return p.next.Execute(ctx, d, args)
+}
+
+func TestWithA2AToolExecutor_RoutesBridgeTools(t *testing.T) {
+	srv := a2aTestServer(t, "Remote", "summarize", "remote says hi")
+	defer srv.Close()
+
+	host := &policyExecutor{next: a2a.NewExecutor()}
+	conv, err := openWithA2AAgent(t,
+		WithA2AAgent(NewA2AAgent(srv.URL)),
+		WithA2AToolExecutor(host),
+	)
+	require.NoError(t, err)
+
+	res, err := conv.ToolRegistry().Execute(context.Background(), "a2a__remote__summarize",
+		json.RawMessage(`{"query":"hi"}`))
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Error)
+	assert.Contains(t, string(res.Result), "remote says hi")
+	assert.Equal(t, int32(1), host.calls.Load(), "the host executor must see the call")
+}
+
+func TestWithA2AToolExecutor_RejectsNil(t *testing.T) {
+	assert.Error(t, WithA2AToolExecutor(nil)(&config{}))
 }

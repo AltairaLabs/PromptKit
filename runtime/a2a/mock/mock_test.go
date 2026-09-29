@@ -53,17 +53,35 @@ func sendRPC(t *testing.T, url, method string, params any) a2a.JSONRPCResponse {
 	return rpcResp
 }
 
-// decodeTask unmarshals a Task from a JSONRPCResponse result.
+// decodeTask unmarshals a Task from a SendMessage result, which a 1.0
+// request gets wrapped as {"task": ...}.
 func decodeTask(t *testing.T, resp a2a.JSONRPCResponse) a2a.Task {
 	t.Helper()
 	if resp.Error != nil {
 		t.Fatalf("unexpected RPC error: %d %s", resp.Error.Code, resp.Error.Message)
 	}
-	var task a2a.Task
-	if err := json.Unmarshal(resp.Result, &task); err != nil {
-		t.Fatalf("unmarshal task: %v", err)
+	var wrapped a2a.SendMessageResponse
+	if err := json.Unmarshal(resp.Result, &wrapped); err != nil || wrapped.Task == nil {
+		t.Fatalf("unmarshal task: %v (result %s)", err, resp.Result)
 	}
-	return task
+	return *wrapped.Task
+}
+
+func TestMockAnswersV03(t *testing.T) {
+	m := NewA2AServer(testCard(), WithSkillResponse("echo", Response{
+		Parts: []a2a.Part{{Text: testutil.Ptr("hello back")}},
+	}))
+	m.Start()
+	defer m.Close()
+
+	resp := sendRPC(t, m.URL(), a2a.MethodV03SendMessage, sendMsg("echo", "hello"))
+	var bare map[string]any
+	if err := json.Unmarshal(resp.Result, &bare); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if bare["kind"] != "task" {
+		t.Errorf("0.3 result kind = %v, want bare task", bare["kind"])
+	}
 }
 
 // sendMsg builds a SendMessageRequest with the given skill ID and text.

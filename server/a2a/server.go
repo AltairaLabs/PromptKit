@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +21,9 @@ import (
 )
 
 const (
+	// jsonRPCVersion is the JSON-RPC protocol version every response carries.
+	jsonRPCVersion = "2.0"
+
 	// idBytes is the number of random bytes used to generate task/context IDs.
 	idBytes = 16
 
@@ -65,7 +69,8 @@ type Authenticator interface {
 	Authenticate(r *http.Request) error
 }
 
-// AgentCardProvider returns the agent card to serve at /.well-known/agent.json.
+// AgentCardProvider returns the agent card to serve at
+// /.well-known/agent-card.json (and the legacy /.well-known/agent.json).
 type AgentCardProvider interface {
 	AgentCard(r *http.Request) (*a2a.AgentCard, error)
 }
@@ -83,7 +88,12 @@ func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error) {
 // Option configures a [Server].
 type Option func(*Server)
 
-// WithCard sets the agent card served at /.well-known/agent.json.
+// WithCard sets the agent card served at /.well-known/agent-card.json.
+//
+// The server completes the card's JSON-RPC interface declarations for the
+// protocol versions it speaks (see servedCard); declare SecuritySchemes and
+// SecurityRequirements on it when WithAuthenticator is in use, so callers can
+// discover how to authenticate.
 func WithCard(card *a2a.AgentCard) Option {
 	return func(s *Server) { s.cardProvider = &StaticCard{Card: *card} }
 }
@@ -113,6 +123,20 @@ func WithReadTimeout(d time.Duration) Option {
 // the response. Default: 60s.
 func WithWriteTimeout(d time.Duration) Option {
 	return func(s *Server) { s.writeTimeout = d }
+}
+
+// WithMaxBlockingWait caps how long a blocking SendMessage holds its request
+// open. When the turn has not finished or been interrupted by then, the server
+// answers with the task in its current (working) state, and the turn runs on:
+// the caller polls GetTask or subscribes for the rest. Default: 0, no cap — a
+// 1.0 SendMessage waits for the turn, as the spec requires, until the turn
+// ends or the caller disconnects.
+//
+// Set it below the timeout of whatever sits in front of the server (a load
+// balancer's idle timeout, a proxy's read timeout), so the caller gets a task
+// to follow rather than a gateway error.
+func WithMaxBlockingWait(d time.Duration) Option {
+	return func(s *Server) { s.maxBlockingWait = d }
 }
 
 // WithIdleTimeout sets the maximum amount of time to wait for the next
@@ -187,10 +211,11 @@ type Server struct {
 	httpSrv       *http.Server
 	httpSrvMu     sync.Mutex
 
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	idleTimeout  time.Duration
-	maxBodySize  int64
+	readTimeout     time.Duration
+	writeTimeout    time.Duration
+	maxBlockingWait time.Duration
+	idleTimeout     time.Duration
+	maxBodySize     int64
 
 	// Readiness flag: set to true after NewServer completes, false on Shutdown.
 	isReady atomic.Bool
@@ -211,8 +236,19 @@ type Server struct {
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
 
-	subsMu sync.Mutex
-	subs   map[string]*taskBroadcaster // task_id → broadcaster
+	// events carries task updates to SubscribeToTask callers; canceler
+	// reaches the instance running a task. Both default to in-process.
+	events         TaskEventBus
+	canceler       TaskCanceler
+	stopCancelFeed func()
+
+	// owner, when set, scopes every task to the caller that created it;
+	// convOwner (under convsMu) records who opened each conversation.
+	owner     OwnerFunc
+	convOwner map[string]string
+
+	// handlers serves each protocol operation.
+	handlers map[a2a.Operation]func(*rpcCall)
 }
 
 // NewServer creates a new A2A server that OWNS its conversations: it opens one
@@ -233,8 +269,8 @@ func newServer(opts ...Option) *Server {
 	s := &Server{
 		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
+		convOwner:    make(map[string]string),
 		cancels:      make(map[string]context.CancelFunc),
-		subs:         make(map[string]*taskBroadcaster),
 		readTimeout:  defaultReadTimeout,
 		writeTimeout: defaultWriteTimeout,
 		idleTimeout:  defaultIdleTimeout,
@@ -249,6 +285,15 @@ func newServer(opts ...Option) *Server {
 	if s.taskStore == nil {
 		s.taskStore = NewInMemoryTaskStore()
 	}
+	s.checkOwnershipConfig()
+	if s.events == nil {
+		s.events = newLocalTaskEvents()
+	}
+	if s.canceler == nil {
+		s.canceler = &localCanceler{}
+	}
+	s.stopCancelFeed = s.canceler.Listen(s.cancelLocal)
+	s.handlers = s.rpcHandlers()
 
 	// Start background eviction if at least one TTL is enabled.
 	if s.taskTTL > 0 || s.convTTL > 0 {
@@ -263,7 +308,8 @@ func newServer(opts ...Option) *Server {
 // Handler returns an http.Handler implementing the A2A protocol.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
+	mux.HandleFunc("GET "+a2a.AgentCardPath, s.handleAgentCard)
+	mux.HandleFunc("GET "+a2a.LegacyAgentCardPath, s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
@@ -278,7 +324,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 			if rec := recover(); rec != nil {
 				stack := debug.Stack()
 				log.Printf("a2a: panic recovered: %v\n%s", rec, stack)
-				writeRPCError(w, nil, -32603, "Internal error")
+				writeRPCError(w, nil, a2a.ErrCodeInternal, "Internal error")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -330,8 +376,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		firstErr = srv.Shutdown(ctx)
 	}
 
-	// Close all broadcasters.
-	s.closeAllBroadcasters()
+	// Stop taking cancel requests, and end this process's subscriptions.
+	if s.stopCancelFeed != nil {
+		s.stopCancelFeed()
+	}
+	if local, ok := s.events.(*localTaskEvents); ok {
+		local.closeAll()
+	}
 
 	// Cancel all in-flight tasks.
 	s.cancelsMu.Lock()
@@ -348,6 +399,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			firstErr = err
 		}
 		delete(s.convs, id)
+		delete(s.convOwner, id)
 	}
 	s.convsMu.Unlock()
 
@@ -430,21 +482,28 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// handleAgentCard serves the agent card as JSON.
+// handleAgentCard serves the agent card in the caller's protocol version: the
+// 1.0 card when the request asks for 1.0, otherwise the 0.3 card, which also
+// carries supportedInterfaces so a 1.0 client that sent no header still finds
+// its interface.
 func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
-	if s.cardProvider == nil {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(a2a.AgentCard{})
-		return
+	card := &a2a.AgentCard{}
+	if s.cardProvider != nil {
+		provided, err := s.cardProvider.AgentCard(r)
+		if err != nil {
+			log.Printf("a2a: failed to get agent card: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		card = provided
 	}
-	card, err := s.cardProvider.AgentCard(r)
+	v, err := requestVersion(r, a2a.ProtocolVersion03)
 	if err != nil {
-		log.Printf("a2a: failed to get agent card: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(card)
+	_ = json.NewEncoder(w).Encode(v.WireAgentCard(servedCard(card, r)))
 }
 
 // handleRPC dispatches a JSON-RPC 2.0 request to the appropriate handler.
@@ -462,33 +521,56 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	var req a2a.JSONRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeRPCError(w, nil, -32700, "Parse error")
+		writeRPCError(w, nil, a2a.ErrCodeParse, "Parse error")
 		return
 	}
 
-	switch req.Method {
-	case a2a.MethodSendMessage:
-		s.handleSendMessage(w, r, &req)
-	case a2a.MethodSendStreamingMessage:
-		s.handleStreamMessage(w, r, &req)
-	case a2a.MethodGetTask:
-		s.handleGetTask(w, &req)
-	case a2a.MethodCancelTask:
-		s.handleCancelTask(w, &req)
-	case a2a.MethodListTasks:
-		s.handleListTasks(w, &req)
-	case a2a.MethodTaskSubscribe:
-		s.handleTaskSubscribe(w, r, &req)
-	default:
-		writeRPCError(w, req.ID, -32601, "Method not found")
+	op, methodVersion, known := a2a.LookupMethod(req.Method)
+	if !known {
+		writeRPCError(w, req.ID, a2a.ErrCodeMethodNotFound, "Method not found")
+		return
+	}
+	v, err := requestVersion(r, methodVersion)
+	if err != nil {
+		writeRPCError(w, req.ID, a2a.ErrCodeVersionNotSupported, err.Error())
+		return
+	}
+	call := &rpcCall{w: w, r: r, req: &req, v: v}
+	if s.owner != nil {
+		if call.owner = s.owner(r); call.owner == "" {
+			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
+			return
+		}
+	}
+	s.handlers[op](call)
+}
+
+// rpcHandlers maps every operation to the handler that serves it. It is
+// built once, in newServer.
+func (s *Server) rpcHandlers() map[a2a.Operation]func(*rpcCall) {
+	return map[a2a.Operation]func(*rpcCall){
+		a2a.OpSendMessage:          s.handleSendMessage,
+		a2a.OpSendStreamingMessage: s.handleStreamMessage,
+		a2a.OpGetTask:              s.handleGetTask,
+		a2a.OpCancelTask:           s.handleCancelTask,
+		a2a.OpListTasks:            s.handleListTasks,
+		a2a.OpSubscribeToTask:      s.handleTaskSubscribe,
+		a2a.OpPushNotificationConfig: func(call *rpcCall) {
+			call.fail(a2a.ErrCodePushNotificationNotSupported, "Push notifications are not supported")
+		},
+		a2a.OpGetExtendedAgentCard: func(call *rpcCall) {
+			call.fail(a2a.ErrCodeExtendedAgentCardNotConfigured, "No extended agent card is configured")
+		},
+		a2a.OpUnknown: func(call *rpcCall) {
+			call.fail(a2a.ErrCodeMethodNotFound, "Method not found")
+		},
 	}
 }
 
-// handleSendMessage processes a message/send request.
-func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
+// handleSendMessage processes SendMessage (0.3: message/send).
+func (s *Server) handleSendMessage(call *rpcCall) {
 	var params a2a.SendMessageRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+	if !call.decodeParams(&params) {
 		return
 	}
 
@@ -501,34 +583,30 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	// there is nothing to open, nothing to cache, and the handler sees the
 	// request it arrived on.
 	if s.handler != nil {
-		s.handleSendViaHandler(w, r, req, contextID, params)
+		s.handleSendViaHandler(call, contextID, params)
 		return
 	}
 
-	conv, err := s.getOrCreateConversation(contextID)
-	if err != nil {
-		log.Printf("a2a: failed to open conversation for context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+	conv := s.openConversation(call, contextID)
+	if conv == nil {
 		return
 	}
 
 	// Check if this is a tool-result message for a resumable conversation.
 	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-		s.handleToolResultMessage(w, r, req, conv, contextID, toolResults, params.Configuration)
+		s.handleToolResultMessage(call, conv, contextID, toolResults, params.Configuration)
 		return
 	}
 
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
-		log.Printf("a2a: invalid message in context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32602, "Invalid message")
+		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
 		return
 	}
 
 	taskID := generateID()
-	if _, createErr := s.taskStore.Create(taskID, contextID); createErr != nil {
-		log.Printf("a2a: failed to create task for context %s: %v", contextID, createErr)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+	if createErr := s.createTask(call, taskID, contextID); createErr != nil {
+		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), createErr)
 		return
 	}
 
@@ -536,10 +614,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	// HTTP handler on the non-blocking path, but keep its values: caller
 	// middleware (identity, tenant, request-scoped config) and the OTel span
 	// context both ride along, so downstream spans still nest under the inbound
-	// trace and message/send behaves like message/stream.
-	bgCtx := context.WithoutCancel(r.Context())
-	done := s.runConversation(bgCtx, taskID, conv, pkMsg)
-	s.awaitTurn(w, req, taskID, done, params.Configuration)
+	// trace and SendMessage behaves like SendStreamingMessage.
+	bgCtx := context.WithoutCancel(call.r.Context())
+	done := s.runConversation(bgCtx, taskID, contextID, conv, pkMsg)
+	s.awaitTurn(call, taskID, done, params.Configuration)
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
@@ -571,54 +649,58 @@ func extractToolResults(parts []a2a.Part) []toolResultEntry {
 	return results
 }
 
-// handleToolResultMessage processes a message/send that carries client tool results.
-// It submits each result to the ResumableConversation and resumes execution.
-func (s *Server) handleToolResultMessage(
-	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
-	conv Conversation, contextID string,
-	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
-) {
+// submitToolResults hands client tool results to a resumable conversation.
+// It answers the call itself and returns nil when the conversation cannot take
+// them.
+func submitToolResults(call *rpcCall, conv Conversation, results []toolResultEntry) ResumableConversation {
 	resumable, ok := conv.(ResumableConversation)
 	if !ok {
-		writeRPCError(w, req.ID, -32000, "Conversation does not support client tool results")
-		return
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Conversation does not support client tool results")
+		return nil
 	}
-
 	for _, tr := range results {
 		if tr.Rejected {
 			resumable.RejectClientTool(tr.CallID, tr.Reason)
-		} else {
-			if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
-				log.Printf("a2a: failed to submit tool result %s: %v", tr.CallID, err)
-				writeRPCError(w, req.ID, -32000, "internal server error")
-				return
-			}
+			continue
 		}
+		if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
+			call.internalError(fmt.Sprintf("failed to submit tool result %s", tr.CallID), err)
+			return nil
+		}
+	}
+	return resumable
+}
+
+// handleToolResultMessage processes a SendMessage that carries client tool
+// results: it submits each result to the ResumableConversation and resumes.
+func (s *Server) handleToolResultMessage(
+	call *rpcCall, conv Conversation, contextID string,
+	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
+) {
+	resumable := submitToolResults(call, conv, results)
+	if resumable == nil {
+		return
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+	if err := s.createTask(call, taskID, contextID); err != nil {
+		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
 
 	// Detach from the request's cancellation but keep its values; see
 	// handleSendMessage for why.
-	bgCtx := context.WithoutCancel(r.Context())
-	done := s.runResume(bgCtx, taskID, resumable)
-	s.awaitTurn(w, req, taskID, done, cfg)
-}
-
-// runResume spawns a goroutine that calls Resume on a ResumableConversation.
-func (s *Server) runResume(parent context.Context, taskID string, conv ResumableConversation) <-chan struct{} {
-	return s.runTurn(parent, taskID, conv.Resume)
+	bgCtx := context.WithoutCancel(call.r.Context())
+	done := s.runTurn(bgCtx, taskID, contextID, resumable.Resume)
+	s.awaitTurn(call, taskID, done, cfg)
 }
 
 // runConversation spawns a goroutine that drives the conversation for a task.
 // It returns a channel that is closed when the goroutine completes.
-func (s *Server) runConversation(parent context.Context, taskID string, conv Conversation, pkMsg any) <-chan struct{} {
-	return s.runTurn(parent, taskID, func(ctx context.Context) (SendResult, error) {
+func (s *Server) runConversation(
+	parent context.Context, taskID, contextID string, conv Conversation, pkMsg any,
+) <-chan struct{} {
+	return s.runTurn(parent, taskID, contextID, func(ctx context.Context) (SendResult, error) {
 		return conv.Send(ctx, pkMsg)
 	})
 }
@@ -628,37 +710,29 @@ func (s *Server) runConversation(parent context.Context, taskID string, conv Con
 //
 // Every way a turn can be produced — a conversation's Send, its Resume, a
 // stateless handler's stream — needs the same surrounding care: register the
-// cancel func so tasks/cancel can reach it, mark the task working, and on
+// cancel func so CancelTask can reach it, mark the task working, and on
 // failure avoid overwriting a state the cancel handler already set. Three
 // copies of that is how the copies drift.
 func (s *Server) runTurn(
-	parent context.Context, taskID string, produce func(context.Context) (SendResult, error),
+	parent context.Context, taskID, contextID string, produce func(context.Context) (SendResult, error),
 ) <-chan struct{} {
 	ctx, cancel := context.WithCancel(parent)
-	s.cancelsMu.Lock()
-	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
+	s.registerCancel(taskID, cancel)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer cancel()
-		defer func() {
-			s.cancelsMu.Lock()
-			delete(s.cancels, taskID)
-			s.cancelsMu.Unlock()
-		}()
+		defer s.unregisterCancel(taskID)
 
-		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
-			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
-		}
+		s.setState(taskID, contextID, a2a.TaskStateWorking, nil)
 
 		resp, err := produce(ctx)
 		if err != nil {
 			// A canceled context means CancelTask already set the state to
 			// "canceled"; only a genuine error marks the task failed.
 			if ctx.Err() == nil {
-				s.failTask(taskID, err)
+				s.failTask(taskID, contextID, err)
 			}
 			return
 		}
@@ -666,57 +740,128 @@ func (s *Server) runTurn(
 			return
 		}
 
-		s.finalizeTask(taskID, resp)
+		s.finalizeTask(taskID, contextID, resp)
 	}()
 
 	return done
 }
 
-// failTask records a turn's error as the task's terminal state.
-func (s *Server) failTask(taskID string, cause error) {
-	errText := cause.Error()
-	if err := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
-		Role:  a2a.RoleAgent,
-		Parts: []a2a.Part{{Text: &errText}},
-	}); err != nil {
-		log.Printf("a2a: task %s: failed to set failed state: %v", taskID, err)
+// registerCancel records the cancel func of a turn running in this process.
+func (s *Server) registerCancel(taskID string, cancel context.CancelFunc) {
+	s.cancelsMu.Lock()
+	s.cancels[taskID] = cancel
+	s.cancelsMu.Unlock()
+}
+
+// unregisterCancel forgets a finished turn's cancel func.
+func (s *Server) unregisterCancel(taskID string) {
+	s.cancelsMu.Lock()
+	delete(s.cancels, taskID)
+	s.cancelsMu.Unlock()
+}
+
+// cancelLocal stops taskID's turn if it runs in this process.
+func (s *Server) cancelLocal(taskID string) {
+	s.cancelsMu.Lock()
+	cancel, ok := s.cancels[taskID]
+	delete(s.cancels, taskID)
+	s.cancelsMu.Unlock()
+	if ok {
+		cancel()
 	}
 }
 
-// awaitTurn waits for a turn the way message/send does — fully when the caller
-// asked for blocking, otherwise only until the settle time — then answers with
-// the task as it stands.
+// setState records a state change and publishes it to the task's
+// subscribers. A failed store write is logged and not published: a
+// subscriber must never see a state the store does not hold.
+func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2a.Message) {
+	if err := s.taskStore.SetState(taskID, state, msg); err != nil {
+		log.Printf("a2a: task %s: failed to set %s state: %v", taskID, state, err)
+		return
+	}
+	s.publishStatus(taskID, contextID, a2a.TaskStatus{State: state, Message: msg})
+}
+
+// publishStatus publishes a status update to the task's subscribers.
+func (s *Server) publishStatus(taskID, contextID string, status a2a.TaskStatus) {
+	if status.Timestamp == nil {
+		now := time.Now().UTC()
+		status.Timestamp = &now
+	}
+	s.publish(taskID, TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
+		TaskID: taskID, ContextID: contextID, Status: status,
+	}})
+}
+
+// publish delivers an event to the task's subscribers.
+func (s *Server) publish(taskID string, evt TaskEvent) {
+	if err := s.events.Publish(context.Background(), taskID, evt); err != nil {
+		log.Printf("a2a: task %s: failed to publish event: %v", taskID, err)
+	}
+}
+
+// failTask records a turn's error as the task's terminal state.
+func (s *Server) failTask(taskID, contextID string, cause error) {
+	errText := cause.Error()
+	s.setState(taskID, contextID, a2a.TaskStateFailed, &a2a.Message{
+		MessageID: generateID(),
+		ContextID: contextID,
+		TaskID:    taskID,
+		Role:      a2a.RoleAgent,
+		Parts:     []a2a.Part{{Text: &errText}},
+	})
+}
+
+// awaitTurn waits for a turn the way SendMessage does — until it finishes or
+// is interrupted when the caller's version and configuration ask for that
+// (1.0's default), otherwise only until the settle time — then answers with
+// the task as it stands. A blocking wait ends early if the caller disconnects,
+// or after WithMaxBlockingWait when set.
 func (s *Server) awaitTurn(
-	w http.ResponseWriter, req *a2a.JSONRPCRequest, taskID string,
-	done <-chan struct{}, cfg *a2a.SendMessageConfiguration,
+	call *rpcCall, taskID string, done <-chan struct{}, cfg *a2a.SendMessageConfiguration,
 ) {
-	if cfg != nil && cfg.Blocking {
-		<-done
-	} else {
-		select {
-		case <-done:
-		case <-time.After(sendSettleTime):
-		}
+	wait := sendSettleTime
+	if cfg.WaitsForCompletion(call.v) {
+		wait = s.maxBlockingWait
+	}
+	var timeout <-chan time.Time
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+	select {
+	case <-done:
+	case <-timeout:
+		// Answer with the task as it stands; the turn runs on, and the caller
+		// polls GetTask or subscribes for the rest.
+	case <-call.r.Context().Done():
+		// The caller left. The turn runs on (it is detached from the
+		// request); there is just no one to answer.
+		return
 	}
 
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
-		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		call.internalError(fmt.Sprintf("failed to retrieve task %s after processing", taskID), err)
 		return
 	}
-	writeRPCResult(w, req.ID, task)
+	if cfg != nil {
+		applyHistoryLength(task, cfg.HistoryLength)
+	}
+	call.result(call.v.WireSendResult(task))
 }
 
 // finalizeTask handles the terminal state of a task based on the SendResult.
 // If client tools are pending, it sets input_required with tool metadata.
 // Otherwise it stores artifacts and marks the task completed.
-func (s *Server) finalizeTask(taskID string, resp SendResult) {
+func (s *Server) finalizeTask(taskID, contextID string, resp SendResult) {
 	if resp.HasPendingTools() {
 		msg := buildPendingToolsMessage(resp)
-		if err := s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, msg); err != nil {
-			log.Printf("a2a: task %s: failed to set input_required state: %v", taskID, err)
+		if msg != nil {
+			msg.MessageID, msg.ContextID, msg.TaskID = generateID(), contextID, taskID
 		}
+		s.setState(taskID, contextID, a2a.TaskStateInputRequired, msg)
 		return
 	}
 
@@ -727,16 +872,21 @@ func (s *Server) finalizeTask(taskID string, resp SendResult) {
 		}
 	} else if text := resp.Text(); text != "" {
 		// Fallback: if Parts() is empty (see GH-428), use Text() content.
-		if err := s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
+		artifacts = []a2a.Artifact{{
 			ArtifactID: "artifact-1",
 			Parts:      []a2a.Part{{Text: &text}},
-		}}); err != nil {
+		}}
+		if err := s.taskStore.AddArtifacts(taskID, artifacts); err != nil {
 			log.Printf("a2a: task %s: failed to add text artifact: %v", taskID, err)
 		}
 	}
-	if err := s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil); err != nil {
-		log.Printf("a2a: task %s: failed to set completed state: %v", taskID, err)
+	// Subscribers get the result before the completion that ends their stream.
+	for i := range artifacts {
+		s.publish(taskID, TaskEvent{ArtifactUpdate: &a2a.TaskArtifactUpdateEvent{
+			TaskID: taskID, ContextID: contextID, Artifact: artifacts[i], LastChunk: true,
+		}})
 	}
+	s.setState(taskID, contextID, a2a.TaskStateCompleted, nil)
 }
 
 // buildPendingToolsMessage creates an A2A message describing pending tools.
@@ -751,16 +901,7 @@ func buildPendingToolsMessage(resp SendResult) *a2a.Message {
 
 	parts := make([]a2a.Part, len(clientTools))
 	for i, t := range clientTools {
-		text := fmt.Sprintf("Client tool required: %s", t.ToolName)
-		parts[i] = a2a.Part{
-			Text: &text,
-			Metadata: map[string]any{
-				"tool_call_id":    t.CallID,
-				"tool_name":       t.ToolName,
-				"tool_args":       t.Args,
-				"consent_message": t.ConsentMsg,
-			},
-		}
+		parts[i] = clientToolPart(t)
 	}
 	return &a2a.Message{
 		Role:  a2a.RoleAgent,
@@ -768,108 +909,196 @@ func buildPendingToolsMessage(resp SendResult) *a2a.Message {
 	}
 }
 
-// handleGetTask processes a tasks/get request.
-func (s *Server) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+// clientToolPart describes one pending client tool as a message part.
+func clientToolPart(t PendingClientToolInfo) a2a.Part {
+	text := fmt.Sprintf("Client tool required: %s", t.ToolName)
+	return a2a.Part{
+		Text: &text,
+		Metadata: map[string]any{
+			"tool_call_id":    t.CallID,
+			"tool_name":       t.ToolName,
+			"tool_args":       t.Args,
+			"consent_message": t.ConsentMsg,
+		},
+	}
+}
+
+// handleGetTask processes GetTask (0.3: tasks/get).
+func (s *Server) handleGetTask(call *rpcCall) {
 	var params a2a.GetTaskRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+	if !call.decodeParams(&params) {
 		return
 	}
 
-	task, err := s.taskStore.Get(params.ID)
-	if err != nil {
-		log.Printf("a2a: task get failed for %s: %v", params.ID, err)
-		writeRPCError(w, req.ID, -32001, "Task not found")
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
 		return
 	}
-
-	writeRPCResult(w, req.ID, task)
+	applyHistoryLength(task, params.HistoryLength)
+	call.result(call.v.WireTask(task))
 }
 
-// handleCancelTask processes a tasks/cancel request.
-func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+// handleCancelTask processes CancelTask (0.3: tasks/cancel).
+//
+// The state is checked before anything is canceled: a task that has already
+// finished is not cancelable (-32002), and its turn — if one were somehow
+// still registered — must not be interrupted by a request that fails.
+func (s *Server) handleCancelTask(call *rpcCall) {
 	var params a2a.CancelTaskRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+	if !call.decodeParams(&params) {
 		return
 	}
 
-	// Cancel in-flight Send if running.
-	s.cancelsMu.Lock()
-	if cancel, ok := s.cancels[params.ID]; ok {
-		cancel()
-		delete(s.cancels, params.ID)
-	}
-	s.cancelsMu.Unlock()
-
-	if err := s.taskStore.Cancel(params.ID); err != nil {
-		log.Printf("a2a: task cancel failed for %s: %v", params.ID, err)
-		writeRPCError(w, req.ID, -32001, "Cancel failed")
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
 		return
+	}
+	if task.Status.State.IsTerminal() {
+		call.fail(a2a.ErrCodeTaskNotCancelable,
+			fmt.Sprintf("Task cannot be canceled: it is %s", task.Status.State.V03Name()))
+		return
+	}
+
+	switch cancelErr := s.taskStore.Cancel(params.ID); {
+	case errors.Is(cancelErr, ErrTaskTerminal):
+		// Finished between the read and the cancel.
+		call.fail(a2a.ErrCodeTaskNotCancelable, "Task cannot be canceled: it has already finished")
+		return
+	case errors.Is(cancelErr, ErrTaskNotFound):
+		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+		return
+	case cancelErr != nil:
+		call.internalError(fmt.Sprintf("task cancel failed for %s", params.ID), cancelErr)
+		return
+	}
+
+	if err := s.canceler.Cancel(context.WithoutCancel(call.r.Context()), params.ID); err != nil {
+		// The task is canceled in the store either way; the turn may run on
+		// until it next checks, but its result can no longer be recorded.
+		log.Printf("a2a: task %s: failed to reach its turn to cancel it: %v", params.ID, err)
 	}
 
 	task, err := s.taskStore.Get(params.ID)
 	if err != nil {
-		log.Printf("a2a: failed to retrieve task %s after cancel: %v", params.ID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		call.internalError(fmt.Sprintf("failed to retrieve task %s after cancel", params.ID), err)
 		return
 	}
-	writeRPCResult(w, req.ID, task)
+	s.publishStatus(task.ID, task.ContextID, task.Status)
+	call.result(call.v.WireTask(task))
 }
 
-// handleListTasks processes a tasks/list request.
-func (s *Server) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+// handleListTasks processes ListTasks (1.0; PromptKit's legacy tasks/list).
+//
+// Tasks are listed most recently updated first, a page at a time, behind an
+// opaque cursor, and only the caller's own when WithTaskOwner is set. Without
+// it the server cannot tell callers apart, so a request without a contextId
+// is refused: listing every task in the store would hand one caller every
+// other caller's results.
+func (s *Server) handleListTasks(call *rpcCall) {
 	var params a2a.ListTasksRequest
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeRPCError(w, req.ID, -32602, "Invalid params")
+	if len(call.req.Params) > 0 && !call.decodeParams(&params) {
+		return
+	}
+	if params.ContextID == "" && s.owner == nil {
+		call.fail(a2a.ErrCodeInvalidParams,
+			"Invalid params: contextId is required unless the server scopes tasks by caller")
 		return
 	}
 
 	limit := params.PageSize
-	if limit <= 0 {
+	if limit <= 0 || limit > defaultPageSize {
 		limit = defaultPageSize
 	}
-
-	tasks, err := s.taskStore.List(params.ContextID, limit, 0)
+	offset, err := decodePageToken(params.PageToken)
 	if err != nil {
-		log.Printf("a2a: task list failed for context %s: %v", params.ContextID, err)
-		writeRPCError(w, req.ID, -32000, "List failed")
+		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: "+err.Error())
 		return
 	}
 
-	// Convert []*Task to []Task for the response.
-	taskList := make([]a2a.Task, len(tasks))
-	for i, t := range tasks {
-		taskList[i] = *t
+	page, err := queryTasks(s.taskStore, TaskQuery{
+		Owner:       call.owner,
+		ContextID:   params.ContextID,
+		Status:      params.Status,
+		StatusAfter: params.StatusTimestampAfter,
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		call.internalError(fmt.Sprintf("task list failed for context %s", params.ContextID), err)
+		return
 	}
 
-	writeRPCResult(w, req.ID, a2a.ListTasksResponse{
-		Tasks:    taskList,
-		PageSize: limit,
-	})
+	// 1.0 omits artifacts unless asked; the legacy tasks/list always sent them.
+	includeArtifacts := params.IncludeArtifacts || call.v == a2a.ProtocolVersion03
+	tasks := make([]any, len(page.Tasks))
+	for i, t := range page.Tasks {
+		applyHistoryLength(t, params.HistoryLength)
+		if !includeArtifacts {
+			t.Artifacts = nil
+		}
+		tasks[i] = call.v.WireTask(t)
+	}
+	next := ""
+	if offset+len(page.Tasks) < page.Total {
+		next = encodePageToken(offset + len(page.Tasks))
+	}
+	call.result(struct {
+		Tasks         []any  `json:"tasks"`
+		NextPageToken string `json:"nextPageToken"`
+		PageSize      int    `json:"pageSize"`
+		TotalSize     int    `json:"totalSize"`
+	}{tasks, next, limit, page.Total})
 }
 
 // getOrCreateConversation retrieves an existing conversation for the context ID
 // or creates a new one via the opener (double-check lock pattern).
 // It also updates the last-use timestamp for conversation TTL tracking.
-func (s *Server) getOrCreateConversation(contextID string) (Conversation, error) {
+//
+// With tasks scoped by caller, a conversation belongs to the caller that
+// opened it, checked under the same lock that creates it: another caller
+// naming its context gets errContextTaken, however the two race.
+func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conversation, error) {
 	// Acquire write lock directly to avoid a TOCTOU gap between RUnlock and
 	// Lock that could allow duplicate conversation creation.
 	s.convsMu.Lock()
 	defer s.convsMu.Unlock()
 
 	if conv, ok := s.convs[contextID]; ok {
+		if s.owner != nil && s.convOwner[contextID] != call.owner {
+			return nil, errContextTaken
+		}
 		s.convLastUse[contextID] = time.Now()
 		return conv, nil
 	}
 
+	if err := s.checkContextTasks(call, contextID); err != nil {
+		return nil, err
+	}
 	conv, err := s.opener(contextID)
 	if err != nil {
 		return nil, err
 	}
 	s.convs[contextID] = conv
 	s.convLastUse[contextID] = time.Now()
+	if s.owner != nil {
+		s.convOwner[contextID] = call.owner
+	}
 	return conv, nil
+}
+
+// openConversation answers the call itself when the conversation for
+// contextID cannot be had, and returns nil.
+func (s *Server) openConversation(call *rpcCall, contextID string) Conversation {
+	conv, err := s.getOrCreateConversation(call, contextID)
+	switch {
+	case errors.Is(err, errContextTaken):
+		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId is not available to this caller")
+		return nil
+	case err != nil:
+		call.internalError(fmt.Sprintf("failed to open conversation for context %s", contextID), err)
+		return nil
+	}
+	return conv
 }
 
 // generateID returns a random hex string suitable for task and context IDs.
@@ -889,7 +1118,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Result:  data,
 	})
@@ -899,7 +1128,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
 	})
@@ -910,7 +1139,7 @@ func writeRPCErrorWithStatus(w http.ResponseWriter, status int, id any, code int
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
 	})
@@ -932,46 +1161,23 @@ func (s *Server) evictionLoop() {
 	}
 }
 
-// evictOnce runs a single eviction pass. It is safe to call concurrently.
+// evictOnce runs a single eviction pass. Subscriptions need no sweep: a final
+// event or the subscriber's own disconnect ends each one. It is safe to call concurrently.
 func (s *Server) evictOnce() {
 	now := time.Now()
 	s.evictTerminalTasks(now)
-	s.evictClosedBroadcasters()
 	s.evictIdleConversations(now)
 }
 
 // evictTerminalTasks removes expired terminal tasks and their associated
-// cancel functions and broadcasters.
+// cancel functions.
 func (s *Server) evictTerminalTasks(now time.Time) {
 	if s.taskTTL <= 0 {
 		return
 	}
 	evicted := s.taskStore.EvictTerminal(now.Add(-s.taskTTL))
 	for _, taskID := range evicted {
-		s.cancelsMu.Lock()
-		delete(s.cancels, taskID)
-		s.cancelsMu.Unlock()
-
-		s.subsMu.Lock()
-		if b, ok := s.subs[taskID]; ok {
-			b.close()
-			delete(s.subs, taskID)
-		}
-		s.subsMu.Unlock()
-	}
-}
-
-// evictClosedBroadcasters removes broadcasters that have already been closed.
-func (s *Server) evictClosedBroadcasters() {
-	s.subsMu.Lock()
-	defer s.subsMu.Unlock()
-	for id, b := range s.subs {
-		b.mu.Lock()
-		closed := b.closed
-		b.mu.Unlock()
-		if closed {
-			delete(s.subs, id)
-		}
+		s.unregisterCancel(taskID)
 	}
 }
 
@@ -991,6 +1197,7 @@ func (s *Server) evictIdleConversations(now time.Time) {
 				delete(s.convs, id)
 			}
 			delete(s.convLastUse, id)
+			delete(s.convOwner, id)
 		}
 	}
 }

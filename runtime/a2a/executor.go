@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -219,12 +221,17 @@ func buildRequest(
 	}
 	metadata = tools.MergeExtrasIntoMetadata(metadata, extras)
 
+	// Return at once and poll, rather than hold a request open for the whole
+	// turn: the executor learns the task id either way, so it can wait as
+	// long as the tool's timeout allows and cancel the task if it gives up.
 	req := &SendMessageRequest{
 		Message: Message{
-			Role:     RoleUser,
-			Parts:    parts,
-			Metadata: metadata,
+			MessageID: uuid.NewString(),
+			Role:      RoleUser,
+			Parts:     parts,
+			Metadata:  metadata,
 		},
+		Configuration: &SendMessageConfiguration{ReturnImmediately: true},
 	}
 
 	return cfg, req, nil
@@ -250,6 +257,15 @@ func (e *Executor) executeRequest(
 		logger.Error("A2A tool call failed",
 			"tool", toolName, "agent_url", cfg.AgentURL, "error", err)
 		return nil, fmt.Errorf("a2a executor: send message: %w", err)
+	}
+
+	if task, err = client.WaitForTask(ctx, task); err != nil {
+		// The agent is still working on something nobody will read: stop it.
+		cancelAbandonedTask(client, task)
+		logger.Error("A2A tool call did not finish",
+			"tool", toolName, "agent_url", cfg.AgentURL, "task_id", task.ID,
+			"task_state", string(task.Status.State), "error", err)
+		return nil, fmt.Errorf("a2a executor: task %s did not finish: %w", task.ID, err)
 	}
 
 	logger.Info("A2A tool call completed",
@@ -305,6 +321,24 @@ func (e *Executor) ExecuteMultimodal(
 		return nil, nil, fmt.Errorf("a2a executor: marshal result: %w", err)
 	}
 	return raw, parts, nil
+}
+
+// abandonCancelTimeout bounds the best-effort cancel of a task the executor
+// gave up waiting for.
+const abandonCancelTimeout = 5 * time.Second
+
+// cancelAbandonedTask asks the agent to stop a task whose result will not be
+// read. It runs detached from the caller's context, which has usually just
+// ended, and a failure is only logged: the call has already failed.
+func cancelAbandonedTask(client *Client, task *Task) {
+	if task == nil || task.ID == "" || task.Status.State.IsTerminal() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), abandonCancelTimeout)
+	defer cancel()
+	if err := client.CancelTask(ctx, task.ID); err != nil {
+		logger.Warn("a2a: could not cancel abandoned task", "task_id", task.ID, "error", err)
+	}
 }
 
 // sendWithRetry wraps client.SendMessage with exponential backoff retry logic.
@@ -383,10 +417,12 @@ func isA2ARetryableError(err error) bool {
 		return false
 	}
 
-	// Check for transient network errors (connection refused, reset, timeout).
+	// A timeout waiting for the response is not retryable: the agent may
+	// have received the message and started a turn, and resending it would
+	// start a second one. A timeout connecting is safe — nothing was sent.
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return true
+		return !netErr.Timeout() || isDialError(err)
 	}
 
 	var dnsErr *net.DNSError
@@ -396,6 +432,13 @@ func isA2ARetryableError(err error) bool {
 
 	var opErr *net.OpError
 	return errors.As(err, &opErr)
+}
+
+// isDialError reports whether err happened while connecting, before any of the
+// request was sent.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 // isA2ARetryableStatusCode returns true for HTTP status codes that
