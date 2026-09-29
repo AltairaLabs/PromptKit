@@ -894,7 +894,7 @@ type A2AServerOption = a2aserver.Option
 func WithA2ACard(card *a2a.AgentCard) A2AServerOption
 ```
 
-WithA2ACard sets the agent card served at /.well\-known/agent.json.
+WithA2ACard sets the agent card served at /.well\-known/agent\-card.json.
 
 <a name="WithA2AConversationTTL"></a>
 ### func [WithA2AConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L85>)

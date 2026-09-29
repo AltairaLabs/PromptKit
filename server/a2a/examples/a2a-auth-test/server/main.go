@@ -6,7 +6,7 @@
 //	go run ./examples/a2a-auth-test/server
 //
 // The server listens on port 9877 and requires Bearer token "test-token-123".
-// Agent card: http://localhost:9877/.well-known/agent.json
+// Agent card: http://localhost:9877/.well-known/agent-card.json
 package main
 
 import (
@@ -115,6 +115,12 @@ func main() {
 				Tags:        []string{"test", "reverse"},
 			},
 		},
+		// Advertise the Bearer requirement the authenticator enforces, so
+		// callers can discover how to authenticate from the card.
+		SecuritySchemes: map[string]a2a.SecurityScheme{
+			"bearer": {HTTPAuth: &a2a.HTTPAuthSecurityScheme{Scheme: "Bearer"}},
+		},
+		SecurityRequirements: []a2a.SecurityRequirement{a2a.RequireScheme("bearer")},
 	}
 
 	opener := func(_ string) (a2aserver.Conversation, error) {
@@ -136,7 +142,7 @@ func main() {
 	}()
 
 	fmt.Printf("A2A echo server listening on http://localhost:%d\n", serverPort)
-	fmt.Printf("Agent card: http://localhost:%d/.well-known/agent.json\n", serverPort)
+	fmt.Printf("Agent card: http://localhost:%d/.well-known/agent-card.json\n", serverPort)
 	fmt.Printf("Auth: Bearer %s\n", authToken)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)

@@ -55,9 +55,8 @@ func TestServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
-	// Add a broadcaster for the old task to verify it gets cleaned up.
-	b := srv.getBroadcaster("old-task")
-	assert.NotNil(t, b)
+	// A stale cancel func for the old task must be cleaned up too.
+	srv.registerCancel("old-task", func() {})
 
 	// Run eviction.
 	srv.evictOnce()
@@ -73,11 +72,10 @@ func TestServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
 	_, err = store.Get("working-task")
 	assert.NoError(t, err)
 
-	// The broadcaster for old-task should have been removed.
-	srv.subsMu.Lock()
-	_, hasBroadcaster := srv.subs["old-task"]
-	srv.subsMu.Unlock()
-	assert.False(t, hasBroadcaster, "broadcaster for evicted task should be removed")
+	srv.cancelsMu.Lock()
+	_, hasCancel := srv.cancels["old-task"]
+	srv.cancelsMu.Unlock()
+	assert.False(t, hasCancel, "cancel func for evicted task should be removed")
 }
 
 func TestServer_EvictOnce_EvictsIdleConversations(t *testing.T) {
@@ -135,42 +133,6 @@ func TestServer_EvictOnce_EvictsIdleConversations(t *testing.T) {
 	assert.True(t, hasNew, "recent conversation should be kept")
 	assert.True(t, oldConv.closed.Load(), "evicted conversation should be closed")
 	assert.False(t, newConv.closed.Load(), "active conversation should not be closed")
-}
-
-func TestServer_EvictOnce_EvictsClosedBroadcasters(t *testing.T) {
-	opener := func(_ string) (Conversation, error) {
-		return &mockConv{
-			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
-				return &mockSendResult{
-					parts: []types.ContentPart{types.NewTextPart("ok")},
-					text:  "ok",
-				}, nil
-			},
-		}, nil
-	}
-
-	srv := NewServer(opener,
-		WithTaskTTL(0),
-		WithConversationTTL(0),
-	)
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-
-	// Add an open and a closed broadcaster.
-	openB := srv.getBroadcaster("open-task")
-	closedB := srv.getBroadcaster("closed-task")
-	closedB.close()
-
-	// Manually run eviction (TTLs are 0, so only broadcaster cleanup runs).
-	srv.evictOnce()
-
-	srv.subsMu.Lock()
-	_, hasOpen := srv.subs["open-task"]
-	_, hasClosed := srv.subs["closed-task"]
-	srv.subsMu.Unlock()
-
-	assert.True(t, hasOpen, "open broadcaster should be kept")
-	assert.False(t, hasClosed, "closed broadcaster should be evicted")
-	_ = openB // keep reference
 }
 
 func TestServer_ShutdownStopsEviction(t *testing.T) {

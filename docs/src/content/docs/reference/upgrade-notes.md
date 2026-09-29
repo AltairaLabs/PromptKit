@@ -8,6 +8,30 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### The A2A server and client speak A2A 1.0 and 0.3, not a mix of both
+
+The A2A server used to answer in a shape of its own: 0.3's method names, 1.0's
+parts, and state names from neither. Standard A2A clients could not parse it
+(#2088). It now answers each request in the version the request asks for. That
+is the `A2A-Version` header, or else the version of the method name used; a
+request with no version is 0.3, as the spec says. The runtime client sends
+`A2A-Version: 1.0` and falls back to 0.3 on its own.
+
+| If you | You will see | Change |
+|---|---|---|
+| Parse server responses by hand | a 1.0 `SendMessage` result is `{"task": {...}}`; stream results are wrapped (`{"statusUpdate": ...}`); states are `TASK_STATE_*` and roles `ROLE_*` | use `a2a.Client`, which reads every version, or send 0.3 method names and parse 0.3 |
+| Call `SendMessage` (1.0) and expect it to return at once | it now waits for the task to finish or need input, as 1.0 requires | set `configuration.returnImmediately: true` |
+| Read a stream's first event as a `working` status | the first event is the Task | read `StreamEvent.Task` |
+| Expect one artifact per streamed chunk (`artifact-0`, `artifact-1`, ...) | a text run is one artifact, extended with `append` and closed with `lastChunk`; the stored task holds it once, whole | key on `ArtifactID` and concatenate appended chunks |
+| Call `tasks/list` or `ListTasks` without a `contextId` | `-32602` | pass the `contextId` (see #2089 for scoping by caller) |
+| Subscribe to a task that has finished | `-32004` UnsupportedOperation | read it with `GetTask` |
+| Compare `a2a.MethodSendMessage` and friends to `"message/send"` | the constants now hold the 1.0 names | use the `a2a.MethodV03*` constants for 0.3 names, or `a2a.LookupMethod` |
+| Match error codes | cancel of a finished task is `-32002`; an unsupported operation is `-32004`; push notification config is `-32003`; an internal failure is `-32603` without the cause | update the codes you match |
+| Serve the agent card from `/.well-known/agent.json` only | the card is also at `/.well-known/agent-card.json`, and the client looks there first | nothing, unless a proxy only forwards the old path |
+
+`a2a.TaskState` constants keep their Go values. Stored tasks written in the old
+JSON form still decode.
+
 ### Inference providers share one interface; `runtime/classify` is superseded
 
 `role: inference` providers now implement a single interface,

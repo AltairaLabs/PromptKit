@@ -2,8 +2,7 @@ package a2aserver
 
 import (
 	"context"
-	"log"
-	"net/http"
+	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
@@ -18,10 +17,7 @@ import (
 // must not depend on which mode the embedder chose.
 
 // handleSendViaHandler serves message/send from a MessageHandler.
-func (s *Server) handleSendViaHandler(
-	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
-	contextID string, params a2a.SendMessageRequest,
-) {
+func (s *Server) handleSendViaHandler(call *rpcCall, contextID string, params a2a.SendMessageRequest) {
 	toolResults := extractToolResults(params.Message.Parts)
 
 	// A tool result is a continuation, and only a handler that asked for client
@@ -29,26 +25,24 @@ func (s *Server) handleSendViaHandler(
 	// resume, so pretending would produce a turn with no history behind it.
 	trh, resumable := s.handler.(ToolResultHandler)
 	if len(toolResults) > 0 && !resumable {
-		writeRPCError(w, req.ID, -32601,
-			"Client tool results are not supported by this agent")
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Client tool results are not supported by this agent")
 		return
 	}
 
 	taskID := generateID()
 	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
-		writeRPCError(w, req.ID, -32000, "internal server error")
+		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
 
 	// Detached from the request's cancellation because this goroutine outlives
 	// the HTTP handler on the non-blocking path, but keeping its values so the
 	// handler still sees caller identity and the inbound trace (#2018).
-	bgCtx := context.WithoutCancel(r.Context())
+	bgCtx := context.WithoutCancel(call.r.Context())
 
 	var done <-chan struct{}
 	if len(toolResults) > 0 {
-		done = s.runHandlerTurn(bgCtx, taskID, func(ctx context.Context) <-chan StreamEvent {
+		done = s.runHandlerTurn(bgCtx, taskID, contextID, func(ctx context.Context) <-chan StreamEvent {
 			return trh.HandleToolResult(ctx, ToolResultRequest{
 				ContextID: contextID,
 				TaskID:    taskID,
@@ -56,7 +50,7 @@ func (s *Server) handleSendViaHandler(
 			})
 		})
 	} else {
-		done = s.runHandlerTurn(bgCtx, taskID, func(ctx context.Context) <-chan StreamEvent {
+		done = s.runHandlerTurn(bgCtx, taskID, contextID, func(ctx context.Context) <-chan StreamEvent {
 			return s.handler.Handle(ctx, MessageRequest{
 				ContextID: contextID,
 				TaskID:    taskID,
@@ -65,15 +59,15 @@ func (s *Server) handleSendViaHandler(
 		})
 	}
 
-	s.awaitTurn(w, req, taskID, done, params.Configuration)
+	s.awaitTurn(call, taskID, done, params.Configuration)
 }
 
 // runHandlerTurn runs one handler call to completion, drained into the
 // SendResult the task machinery needs.
 func (s *Server) runHandlerTurn(
-	parent context.Context, taskID string, start func(context.Context) <-chan StreamEvent,
+	parent context.Context, taskID, contextID string, start func(context.Context) <-chan StreamEvent,
 ) <-chan struct{} {
-	return s.runTurn(parent, taskID, func(ctx context.Context) (SendResult, error) {
+	return s.runTurn(parent, taskID, contextID, func(ctx context.Context) (SendResult, error) {
 		result := drain(ctx, start(ctx))
 		if result.err != nil {
 			return nil, result.err

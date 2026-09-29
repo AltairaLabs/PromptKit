@@ -52,12 +52,11 @@ func TestStream_StoresArtifactsOnTheCompletedTask(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
-	require.Len(t, task.Artifacts, 2,
+	require.Len(t, task.Artifacts, 1,
 		"the streamed artifacts were emitted but never stored; tasks/get returns an empty task")
 	require.NotNil(t, task.Artifacts[0].Parts[0].Text)
-	assert.Equal(t, "Hello ", *task.Artifacts[0].Parts[0].Text)
-	require.NotNil(t, task.Artifacts[1].Parts[0].Text)
-	assert.Equal(t, "world", *task.Artifacts[1].Parts[0].Text)
+	assert.Equal(t, "Hello world", *task.Artifacts[0].Parts[0].Text,
+		"the stored artifact is the whole text run, not its last chunk")
 }
 
 // What is stored is what was sent: same ids, same parts, same order.

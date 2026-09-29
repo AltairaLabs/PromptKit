@@ -100,12 +100,12 @@ Control consent prompts in the tool YAML:
 
 ## A2A Integration
 
-When serving via an A2A server, client tool suspension surfaces as an `input_required` task state. Tool metadata appears in the status message parts:
+When serving via an A2A server, client tool suspension surfaces as an input-required task state. Tool metadata appears in the status message parts. The examples below are in A2A 0.3's shape; a 1.0 caller sees `TASK_STATE_INPUT_REQUIRED`, `ROLE_AGENT` and the `SendMessage` method, with the same metadata:
 
 ```json
 {
   "status": {
-    "state": "input_required",
+    "state": "input-required",
     "message": {
       "role": "agent",
       "parts": [
