@@ -22,12 +22,14 @@ import (
 // answering it in 0.3 shapes would help nobody. Decoding needs no version at
 // all: the runtime types accept every version's spelling.
 
-// rpcCall is one JSON-RPC request with the protocol version to answer it in.
+// rpcCall is one JSON-RPC request with the protocol version to answer it in
+// and, when tasks are scoped by caller, who the caller is.
 type rpcCall struct {
-	w   http.ResponseWriter
-	r   *http.Request
-	req *a2a.JSONRPCRequest
-	v   a2a.ProtocolVersion
+	w     http.ResponseWriter
+	r     *http.Request
+	req   *a2a.JSONRPCRequest
+	v     a2a.ProtocolVersion
+	owner string
 }
 
 // requestVersion resolves the protocol version of a request: explicit

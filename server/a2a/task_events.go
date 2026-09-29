@@ -47,8 +47,8 @@ func (e TaskEvent) payload() any {
 	return e.ArtifactUpdate
 }
 
-// localTaskEvents fans task events out to subscribers in this process:
-// subscribers see events from turns running in this process only.
+// localTaskEvents is the in-process TaskEventBus: subscribers see events
+// from turns running in this process only.
 type localTaskEvents struct {
 	mu     sync.Mutex
 	subs   map[string]map[uint64]chan TaskEvent
@@ -59,7 +59,7 @@ func newLocalTaskEvents() *localTaskEvents {
 	return &localTaskEvents{subs: make(map[string]map[uint64]chan TaskEvent)}
 }
 
-// Publish delivers evt to the task's current subscribers. A subscriber whose buffer is full misses the
+// Publish implements TaskEventBus. A subscriber whose buffer is full misses the
 // event rather than stalling the turn; a final event closes every subscriber.
 func (l *localTaskEvents) Publish(_ context.Context, taskID string, evt TaskEvent) error {
 	l.mu.Lock()
@@ -81,8 +81,8 @@ func (l *localTaskEvents) Publish(_ context.Context, taskID string, evt TaskEven
 	return nil
 }
 
-// Subscribe returns a channel of the task's events from now on. The channel
-// is closed after a final event, or when ctx ends.
+// Subscribe implements TaskEventBus. The channel is closed after a final
+// event, or when ctx ends.
 func (l *localTaskEvents) Subscribe(ctx context.Context, taskID string) (<-chan TaskEvent, error) {
 	l.mu.Lock()
 	subs := l.subs[taskID]

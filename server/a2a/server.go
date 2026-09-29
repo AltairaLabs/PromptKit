@@ -221,8 +221,14 @@ type Server struct {
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
 
-	// events fans task updates out to SubscribeToTask callers.
-	events *localTaskEvents
+	// events carries task updates to SubscribeToTask callers; canceler
+	// reaches the instance running a task. Both default to in-process.
+	events         TaskEventBus
+	canceler       TaskCanceler
+	stopCancelFeed func()
+
+	// owner, when set, scopes every task to the caller that created it.
+	owner OwnerFunc
 }
 
 // NewServer creates a new A2A server that OWNS its conversations: it opens one
@@ -244,7 +250,6 @@ func newServer(opts ...Option) *Server {
 		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
 		cancels:      make(map[string]context.CancelFunc),
-		events:       newLocalTaskEvents(),
 		readTimeout:  defaultReadTimeout,
 		writeTimeout: defaultWriteTimeout,
 		idleTimeout:  defaultIdleTimeout,
@@ -259,6 +264,14 @@ func newServer(opts ...Option) *Server {
 	if s.taskStore == nil {
 		s.taskStore = NewInMemoryTaskStore()
 	}
+	s.checkOwnershipConfig()
+	if s.events == nil {
+		s.events = newLocalTaskEvents()
+	}
+	if s.canceler == nil {
+		s.canceler = &localCanceler{}
+	}
+	s.stopCancelFeed = s.canceler.Listen(s.cancelLocal)
 
 	// Start background eviction if at least one TTL is enabled.
 	if s.taskTTL > 0 || s.convTTL > 0 {
@@ -341,8 +354,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		firstErr = srv.Shutdown(ctx)
 	}
 
-	// End all subscriptions.
-	s.events.closeAll()
+	// Stop taking cancel requests, and end this process's subscriptions.
+	if s.stopCancelFeed != nil {
+		s.stopCancelFeed()
+	}
+	if local, ok := s.events.(*localTaskEvents); ok {
+		local.closeAll()
+	}
 
 	// Cancel all in-flight tasks.
 	s.cancelsMu.Lock()
@@ -495,6 +513,12 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	call := &rpcCall{w: w, r: r, req: &req, v: v}
+	if s.owner != nil {
+		if call.owner = s.owner(r); call.owner == "" {
+			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
+			return
+		}
+	}
 	s.rpcHandlers()[op](call)
 }
 
@@ -526,9 +550,9 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
-	contextID := params.Message.ContextID
-	if contextID == "" {
-		contextID = generateID()
+	contextID, ok := s.resolveContext(call, params.Message.ContextID)
+	if !ok {
+		return
 	}
 
 	// Stateless mode short-circuits everything about conversation ownership:
@@ -558,7 +582,7 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 	}
 
 	taskID := generateID()
-	if _, createErr := s.taskStore.Create(taskID, contextID); createErr != nil {
+	if createErr := s.createTask(call, taskID, contextID); createErr != nil {
 		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), createErr)
 		return
 	}
@@ -571,6 +595,16 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 	bgCtx := context.WithoutCancel(call.r.Context())
 	done := s.runConversation(bgCtx, taskID, contextID, conv, pkMsg)
 	s.awaitTurn(call, taskID, done, params.Configuration)
+}
+
+// resolveContext returns the context a message goes to: the caller's, once it
+// is checked the caller may use it, or a new one. ok is false when the call
+// has been refused.
+func (s *Server) resolveContext(call *rpcCall, requested string) (contextID string, ok bool) {
+	if requested == "" {
+		return generateID(), true
+	}
+	return requested, s.checkContextAccess(call, requested)
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
@@ -636,7 +670,7 @@ func (s *Server) handleToolResultMessage(
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
+	if err := s.createTask(call, taskID, contextID); err != nil {
 		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
@@ -870,9 +904,8 @@ func (s *Server) handleGetTask(call *rpcCall) {
 		return
 	}
 
-	task, err := s.taskStore.Get(params.ID)
-	if err != nil {
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
 		return
 	}
 	applyHistoryLength(task, params.HistoryLength)
@@ -890,9 +923,8 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 		return
 	}
 
-	task, err := s.taskStore.Get(params.ID)
-	if err != nil {
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
 		return
 	}
 	if task.Status.State.IsTerminal() {
@@ -914,9 +946,13 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 		return
 	}
 
-	s.cancelLocal(params.ID)
+	if err := s.canceler.Cancel(context.WithoutCancel(call.r.Context()), params.ID); err != nil {
+		// The task is canceled in the store either way; the turn may run on
+		// until it next checks, but its result can no longer be recorded.
+		log.Printf("a2a: task %s: failed to reach its turn to cancel it: %v", params.ID, err)
+	}
 
-	task, err = s.taskStore.Get(params.ID)
+	task, err := s.taskStore.Get(params.ID)
 	if err != nil {
 		call.internalError(fmt.Sprintf("failed to retrieve task %s after cancel", params.ID), err)
 		return
@@ -928,16 +964,18 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 // handleListTasks processes ListTasks (1.0; PromptKit's legacy tasks/list).
 //
 // Tasks are listed most recently updated first, a page at a time, behind an
-// opaque cursor. A request without a contextId is refused: listing every task
-// in the store would hand one caller every other caller's results.
+// opaque cursor, and only the caller's own when WithTaskOwner is set. Without
+// it the server cannot tell callers apart, so a request without a contextId
+// is refused: listing every task in the store would hand one caller every
+// other caller's results.
 func (s *Server) handleListTasks(call *rpcCall) {
 	var params a2a.ListTasksRequest
 	if len(call.req.Params) > 0 && !call.decodeParams(&params) {
 		return
 	}
-	if params.ContextID == "" {
+	if params.ContextID == "" && s.owner == nil {
 		call.fail(a2a.ErrCodeInvalidParams,
-			"Invalid params: contextId is required; listing across contexts is not supported")
+			"Invalid params: contextId is required unless the server scopes tasks by caller")
 		return
 	}
 
@@ -952,6 +990,7 @@ func (s *Server) handleListTasks(call *rpcCall) {
 	}
 
 	page, err := queryTasks(s.taskStore, TaskQuery{
+		Owner:       call.owner,
 		ContextID:   params.ContextID,
 		Status:      params.Status,
 		StatusAfter: params.StatusTimestampAfter,

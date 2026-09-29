@@ -295,9 +295,9 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 		return
 	}
 
-	contextID := params.Message.ContextID
-	if contextID == "" {
-		contextID = generateID()
+	contextID, ok := s.resolveContext(call, params.Message.ContextID)
+	if !ok {
+		return
 	}
 
 	out := newStreamWriter(call)
@@ -313,7 +313,7 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
+	if err := s.createTask(call, taskID, contextID); err != nil {
 		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
@@ -346,9 +346,8 @@ func (s *Server) handleTaskSubscribe(call *rpcCall) {
 		return
 	}
 
-	task, err := s.taskStore.Get(params.ID)
-	if err != nil {
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+	task := s.getTaskFor(call, params.ID)
+	if task == nil {
 		return
 	}
 	if task.Status.State.IsTerminal() {

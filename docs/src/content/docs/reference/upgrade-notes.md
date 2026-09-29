@@ -23,7 +23,7 @@ request with no version is 0.3, as the spec says. The runtime client sends
 | Call `SendMessage` (1.0) and expect it to return at once | it now waits for the task to finish or need input, as 1.0 requires | set `configuration.returnImmediately: true` |
 | Read a stream's first event as a `working` status | the first event is the Task | read `StreamEvent.Task` |
 | Expect one artifact per streamed chunk (`artifact-0`, `artifact-1`, ...) | a text run is one artifact, extended with `append` and closed with `lastChunk`; the stored task holds it once, whole | key on `ArtifactID` and concatenate appended chunks |
-| Call `tasks/list` or `ListTasks` without a `contextId` | `-32602` | pass the `contextId` (see #2089 for scoping by caller) |
+| Call `tasks/list` or `ListTasks` without a `contextId` | `-32602`: without caller scoping it listed every caller's tasks | pass the `contextId`, or set `WithTaskOwner` to list the caller's own |
 | Subscribe to a task that has finished | `-32004` UnsupportedOperation | read it with `GetTask` |
 | Compare `a2a.MethodSendMessage` and friends to `"message/send"` | the constants now hold the 1.0 names | use the `a2a.MethodV03*` constants for 0.3 names, or `a2a.LookupMethod` |
 | Match error codes | cancel of a finished task is `-32002`; an unsupported operation is `-32004`; push notification config is `-32003`; an internal failure is `-32603` without the cause | update the codes you match |
@@ -31,6 +31,16 @@ request with no version is 0.3, as the spec says. The runtime client sends
 
 `a2a.TaskState` constants keep their Go values. Stored tasks written in the old
 JSON form still decode.
+
+### A2A tasks can be scoped to their caller, and cancel/subscribe can span replicas
+
+`a2aserver.WithTaskOwner` scopes every task to the caller that created it
+(#2089); see [Callers and replicas](/sdk/how-to/interop/choose-a2a-server-mode/#callers-and-replicas).
+
+| If you | You will see | Change |
+|---|---|---|
+| Implement your own `TaskStore` and want caller scoping | `NewServer` panics when `WithTaskOwner` is set | implement `OwnedTaskStore` (`CreateOwned`, `Owner`); if you implement `TaskQuerier`, filter by `TaskQuery.Owner` |
+| Run several replicas behind a shared task store | `CancelTask` and `SubscribeToTask` only reached the replica running the task, as before | supply `WithTaskCanceler` and `WithTaskEventBus`, or keep session affinity |
 
 ### Inference providers share one interface; `runtime/classify` is superseded
 

@@ -30,7 +30,7 @@ func (s *Server) handleSendViaHandler(call *rpcCall, contextID string, params a2
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
+	if err := s.createTask(call, taskID, contextID); err != nil {
 		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
 		return
 	}
