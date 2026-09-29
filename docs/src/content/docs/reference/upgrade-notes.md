@@ -27,6 +27,7 @@ request with no version is 0.3, as the spec says. The runtime client sends
 | Subscribe to a task that has finished | `-32004` UnsupportedOperation | read it with `GetTask` |
 | Compare `a2a.MethodSendMessage` and friends to `"message/send"` | the constants now hold the 1.0 names | use the `a2a.MethodV03*` constants for 0.3 names, or `a2a.LookupMethod` |
 | Match error codes | cancel of a finished task is `-32002`; an unsupported operation is `-32004`; push notification config is `-32003`; an internal failure is `-32603` without the cause | update the codes you match |
+| Run PromptKit A2A clients from before this release against an upgraded server | a task that stops for client tools arrives as 0.3's `input-required`, which the old client cannot decode | upgrade clients with (or before) servers; an upgraded client still works with an old server, falling back to 0.3 names and the old card path |
 | Serve the agent card from `/.well-known/agent.json` only | the card is also at `/.well-known/agent-card.json`, and the client looks there first | nothing, unless a proxy only forwards the old path |
 
 `a2a.TaskState` constants keep their Go values. Stored tasks written in the old
