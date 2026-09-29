@@ -61,6 +61,8 @@ The two versions differ on the wire, not in meaning:
 | File parts | `{"raw": ...}` / `{"url": ...}` with `mediaType` | `{"kind": "file", "file": {"bytes"\|"uri": ...}}` |
 | Blocking `SendMessage` | by default; `returnImmediately: true` opts out | only with `blocking: true` |
 
+A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting, and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. The runtime's A2A tool executor does not block at all. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It never resends a message after a response timeout, because the agent may already have started the turn.
+
 The runtime client sends `A2A-Version: 1.0`. If the agent rejects a 1.0 method as unknown, the client retries once in 0.3 and remembers the answer; `a2a.WithProtocolVersion` pins a version instead. The client reads every version's shapes, so its callers see one set of Go types.
 
 ---

@@ -576,6 +576,42 @@ func firstNonSpace(r *bufio.Reader) (byte, error) {
 	}
 }
 
+// Polling intervals for WaitForTask: quick at first, since most turns are
+// short, backing off so a long turn is not polled hard.
+const (
+	waitInitialInterval = 100 * time.Millisecond
+	waitMaxInterval     = time.Second
+	waitBackoffFactor   = 2
+)
+
+// WaitForTask polls task until it finishes or needs the caller (a terminal or
+// interrupted state), and returns it as it then stands. A task that is
+// already there is returned as is. ctx bounds the wait; when it ends, the last
+// state seen is returned with ctx's error.
+//
+// A SendMessage can come back before its task is done: with
+// returnImmediately, from a 0.3 agent that does not block, or from a server
+// that caps how long it holds a request.
+func (c *Client) WaitForTask(ctx context.Context, task *Task) (*Task, error) {
+	interval := waitInitialInterval
+	for !task.Status.State.IsTerminal() && !task.Status.State.IsInterrupted() {
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return task, ctx.Err()
+		case <-timer.C:
+		}
+		next, err := c.GetTask(ctx, task.ID)
+		if err != nil {
+			return task, err
+		}
+		task = next
+		interval = min(interval*waitBackoffFactor, waitMaxInterval)
+	}
+	return task, nil
+}
+
 // GetTask retrieves a task by ID (GetTask; 0.3: tasks/get).
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	raw, err := c.rpcCall(ctx, OpGetTask, sameParams(GetTaskRequest{ID: taskID}))

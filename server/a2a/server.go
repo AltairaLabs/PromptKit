@@ -125,6 +125,20 @@ func WithWriteTimeout(d time.Duration) Option {
 	return func(s *Server) { s.writeTimeout = d }
 }
 
+// WithMaxBlockingWait caps how long a blocking SendMessage holds its request
+// open. When the turn has not finished or been interrupted by then, the server
+// answers with the task in its current (working) state, and the turn runs on:
+// the caller polls GetTask or subscribes for the rest. Default: 0, no cap — a
+// 1.0 SendMessage waits for the turn, as the spec requires, until the turn
+// ends or the caller disconnects.
+//
+// Set it below the timeout of whatever sits in front of the server (a load
+// balancer's idle timeout, a proxy's read timeout), so the caller gets a task
+// to follow rather than a gateway error.
+func WithMaxBlockingWait(d time.Duration) Option {
+	return func(s *Server) { s.maxBlockingWait = d }
+}
+
 // WithIdleTimeout sets the maximum amount of time to wait for the next
 // request when keep-alives are enabled. Default: 120s.
 func WithIdleTimeout(d time.Duration) Option {
@@ -197,10 +211,11 @@ type Server struct {
 	httpSrv       *http.Server
 	httpSrvMu     sync.Mutex
 
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	idleTimeout  time.Duration
-	maxBodySize  int64
+	readTimeout     time.Duration
+	writeTimeout    time.Duration
+	maxBlockingWait time.Duration
+	idleTimeout     time.Duration
+	maxBodySize     int64
 
 	// Readiness flag: set to true after NewServer completes, false on Shutdown.
 	isReady atomic.Bool
@@ -802,17 +817,30 @@ func (s *Server) failTask(taskID, contextID string, cause error) {
 // awaitTurn waits for a turn the way SendMessage does — until it finishes or
 // is interrupted when the caller's version and configuration ask for that
 // (1.0's default), otherwise only until the settle time — then answers with
-// the task as it stands.
+// the task as it stands. A blocking wait ends early if the caller disconnects,
+// or after WithMaxBlockingWait when set.
 func (s *Server) awaitTurn(
 	call *rpcCall, taskID string, done <-chan struct{}, cfg *a2a.SendMessageConfiguration,
 ) {
+	wait := sendSettleTime
 	if cfg.WaitsForCompletion(call.v) {
-		<-done
-	} else {
-		select {
-		case <-done:
-		case <-time.After(sendSettleTime):
-		}
+		wait = s.maxBlockingWait
+	}
+	var timeout <-chan time.Time
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+	select {
+	case <-done:
+	case <-timeout:
+		// Answer with the task as it stands; the turn runs on, and the caller
+		// polls GetTask or subscribes for the rest.
+	case <-call.r.Context().Done():
+		// The caller left. The turn runs on (it is detached from the
+		// request); there is just no one to answer.
+		return
 	}
 
 	task, err := s.taskStore.Get(taskID)
