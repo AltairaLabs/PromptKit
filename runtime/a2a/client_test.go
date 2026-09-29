@@ -56,8 +56,8 @@ func sseEvent(data any) string {
 func TestDiscover(t *testing.T) {
 	want := AgentCard{Name: "test-agent", Description: "A test agent"}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/.well-known/agent.json" {
-			t.Errorf("path = %q, want /.well-known/agent.json", r.URL.Path)
+		if r.URL.Path != AgentCardPath {
+			t.Errorf("path = %q, want %s", r.URL.Path, AgentCardPath)
 		}
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
@@ -630,13 +630,68 @@ func TestRPCCall_HTTPError(t *testing.T) {
 	}
 }
 
+func TestDiscover_FallsBackToLegacyPath(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path != LegacyAgentCardPath {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(AgentCard{Name: "legacy-agent"})
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL).Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if got.Name != "legacy-agent" {
+		t.Errorf("Name = %q, want legacy-agent", got.Name)
+	}
+	want := []string{AgentCardPath, LegacyAgentCardPath}
+	if fmt.Sprint(paths) != fmt.Sprint(want) {
+		t.Errorf("paths = %v, want %v", paths, want)
+	}
+}
+
+func TestDiscover_NoFallbackOnServerError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).Discover(context.Background()); err == nil {
+		t.Fatal("Discover() expected error on 500")
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1 (a 500 is not a missing path)", calls)
+	}
+}
+
+func TestWithRequestTimeout(t *testing.T) {
+	c := NewClient("http://example.invalid", WithRequestTimeout(5*time.Second))
+	if c.httpClient.Timeout != 5*time.Second {
+		t.Errorf("Timeout = %v, want 5s", c.httpClient.Timeout)
+	}
+	if c.sseClient.Timeout != sseClientTimeout {
+		t.Errorf("SSE timeout changed to %v", c.sseClient.Timeout)
+	}
+	d := NewClient("http://example.invalid", WithRequestTimeout(0))
+	if d.httpClient.Timeout != defaultClientTimeout {
+		t.Errorf("zero timeout: Timeout = %v, want default", d.httpClient.Timeout)
+	}
+}
+
 // --- integration tests ---
 
 func TestHappyPath_DiscoverSendPollComplete(t *testing.T) {
 	var pollCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/agent.json":
+		case AgentCardPath:
 			_ = json.NewEncoder(w).Encode(AgentCard{Name: "agent"})
 		case "/a2a":
 			req := decodeRPC(r)
@@ -713,7 +768,7 @@ func TestHappyPath_DiscoverSendPollComplete(t *testing.T) {
 func TestErrorPath_DiscoverSendFail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/.well-known/agent.json":
+		case AgentCardPath:
 			_ = json.NewEncoder(w).Encode(AgentCard{Name: "agent"})
 		case "/a2a":
 			req := decodeRPC(r)
@@ -783,7 +838,7 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 		gotTP = r.Header.Get("traceparent")
 
 		switch r.URL.Path {
-		case "/.well-known/agent.json":
+		case AgentCardPath:
 			_ = json.NewEncoder(w).Encode(AgentCard{Name: "agent"})
 		case "/a2a":
 			req := decodeRPC(r)

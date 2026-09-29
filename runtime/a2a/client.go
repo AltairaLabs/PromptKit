@@ -93,6 +93,21 @@ func WithHeaders(headers map[string]string) ClientOption {
 	return func(c *Client) { c.customHeaders = headers }
 }
 
+// WithRequestTimeout sets the timeout for non-streaming requests (agent card
+// discovery and message/send, tasks/get, ...). The default is 60s. It does not
+// affect SSE streams, which are bounded by the SSE idle timeout instead.
+// A zero or negative value leaves the default in place.
+func WithRequestTimeout(d time.Duration) ClientOption {
+	return func(c *Client) {
+		if d <= 0 {
+			return
+		}
+		hc := *c.httpClient
+		hc.Timeout = d
+		c.httpClient = &hc
+	}
+}
+
 // WithSSEIdleTimeout sets the idle timeout for SSE streams. If no event
 // is received within this duration, the stream is considered stale and
 // ReadSSE returns [ErrSSEIdleTimeout] so callers can reconnect.
@@ -184,7 +199,15 @@ func (c *Client) nextID() int64 {
 	return atomic.AddInt64(&c.reqID, 1)
 }
 
-// Discover fetches the agent card from /.well-known/agent.json.
+// Agent card discovery paths. A2A 0.3 (§5.3) and 1.0 (§8.2) serve the card at
+// AgentCardPath; 0.2 and earlier servers used LegacyAgentCardPath.
+const (
+	AgentCardPath       = "/.well-known/agent-card.json"
+	LegacyAgentCardPath = "/.well-known/agent.json"
+)
+
+// Discover fetches the agent card, trying [AgentCardPath] first and falling
+// back to [LegacyAgentCardPath] when the agent does not serve it (404/405).
 // The card is cached after the first successful call.
 func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	c.mu.RLock()
@@ -195,34 +218,46 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	}
 	c.mu.RUnlock()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/.well-known/agent.json", http.NoBody)
+	card, status, err := c.fetchCard(ctx, AgentCardPath)
+	if err != nil && (status == http.StatusNotFound || status == http.StatusMethodNotAllowed) {
+		card, _, err = c.fetchCard(ctx, LegacyAgentCardPath)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("a2a: discover: %w", err)
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.agentCard = card
+	c.mu.Unlock()
+
+	return card, nil
+}
+
+// fetchCard GETs the agent card at path. It returns the HTTP status alongside
+// any error so Discover can decide whether to try the legacy path.
+func (c *Client) fetchCard(ctx context.Context, path string) (*AgentCard, int, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, http.NoBody)
+	if err != nil {
+		return nil, 0, fmt.Errorf("a2a: discover: %w", err)
 	}
 	c.setAuth(httpReq)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("a2a: discover: %w", err)
+		return nil, 0, fmt.Errorf("a2a: discover: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("a2a: discover: status %d", resp.StatusCode)
+		return nil, resp.StatusCode, fmt.Errorf("a2a: discover %s: status %d", path, resp.StatusCode)
 	}
 
 	var card AgentCard
 	if err := json.NewDecoder(resp.Body).Decode(&card); err != nil {
-		return nil, fmt.Errorf("a2a: decode agent card: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("a2a: decode agent card: %w", err)
 	}
-
-	c.mu.Lock()
-	c.agentCard = &card
-	c.mu.Unlock()
-
-	return &card, nil
+	return &card, resp.StatusCode, nil
 }
 
 // rpcCall performs a JSON-RPC 2.0 POST to /a2a.

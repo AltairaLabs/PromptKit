@@ -47,6 +47,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
   - [func WithAuth\(scheme, token string\) ClientOption](<#WithAuth>)
   - [func WithHTTPClient\(hc \*http.Client\) ClientOption](<#WithHTTPClient>)
   - [func WithHeaders\(headers map\[string\]string\) ClientOption](<#WithHeaders>)
+  - [func WithRequestTimeout\(d time.Duration\) ClientOption](<#WithRequestTimeout>)
   - [func WithSSEIdleTimeout\(d time.Duration\) ClientOption](<#WithSSEIdleTimeout>)
 - [type Executor](<#Executor>)
   - [func NewExecutor\(opts ...ExecutorOption\) \*Executor](<#NewExecutor>)
@@ -94,6 +95,15 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
 
 
 ## Constants
+
+<a name="AgentCardPath"></a>Agent card discovery paths. A2A 0.3 \(§5.3\) and 1.0 \(§8.2\) serve the card at AgentCardPath; 0.2 and earlier servers used LegacyAgentCardPath.
+
+```go
+const (
+    AgentCardPath       = "/.well-known/agent-card.json"
+    LegacyAgentCardPath = "/.well-known/agent.json"
+)
+```
 
 <a name="DefaultA2AMaxRetries"></a>Default retry constants for A2A executor.
 
@@ -232,7 +242,7 @@ func PartToContentPart(part *Part) (types.ContentPart, error)
 PartToContentPart converts an A2A Part to a PromptKit ContentPart.
 
 <a name="ReadSSE"></a>
-## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L385>)
+## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L420>)
 
 ```go
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
@@ -241,7 +251,7 @@ func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
 ReadSSE reads SSE events from r and sends parsed StreamEvents to ch. It has no idle timeout; use [ReadSSEWithIdleTimeout](<#ReadSSEWithIdleTimeout>) for timeout support.
 
 <a name="ReadSSEWithIdleTimeout"></a>
-## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L471>)
+## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L506>)
 
 ```go
 func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration)
@@ -376,7 +386,7 @@ type CancelTaskRequest struct {
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L109-L121>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L124-L136>)
 
 Client is an HTTP client for discovering and calling external A2A agents.
 
@@ -387,7 +397,7 @@ type Client struct {
 ```
 
 <a name="NewClient"></a>
-### func [NewClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L161>)
+### func [NewClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L176>)
 
 ```go
 func NewClient(baseURL string, opts ...ClientOption) *Client
@@ -396,7 +406,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client
 NewClient creates a Client targeting baseURL.
 
 <a name="Client.CancelTask"></a>
-### func \(\*Client\) [CancelTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L366>)
+### func \(\*Client\) [CancelTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L401>)
 
 ```go
 func (c *Client) CancelTask(ctx context.Context, taskID string) error
@@ -405,16 +415,16 @@ func (c *Client) CancelTask(ctx context.Context, taskID string) error
 CancelTask cancels a task by ID via tasks/cancel.
 
 <a name="Client.Discover"></a>
-### func \(\*Client\) [Discover](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L189>)
+### func \(\*Client\) [Discover](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L212>)
 
 ```go
 func (c *Client) Discover(ctx context.Context) (*AgentCard, error)
 ```
 
-Discover fetches the agent card from /.well\-known/agent.json. The card is cached after the first successful call.
+Discover fetches the agent card, trying [AgentCardPath](<#AgentCardPath>) first and falling back to [LegacyAgentCardPath](<#AgentCardPath>) when the agent does not serve it \(404/405\). The card is cached after the first successful call.
 
 <a name="Client.GetTask"></a>
-### func \(\*Client\) [GetTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L357>)
+### func \(\*Client\) [GetTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L392>)
 
 ```go
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error)
@@ -423,7 +433,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error)
 GetTask retrieves a task by ID via tasks/get.
 
 <a name="Client.ListTasks"></a>
-### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L371>)
+### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L406>)
 
 ```go
 func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Task, error)
@@ -432,7 +442,7 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 ListTasks lists tasks via tasks/list.
 
 <a name="Client.SendMessage"></a>
-### func \(\*Client\) [SendMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L285>)
+### func \(\*Client\) [SendMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L320>)
 
 ```go
 func (c *Client) SendMessage(ctx context.Context, params *SendMessageRequest) (*Task, error)
@@ -441,7 +451,7 @@ func (c *Client) SendMessage(ctx context.Context, params *SendMessageRequest) (*
 SendMessage sends a message/send JSON\-RPC request.
 
 <a name="Client.SendMessageStream"></a>
-### func \(\*Client\) [SendMessageStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L296>)
+### func \(\*Client\) [SendMessageStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L331>)
 
 ```go
 func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageRequest) (<-chan StreamEvent, error)
@@ -485,8 +495,17 @@ func WithHeaders(headers map[string]string) ClientOption
 
 WithHeaders sets custom headers that are sent on all requests.
 
+<a name="WithRequestTimeout"></a>
+### func [WithRequestTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L100>)
+
+```go
+func WithRequestTimeout(d time.Duration) ClientOption
+```
+
+WithRequestTimeout sets the timeout for non\-streaming requests \(agent card discovery and message/send, tasks/get, ...\). The default is 60s. It does not affect SSE streams, which are bounded by the SSE idle timeout instead. A zero or negative value leaves the default in place.
+
 <a name="WithSSEIdleTimeout"></a>
-### func [WithSSEIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L100>)
+### func [WithSSEIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L115>)
 
 ```go
 func WithSSEIdleTimeout(d time.Duration) ClientOption
