@@ -166,9 +166,9 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 	}
 
 	// Send initialized notification
-	if err := c.sendNotification(methodNotificationsInitialized, nil); err != nil {
+	if err := c.sendNotification("notifications/initialized", nil); err != nil {
 		// Non-fatal: log but continue
-		logger.Warn(msgInitializedNotifyFailed, "server", c.config.Name, "error", err)
+		logger.Warn("MCP initialized notification failed, continuing", "server", c.config.Name, "error", err)
 	}
 
 	// Store server info and update activity timestamp
@@ -512,7 +512,7 @@ func (c *StdioClient) attemptReconnect(ctx context.Context, attemptNum int) erro
 	}
 
 	// Send initialized notification (non-fatal)
-	if notifyErr := c.sendNotification(methodNotificationsInitialized, nil); notifyErr != nil {
+	if notifyErr := c.sendNotification("notifications/initialized", nil); notifyErr != nil {
 		logger.Warn("MCP initialized notification failed after reconnect",
 			"server", c.config.Name, "error", notifyErr)
 	}

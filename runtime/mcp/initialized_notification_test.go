@@ -151,6 +151,10 @@ func gatedSSEServer(t *testing.T) (string, *gatedServerState) {
 	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		msg, hasID := state.observe(r, body)
+		if !hasID && state.rejectNotifications {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		w.WriteHeader(http.StatusAccepted)
 		if hasID {
 			b, _ := json.Marshal(state.reply(msg))
@@ -236,6 +240,43 @@ func TestStreamableClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T
 	recs := state.snapshot()
 	require.Len(t, recs, 2)
 	assert.Equal(t, methodInitializedNt, recs[1].method)
+}
+
+// The SSE client treats a rejected notification the same way: logged, and
+// Initialize still succeeds.
+func TestSSEClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T) {
+	url, state := gatedSSEServer(t)
+	state.rejectNotifications = true
+	c := NewSSEClient(ServerConfig{Name: "gated", URL: url})
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := c.Initialize(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "gated", resp.ServerInfo.Name)
+	recs := state.snapshot()
+	require.Len(t, recs, 2)
+	assert.Equal(t, methodInitializedNt, recs[1].method)
+}
+
+func TestStreamableTransport_SendNotification_RequestErrors(t *testing.T) {
+	ctx := context.Background()
+
+	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions())
+	err := tr.sendNotification(ctx, methodInitializedNt, make(chan int))
+	require.Error(t, err, "params that cannot be encoded must fail before sending")
+
+	tr = newStreamableTransport(ServerConfig{URL: "http://[::1"}, DefaultClientOptions())
+	require.Error(t, tr.sendNotification(ctx, methodInitializedNt, nil), "an invalid URL must fail to build a request")
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	downURL := down.URL
+	down.Close()
+	tr = newStreamableTransport(ServerConfig{URL: downURL}, DefaultClientOptions())
+	err = tr.sendNotification(ctx, methodInitializedNt, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mcp/streamable: POST:", "a transport failure must be reported as such")
 }
 
 // statusServer answers every POST with the given status and no body.
