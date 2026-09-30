@@ -661,6 +661,9 @@
           "additionalProperties": {
             "$ref": "#/$defs/ToolSpec"
           },
+          "propertyNames": {
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
           "type": "object"
         },
         "judge_specs": {
@@ -725,7 +728,8 @@
           "type": "string"
         },
         "type": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
         }
       },
       "additionalProperties": false,
@@ -1823,7 +1827,8 @@
         },
         "supported_types": {
           "items": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
           },
           "type": "array"
         },
@@ -1867,7 +1872,8 @@
     "MetricDef": {
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$"
         },
         "range": {
           "$ref": "#/$defs/MetricDefRange"
@@ -2149,7 +2155,8 @@
           "$ref": "#/$defs/Governance"
         },
         "language": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z]{2}$"
         },
         "tags": {
           "items": {
@@ -3297,10 +3304,12 @@
     "Spec": {
       "properties": {
         "task_type": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
         },
         "description": {
           "type": "string"
@@ -3969,7 +3978,8 @@
     "VariableMetadata": {
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
         },
         "type": {
           "type": "string"
