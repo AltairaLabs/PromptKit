@@ -618,7 +618,7 @@ func (b *BaseProvider) relayStream(
 	canMidStreamRetry := req.Policy.Enabled &&
 		req.Policy.Window == StreamRetryWindowAlways
 
-	contentChunks := forwardChunks(innerChan, outChan, metrics, providerID)
+	contentChunks := forwardChunks(ctx, innerChan, outChan, metrics, providerID)
 	if contentChunks < 0 {
 		return // stream completed cleanly (no error)
 	}
@@ -626,7 +626,9 @@ func (b *BaseProvider) relayStream(
 	// Mid-stream retry: if the policy allows it, content was
 	// forwarded (so Phase 1 couldn't catch this), and the budget
 	// has a token, emit Reset and retry from scratch.
-	if canMidStreamRetry && contentChunks > 0 && req.Budget.TryAcquire() {
+	// Never for a canceled stream: the retry cannot succeed, and its Reset
+	// chunk would wipe the partial output the caller has already seen.
+	if canMidStreamRetry && contentChunks > 0 && ctx.Err() == nil && req.Budget.TryAcquire() {
 		midStreamRetry(ctx, req, consumer, outChan, metrics, providerID)
 	}
 }
@@ -635,21 +637,40 @@ func (b *BaseProvider) relayStream(
 // chunks and recording error-histogram observations. Returns -1 when
 // the source closes cleanly (no error), or the non-negative content
 // count when a terminal error chunk has been forwarded.
+//
+// A canceled stream always ends on ctx.Err(). Consumers close the response
+// body when ctx is done, so the parser usually stops on a read error from the
+// closed body, or on a clean EOF with no error at all. The first would report
+// a network fault; the second would make a truncated reply look complete.
 func forwardChunks(
-	src <-chan StreamChunk, dst chan<- StreamChunk,
+	ctx context.Context, src <-chan StreamChunk, dst chan<- StreamChunk,
 	metrics *StreamMetrics, providerID string,
 ) int {
 	var contentChunks int
+	finished := false
 	for chunk := range src {
 		if chunkForwardedContent(&chunk) {
 			contentChunks++
 		}
 		if chunk.Error != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(chunk.Error, ctxErr) {
+				logger.Debug("stream read failed after cancellation; reporting the cancellation",
+					"provider", providerID, "read_error", chunk.Error)
+				chunk.Error = ctxErr
+			}
 			metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
 			dst <- chunk
 			return contentChunks
 		}
+		if chunk.FinishReason != nil {
+			finished = true
+		}
 		dst <- chunk
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil && !finished {
+		metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
+		dst <- StreamChunk{Error: ctxErr}
+		return contentChunks
 	}
 	return -1 // clean close
 }
@@ -690,7 +711,7 @@ func midStreamRetry(
 		}, nil)
 	}()
 
-	forwardChunks(retryChan, outChan, metrics, providerID)
+	forwardChunks(ctx, retryChan, outChan, metrics, providerID)
 }
 
 // chunkForwardedContent reports whether a StreamChunk delivered any
@@ -702,6 +723,11 @@ func midStreamRetry(
 // the relay hot path.
 func chunkForwardedContent(chunk *StreamChunk) bool {
 	if chunk.Delta != "" {
+		return true
+	}
+	// Reasoning is delivered to the caller as it streams, so a failure after
+	// it is a mid-stream failure like any other.
+	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
 		return true
 	}
 	if chunk.MediaData != nil {

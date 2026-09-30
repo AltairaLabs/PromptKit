@@ -475,12 +475,22 @@ func (p *Provider) streamResponse(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			ToolCalls:    accumulatedToolCalls,
-			Error:        err,
-			FinishReason: providers.StringPtr("error"),
-		}
+	// The loop only returns on message_stop, so reaching here means the stream
+	// never completed: a cancellation (the body closed by the goroutine above),
+	// a read error, or a clean EOF from a server that dropped the stream.
+	err := scanner.Err()
+	finishReason := "error"
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+		finishReason = "canceled"
+	case err == nil:
+		err = fmt.Errorf("claude stream ended before message_stop: %w", io.ErrUnexpectedEOF)
+	}
+	outChan <- providers.StreamChunk{
+		Content:      sb.String(),
+		ToolCalls:    accumulatedToolCalls,
+		Error:        err,
+		FinishReason: providers.StringPtr(finishReason),
 	}
 }

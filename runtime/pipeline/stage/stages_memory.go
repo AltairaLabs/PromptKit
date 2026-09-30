@@ -157,18 +157,19 @@ func (s *MemoryExtractionStage) Process(
 		pending = append(pending, elem)
 	}
 
-	if s.extractor != nil && len(messages) > 0 {
+	// A partial reply from an interrupted stream is not something the model
+	// said, so nothing is extracted from it.
+	if messages = types.ExcludeInterrupted(messages); s.extractor != nil && len(messages) > 0 {
 		s.extractAndSave(ctx, messages)
 	}
 
+	// A canceled turn's partial reply and error must still reach the stages
+	// after this one; see cancelForwarder.
+	var fwd cancelForwarder
 	for i := range pending {
-		select {
-		case output <- pending[i]:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		fwd.forward(ctx, output, pending[i])
 	}
-	return nil
+	return ctx.Err()
 }
 
 // extractAndSave runs the extractor and saves resulting memories.

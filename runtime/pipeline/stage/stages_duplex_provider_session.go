@@ -773,29 +773,14 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			logger.Info("Session closure: context canceled",
 				"cause", context.Cause(ctx), "err", ctx.Err())
 			// Emit any accumulated content as partial response before returning
-			accumulatedText := s.accumulatedText.String()
-			hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
-			if hasContent {
-				msg := &types.Message{
-					Role:    "assistant",
-					Content: accumulatedText,
-					Parts:   []types.ContentPart{},
-					Meta: map[string]interface{}{
-						"finish_reason": "complete",
-					},
-				}
-
-				msg.Parts = s.buildAssistantParts(accumulatedText)
-				msg.Reasoning = s.takeReasoning()
-
+			if msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx))); msg != nil {
 				elem := StreamElement{
 					Message:     msg,
 					EndOfStream: true,
 				}
 
-				logger.Debug("DuplexProviderStage: emitting response on context cancel",
-					"textLen", len(accumulatedText),
-					"mediaLen", len(s.accumulatedMedia))
+				logger.Debug("DuplexProviderStage: emitting partial response on context cancel",
+					"textLen", len(msg.Content))
 
 				// Use a short timeout for sending - the downstream stage needs a chance to receive
 				// even though context is canceled. This is critical for capturing partial responses.
@@ -808,12 +793,6 @@ func (s *DuplexProviderStage) forwardResponseElements(
 					logger.Warn("DuplexProviderStage: timeout sending response on context cancel")
 				}
 				sendCancel()
-
-				// Clear accumulators
-				s.accumulatedText.Reset()
-				s.accumulatedReasoning.Reset()
-				s.accumulatedOpaqueReasoning = nil
-				s.accumulatedMedia = nil
 			}
 			return ctx.Err()
 
@@ -853,53 +832,32 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 		case chunk, ok := <-responseChannel:
 			if !ok {
-				// Session closed - emit any accumulated content as partial response
-				accumulatedText := s.accumulatedText.String()
-				hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
-
+				// Session closed mid-turn: whatever the turn accumulated never
+				// reached a turn completion, so it is kept as an interrupted reply.
+				cause := "provider closed the session"
 				if weClosedSession {
+					cause = "session closed before the turn completed"
 					logger.Info("Session ended, response channel closed (we initiated closure)")
 				} else {
 					logger.Warn("Session closure: provider closed the connection unexpectedly",
-						"has_accumulated_content", hasContent,
-						"accumulated_text_len", len(accumulatedText),
+						"accumulated_text_len", s.accumulatedText.Len(),
 						"accumulated_media_len", len(s.accumulatedMedia))
 				}
 
-				if hasContent {
-					// Emit response so it's not lost
-					msg := &types.Message{
-						Role:    "assistant",
-						Content: accumulatedText,
-						Parts:   []types.ContentPart{},
-						Meta: map[string]interface{}{
-							"finish_reason": "complete",
-						},
-					}
-
-					msg.Parts = s.buildAssistantParts(accumulatedText)
-					msg.Reasoning = s.takeReasoning()
-
+				if msg := s.takeInterruptedTurn(cause); msg != nil {
 					elem := StreamElement{
 						Message:     msg,
 						EndOfStream: true,
 					}
 
-					logger.Debug("DuplexProviderStage: emitting response on session close",
-						"textLen", len(accumulatedText),
-						"mediaLen", len(s.accumulatedMedia))
+					logger.Debug("DuplexProviderStage: emitting partial response on session close",
+						"textLen", len(msg.Content))
 
 					select {
 					case output <- elem:
 					case <-ctx.Done():
 						return ctx.Err()
 					}
-
-					// Clear accumulators
-					s.accumulatedText.Reset()
-					s.accumulatedReasoning.Reset()
-					s.accumulatedOpaqueReasoning = nil
-					s.accumulatedMedia = nil
 				}
 
 				return nil
@@ -954,6 +912,14 @@ func (s *DuplexProviderStage) handleResponseChunk(
 ) error {
 	if chunk.Error != nil {
 		logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
+		// Keep the turn's partial reply ahead of the error, as the unary stage does.
+		if msg := s.takeInterruptedTurn(chunk.Error.Error()); msg != nil {
+			select {
+			case output <- StreamElement{Message: msg, EndOfStream: true}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		elem := NewErrorElement(chunk.Error)
 		select {
 		case output <- elem:

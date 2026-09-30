@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,7 +33,9 @@ type StreamChunk struct {
 	// The caller should fulfill it via SendToolResult/RejectClientTool, then call ResumeStream.
 	ClientTool *PendingClientTool
 
-	// Complete response (for ChunkDone type)
+	// Complete response (for ChunkDone type). On an error chunk it holds the
+	// partial reply when the stream failed after the model started replying:
+	// FinishReason is types.FinishReasonInterrupted, and it is otherwise nil.
 	Message *Response
 
 	// Error (if any occurred)
@@ -153,10 +156,7 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 
 		// Execute streaming pipeline
 		if err := c.executeStreamingPipeline(ctx, userMsg, ch, startTime); err != nil {
-			select {
-			case ch <- StreamChunk{Error: err}:
-			case <-ctx.Done():
-			}
+			sendFinalErrorChunk(ctx, ch, errorChunk(err))
 		}
 	}()
 
@@ -311,6 +311,9 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 ) error {
 	// Process all stream chunks
 	if err := c.processStreamChunks(ctx, streamCh, outCh, state); err != nil {
+		if state.finalResult != nil && endsInterrupted(state.finalResult.Messages) {
+			return &interruptedStreamError{err: err, partial: c.buildStreamingResponse(state, startTime)}
+		}
 		return err
 	}
 
@@ -337,14 +340,69 @@ func (c *Conversation) processStreamChunks(
 	outCh chan<- StreamChunk,
 	state *streamState,
 ) error {
+	var streamErr error
 	for chunk := range streamCh {
+		if streamErr != nil {
+			// After a failure, only the session's final result is wanted: it
+			// carries the partial reply the pipeline kept for the turn.
+			if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
+				state.finalResult = result
+			}
+			continue
+		}
 		if chunk.Error != nil {
-			return chunk.Error
+			streamErr = chunk.Error
+			continue
 		}
 
 		c.emitStreamChunk(ctx, &chunk, outCh, state)
 	}
-	return nil
+	return streamErr
+}
+
+// interruptedStreamError carries a failed stream's partial reply to the
+// goroutine that reports the error, which attaches it to the error chunk.
+type interruptedStreamError struct {
+	err     error
+	partial *Response
+}
+
+func (e *interruptedStreamError) Error() string { return e.err.Error() }
+func (e *interruptedStreamError) Unwrap() error { return e.err }
+
+// canceledErrorSendTimeout bounds the final error send after the caller's
+// context is done.
+const canceledErrorSendTimeout = 500 * time.Millisecond
+
+// sendFinalErrorChunk delivers the chunk that ends a failed stream. A caller
+// that canceled its own context usually still drains the channel, and the
+// chunk tells it the stream was cut off and carries the partial reply; a
+// caller that has stopped reading must not leak this goroutine, so once ctx is
+// done the send waits only briefly.
+func sendFinalErrorChunk(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) {
+	if ctx.Err() == nil {
+		select {
+		case ch <- chunk:
+			return
+		case <-ctx.Done():
+		}
+	}
+	timer := time.NewTimer(canceledErrorSendTimeout)
+	defer timer.Stop()
+	select {
+	case ch <- chunk:
+	case <-timer.C:
+	}
+}
+
+// errorChunk builds the chunk reporting a stream failure, carrying the
+// partial reply when there is one.
+func errorChunk(err error) StreamChunk {
+	var ie *interruptedStreamError
+	if errors.As(err, &ie) {
+		return StreamChunk{Error: ie.err, Message: ie.partial}
+	}
+	return StreamChunk{Error: err}
 }
 
 // sendChunk sends a StreamChunk to outCh, returning immediately if ctx is canceled.

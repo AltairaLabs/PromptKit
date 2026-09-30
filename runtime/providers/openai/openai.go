@@ -974,6 +974,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
+	// finishReason is the normalized finish_reason once a choice has carried
+	// one. OpenAI-compatible servers may omit [DONE], so a finish_reason alone
+	// marks the reply complete.
+	var finishReason *string
 
 	for scanner.Scan() {
 		select {
@@ -1062,9 +1066,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		// Handle finish reason - don't return yet, wait for usage-only chunk
 		// When stream_options.include_usage is true, usage comes in a separate chunk
 		if choice.FinishReason != nil {
+			normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
+			finishReason = &normalized
 			// If usage is included in this chunk, send final chunk now
 			if chunk.Usage != nil {
-				normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
 				finalChunk := p.createFinalStreamChunk(
 					sb.String(), accumulatedToolCalls, totalTokens, &normalized, chunk.Usage)
 				outChan <- finalChunk
@@ -1074,13 +1079,36 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			ToolCalls:    accumulatedToolCalls,
-			Error:        err,
-			FinishReason: providers.StringPtr("error"),
-		}
+	p.endIncompleteStream(ctx, scanner.Err(), sb.String(), accumulatedToolCalls, totalTokens, finishReason, outChan)
+}
+
+// endIncompleteStream emits the terminal chunk for a chat stream whose read
+// loop ended without [DONE]. A finish_reason already seen is a completed reply
+// from a server that omits [DONE]. Otherwise the stream was cut short — a
+// cancellation (the body closed by the cancel goroutine), a read error, or a
+// clean EOF from a server that dropped it — and ends on an error chunk.
+func (p *Provider) endIncompleteStream(
+	ctx context.Context, scanErr error, content string, toolCalls []types.MessageToolCall,
+	totalTokens int, finishReason *string, outChan chan<- providers.StreamChunk,
+) {
+	if scanErr == nil && finishReason != nil {
+		outChan <- p.createFinalStreamChunk(content, toolCalls, totalTokens, finishReason, nil)
+		return
+	}
+	reason := finishError
+	err := scanErr
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+		reason = "cancelled" //nolint:misspell // the documented StreamChunk.FinishReason value, as above
+	case err == nil:
+		err = fmt.Errorf("openai stream ended before completion: %w", io.ErrUnexpectedEOF)
+	}
+	outChan <- providers.StreamChunk{
+		Content:      content,
+		ToolCalls:    toolCalls,
+		Error:        err,
+		FinishReason: providers.StringPtr(reason),
 	}
 }
 

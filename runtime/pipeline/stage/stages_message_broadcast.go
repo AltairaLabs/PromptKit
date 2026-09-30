@@ -109,17 +109,15 @@ func (s *MessageBroadcastStage) Process(
 	// call IS the transcript-absolute index.
 	msgIndex := 0
 
+	// A canceled turn's partial reply and error arrive after the
+	// cancellation; see cancelForwarder.
+	var fwd cancelForwarder
 	for elem := range input {
-		s.broadcast(ctx, &elem, &msgIndex)
-
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		s.broadcast(liveContext(ctx), &elem, &msgIndex)
+		fwd.forward(ctx, output, elem)
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // broadcast publishes one element if it carries a new complete message.

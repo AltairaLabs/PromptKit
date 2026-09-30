@@ -93,11 +93,22 @@ func (s *IncrementalSaveStage) Process(
 	// messages are dropped from the in-memory slice — they're already in
 	// the store and don't need to be re-persisted. Holding them here would
 	// scale O(conversation-length) per Send for long conversations.
-	collected, err := s.collectAndForward(ctx, input, output)
-	if err != nil {
+	collected := s.collectAndForward(ctx, input, output)
+
+	// A canceled turn still saves what it produced — the user's message and
+	// any reply the model had started — so persistence runs on a context the
+	// cancellation doesn't reach, and the cancellation is returned afterwards.
+	cancelErr := ctx.Err()
+	ctx = context.WithoutCancel(ctx)
+
+	if err := s.saveCollected(ctx, collected); err != nil {
 		return err
 	}
+	return cancelErr
+}
 
+// saveCollected persists, indexes and summarizes the messages a turn produced.
+func (s *IncrementalSaveStage) saveCollected(ctx context.Context, collected *incrementalCollectedData) error {
 	if len(collected.messages) == 0 {
 		return nil
 	}
@@ -159,12 +170,17 @@ type incrementalCollectedData struct {
 // Messages whose Source is "statestore", "summary", or "retrieved" are
 // considered history and are forwarded but not collected — they're
 // already persisted upstream.
+//
+// It reads the input to the end even after ctx is canceled. A failed turn
+// emits its partial reply after the cancellation, and stopping early would
+// both lose that reply and block the stage sending it.
 func (s *IncrementalSaveStage) collectAndForward(
 	ctx context.Context,
 	input <-chan StreamElement,
 	output chan<- StreamElement,
-) (*incrementalCollectedData, error) {
+) *incrementalCollectedData {
 	collected := &incrementalCollectedData{}
+	var fwd cancelForwarder
 
 	for elem := range input {
 		if elem.Message != nil && isNewMessage(elem.Message) {
@@ -177,13 +193,9 @@ func (s *IncrementalSaveStage) collectAndForward(
 			continue
 		}
 
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+		fwd.forward(ctx, output, elem)
 	}
-	return collected, nil
+	return collected
 }
 
 // isNewMessage reports whether a message originated from this Send (true)

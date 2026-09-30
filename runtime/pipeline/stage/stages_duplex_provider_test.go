@@ -102,6 +102,21 @@ func TestDuplexChunkToElement_InterruptedBuildsPartial(t *testing.T) {
 		}
 	}
 	assert.True(t, hasAudio, "buildAssistantParts includes audio from accumulatedMedia")
+	assert.True(t, elem.Message.IsInterrupted(),
+		"the barge-in partial must carry FinishReasonInterrupted so it stays out of model context")
+}
+
+// TestDuplexChunkToElement_InterruptedKeepsReasoningOnlyTurn covers barge-in
+// while the model is still thinking: no text or audio yet, but the reasoning
+// is kept rather than discarded.
+func TestDuplexChunkToElement_InterruptedKeepsReasoningOnlyTurn(t *testing.T) {
+	s := newDuplexStageForUnit()
+	s.accumulatedReasoning.WriteString("considering the options")
+	elem := s.chunkToElement(&providers.StreamChunk{Interrupted: true})
+	require.NotNil(t, elem.Message, "a reasoning-only turn is still kept on interruption")
+	require.NotNil(t, elem.Message.Reasoning)
+	assert.Equal(t, "considering the options", elem.Message.Reasoning.Text)
+	assert.True(t, elem.Message.IsInterrupted())
 }
 
 // TestDuplexChunkToElement_TurnIDAndTranscription covers popping a queued turn_id
