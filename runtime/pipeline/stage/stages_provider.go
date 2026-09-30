@@ -516,17 +516,8 @@ func (s *ProviderStage) fireStreamingTurn(
 		full, err = s.executeMultiRound(genCtx, acc)
 	}
 	if err != nil {
-		// Keep a reply the model had started before the turn died: it joins
-		// the history (marked interrupted, so it is never sent back to the
-		// model) and is emitted for the save stage.
-		if endsInterrupted(full) {
-			newStart := priorLen + len(pending)
-			if newStart <= len(full) {
-				if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
-					return emitErr
-				}
-			}
-			*history = full
+		if keepErr := s.keepInterruptedTurn(forwardCtx, full, priorLen+len(pending), history, output); keepErr != nil {
+			return keepErr
 		}
 		if errors.Is(err, context.Canceled) {
 			// Barge-in (or shutdown) canceled this turn's generation; the
@@ -549,6 +540,26 @@ func (s *ProviderStage) fireStreamingTurn(
 	*history = full
 
 	return sendStreamElement(forwardCtx, NewEndOfTurnElement(), output)
+}
+
+// keepInterruptedTurn keeps a reply the model had started before a streaming
+// turn died: the turn's new messages (from newStart) are emitted for the save
+// stage and the turn joins the history, where the reply's interrupted marker
+// keeps it out of every later request. A turn that produced nothing is left
+// out, as before.
+func (s *ProviderStage) keepInterruptedTurn(
+	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
+) error {
+	if !endsInterrupted(full) {
+		return nil
+	}
+	if newStart <= len(full) {
+		if err := s.emitResponseMessages(ctx, full[newStart:], output); err != nil {
+			return err
+		}
+	}
+	*history = full
+	return nil
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.
@@ -613,15 +624,18 @@ func endsInterrupted(messages []types.Message) bool {
 // emitInterruptedTranscript emits a failed turn's messages when they end in an
 // interrupted reply, so the save stage persists the partial output next to the
 // error that follows. The turn's context is often the thing that was
-// canceled, so the sends must not depend on it — like the error element, they
-// block until the consumer reads them.
+// canceled, so the sends go through cancelForwarder: delivered to a consumer
+// that is still reading, dropped after a short wait if it has gone.
 func (s *ProviderStage) emitInterruptedTranscript(
 	ctx context.Context, messages []types.Message, output chan<- StreamElement,
 ) {
 	if !endsInterrupted(messages) {
 		return
 	}
-	_ = s.emitResponseMessages(context.WithoutCancel(ctx), messages, output)
+	var fwd cancelForwarder
+	for i := range messages {
+		fwd.forward(ctx, output, NewMessageElement(&messages[i]))
+	}
 }
 
 // emitResponseMessages sends response messages to output channel.
@@ -1597,10 +1611,7 @@ func (s *ProviderStage) executeStreamingRound(
 				CallID:   params.providerCallID,
 			})
 		}
-		if got.toolCalls = completeToolCalls(got.toolCalls); got.hasOutput() {
-			return s.interruptedMessage(&got, duration, err), false, err
-		}
-		return types.Message{}, false, err
+		return s.keptInterruptedReply(ctx, params, &got, duration, err), false, err
 	}
 
 	// Emit provider call completed event with cost info from streaming response
@@ -1785,6 +1796,53 @@ func (s *ProviderStage) interruptedMessage(got *streamedRound, duration time.Dur
 	return msg
 }
 
+// keptInterruptedReply returns what a failed round produced as an interrupted
+// reply, once it has passed the output guardrails, or an empty message when
+// there is nothing to keep.
+func (s *ProviderStage) keptInterruptedReply(
+	ctx context.Context, params *streamingRoundParams, got *streamedRound, duration time.Duration, cause error,
+) types.Message {
+	if got.toolCalls = completeToolCalls(got.toolCalls); !got.hasOutput() {
+		return types.Message{}
+	}
+	msg := s.interruptedMessage(got, duration, cause)
+	if !s.guardInterrupted(ctx, params, &msg, duration) {
+		return types.Message{}
+	}
+	return msg
+}
+
+// guardInterrupted runs the output guardrails on a partial reply before it is
+// returned, saved or recorded — the same AfterCall hooks a completed reply
+// goes through, so a redaction or substitution applies to the fragment too.
+// It reports whether the reply may be kept: a guardrail that denies it without
+// enforcing a replacement drops it. Hooks run on a context the turn's
+// cancellation does not reach (the guardrail adapters bound their own calls),
+// and an enforced replacement stays marked interrupted: the turn still ended
+// early, and the firing is recorded in Validations.
+func (s *ProviderStage) guardInterrupted(
+	ctx context.Context, params *streamingRoundParams, msg *types.Message, duration time.Duration,
+) bool {
+	if s.hookRegistry == nil {
+		return true
+	}
+	err := s.runAfterCallHooks(liveContext(ctx), &afterCallParams{
+		messages:     params.messages,
+		systemPrompt: params.systemPrompt,
+		round:        params.round,
+		metadata:     params.metadata,
+		duration:     duration,
+		responseMsg:  msg,
+		toolCalls:    &msg.ToolCalls,
+	})
+	if err != nil {
+		logger.Warn("output guardrail denied an interrupted reply; dropping it", "error", err)
+		return false
+	}
+	msg.FinishReason = types.FinishReasonInterrupted
+	return true
+}
+
 // completeToolCalls drops tool calls whose arguments were still streaming when
 // the reply was cut off. Providers accumulate argument JSON as raw bytes, so a
 // half-written call holds invalid JSON, and json.Marshal fails on an invalid
@@ -1817,6 +1875,14 @@ func (s *ProviderStage) processStreamChunks(
 	var opaqueReasoning []types.OpaqueReasoning
 	var pendingValidations []types.ValidationResult
 	var finishReason string
+
+	// Every return before the provider closes the channel — a canceled emit,
+	// a guardrail abort or enforcement — leaves the provider (and the relay in
+	// front of it) blocked sending its remaining chunks, often a terminal
+	// error chunk. Drain what is left so those goroutines finish and release
+	// the response body and stream slot.
+	drained, stoppedEarly := false, false
+	defer drainIfAbandoned(streamChan, &drained)
 
 	collected := func() streamedRound {
 		r := streamedRound{
@@ -1893,6 +1959,7 @@ func (s *ProviderStage) processStreamChunks(
 					// Hook enforced (e.g., truncated content) — use the
 					// modified chunk content and stop reading the stream.
 					content = chunk.Content
+					stoppedEarly = true
 					break
 				}
 				// An empty round: a guardrail blocked this output, so none of
@@ -1904,15 +1971,35 @@ func (s *ProviderStage) processStreamChunks(
 			}
 		}
 	}
+	drained = !stoppedEarly // the range ended because the provider closed the channel
 
-	// A stream the caller canceled can close without an error chunk: not
-	// every provider streams through the relay that reports the cancellation.
-	// Without this check a truncated reply would pass for a complete one. A
-	// finish reason means the reply did complete before the cancel landed.
+	return collected(), canceledBeforeFinish(ctx, finishReason)
+}
+
+// canceledBeforeFinish reports a stream that ended because the caller
+// canceled it. Such a stream can close without an error chunk: not every
+// provider streams through the relay that reports the cancellation. Without
+// this check a truncated reply would pass for a complete one. A finish reason
+// means the reply did complete before the cancel landed.
+func canceledBeforeFinish(ctx context.Context, finishReason string) error {
 	if ctxErr := ctx.Err(); ctxErr != nil && finishReason == "" {
-		return collected(), fmt.Errorf("stream interrupted: %w", ctxErr)
+		return fmt.Errorf("stream interrupted: %w", ctxErr)
 	}
-	return collected(), nil
+	return nil
+}
+
+// drainIfAbandoned reads the rest of a stream the round stopped reading
+// early, so the provider (and the relay in front of it) can finish sending and
+// release the response body and stream slot. drained is set once the round
+// has read the stream to its end.
+func drainIfAbandoned(streamChan <-chan providers.StreamChunk, drained *bool) {
+	if *drained {
+		return
+	}
+	go func() {
+		for range streamChan {
+		}
+	}()
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.

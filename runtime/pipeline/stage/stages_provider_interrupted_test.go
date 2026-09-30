@@ -5,10 +5,12 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -141,4 +143,78 @@ func TestProcessStreamChunks_CancelAfterFinishIsNotInterrupted(t *testing.T) {
 	got, err := s.processStreamChunks(ctx, in, out, roundRef{round: 1}, false)
 	require.NoError(t, err)
 	assert.Equal(t, "done", got.content)
+}
+
+// failingStreamProvider streams one text chunk and then fails.
+type failingStreamProvider struct {
+	multiTurnRecordingProvider
+}
+
+func (p *failingStreamProvider) SupportsStreaming() bool { return true }
+
+func (p *failingStreamProvider) PredictStream(
+	context.Context, providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	ch := make(chan providers.StreamChunk, 2)
+	ch <- providers.StreamChunk{Content: "my number is 555-0100", Delta: "my number is 555-0100"}
+	ch <- providers.StreamChunk{Error: errors.New("connection reset")}
+	close(ch)
+	return ch, nil
+}
+
+// TestInterruptedReply_OutputGuardrailEnforces checks a partial reply goes
+// through the output guardrails like a completed one: an enforced replacement
+// is what gets kept, still marked interrupted, with the firing recorded.
+func TestInterruptedReply_OutputGuardrailEnforces(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceAfterCallHook{replacement: "[redacted]"}))
+	stage := NewProviderStageWithHooks(&failingStreamProvider{}, nil, nil, &ProviderConfig{}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "what's your number?")
+	require.ErrorContains(t, err, "connection reset")
+
+	msgs := assistantMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "[redacted]", msgs[0].Content, "the unguarded fragment must not be kept")
+	assert.True(t, msgs[0].IsInterrupted())
+	assert.NotEmpty(t, msgs[0].Validations, "the guardrail firing must be recorded")
+}
+
+// TestInterruptedReply_OutputGuardrailDenies checks a partial reply an output
+// guardrail denies outright is dropped rather than returned or saved.
+func TestInterruptedReply_OutputGuardrailDenies(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&allowBeforeDenyAfterHook{reason: "pii"}))
+	stage := NewProviderStageWithHooks(&failingStreamProvider{}, nil, nil, &ProviderConfig{}, nil, reg)
+
+	elems, err := runProviderStage(t, stage, "what's your number?")
+	require.ErrorContains(t, err, "connection reset", "the stream failure is still the turn's error")
+	assert.Empty(t, assistantMessages(elems), "a denied fragment must not be emitted")
+}
+
+// TestProcessStreamChunks_EarlyReturnDrainsProvider checks a round that stops
+// reading early (here a canceled emit) still lets the provider finish sending
+// its remaining chunks, instead of leaving its goroutine blocked forever.
+func TestProcessStreamChunks_EarlyReturnDrainsProvider(t *testing.T) {
+	s := &ProviderStage{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	in := make(chan providers.StreamChunk) // unbuffered: every send needs a reader
+	out := make(chan StreamElement)        // never read, so the first emit fails
+
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		defer close(in)
+		for i := 0; i < 3; i++ {
+			in <- providers.StreamChunk{Content: "x", Delta: "x"}
+		}
+		in <- providers.StreamChunk{Error: context.Canceled}
+	}()
+
+	_, err := s.processStreamChunks(ctx, in, out, roundRef{round: 1}, false)
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case <-producerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the provider goroutine is still blocked sending after the round returned")
+	}
 }

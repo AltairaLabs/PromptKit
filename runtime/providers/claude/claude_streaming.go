@@ -282,9 +282,6 @@ func (p *Provider) processClaudeMessageStop(
 	outChan <- finalChunk
 }
 
-// streamResponse reads a stream from Claude and sends chunks.
-// The scanner parameter abstracts the underlying transport format (SSE or binary event-stream).
-//
 // streamEventError is the SSE event type Anthropic sends when a stream fails.
 const streamEventError = "error"
 
@@ -293,8 +290,6 @@ const finishReasonError = "error"
 
 // ErrClaudeStreamError marks a failure Anthropic reported mid-stream through
 // an error event. The wrapping error carries the error type and message.
-//
-//nolint:gocognit // complexity is inherent in event handling
 var ErrClaudeStreamError = errors.New("claude stream error")
 
 // parseClaudeStreamError turns an Anthropic stream error event into an error
@@ -312,6 +307,10 @@ func parseClaudeStreamError(data []byte) error {
 	return fmt.Errorf("%w (%s): %s", ErrClaudeStreamError, ev.Error.Type, ev.Error.Message)
 }
 
+// streamResponse reads a stream from Claude and sends chunks.
+// The scanner parameter abstracts the underlying transport format (SSE or binary event-stream).
+//
+//nolint:gocognit // complexity is inherent in event handling
 func (p *Provider) streamResponse(
 	ctx context.Context, body io.ReadCloser, scanner providers.StreamScanner, outChan chan<- providers.StreamChunk,
 ) {

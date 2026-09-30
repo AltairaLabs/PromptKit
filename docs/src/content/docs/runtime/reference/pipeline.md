@@ -2636,7 +2636,7 @@ func DefaultImageResizeStageConfig() ImageResizeStageConfig
 DefaultImageResizeStageConfig returns sensible defaults for image resizing.
 
 <a name="IncrementalSaveConfig"></a>
-## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L22-L47>)
+## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L23-L48>)
 
 IncrementalSaveConfig configures the IncrementalSaveStage.
 
@@ -2670,7 +2670,7 @@ type IncrementalSaveConfig struct {
 ```
 
 <a name="IncrementalSaveStage"></a>
-## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L52-L56>)
+## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L53-L57>)
 
 IncrementalSaveStage saves only new messages from the current turn using MessageAppender, avoiding the full load\+replace\+save cycle. When the store doesn't implement MessageAppender, it falls back to StateStoreSaveStage behavior.
 
@@ -2682,7 +2682,7 @@ type IncrementalSaveStage struct {
 ```
 
 <a name="NewIncrementalSaveStage"></a>
-### func [NewIncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L59>)
+### func [NewIncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L60>)
 
 ```go
 func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStage
@@ -2691,7 +2691,7 @@ func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStag
 NewIncrementalSaveStage creates a new incremental save stage.
 
 <a name="NewIncrementalSaveStageWithTurnState"></a>
-### func [NewIncrementalSaveStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L69-L72>)
+### func [NewIncrementalSaveStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L70-L73>)
 
 ```go
 func NewIncrementalSaveStageWithTurnState(config *IncrementalSaveConfig, turnState *TurnState) *IncrementalSaveStage
@@ -2700,7 +2700,7 @@ func NewIncrementalSaveStageWithTurnState(config *IncrementalSaveConfig, turnSta
 NewIncrementalSaveStageWithTurnState creates an incremental save stage that also merges TurnState.ProviderRequestMetadata into the persisted state on the fallback fullSave path.
 
 <a name="IncrementalSaveStage.Process"></a>
-### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L81-L85>)
+### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L82-L86>)
 
 ```go
 func (s *IncrementalSaveStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5152,7 +5152,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L1995>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2082>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
