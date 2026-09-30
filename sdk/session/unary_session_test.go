@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -590,28 +591,43 @@ func TestUnarySession_ForkSession(t *testing.T) {
 	assert.Equal(t, len(origMessages), len(forkedMessages))
 }
 
-func TestStreamProcessor_SendChunk_ContextCancelled(t *testing.T) {
+// shortCanceledSendTimeout shrinks the post-cancel send wait for a test.
+func shortCanceledSendTimeout(t *testing.T) {
+	t.Helper()
+	prev := canceledChunkSendTimeout
+	canceledChunkSendTimeout = 5 * time.Millisecond
+	t.Cleanup(func() { canceledChunkSendTimeout = prev })
+}
+
+// TestStreamProcessor_SendChunk_CanceledConsumerGone checks a canceled stream
+// with nobody reading gives up rather than blocking, and stops sending.
+func TestStreamProcessor_SendChunk_CanceledConsumerGone(t *testing.T) {
+	shortCanceledSendTimeout(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Use an unbuffered channel so send would block, forcing the ctx.Done() path.
+	chunkChan := make(chan providers.StreamChunk) // unbuffered, never read
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	p.sendChunk(&providers.StreamChunk{Delta: "test"})
+	assert.True(t, p.consumerGone, "an unread send after cancellation must mark the consumer gone")
+}
+
+// TestStreamProcessor_SendChunk_CanceledStillDelivers checks a caller that
+// canceled but keeps reading still receives the chunk.
+func TestStreamProcessor_SendChunk_CanceledStillDelivers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	chunkChan := make(chan providers.StreamChunk)
 	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
 
-	ok := p.sendChunk(&providers.StreamChunk{Delta: "test"})
-	assert.False(t, ok, "sendChunk should return false when context is cancelled")
-}
+	got := make(chan providers.StreamChunk, 1)
+	go func() { got <- <-chunkChan }()
+	p.sendChunk(&providers.StreamChunk{Delta: "test"})
 
-func TestStreamProcessor_ProcessElement_ContextCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	chunkChan := make(chan providers.StreamChunk) // unbuffered
-	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
-
-	text := "hello"
-	ok := p.processElement(&stage.StreamElement{Text: &text})
-	assert.False(t, ok, "processElement should return false when context is cancelled")
+	assert.Equal(t, "test", (<-got).Delta)
+	assert.False(t, p.consumerGone)
 }
 
 func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
@@ -619,8 +635,7 @@ func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
 	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
 
 	testErr := errors.New("stream error")
-	ok := p.processElement(&stage.StreamElement{Error: testErr})
-	assert.True(t, ok, "processElement should succeed sending error chunk")
+	p.processElement(&stage.StreamElement{Error: testErr})
 
 	chunk := <-chunkChan
 	assert.Equal(t, testErr, chunk.Error)
@@ -628,7 +643,41 @@ func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
 	assert.Equal(t, "error", *chunk.FinishReason)
 }
 
-func TestProcessStreamElements_EarlyExit(t *testing.T) {
+// TestProcessStreamElements_CanceledDeliversErrorAndPartialReply checks the
+// elements a canceled turn emits last — its partial reply and its error —
+// still reach a caller that keeps reading.
+func TestProcessStreamElements_CanceledDeliversErrorAndPartialReply(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	partial := &types.Message{Role: "assistant", Content: "half", FinishReason: types.FinishReasonInterrupted}
+	stageChan := make(chan stage.StreamElement, 3)
+	stageChan <- stage.StreamElement{Message: partial}
+	stageChan <- stage.StreamElement{Error: context.Canceled}
+	close(stageChan)
+
+	chunkChan := make(chan providers.StreamChunk)
+	go func() {
+		defer close(chunkChan)
+		processStreamElements(ctx, stageChan, chunkChan)
+	}()
+
+	var chunks []providers.StreamChunk
+	for c := range chunkChan {
+		chunks = append(chunks, c)
+	}
+	require.Len(t, chunks, 2, "want the error chunk and the final chunk")
+	assert.ErrorIs(t, chunks[0].Error, context.Canceled)
+	final, ok := chunks[1].FinalResult.(*rtpipeline.ExecutionResult)
+	require.True(t, ok, "final chunk carries no result")
+	require.Len(t, final.Messages, 1)
+	assert.True(t, final.Messages[0].IsInterrupted())
+}
+
+// TestProcessStreamElements_CanceledNoReaderReturns checks an abandoned stream
+// still drains its input and returns instead of hanging.
+func TestProcessStreamElements_CanceledNoReaderReturns(t *testing.T) {
+	shortCanceledSendTimeout(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -638,9 +687,7 @@ func TestProcessStreamElements_EarlyExit(t *testing.T) {
 	stageChan <- stage.StreamElement{Text: &text}
 	close(stageChan)
 
-	// Unbuffered chunkChan + cancelled context forces processElement to return false,
-	// testing the early exit path in processStreamElements.
-	chunkChan := make(chan providers.StreamChunk)
+	chunkChan := make(chan providers.StreamChunk) // never read
 	processStreamElements(ctx, stageChan, chunkChan)
-	// If we reach here without hanging, the early exit worked.
+	assert.Empty(t, stageChan, "input must be drained")
 }

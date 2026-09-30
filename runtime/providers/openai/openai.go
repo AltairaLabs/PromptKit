@@ -974,6 +974,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
+	// finishReason is the normalized finish_reason once a choice has carried
+	// one. OpenAI-compatible servers may omit [DONE], so a finish_reason alone
+	// marks the reply complete.
+	var finishReason *string
 
 	for scanner.Scan() {
 		select {
@@ -994,7 +998,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
-				FinishReason: providers.StringPtr("stop"),
+				FinishReason: seenOrStop(finishReason),
 			}
 			return
 		}
@@ -1006,14 +1010,16 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		// Handle usage-only chunk (sent when stream_options.include_usage is true)
-		// This chunk has no choices but contains the final token counts
+		// This chunk has no choices but contains the final token counts. It
+		// arrives after the choice that carried the finish_reason, so the
+		// reply ends here with that reason — "stop" would hide a length or
+		// tool_calls finish — and the [DONE] that follows is not read, so it
+		// cannot emit a second final chunk.
 		if len(chunk.Choices) == 0 {
 			if chunk.Usage != nil {
-				// Send final chunk with usage data
-				stopReason := providers.StringPtr("stop")
-				finalChunk := p.createFinalStreamChunk(
-					sb.String(), accumulatedToolCalls, totalTokens, stopReason, chunk.Usage)
-				outChan <- finalChunk
+				outChan <- p.createFinalStreamChunk(
+					sb.String(), accumulatedToolCalls, totalTokens, seenOrStop(finishReason), chunk.Usage)
+				return
 			}
 			continue
 		}
@@ -1062,9 +1068,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		// Handle finish reason - don't return yet, wait for usage-only chunk
 		// When stream_options.include_usage is true, usage comes in a separate chunk
 		if choice.FinishReason != nil {
+			normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
+			finishReason = &normalized
 			// If usage is included in this chunk, send final chunk now
 			if chunk.Usage != nil {
-				normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
 				finalChunk := p.createFinalStreamChunk(
 					sb.String(), accumulatedToolCalls, totalTokens, &normalized, chunk.Usage)
 				outChan <- finalChunk
@@ -1074,13 +1081,45 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			ToolCalls:    accumulatedToolCalls,
-			Error:        err,
-			FinishReason: providers.StringPtr("error"),
-		}
+	p.endIncompleteStream(ctx, scanner.Err(), sb.String(), accumulatedToolCalls, totalTokens, finishReason, outChan)
+}
+
+// seenOrStop returns the finish reason a choice already carried, or "stop"
+// when none did.
+func seenOrStop(finishReason *string) *string {
+	if finishReason != nil {
+		return finishReason
+	}
+	return providers.StringPtr(types.FinishReasonStop)
+}
+
+// endIncompleteStream emits the terminal chunk for a chat stream whose read
+// loop ended without [DONE]. A finish_reason already seen is a completed reply
+// from a server that omits [DONE]. Otherwise the stream was cut short — a
+// cancellation (the body closed by the cancel goroutine), a read error, or a
+// clean EOF from a server that dropped it — and ends on an error chunk.
+func (p *Provider) endIncompleteStream(
+	ctx context.Context, scanErr error, content string, toolCalls []types.MessageToolCall,
+	totalTokens int, finishReason *string, outChan chan<- providers.StreamChunk,
+) {
+	if scanErr == nil && finishReason != nil {
+		outChan <- p.createFinalStreamChunk(content, toolCalls, totalTokens, finishReason, nil)
+		return
+	}
+	reason := finishError
+	err := scanErr
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+		reason = "cancelled" //nolint:misspell // the documented StreamChunk.FinishReason value, as above
+	case err == nil:
+		err = fmt.Errorf("openai stream ended before completion: %w", io.ErrUnexpectedEOF)
+	}
+	outChan <- providers.StreamChunk{
+		Content:      content,
+		ToolCalls:    toolCalls,
+		Error:        err,
+		FinishReason: providers.StringPtr(reason),
 	}
 }
 

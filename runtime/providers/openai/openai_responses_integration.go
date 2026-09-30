@@ -36,6 +36,10 @@ const (
 	eventTypeOutputDone = "response.output_item.done"
 	eventTypeCompleted  = "response.completed"
 	eventTypeError      = "error"
+	// eventTypeIncomplete and eventTypeFailed are the Responses API's other
+	// terminal events: a reply cut short by a limit, and a failed response.
+	eventTypeIncomplete = "response.incomplete"
+	eventTypeFailed     = "response.failed"
 
 	// Audio event types for Responses API streaming
 	eventTypeAudioDelta      = "response.audio.delta"
@@ -498,6 +502,13 @@ func (p *Provider) handleStreamEvent(
 		p.handleErrorEvent(data, sb.String(), toolCalls, outChan)
 		return totalTokens, toolCalls, usage
 
+	case eventTypeIncomplete:
+		return totalTokens, toolCalls, p.handleIncomplete(data, sb.String(), toolCalls, totalTokens, outChan)
+
+	case eventTypeFailed:
+		p.handleFailed(data, sb.String(), toolCalls, outChan)
+		return totalTokens, toolCalls, usage
+
 	case eventTypeAudioDelta:
 		p.handleAudioDelta(data, outChan)
 		return totalTokens, toolCalls, usage
@@ -753,6 +764,68 @@ func (p *Provider) handleCompleted(
 	return usage
 }
 
+// handleIncomplete processes response.incomplete: the reply ended early on a
+// limit, which is a finished turn with a non-stop finish reason, not an error.
+func (p *Provider) handleIncomplete(
+	data string,
+	accumulated string,
+	toolCalls []types.MessageToolCall,
+	totalTokens int,
+	outChan chan<- providers.StreamChunk,
+) *responsesUsage {
+	var incomplete struct {
+		Response struct {
+			Usage             *responsesUsage `json:"usage"`
+			IncompleteDetails *struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+		} `json:"response"`
+	}
+	_ = json.Unmarshal([]byte(data), &incomplete)
+	reason := types.FinishReasonMaxOutputTokens
+	if d := incomplete.Response.IncompleteDetails; d != nil && d.Reason == "content_filter" {
+		reason = types.FinishReasonSafety
+	}
+	finalChunk := providers.StreamChunk{
+		Content:      accumulated,
+		ToolCalls:    toolCalls,
+		TokenCount:   totalTokens,
+		FinishReason: &reason,
+	}
+	if usage := incomplete.Response.Usage; usage != nil {
+		cost := p.costFromUsage(responsesUsageToOpenAIUsage(usage))
+		finalChunk.CostInfo = &cost
+	}
+	outChan <- finalChunk
+	return incomplete.Response.Usage
+}
+
+// handleFailed processes response.failed, which ends the stream in an error.
+func (p *Provider) handleFailed(
+	data string,
+	accumulated string,
+	toolCalls []types.MessageToolCall,
+	outChan chan<- providers.StreamChunk,
+) {
+	var failed struct {
+		Response struct {
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"response"`
+	}
+	msg := "response failed"
+	if json.Unmarshal([]byte(data), &failed) == nil && failed.Response.Error != nil {
+		msg = failed.Response.Error.Message
+	}
+	outChan <- providers.StreamChunk{
+		Content:      accumulated,
+		ToolCalls:    toolCalls,
+		Error:        fmt.Errorf("stream error: %s", msg),
+		FinishReason: providers.StringPtr(finishError),
+	}
+}
+
 // handleErrorEvent processes error events
 func (p *Provider) handleErrorEvent(
 	data string,
@@ -846,18 +919,36 @@ func (p *Provider) streamResponsesResponse(
 			&event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan, idMap,
 		)
 
-		// Check if we should return (completed or error events signal this via usage being set and returned)
-		if event.Type == eventTypeCompleted || event.Type == eventTypeError {
+		if isTerminalResponsesEvent(event.Type) {
 			return
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			ToolCalls:    accumulatedToolCalls,
-			Error:        err,
-			FinishReason: providers.StringPtr(finishError),
-		}
+	// The loop returns on every terminal event, so reaching here means the
+	// stream never completed: a cancellation (the body closed by the goroutine
+	// above), a read error, or a clean EOF from a server that dropped it.
+	err := scanner.Err()
+	reason := finishError
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+		reason = finishCanceled
+	case err == nil:
+		err = fmt.Errorf("openai responses stream ended before completion: %w", io.ErrUnexpectedEOF)
 	}
+	outChan <- providers.StreamChunk{
+		Content:      sb.String(),
+		ToolCalls:    accumulatedToolCalls,
+		Error:        err,
+		FinishReason: providers.StringPtr(reason),
+	}
+}
+
+// isTerminalResponsesEvent reports whether a Responses API event ends the stream.
+func isTerminalResponsesEvent(eventType string) bool {
+	switch eventType {
+	case eventTypeCompleted, eventTypeIncomplete, eventTypeFailed, eventTypeError:
+		return true
+	}
+	return false
 }

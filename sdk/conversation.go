@@ -238,6 +238,12 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 //   - Runs any registered validators
 //   - Handles tool calls if tools are defined
 //   - Persists state if a state store is configured
+//
+// If the model's stream fails or the context is canceled after the model has
+// started replying, Send returns the error AND a non-nil Response holding what
+// the model produced (text, reasoning, completed tool calls), with FinishReason
+// types.FinishReasonInterrupted. That partial reply is saved to the
+// conversation, but is never sent back to the model on later turns.
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
 	startTime := time.Now()
 
@@ -283,6 +289,11 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	// Build and execute pipeline
 	result, err := c.executePipeline(ctx, userMsg)
 	if err != nil {
+		// The model's stream died partway: return what it produced with the
+		// error, marked FinishReasonInterrupted, so the caller can show it.
+		if result != nil && endsInterrupted(result.Messages) {
+			return c.buildResponse(ctx, result, startTime), err
+		}
 		return nil, err
 	}
 
@@ -822,6 +833,12 @@ func (c *Conversation) executePipeline(
 // lastAssistantFinishReason returns the FinishReason of the most recent
 // assistant message, or "" when there is none. Used to recover the field the
 // pipeline's narrower Response type drops.
+// endsInterrupted reports whether a turn's messages end in a partial reply kept
+// from a stream that failed before the model finished.
+func endsInterrupted(msgs []types.Message) bool {
+	return len(msgs) > 0 && msgs[len(msgs)-1].IsInterrupted()
+}
+
 func lastAssistantFinishReason(msgs []types.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == roleAssistant {

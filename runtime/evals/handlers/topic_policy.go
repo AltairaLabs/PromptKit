@@ -357,6 +357,10 @@ func isTopicConversationRole(role string) bool {
 //
 // The user's message that was denied is NOT filtered — it is genuinely what
 // the user said, and it is what an anaphoric follow-up may refer back to.
+//
+// An interrupted reply (a stream that died partway) is excluded for the same
+// reason: it is a fragment, not an answer, and the model never sees it either.
 func isSubstitutedAssistantTurn(m types.Message) bool {
-	return m.Role == roleAssistant && m.FinishReason == types.FinishReasonSafety
+	return m.Role == roleAssistant &&
+		(m.FinishReason == types.FinishReasonSafety || m.IsInterrupted())
 }

@@ -132,16 +132,15 @@ func (tl *toolLoop) reaskCall(
 	if err != nil {
 		return providers.PredictionResponse{}, err
 	}
-	content, _, costInfo, reasoning, _, finishReason, err :=
-		tl.stage.processStreamChunks(ctx, streamChan, tl.output, rr, false)
+	got, err := tl.stage.processStreamChunks(ctx, streamChan, tl.output, rr, false)
 	if err != nil {
 		return providers.PredictionResponse{}, err
 	}
 	return providers.PredictionResponse{
-		Content:      content,
-		CostInfo:     costInfo,
-		Reasoning:    reasoning,
-		FinishReason: finishReason,
+		Content:      got.content,
+		CostInfo:     got.costInfo,
+		Reasoning:    got.reasoning,
+		FinishReason: got.finishReason,
 	}, nil
 }
 
@@ -190,7 +189,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		return
 	}
 	last := len(tl.messages) - 1
-	prior := tl.messages[:last]
+	prior := types.ExcludeInterrupted(tl.messages[:last])
 
 	req := providers.PredictionRequest{
 		System:         tl.acc.systemPrompt,

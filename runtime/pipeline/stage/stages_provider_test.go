@@ -3233,12 +3233,12 @@ func TestProcessStreamChunks_AccumulatesReasoning(t *testing.T) {
 	in <- providers.StreamChunk{Content: "answer", Delta: "answer", FinishReason: &fr}
 	close(in)
 
-	content, _, _, trace, _, finishReason, err := s.processStreamChunks(context.Background(), in, out, roundRef{round: 1}, false)
+	got, err := s.processStreamChunks(context.Background(), in, out, roundRef{round: 1}, false)
 	require.NoError(t, err)
-	assert.Equal(t, "answer", content, "content must exclude reasoning")
-	require.NotNil(t, trace, "expected a reasoning trace")
-	assert.Equal(t, "think more", trace.Text)
-	assert.Equal(t, "stop", finishReason, "finish reason must be threaded out for the completion event")
+	assert.Equal(t, "answer", got.content, "content must exclude reasoning")
+	require.NotNil(t, got.reasoning, "expected a reasoning trace")
+	assert.Equal(t, "think more", got.reasoning.Text)
+	assert.Equal(t, "stop", got.finishReason, "finish reason must be threaded out for the completion event")
 
 	close(out)
 	var sawReasoning bool

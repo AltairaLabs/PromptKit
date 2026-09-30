@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -82,6 +83,12 @@ func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipe
 	// Execute synchronously
 	result, err := s.pipeline.ExecuteSync(ctx, inputElem)
 	if err != nil {
+		// A failed turn can still carry what it produced — notably a reply
+		// the model had started before its stream died — so hand the result
+		// back alongside the error rather than dropping it.
+		if result != nil {
+			return convertExecutionResult(result), err
+		}
 		return nil, err
 	}
 
@@ -107,6 +114,12 @@ func (s *unarySession) ExecuteWithMessage(
 	// Execute synchronously
 	result, err := s.pipeline.ExecuteSync(ctx, inputElem)
 	if err != nil {
+		// A failed turn can still carry what it produced — notably a reply
+		// the model had started before its stream died — so hand the result
+		// back alongside the error rather than dropping it.
+		if result != nil {
+			return convertExecutionResult(result), err
+		}
 		return nil, err
 	}
 
@@ -345,26 +358,50 @@ type streamProcessor struct {
 	sb                  strings.Builder
 	finalResult         *pipeline.ExecutionResult
 	pendingToolsEmitted bool
+	// consumerGone is set once a send times out after cancellation.
+	consumerGone bool
 }
 
-// sendChunk sends a chunk to the output channel, respecting context cancellation.
-// Returns false if the context was canceled.
-func (p *streamProcessor) sendChunk(chunk *providers.StreamChunk) bool {
+// canceledChunkSendTimeout bounds each send once the caller's context is done.
+// A variable so tests need not wait it out.
+var canceledChunkSendTimeout = 500 * time.Millisecond
+
+// sendChunk sends a chunk to the output channel.
+//
+// A canceled turn still ends with its error and the partial reply the model
+// had started, and they arrive after the cancellation. A caller that canceled
+// usually keeps draining to receive them, so once ctx is done each send waits
+// briefly instead of giving up; the first one that times out marks the
+// consumer gone and every later chunk is dropped, so an abandoned channel
+// never leaks this goroutine.
+func (p *streamProcessor) sendChunk(chunk *providers.StreamChunk) {
+	if p.consumerGone {
+		return
+	}
+	if p.ctx.Err() == nil {
+		select {
+		case p.chunkChan <- *chunk:
+			return
+		case <-p.ctx.Done():
+		}
+	}
+	timer := time.NewTimer(canceledChunkSendTimeout)
+	defer timer.Stop()
 	select {
 	case p.chunkChan <- *chunk:
-		return true
-	case <-p.ctx.Done():
-		return false
+	case <-timer.C:
+		p.consumerGone = true
 	}
 }
 
-// processElement processes a single stream element. Returns false if processing should stop.
-func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
+// processElement processes a single stream element.
+func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 	if elem.Error != nil {
-		return p.sendChunk(&providers.StreamChunk{
+		p.sendChunk(&providers.StreamChunk{
 			Error:        elem.Error,
 			FinishReason: strPtr("error"),
 		})
+		return
 	}
 
 	// Fold emitted messages into finalResult so the terminal chunk carries real
@@ -377,15 +414,12 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
 
 	if elem.Text != nil && *elem.Text != "" {
 		p.sb.WriteString(*elem.Text)
-		if !p.sendChunk(&providers.StreamChunk{Delta: *elem.Text}) {
-			return false
-		}
+		p.sendChunk(&providers.StreamChunk{Delta: *elem.Text})
 	}
 
 	if len(elem.Meta.PendingTools) > 0 {
 		p.emitPendingTools(elem.Meta.PendingTools)
 	}
-	return true
 }
 
 // streamRoleAssistant is the role of assistant messages whose cost/token usage
@@ -432,10 +466,10 @@ func processStreamElements(
 ) {
 	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
 
+	// Read to the end even after cancellation: the pipeline emits a canceled
+	// turn's partial reply and error last, and must not block sending them.
 	for elem := range stageChan {
-		if !p.processElement(&elem) {
-			return
-		}
+		p.processElement(&elem)
 	}
 
 	// Send final chunk only if we didn't already emit a pending_tools chunk.

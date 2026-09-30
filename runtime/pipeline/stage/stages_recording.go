@@ -146,19 +146,16 @@ func (rs *RecordingStage) Process(
 	// history included, so the count matches the persisted transcript.
 	msgIndex := 0
 
+	// A canceled turn's partial reply and error arrive after the
+	// cancellation, and are recorded and passed through like any other
+	// element; see cancelForwarder.
+	var fwd cancelForwarder
 	for elem := range input {
-		// Record the element as event(s)
-		rs.recordElement(ctx, &elem, &msgIndex)
-
-		// Pass through unchanged
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		rs.recordElement(liveContext(ctx), &elem, &msgIndex)
+		fwd.forward(ctx, output, elem)
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // recordElement converts a StreamElement to events and persists them.

@@ -16,8 +16,46 @@ import (
 // finishReasonMetaKey is the Message.Meta key carrying the turn's finish reason.
 const finishReasonMetaKey = "finish_reason"
 
-// finishReasonInterrupted marks a partial turn cut short by user barge-in.
-const finishReasonInterrupted = "interrupted"
+// finishReasonInterrupted marks a partial turn cut short by user barge-in, a
+// canceled session, a provider error, or a provider that closed the session.
+const finishReasonInterrupted = types.FinishReasonInterrupted
+
+// takeInterruptedTurn builds the assistant message for a turn that ended
+// before the provider finished it, from whatever the turn had accumulated, and
+// clears the accumulators. It returns nil when the turn produced nothing.
+//
+// The message carries FinishReasonInterrupted on the message itself (so it is
+// kept out of model context like any other interrupted reply) and in Meta, the
+// element-level marker duplex consumers already read. cause records why.
+func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
+	text := s.accumulatedText.String()
+	if text == "" && len(s.accumulatedMedia) == 0 &&
+		s.accumulatedReasoning.Len() == 0 && len(s.accumulatedOpaqueReasoning) == 0 {
+		return nil
+	}
+	msg := &types.Message{
+		Role:         roleAssistant,
+		Content:      text,
+		FinishReason: types.FinishReasonInterrupted,
+		Meta: map[string]interface{}{
+			finishReasonMetaKey:        finishReasonInterrupted,
+			"interrupted_at":           time.Now().Format(time.RFC3339Nano),
+			"is_partial":               true,
+			types.MetaInterruptedCause: cause,
+		},
+	}
+	if !s.turnStartTime.IsZero() {
+		msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
+	}
+	msg.Parts = s.buildAssistantParts(text)
+	msg.Reasoning = s.takeReasoning()
+
+	s.accumulatedText.Reset()
+	s.accumulatedReasoning.Reset()
+	s.accumulatedOpaqueReasoning = nil
+	s.accumulatedMedia = nil
+	return msg
+}
 
 // buildAssistantParts assembles the assistant message content parts for the
 // current turn: spoken text, then accumulated audio. Reasoning is NOT a content
@@ -84,42 +122,15 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 	// Handle interruptions - provider detected user started speaking during response
 	// Capture the partial response and signal turn completion
 	if chunk.Interrupted {
-		accumulatedText := s.accumulatedText.String()
-		hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
-
 		logger.Debug("DuplexProviderStage: response interrupted",
-			"accumulatedTextLen", len(accumulatedText),
+			"accumulatedTextLen", s.accumulatedText.Len(),
 			"accumulatedMediaLen", len(s.accumulatedMedia))
 
-		// Create an interrupted assistant message if there's content
-		if hasContent {
-			msg := &types.Message{
-				Role:    roleAssistant,
-				Content: accumulatedText,
-				Parts:   []types.ContentPart{},
-				Meta: map[string]interface{}{
-					finishReasonMetaKey: finishReasonInterrupted,
-					"interrupted_at":    time.Now().Format(time.RFC3339Nano),
-					"is_partial":        true,
-				},
-			}
-
-			// Calculate turn latency if we have a start time
-			if !s.turnStartTime.IsZero() {
-				msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
-			}
-
-			msg.Parts = s.buildAssistantParts(accumulatedText)
-			msg.Reasoning = s.takeReasoning()
-
+		// Keep the partial reply (and clear the accumulators either way) —
+		// the provider will start a new response.
+		if msg := s.takeInterruptedTurn("barge-in"); msg != nil {
 			elem.Message = msg
 		}
-
-		// Clear accumulated content - provider will start new response
-		s.accumulatedText.Reset()
-		s.accumulatedReasoning.Reset()
-		s.accumulatedOpaqueReasoning = nil
-		s.accumulatedMedia = nil
 
 		// Mark that we saw an interruption - the next turnComplete without content should be skipped
 		s.wasInterrupted = true

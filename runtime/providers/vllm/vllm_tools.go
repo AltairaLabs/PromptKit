@@ -363,9 +363,10 @@ func (p *Provider) buildToolRequest(
 	return reqMap
 }
 
-// streamToolResponse processes the SSE stream for tool calls
-//
-//nolint:gocognit // complexity from SSE parsing and tool call accumulation; NOSONAR
+// streamToolResponse processes the SSE stream for tool calls. A stream that
+// ends without [DONE] or a finish_reason — canceled, a read error, or a
+// server-side truncation — ends on an error chunk carrying the accumulated
+// content and tool calls, never on a clean close.
 func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, chunks chan<- providers.StreamChunk) {
 	defer close(chunks)
 	defer body.Close()
@@ -377,103 +378,127 @@ func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, c
 	}()
 
 	scanner := bufio.NewScanner(body)
-	var accumulated strings.Builder
-	var toolCalls []types.MessageToolCall
+	st := &toolStreamState{}
 
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			logger.Debug("Context canceled, stopping vLLM stream", "component", "vllm")
+			chunks <- st.errorChunk(ctx.Err())
 			return
-		default:
 		}
 
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, ":") {
+		data, ok := sseDataLine(scanner.Text())
+		if !ok {
 			continue
 		}
-
-		// Parse SSE data line
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
 		if data == sseDoneMessage {
 			return
 		}
 
-		// Parse JSON chunk
 		var chunk vllmStreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			logger.Debug("Failed to parse stream chunk", "component", "vllm", "error", err, "data", data)
 			continue
 		}
+		p.handleToolStreamChunk(&chunk, st, chunks)
+	}
 
-		if len(chunk.Choices) == 0 {
-			continue
-		}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		chunks <- st.errorChunk(ctxErr)
+		return
+	}
+	if err := scanner.Err(); err != nil {
+		chunks <- st.errorChunk(fmt.Errorf("stream scan error: %w", err))
+		return
+	}
+	if !st.finished {
+		chunks <- st.errorChunk(fmt.Errorf("vllm stream ended before completion: %w", io.ErrUnexpectedEOF))
+	}
+}
 
-		choice := chunk.Choices[0]
+// toolStreamState accumulates a tool stream's content and tool calls.
+type toolStreamState struct {
+	accumulated strings.Builder
+	toolCalls   []types.MessageToolCall
+	finished    bool
+}
 
-		// Handle content delta
-		if choice.Delta.Content != "" {
-			accumulated.WriteString(choice.Delta.Content)
-			chunks <- providers.StreamChunk{
-				Delta: choice.Delta.Content,
-			}
-		}
+func (st *toolStreamState) errorChunk(err error) providers.StreamChunk {
+	return providers.StreamChunk{
+		Content:   st.accumulated.String(),
+		ToolCalls: st.toolCalls,
+		Error:     err,
+	}
+}
 
-		// Handle tool call deltas
-		if len(choice.Delta.ToolCalls) > 0 {
-			for _, tc := range choice.Delta.ToolCalls {
-				// Accumulate tool calls
-				if tc.Index == nil {
-					continue
-				}
-				idx := *tc.Index
-				// Ensure toolCalls slice is large enough
-				for len(toolCalls) <= idx {
-					toolCalls = append(toolCalls, types.MessageToolCall{})
-				}
+// applyToolCallDelta merges one streamed tool-call fragment into its slot.
+func (st *toolStreamState) applyToolCallDelta(tc *vllmStreamToolCall) {
+	if tc.Index == nil {
+		return
+	}
+	idx := *tc.Index
+	for len(st.toolCalls) <= idx {
+		st.toolCalls = append(st.toolCalls, types.MessageToolCall{})
+	}
+	if tc.ID != "" {
+		st.toolCalls[idx].ID = tc.ID
+	}
+	if tc.Function.Name != "" {
+		st.toolCalls[idx].Name = tc.Function.Name
+	}
+	if tc.Function.Arguments != "" {
+		st.toolCalls[idx].Args = append(st.toolCalls[idx].Args, []byte(tc.Function.Arguments)...)
+	}
+}
 
-				// Update tool call at index
-				if tc.ID != "" {
-					toolCalls[idx].ID = tc.ID
-				}
-				if tc.Function.Name != "" {
-					toolCalls[idx].Name = tc.Function.Name
-				}
-				if tc.Function.Arguments != "" {
-					toolCalls[idx].Args = append(toolCalls[idx].Args, []byte(tc.Function.Arguments)...)
-				}
-			}
-		}
+// sseDataLine returns the payload of an SSE "data: " line.
+func sseDataLine(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data: ") {
+		return "", false
+	}
+	return strings.TrimPrefix(line, "data: "), true
+}
 
-		// Check for finish reason. Normalize to the canonical vocabulary (matching
-		// the non-tool streaming and non-streaming paths) and, when the terminal
-		// chunk carries usage (requires stream_options.include_usage on the
-		// request, see buildRequest), attach the priced cost breakdown.
-		if choice.FinishReason != "" {
-			finishReason := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
-			terminal := providers.StreamChunk{
-				FinishReason: &finishReason,
-				ToolCalls:    toolCalls,
-			}
-			if chunk.Usage != nil {
-				costInfo := p.costFromUsage(*chunk.Usage)
-				terminal.CostInfo = &costInfo
-			}
-			chunks <- terminal
+// handleToolStreamChunk emits the content delta, accumulates tool-call deltas
+// and emits the terminal chunk for one parsed stream chunk.
+func (p *Provider) handleToolStreamChunk(
+	chunk *vllmStreamChunk, st *toolStreamState, chunks chan<- providers.StreamChunk,
+) {
+	if len(chunk.Choices) == 0 {
+		return
+	}
+	choice := chunk.Choices[0]
+
+	if choice.Delta.Content != "" {
+		st.accumulated.WriteString(choice.Delta.Content)
+		chunks <- providers.StreamChunk{
+			Content:     st.accumulated.String(),
+			Delta:       choice.Delta.Content,
+			DeltaTokens: 1,
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		chunks <- providers.StreamChunk{
-			Error: fmt.Errorf("stream scan error: %w", err),
+	for i := range choice.Delta.ToolCalls {
+		st.applyToolCallDelta(&choice.Delta.ToolCalls[i])
+	}
+
+	// Check for finish reason. Normalize to the canonical vocabulary (matching
+	// the non-tool streaming and non-streaming paths) and, when the terminal
+	// chunk carries usage (requires stream_options.include_usage on the
+	// request, see buildRequest), attach the priced cost breakdown.
+	if choice.FinishReason != "" {
+		st.finished = true
+		finishReason := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
+		terminal := providers.StreamChunk{
+			Content:      st.accumulated.String(),
+			FinishReason: &finishReason,
+			ToolCalls:    st.toolCalls,
 		}
+		if chunk.Usage != nil {
+			costInfo := p.costFromUsage(*chunk.Usage)
+			terminal.CostInfo = &costInfo
+		}
+		chunks <- terminal
 	}
 }

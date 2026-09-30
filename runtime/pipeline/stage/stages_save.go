@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -93,11 +94,36 @@ func (s *IncrementalSaveStage) Process(
 	// messages are dropped from the in-memory slice — they're already in
 	// the store and don't need to be re-persisted. Holding them here would
 	// scale O(conversation-length) per Send for long conversations.
-	collected, err := s.collectAndForward(ctx, input, output)
-	if err != nil {
-		return err
+	collected := s.collectAndForward(ctx, input, output)
+
+	// A canceled turn still saves what it produced — the user's message and
+	// any reply the model had started — so persistence runs on a context the
+	// cancellation doesn't reach, and the cancellation is returned afterwards.
+	// The caller that canceled is waiting on this, so the save is bounded,
+	// and the slower follow-up work (indexing and summarizing, both model
+	// calls) is left for a turn that was not canceled.
+	cancelErr := ctx.Err()
+	if cancelErr != nil {
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canceledSaveTimeout)
+		defer cancel()
+		ctx = saveCtx
 	}
 
+	if err := s.saveCollected(ctx, collected, cancelErr == nil); err != nil {
+		return err
+	}
+	return cancelErr
+}
+
+// canceledSaveTimeout bounds persisting a canceled turn. A variable so tests
+// need not wait it out.
+var canceledSaveTimeout = 10 * time.Second
+
+// saveCollected persists the messages a turn produced and, when followUp is
+// set, indexes and summarizes them.
+func (s *IncrementalSaveStage) saveCollected(
+	ctx context.Context, collected *incrementalCollectedData, followUp bool,
+) error {
 	if len(collected.messages) == 0 {
 		return nil
 	}
@@ -118,6 +144,10 @@ func (s *IncrementalSaveStage) Process(
 		if err := s.persistMessages(ctx, convID, toPersist); err != nil {
 			return err
 		}
+	}
+
+	if !followUp {
+		return nil
 	}
 
 	// Index and summarize regardless of persistence path
@@ -159,12 +189,17 @@ type incrementalCollectedData struct {
 // Messages whose Source is "statestore", "summary", or "retrieved" are
 // considered history and are forwarded but not collected — they're
 // already persisted upstream.
+//
+// It reads the input to the end even after ctx is canceled. A failed turn
+// emits its partial reply after the cancellation, and stopping early would
+// both lose that reply and block the stage sending it.
 func (s *IncrementalSaveStage) collectAndForward(
 	ctx context.Context,
 	input <-chan StreamElement,
 	output chan<- StreamElement,
-) (*incrementalCollectedData, error) {
+) *incrementalCollectedData {
 	collected := &incrementalCollectedData{}
+	var fwd cancelForwarder
 
 	for elem := range input {
 		if elem.Message != nil && isNewMessage(elem.Message) {
@@ -177,13 +212,9 @@ func (s *IncrementalSaveStage) collectAndForward(
 			continue
 		}
 
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+		fwd.forward(ctx, output, elem)
 	}
-	return collected, nil
+	return collected
 }
 
 // isNewMessage reports whether a message originated from this Send (true)
@@ -274,6 +305,11 @@ func (s *IncrementalSaveStage) indexNewMessages(
 	}
 
 	for i := range messages {
+		// An interrupted reply is a fragment the model never finished; indexing
+		// it would let retrieval put it back into model context.
+		if messages[i].IsInterrupted() {
+			continue
+		}
 		if err := s.config.MessageIndex.Index(ctx, convID, baseIndex+i, messages[i]); err != nil {
 			logger.Warn("Incremental save: failed to index message",
 				"conversation", convID, "turnIndex", baseIndex+i, "error", err)
@@ -349,7 +385,10 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 
 	// tail covers messages [lastSummarizedTurn, count). Slice off the
 	// SummarizeBatchSize prefix to get the oldest unsummarized batch.
-	batch := tail[:endTurn-lastSummarizedTurn]
+	// The summary replaces these turns in model context, so it must not carry
+	// interrupted fragments the model is otherwise never shown. The turn range
+	// still covers them.
+	batch := types.ExcludeInterrupted(tail[:endTurn-lastSummarizedTurn])
 	content, err := s.config.Summarizer.Summarize(ctx, batch)
 	if err != nil {
 		logger.Error("Auto-summarize: summarization failed",

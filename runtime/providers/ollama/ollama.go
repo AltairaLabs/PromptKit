@@ -321,6 +321,7 @@ func (p *Provider) streamResponse(
 	var accumulatedToolCalls []types.MessageToolCall
 	var lastUsage *ollamaUsage
 	var finishReason *string
+	sawDone := false
 
 	for scanner.Scan() {
 		if p.handleContextCancellation(ctx, sb.String(), accumulatedToolCalls, outChan) {
@@ -329,6 +330,7 @@ func (p *Provider) streamResponse(
 
 		data := scanner.Data()
 		if data == "[DONE]" {
+			sawDone = true
 			break
 		}
 
@@ -357,11 +359,30 @@ func (p *Provider) streamResponse(
 		}
 	}
 
+	// A canceled stream ends here too: the goroutine above closes the body,
+	// which surfaces as a read error or a clean EOF. Either way the reply was
+	// cut short, so report the cancellation rather than a finish.
+	if p.handleContextCancellation(ctx, sb.String(), accumulatedToolCalls, outChan) {
+		return
+	}
+
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
 			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
+			FinishReason: providers.StringPtr("error"),
+		}
+		return
+	}
+
+	// A clean EOF with neither [DONE] nor a finish_reason means the server
+	// dropped the stream mid-reply; never present that as a completed turn.
+	if !sawDone && finishReason == nil {
+		outChan <- providers.StreamChunk{
+			Content:      sb.String(),
+			ToolCalls:    accumulatedToolCalls,
+			Error:        fmt.Errorf("ollama stream ended before completion: %w", io.ErrUnexpectedEOF),
 			FinishReason: providers.StringPtr("error"),
 		}
 		return

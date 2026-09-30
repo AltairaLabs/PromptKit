@@ -50,6 +50,16 @@ func TestChunkForwardedContent_Classification(t *testing.T) {
 			forward: true,
 		},
 		{
+			name:    "reasoning delta counts",
+			chunk:   StreamChunk{Reasoning: "thinking"},
+			forward: true,
+		},
+		{
+			name:    "opaque reasoning counts",
+			chunk:   StreamChunk{OpaqueReasoning: []types.OpaqueReasoning{{Provider: "claude"}}},
+			forward: true,
+		},
+		{
 			name:    "content-only without delta does not count",
 			chunk:   StreamChunk{Content: "accumulated"},
 			forward: false,

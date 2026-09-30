@@ -570,6 +570,9 @@ func TestForwardResponseElements_EmitsPartialOnSessionClose(t *testing.T) {
 	require.NotNil(t, got, "expected a message element on session close")
 	assert.Equal(t, "final answer", got.Message.Content)
 	assert.True(t, got.EndOfStream)
+	// The turn never reached a turn completion, so it is not a complete reply.
+	assert.True(t, got.Message.IsInterrupted(), "session closed mid-turn must mark the reply interrupted")
+	assert.Equal(t, "provider closed the session", got.Message.Meta[types.MetaInterruptedCause])
 }
 
 func TestForwardResponseElements_ContextCancelEmitsPartial(t *testing.T) {
@@ -588,6 +591,34 @@ func TestForwardResponseElements_ContextCancelEmitsPartial(t *testing.T) {
 	got := <-out
 	require.NotNil(t, got.Message)
 	assert.Equal(t, "interrupted content", got.Message.Content)
+	assert.True(t, got.Message.IsInterrupted(), "a canceled turn's reply must be marked interrupted")
+	assert.Equal(t, finishReasonInterrupted, got.Message.Meta[finishReasonMetaKey])
+}
+
+// TestHandleResponseChunk_ErrorKeepsPartialReply checks a provider error
+// mid-turn emits what the turn produced, marked interrupted, before the error.
+func TestHandleResponseChunk_ErrorKeepsPartialReply(t *testing.T) {
+	s := newDuplexStageForUnit()
+	s.accumulatedText.WriteString("half a sentence")
+	s.accumulatedReasoning.WriteString("was thinking")
+	out := make(chan StreamElement, 4)
+	want := errors.New("session reset by peer")
+
+	err := s.handleResponseChunk(context.Background(), &providers.StreamChunk{Error: want}, out)
+	require.ErrorIs(t, err, want)
+	require.Len(t, out, 2, "want the partial reply, then the error")
+
+	partial := <-out
+	require.NotNil(t, partial.Message)
+	assert.Equal(t, "half a sentence", partial.Message.Content)
+	assert.True(t, partial.Message.IsInterrupted())
+	require.NotNil(t, partial.Message.Reasoning)
+	assert.Equal(t, "was thinking", partial.Message.Reasoning.Text)
+	assert.Equal(t, want.Error(), partial.Message.Meta[types.MetaInterruptedCause])
+
+	errElem := <-out
+	require.ErrorIs(t, errElem.Error, want)
+	assert.Zero(t, s.accumulatedText.Len(), "accumulators cleared after the partial is taken")
 }
 
 // =============================================================================

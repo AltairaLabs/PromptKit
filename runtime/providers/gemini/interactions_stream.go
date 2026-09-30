@@ -174,6 +174,8 @@ func (p *ToolProvider) consumeInteractionsStream(
 
 		case evStepDelta:
 			if !applyStepDelta(&ev, steps, &content, emit) {
+				// emit only fails once ctx is done.
+				out <- interruptedInteractionChunk(steps, content.String(), ctx.Err())
 				return
 			}
 
@@ -183,8 +185,31 @@ func (p *ToolProvider) consumeInteractionsStream(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		emit(providers.StreamChunk{Error: fmt.Errorf("interactions stream read failed: %w", err)})
+	// The loop returns on interaction.completed, so reaching here means the
+	// stream never completed: a cancellation, a read error, or a clean EOF from
+	// a server that dropped it. The send blocks like every other provider's
+	// terminal chunk: the consumer drains until close.
+	err := scanner.Err()
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+	case err != nil:
+		err = fmt.Errorf("interactions stream read failed: %w", err)
+	default:
+		err = fmt.Errorf("interactions stream ended before interaction.completed: %w", io.ErrUnexpectedEOF)
+	}
+	out <- interruptedInteractionChunk(steps, content.String(), err)
+}
+
+// interruptedInteractionChunk is the terminal chunk for a stream that ended
+// before interaction.completed. It keeps what arrived so nothing is lost.
+func interruptedInteractionChunk(
+	steps map[int]*streamStep, content string, err error,
+) providers.StreamChunk {
+	return providers.StreamChunk{
+		Content:   content,
+		ToolCalls: collectStreamToolCalls(steps),
+		Error:     err,
 	}
 }
 

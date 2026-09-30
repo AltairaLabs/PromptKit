@@ -516,10 +516,13 @@ func (s *ProviderStage) fireStreamingTurn(
 		full, err = s.executeMultiRound(genCtx, acc)
 	}
 	if err != nil {
+		if keepErr := s.keepInterruptedTurn(forwardCtx, full, priorLen+len(pending), history, output); keepErr != nil {
+			return keepErr
+		}
 		if errors.Is(err, context.Canceled) {
-			// Barge-in (or shutdown) canceled this turn's generation; drop it.
-			// The session continues with a fresh context.
-			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown), dropping")
+			// Barge-in (or shutdown) canceled this turn's generation; the
+			// session continues with a fresh context.
+			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown)")
 			return nil
 		}
 		logger.Error("ProviderStage streaming turn failed", "error", err)
@@ -537,6 +540,26 @@ func (s *ProviderStage) fireStreamingTurn(
 	*history = full
 
 	return sendStreamElement(forwardCtx, NewEndOfTurnElement(), output)
+}
+
+// keepInterruptedTurn keeps a reply the model had started before a streaming
+// turn died: the turn's new messages (from newStart) are emitted for the save
+// stage and the turn joins the history, where the reply's interrupted marker
+// keeps it out of every later request. A turn that produced nothing is left
+// out, as before.
+func (s *ProviderStage) keepInterruptedTurn(
+	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
+) error {
+	if !endsInterrupted(full) {
+		return nil
+	}
+	if newStart <= len(full) {
+		if err := s.emitResponseMessages(ctx, full[newStart:], output); err != nil {
+			return err
+		}
+	}
+	*history = full
+	return nil
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.
@@ -583,11 +606,36 @@ func (s *ProviderStage) executeAndEmit(
 			}
 			return nil
 		}
+		s.emitInterruptedTranscript(ctx, responseMessages, output)
 		output <- NewErrorElement(err)
 		return err
 	}
 
 	return s.emitResponseMessages(ctx, responseMessages, output)
+}
+
+// endsInterrupted reports whether a turn's messages end in a reply kept from a
+// stream that failed partway.
+func endsInterrupted(messages []types.Message) bool {
+	n := len(messages)
+	return n > 0 && messages[n-1].FinishReason == types.FinishReasonInterrupted
+}
+
+// emitInterruptedTranscript emits a failed turn's messages when they end in an
+// interrupted reply, so the save stage persists the partial output next to the
+// error that follows. The turn's context is often the thing that was
+// canceled, so the sends go through cancelForwarder: delivered to a consumer
+// that is still reading, dropped after a short wait if it has gone.
+func (s *ProviderStage) emitInterruptedTranscript(
+	ctx context.Context, messages []types.Message, output chan<- StreamElement,
+) {
+	if !endsInterrupted(messages) {
+		return
+	}
+	var fwd cancelForwarder
+	for i := range messages {
+		fwd.forward(ctx, output, NewMessageElement(&messages[i]))
+	}
 }
 
 // emitResponseMessages sends response messages to output channel.
@@ -946,6 +994,12 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		}
 		response, hasToolCalls, err := s.executeStreamingRound(ctx, params, output)
 		if err != nil {
+			if response.FinishReason == types.FinishReasonInterrupted {
+				loop.messages = append(loop.messages, response)
+				// The turn's context may be the thing that was canceled, and
+				// the partial reply is exactly what must not be lost with it.
+				loop.persistMessages(context.WithoutCancel(ctx), round)
+			}
 			return loop.messages, err
 		}
 		// Same per-round stamp/handoff as the unary loop — the next round's
@@ -1281,6 +1335,9 @@ func (s *ProviderStage) executeRound(
 ) (types.Message, bool, error) {
 	round := rr.round
 	ResetIdleFromContext(ctx)
+	// Interrupted replies stay in the transcript but never go back to the
+	// model, its guardrails, or the tool-path decision.
+	messages = types.ExcludeInterrupted(messages)
 
 	if blocked, handled, err := s.runBeforeCallHooks(
 		ctx, messages, systemPrompt, round, metadata,
@@ -1454,6 +1511,9 @@ func (s *ProviderStage) executeStreamingRound(
 	output chan<- StreamElement,
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
+	// Interrupted replies stay in the transcript but never go back to the
+	// model, its guardrails, or the tool-path decision.
+	params.messages = types.ExcludeInterrupted(params.messages)
 
 	if blocked, handled, err := s.runBeforeCallHooks(
 		ctx, params.messages, params.systemPrompt, params.round, params.metadata,
@@ -1530,10 +1590,11 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason, err :=
-		s.processStreamChunks(ctx, streamChan, output,
-			roundRef{round: params.round, providerCallID: params.providerCallID},
-			s.withholdsSchema(params.providerTools))
+	got, err := s.processStreamChunks(ctx, streamChan, output,
+		roundRef{round: params.round, providerCallID: params.providerCallID},
+		s.withholdsSchema(params.providerTools))
+	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason :=
+		got.content, got.toolCalls, got.costInfo, got.reasoning, got.validations, got.finishReason
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -1550,7 +1611,7 @@ func (s *ProviderStage) executeStreamingRound(
 				CallID:   params.providerCallID,
 			})
 		}
-		return types.Message{}, false, err
+		return s.keptInterruptedReply(ctx, params, &got, duration, err), false, err
 	}
 
 	// Emit provider call completed event with cost info from streaming response
@@ -1697,17 +1758,116 @@ func (s *ProviderStage) startStreamingRequest(
 	return streamChan, nil
 }
 
+// streamedRound is what one streamed provider call produced. On error it holds
+// whatever arrived before the failure, so the caller can keep it as an
+// interrupted message rather than lose it.
+type streamedRound struct {
+	content      string
+	toolCalls    []types.MessageToolCall
+	costInfo     *types.CostInfo // from the final chunk; usually nil when interrupted
+	reasoning    *types.ReasoningTrace
+	validations  []types.ValidationResult // chunk-interceptor firings
+	finishReason string
+}
+
+// hasOutput reports whether the model produced anything worth keeping.
+func (r *streamedRound) hasOutput() bool {
+	return r.content != "" || len(r.toolCalls) > 0 || r.reasoning != nil
+}
+
+// interruptedMessage keeps what a failed stream produced as an assistant
+// message marked FinishReasonInterrupted, with the failure recorded in Meta.
+// The round's error is still returned to the caller; this only makes sure the
+// transcript shows what the model said before it stopped.
+func (s *ProviderStage) interruptedMessage(got *streamedRound, duration time.Duration, cause error) types.Message {
+	msg := types.Message{
+		Role:         roleAssistant,
+		Content:      got.content,
+		ToolCalls:    got.toolCalls,
+		Reasoning:    got.reasoning,
+		Timestamp:    timeNow(),
+		LatencyMs:    duration.Milliseconds(),
+		CostInfo:     got.costInfo,
+		FinishReason: types.FinishReasonInterrupted,
+		Validations:  got.validations,
+		Meta:         map[string]interface{}{types.MetaInterruptedCause: cause.Error()},
+	}
+	s.stampToolsOffered(&msg)
+	return msg
+}
+
+// keptInterruptedReply returns what a failed round produced as an interrupted
+// reply, once it has passed the output guardrails, or an empty message when
+// there is nothing to keep.
+func (s *ProviderStage) keptInterruptedReply(
+	ctx context.Context, params *streamingRoundParams, got *streamedRound, duration time.Duration, cause error,
+) types.Message {
+	if got.toolCalls = completeToolCalls(got.toolCalls); !got.hasOutput() {
+		return types.Message{}
+	}
+	msg := s.interruptedMessage(got, duration, cause)
+	if !s.guardInterrupted(ctx, params, &msg, duration) {
+		return types.Message{}
+	}
+	return msg
+}
+
+// guardInterrupted runs the output guardrails on a partial reply before it is
+// returned, saved or recorded — the same AfterCall hooks a completed reply
+// goes through, so a redaction or substitution applies to the fragment too.
+// It reports whether the reply may be kept: a guardrail that denies it without
+// enforcing a replacement drops it. Hooks run on a context the turn's
+// cancellation does not reach (the guardrail adapters bound their own calls),
+// and an enforced replacement stays marked interrupted: the turn still ended
+// early, and the firing is recorded in Validations.
+func (s *ProviderStage) guardInterrupted(
+	ctx context.Context, params *streamingRoundParams, msg *types.Message, duration time.Duration,
+) bool {
+	if s.hookRegistry == nil {
+		return true
+	}
+	err := s.runAfterCallHooks(liveContext(ctx), &afterCallParams{
+		messages:     params.messages,
+		systemPrompt: params.systemPrompt,
+		round:        params.round,
+		metadata:     params.metadata,
+		duration:     duration,
+		responseMsg:  msg,
+		toolCalls:    &msg.ToolCalls,
+	})
+	if err != nil {
+		logger.Warn("output guardrail denied an interrupted reply; dropping it", "error", err)
+		return false
+	}
+	msg.FinishReason = types.FinishReasonInterrupted
+	return true
+}
+
+// completeToolCalls drops tool calls whose arguments were still streaming when
+// the reply was cut off. Providers accumulate argument JSON as raw bytes, so a
+// half-written call holds invalid JSON, and json.Marshal fails on an invalid
+// RawMessage — one such call would make every store fail to save the whole
+// transcript. A call with no arguments yet is kept: it marshals as null.
+func completeToolCalls(calls []types.MessageToolCall) []types.MessageToolCall {
+	var kept []types.MessageToolCall
+	for _, tc := range calls {
+		if len(tc.Args) == 0 || json.Valid(tc.Args) {
+			kept = append(kept, tc)
+		}
+	}
+	return kept
+}
+
 // processStreamChunks processes streaming chunks and emits elements to output.
-// Returns accumulated content, tool calls, cost info (from final chunk),
-// any chunk-interceptor firings (ValidationResults the caller folds into
-// the final assistant message), and any error.
+// It returns the round's accumulated output and any error. When it returns an
+// error, the round still holds everything received before the failure.
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
 	rr roundRef,
 	suppressText bool,
-) (string, []types.MessageToolCall, *types.CostInfo, *types.ReasoningTrace, []types.ValidationResult, string, error) {
+) (streamedRound, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
 	var costInfo *types.CostInfo
@@ -1715,6 +1875,25 @@ func (s *ProviderStage) processStreamChunks(
 	var opaqueReasoning []types.OpaqueReasoning
 	var pendingValidations []types.ValidationResult
 	var finishReason string
+
+	// Every return before the provider closes the channel — a canceled emit,
+	// a guardrail abort or enforcement — leaves the provider (and the relay in
+	// front of it) blocked sending its remaining chunks, often a terminal
+	// error chunk. Drain what is left so those goroutines finish and release
+	// the response body and stream slot.
+	drained, stoppedEarly := false, false
+	defer drainIfAbandoned(streamChan, &drained)
+
+	collected := func() streamedRound {
+		r := streamedRound{
+			content: content, toolCalls: toolCalls, costInfo: costInfo,
+			validations: pendingValidations, finishReason: finishReason,
+		}
+		if reasoning.Len() > 0 || len(opaqueReasoning) > 0 {
+			r.reasoning = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaqueReasoning}
+		}
+		return r
+	}
 
 	for chunk := range streamChan {
 		ResetIdleFromContext(ctx)
@@ -1734,7 +1913,7 @@ func (s *ProviderStage) processStreamChunks(
 
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, nil, nil, nil, "", fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return collected(), fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
@@ -1756,7 +1935,7 @@ func (s *ProviderStage) processStreamChunks(
 		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
 
 		if err := s.emitChunkElement(ctx, &chunk, output, rr, suppressText); err != nil {
-			return "", nil, nil, nil, nil, "", err
+			return collected(), err
 		}
 
 		// Run chunk interceptor hooks
@@ -1780,21 +1959,47 @@ func (s *ProviderStage) processStreamChunks(
 					// Hook enforced (e.g., truncated content) — use the
 					// modified chunk content and stop reading the stream.
 					content = chunk.Content
+					stoppedEarly = true
 					break
 				}
-				return "", nil, nil, nil, nil, "", &providers.ValidationAbortError{
+				// An empty round: a guardrail blocked this output, so none of
+				// it may be kept as an interrupted message.
+				return streamedRound{}, &providers.ValidationAbortError{
 					Reason: d.Reason,
 					Chunk:  chunk,
 				}
 			}
 		}
 	}
+	drained = !stoppedEarly // the range ended because the provider closed the channel
 
-	var trace *types.ReasoningTrace
-	if reasoning.Len() > 0 || len(opaqueReasoning) > 0 {
-		trace = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaqueReasoning}
+	return collected(), canceledBeforeFinish(ctx, finishReason)
+}
+
+// canceledBeforeFinish reports a stream that ended because the caller
+// canceled it. Such a stream can close without an error chunk: not every
+// provider streams through the relay that reports the cancellation. Without
+// this check a truncated reply would pass for a complete one. A finish reason
+// means the reply did complete before the cancel landed.
+func canceledBeforeFinish(ctx context.Context, finishReason string) error {
+	if ctxErr := ctx.Err(); ctxErr != nil && finishReason == "" {
+		return fmt.Errorf("stream interrupted: %w", ctxErr)
 	}
-	return content, toolCalls, costInfo, trace, pendingValidations, finishReason, nil
+	return nil
+}
+
+// drainIfAbandoned reads the rest of a stream the round stopped reading
+// early, so the provider (and the relay in front of it) can finish sending and
+// release the response body and stream slot. drained is set once the round
+// has read the stream to its end.
+func drainIfAbandoned(streamChan <-chan providers.StreamChunk, drained *bool) {
+	if *drained {
+		return
+	}
+	go func() {
+		for range streamChan {
+		}
+	}()
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.

@@ -626,13 +626,12 @@ func (p *Provider) streamResponse(
 
 	scanner := providers.NewSSEScanner(idleBody)
 	var sb strings.Builder // Track accumulated content
+	sawFinish := false
 
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			outChan <- providers.StreamChunk{Error: ctx.Err()}
+		if ctx.Err() != nil {
+			outChan <- providers.StreamChunk{Content: sb.String(), Error: ctx.Err()}
 			return
-		default:
 		}
 
 		data := scanner.Data()
@@ -671,6 +670,10 @@ func (p *Provider) streamResponse(
 			}
 		}
 
+		if choice.FinishReason != "" {
+			sawFinish = true
+		}
+
 		// Send final chunk with finish reason and usage
 		if choice.FinishReason != "" && chunk.Usage != nil {
 			costInfo := p.costFromUsage(*chunk.Usage)
@@ -683,7 +686,21 @@ func (p *Provider) streamResponse(
 		}
 	}
 
+	// The loop ended without [DONE]. A canceled stream (its body closed by
+	// the goroutine above) reports the cancellation; a clean EOF before any
+	// finish_reason is a server-side truncation, never a completed reply.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		outChan <- providers.StreamChunk{Content: sb.String(), Error: ctxErr}
+		return
+	}
 	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{Error: err}
+		outChan <- providers.StreamChunk{Content: sb.String(), Error: err}
+		return
+	}
+	if !sawFinish {
+		outChan <- providers.StreamChunk{
+			Content: sb.String(),
+			Error:   fmt.Errorf("vllm stream ended before completion: %w", io.ErrUnexpectedEOF),
+		}
 	}
 }

@@ -69,7 +69,16 @@ const (
 	FinishReasonToolUse         = "tool_use"          // stopped to call tools
 	FinishReasonSafety          = "safety"            // blocked by safety / content filter
 	FinishReasonRefusal         = "refusal"           // model declined to answer
+	// FinishReasonInterrupted marks a partial reply kept from a stream that
+	// failed or was canceled before the model finished. It is set by the
+	// runtime, never by a provider, and the message is kept in the transcript
+	// but never sent back to the model. Meta[MetaInterruptedCause] says why.
+	FinishReasonInterrupted = "interrupted"
 )
+
+// MetaInterruptedCause is the Message.Meta key holding why an interrupted
+// reply stopped: the error text of the stream failure or cancellation.
+const MetaInterruptedCause = "_interrupted_cause"
 
 // MessageToolCall represents a request to call a tool within a Message.
 // The Args field contains the JSON-encoded arguments for the tool.
@@ -276,6 +285,36 @@ func StripReasoning(msgs []Message) []Message {
 	copy(out, msgs)
 	for i := range out {
 		out[i].Reasoning = nil
+	}
+	return out
+}
+
+// IsInterrupted reports whether m is a partial reply kept from a stream that
+// failed before the model finished (see FinishReasonInterrupted).
+func (m *Message) IsInterrupted() bool {
+	return m.FinishReason == FinishReasonInterrupted
+}
+
+// ExcludeInterrupted returns msgs without interrupted replies, for any path
+// that sends history back to a model. A half-finished reply would mislead the
+// model, and one cut off mid tool call leaves a call with no result, which
+// providers reject. The transcript keeps them; only model context drops them.
+// msgs is returned as-is when it holds none.
+func ExcludeInterrupted(msgs []Message) []Message {
+	n := 0
+	for i := range msgs {
+		if msgs[i].IsInterrupted() {
+			n++
+		}
+	}
+	if n == 0 {
+		return msgs
+	}
+	out := make([]Message, 0, len(msgs)-n)
+	for i := range msgs {
+		if !msgs[i].IsInterrupted() {
+			out = append(out, msgs[i])
+		}
 	}
 	return out
 }
