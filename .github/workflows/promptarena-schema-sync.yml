@@ -159,8 +159,12 @@ jobs:
         because a resync can change validation semantics in both directions at
         once (see #1932)."
 
-        if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
-          gh pr edit "$BRANCH" --body "$BODY"
+        # Only an OPEN PR counts. `gh pr view <branch>` also finds a merged one,
+        # so after the first sync PR merged every later run "updated" it and
+        # left the new commit on the branch with no PR to review it.
+        OPEN=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')
+        if [ -n "$OPEN" ]; then
+          gh pr edit "$OPEN" --body "$BODY"
           echo "✓ Updated existing PR for $BRANCH"
         else
           gh pr create --head "$BRANCH" --base main \
