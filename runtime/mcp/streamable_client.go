@@ -75,6 +75,13 @@ func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse,
 		return nil, fmt.Errorf("mcp/streamable: initialize: %w", err)
 	}
 
+	// The lifecycle requires this notification before any other request;
+	// servers may withhold capability-conditional tools until it arrives.
+	// Matches StdioClient: a failed send is logged, not fatal.
+	if err := c.tr.sendNotification(initCtx, methodNotificationsInitialized, nil); err != nil {
+		logger.Warn(msgInitializedNotifyFailed, "server", c.config.Name, "error", err)
+	}
+
 	c.mu.Lock()
 	c.serverInfo = &resp
 	c.started = true

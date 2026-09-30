@@ -260,7 +260,16 @@ func (t *sseTransport) sendRequest(ctx context.Context, method string, params, o
 	}
 }
 
-func (t *sseTransport) postJSONRPC(ctx context.Context, id int64, method string, params any) error {
+// sendNotification POSTs a JSON-RPC notification (no id) to messageURL.
+// Notifications get no response, so there is nothing to wait for on the
+// stream; the POST's 2xx status is the only acknowledgment.
+func (t *sseTransport) sendNotification(ctx context.Context, method string, params any) error {
+	return t.postJSONRPC(ctx, nil, method, params)
+}
+
+// postJSONRPC POSTs one JSON-RPC message. A nil id omits the field, which
+// makes the message a notification.
+func (t *sseTransport) postJSONRPC(ctx context.Context, id any, method string, params any) error {
 	var paramBytes json.RawMessage
 	if params != nil {
 		b, err := json.Marshal(params)
