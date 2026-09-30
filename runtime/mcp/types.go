@@ -9,6 +9,13 @@ import (
 // ProtocolVersion defines the MCP protocol version (as of 2025-06-18).
 const ProtocolVersion = "2025-06-18"
 
+// methodNotificationsInitialized is the notification a client MUST send after
+// a successful initialize response, before any other request.
+const methodNotificationsInitialized = "notifications/initialized"
+
+// msgInitializedNotifyFailed is logged when that notification cannot be sent.
+const msgInitializedNotifyFailed = "MCP initialized notification failed, continuing"
+
 // JSONRPCMessage represents a JSON-RPC 2.0 message
 type JSONRPCMessage struct {
 	JSONRPC string          `json:"jsonrpc"`

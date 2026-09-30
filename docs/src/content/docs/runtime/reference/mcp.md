@@ -127,7 +127,7 @@ var (
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L126-L141>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L133-L148>)
 
 Client interface defines the MCP client operations
 
@@ -151,7 +151,7 @@ type Client interface {
 ```
 
 <a name="ClientCapabilities"></a>
-## type [ClientCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L50-L54>)
+## type [ClientCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L57-L61>)
 
 ClientCapabilities describes what the client supports
 
@@ -196,7 +196,7 @@ func DefaultClientOptions() ClientOptions
 DefaultClientOptions returns sensible defaults
 
 <a name="Content"></a>
-## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L117-L123>)
+## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L124-L130>)
 
 Content represents a content item in MCP responses
 
@@ -211,7 +211,7 @@ type Content struct {
 ```
 
 <a name="ElicitationCapability"></a>
-## type [ElicitationCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L79>)
+## type [ElicitationCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L86>)
 
 ElicitationCapability indicates the client supports elicitation
 
@@ -220,7 +220,7 @@ type ElicitationCapability struct{}
 ```
 
 <a name="Implementation"></a>
-## type [Implementation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L44-L47>)
+## type [Implementation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L51-L54>)
 
 Implementation describes client or server implementation details
 
@@ -232,7 +232,7 @@ type Implementation struct {
 ```
 
 <a name="InitializeRequest"></a>
-## type [InitializeRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L30-L34>)
+## type [InitializeRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L37-L41>)
 
 InitializeRequest represents the initialization request params
 
@@ -245,7 +245,7 @@ type InitializeRequest struct {
 ```
 
 <a name="InitializeResponse"></a>
-## type [InitializeResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L37-L41>)
+## type [InitializeResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L44-L48>)
 
 InitializeResponse represents the initialization response
 
@@ -258,7 +258,7 @@ type InitializeResponse struct {
 ```
 
 <a name="JSONRPCError"></a>
-## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L23-L27>)
+## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L30-L34>)
 
 JSONRPCError represents a JSON\-RPC 2.0 error
 
@@ -271,7 +271,7 @@ type JSONRPCError struct {
 ```
 
 <a name="JSONRPCMessage"></a>
-## type [JSONRPCMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L13-L20>)
+## type [JSONRPCMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L20-L27>)
 
 JSONRPCMessage represents a JSON\-RPC 2.0 message
 
@@ -287,7 +287,7 @@ type JSONRPCMessage struct {
 ```
 
 <a name="LoggingCapability"></a>
-## type [LoggingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L85>)
+## type [LoggingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L92>)
 
 LoggingCapability indicates the client supports logging
 
@@ -296,7 +296,7 @@ type LoggingCapability struct{}
 ```
 
 <a name="PromptsCapability"></a>
-## type [PromptsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L74-L76>)
+## type [PromptsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L81-L83>)
 
 PromptsCapability indicates the server supports prompts
 
@@ -307,7 +307,7 @@ type PromptsCapability struct {
 ```
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L249-L274>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L256-L281>)
 
 Registry interface defines the MCP server registry operations
 
@@ -495,7 +495,7 @@ type RegistryOptions struct {
 ```
 
 <a name="ResourcesCapability"></a>
-## type [ResourcesCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L69-L71>)
+## type [ResourcesCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L76-L78>)
 
 ResourcesCapability indicates the server supports resources
 
@@ -535,7 +535,7 @@ func NewSSEClientWithOptions(config ServerConfig, options ClientOptions) *SSECli
 NewSSEClientWithOptions creates an SSE client with custom options.
 
 <a name="SSEClient.CallTool"></a>
-### func \(\*SSEClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L101>)
+### func \(\*SSEClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L108>)
 
 ```go
 func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -544,7 +544,7 @@ func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.Ra
 CallTool executes a tool with the given arguments.
 
 <a name="SSEClient.Close"></a>
-### func \(\*SSEClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L114>)
+### func \(\*SSEClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L121>)
 
 ```go
 func (c *SSEClient) Close() error
@@ -562,7 +562,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*InitializeResponse, error)
 Initialize establishes the SSE connection and negotiates capabilities.
 
 <a name="SSEClient.IsAlive"></a>
-### func \(\*SSEClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L130>)
+### func \(\*SSEClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L137>)
 
 ```go
 func (c *SSEClient) IsAlive() bool
@@ -571,7 +571,7 @@ func (c *SSEClient) IsAlive() bool
 IsAlive reports whether the SSE stream is currently open.
 
 <a name="SSEClient.ListTools"></a>
-### func \(\*SSEClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L84>)
+### func \(\*SSEClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L91>)
 
 ```go
 func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -580,7 +580,7 @@ func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="SamplingCapability"></a>
-## type [SamplingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L82>)
+## type [SamplingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L89>)
 
 SamplingCapability indicates the client supports sampling
 
@@ -589,7 +589,7 @@ type SamplingCapability struct{}
 ```
 
 <a name="ServerCapabilities"></a>
-## type [ServerCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L57-L61>)
+## type [ServerCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L64-L68>)
 
 ServerCapabilities describes what the server supports
 
@@ -602,7 +602,7 @@ type ServerCapabilities struct {
 ```
 
 <a name="ServerConfig"></a>
-## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L191-L214>)
+## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L198-L221>)
 
 ServerConfig represents configuration for an MCP server.
 
@@ -641,7 +641,7 @@ type ServerConfig struct {
 ```
 
 <a name="ServerConfig.Transport"></a>
-### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L235>)
+### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L242>)
 
 ```go
 func (c *ServerConfig) Transport() Transport
@@ -773,7 +773,7 @@ func NewStreamableClientWithOptions(config ServerConfig, options ClientOptions) 
 NewStreamableClientWithOptions creates a Streamable HTTP client with custom options.
 
 <a name="StreamableClient.CallTool"></a>
-### func \(\*StreamableClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L103-L105>)
+### func \(\*StreamableClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L110-L112>)
 
 ```go
 func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -782,7 +782,7 @@ func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments 
 CallTool executes a tool with the given arguments.
 
 <a name="StreamableClient.Close"></a>
-### func \(\*StreamableClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L118>)
+### func \(\*StreamableClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L125>)
 
 ```go
 func (c *StreamableClient) Close() error
@@ -800,7 +800,7 @@ func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse,
 Initialize sends the initialize request and negotiates capabilities.
 
 <a name="StreamableClient.IsAlive"></a>
-### func \(\*StreamableClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L135>)
+### func \(\*StreamableClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L142>)
 
 ```go
 func (c *StreamableClient) IsAlive() bool
@@ -809,7 +809,7 @@ func (c *StreamableClient) IsAlive() bool
 IsAlive reports whether the transport has completed at least one successful request since the last close.
 
 <a name="StreamableClient.ListTools"></a>
-### func \(\*StreamableClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L86>)
+### func \(\*StreamableClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L93>)
 
 ```go
 func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -818,7 +818,7 @@ func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="Tool"></a>
-## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L98-L102>)
+## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L105-L109>)
 
 Tool represents an MCP tool definition
 
@@ -831,7 +831,7 @@ type Tool struct {
 ```
 
 <a name="ToolCallRequest"></a>
-## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L105-L108>)
+## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L112-L115>)
 
 ToolCallRequest represents a request to execute a tool
 
@@ -843,7 +843,7 @@ type ToolCallRequest struct {
 ```
 
 <a name="ToolCallResponse"></a>
-## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L111-L114>)
+## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L118-L121>)
 
 ToolCallResponse represents the response from a tool execution
 
@@ -855,7 +855,7 @@ type ToolCallResponse struct {
 ```
 
 <a name="ToolFilter"></a>
-## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L147-L150>)
+## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L154-L157>)
 
 ToolFilter controls which tools from an MCP server are exposed to the LLM. If Allowlist is non\-empty, only those tools are included. If Blocklist is non\-empty, those tools are excluded. Allowlist takes precedence over Blocklist.
 
@@ -867,7 +867,7 @@ type ToolFilter struct {
 ```
 
 <a name="ToolFilter.Includes"></a>
-### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L164>)
+### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L171>)
 
 ```go
 func (f ToolFilter) Includes(name string) bool
@@ -876,7 +876,7 @@ func (f ToolFilter) Includes(name string) bool
 Includes returns true if the given tool name passes the filter. Allowlist and blocklist entries may use a trailing\-"\*" prefix wildcard.
 
 <a name="ToolsCapability"></a>
-## type [ToolsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L64-L66>)
+## type [ToolsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L71-L73>)
 
 ToolsCapability indicates the server supports tools
 
@@ -887,7 +887,7 @@ type ToolsCapability struct {
 ```
 
 <a name="ToolsListRequest"></a>
-## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L88-L90>)
+## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L95-L97>)
 
 ToolsListRequest represents a request to list available tools
 
@@ -897,7 +897,7 @@ type ToolsListRequest struct {
 ```
 
 <a name="ToolsListResponse"></a>
-## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L93-L95>)
+## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L100-L102>)
 
 ToolsListResponse represents the response to a tools/list request
 
@@ -908,7 +908,7 @@ type ToolsListResponse struct {
 ```
 
 <a name="Transport"></a>
-## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L217>)
+## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L224>)
 
 Transport identifies which transport adapter should serve a config.
 

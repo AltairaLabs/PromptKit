@@ -125,7 +125,36 @@ func (t *streamableTransport) sendRequest(ctx context.Context, method string, pa
 	}
 }
 
-func (t *streamableTransport) buildRequestBody(id int64, method string, params any) ([]byte, error) {
+// sendNotification POSTs a JSON-RPC notification (no id). The spec has the
+// server answer 202 Accepted with no body; a 200 is tolerated and its body
+// ignored, since a notification has no response to correlate.
+func (t *streamableTransport) sendNotification(ctx context.Context, method string, params any) error {
+	if t.closed.Load() {
+		return ErrClientClosed
+	}
+	body, err := t.buildRequestBody(nil, method, params)
+	if err != nil {
+		return err
+	}
+	req, err := t.buildHTTPRequest(ctx, body)
+	if err != nil {
+		return err
+	}
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("mcp/streamable: POST: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("mcp/streamable: POST status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// buildRequestBody marshals one JSON-RPC message. A nil id omits the field,
+// which makes the message a notification.
+func (t *streamableTransport) buildRequestBody(id any, method string, params any) ([]byte, error) {
 	var paramBytes json.RawMessage
 	if params != nil {
 		b, err := json.Marshal(params)
