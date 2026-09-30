@@ -464,13 +464,14 @@ func (s *StreamSession) Close() error {
 		return nil
 	}
 	s.closed = true
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	// Cancel context
 	s.cancel()
 
 	// Close WebSocket
-	return s.ws.Close()
+	return ws.Close()
 }
 
 // Err returns the error that caused the session to close
@@ -520,8 +521,15 @@ func (s *StreamSession) reconnect() bool {
 			continue
 		}
 
-		// Swap to new ws under lock to avoid race with Send methods
+		// Swap to new ws under lock to avoid race with Send methods. If Close
+		// ran while we were dialing, it closed the old ws; close this one too
+		// rather than install a socket nothing will ever close.
 		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			_ = newWS.Close()
+			return false
+		}
 		s.ws = newWS
 		s.mu.Unlock()
 
