@@ -12,9 +12,9 @@ import (
 // ToolDefinition represents a function/tool that the model can call.
 // This follows the Gemini function calling schema.
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"` // JSON Schema for parameters
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"` // JSON Schema for parameters
 }
 
 // Ensure StreamSession implements ToolResponseSupport
@@ -45,16 +45,15 @@ func (s *StreamSession) SendToolResponses(ctx context.Context, responses []provi
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
+	ws := s.ws // Get local copy under lock to avoid race with reconnect
 	s.mu.Unlock()
 
 	msg := buildToolResponseMessage(responses)
 
 	// Log tool response for debugging
-	if logger.DefaultLogger != nil {
-		if msgJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
-			logger.DefaultLogger.Debug("Gemini sending tool response", "message", string(msgJSON))
-		}
+	if msgJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
+		logger.Debug("Gemini sending tool response", "message", string(msgJSON))
 	}
 
-	return s.ws.Send(msg)
+	return ws.Send(msg)
 }
