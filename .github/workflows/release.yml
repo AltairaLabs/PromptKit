@@ -707,10 +707,47 @@ jobs:
   notify-downstream:
     name: Notify Downstream Repos
     runs-on: ubuntu-latest
-    needs: [validate, tag-dependencies]
-    if: ${{ needs.tag-dependencies.result == 'success' }}
+    # update-tools tags sdk/ and server/a2a/. The adapters require sdk, so
+    # notifying them before that tag exists fails their bump with "unknown
+    # revision sdk/vX.Y.Z" -- which it did on every release while this job
+    # waited only for tag-dependencies.
+    needs: [validate, tag-dependencies, update-tools]
+    if: ${{ needs.tag-dependencies.result == 'success' && needs.update-tools.result == 'success' }}
 
     steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache: false
+
+    # A tag existing is not the same as `go get` working. The adapters' bump
+    # fetches through proxy.golang.org and verifies against sum.golang.org, and
+    # both lag a fresh tag -- sumdb answered 404 for minutes after release. So
+    # wait until each module downloads and verifies exactly the way the
+    # adapters will fetch it. Requesting it is also what makes the proxy fetch
+    # it. Fresh caches each attempt so nothing local stands in for the network.
+    - name: Wait until the release modules resolve through the Go proxy
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        modules="runtime/v2 pkg/v2 sdk/v2 server/a2a/v2"
+        deadline=$(( $(date +%s) + 20 * 60 ))
+        for m in $modules; do
+          mod="github.com/AltairaLabs/PromptKit/$m@$VERSION"
+          until GOMODCACHE="$(mktemp -d)" GOFLAGS=-modcacherw \
+                GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org \
+                go mod download -json "$mod" >/dev/null 2>&1; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$mod still does not resolve through proxy.golang.org + sum.golang.org after 20 minutes"
+              exit 1
+            fi
+            echo "waiting for $mod ..."
+            sleep 20
+          done
+          echo "✓ $mod resolves"
+        done
+
     # One step, not four, and no `continue-on-error`. Each adapter was its own
     # step with `continue-on-error: true`, which swallowed the result entirely:
     # vertex and foundry returned "Resource not accessible by personal access
