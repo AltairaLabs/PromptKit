@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -284,7 +285,33 @@ func (p *Provider) processClaudeMessageStop(
 // streamResponse reads a stream from Claude and sends chunks.
 // The scanner parameter abstracts the underlying transport format (SSE or binary event-stream).
 //
+// streamEventError is the SSE event type Anthropic sends when a stream fails.
+const streamEventError = "error"
+
+// finishReasonError is the finish reason on a stream that ended in an error.
+const finishReasonError = "error"
+
+// ErrClaudeStreamError marks a failure Anthropic reported mid-stream through
+// an error event. The wrapping error carries the error type and message.
+//
 //nolint:gocognit // complexity is inherent in event handling
+var ErrClaudeStreamError = errors.New("claude stream error")
+
+// parseClaudeStreamError turns an Anthropic stream error event into an error
+// that names the server's error type and message.
+func parseClaudeStreamError(data []byte) error {
+	var ev struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &ev); err != nil || ev.Error.Type == "" {
+		return fmt.Errorf("%w: %s", ErrClaudeStreamError, data)
+	}
+	return fmt.Errorf("%w (%s): %s", ErrClaudeStreamError, ev.Error.Type, ev.Error.Message)
+}
+
 func (p *Provider) streamResponse(
 	ctx context.Context, body io.ReadCloser, scanner providers.StreamScanner, outChan chan<- providers.StreamChunk,
 ) {
@@ -472,6 +499,18 @@ func (p *Provider) streamResponse(
 
 			outChan <- finalChunk
 			return
+
+		case streamEventError:
+			// Anthropic reports a failure after the 200 (overloaded_error,
+			// api_error) as an error event, then ends the stream. Surface the
+			// server's reason, with what was produced before it.
+			outChan <- providers.StreamChunk{
+				Content:      sb.String(),
+				ToolCalls:    accumulatedToolCalls,
+				Error:        parseClaudeStreamError([]byte(data)),
+				FinishReason: providers.StringPtr(finishReasonError),
+			}
+			return
 		}
 	}
 
@@ -479,7 +518,7 @@ func (p *Provider) streamResponse(
 	// never completed: a cancellation (the body closed by the goroutine above),
 	// a read error, or a clean EOF from a server that dropped the stream.
 	err := scanner.Err()
-	finishReason := "error"
+	finishReason := finishReasonError
 	switch {
 	case ctx.Err() != nil:
 		err = ctx.Err()

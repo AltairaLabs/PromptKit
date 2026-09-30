@@ -998,7 +998,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
-				FinishReason: providers.StringPtr("stop"),
+				FinishReason: seenOrStop(finishReason),
 			}
 			return
 		}
@@ -1010,14 +1010,16 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		// Handle usage-only chunk (sent when stream_options.include_usage is true)
-		// This chunk has no choices but contains the final token counts
+		// This chunk has no choices but contains the final token counts. It
+		// arrives after the choice that carried the finish_reason, so the
+		// reply ends here with that reason — "stop" would hide a length or
+		// tool_calls finish — and the [DONE] that follows is not read, so it
+		// cannot emit a second final chunk.
 		if len(chunk.Choices) == 0 {
 			if chunk.Usage != nil {
-				// Send final chunk with usage data
-				stopReason := providers.StringPtr("stop")
-				finalChunk := p.createFinalStreamChunk(
-					sb.String(), accumulatedToolCalls, totalTokens, stopReason, chunk.Usage)
-				outChan <- finalChunk
+				outChan <- p.createFinalStreamChunk(
+					sb.String(), accumulatedToolCalls, totalTokens, seenOrStop(finishReason), chunk.Usage)
+				return
 			}
 			continue
 		}
@@ -1080,6 +1082,15 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	}
 
 	p.endIncompleteStream(ctx, scanner.Err(), sb.String(), accumulatedToolCalls, totalTokens, finishReason, outChan)
+}
+
+// seenOrStop returns the finish reason a choice already carried, or "stop"
+// when none did.
+func seenOrStop(finishReason *string) *string {
+	if finishReason != nil {
+		return finishReason
+	}
+	return providers.StringPtr(types.FinishReasonStop)
 }
 
 // endIncompleteStream emits the terminal chunk for a chat stream whose read

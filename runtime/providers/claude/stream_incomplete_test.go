@@ -106,3 +106,27 @@ func TestStreamIncomplete_CanceledCleanEOFReportsCancellation(t *testing.T) {
 		t.Errorf("content = %q, want %q", last.Content, "partial")
 	}
 }
+
+// TestStreamErrorEvent_SurfacesServerError covers Anthropic's mid-stream error
+// event: the stream ends on the server's error, with the text produced so far.
+func TestStreamErrorEvent_SurfacesServerError(t *testing.T) {
+	body := claudeTruncatedEvents +
+		"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+	last := streamClaudeSSE(t, body)
+	if !errors.Is(last.Error, ErrClaudeStreamError) {
+		t.Fatalf("last chunk error = %v, want ErrClaudeStreamError", last.Error)
+	}
+	if !strings.Contains(last.Error.Error(), "overloaded_error") || !strings.Contains(last.Error.Error(), "Overloaded") {
+		t.Errorf("error %q lost the server's type or message", last.Error)
+	}
+	if last.Content != "partial" {
+		t.Errorf("content = %q, want the text produced before the error", last.Content)
+	}
+}
+
+func TestParseClaudeStreamError_UnparseableKeepsRawEvent(t *testing.T) {
+	err := parseClaudeStreamError([]byte(`{"type":"error"}`))
+	if !errors.Is(err, ErrClaudeStreamError) || !strings.Contains(err.Error(), `{"type":"error"}`) {
+		t.Fatalf("err = %v, want ErrClaudeStreamError carrying the raw event", err)
+	}
+}
