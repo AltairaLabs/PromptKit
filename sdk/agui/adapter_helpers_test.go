@@ -31,11 +31,11 @@ func TestRunSend_ClientTools_ProviderReportsFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, sender.sendToolResultCalls, 2)
-	assert.Equal(t, "3 of 5 rows\n\nTool error: disk full", sender.sendToolResultCalls[0].result)
+	assert.Equal(t, `"3 of 5 rows"`+"\n\nTool error: disk full", sender.sendToolResultCalls[0].result)
 	assert.Equal(t, "Tool error: disk full", sender.sendToolResultCalls[1].result)
 	results := eventsOf[*aguievents.ToolCallResultEvent](evts)
 	require.Len(t, results, 2)
-	assert.Equal(t, "3 of 5 rows\n\nTool error: disk full", results[0].Content)
+	assert.Equal(t, `"3 of 5 rows"`+"\n\nTool error: disk full", results[0].Content)
 }
 
 func TestValueText(t *testing.T) {

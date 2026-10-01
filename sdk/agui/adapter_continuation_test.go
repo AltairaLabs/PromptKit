@@ -209,3 +209,64 @@ func TestE2E_WorkflowTransitionAfterResumeIsCommitted(t *testing.T) {
 		{aguievents.EventTypeStepFinished, "processing"},
 	}, stepEvents(evts))
 }
+
+// toolResultIn returns the stored result for callID in the history.
+func toolResultIn(t *testing.T, conv *sdk.Conversation, callID string) *types.MessageToolResult {
+	t.Helper()
+	history := conv.Messages(context.Background())
+	for i := range history {
+		if r := history[i].ToolResult; r != nil && r.ID == callID {
+			return r
+		}
+	}
+	t.Fatalf("no tool result for %s in the history", callID)
+	return nil
+}
+
+// A frontend tool that failed is answered with error set. The conversation
+// must record it as a failed call, not as a successful one whose output is a
+// quoted string.
+func TestE2E_FrontendToolErrorIsRecordedAsAnError(t *testing.T) {
+	provider := newScriptedProvider(say("Where?", call("c-fe", "get_location", `{}`)), say("Sorry."))
+	conv := openConv(t, provider)
+	bindClientTool(t, conv, "get_location")
+
+	run1, err := sendAndCollect(t, NewEventAdapter(conv), "where am I?")
+	require.NoError(t, err)
+
+	input := []aguitypes.Message{
+		{ID: "u1", Role: aguitypes.RoleUser, Content: "where am I?"},
+		assistantWithCalls("c-fe"),
+		{ID: "t1", Role: aguitypes.RoleTool, ToolCallID: "c-fe", Content: "", Error: "permission denied"},
+	}
+	b := NewEventAdapter(conv)
+	_, err = continueAndCollect(t, b, run1, func(ctx context.Context) error {
+		return b.RunResume(ctx, ToolResultsFromAGUI(input))
+	})
+	require.NoError(t, err)
+
+	stored := toolResultIn(t, conv, "c-fe")
+	assert.Equal(t, "permission denied", stored.Error)
+	assert.Equal(t, "Tool error: permission denied", stored.GetTextContent())
+	assert.Equal(t, "permission denied", MessageToAGUI(&types.Message{Role: "tool", ToolResult: stored}).Error)
+}
+
+// A ToolResultProvider reporting a failure: the stored result carries the
+// error, and the TOOL_CALL_RESULT says exactly what the model was told.
+func TestE2E_ProviderToolErrorIsRecordedAsAnError(t *testing.T) {
+	provider := newScriptedProvider(say("Exporting.", call("c1", "get_location", `{}`)), say("Partly done."))
+	conv := openConv(t, provider)
+	bindClientTool(t, conv, "get_location")
+	fail := func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
+		return []ToolResult{{CallID: "c1", Result: "3 of 5 rows", Error: "disk full"}}, nil
+	}
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(fail)), "export")
+	require.NoError(t, err)
+
+	stored := toolResultIn(t, conv, "c1")
+	assert.Equal(t, "disk full", stored.Error)
+	assert.Equal(t, "\"3 of 5 rows\"\n\nTool error: disk full", stored.GetTextContent(),
+		"the partial output as the conversation encodes any result, then the error")
+	assert.Equal(t, stored.GetTextContent(), resultContent(t, evts, "c1"))
+}

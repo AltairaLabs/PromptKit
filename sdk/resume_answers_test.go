@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -95,6 +96,77 @@ func TestResume_SkipsCallsTheHistoryAlreadyAnswers(t *testing.T) {
 
 	last := provider.seen[len(provider.seen)-1]
 	assert.Equal(t, map[string]int{"c-srv": 1, "c-cli": 1}, resultCounts(last))
+}
+
+// Call ids are unique only within a response: Gemini numbers them call_0,
+// call_1, ... per response. A client call on a later turn that reuses an id an
+// earlier turn already answered must still get its answer.
+func TestResume_CallIDReusedFromAnEarlierTurn(t *testing.T) {
+	provider := &roundsProvider{
+		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
+		rounds: []providers.PredictionResponse{
+			{Content: "Looking.", ToolCalls: []types.MessageToolCall{{ID: "call_0", Name: "lookup", Args: []byte(`{}`)}}},
+			{Content: "Found it."},
+			{Content: "Where?", ToolCalls: []types.MessageToolCall{{ID: "call_0", Name: "locate", Args: []byte(`{}`)}}},
+			{Content: "Paris it is."},
+		},
+	}
+	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+	desc, err := conv.ToolRegistry().GetTool("locate")
+	require.NoError(t, err)
+	desc.Mode = "client"
+	ctx := context.Background()
+
+	_, err = conv.Send(ctx, "first")
+	require.NoError(t, err)
+	resp, err := conv.Send(ctx, "second")
+	require.NoError(t, err)
+	require.True(t, resp.HasPendingClientTools())
+
+	require.NoError(t, conv.SendToolResult(ctx, "call_0", "Paris"))
+	resp, err = conv.Resume(ctx)
+	require.NoError(t, err, "the answer for this turn's call_0 is not the earlier turn's")
+	assert.Equal(t, "Paris it is.", resp.Text())
+}
+
+// A failed client tool is recorded as a failure: Error set, the model told
+// why, partial output kept.
+func TestFailClientTool(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+	ctx := context.Background()
+
+	require.NoError(t, conv.FailClientTool(ctx, "c1", nil, errors.New("denied")))
+	require.NoError(t, conv.FailClientTool(ctx, "c2", map[string]int{"rows": 3}, errors.New("disk full")))
+	assert.Error(t, conv.FailClientTool(ctx, "c3", nil, nil), "a failure needs an error")
+	assert.Error(t, conv.FailClientTool(ctx, "c4", func() {}, errors.New("x")), "partial must serialize")
+
+	msgs, err := conv.buildToolResultMessages(ctx)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "denied", msgs[0].ToolResult.Error)
+	assert.Equal(t, "Tool error: denied", msgs[0].ToolResult.GetTextContent())
+	assert.Equal(t, "disk full", msgs[1].ToolResult.Error)
+	assert.Equal(t, "{\"rows\":3}\n\nTool error: disk full", msgs[1].ToolResult.GetTextContent())
+
+	require.NoError(t, conv.Close())
+	assert.ErrorIs(t, conv.FailClientTool(ctx, "c5", nil, errors.New("x")), ErrConversationClosed)
+}
+
+func TestAnsweredSinceLastAssistant(t *testing.T) {
+	old := types.NewTextToolResult("call_0", "", "old")
+	cur := types.NewTextToolResult("call_1", "", "new")
+	history := []types.Message{
+		{Role: "assistant"},
+		{Role: "tool", ToolResult: &old},
+		{Role: "assistant"},
+		{Role: "tool", ToolResult: &cur},
+	}
+	assert.Equal(t, []string{"call_1"}, answeredSinceLastAssistant(history))
+	assert.Empty(t, answeredSinceLastAssistant(nil))
 }
 
 // Two resolutions for one call keep the first.

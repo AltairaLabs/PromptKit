@@ -370,8 +370,8 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 			toolResult = types.NewTextToolResult(res.ID, "",
 				fmt.Sprintf("Tool rejected: %s", res.RejectionReason))
 		case res.Error != nil:
-			toolResult = types.NewTextToolResult(res.ID, "",
-				fmt.Sprintf("Tool error: %v", res.Error))
+			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
+			toolResult.Error = res.Error.Error()
 		case len(res.Parts) > 0:
 			toolResult = types.MessageToolResult{
 				ID:    res.ID,
@@ -495,20 +495,22 @@ func (e *clientExecutor) executeHandlerAsync(
 }
 
 // unansweredResolutions drops the resolutions that would answer a call twice:
-// one for a call the history already holds a result for (a server-side tool
-// that ran in the same round as the suspended client call), and any second
+// one for a call the suspended round already holds a result for (a server-side
+// tool that ran in the same round as the client call), and any second
 // resolution for the same call, keeping the first. A provider rejects a
 // history in which one call is answered twice.
+//
+// Only results after the last assistant message count: that message made the
+// calls the turn is suspended on. Call ids are unique only within a response
+// (Gemini numbers them call_0, call_1, ...), so an earlier turn's result for
+// the same id answers a different call.
 func (c *Conversation) unansweredResolutions(
 	ctx context.Context, resolutions []*sdktools.ToolResolution,
 ) []*sdktools.ToolResolution {
 	answered := map[string]bool{}
 	if c.getBaseSession() != nil {
-		history := c.Messages(ctx)
-		for i := range history {
-			if history[i].ToolResult != nil {
-				answered[history[i].ToolResult.ID] = true
-			}
+		for _, id := range answeredSinceLastAssistant(c.Messages(ctx)) {
+			answered[id] = true
 		}
 	}
 	out := make([]*sdktools.ToolResolution, 0, len(resolutions))
@@ -521,4 +523,55 @@ func (c *Conversation) unansweredResolutions(
 		out = append(out, res)
 	}
 	return out
+}
+
+// answeredSinceLastAssistant lists the calls answered by tool results after the
+// last assistant message in history.
+func answeredSinceLastAssistant(history []types.Message) []string {
+	var ids []string
+	for i := len(history) - 1; i >= 0 && history[i].Role != roleAssistant; i-- {
+		if history[i].ToolResult != nil {
+			ids = append(ids, history[i].ToolResult.ID)
+		}
+	}
+	return ids
+}
+
+// toolErrorContent is what the model is told about a client tool that failed:
+// the partial output it produced, if any, then the error.
+func toolErrorContent(res *sdktools.ToolResolution) string {
+	if len(res.ResultJSON) > 0 {
+		return fmt.Sprintf("%s\n\nTool error: %v", res.ResultJSON, res.Error)
+	}
+	return fmt.Sprintf("Tool error: %v", res.Error)
+}
+
+// FailClientTool reports that a deferred client tool failed.
+//
+// callID must match one of the [PendingClientTool.CallID] values returned in
+// the [Response]. partial, when not nil, is the output the tool produced
+// before failing and must be JSON-serializable. The model is told about the
+// failure, the stored tool result carries err as its Error, and the
+// tool.client.resolved event reports the call as an error. Call
+// [Conversation.Resume] once every pending tool is resolved.
+func (c *Conversation) FailClientTool(_ context.Context, callID string, partial any, err error) error {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return ErrConversationClosed
+	}
+	if err == nil {
+		return fmt.Errorf("FailClientTool needs an error")
+	}
+	res := &sdktools.ToolResolution{ID: callID, Error: err}
+	if partial != nil {
+		data, marshalErr := json.Marshal(partial)
+		if marshalErr != nil {
+			return fmt.Errorf(errSerializeClientToolResult, marshalErr)
+		}
+		res.ResultJSON = data
+	}
+	c.resolvedStore.Add(res)
+	return nil
 }

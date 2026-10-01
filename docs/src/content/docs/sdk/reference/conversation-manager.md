@@ -188,6 +188,7 @@ All pack examples conform to the PromptPack Specification v1.7.0: https://github
   - [func \(c \*Conversation\) ContinueDuplex\(ctx context.Context\) error](<#Conversation.ContinueDuplex>)
   - [func \(c \*Conversation\) Done\(\) \(\<\-chan struct\{\}, error\)](<#Conversation.Done>)
   - [func \(c \*Conversation\) EventBus\(\) events.Bus](<#Conversation.EventBus>)
+  - [func \(c \*Conversation\) FailClientTool\(\_ context.Context, callID string, partial any, err error\) error](<#Conversation.FailClientTool>)
   - [func \(c \*Conversation\) Fork\(\) \(\*Conversation, error\)](<#Conversation.Fork>)
   - [func \(c \*Conversation\) GetVar\(name string\) \(string, bool\)](<#Conversation.GetVar>)
   - [func \(c \*Conversation\) Governance\(\) \*Governance](<#Conversation.Governance>)
@@ -1552,6 +1553,17 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 ```
 
 For convenience methods, see the \[hooks\] package.
+
+<a name="Conversation.FailClientTool"></a>
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L557>)
+
+```go
+func (c *Conversation) FailClientTool(_ context.Context, callID string, partial any, err error) error
+```
+
+FailClientTool reports that a deferred client tool failed.
+
+callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
 ### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1276>)

@@ -49,6 +49,12 @@ type multimodalResultSender interface {
 	SendToolResultMultimodal(ctx context.Context, callID string, parts []types.ContentPart) error
 }
 
+// clientToolFailer is implemented by conversations that record a failed client
+// tool as a failure (*sdk.Conversation does).
+type clientToolFailer interface {
+	FailClientTool(ctx context.Context, callID string, partial any, err error) error
+}
+
 // workflowStateReader is implemented by conversations that run a workflow
 // state machine (*sdk.WorkflowConversation does).
 type workflowStateReader interface {
@@ -553,10 +559,13 @@ func valueText(v any) string {
 }
 
 // toolErrorText is what the model is told about a failed tool: its partial
-// output, if any, then the error.
+// output, encoded as JSON as the conversation encodes any result, then the
+// error. It matches the text sdk.Conversation.FailClientTool records.
 func toolErrorText(r *ToolResult) string {
-	if partial := valueText(r.Result); partial != "" {
-		return partial + "\n\nTool error: " + r.Error
+	if r.Result != nil {
+		if data, err := json.Marshal(r.Result); err == nil {
+			return string(data) + "\n\nTool error: " + r.Error
+		}
 	}
 	return "Tool error: " + r.Error
 }
@@ -570,7 +579,7 @@ func (a *EventAdapter) resolveClientTools(ctx context.Context, results []ToolRes
 		case r.Rejected:
 			a.sender.RejectClientTool(ctx, r.CallID, r.Reason)
 		case r.Error != "":
-			err = a.sender.SendToolResult(ctx, r.CallID, toolErrorText(r))
+			err = a.failClientTool(ctx, r)
 		default:
 			err = a.sendResult(ctx, r)
 		}
@@ -579,6 +588,15 @@ func (a *EventAdapter) resolveClientTools(ctx context.Context, results []ToolRes
 		}
 	}
 	return nil
+}
+
+// failClientTool records a failed client tool: as a failure when the
+// conversation supports it, otherwise as a result saying it failed.
+func (a *EventAdapter) failClientTool(ctx context.Context, r *ToolResult) error {
+	if f, ok := a.sender.(clientToolFailer); ok {
+		return f.FailClientTool(ctx, r.CallID, r.Result, errors.New(r.Error))
+	}
+	return a.sender.SendToolResult(ctx, r.CallID, toolErrorText(r))
 }
 
 func (a *EventAdapter) sendResult(ctx context.Context, r *ToolResult) error {
@@ -683,6 +701,15 @@ func (w *workflowSender) SendToolResultMultimodal(ctx context.Context, callID st
 		return errNoActiveConversation
 	}
 	return conv.SendToolResultMultimodal(ctx, callID, parts)
+}
+
+// FailClientTool reports a failed client tool on the active conversation.
+func (w *workflowSender) FailClientTool(ctx context.Context, callID string, partial any, err error) error {
+	conv := w.wc.ActiveConversation()
+	if conv == nil {
+		return errNoActiveConversation
+	}
+	return conv.FailClientTool(ctx, callID, partial, err)
 }
 
 // RejectClientTool declines a client tool on the active conversation.
