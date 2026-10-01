@@ -143,7 +143,7 @@ type sseTransport struct {
 	options ClientOptions
 	in      inbound
 
-	httpClient *http.Client
+	doer       *httpDoer
 	baseURL    string
 	messageURL string // absolute URL for POSTs (populated by connect())
 
@@ -169,14 +169,18 @@ type sseTransport struct {
 func newSSETransport(config ServerConfig, options ClientOptions, in inbound) *sseTransport {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &sseTransport{
-		config:     config,
-		options:    options,
-		in:         in,
-		httpClient: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
-		baseURL:    strings.TrimRight(config.URL, "/"),
-		pending:    newPendingRequests(),
-		ctx:        ctx,
-		cancel:     cancel,
+		config:  config,
+		options: options,
+		in:      in,
+		doer: &httpDoer{
+			client: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
+			auth:   options.Authorizer,
+			server: config.Name,
+		},
+		baseURL: strings.TrimRight(config.URL, "/"),
+		pending: newPendingRequests(),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
@@ -200,7 +204,7 @@ func (t *sseTransport) connect(ctx context.Context) error {
 
 	// NB: on success we hand resp.Body off to t.stream and close it in
 	// sseTransport.close(); error paths close it explicitly.
-	resp, err := t.httpClient.Do(req) //nolint:bodyclose // body adopted by t.stream or closed below
+	resp, err := t.doer.do(req) //nolint:bodyclose // body adopted by t.stream or closed below
 	if err != nil {
 		return fmt.Errorf("mcp/sse: GET /sse: %w", err)
 	}
@@ -341,7 +345,7 @@ func (t *sseTransport) post(ctx context.Context, msg *JSONRPCMessage, header htt
 	}
 	t.versionMu.Unlock()
 
-	resp, err := t.httpClient.Do(req)
+	resp, err := t.doer.do(req)
 	if err != nil {
 		return fmt.Errorf("mcp/sse: POST: %w", err)
 	}

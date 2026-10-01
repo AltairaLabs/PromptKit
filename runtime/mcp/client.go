@@ -49,6 +49,10 @@ type ClientOptions struct {
 	// answer the server/discover probe before treating it as a handshake-era
 	// server. Defaults to 3s.
 	EraProbeTimeout time.Duration
+	// Authorizer, when set, supplies credentials for an HTTP server and
+	// handles its authorization challenges. The host implements it; see
+	// Authorizer. Static credentials can go in ServerConfig.Headers instead.
+	Authorizer Authorizer
 }
 
 // DefaultClientOptions returns sensible defaults

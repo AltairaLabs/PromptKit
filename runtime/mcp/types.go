@@ -144,6 +144,25 @@ type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema"` // JSON Schema for tool input
+	// Title is a display name.
+	Title string `json:"title,omitempty"`
+	// OutputSchema is the JSON Schema the tool's structuredContent conforms to.
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	// Annotations are hints about the tool's behavior. They are not
+	// guaranteed: a client MUST NOT trust them from an untrusted server.
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	// Icons are display icons (2025-11-25).
+	Icons []Icon                     `json:"icons,omitempty"`
+	Meta  map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ToolAnnotations are hints about a tool's behavior (server/tools).
+type ToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 // ToolCallRequest represents a request to execute a tool
@@ -164,8 +183,9 @@ type ToolCallResponse struct {
 	// StructuredContent is the tool's structured result (MCP 2025-06-18).
 	// Servers SHOULD mirror it as serialized JSON in Content, but are not
 	// required to, so it is the authoritative result when present.
-	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
-	IsError           bool            `json:"isError,omitempty"`
+	StructuredContent json.RawMessage            `json:"structuredContent,omitempty"`
+	IsError           bool                       `json:"isError,omitempty"`
+	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // HasStructuredContent reports whether the response carries a non-null
@@ -174,13 +194,52 @@ func (r *ToolCallResponse) HasStructuredContent() bool {
 	return len(r.StructuredContent) > 0 && string(r.StructuredContent) != jsonNull
 }
 
-// Content represents a content item in MCP responses
+// Content types a ContentBlock can have.
+const (
+	ContentTypeText         = "text"
+	ContentTypeImage        = "image"
+	ContentTypeAudio        = "audio"
+	ContentTypeResourceLink = "resource_link"
+	ContentTypeResource     = "resource"
+)
+
+// Content is one content block of a tool result. It is a flattened union of
+// the spec's text, image, audio, resource_link and embedded resource blocks;
+// Type says which fields apply.
 type Content struct {
-	Type     string `json:"type"` // "text", "image", "resource", etc.
+	Type     string `json:"type"` // one of the ContentType constants
 	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`     // Base64 encoded data
+	Data     string `json:"data,omitempty"`     // Base64 encoded data (image, audio)
 	MimeType string `json:"mimeType,omitempty"` // MIME type for data
-	URI      string `json:"uri,omitempty"`      // URI for resources
+	URI      string `json:"uri,omitempty"`      // URI for resource_link
+	// Name, Title, Description and Size describe a resource_link.
+	Name        string `json:"name,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
+	Icons       []Icon `json:"icons,omitempty"`
+	// Resource is an embedded resource's contents.
+	Resource    *ResourceContents          `json:"resource,omitempty"`
+	Annotations *Annotations               `json:"annotations,omitempty"`
+	Meta        map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ResourceContents is the content of an embedded resource: Text for a text
+// resource, Blob (base64) for a binary one.
+type ResourceContents struct {
+	URI      string                     `json:"uri"`
+	MimeType string                     `json:"mimeType,omitempty"`
+	Text     string                     `json:"text,omitempty"`
+	Blob     string                     `json:"blob,omitempty"`
+	Meta     map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// Annotations tell a client how to use a content block: who it is for and
+// how important it is.
+type Annotations struct {
+	Audience     []string `json:"audience,omitempty"`
+	Priority     *float64 `json:"priority,omitempty"`
+	LastModified string   `json:"lastModified,omitempty"`
 }
 
 // Client interface defines the MCP client operations

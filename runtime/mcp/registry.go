@@ -24,6 +24,11 @@ type RegistryOptions struct {
 	// MaxProcesses limits the number of concurrent MCP server processes.
 	// 0 means unlimited (no limit enforced).
 	MaxProcesses int
+	// ConfigureClient, when set, adjusts the options of each server's client
+	// before it is created: the place a host supplies an Authorizer or an
+	// ElicitationHandler per server. The options arrive with the defaults
+	// and the server's TimeoutMs applied.
+	ConfigureClient func(config ServerConfig, options *ClientOptions)
 }
 
 // RegistryImpl implements the Registry interface
@@ -73,10 +78,13 @@ func NewRegistry() *RegistryImpl {
 // TransportUnknown (neither URL nor Command set) falls through to the stdio
 // adapter; the caller will see a clear error from StdioClient.Initialize.
 // Upstream validation should prevent this state from ever reaching here.
-func newClientAdapter(config *ServerConfig) Client {
+func newClientAdapter(config *ServerConfig, configure func(ServerConfig, *ClientOptions)) Client {
 	opts := DefaultClientOptions()
 	if config.TimeoutMs > 0 {
 		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
+	}
+	if configure != nil {
+		configure(*config, &opts)
 	}
 	if config.TransportName == "" && config.URL != "" {
 		// A URL with no transport named: Streamable HTTP, falling back to
@@ -106,7 +114,7 @@ func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl {
 		options:   opts,
 		// newClientFunc signature takes ServerConfig by value (matches the
 		// stdio-era API); adapt to the pointer-based dispatcher.
-		newClientFunc: func(c ServerConfig) Client { return newClientAdapter(&c) },
+		newClientFunc: func(c ServerConfig) Client { return newClientAdapter(&c, opts.ConfigureClient) },
 	}
 	if opts.MaxProcesses > 0 {
 		r.processSem = make(chan struct{}, opts.MaxProcesses)

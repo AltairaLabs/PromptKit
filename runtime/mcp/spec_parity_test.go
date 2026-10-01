@@ -70,7 +70,6 @@ type specPin struct {
 
 const (
 	reasonMetaDropped    = "_meta is not surfaced to callers"
-	reasonAnnotations    = "content annotations (audience, priority) are not surfaced to the model"
 	reasonNotImplemented = "the client does not implement this feature, so it does not advertise it"
 	reasonTasks          = "tasks are experimental in this revision; the client does not implement or advertise them"
 	reasonSampling       = "sampling is not implemented or advertised (deprecated in 2026-07-28)"
@@ -160,14 +159,10 @@ func mcpSpecPins() []specPin {
 			value: Tool{},
 			refs:  []string{"Tool"},
 			omissions: []specOmission{
-				{"_meta", reasonMetaDropped},
-				{"annotations", "tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors"},
-				{"outputSchema", "the declared output schema is not carried to tool descriptors, so results are not validated (#2100)"},
 				{"execution", "execution hints (task support) are not carried; the client does not implement tasks"},
-				{"icons", "display icons are not carried to tool descriptors"},
-				{"title", "the display title is not carried to tool descriptors"},
 			},
 		},
+		{value: ToolAnnotations{}, refs: []string{"ToolAnnotations"}},
 		{
 			value: ToolCallRequest{},
 			refs:  []string{"CallToolRequest/properties/params"},
@@ -180,13 +175,7 @@ func mcpSpecPins() []specPin {
 				{"requestState", reasonModernOnly},
 			},
 		},
-		{
-			value: ToolCallResponse{},
-			refs:  []string{"CallToolResult"},
-			omissions: []specOmission{
-				{"_meta", reasonMetaDropped},
-			},
-		},
+		{value: ToolCallResponse{}, refs: []string{"CallToolResult"}},
 		{
 			value: Content{},
 			label: "ContentBlock",
@@ -194,17 +183,13 @@ func mcpSpecPins() []specPin {
 				"TextContent", "ImageContent", "AudioContent",
 				"ResourceLink", "EmbeddedResource",
 			},
-			omissions: []specOmission{
-				{"_meta", reasonMetaDropped},
-				{"annotations", reasonAnnotations},
-				{"description", "resource_link description is not carried"},
-				{"icons", "resource_link icons are not carried"},
-				{"name", "resource_link name is not carried"},
-				{"resource", "embedded resource contents are dropped (#2100)"},
-				{"size", "resource_link size is not carried"},
-				{"title", "resource_link title is not carried"},
-			},
 		},
+		{
+			value: ResourceContents{},
+			label: "ResourceContents",
+			refs:  []string{"TextResourceContents", "BlobResourceContents"},
+		},
+		{value: Annotations{}, refs: []string{"Annotations"}},
 	}
 }
 
@@ -217,6 +202,11 @@ var notWire = map[string]string{
 	"SSEClient":              "transport implementation",
 	"StreamableClient":       "transport implementation",
 	"httpAutoClient":         "transport selection: Streamable HTTP with the HTTP+SSE fallback",
+	"httpDoer":               "HTTP plumbing below the MCP message layer",
+	"challengeParser":        "WWW-Authenticate parsing state",
+	"AuthChallenge":          "an HTTP authorization challenge handed to the host's Authorizer; not an MCP message",
+	"WWWAuthenticate":        "a parsed HTTP WWW-Authenticate challenge; not an MCP message",
+	"AuthError":              "the Go error for a request that stays unauthorized",
 	"RegistryOptions":        "registry configuration",
 	"RegistryImpl":           "registry implementation",
 	"ServerConfigData":       "PromptKit's server config file shape, not MCP",

@@ -5,7 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -442,23 +448,6 @@ func TestMCPExecutor_Execute_Timeout(t *testing.T) {
 	}
 }
 
-func TestMCPExecutor_ExtractTextContent_EmptyText(t *testing.T) {
-	executor := NewMCPExecutor(&mockMCPRegistry{})
-
-	content := []mcp.Content{
-		{Type: "text", Text: ""},
-		{Type: "text", Text: "Valid text"},
-	}
-
-	parts := executor.extractTextContent(content)
-	if len(parts) != 1 {
-		t.Errorf("extractTextContent() returned %d parts, want 1", len(parts))
-	}
-	if parts[0] != "Valid text" {
-		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
-	}
-}
-
 func TestMCPExecutor_Execute_ArgsNotLoggedAtInfo(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
@@ -500,24 +489,6 @@ func TestMCPExecutor_Execute_ArgsNotLoggedAtInfo(t *testing.T) {
 	}
 	if bytes.Contains(buf.Bytes(), []byte("123-45-6789")) {
 		t.Errorf("raw tool args with PII leaked into INFO log output: %s", logOutput)
-	}
-}
-
-func TestMCPExecutor_ExtractTextContent_NonTextTypes(t *testing.T) {
-	executor := NewMCPExecutor(&mockMCPRegistry{})
-
-	content := []mcp.Content{
-		{Type: "resource", Text: "Should be ignored"},
-		{Type: "text", Text: "Valid text"},
-		{Type: "image", Text: "Also ignored"},
-	}
-
-	parts := executor.extractTextContent(content)
-	if len(parts) != 1 {
-		t.Errorf("extractTextContent() returned %d parts, want 1", len(parts))
-	}
-	if parts[0] != "Valid text" {
-		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
 	}
 }
 
@@ -619,4 +590,120 @@ func TestMCPExecutor_Execute_ErrorStructuredContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFormatMCPResult_ContentBlocks(t *testing.T) {
+	size := int64(42)
+	resp := &mcp.ToolCallResponse{Content: []mcp.Content{
+		{Type: mcp.ContentTypeText, Text: ""},
+		{Type: mcp.ContentTypeText, Text: "see chart"},
+		{Type: mcp.ContentTypeImage, Data: "aW1n", MimeType: "image/png"},
+		{Type: mcp.ContentTypeAudio, Data: "YXVk", MimeType: "audio/wav"},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///a.txt", MimeType: "text/plain", Text: "SECRET BODY"}},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///p.png", MimeType: "image/png", Blob: "cG5n"}},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///b.bin", MimeType: "application/octet-stream", Blob: "YmlueQ=="}},
+		{Type: mcp.ContentTypeResourceLink, URI: "file:///big.csv", Name: "big.csv", Description: "the data", Size: &size},
+	}}
+
+	result, parts, err := formatMCPResult("t", resp, false)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[
+		"see chart",
+		{"type":"resource","uri":"file:///a.txt","mimeType":"text/plain","text":"SECRET BODY"},
+		{"type":"resource","uri":"file:///b.bin","mimeType":"application/octet-stream","note":"binary content (8 base64 characters) not shown"},
+		{"type":"resource_link","uri":"file:///big.csv","name":"big.csv","description":"the data","size":42}
+	]`, string(result), "an empty text block is skipped; nothing else is dropped")
+	require.Len(t, parts, 3, "image, audio and the embedded image reach the model as media parts")
+	assert.Equal(t, types.ContentTypeImage, parts[0].Type)
+	assert.Equal(t, "aW1n", *parts[0].Media.Data)
+	assert.Equal(t, types.ContentTypeAudio, parts[1].Type)
+	assert.Equal(t, types.ContentTypeImage, parts[2].Type)
+	assert.Equal(t, "cG5n", *parts[2].Media.Data)
+}
+
+func TestFormatMCPResult_Shapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content []mcp.Content
+		want    string
+		parts   int
+	}{
+		{"empty", nil, `"Operation completed successfully"`, 0},
+		{"one text stays a string", []mcp.Content{{Type: "text", Text: "a"}}, `"a"`, 0},
+		{"several texts stay an array", []mcp.Content{{Type: "text", Text: "a"}, {Type: "text", Text: "b"}}, `["a","b"]`, 0},
+		{"media only", []mcp.Content{{Type: "image", Data: "x", MimeType: "image/png"}}, `"Returned 1 media item(s)."`, 1},
+		{"unknown block passes through", []mcp.Content{{Type: "future", Text: "t"}}, `[{"type":"future","text":"t"}]`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, parts, err := formatMCPResult("t", &mcp.ToolCallResponse{Content: tc.content}, false)
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(result))
+			assert.Len(t, parts, tc.parts)
+		})
+	}
+}
+
+func TestMCPExecutor_ExecuteKeepsMediaInTheJSON(t *testing.T) {
+	// Execute has no channel for parts, so media stays in the result.
+	exec := newStructuredContentExecutor(&mcp.ToolCallResponse{Content: []mcp.Content{
+		{Type: "text", Text: "chart:"}, {Type: "image", Data: "aW1n", MimeType: "image/png"},
+	}})
+	result, err := exec.Execute(context.Background(), &ToolDescriptor{Name: "t", Mode: modeMCP}, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `["chart:",{"type":"image","data":"aW1n","mimeType":"image/png"}]`, string(result))
+
+	_, parts, err := exec.ExecuteMultimodal(context.Background(), &ToolDescriptor{Name: "t", Mode: modeMCP}, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Len(t, parts, 1)
+}
+
+func TestMCPExecutor_StructuredContentIsValidatedAgainstTheOutputSchema(t *testing.T) {
+	descriptor := &ToolDescriptor{
+		Name: "t", Mode: modeMCP,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"temp":{"type":"number"}},"required":["temp"]}`),
+	}
+	ok := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"temp":21.5}`)})
+	result, err := ok.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"temp":21.5}`, string(result))
+
+	bad := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"temp":"warm"}`)})
+	_, err = bad.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match its output schema")
+
+	noSchema := &ToolDescriptor{Name: "t", Mode: modeMCP}
+	_, err = bad.Execute(context.Background(), noSchema, json.RawMessage(`{}`))
+	require.NoError(t, err, "without a declared schema there is nothing to validate against")
+}
+
+func TestSchemaValidator_NeverDereferencesAnExternalRef(t *testing.T) {
+	// MCP SEP-2106: implementations MUST NOT dereference network $refs
+	// automatically. gojsonschema would fetch them (or read file:// URLs).
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"type":"string"}`))
+	}))
+	defer srv.Close()
+
+	for _, schema := range []string{
+		`{"type":"object","properties":{"a":{"$ref":"` + srv.URL + `/s.json"}}}`,
+		`{"type":"object","properties":{"a":{"$ref":"relative.json"}}}`,
+		`{"type":"object","allOf":[{"$dynamicRef":"` + srv.URL + `/d.json"}]}`,
+	} {
+		r := NewRegistry()
+		desc := &ToolDescriptor{Name: "t", Description: "d", Mode: modeMCP,
+			InputSchema: json.RawMessage(schema), OutputSchema: json.RawMessage(schema)}
+		require.NoError(t, r.Register(desc))
+		assert.NoError(t, r.validator.ValidateArgs(desc, json.RawMessage(`{"a":1}`)), "validation is skipped, not failed")
+		assert.NoError(t, r.validator.ValidateResult(desc, json.RawMessage(`{"a":1}`)))
+		_, err := r.validator.getSchema(schema)
+		assert.ErrorIs(t, err, errExternalSchemaRef)
+	}
+	assert.Zero(t, hits.Load(), "no external schema was fetched")
+
+	local := `{"$defs":{"s":{"type":"string"}},"type":"object","properties":{"a":{"$ref":"#/$defs/s"}}}`
+	desc := &ToolDescriptor{Name: "t", InputSchema: json.RawMessage(local)}
+	assert.Error(t, NewSchemaValidator().ValidateArgs(desc, json.RawMessage(`{"a":1}`)), "local refs are still followed")
 }

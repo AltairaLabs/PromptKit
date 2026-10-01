@@ -69,8 +69,8 @@ type streamableTransport struct {
 	options ClientOptions
 	in      inbound
 
-	httpClient *http.Client
-	url        string
+	doer *httpDoer
+	url  string
 
 	mu        sync.Mutex
 	sessionID string // from Mcp-Session-Id on the initialize response
@@ -103,11 +103,15 @@ func (t *streamableTransport) setModern(modern bool) { t.modern.Store(modern) }
 //nolint:gocritic // config matches existing Client constructor signatures
 func newStreamableTransport(config ServerConfig, options ClientOptions, in inbound) *streamableTransport {
 	return &streamableTransport{
-		config:     config,
-		options:    options,
-		in:         in,
-		httpClient: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
-		url:        config.URL,
+		config:  config,
+		options: options,
+		in:      in,
+		doer: &httpDoer{
+			client: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
+			auth:   options.Authorizer,
+			server: config.Name,
+		},
+		url: config.URL,
 	}
 }
 
@@ -215,7 +219,7 @@ func (t *streamableTransport) openListen(ctx context.Context, lastEventID string
 	}
 	t.applyConfigHeaders(req)
 	t.applySessionHeaders(req, "")
-	resp, err := t.httpClient.Do(req)
+	resp, err := t.doer.do(req)
 	if err != nil {
 		return nil, false, err
 	}
@@ -261,7 +265,7 @@ func (t *streamableTransport) deleteSession(sid string) {
 	}
 	t.applyConfigHeaders(req)
 	t.applySessionHeaders(req, sid)
-	resp, err := t.httpClient.Do(req)
+	resp, err := t.doer.do(req)
 	if err != nil {
 		logger.Debug("MCP/Streamable session DELETE failed", "server", t.config.Name, "error", err)
 		return
@@ -397,7 +401,7 @@ func (t *streamableTransport) post(ctx context.Context, req *request) (*http.Res
 	if sid != "" {
 		httpReq.Header.Set(headerSessionID, sid)
 	}
-	resp, err := t.httpClient.Do(httpReq)
+	resp, err := t.doer.do(httpReq)
 	if err != nil {
 		return nil, "", fmt.Errorf("mcp/streamable: POST: %w", err)
 	}
@@ -560,7 +564,7 @@ func (t *streamableTransport) resume(ctx context.Context, lastEventID string) (i
 	req.Header.Set(headerLastEventID, lastEventID)
 	t.applyConfigHeaders(req)
 	t.applySessionHeaders(req, "")
-	resp, err := t.httpClient.Do(req)
+	resp, err := t.doer.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("mcp/streamable: resume stream: %w", err)
 	}
@@ -585,7 +589,7 @@ func (t *streamableTransport) postReply(ctx context.Context, reply *JSONRPCMessa
 	httpReq.Header.Set(headerAccept, contentTypeJSON+", "+contentTypeSSE)
 	t.applyConfigHeaders(httpReq)
 	t.applySessionHeaders(httpReq, "")
-	resp, err := t.httpClient.Do(httpReq)
+	resp, err := t.doer.do(httpReq)
 	if err != nil {
 		logger.Warn("MCP/Streamable failed to answer server request", "server", t.config.Name, "error", err)
 		return

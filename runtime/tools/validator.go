@@ -3,6 +3,7 @@ package tools
 import (
 	"container/list"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -16,6 +17,47 @@ import (
 // held in the validator cache. When full the least-recently-used entry is
 // evicted.
 const DefaultMaxSchemaCacheSize = 128
+
+// errExternalSchemaRef is returned for a schema with a $ref outside the
+// schema itself. Such a schema is never compiled: gojsonschema would fetch
+// the referenced document, over the network or from the local filesystem,
+// from a URL the schema's author chose. Tool schemas come from MCP servers,
+// among others, and MCP forbids dereferencing network $refs automatically
+// (SEP-2106). Validation against such a schema is skipped.
+var errExternalSchemaRef = errors.New("schema references an external document; it is not dereferenced")
+
+// hasExternalRef reports whether a schema has a $ref (or $dynamicRef) that
+// does not point inside the schema. Only refs starting with "#" are local.
+func hasExternalRef(v any) bool {
+	switch n := v.(type) {
+	case map[string]any:
+		return objectHasExternalRef(n)
+	case []any:
+		for _, child := range n {
+			if hasExternalRef(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func objectHasExternalRef(obj map[string]any) bool {
+	for k, child := range obj {
+		if isExternalRef(k, child) || hasExternalRef(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func isExternalRef(key string, value any) bool {
+	if key != "$ref" && key != "$dynamicRef" {
+		return false
+	}
+	ref, ok := value.(string)
+	return ok && !strings.HasPrefix(ref, "#")
+}
 
 // schemaEntry is a single entry in the LRU schema cache.
 type schemaEntry struct {
@@ -58,6 +100,9 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 	}
 
 	schema, err := sv.getSchema(string(descriptor.InputSchema))
+	if errors.Is(err, errExternalSchemaRef) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("invalid input schema for tool %s: %w", descriptor.Name, err)
 	}
@@ -96,6 +141,9 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 	}
 
 	schema, err := sv.getSchema(string(descriptor.OutputSchema))
+	if errors.Is(err, errExternalSchemaRef) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("invalid output schema for tool %s: %w", descriptor.Name, err)
 	}
@@ -148,6 +196,11 @@ func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, e
 		// Element was evicted; fall through to recompile below.
 	} else {
 		sv.mu.RUnlock()
+	}
+
+	var parsed any
+	if json.Unmarshal([]byte(schemaJSON), &parsed) == nil && hasExternalRef(parsed) {
+		return nil, errExternalSchemaRef
 	}
 
 	// Compile schema outside of lock.

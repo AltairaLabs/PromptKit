@@ -789,12 +789,15 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 		descriptor.TimeoutMs = r.defaultTimeoutMs
 	}
 
-	// Validate schemas by attempting to compile them
-	if _, err := r.validator.getSchema(string(descriptor.InputSchema)); err != nil {
+	// Validate schemas by attempting to compile them. A schema with an
+	// external $ref is not compiled (that would fetch it) and not rejected.
+	if _, err := r.validator.getSchema(string(descriptor.InputSchema)); err != nil &&
+		!errors.Is(err, errExternalSchemaRef) {
 		return fmt.Errorf("invalid input schema: %w", err)
 	}
 
-	if _, err := r.validator.getSchema(string(descriptor.OutputSchema)); err != nil {
+	if _, err := r.validator.getSchema(string(descriptor.OutputSchema)); err != nil &&
+		!errors.Is(err, errExternalSchemaRef) {
 		return fmt.Errorf("invalid output schema: %w", err)
 	}
 

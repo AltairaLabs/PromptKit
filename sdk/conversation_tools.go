@@ -522,7 +522,9 @@ func (c *Conversation) registerMCPExecutors() {
 				Name:        qualifiedName,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
-				Mode:        "mcp",
+				// The executor checks structured results against it.
+				OutputSchema: tool.OutputSchema,
+				Mode:         "mcp",
 			}
 			_ = c.toolRegistry.Register(desc)
 		}

@@ -15,11 +15,14 @@
 
 client:
   # MCP authorization (OAuth 2.1 for HTTP transports) is OPTIONAL in the spec
-  # (basic/authorization). PromptKit does not run OAuth flows itself: secret
-  # storage, browser redirects and token persistence belong to the host. The
-  # client delegates them to a host-supplied authorizer (tracked in #2100);
-  # until that interface lands, HTTP servers are authenticated with static
-  # headers (ServerConfig.Headers) and these scenarios fail.
+  # (basic/authorization) and PromptKit delegates it to the host: the client
+  # calls a host-supplied mcp.Authorizer for every request and hands it each
+  # 401/403 challenge (bounded retries), while discovery, client
+  # registration, consent, issuer validation and token storage live in the
+  # Authorizer. These scenarios test that OAuth logic, so they pass or fail
+  # with the host's Authorizer, not with PromptKit. PromptKit's side — hook
+  # points, challenge parsing, step-up, the retry bound — is covered by
+  # runtime/mcp/auth_test.go.
   - auth/metadata-default
   - auth/metadata-var1
   - auth/metadata-var2

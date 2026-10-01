@@ -54,23 +54,9 @@ Spec fields PromptKit does not carry:
 | ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ListToolsRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
 | ListToolsResult | `_meta` | _meta is not surfaced to callers |
-| Tool | `_meta` | _meta is not surfaced to callers |
-| Tool | `annotations` | tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors |
-| Tool | `outputSchema` | the declared output schema is not carried to tool descriptors, so results are not validated (#2100) |
 | Tool | `execution` | execution hints (task support) are not carried; the client does not implement tasks |
-| Tool | `icons` | display icons are not carried to tool descriptors |
-| Tool | `title` | the display title is not carried to tool descriptors |
 | CallToolRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
 | CallToolRequest params | `task` | tasks are experimental in this revision; the client does not implement or advertise them |
-| CallToolResult | `_meta` | _meta is not surfaced to callers |
-| ContentBlock | `_meta` | _meta is not surfaced to callers |
-| ContentBlock | `annotations` | content annotations (audience, priority) are not surfaced to the model |
-| ContentBlock | `description` | resource_link description is not carried |
-| ContentBlock | `icons` | resource_link icons are not carried |
-| ContentBlock | `name` | resource_link name is not carried |
-| ContentBlock | `resource` | embedded resource contents are dropped (#2100) |
-| ContentBlock | `size` | resource_link size is not carried |
-| ContentBlock | `title` | resource_link title is not carried |
 
 Fields PromptKit declares that the spec does not define:
 
@@ -308,7 +294,41 @@ options.ElicitationHandler = func(ctx context.Context, server string, req mcp.El
 
 Without a handler, elicitation is not advertised and any elicitation request is
 refused. With one, fields the user leaves out are filled from the defaults in
-the requested schema. Only form mode is supported.
+the requested schema. Only form mode is supported. The same handler answers a
+2026-07-28 server's `input_required` results.
+
+### Authorization
+
+For an HTTP server with static credentials, put them in `ServerConfig.Headers`.
+For [MCP authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization)
+(OAuth 2.1), supply an `mcp.Authorizer`. PromptKit runs no OAuth flow and stores
+no secrets: the host does both, because it owns secret storage and the user.
+
+```go
+type Authorizer interface {
+    // Set credentials on every request (Authorization, DPoP, ...).
+    Authorize(ctx context.Context, req *http.Request) error
+    // Called on 401, or 403 with error="insufficient_scope". Obtain new
+    // credentials and return nil to have the request sent again.
+    Challenge(ctx context.Context, c *mcp.AuthChallenge) error
+}
+```
+
+`AuthChallenge` carries the parsed `WWW-Authenticate` challenge, including the
+protected resource metadata URL and the scope the server needs. A request is
+challenged at most three times before failing with `*mcp.AuthError`.
+
+With the SDK, supply one per server:
+
+```go
+conv, _ := sdk.Open(packPath, "assistant",
+    sdk.WithMCPAuthorizer(func(server string) mcp.Authorizer { return host.AuthorizerFor(server) }),
+    sdk.WithMCPElicitation(host.Elicit),
+)
+```
+
+With the runtime directly, use `RegistryOptions.ConfigureClient` to set
+`ClientOptions.Authorizer` (and `ElicitationHandler`) for each server.
 
 ### Manual Client Usage
 

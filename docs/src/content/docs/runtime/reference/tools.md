@@ -88,6 +88,7 @@ Tools can be loaded from YAML/JSON files and executed with argument validation, 
 - [type MCPExecutor](<#MCPExecutor>)
   - [func NewMCPExecutor\(registry mcp.Registry\) \*MCPExecutor](<#NewMCPExecutor>)
   - [func \(e \*MCPExecutor\) Execute\(ctx context.Context, descriptor \*ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#MCPExecutor.Execute>)
+  - [func \(e \*MCPExecutor\) ExecuteMultimodal\(ctx context.Context, descriptor \*ToolDescriptor, args json.RawMessage\) \(json.RawMessage, \[\]types.ContentPart, error\)](<#MCPExecutor.ExecuteMultimodal>)
   - [func \(e \*MCPExecutor\) Name\(\) string](<#MCPExecutor.Name>)
 - [type MockScriptedExecutor](<#MockScriptedExecutor>)
   - [func NewMockScriptedExecutor\(\) \*MockScriptedExecutor](<#NewMockScriptedExecutor>)
@@ -398,7 +399,7 @@ func WithCallID(ctx context.Context, id string) context.Context
 WithCallID returns a new context that carries the tool call ID. This is set by the pipeline before executing a tool so that executors can access the provider\-assigned call ID.
 
 <a name="WithMCPRegistry"></a>
-## func [WithMCPRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L48>)
+## func [WithMCPRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L60>)
 
 ```go
 func WithMCPRegistry(ctx context.Context, reg mcp.Registry) context.Context
@@ -512,7 +513,7 @@ type ClientConfig struct {
 ```
 
 <a name="Coercion"></a>
-## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L251-L255>)
+## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L304-L308>)
 
 Coercion represents a type coercion that was performed.
 
@@ -893,9 +894,11 @@ func (r *InMemoryToolResponseRepository) GetToolResponse(toolName string, args m
 GetToolResponse implements ToolResponseRepository. For simplicity, this implementation only matches by tool name and context, not by arguments. For argument\-based matching, use FileToolResponseRepository or implement a custom repository.
 
 <a name="MCPExecutor"></a>
-## type [MCPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L25-L27>)
+## type [MCPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L35-L38>)
 
 MCPExecutor executes tools using MCP \(Model Context Protocol\) servers. The configured registry is used as a default; callers can attach a per\-call registry override via WithMCPRegistry to give each concurrent run its own MCP routing without sharing tool\-to\-server mappings.
+
+Timeouts come from the caller's context \(the tool registry applies the descriptor's TimeoutMs\) and from the server's own request timeout \(ServerConfig.TimeoutMs\); the executor adds none of its own.
 
 ```go
 type MCPExecutor struct {
@@ -904,7 +907,7 @@ type MCPExecutor struct {
 ```
 
 <a name="NewMCPExecutor"></a>
-### func [NewMCPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L30>)
+### func [NewMCPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L41>)
 
 ```go
 func NewMCPExecutor(registry mcp.Registry) *MCPExecutor
@@ -913,16 +916,25 @@ func NewMCPExecutor(registry mcp.Registry) *MCPExecutor
 NewMCPExecutor creates a new MCP executor
 
 <a name="MCPExecutor.Execute"></a>
-### func \(\*MCPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L73-L75>)
+### func \(\*MCPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L87-L89>)
 
 ```go
 func (e *MCPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
 ```
 
-Execute executes a tool using an MCP server
+Execute executes a tool using an MCP server. Images and audio in the result are included in the JSON as content blocks; ExecuteMultimodal returns them as content parts instead.
+
+<a name="MCPExecutor.ExecuteMultimodal"></a>
+### func \(\*MCPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L96-L98>)
+
+```go
+func (e *MCPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
+```
+
+ExecuteMultimodal executes a tool using an MCP server, returning images and audio from the result as content parts the model can see.
 
 <a name="MCPExecutor.Name"></a>
-### func \(\*MCPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L68>)
+### func \(\*MCPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/mcp_executor.go#L80>)
 
 ```go
 func (e *MCPExecutor) Name() string
@@ -1525,7 +1537,7 @@ type ResponseMapping struct {
 ```
 
 <a name="SchemaValidator"></a>
-## type [SchemaValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L28-L33>)
+## type [SchemaValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L70-L75>)
 
 SchemaValidator handles JSON schema validation for tool inputs and outputs. It maintains an LRU cache of compiled schemas bounded by maxCacheSize.
 
@@ -1536,7 +1548,7 @@ type SchemaValidator struct {
 ```
 
 <a name="NewSchemaValidator"></a>
-### func [NewSchemaValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L36>)
+### func [NewSchemaValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L78>)
 
 ```go
 func NewSchemaValidator() *SchemaValidator
@@ -1545,7 +1557,7 @@ func NewSchemaValidator() *SchemaValidator
 NewSchemaValidator creates a new schema validator with the default cache size.
 
 <a name="NewSchemaValidatorWithSize"></a>
-### func [NewSchemaValidatorWithSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L42>)
+### func [NewSchemaValidatorWithSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L84>)
 
 ```go
 func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator
@@ -1554,7 +1566,7 @@ func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator
 NewSchemaValidatorWithSize creates a new schema validator with the given maximum cache size. If maxSize \<= 0 it defaults to DefaultMaxSchemaCacheSize.
 
 <a name="SchemaValidator.CacheLen"></a>
-### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L187>)
+### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L240>)
 
 ```go
 func (sv *SchemaValidator) CacheLen() int
@@ -1563,7 +1575,7 @@ func (sv *SchemaValidator) CacheLen() int
 CacheLen returns the number of entries currently in the schema cache. Exported for testing and monitoring.
 
 <a name="SchemaValidator.CoerceArgs"></a>
-### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L296-L298>)
+### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L349-L351>)
 
 ```go
 func (sv *SchemaValidator) CoerceArgs(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1583,7 +1595,7 @@ CoerceArgs normalises LLM tool arguments to match the types declared in the tool
 All normalisation happens here, before ValidateArgs, keeping the schema validator strict and tool executors simple.
 
 <a name="SchemaValidator.CoerceResult"></a>
-### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L199-L201>)
+### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L252-L254>)
 
 ```go
 func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1594,7 +1606,7 @@ CoerceResult attempts to coerce simple type mismatches in tool results.
 Currently this is a pass\-through: if the result validates, it is returned as\-is; otherwise validation is re\-attempted after a round\-trip through JSON \(which normalises whitespace/encoding\). Actual type coercion \(e.g., string↔number\) is not yet implemented — the Coercion slice is always empty.
 
 <a name="SchemaValidator.ValidateArgs"></a>
-### func \(\*SchemaValidator\) [ValidateArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L54>)
+### func \(\*SchemaValidator\) [ValidateArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L96>)
 
 ```go
 func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.RawMessage) error
@@ -1603,7 +1615,7 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 ValidateArgs validates tool arguments against the input schema
 
 <a name="SchemaValidator.ValidateResult"></a>
-### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L92>)
+### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L137>)
 
 ```go
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error
