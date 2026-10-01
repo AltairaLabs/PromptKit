@@ -285,6 +285,7 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	// rendered once per conversation and every later turn ships turn one's
 	// variables (#1959).
 	c.turnState.BeginTurn()
+	c.discardAbandonedResolutions()
 
 	// Build and execute pipeline
 	result, err := c.executePipeline(ctx, userMsg)
@@ -893,8 +894,9 @@ func (c *Conversation) buildResponse(
 	}
 
 	resp := &Response{
-		message:  assistantMsg,
-		duration: time.Since(startTime),
+		message:      assistantMsg,
+		duration:     time.Since(startTime),
+		turnMessages: turnMessagesOf(result.Messages),
 	}
 
 	// Extract tool calls from response if present

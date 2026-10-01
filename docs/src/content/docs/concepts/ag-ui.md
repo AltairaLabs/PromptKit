@@ -29,7 +29,7 @@ Without AG-UI, every frontend that displays agent activity needs custom integrat
 
 1. The frontend sends a **`RunAgentInput`** request describing the conversation state
 2. The server responds with a **Server-Sent Events (SSE)** stream of typed events
-3. The frontend renders events as they arrive — text tokens, tool calls, state changes, workflow steps
+3. The frontend renders events as they arrive — text, tool calls, state, workflow steps
 
 This decouples agent logic from UI rendering. Any AG-UI-compatible frontend can connect to any AG-UI-compatible backend.
 
@@ -64,8 +64,10 @@ Key fields:
 | `threadId` | Identifies the conversation thread |
 | `runId` | Unique identifier for this execution run |
 | `messages` | Conversation history in AG-UI message format |
-| `tools` | Frontend-defined tools the agent can call |
+| `tools` | Frontend tools: the application's own tools, which the agent may call and the application executes |
 | `context` | Additional context values for the agent |
+| `state` | The state the run starts from |
+| `forwardedProps` | An application-specific value passed through to the agent |
 
 ### Response: SSE Event Stream
 
@@ -76,9 +78,7 @@ data: {"type":"RUN_STARTED","threadId":"thread-abc123","runId":"run-xyz789"}
 
 data: {"type":"TEXT_MESSAGE_START","messageId":"msg-2","role":"assistant"}
 
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"Order #1234 is "}
-
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"currently in transit."}
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"Order #1234 is currently in transit."}
 
 data: {"type":"TEXT_MESSAGE_END","messageId":"msg-2"}
 
@@ -89,46 +89,45 @@ data: {"type":"RUN_FINISHED","threadId":"thread-abc123","runId":"run-xyz789"}
 
 ## Event Types
 
-AG-UI defines a rich set of event types covering the full lifecycle of an agent run:
+AG-UI defines events for the whole lifecycle of a run. The ones below are those PromptKit's adapter emits; the protocol also defines state deltas, message snapshots, reasoning, activity and subagent events, which it does not.
 
 ### Lifecycle Events
 
 | Event | Description |
 |-------|-------------|
 | `RUN_STARTED` | Agent run has begun |
-| `RUN_FINISHED` | Agent run completed successfully |
-| `RUN_ERROR` | Agent run encountered an error |
+| `RUN_FINISHED` | Agent run ended without failing. An `interrupt` outcome means it stopped to ask for outside input |
+| `RUN_ERROR` | Agent run failed |
 
-### Text Streaming Events
+### Text Message Events
 
 | Event | Description |
 |-------|-------------|
 | `TEXT_MESSAGE_START` | New assistant message beginning |
-| `TEXT_MESSAGE_CONTENT` | Incremental text token/chunk |
+| `TEXT_MESSAGE_CONTENT` | Text of the message |
 | `TEXT_MESSAGE_END` | Assistant message complete |
 
 ### Tool Call Events
 
 | Event | Description |
 |-------|-------------|
-| `TOOL_CALL_START` | Agent is invoking a tool |
-| `TOOL_CALL_ARGS` | Incremental tool call arguments (streamed) |
-| `TOOL_CALL_END` | Tool invocation complete |
-| `TOOL_CALL_RESULT` | Result returned from tool execution |
+| `TOOL_CALL_START` | Agent is calling a tool |
+| `TOOL_CALL_ARGS` | The call's arguments |
+| `TOOL_CALL_END` | The call's arguments are complete |
+| `TOOL_CALL_RESULT` | The result of a tool the agent executed |
 
-### State Synchronization Events
+### State Events
 
 | Event | Description |
 |-------|-------------|
 | `STATE_SNAPSHOT` | Full state snapshot |
-| `STATE_DELTA` | Incremental state update (JSON Patch) |
 
-### Workflow Step Events
+### Step Events
 
 | Event | Description |
 |-------|-------------|
-| `STEP_STARTED` | Workflow step has begun |
-| `STEP_FINISHED` | Workflow step completed |
+| `STEP_STARTED` | A step of the run has begun |
+| `STEP_FINISHED` | The step has finished |
 
 ---
 
@@ -146,21 +145,52 @@ PromptKit provides the `sdk/agui` package as a bridge between SDK conversations 
 
 This design means PromptKit does not impose any HTTP framework or server architecture. The `EventAdapter` produces a channel of events; how you serve them is up to you.
 
+### Protocol Version
+
+The `sdk/agui` package targets AG-UI 1.0 through the AG-UI community Go SDK. Not every 1.0 feature is produced yet; the gaps are listed under [What the Adapter Does Not Do](#what-the-adapter-does-not-do).
+
 ### Event Mapping
 
-When the `EventAdapter` observes a PromptKit conversation, it translates internal events to AG-UI events:
+The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn has run, it emits the messages the turn produced, in order:
 
 | PromptKit Activity | AG-UI Event(s) |
 |--------------------|----------------|
-| Send starts | `RUN_STARTED` |
-| Text response begins | `TEXT_MESSAGE_START` |
-| Text token streamed | `TEXT_MESSAGE_CONTENT` |
-| Text response ends | `TEXT_MESSAGE_END` |
-| Tool call initiated | `TOOL_CALL_START` → `TOOL_CALL_ARGS` → `TOOL_CALL_END` |
-| Tool result returned | `TOOL_CALL_RESULT` |
-| Workflow step transition | `STEP_STARTED` / `STEP_FINISHED` |
-| Send completes | `RUN_FINISHED` |
+| Turn starts | `RUN_STARTED` |
+| State provider configured | `STATE_SNAPSHOT` |
+| Workflow conversation | `STEP_STARTED` naming the workflow state the run starts in |
+| Each assistant message in the turn | `TEXT_MESSAGE_START` → `TEXT_MESSAGE_CONTENT` (its whole text) → `TEXT_MESSAGE_END` |
+| Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` → `TOOL_CALL_END` |
+| Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned |
+| Workflow transition committed | `STEP_FINISHED` for the old state, `STEP_STARTED` for the new one |
+| Turn completes | `STEP_FINISHED` for the open step, then `RUN_FINISHED` |
+| Turn held for tool approval | `RUN_FINISHED` with an `interrupt` outcome naming the held calls |
 | Error occurs | `RUN_ERROR` |
+
+A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them.
+
+A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`null` when there is none, `""` for an empty string).
+
+### Frontend Tools
+
+The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered — no `TOOL_CALL_RESULT` — and the application answers it in the next run's input, as a tool message. `EventAdapter.RunResume` takes those answers and continues the turn.
+
+### Approval Holds
+
+A tool registered with `OnToolAsync` can hold a call for approval. The run then ends with `RUN_FINISHED` carrying an `interrupt` outcome whose interrupts name each held call. Once your application approves or rejects the calls (`ResolveTool` / `RejectTool`), `EventAdapter.RunContinue` continues the turn and reports the approved tool's result.
+
+### Delivery
+
+The adapter never drops an event. If the consumer stops reading, the adapter waits; canceling the run's context releases it.
+
+Read `Events()` while the run is in progress, from another goroutine. Once its buffer of 64 events is full, the run waits for the reader, so code that lets `RunSend` finish before it starts reading blocks there. Before this version the adapter dropped the events that did not fit, including `RUN_FINISHED`.
+
+### What the Adapter Does Not Do
+
+- **Stream tokens.** Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.
+- **Emit** `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
+- **Name pending calls on** `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.
+- **Keep message ids stable.** The converters mint a new id each time they convert a message.
+- **Read the whole history from the input.** A PromptKit conversation keeps its own history, so the integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) passes only the new input to it. History a client edits or replaces is not reflected.
 
 ---
 
@@ -176,7 +206,7 @@ const agent = new HttpAgent({ url: "http://localhost:8080/ag-ui" });
 agent.runAgent({
   threadId: "thread-1",
   runId: "run-1",
-  messages: [{ id: "msg-1", role: "human", content: "Hello" }],
+  messages: [{ id: "msg-1", role: "user", content: "Hello" }],
   tools: [],
   context: [],
 });

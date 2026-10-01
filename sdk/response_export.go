@@ -14,6 +14,20 @@ func WithClientToolsForTest(tools []PendingClientTool) ResponseTestOption {
 	}
 }
 
+// WithPendingToolsForTest attaches approval-held tool calls to a test response.
+func WithPendingToolsForTest(tools []PendingTool) ResponseTestOption {
+	return func(r *Response) {
+		r.pendingTools = tools
+	}
+}
+
+// WithTurnMessagesForTest sets the messages [Response.TurnMessages] returns.
+func WithTurnMessagesForTest(msgs []types.Message) ResponseTestOption {
+	return func(r *Response) {
+		r.turnMessages = msgs
+	}
+}
+
 // NewResponseForTest creates a Response for use in tests outside the sdk package.
 // This is not intended for production use.
 func NewResponseForTest(text string, toolCalls []types.MessageToolCall, opts ...ResponseTestOption) *Response {

@@ -602,7 +602,7 @@ func TestBuildToolResultMessages_MultimodalParts(t *testing.T) {
 		Parts: parts,
 	})
 
-	msgs, err := conv.buildToolResultMessages()
+	msgs, err := conv.buildToolResultMessages(context.Background())
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
@@ -622,7 +622,7 @@ func TestBuildToolResultMessages_TextOnlyWrapsAsContentPart(t *testing.T) {
 	err := conv.SendToolResult(context.Background(), "call-text", map[string]any{"status": "ok"})
 	require.NoError(t, err)
 
-	msgs, err := conv.buildToolResultMessages()
+	msgs, err := conv.buildToolResultMessages(context.Background())
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
@@ -639,7 +639,7 @@ func TestBuildToolResultMessages_RejectionWrapsAsContentPart(t *testing.T) {
 
 	conv.RejectClientTool(context.Background(), "call-rej", "not allowed")
 
-	msgs, err := conv.buildToolResultMessages()
+	msgs, err := conv.buildToolResultMessages(context.Background())
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
@@ -754,7 +754,7 @@ func TestBuildToolResultMessages_ErrorBranch(t *testing.T) {
 		Error: assert.AnError,
 	})
 
-	msgs, err := conv.buildToolResultMessages()
+	msgs, err := conv.buildToolResultMessages(context.Background())
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	// The message content should contain "Tool error"

@@ -276,6 +276,7 @@ func (c *Conversation) executeStreamingPipeline(
 	// End the previous turn's render cache — see Send (#1959). The streaming
 	// path shares the Conversation's TurnState, so it freezes the same way.
 	c.turnState.BeginTurn()
+	c.discardAbandonedResolutions()
 
 	// Execute streaming through the unary session (only called from Stream which checks mode)
 	streamCh, err := c.unarySession.ExecuteStreamWithMessage(c.withConversationState(ctx), *userMsg)
@@ -536,6 +537,7 @@ func (c *Conversation) buildStreamingResponse(
 	// leave the other silently returning nil.
 	if state.finalResult != nil {
 		resp.message.Reasoning = lastAssistantReasoning(state.finalResult.Messages)
+		resp.turnMessages = turnMessagesOf(state.finalResult.Messages)
 	}
 
 	// Populate pending client tools from stream state

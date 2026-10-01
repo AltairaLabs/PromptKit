@@ -119,9 +119,11 @@ func TestMessageToAGUI_MultimodalWithImage(t *testing.T) {
 	assert.Equal(t, string(aguitypes.InputContentTypeText), contents[0].Type)
 	assert.Equal(t, "What is in this image?", contents[0].Text)
 
-	assert.Equal(t, string(aguitypes.InputContentTypeBinary), contents[1].Type)
-	assert.Equal(t, "image/png", contents[1].MimeType)
-	assert.Equal(t, "https://example.com/image.png", contents[1].URL)
+	assert.Equal(t, aguitypes.InputContentTypeImage, contents[1].Type, "AG-UI 1.0 retired the binary part")
+	require.NotNil(t, contents[1].Source)
+	assert.Equal(t, aguitypes.InputContentSource{
+		Type: aguitypes.InputContentSourceTypeURL, Value: "https://example.com/image.png", MimeType: "image/png",
+	}, *contents[1].Source)
 }
 
 func TestMessageToAGUI_MultimodalWithBase64Image(t *testing.T) {
@@ -144,9 +146,11 @@ func TestMessageToAGUI_MultimodalWithBase64Image(t *testing.T) {
 	contents, ok := result.Content.([]aguitypes.InputContent)
 	require.True(t, ok)
 	require.Len(t, contents, 1)
-	assert.Equal(t, string(aguitypes.InputContentTypeBinary), contents[0].Type)
-	assert.Equal(t, "iVBORw0KGgoAAAANSUhEUg==", contents[0].Data)
-	assert.Equal(t, "image/png", contents[0].MimeType)
+	assert.Equal(t, aguitypes.InputContentTypeImage, contents[0].Type)
+	require.NotNil(t, contents[0].Source)
+	assert.Equal(t, aguitypes.InputContentSource{
+		Type: aguitypes.InputContentSourceTypeData, Value: "iVBORw0KGgoAAAANSUhEUg==", MimeType: "image/png",
+	}, *contents[0].Source)
 }
 
 func TestMessageFromAGUI_UserTextMessage(t *testing.T) {
@@ -551,6 +555,7 @@ func TestToolFromAGUI_CorrectType(t *testing.T) {
 	assert.IsType(t, &tools.ToolDescriptor{}, result)
 	assert.Equal(t, "my_tool", result.Name)
 	assert.Equal(t, "desc", result.Description)
+	assert.Equal(t, "client", result.Mode)
 }
 
 func TestContentPartToAGUI_TextNilText(t *testing.T) {
@@ -566,7 +571,7 @@ func TestContentPartToAGUI_ImageNilMedia(t *testing.T) {
 }
 
 func TestContentPartToAGUI_UnknownType(t *testing.T) {
-	part := types.ContentPart{Type: "video"}
+	part := types.ContentPart{Type: types.ContentTypeThinking}
 	_, ok := contentPartToAGUI(part)
 	assert.False(t, ok)
 }
