@@ -135,6 +135,22 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 			break
 		}
 
+		// A rate limit says when it lifts. Waiting less only burns an attempt
+		// against a limit still in force, and waiting longer than the policy
+		// allows would stall the caller, so a Retry-After past the cap ends
+		// the retries here, before spending a budget token on them.
+		delay, ok := req.Policy.RetryDelay(attempt, retryAfterOf(classifyErr))
+		if !ok {
+			metrics.RetryAttempt(req.ProviderName, "retry_after_too_long")
+			logger.Warn("streaming retry skipped: Retry-After exceeds the policy's cap",
+				"provider", req.ProviderName,
+				"retry_after", retryAfterOf(classifyErr).String(),
+				"max_retry_after", req.Policy.MaxRetryAfterOrDefault().String(),
+				"error", classifyErr,
+			)
+			break
+		}
+
 		// Before we commit to a retry, take a token from the budget.
 		// Empty budget = fail fast. This is the load-bearing line of
 		// Phase 2: when an upstream connection reset kills 100 streams
@@ -155,7 +171,6 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 		metrics.ObserveRetryBudgetAvailable(req.ProviderName, req.Host, req.Budget)
 
 		metrics.RetryAttempt(req.ProviderName, "failed")
-		delay := req.Policy.BackoffFor(attempt)
 		logger.Warn("retrying streaming request (pre-first-chunk)",
 			"provider", req.ProviderName,
 			"attempt", attempt+1,
@@ -172,6 +187,15 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 	}
 
 	return nil, lastErr
+}
+
+// retryAfterOf returns the Retry-After an attempt's HTTP error carried, or zero.
+func retryAfterOf(err error) time.Duration {
+	var httpErr *ProviderHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.RetryAfter
+	}
+	return 0
 }
 
 // classifyStreamAttempt inspects a (*http.Response, error) pair and decides
@@ -204,6 +228,7 @@ func classifyStreamAttempt(
 			URL:        url,
 			Body:       string(body),
 			Provider:   providerName,
+			RetryAfter: parseRetryAfter(resp),
 		}
 		return nil, IsTransient(httpErr), httpErr
 	}

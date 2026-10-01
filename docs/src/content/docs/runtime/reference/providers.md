@@ -321,6 +321,8 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(p StreamRetryPolicy\) BackoffFor\(attempt int\) time.Duration](<#StreamRetryPolicy.BackoffFor>)
   - [func \(p StreamRetryPolicy\) InitialDelayOrDefault\(\) time.Duration](<#StreamRetryPolicy.InitialDelayOrDefault>)
   - [func \(p StreamRetryPolicy\) MaxDelayOrDefault\(\) time.Duration](<#StreamRetryPolicy.MaxDelayOrDefault>)
+  - [func \(p StreamRetryPolicy\) MaxRetryAfterOrDefault\(\) time.Duration](<#StreamRetryPolicy.MaxRetryAfterOrDefault>)
+  - [func \(p StreamRetryPolicy\) RetryDelay\(attempt int, retryAfter time.Duration\) \(delay time.Duration, ok bool\)](<#StreamRetryPolicy.RetryDelay>)
 - [type StreamRetryRequest](<#StreamRetryRequest>)
 - [type StreamRetryResult](<#StreamRetryResult>)
   - [func OpenStreamWithRetry\(ctx context.Context, policy StreamRetryPolicy, providerName string, idleTimeout time.Duration, requestFn func\(ctx context.Context\) \(\*http.Request, error\), client \*http.Client\) \(\*StreamRetryResult, error\)](<#OpenStreamWithRetry>)
@@ -434,6 +436,9 @@ const (
     DefaultStreamRetryMaxAttempts  = 2
     DefaultStreamRetryInitialDelay = 250 * time.Millisecond
     DefaultStreamRetryMaxDelay     = 2 * time.Second
+    // DefaultStreamRetryMaxRetryAfter bounds how long a server's Retry-After
+    // may hold a retry. Rate-limit responses commonly ask for tens of seconds.
+    DefaultStreamRetryMaxRetryAfter = 60 * time.Second
 )
 ```
 
@@ -635,7 +640,7 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool
 IsFormatSupported checks if a provider supports a specific media format \(MIME type\)
 
 <a name="IsRetryableStreamError"></a>
-## func [IsRetryableStreamError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L141>)
+## func [IsRetryableStreamError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L170>)
 
 ```go
 func IsRetryableStreamError(err error) bool
@@ -646,7 +651,7 @@ IsRetryableStreamError returns true if the error looks like a transient streamin
 This deliberately covers a narrower set than isRetryableError in retry.go: we want h2 stream resets, TCP resets, TLS close\_notify races, and idle connection reuse failures — but never context cancellation, deadline, or application\-layer parse errors.
 
 <a name="IsRetryableStreamStatus"></a>
-## func [IsRetryableStreamStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L187>)
+## func [IsRetryableStreamStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L216>)
 
 ```go
 func IsRetryableStreamStatus(code int) bool
@@ -664,7 +669,7 @@ func IsStreamIdleTimeout(err error) bool
 IsStreamIdleTimeout checks if an error is \(or wraps\) a stream idle timeout.
 
 <a name="IsTransient"></a>
-## func [IsTransient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L60>)
+## func [IsTransient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L64>)
 
 ```go
 func IsTransient(err error) bool
@@ -767,7 +772,7 @@ func NormalizeOpenAIFinishReason(raw string) string
 NormalizeOpenAIFinishReason maps an OpenAI\-wire finish\_reason onto the canonical vocabulary in runtime/types. Unknown \(and empty\) values pass through verbatim so a new provider reason is never silently swallowed. Shared by the OpenAI, vLLM, and Ollama providers, which speak this vocabulary.
 
 <a name="ParsePlatformHTTPError"></a>
-## func [ParsePlatformHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L86>)
+## func [ParsePlatformHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L90>)
 
 ```go
 func ParsePlatformHTTPError(platform string, statusCode int, body []byte) error
@@ -876,7 +881,7 @@ func RegisteredRerankProviderTypes() []string
 RegisteredRerankProviderTypes returns the rerank provider types with a registered factory, sorted. Use it to check a configured type before CreateRerankProviderFromSpec rather than constructing and parsing the error.
 
 <a name="ResetDefaultStreamMetrics"></a>
-## func [ResetDefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L515>)
+## func [ResetDefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L518>)
 
 ```go
 func ResetDefaultStreamMetrics()
@@ -2727,7 +2732,7 @@ func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFa
 RejectPlatforms wraps a ProviderFactory so it returns an UnsupportedProviderPlatformError when spec.Platform is in rejected. Used by per\-provider init\(\) to fail fast on \(provider, platform\) pairs the underlying vendor doesn't host. Pairs that are real partner endpoints either route through inner with a custom URL builder, or fall through unchanged when the spec carries no platform.
 
 <a name="ProviderHTTPError"></a>
-## type [ProviderHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L16-L21>)
+## type [ProviderHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L17-L25>)
 
 ProviderHTTPError wraps a non\-2xx HTTP response from a provider API. Use errors.As to extract the status code for classification.
 
@@ -2737,11 +2742,14 @@ type ProviderHTTPError struct {
     URL        string
     Body       string
     Provider   string
+    // RetryAfter is the delay the response's Retry-After header asked for,
+    // or zero when it sent none.
+    RetryAfter time.Duration
 }
 ```
 
 <a name="ProviderHTTPError.Error"></a>
-### func \(\*ProviderHTTPError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L26>)
+### func \(\*ProviderHTTPError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L30>)
 
 ```go
 func (e *ProviderHTTPError) Error() string
@@ -2876,7 +2884,7 @@ type ProviderTools = any
 ```
 
 <a name="ProviderTransportError"></a>
-## type [ProviderTransportError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L34-L37>)
+## type [ProviderTransportError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L38-L41>)
 
 ProviderTransportError wraps a connection\-level failure \(http2 reset, TCP reset, dial timeout, etc.\). These are always transient.
 
@@ -2888,7 +2896,7 @@ type ProviderTransportError struct {
 ```
 
 <a name="ProviderTransportError.Error"></a>
-### func \(\*ProviderTransportError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L48>)
+### func \(\*ProviderTransportError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L52>)
 
 ```go
 func (e *ProviderTransportError) Error() string
@@ -2899,7 +2907,7 @@ Error redacts credential\-bearing query parameters. The cause is typically a \*u
 Unwrap deliberately still returns the raw cause: errors.Is/As must keep working against the original \*url.Error. Anything that formats the unwrapped cause directly bypasses this, which is why the credential should not be in the URL to begin with.
 
 <a name="ProviderTransportError.Unwrap"></a>
-### func \(\*ProviderTransportError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L52>)
+### func \(\*ProviderTransportError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L56>)
 
 ```go
 func (e *ProviderTransportError) Unwrap() error
@@ -3709,7 +3717,7 @@ type StreamMetrics struct {
 ```
 
 <a name="DefaultStreamMetrics"></a>
-### func [DefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L507>)
+### func [DefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L510>)
 
 ```go
 func DefaultStreamMetrics() *StreamMetrics
@@ -3729,7 +3737,7 @@ NewStreamMetrics creates and registers the Phase 1 streaming metrics into the gi
 Returns a non\-nil \*StreamMetrics. Re\-registration of the same metric name into the same registry will panic \(Prometheus semantic\), so the default registration path uses sync.Once via RegisterDefaultStreamMetrics.
 
 <a name="RegisterDefaultStreamMetrics"></a>
-### func [RegisterDefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L491-L495>)
+### func [RegisterDefaultStreamMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L494-L498>)
 
 ```go
 func RegisterDefaultStreamMetrics(registerer prometheus.Registerer, namespace string, constLabels prometheus.Labels) *StreamMetrics
@@ -3740,7 +3748,7 @@ RegisterDefaultStreamMetrics creates and installs a process\-wide StreamMetrics 
 Hosts \(Arena, SDK, server\) call this once during startup. Code that only cares about metrics being present calls DefaultStreamMetrics\(\) and gets a nil on a misconfigured host, which is safe \(methods no\-op\).
 
 <a name="StreamMetrics.ConcurrencyRejected"></a>
-### func \(\*StreamMetrics\) [ConcurrencyRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L346>)
+### func \(\*StreamMetrics\) [ConcurrencyRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L349>)
 
 ```go
 func (m *StreamMetrics) ConcurrencyRejected(provider, reason string)
@@ -3749,7 +3757,7 @@ func (m *StreamMetrics) ConcurrencyRejected(provider, reason string)
 ConcurrencyRejected records one streaming request rejected by the per\-provider concurrency semaphore. Reason distinguishes between caller\-initiated cancellation \("context\_canceled"\) and deadline timeout \("deadline\_exceeded"\); sustained spikes in either indicate the semaphore limit is undersized or upstream is saturated. Nil\-safe.
 
 <a name="StreamMetrics.FrameDropAdd"></a>
-### func \(\*StreamMetrics\) [FrameDropAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L427>)
+### func \(\*StreamMetrics\) [FrameDropAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L430>)
 
 ```go
 func (m *StreamMetrics) FrameDropAdd(direction, reason string, n int)
@@ -3758,7 +3766,7 @@ func (m *StreamMetrics) FrameDropAdd(direction, reason string, n int)
 FrameDropAdd adds n dropped samples for \(direction, reason\). reason is a small closed set \(e.g. "overflow"\). Nil\-safe.
 
 <a name="StreamMetrics.FrameDropsVec"></a>
-### func \(\*StreamMetrics\) [FrameDropsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L460>)
+### func \(\*StreamMetrics\) [FrameDropsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L463>)
 
 ```go
 func (m *StreamMetrics) FrameDropsVec() *prometheus.CounterVec
@@ -3767,7 +3775,7 @@ func (m *StreamMetrics) FrameDropsVec() *prometheus.CounterVec
 FrameDropsVec returns the raw counter vec for cross\-package tests.
 
 <a name="StreamMetrics.FrameUnderrunInc"></a>
-### func \(\*StreamMetrics\) [FrameUnderrunInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L409>)
+### func \(\*StreamMetrics\) [FrameUnderrunInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L412>)
 
 ```go
 func (m *StreamMetrics) FrameUnderrunInc(direction string)
@@ -3776,7 +3784,7 @@ func (m *StreamMetrics) FrameUnderrunInc(direction string)
 FrameUnderrunInc records one realtime\-audio consumer pull that short\-filled with silence \(a stutter\). direction is "input" or "output". Nil\-safe.
 
 <a name="StreamMetrics.FrameUnderrunSamplesAdd"></a>
-### func \(\*StreamMetrics\) [FrameUnderrunSamplesAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L418>)
+### func \(\*StreamMetrics\) [FrameUnderrunSamplesAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L421>)
 
 ```go
 func (m *StreamMetrics) FrameUnderrunSamplesAdd(direction string, n int)
@@ -3785,7 +3793,7 @@ func (m *StreamMetrics) FrameUnderrunSamplesAdd(direction string, n int)
 FrameUnderrunSamplesAdd adds n silence samples substituted on underrun to the magnitude counter for direction. Nil\-safe.
 
 <a name="StreamMetrics.FrameUnderrunSamplesVec"></a>
-### func \(\*StreamMetrics\) [FrameUnderrunSamplesVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L452>)
+### func \(\*StreamMetrics\) [FrameUnderrunSamplesVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L455>)
 
 ```go
 func (m *StreamMetrics) FrameUnderrunSamplesVec() *prometheus.CounterVec
@@ -3794,7 +3802,7 @@ func (m *StreamMetrics) FrameUnderrunSamplesVec() *prometheus.CounterVec
 FrameUnderrunSamplesVec returns the raw counter vec for cross\-package tests.
 
 <a name="StreamMetrics.FrameUnderrunsVec"></a>
-### func \(\*StreamMetrics\) [FrameUnderrunsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L444>)
+### func \(\*StreamMetrics\) [FrameUnderrunsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L447>)
 
 ```go
 func (m *StreamMetrics) FrameUnderrunsVec() *prometheus.CounterVec
@@ -3803,7 +3811,7 @@ func (m *StreamMetrics) FrameUnderrunsVec() *prometheus.CounterVec
 FrameUnderrunsVec returns the raw counter vec for cross\-package tests.
 
 <a name="StreamMetrics.HTTPConnsInUseDec"></a>
-### func \(\*StreamMetrics\) [HTTPConnsInUseDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L266>)
+### func \(\*StreamMetrics\) [HTTPConnsInUseDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L267>)
 
 ```go
 func (m *StreamMetrics) HTTPConnsInUseDec(host string)
@@ -3812,7 +3820,7 @@ func (m *StreamMetrics) HTTPConnsInUseDec(host string)
 HTTPConnsInUseDec decrements the in\-use HTTP connection gauge for a host. Called by the conn\-tracking transport wrapper when a request's response body is closed \(or when the RoundTrip errored before returning a body\). Nil\-safe.
 
 <a name="StreamMetrics.HTTPConnsInUseInc"></a>
-### func \(\*StreamMetrics\) [HTTPConnsInUseInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L255>)
+### func \(\*StreamMetrics\) [HTTPConnsInUseInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L256>)
 
 ```go
 func (m *StreamMetrics) HTTPConnsInUseInc(host string)
@@ -3821,7 +3829,7 @@ func (m *StreamMetrics) HTTPConnsInUseInc(host string)
 HTTPConnsInUseInc increments the in\-use HTTP connection gauge for a host. Called by the conn\-tracking transport wrapper at the start of each RoundTrip. Nil\-safe.
 
 <a name="StreamMetrics.ObserveFirstChunkLatency"></a>
-### func \(\*StreamMetrics\) [ObserveFirstChunkLatency](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L311>)
+### func \(\*StreamMetrics\) [ObserveFirstChunkLatency](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L312>)
 
 ```go
 func (m *StreamMetrics) ObserveFirstChunkLatency(provider string, d time.Duration)
@@ -3830,7 +3838,7 @@ func (m *StreamMetrics) ObserveFirstChunkLatency(provider string, d time.Duratio
 ObserveFirstChunkLatency records the time from request dispatch to the first SSE data event being observed for a provider. Nil\-safe.
 
 <a name="StreamMetrics.ObserveRetryBudgetAvailable"></a>
-### func \(\*StreamMetrics\) [ObserveRetryBudgetAvailable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L363>)
+### func \(\*StreamMetrics\) [ObserveRetryBudgetAvailable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L366>)
 
 ```go
 func (m *StreamMetrics) ObserveRetryBudgetAvailable(provider, host string, budget *RetryBudget)
@@ -3841,7 +3849,7 @@ ObserveRetryBudgetAvailable samples the current token count of a retry budget an
 A nil budget publishes 0, which is intentional: it lets operators distinguish "no budget configured" \(gauge absent\) from "budget fully drained" \(gauge at 0\) by gauge presence rather than value. Nil\-safe on the receiver.
 
 <a name="StreamMetrics.ObserveStreamErrorChunksForwarded"></a>
-### func \(\*StreamMetrics\) [ObserveStreamErrorChunksForwarded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L245>)
+### func \(\*StreamMetrics\) [ObserveStreamErrorChunksForwarded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L246>)
 
 ```go
 func (m *StreamMetrics) ObserveStreamErrorChunksForwarded(provider string, chunks int)
@@ -3850,7 +3858,7 @@ func (m *StreamMetrics) ObserveStreamErrorChunksForwarded(provider string, chunk
 ObserveStreamErrorChunksForwarded records how many content chunks were forwarded downstream before a streaming request terminated with an error. Called exactly once per errored stream by the RunStreamingRequest relay goroutine, with the count of non\-empty content chunks observed prior to the terminal error chunk. Nil\-safe.
 
 <a name="StreamMetrics.PacingBehindDeadlineInc"></a>
-### func \(\*StreamMetrics\) [PacingBehindDeadlineInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L436>)
+### func \(\*StreamMetrics\) [PacingBehindDeadlineInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L439>)
 
 ```go
 func (m *StreamMetrics) PacingBehindDeadlineInc(direction string)
@@ -3859,7 +3867,7 @@ func (m *StreamMetrics) PacingBehindDeadlineInc(direction string)
 PacingBehindDeadlineInc records one occurrence of the audio pacing stage being past a chunk's playback deadline \(cannot hold real time\). Nil\-safe.
 
 <a name="StreamMetrics.PacingBehindDeadlineVec"></a>
-### func \(\*StreamMetrics\) [PacingBehindDeadlineVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L468>)
+### func \(\*StreamMetrics\) [PacingBehindDeadlineVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L471>)
 
 ```go
 func (m *StreamMetrics) PacingBehindDeadlineVec() *prometheus.CounterVec
@@ -3868,7 +3876,7 @@ func (m *StreamMetrics) PacingBehindDeadlineVec() *prometheus.CounterVec
 PacingBehindDeadlineVec returns the raw counter vec for cross\-package tests.
 
 <a name="StreamMetrics.PipelineStageAudioBytesAdd"></a>
-### func \(\*StreamMetrics\) [PipelineStageAudioBytesAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L383>)
+### func \(\*StreamMetrics\) [PipelineStageAudioBytesAdd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L386>)
 
 ```go
 func (m *StreamMetrics) PipelineStageAudioBytesAdd(stage string, bytes int)
@@ -3877,7 +3885,7 @@ func (m *StreamMetrics) PipelineStageAudioBytesAdd(stage string, bytes int)
 PipelineStageAudioBytesAdd adds to the audio byte counter for a pipeline stage. Called with the raw PCM byte count of each audio element that flows through the stage. Nil\-safe.
 
 <a name="StreamMetrics.PipelineStageAudioBytesVec"></a>
-### func \(\*StreamMetrics\) [PipelineStageAudioBytesVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L400>)
+### func \(\*StreamMetrics\) [PipelineStageAudioBytesVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L403>)
 
 ```go
 func (m *StreamMetrics) PipelineStageAudioBytesVec() *prometheus.CounterVec
@@ -3886,7 +3894,7 @@ func (m *StreamMetrics) PipelineStageAudioBytesVec() *prometheus.CounterVec
 PipelineStageAudioBytesVec returns the raw counter vec for testing.
 
 <a name="StreamMetrics.PipelineStageElementInc"></a>
-### func \(\*StreamMetrics\) [PipelineStageElementInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L373>)
+### func \(\*StreamMetrics\) [PipelineStageElementInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L376>)
 
 ```go
 func (m *StreamMetrics) PipelineStageElementInc(stage string)
@@ -3895,7 +3903,7 @@ func (m *StreamMetrics) PipelineStageElementInc(stage string)
 PipelineStageElementInc increments the element counter for a pipeline stage. Called by the pipeline runner after each element flows through a stage's output channel. Nil\-safe.
 
 <a name="StreamMetrics.PipelineStageElementsVec"></a>
-### func \(\*StreamMetrics\) [PipelineStageElementsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L392>)
+### func \(\*StreamMetrics\) [PipelineStageElementsVec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L395>)
 
 ```go
 func (m *StreamMetrics) PipelineStageElementsVec() *prometheus.CounterVec
@@ -3904,7 +3912,7 @@ func (m *StreamMetrics) PipelineStageElementsVec() *prometheus.CounterVec
 Package\-level default instance. Hosts register it by calling PipelineStageElementsVec returns the raw counter vec for testing.
 
 <a name="StreamMetrics.ProviderCallsInFlightDec"></a>
-### func \(\*StreamMetrics\) [ProviderCallsInFlightDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L302>)
+### func \(\*StreamMetrics\) [ProviderCallsInFlightDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L303>)
 
 ```go
 func (m *StreamMetrics) ProviderCallsInFlightDec(provider string)
@@ -3913,7 +3921,7 @@ func (m *StreamMetrics) ProviderCallsInFlightDec(provider string)
 ProviderCallsInFlightDec decrements the total in\-flight provider call gauge. Nil\-safe.
 
 <a name="StreamMetrics.ProviderCallsInFlightInc"></a>
-### func \(\*StreamMetrics\) [ProviderCallsInFlightInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L293>)
+### func \(\*StreamMetrics\) [ProviderCallsInFlightInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L294>)
 
 ```go
 func (m *StreamMetrics) ProviderCallsInFlightInc(provider string)
@@ -3922,7 +3930,7 @@ func (m *StreamMetrics) ProviderCallsInFlightInc(provider string)
 ProviderCallsInFlightInc increments the total in\-flight provider call gauge. Nil\-safe.
 
 <a name="StreamMetrics.ProviderRetry"></a>
-### func \(\*StreamMetrics\) [ProviderRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L334>)
+### func \(\*StreamMetrics\) [ProviderRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L337>)
 
 ```go
 func (m *StreamMetrics) ProviderRetry(provider, outcome string)
@@ -3931,16 +3939,16 @@ func (m *StreamMetrics) ProviderRetry(provider, outcome string)
 ProviderRetry records one non\-streaming retry event from DoWithRetry. Outcome values: "retry", "success" \(recovered after retrying\) and "exhausted". Nil\-safe.
 
 <a name="StreamMetrics.RetryAttempt"></a>
-### func \(\*StreamMetrics\) [RetryAttempt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L324>)
+### func \(\*StreamMetrics\) [RetryAttempt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L327>)
 
 ```go
 func (m *StreamMetrics) RetryAttempt(provider, outcome string)
 ```
 
-RetryAttempt records one streaming retry attempt with an outcome label. Outcome values: "success" \(attempt that produced a usable stream\), "failed" \(retryable transient failure that will be retried\), "exhausted" \(last attempt failed, no more retries\), or "budget\_exhausted" \(retry was rejected because the per\-provider retry budget had no tokens\). Nil\-safe.
+RetryAttempt records one streaming retry attempt with an outcome label. Outcome values: "success" \(attempt that produced a usable stream\), "failed" \(retryable transient failure that will be retried\), "exhausted" \(last attempt failed, no more retries\), "budget\_exhausted" \(retry was rejected because the per\-provider retry budget had no tokens\), or "retry\_after\_too\_long" \(the server's Retry\-After exceeded the policy's MaxRetryAfter, so no retry was attempted\). Nil\-safe.
 
 <a name="StreamMetrics.StreamsInFlightDec"></a>
-### func \(\*StreamMetrics\) [StreamsInFlightDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L284>)
+### func \(\*StreamMetrics\) [StreamsInFlightDec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L285>)
 
 ```go
 func (m *StreamMetrics) StreamsInFlightDec(provider string)
@@ -3949,7 +3957,7 @@ func (m *StreamMetrics) StreamsInFlightDec(provider string)
 StreamsInFlightDec decrements the in\-flight stream gauge for a provider. Nil\-safe.
 
 <a name="StreamMetrics.StreamsInFlightInc"></a>
-### func \(\*StreamMetrics\) [StreamsInFlightInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L275>)
+### func \(\*StreamMetrics\) [StreamsInFlightInc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_metrics.go#L276>)
 
 ```go
 func (m *StreamMetrics) StreamsInFlightInc(provider string)
@@ -4052,7 +4060,7 @@ func (p *StreamPump) Wait()
 Wait blocks until the pump has finished draining and closed Response\(\). Call it from the receive loop's exit, after closing the input channel and before canceling the context, so any terminal chunk is delivered first.
 
 <a name="StreamRetryPolicy"></a>
-## type [StreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L59-L73>)
+## type [StreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L62-L81>)
 
 StreamRetryPolicy governs bounded retry behavior for streaming requests that fail before any content chunk has been forwarded downstream.
 
@@ -4073,11 +4081,16 @@ type StreamRetryPolicy struct {
     // Window controls which point in the stream lifecycle is eligible for
     // retry. Empty falls back to StreamRetryWindowPreFirstChunk.
     Window StreamRetryWindow
+    // MaxRetryAfter is the longest a server's Retry-After may make a retry
+    // wait. A failure asking for longer is not retried at all: retrying
+    // sooner than the server allows only spends an attempt against a limit
+    // still in force. Zero falls back to DefaultStreamRetryMaxRetryAfter.
+    MaxRetryAfter time.Duration
 }
 ```
 
 <a name="DisabledStreamRetryPolicy"></a>
-### func [DisabledStreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L77>)
+### func [DisabledStreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L85>)
 
 ```go
 func DisabledStreamRetryPolicy() StreamRetryPolicy
@@ -4086,7 +4099,7 @@ func DisabledStreamRetryPolicy() StreamRetryPolicy
 DisabledStreamRetryPolicy returns a zero\-value policy \(retry off\). Used as the BaseProvider default so callers never see nil.
 
 <a name="StreamRetryPolicy.Attempts"></a>
-### func \(StreamRetryPolicy\) [Attempts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L83>)
+### func \(StreamRetryPolicy\) [Attempts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L91>)
 
 ```go
 func (p StreamRetryPolicy) Attempts() int
@@ -4095,7 +4108,7 @@ func (p StreamRetryPolicy) Attempts() int
 Attempts returns the normalized number of attempts \(\>=1\). Returns 1 when retry is disabled so callers can use it unconditionally in a for loop.
 
 <a name="StreamRetryPolicy.BackoffFor"></a>
-### func \(StreamRetryPolicy\) [BackoffFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L114>)
+### func \(StreamRetryPolicy\) [BackoffFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L143>)
 
 ```go
 func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration
@@ -4104,7 +4117,7 @@ func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration
 BackoffFor computes the delay for the given attempt index \(0\-based\) using full jitter: uniform random in \[0, min\(maxDelay, initialDelay \* 2^attempt\)\]. Full jitter \(as opposed to equal or decorrelated jitter\) is deliberate — when a single h2 connection reset kills \~100 streams, equal jitter still synchronizes the retries into narrow buckets; full jitter smears them.
 
 <a name="StreamRetryPolicy.InitialDelayOrDefault"></a>
-### func \(StreamRetryPolicy\) [InitialDelayOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L94>)
+### func \(StreamRetryPolicy\) [InitialDelayOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L102>)
 
 ```go
 func (p StreamRetryPolicy) InitialDelayOrDefault() time.Duration
@@ -4113,13 +4126,31 @@ func (p StreamRetryPolicy) InitialDelayOrDefault() time.Duration
 InitialDelayOrDefault returns the configured initial delay or the default.
 
 <a name="StreamRetryPolicy.MaxDelayOrDefault"></a>
-### func \(StreamRetryPolicy\) [MaxDelayOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L102>)
+### func \(StreamRetryPolicy\) [MaxDelayOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L110>)
 
 ```go
 func (p StreamRetryPolicy) MaxDelayOrDefault() time.Duration
 ```
 
 MaxDelayOrDefault returns the configured max delay or the default.
+
+<a name="StreamRetryPolicy.MaxRetryAfterOrDefault"></a>
+### func \(StreamRetryPolicy\) [MaxRetryAfterOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L118>)
+
+```go
+func (p StreamRetryPolicy) MaxRetryAfterOrDefault() time.Duration
+```
+
+MaxRetryAfterOrDefault returns the configured Retry\-After cap or the default.
+
+<a name="StreamRetryPolicy.RetryDelay"></a>
+### func \(StreamRetryPolicy\) [RetryDelay](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L131>)
+
+```go
+func (p StreamRetryPolicy) RetryDelay(attempt int, retryAfter time.Duration) (delay time.Duration, ok bool)
+```
+
+RetryDelay returns how long to wait before retrying after the given attempt \(0\-based\) failed, honoring the server's Retry\-After when it sent one: the wait is the longer of Retry\-After and the jittered backoff, so a rate limit is not retried while still in force \(the non\-streaming path does the same\). ok is false when Retry\-After exceeds MaxRetryAfter — the caller should stop retrying rather than retry early.
 
 <a name="StreamRetryRequest"></a>
 ## type [StreamRetryRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry_driver.go#L34-L49>)
@@ -4190,7 +4221,7 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 OpenStreamWithRetryRequest is the full\-featured form of OpenStreamWithRetry that accepts a budget and host label. Retries beyond the initial attempt must acquire a token from req.Budget \(if non\-nil\) before re\-dialing; an empty budget causes the function to return the last error immediately \(fail\-fast\) rather than waiting for token refill.
 
 <a name="StreamRetryWindow"></a>
-## type [StreamRetryWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L35>)
+## type [StreamRetryWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L38>)
 
 StreamRetryWindow enumerates the points at which a streaming request may still be retried.
 

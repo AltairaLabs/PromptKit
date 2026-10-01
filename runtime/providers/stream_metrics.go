@@ -126,9 +126,10 @@ func NewStreamMetrics(
 			ConstLabels: constLabels,
 		}, []string{"provider"}),
 		streamRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace:   namespace,
-			Name:        "stream_retries_total",
-			Help:        "Total streaming retry attempts, labeled by outcome (success, failed, budget_exhausted).",
+			Namespace: namespace,
+			Name:      "stream_retries_total",
+			Help: "Total streaming retry attempts, labeled by outcome " +
+				"(success, failed, exhausted, budget_exhausted, retry_after_too_long).",
 			ConstLabels: constLabels,
 		}, []string{"provider", "outcome"}),
 		providerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -318,8 +319,10 @@ func (m *StreamMetrics) ObserveFirstChunkLatency(provider string, d time.Duratio
 // RetryAttempt records one streaming retry attempt with an outcome label.
 // Outcome values: "success" (attempt that produced a usable stream),
 // "failed" (retryable transient failure that will be retried), "exhausted"
-// (last attempt failed, no more retries), or "budget_exhausted" (retry
-// was rejected because the per-provider retry budget had no tokens).
+// (last attempt failed, no more retries), "budget_exhausted" (retry
+// was rejected because the per-provider retry budget had no tokens), or
+// "retry_after_too_long" (the server's Retry-After exceeded the policy's
+// MaxRetryAfter, so no retry was attempted).
 // Nil-safe.
 func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 	if m == nil {

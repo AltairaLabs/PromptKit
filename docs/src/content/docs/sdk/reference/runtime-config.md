@@ -219,7 +219,7 @@ Bounded retry for streaming requests. By default, retry only fires in the pre-fi
 | `enabled` | bool | Turn the retry loop on. Default: `false`. |
 | `max_attempts` | int | Total attempts including the initial request. `2` = one retry. Default: `2`. |
 | `initial_delay` | string | Base backoff before the first retry. Go duration string. Default: `"250ms"`. |
-| `max_delay` | string | Maximum per-attempt backoff. Go duration string. Default: `"2s"`. |
+| `max_delay` | string | Maximum per-attempt backoff. Go duration string. Default: `"2s"`. This caps PromptKit's own backoff, not the server's: when a `429` or `503` response carries `Retry-After`, the retry waits the longer of `Retry-After` and the backoff. If `Retry-After` asks for more than 60 seconds, the request is not retried and the error is returned immediately, rather than retrying while the limit is still in force. The 60-second cap can be changed in code with `StreamRetryPolicy.MaxRetryAfter`. |
 | `retry_window` | string | `"pre_first_chunk"` (default, safe) or `"always"` (mid-stream reset retry, costs tokens). |
 | `budget` | object | Token bucket that gates retry attempts to prevent thundering-herd reconnects. See below. |
 

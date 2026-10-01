@@ -28,6 +28,9 @@ const (
 	DefaultStreamRetryMaxAttempts  = 2
 	DefaultStreamRetryInitialDelay = 250 * time.Millisecond
 	DefaultStreamRetryMaxDelay     = 2 * time.Second
+	// DefaultStreamRetryMaxRetryAfter bounds how long a server's Retry-After
+	// may hold a retry. Rate-limit responses commonly ask for tens of seconds.
+	DefaultStreamRetryMaxRetryAfter = 60 * time.Second
 )
 
 // StreamRetryWindow enumerates the points at which a streaming request may
@@ -70,6 +73,11 @@ type StreamRetryPolicy struct {
 	// Window controls which point in the stream lifecycle is eligible for
 	// retry. Empty falls back to StreamRetryWindowPreFirstChunk.
 	Window StreamRetryWindow
+	// MaxRetryAfter is the longest a server's Retry-After may make a retry
+	// wait. A failure asking for longer is not retried at all: retrying
+	// sooner than the server allows only spends an attempt against a limit
+	// still in force. Zero falls back to DefaultStreamRetryMaxRetryAfter.
+	MaxRetryAfter time.Duration
 }
 
 // DisabledStreamRetryPolicy returns a zero-value policy (retry off). Used
@@ -104,6 +112,27 @@ func (p StreamRetryPolicy) MaxDelayOrDefault() time.Duration {
 		return p.MaxDelay
 	}
 	return DefaultStreamRetryMaxDelay
+}
+
+// MaxRetryAfterOrDefault returns the configured Retry-After cap or the default.
+func (p StreamRetryPolicy) MaxRetryAfterOrDefault() time.Duration {
+	if p.MaxRetryAfter > 0 {
+		return p.MaxRetryAfter
+	}
+	return DefaultStreamRetryMaxRetryAfter
+}
+
+// RetryDelay returns how long to wait before retrying after the given attempt
+// (0-based) failed, honoring the server's Retry-After when it sent one: the
+// wait is the longer of Retry-After and the jittered backoff, so a rate limit
+// is not retried while still in force (the non-streaming path does the same).
+// ok is false when Retry-After exceeds MaxRetryAfter — the caller should stop
+// retrying rather than retry early.
+func (p StreamRetryPolicy) RetryDelay(attempt int, retryAfter time.Duration) (delay time.Duration, ok bool) {
+	if retryAfter > p.MaxRetryAfterOrDefault() {
+		return 0, false
+	}
+	return max(retryAfter, p.BackoffFor(attempt)), true
 }
 
 // BackoffFor computes the delay for the given attempt index (0-based) using
