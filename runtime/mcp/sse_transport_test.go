@@ -233,3 +233,32 @@ func TestSSETransport_Close_Idempotent(t *testing.T) {
 	tr.close() // must not panic
 	assert.False(t, tr.alive.Load())
 }
+
+func TestSSETransport_ALandingPageAtTheBaseURLIsNotTheStream(t *testing.T) {
+	// Earlier releases always opened <url>/sse; a base URL that serves a
+	// page must still reach the stream there.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(headerContentType, contentTypeSSE)
+		_, _ = fmt.Fprint(w, "event: endpoint\ndata: /message\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(headerContentType, "text/html")
+		_, _ = fmt.Fprint(w, "<html>welcome</html>")
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions(), nil)
+	defer tr.close()
+	require.NoError(t, tr.connect(context.Background()))
+	assert.Equal(t, srv.URL+"/sse", tr.streamURL)
+
+	page := newSSETransport(ServerConfig{Name: "y", URL: srv.URL + "/page/sse"}, DefaultClientOptions(), nil)
+	defer page.close()
+	err := page.connect(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `returned "text/html", not an event stream`)
+}

@@ -223,6 +223,7 @@ var notWire = map[string]string{
 	"StdioClient":         "transport implementation",
 	"SSEClient":           "transport implementation",
 	"StreamableClient":    "transport implementation",
+	"httpClient":          "the HTTP clients' shared lifecycle",
 	"httpAutoClient":      "transport selection: Streamable HTTP with the HTTP+SSE fallback",
 	"httpDoer":            "HTTP plumbing below the MCP message layer",
 	"challengeParser":     "WWW-Authenticate parsing state",

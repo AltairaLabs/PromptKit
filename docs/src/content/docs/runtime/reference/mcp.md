@@ -71,11 +71,6 @@ Conformance with the claimed revision \(ProtocolVersion\) is checked by spec\_pa
 - [type SSEClient](<#SSEClient>)
   - [func NewSSEClient\(config ServerConfig\) \*SSEClient](<#NewSSEClient>)
   - [func NewSSEClientWithOptions\(config ServerConfig, options ClientOptions\) \*SSEClient](<#NewSSEClientWithOptions>)
-  - [func \(c \*SSEClient\) CallTool\(ctx context.Context, name string, arguments json.RawMessage\) \(\*ToolCallResponse, error\)](<#SSEClient.CallTool>)
-  - [func \(c \*SSEClient\) Close\(\) error](<#SSEClient.Close>)
-  - [func \(c \*SSEClient\) Initialize\(ctx context.Context\) \(\*InitializeResponse, error\)](<#SSEClient.Initialize>)
-  - [func \(c \*SSEClient\) IsAlive\(\) bool](<#SSEClient.IsAlive>)
-  - [func \(c \*SSEClient\) ListTools\(ctx context.Context\) \(\[\]Tool, error\)](<#SSEClient.ListTools>)
 - [type SamplingCapability](<#SamplingCapability>)
 - [type ServerCapabilities](<#ServerCapabilities>)
 - [type ServerConfig](<#ServerConfig>)
@@ -92,11 +87,6 @@ Conformance with the claimed revision \(ProtocolVersion\) is checked by spec\_pa
 - [type StreamableClient](<#StreamableClient>)
   - [func NewStreamableClient\(config ServerConfig\) \*StreamableClient](<#NewStreamableClient>)
   - [func NewStreamableClientWithOptions\(config ServerConfig, options ClientOptions\) \*StreamableClient](<#NewStreamableClientWithOptions>)
-  - [func \(c \*StreamableClient\) CallTool\(ctx context.Context, name string, arguments json.RawMessage\) \(\*ToolCallResponse, error\)](<#StreamableClient.CallTool>)
-  - [func \(c \*StreamableClient\) Close\(\) error](<#StreamableClient.Close>)
-  - [func \(c \*StreamableClient\) Initialize\(ctx context.Context\) \(\*InitializeResponse, error\)](<#StreamableClient.Initialize>)
-  - [func \(c \*StreamableClient\) IsAlive\(\) bool](<#StreamableClient.IsAlive>)
-  - [func \(c \*StreamableClient\) ListTools\(ctx context.Context\) \(\[\]Tool, error\)](<#StreamableClient.ListTools>)
 - [type Tool](<#Tool>)
 - [type ToolAnnotations](<#ToolAnnotations>)
 - [type ToolCallRequest](<#ToolCallRequest>)
@@ -332,7 +322,7 @@ type ClientCapabilities struct {
 ```
 
 <a name="ClientOptions"></a>
-## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L24-L57>)
+## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L24-L61>)
 
 ClientOptions configures MCP client behavior
 
@@ -364,7 +354,11 @@ type ClientOptions struct {
     DisableModernProtocol bool
     // EraProbeTimeout bounds how long the client waits for a stdio server to
     // answer the server/discover probe before treating it as a handshake-era
-    // server. Defaults to 3s.
+    // server, which may never answer a request sent before initialize.
+    // Defaults to 3s. A server slower than that to start is treated as
+    // handshake-era: raise it for modern-only servers with slow starts. HTTP
+    // servers always answer, so over HTTP the probe is bounded by InitTimeout
+    // and running out of time is an error.
     EraProbeTimeout time.Duration
     // Authorizer, when set, supplies credentials for an HTTP server and
     // handles its authorization challenges. The host implements it; see
@@ -374,7 +368,7 @@ type ClientOptions struct {
 ```
 
 <a name="DefaultClientOptions"></a>
-### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L60>)
+### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L64>)
 
 ```go
 func DefaultClientOptions() ClientOptions
@@ -858,9 +852,9 @@ type ResourcesCapability struct {
 ```
 
 <a name="SSEClient"></a>
-## type [SSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L14-L24>)
+## type [SSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L11-L13>)
 
-SSEClient is the HTTP\+SSE transport implementation of the Client interface. The protocol lives in session; wire\-level details \(endpoint discovery, request correlation\) in sse\_transport.go; this file owns the public lifecycle.
+SSEClient is the HTTP\+SSE transport implementation of the Client interface. The protocol lives in session; wire\-level details \(endpoint discovery, request correlation\) in sse\_transport.go; the lifecycle in httpClient.
 
 ```go
 type SSEClient struct {
@@ -869,7 +863,7 @@ type SSEClient struct {
 ```
 
 <a name="NewSSEClient"></a>
-### func [NewSSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L29>)
+### func [NewSSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L18>)
 
 ```go
 func NewSSEClient(config ServerConfig) *SSEClient
@@ -878,58 +872,13 @@ func NewSSEClient(config ServerConfig) *SSEClient
 NewSSEClient creates a new MCP client using HTTP\+SSE transport.
 
 <a name="NewSSEClientWithOptions"></a>
-### func [NewSSEClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L36>)
+### func [NewSSEClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L25>)
 
 ```go
 func NewSSEClientWithOptions(config ServerConfig, options ClientOptions) *SSEClient
 ```
 
 NewSSEClientWithOptions creates an SSE client with custom options.
-
-<a name="SSEClient.CallTool"></a>
-### func \(\*SSEClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L86>)
-
-```go
-func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
-```
-
-CallTool executes a tool with the given arguments.
-
-<a name="SSEClient.Close"></a>
-### func \(\*SSEClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L95>)
-
-```go
-func (c *SSEClient) Close() error
-```
-
-Close terminates the SSE connection. Idempotent.
-
-<a name="SSEClient.Initialize"></a>
-### func \(\*SSEClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L41>)
-
-```go
-func (c *SSEClient) Initialize(ctx context.Context) (*InitializeResponse, error)
-```
-
-Initialize establishes the SSE connection and negotiates capabilities.
-
-<a name="SSEClient.IsAlive"></a>
-### func \(\*SSEClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L111>)
-
-```go
-func (c *SSEClient) IsAlive() bool
-```
-
-IsAlive reports whether the SSE stream is currently open.
-
-<a name="SSEClient.ListTools"></a>
-### func \(\*SSEClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L77>)
-
-```go
-func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error)
-```
-
-ListTools retrieves all available tools from the server.
 
 <a name="SamplingCapability"></a>
 ## type [SamplingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L134>)
@@ -1023,7 +972,7 @@ type ServerConfigData struct {
 ```
 
 <a name="StdioClient"></a>
-## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L101-L134>)
+## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L105-L138>)
 
 StdioClient implements the MCP Client interface using stdio transport
 
@@ -1034,7 +983,7 @@ type StdioClient struct {
 ```
 
 <a name="NewStdioClient"></a>
-### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L137>)
+### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L141>)
 
 ```go
 func NewStdioClient(config ServerConfig) *StdioClient
@@ -1043,7 +992,7 @@ func NewStdioClient(config ServerConfig) *StdioClient
 NewStdioClient creates a new MCP client using stdio transport
 
 <a name="NewStdioClientWithOptions"></a>
-### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L142>)
+### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L146>)
 
 ```go
 func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *StdioClient
@@ -1052,7 +1001,7 @@ func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *Stdi
 NewStdioClientWithOptions creates a client with custom options
 
 <a name="StdioClient.CallTool"></a>
-### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L200>)
+### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L204>)
 
 ```go
 func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -1061,7 +1010,7 @@ func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.
 CallTool executes a tool with the given arguments
 
 <a name="StdioClient.Close"></a>
-### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L213>)
+### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L217>)
 
 ```go
 func (c *StdioClient) Close() error
@@ -1070,7 +1019,7 @@ func (c *StdioClient) Close() error
 Close terminates the connection to the MCP server
 
 <a name="StdioClient.Initialize"></a>
-### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L156>)
+### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L160>)
 
 ```go
 func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, error)
@@ -1079,7 +1028,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 Initialize establishes the MCP connection and negotiates capabilities
 
 <a name="StdioClient.IsAlive"></a>
-### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L280>)
+### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L284>)
 
 ```go
 func (c *StdioClient) IsAlive() bool
@@ -1088,7 +1037,7 @@ func (c *StdioClient) IsAlive() bool
 IsAlive checks if the connection is still active
 
 <a name="StdioClient.ListTools"></a>
-### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L188>)
+### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L192>)
 
 ```go
 func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -1097,9 +1046,9 @@ func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server
 
 <a name="StreamableClient"></a>
-## type [StreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L12-L22>)
+## type [StreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L8-L10>)
 
-StreamableClient is the Streamable HTTP transport implementation of the Client interface. The protocol lives in session; wire\-level details in streamable\_transport.go; this file owns the public lifecycle.
+StreamableClient is the Streamable HTTP transport implementation of the Client interface. The protocol lives in session; wire\-level details in streamable\_transport.go; the lifecycle in httpClient.
 
 ```go
 type StreamableClient struct {
@@ -1108,7 +1057,7 @@ type StreamableClient struct {
 ```
 
 <a name="NewStreamableClient"></a>
-### func [NewStreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L27>)
+### func [NewStreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L15>)
 
 ```go
 func NewStreamableClient(config ServerConfig) *StreamableClient
@@ -1117,58 +1066,13 @@ func NewStreamableClient(config ServerConfig) *StreamableClient
 NewStreamableClient creates an MCP client using the Streamable HTTP transport.
 
 <a name="NewStreamableClientWithOptions"></a>
-### func [NewStreamableClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L34>)
+### func [NewStreamableClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L22>)
 
 ```go
 func NewStreamableClientWithOptions(config ServerConfig, options ClientOptions) *StreamableClient
 ```
 
 NewStreamableClientWithOptions creates a Streamable HTTP client with custom options.
-
-<a name="StreamableClient.CallTool"></a>
-### func \(\*StreamableClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L78-L80>)
-
-```go
-func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
-```
-
-CallTool executes a tool with the given arguments.
-
-<a name="StreamableClient.Close"></a>
-### func \(\*StreamableClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L89>)
-
-```go
-func (c *StreamableClient) Close() error
-```
-
-Close ends the client and, if the server assigned one, its session. Idempotent.
-
-<a name="StreamableClient.Initialize"></a>
-### func \(\*StreamableClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L39>)
-
-```go
-func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse, error)
-```
-
-Initialize sends the initialize request and negotiates capabilities.
-
-<a name="StreamableClient.IsAlive"></a>
-### func \(\*StreamableClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L106>)
-
-```go
-func (c *StreamableClient) IsAlive() bool
-```
-
-IsAlive reports whether the transport has completed at least one successful request since the last close.
-
-<a name="StreamableClient.ListTools"></a>
-### func \(\*StreamableClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L69>)
-
-```go
-func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
-```
-
-ListTools retrieves all available tools from the server.
 
 <a name="Tool"></a>
 ## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L165-L183>)

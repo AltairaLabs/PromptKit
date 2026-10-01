@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -131,12 +132,23 @@ func (e *MCPExecutor) validateStructured(descriptor *ToolDescriptor, response *m
 	if len(descriptor.OutputSchema) == 0 || !response.HasStructuredContent() {
 		return nil
 	}
-	if err := e.validator.ValidateResult(descriptor, response.StructuredContent); err != nil {
-		logger.Warn("MCP tool result does not match its output schema", "tool", descriptor.Name, "error", err)
-		return fmt.Errorf("MCP tool %s returned structured content that does not match its output schema: %w",
-			descriptor.Name, err)
+	err := e.validator.ValidateResult(descriptor, response.StructuredContent)
+	var mismatch *ValidationError
+	switch {
+	case err == nil:
+		return nil
+	case !errors.As(err, &mismatch):
+		// The schema is one this validator cannot compile (it may be valid
+		// JSON Schema 2020-12 that draft-07 tooling rejects). That says
+		// nothing about the result, so it is passed on unchecked rather than
+		// failing every call to the tool.
+		logger.Warn("MCP tool output schema could not be applied; result not validated",
+			"tool", descriptor.Name, "error", err)
+		return nil
 	}
-	return nil
+	logger.Warn("MCP tool result does not match its output schema", "tool", descriptor.Name, "error", err)
+	return fmt.Errorf("MCP tool %s returned structured content that does not match its output schema: %w",
+		descriptor.Name, err)
 }
 
 func (e *MCPExecutor) callMCPTool(

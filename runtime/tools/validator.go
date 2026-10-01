@@ -44,11 +44,38 @@ func hasExternalRef(v any) bool {
 
 func objectHasExternalRef(obj map[string]any) bool {
 	for k, child := range obj {
-		if isExternalRef(k, child) || hasExternalRef(child) {
+		switch {
+		case dataKeywords[k]:
+			continue // instance data, not schema: a "$ref" in it references nothing
+		case namedSchemaKeywords[k]:
+			// Keys here are names the author chose ("default" is a fine
+			// property name), so every value is a schema.
+			if m, ok := child.(map[string]any); ok && anySchemaHasExternalRef(m) {
+				return true
+			}
+		case isExternalRef(k, child) || hasExternalRef(child):
 			return true
 		}
 	}
 	return false
+}
+
+func anySchemaHasExternalRef(named map[string]any) bool {
+	for _, schema := range named {
+		if hasExternalRef(schema) {
+			return true
+		}
+	}
+	return false
+}
+
+// dataKeywords hold instance values rather than subschemas.
+var dataKeywords = map[string]bool{"default": true, "const": true, "enum": true, "examples": true}
+
+// namedSchemaKeywords map author-chosen names to subschemas.
+var namedSchemaKeywords = map[string]bool{
+	"properties": true, "patternProperties": true, "$defs": true, "definitions": true,
+	"dependentSchemas": true, "dependencies": true,
 }
 
 func isExternalRef(key string, value any) bool {
@@ -63,6 +90,7 @@ func isExternalRef(key string, value any) bool {
 type schemaEntry struct {
 	key    string
 	schema *gojsonschema.Schema
+	err    error // why the schema could not be compiled
 }
 
 // SchemaValidator handles JSON schema validation for tool inputs and outputs.
@@ -180,59 +208,57 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, error) {
 	// Fast path: read lock lookup.
 	sv.mu.RLock()
-	if _, exists := sv.cache[schemaJSON]; exists {
-		sv.mu.RUnlock()
+	_, exists := sv.cache[schemaJSON]
+	sv.mu.RUnlock()
+	if exists {
 		// Promote requires write lock. Re-lookup the element under the write
 		// lock because it may have been evicted between releasing the read lock
 		// and acquiring the write lock.
 		sv.mu.Lock()
 		if elem, stillExists := sv.cache[schemaJSON]; stillExists {
 			sv.order.MoveToFront(elem)
-			schema := elem.Value.(*schemaEntry).schema
+			entry := elem.Value.(*schemaEntry)
 			sv.mu.Unlock()
-			return schema, nil
+			return entry.schema, entry.err
 		}
 		sv.mu.Unlock()
 		// Element was evicted; fall through to recompile below.
-	} else {
-		sv.mu.RUnlock()
 	}
 
+	// Compile outside of lock. Failures are cached too: they are as
+	// deterministic as successes, and a schema the validator refuses (an
+	// external $ref) is otherwise re-parsed on every call.
+	schema, err := compileSchema(schemaJSON)
+	return sv.store(schemaJSON, &schemaEntry{key: schemaJSON, schema: schema, err: err})
+}
+
+// compileSchema compiles a schema, refusing one with an external reference.
+func compileSchema(schemaJSON string) (*gojsonschema.Schema, error) {
 	var parsed any
 	if json.Unmarshal([]byte(schemaJSON), &parsed) == nil && hasExternalRef(parsed) {
 		return nil, errExternalSchemaRef
 	}
+	return gojsonschema.NewSchema(gojsonschema.NewStringLoader(schemaJSON))
+}
 
-	// Compile schema outside of lock.
-	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)
-	schema, err := gojsonschema.NewSchema(schemaLoader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Write to cache with write lock.
+// store caches an entry, evicting the least recently used at capacity, and
+// returns the cached result (another goroutine's, if it got there first).
+func (sv *SchemaValidator) store(key string, entry *schemaEntry) (*gojsonschema.Schema, error) {
 	sv.mu.Lock()
-	// Double-check in case another goroutine added it.
-	if elem, exists := sv.cache[schemaJSON]; exists {
+	defer sv.mu.Unlock()
+	if elem, exists := sv.cache[key]; exists {
 		sv.order.MoveToFront(elem)
-		sv.mu.Unlock()
-		return elem.Value.(*schemaEntry).schema, nil
+		cached := elem.Value.(*schemaEntry)
+		return cached.schema, cached.err
 	}
-
-	// Evict LRU if at capacity.
 	if sv.order.Len() >= sv.maxSize {
-		oldest := sv.order.Back()
-		if oldest != nil {
+		if oldest := sv.order.Back(); oldest != nil {
 			sv.order.Remove(oldest)
 			delete(sv.cache, oldest.Value.(*schemaEntry).key)
 		}
 	}
-
-	entry := &schemaEntry{key: schemaJSON, schema: schema}
-	elem := sv.order.PushFront(entry)
-	sv.cache[schemaJSON] = elem
-	sv.mu.Unlock()
-	return schema, nil
+	sv.cache[key] = sv.order.PushFront(entry)
+	return entry.schema, entry.err
 }
 
 // CacheLen returns the number of entries currently in the schema cache.

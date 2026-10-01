@@ -256,7 +256,9 @@ func (t *sseTransport) openStream() (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		if resp.StatusCode == http.StatusOK {
+		isStream := resp.StatusCode == http.StatusOK &&
+			strings.HasPrefix(resp.Header.Get(headerContentType), contentTypeSSE)
+		if isStream {
 			if i > 0 {
 				logger.Warn("MCP SSE stream found at the URL plus /sse; configure the SSE endpoint URL itself",
 					"server", t.config.Name, "url", endpoint)
@@ -265,12 +267,23 @@ func (t *sseTransport) openStream() (*http.Response, error) {
 			return resp, nil
 		}
 		_ = resp.Body.Close()
-		notHere := resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed
+		// A page that is not an event stream (a landing page at a base URL)
+		// means the stream is elsewhere, as do 404 and 405.
+		notHere := resp.StatusCode == http.StatusOK ||
+			resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed
 		if !notHere || i == len(endpoints)-1 {
-			return nil, fmt.Errorf("mcp/sse: GET %s status %d", endpoint, resp.StatusCode)
+			return nil, streamError(endpoint, resp)
 		}
 	}
 	return nil, errors.New("mcp/sse: no endpoint") // unreachable: endpoints is never empty
+}
+
+// streamError describes a GET that did not open an event stream.
+func streamError(endpoint string, resp *http.Response) error {
+	if resp.StatusCode == http.StatusOK {
+		return fmt.Errorf("mcp/sse: GET %s returned %q, not an event stream", endpoint, resp.Header.Get(headerContentType))
+	}
+	return fmt.Errorf("mcp/sse: GET %s status %d", endpoint, resp.StatusCode)
 }
 
 // getStream sends the GET that opens an SSE stream.
@@ -438,3 +451,5 @@ func (t *sseTransport) route(msg *JSONRPCMessage) {
 		})
 	}()
 }
+
+func (t *sseTransport) isAlive() bool { return t.alive.Load() }

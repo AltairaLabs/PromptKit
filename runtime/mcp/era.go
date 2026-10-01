@@ -88,6 +88,14 @@ type eraAware interface {
 	setModern(modern bool)
 }
 
+// silentOnUnknown is implemented by conns whose legacy servers may never
+// answer a request sent before initialize (stdio). For them a probe that
+// times out means "legacy"; an HTTP server always answers with a status, so
+// there a timeout is just a failure.
+type silentOnUnknown interface {
+	mayIgnoreEarlyRequests() bool
+}
+
 // modernCapable is implemented by conns that can carry the modern protocol.
 // The deprecated HTTP+SSE transport cannot.
 type modernCapable interface {
@@ -135,10 +143,7 @@ func (s *session) probe(ctx context.Context) (*InitializeResponse, bool, error) 
 // probeOnce sends one discovery request. It returns the server's details if
 // it is modern, a version to retry with, or neither for a legacy server.
 func (s *session) probeOnce(ctx context.Context, version string) (*InitializeResponse, string, error) {
-	timeout := s.opts.EraProbeTimeout
-	if timeout <= 0 {
-		timeout = defaultEraProbeTimeout
-	}
+	timeout, silenceIsLegacy := s.probeTimeout()
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	resp, err := s.sendModern(probeCtx, methodServerDiscover, nil, version)
 	cancel()
@@ -156,11 +161,28 @@ func (s *session) probeOnce(ctx context.Context, version string) (*InitializeRes
 			return info, "", nil
 		}
 	}
-	return s.classifyProbeFailure(ctx, err)
+	return s.classifyProbeFailure(ctx, err, silenceIsLegacy)
+}
+
+// probeTimeout bounds the discovery probe, and reports whether running out
+// of time identifies a legacy server.
+func (s *session) probeTimeout() (time.Duration, bool) {
+	if q, ok := s.conn.(silentOnUnknown); ok && q.mayIgnoreEarlyRequests() {
+		if s.opts.EraProbeTimeout > 0 {
+			return s.opts.EraProbeTimeout, true
+		}
+		return defaultEraProbeTimeout, true
+	}
+	if s.opts.InitTimeout > 0 {
+		return s.opts.InitTimeout, false
+	}
+	return DefaultClientOptions().InitTimeout, false
 }
 
 // classifyProbeFailure decides what a failed discovery means.
-func (s *session) classifyProbeFailure(ctx context.Context, err error) (*InitializeResponse, string, error) {
+func (s *session) classifyProbeFailure(
+	ctx context.Context, err error, silenceIsLegacy bool,
+) (*InitializeResponse, string, error) {
 	var rpcErr *RPCError
 	switch {
 	case errors.As(err, &rpcErr) && rpcErr.Code == codeUnsupportedProtocolVersion:
@@ -174,7 +196,7 @@ func (s *session) classifyProbeFailure(ctx context.Context, err error) (*Initial
 		return nil, next, nil
 	case errors.As(err, &rpcErr) && isModernErrorCode(rpcErr.Code):
 		return nil, "", fmt.Errorf("mcp: server %s rejected discovery: %w", s.name, err)
-	case isLegacyIndication(err), ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded):
+	case isLegacyIndication(err), silenceIsLegacy && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded):
 		return nil, "", nil
 	}
 	return nil, "", fmt.Errorf("mcp: server discovery failed: %w", err)

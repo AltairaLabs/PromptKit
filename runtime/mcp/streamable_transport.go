@@ -95,6 +95,8 @@ type streamableTransport struct {
 
 func (t *streamableTransport) supportsModern() bool { return true }
 
+func (t *streamableTransport) carriesHeaders() {}
+
 func (t *streamableTransport) setModern(modern bool) { t.modern.Store(modern) }
 
 // newStreamableTransport constructs a Streamable HTTP transport. The transport
@@ -596,3 +598,5 @@ func (t *streamableTransport) postReply(ctx context.Context, reply *JSONRPCMessa
 	}
 	_ = resp.Body.Close()
 }
+
+func (t *streamableTransport) isAlive() bool { return t.alive.Load() }

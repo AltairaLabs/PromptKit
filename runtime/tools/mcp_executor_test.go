@@ -677,6 +677,19 @@ func TestMCPExecutor_StructuredContentIsValidatedAgainstTheOutputSchema(t *testi
 	require.NoError(t, err, "without a declared schema there is nothing to validate against")
 }
 
+func TestMCPExecutor_AnOutputSchemaTheValidatorCannotCompileDoesNotFailTheCall(t *testing.T) {
+	// A lookahead is valid ECMA-262 (what JSON Schema patterns use) but not
+	// RE2, so gojsonschema cannot compile it. That is no fault of the result.
+	descriptor := &ToolDescriptor{
+		Name: "t", Mode: modeMCP,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","pattern":"^(?=x)"}}}`),
+	}
+	exec := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"id":"x1"}`)})
+	result, err := exec.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"x1"}`, string(result))
+}
+
 func TestSchemaValidator_NeverDereferencesAnExternalRef(t *testing.T) {
 	// MCP SEP-2106: implementations MUST NOT dereference network $refs
 	// automatically. gojsonschema would fetch them (or read file:// URLs).
@@ -691,6 +704,9 @@ func TestSchemaValidator_NeverDereferencesAnExternalRef(t *testing.T) {
 		`{"type":"object","properties":{"a":{"$ref":"` + srv.URL + `/s.json"}}}`,
 		`{"type":"object","properties":{"a":{"$ref":"relative.json"}}}`,
 		`{"type":"object","allOf":[{"$dynamicRef":"` + srv.URL + `/d.json"}]}`,
+		// Properties may be named like data keywords; they are still schemas.
+		`{"type":"object","properties":{"default":{"$ref":"` + srv.URL + `/p.json"}}}`,
+		`{"type":"object","$defs":{"enum":{"$ref":"` + srv.URL + `/e.json"}}}`,
 	} {
 		r := NewRegistry()
 		desc := &ToolDescriptor{Name: "t", Description: "d", Mode: modeMCP,
@@ -702,6 +718,19 @@ func TestSchemaValidator_NeverDereferencesAnExternalRef(t *testing.T) {
 		assert.ErrorIs(t, err, errExternalSchemaRef)
 	}
 	assert.Zero(t, hits.Load(), "no external schema was fetched")
+
+	v := NewSchemaValidator()
+	remote := `{"properties":{"a":{"$ref":"` + srv.URL + `/s.json"}}}`
+	for i := 0; i < 3; i++ {
+		_, err := v.getSchema(remote)
+		assert.ErrorIs(t, err, errExternalSchemaRef)
+	}
+	assert.Equal(t, 1, v.CacheLen(), "the refusal is cached, not recomputed per call")
+
+	data := `{"type":"object","properties":{"a":{"type":"string","default":{"$ref":"elsewhere.json"}}}}`
+	desc0 := &ToolDescriptor{Name: "t", InputSchema: json.RawMessage(data)}
+	assert.Error(t, v.ValidateArgs(desc0, json.RawMessage(`{"a":1}`)),
+		"a $ref inside a default value is data; the schema is still enforced")
 
 	local := `{"$defs":{"s":{"type":"string"}},"type":"object","properties":{"a":{"$ref":"#/$defs/s"}}}`
 	desc := &ToolDescriptor{Name: "t", InputSchema: json.RawMessage(local)}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -787,4 +788,147 @@ func TestSession_ListToolsExcludesToolsThatRequireTasks(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	assert.Equal(t, []string{"plain", "forbidden", "optional"}, names)
+}
+
+func TestStreamable_ConcurrentRequestsReinitializeAnExpiredSessionOnce(t *testing.T) {
+	// Every request in flight when a session expires gets a 404. Each used
+	// to run its own handshake, orphaning all but the last new session.
+	const inFlight = 4
+	f := &streamableFake{}
+	var mu sync.Mutex
+	sessions := 0
+	arrived := make(chan struct{}, inFlight)
+	release := make(chan struct{})
+	f.handle = func(w http.ResponseWriter, r *http.Request, msg JSONRPCMessage) {
+		switch msg.Method {
+		case methodInitialize:
+			mu.Lock()
+			sessions++
+			w.Header().Set(headerSessionID, fmt.Sprintf("s%d", sessions))
+			mu.Unlock()
+			writeJSONResult(w, msg.ID, initResult2025)
+		case methodToolsList:
+			if r.Header.Get(headerSessionID) == "s1" {
+				arrived <- struct{}{}
+				<-release // hold every first-session request, then expire them together
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			writeJSONResult(w, msg.ID, `{"tools":[]}`)
+		}
+	}
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: f.serve(t), TransportName: TransportStreamableHTTP},
+		DefaultClientOptions())
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+
+	errs := make(chan error, inFlight)
+	for i := 0; i < inFlight; i++ {
+		go func() {
+			_, err := c.ListTools(context.Background())
+			errs <- err
+		}()
+	}
+	for i := 0; i < inFlight; i++ {
+		<-arrived
+	}
+	close(release)
+	for i := 0; i < inFlight; i++ {
+		require.NoError(t, <-errs)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 2, sessions, "one handshake replaced the expired session for every request")
+	require.NoError(t, c.Close())
+}
+
+func TestIsTransportFailure_AuthErrorIsNotRetried(t *testing.T) {
+	// Retrying a refused authorization re-ran the host's Authorizer (and
+	// any consent prompt) MaxRetries more times.
+	err := fmt.Errorf("wrapped: %w", &AuthError{Server: "s", Status: http.StatusUnauthorized, Err: errors.New("declined")})
+	assert.False(t, isTransportFailure(err))
+	assert.True(t, isTransportFailure(errors.New("connection reset")))
+}
+
+func TestStreamable_ProbeTimeoutIsAnErrorNotALegacyServer(t *testing.T) {
+	// An HTTP server always answers; one that is merely slow is not a
+	// handshake-era server and must not be downgraded to one.
+	f := &streamableFake{}
+	f.handle = func(w http.ResponseWriter, r *http.Request, msg JSONRPCMessage) {
+		if msg.Method == methodServerDiscover {
+			<-r.Context().Done()
+			return
+		}
+		writeJSONResult(w, msg.ID, initResult2025)
+	}
+	f.modern = &struct{}{}
+	opts := DefaultClientOptions()
+	opts.InitTimeout = 100 * time.Millisecond
+	opts.EraProbeTimeout = time.Millisecond // stdio-only: must not shorten the HTTP probe
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: f.serve(t), TransportName: TransportStreamableHTTP}, opts)
+	defer c.Close()
+
+	start := time.Now()
+	_, err := c.Initialize(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.GreaterOrEqual(t, time.Since(start), 100*time.Millisecond, "the HTTP probe is bounded by InitTimeout")
+	assert.NotContains(t, f.methods(), methodInitialize, "no fallback to the handshake")
+}
+
+func TestStdio_ModernToolsKeepDesignationsNoHeaderCarries(t *testing.T) {
+	// x-mcp-header becomes an Mcp-Param header on HTTP only; over stdio a
+	// tool whose designation would be invalid there is still callable.
+	p := newStdioPeer(t, DefaultClientOptions())
+	p.client.sess.era = eraModern
+	p.client.sess.version = ProtocolVersion
+
+	done := make(chan []Tool, 1)
+	go func() {
+		tools, err := p.client.sess.listTools(context.Background())
+		assert.NoError(t, err)
+		done <- tools
+	}()
+	req := p.next()
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%v,"result":{"resultType":"complete","tools":[`+
+		`{"name":"bad","inputSchema":{"type":"object","properties":{"a":{"type":"string","x-mcp-header":"no spaces allowed"}}}}]}}`,
+		req.ID))
+	tools := <-done
+	require.Len(t, tools, 1)
+	assert.Equal(t, "bad", tools[0].Name)
+}
+
+func TestStdio_TimeAnsweringAnElicitationDoesNotTimeOutTheCall(t *testing.T) {
+	// A handshake-era server asks for input mid-call. The user's time to
+	// answer used to count against RequestTimeout, failing the call.
+	opts := DefaultClientOptions()
+	opts.RequestTimeout = 100 * time.Millisecond
+	opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		time.Sleep(350 * time.Millisecond) // the user deliberates
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{}`)}, nil
+	}
+	p := newStdioPeer(t, opts)
+	p.client.sess.version = LegacyProtocolVersion
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.client.sess.callTool(context.Background(), "t", json.RawMessage(`{}`))
+		done <- err
+	}()
+	call := p.next()
+	p.send(`{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"message":"ok?",` +
+		`"requestedSchema":{"type":"object","properties":{}}}}`)
+	answer := p.next()
+	assert.Equal(t, "e1", answer.ID)
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%v,"result":{"content":[{"type":"text","text":"done"}]}}`, call.ID))
+	require.NoError(t, <-done)
+
+	// Without a server request in progress the timeout still applies.
+	go func() {
+		_, err := p.client.sess.callTool(context.Background(), "t", json.RawMessage(`{}`))
+		done <- err
+	}()
+	_ = p.next()
+	assert.Equal(t, "notifications/cancelled", p.next().Method, "the timed-out call is canceled")
+	assert.ErrorIs(t, <-done, ErrServerUnresponsive)
 }

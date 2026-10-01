@@ -47,8 +47,16 @@ type session struct {
 
 	nextID atomic.Int64
 
-	// handshake serializes (re)initialization.
-	handshake sync.Mutex
+	// handshake serializes (re)initialization. Requests wait out a running
+	// handshake (read lock) so none is sent with the version cleared.
+	handshake sync.RWMutex
+	// answering counts server requests the client is handling. While one
+	// is (an elicitation waits on a user), request timeouts do not expire:
+	// the server is waiting on us, not the other way round.
+	answering atomic.Int32
+	// generation counts completed handshakes, so concurrent requests that
+	// all find their session expired re-initialize it once, not once each.
+	generation uint64
 
 	mu         sync.RWMutex
 	era        era
@@ -96,7 +104,31 @@ func clientInfo() Implementation {
 func (s *session) initialize(ctx context.Context) (*InitializeResponse, error) {
 	s.handshake.Lock()
 	defer s.handshake.Unlock()
+	return s.handshakeLocked(ctx)
+}
 
+// reinitialize replaces the session that the request sent at generation
+// gen found expired. If another request has already replaced it, there is
+// nothing to do but resend.
+func (s *session) reinitialize(ctx context.Context, gen uint64) error {
+	s.handshake.Lock()
+	defer s.handshake.Unlock()
+	if s.currentGeneration() != gen {
+		return nil
+	}
+	logger.Info("MCP session expired, re-initializing", "server", s.name)
+	_, err := s.handshakeLocked(ctx)
+	return err
+}
+
+func (s *session) currentGeneration() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.generation
+}
+
+// handshakeLocked runs the initialize handshake; s.handshake is held.
+func (s *session) handshakeLocked(ctx context.Context) (*InitializeResponse, error) {
 	s.mu.Lock()
 	s.era, s.version = eraLegacy, ""
 	s.mu.Unlock()
@@ -129,6 +161,7 @@ func (s *session) initialize(ctx context.Context) (*InitializeResponse, error) {
 	s.mu.Lock()
 	s.version = resp.ProtocolVersion
 	s.serverInfo = &resp
+	s.generation++
 	s.mu.Unlock()
 
 	// The lifecycle requires this notification before any other request;
@@ -194,12 +227,22 @@ func (s *session) callableTools(tools []Tool) []Tool {
 	return kept
 }
 
+// headerCarrier is implemented by conns that send request headers, where a
+// tool's x-mcp-header designations become Mcp-Param headers.
+type headerCarrier interface {
+	carriesHeaders()
+}
+
 // indexToolHeaders records the tools' x-mcp-header designations and drops
-// tools whose designations are invalid. It applies to modern servers only:
-// the annotation does not exist in earlier revisions.
+// tools whose designations are invalid. It applies to modern servers over
+// HTTP only: the annotation does not exist in earlier revisions, and the
+// MUST to exclude binds clients that send the headers.
 func (s *session) indexToolHeaders(tools []Tool) []Tool {
 	if !s.isModern() {
 		return tools
+	}
+	if _, ok := s.conn.(headerCarrier); !ok {
+		return tools // no Mcp-Param headers are sent (stdio), so no designation is invalid
 	}
 	index := make(map[string][]paramHeader, len(tools))
 	kept := tools[:0]
@@ -243,6 +286,7 @@ type callOpts struct {
 
 // callState tracks the one-shot recoveries a call may make.
 type callState struct {
+	generation       uint64 // the handshake the last attempt was sent under
 	reinitialized    bool
 	versionRetried   bool
 	headersRefreshed bool
@@ -264,6 +308,12 @@ func (s *session) call(ctx context.Context, method string, params, out any, o ca
 	}
 	var st callState
 	for attempt := 0; ; attempt++ {
+		if !o.noReinit {
+			// Wait out a handshake in progress rather than send mid-way.
+			s.handshake.RLock()
+			st.generation = s.currentGeneration()
+			s.handshake.RUnlock()
+		}
 		resp, err := s.roundTrip(ctx, method, raw)
 		if err == nil {
 			err = s.decode(method, resp, out)
@@ -299,8 +349,7 @@ func (s *session) recover(ctx context.Context, method string, err error, o callO
 	case errors.Is(err, errSessionExpired) && !o.noReinit && !st.reinitialized:
 		// The server discarded the session the request was sent on.
 		st.reinitialized = true
-		logger.Info("MCP session expired, re-initializing", "server", s.name)
-		if _, ierr := s.initialize(ctx); ierr != nil {
+		if ierr := s.reinitialize(ctx, st.generation); ierr != nil {
 			return false, fmt.Errorf("mcp: re-initialize after session expiry: %w", ierr)
 		}
 		return true, nil
@@ -381,10 +430,7 @@ func (s *session) roundTrip(ctx context.Context, method string, params json.RawM
 		return nil, err
 	}
 
-	reqCtx, cancel := ctx, context.CancelFunc(func() {})
-	if s.opts.RequestTimeout > 0 {
-		reqCtx, cancel = context.WithTimeoutCause(ctx, s.opts.RequestTimeout, errRequestTimeout)
-	}
+	reqCtx, cancel := s.requestContext(ctx)
 	defer cancel()
 
 	resp, err := s.conn.send(reqCtx, req)
@@ -401,6 +447,36 @@ func (s *session) roundTrip(ctx context.Context, method string, params json.RawM
 		return nil, fmt.Errorf("%w: request timeout after %v", ErrServerUnresponsive, s.opts.RequestTimeout)
 	}
 	return nil, ctx.Err()
+}
+
+// requestContext bounds one request by RequestTimeout. The clock does not
+// run out while the client is answering a server request: a legacy server
+// asks for input mid-call, and the user's time to answer is not the
+// server's time to respond. MRTR (modern) needs no such allowance, since
+// each round is its own request.
+func (s *session) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if s.opts.RequestTimeout <= 0 {
+		return ctx, func() {}
+	}
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		timer := time.NewTimer(s.opts.RequestTimeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-reqCtx.Done():
+				return
+			case <-timer.C:
+				if s.answering.Load() > 0 {
+					timer.Reset(s.opts.RequestTimeout)
+					continue
+				}
+				cancel(errRequestTimeout)
+				return
+			}
+		}
+	}()
+	return reqCtx, func() { cancel(context.Canceled) }
 }
 
 // buildRequest shapes a request for the era in use. Every request carries
@@ -470,6 +546,8 @@ func (s *session) notify(ctx context.Context, method string, params any) error {
 // capability for with Method not found, so a server never waits on a
 // request nobody will answer.
 func (s *session) serverRequest(ctx context.Context, msg *JSONRPCMessage) *JSONRPCMessage {
+	s.answering.Add(1)
+	defer s.answering.Add(-1)
 	switch msg.Method {
 	case methodPing:
 		return replyTo(msg.ID, struct{}{}, nil)
@@ -509,7 +587,12 @@ func isTransportFailure(err error) bool {
 	var rpcErr *RPCError
 	var ir *inputRequiredError
 	var statusErr *httpStatusError
+	var authErr *AuthError
 	switch {
+	case errors.As(err, &authErr):
+		// Authorization was refused or could not be obtained; retrying would
+		// only run the host's Authorizer (and perhaps the user) through it again.
+		return false
 	case errors.As(err, &statusErr):
 		// A client error is the server's answer and would only be repeated;
 		// only "try later" statuses and server errors are worth another try.

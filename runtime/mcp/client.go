@@ -48,7 +48,11 @@ type ClientOptions struct {
 	DisableModernProtocol bool
 	// EraProbeTimeout bounds how long the client waits for a stdio server to
 	// answer the server/discover probe before treating it as a handshake-era
-	// server. Defaults to 3s.
+	// server, which may never answer a request sent before initialize.
+	// Defaults to 3s. A server slower than that to start is treated as
+	// handshake-era: raise it for modern-only servers with slow starts. HTTP
+	// servers always answer, so over HTTP the probe is bounded by InitTimeout
+	// and running out of time is an error.
 	EraProbeTimeout time.Duration
 	// Authorizer, when set, supplies credentials for an HTTP server and
 	// handles its authorization challenges. The host implements it; see
@@ -458,6 +462,12 @@ func (c *StdioClient) reconnect() error {
 	// Fail all pending requests so callers don't hang until context timeout
 	c.failPendingRequests()
 
+	// End the dead process's context first: handlers for its requests (an
+	// elicitation waiting on a user) run on it, and cleanup waits for them.
+	c.mu.Lock()
+	c.cancel()
+	c.mu.Unlock()
+
 	// Clean up old process resources
 	c.cleanupDeadProcess()
 
@@ -713,15 +723,24 @@ func (c *StdioClient) handleMessage(msg *JSONRPCMessage) {
 
 	// Answer off the read loop: a handler may take time, and the loop must
 	// keep delivering responses meanwhile.
+	ctx := c.processContext()
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		dispatchInbound(c.ctx, c.sess, msg, func(reply *JSONRPCMessage) {
+		dispatchInbound(ctx, c.sess, msg, func(reply *JSONRPCMessage) {
 			if err := c.writeMessage(reply); err != nil {
 				logger.Warn("MCP failed to answer server request", "server", c.config.Name, "error", err)
 			}
 		})
 	}()
+}
+
+// processContext is the context of the current server process, ended when
+// the process is replaced or the client closes.
+func (c *StdioClient) processContext() context.Context {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ctx
 }
 
 // logStderr logs stderr output from the MCP server
@@ -771,3 +790,5 @@ func (s *stdioConn) cancelRequest(ctx context.Context, id int64, reason string, 
 func (s *stdioConn) close() error { return s.c.Close() }
 
 func (s *stdioConn) supportsModern() bool { return true }
+
+func (s *stdioConn) mayIgnoreEarlyRequests() bool { return true }
