@@ -1,0 +1,11 @@
+# Machine-checkable subset of docs/STYLE.md. Format: rule<TAB>ERE (lowercase).
+# Matched case-insensitively against reader-facing prose, never code.
+status	(^|[^a-z])(not yet|coming soon|in a future|future release|later phase|phase [0-9]|roadmap|currently)([^a-z]|$)
+faux-candour	(^|[^a-z])(honestly|to be clear|deliberately|is deliberate|are deliberate|by design|on purpose|kept honest|frankly|candidly)([^a-z]|$)
+signposting	(which is exactly|that is the point|this is why|that is why|here's the thing|the trap|the catch)
+filler	(^|[^a-z])(simply|just|note that|it's worth noting|it is worth noting|importantly|crucially|essentially|basically)([^a-z-]|$)
+apology	(^|[^a-z])(unfortunately|sadly|we apologi[sz]e|sorry)([^a-z]|$)
+history	(^|[^a-z])(used to|was renamed|no longer|previously|since beta)([^a-z]|$)
+issue-ref	(^|[^a-z0-9&])#[0-9][0-9][0-9]|github\.com/[^ )]*/(issues|pull)/[0-9]
+positioning	(best.in.class|industry.leading|world.class|revolutionary|unlike other|game.chang|seamless|effortless)
+internal	(local-backlog|fixme|proposal §|deferred to|day [0-9]+ of)
