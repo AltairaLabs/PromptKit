@@ -153,28 +153,52 @@ func TestClient_UsesTheCardInterfaceURLAndTenant(t *testing.T) {
 	}
 }
 
-func TestClient_TenantIsOmittedWhenTheInterfaceHasNone(t *testing.T) {
-	agent := &cardAgent{card: func(base string) AgentCard {
-		return AgentCard{Name: "a", SupportedInterfaces: []AgentInterface{
-			{URL: base + "/rpc", ProtocolBinding: ProtocolBindingJSONRPC, ProtocolVersion: "1.0"},
-		}}
-	}}
-	srv := httptest.NewServer(agent)
-	defer srv.Close()
+// The interface's tenant fills in only a tenant the caller left empty; a
+// caller-set tenant is never replaced or dropped.
+func TestClient_CallerSetTenantIsKept(t *testing.T) {
+	for _, tc := range []struct {
+		name, ifaceTenant, callerTenant, want string
+	}{
+		{"interface has none", "", "caller-set", "caller-set"},
+		{"interface has another", "acme", "caller-set", "caller-set"},
+		{"caller left it empty", "acme", "", "acme"},
+		{"neither has one", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := &cardAgent{card: func(base string) AgentCard {
+				return AgentCard{Name: "a", SupportedInterfaces: []AgentInterface{
+					{URL: base + "/rpc", ProtocolBinding: ProtocolBindingJSONRPC, ProtocolVersion: "1.0", Tenant: tc.ifaceTenant},
+				}}
+			}}
+			srv := httptest.NewServer(agent)
+			defer srv.Close()
 
-	c := NewClient(srv.URL)
-	_, err := c.Discover(context.Background())
-	require.NoError(t, err)
-	_, err = c.SendMessage(context.Background(), &SendMessageRequest{
-		Tenant:  "caller-set",
-		Message: Message{MessageID: "m", Role: RoleUser, Parts: []Part{{Text: strPtr("hi")}}},
-	})
-	require.NoError(t, err)
+			c := NewClient(srv.URL)
+			_, err := c.Discover(context.Background())
+			require.NoError(t, err)
+			_, err = c.SendMessage(context.Background(), &SendMessageRequest{
+				Tenant:  tc.callerTenant,
+				Message: Message{MessageID: "m", Role: RoleUser, Parts: []Part{{Text: strPtr("hi")}}},
+			})
+			require.NoError(t, err)
+			_, err = c.GetTask(context.Background(), "t") // carries no tenant of its own
+			require.NoError(t, err)
 
-	agent.mu.Lock()
-	defer agent.mu.Unlock()
-	require.Equal(t, []string{"/rpc"}, agent.paths)
-	assert.NotContains(t, agent.params[0], "tenant", "set the tenant to exactly the interface's value")
+			agent.mu.Lock()
+			defer agent.mu.Unlock()
+			require.Len(t, agent.params, 2)
+			if tc.want == "" {
+				assert.NotContains(t, agent.params[0], "tenant")
+			} else {
+				assert.Equal(t, tc.want, agent.params[0]["tenant"])
+			}
+			if tc.ifaceTenant == "" {
+				assert.NotContains(t, agent.params[1], "tenant")
+			} else {
+				assert.Equal(t, tc.ifaceTenant, agent.params[1]["tenant"])
+			}
+		})
+	}
 }
 
 func TestClient_PicksTheInterfaceForTheVersionItSpeaks(t *testing.T) {

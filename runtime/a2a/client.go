@@ -184,8 +184,10 @@ type Client struct {
 	// discoverWaitMax caps how long a call waits on a discovery in flight.
 	discoverWaitMax time.Duration
 
-	// otherHostWarning logs, once, a card that names another host.
+	// otherHostWarning logs, once, a card that names another host, through
+	// warn (logger.Warn; replaced in tests).
 	otherHostWarning sync.Once
+	warn             func(msg string, args ...any)
 }
 
 // newDefaultTransport creates an HTTP transport with connection pooling,
@@ -237,6 +239,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		discoverBackoff: defaultDiscoverBackoff,
 		discoverTimeout: defaultDiscoverTimeout,
 		discoverWaitMax: defaultDiscoverWaitMax,
+		warn:            logger.Warn,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -602,8 +605,15 @@ func (c *Client) callURL(declared string) string {
 		return fallback
 	}
 	if !sameHostPort(card, base) {
+		if isTLSTermination(card, base) {
+			// A server behind a TLS-terminating proxy describing itself by
+			// its plain-http side: expected, so not worth a warning.
+			logger.Debug("a2a: agent card names the plain-http side of a TLS proxy; calling the configured agent URL",
+				"agent_url", c.baseURL, "interface_url", declared)
+			return fallback
+		}
 		c.otherHostWarning.Do(func() {
-			logger.Warn("a2a: agent card names another host, which is not followed; "+
+			c.warn("a2a: agent card names another host, which is not followed; "+
 				"calling the configured agent URL (configure the client with that host to use it)",
 				"agent_url", c.baseURL, "interface_url", declared)
 		})
@@ -617,10 +627,20 @@ func (c *Client) callURL(declared string) string {
 	return onBase.String()
 }
 
-// withTenant sets the params' tenant to exactly the selected interface's, and
-// omits it when the interface declares none (A2A 1.0 §8.3.2). Params that are
-// not a JSON object are returned as they are.
+// isTLSTermination reports whether card is base's own name over plain http
+// while base is https: what a server behind a TLS-terminating proxy reports.
+func isTLSTermination(card, base *url.URL) bool {
+	return strings.EqualFold(base.Scheme, "https") && strings.EqualFold(card.Scheme, "http") &&
+		strings.EqualFold(card.Hostname(), base.Hostname())
+}
+
+// withTenant fills in the params' tenant from the selected interface (A2A 1.0
+// §8.3.2) when the caller left it empty. A tenant the caller set is kept as
+// it is. Params that are not a JSON object are returned as they are.
 func withTenant(params json.RawMessage, tenant string) (json.RawMessage, error) {
+	if tenant == "" {
+		return params, nil
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(params, &fields); err != nil {
 		return params, nil
@@ -628,15 +648,15 @@ func withTenant(params json.RawMessage, tenant string) (json.RawMessage, error) 
 	if fields == nil {
 		fields = map[string]json.RawMessage{}
 	}
-	if tenant == "" {
-		delete(fields, "tenant")
-	} else {
-		quoted, err := json.Marshal(tenant)
-		if err != nil {
-			return nil, err
-		}
-		fields["tenant"] = quoted
+	var set string
+	if raw, ok := fields["tenant"]; ok && json.Unmarshal(raw, &set) == nil && set != "" {
+		return params, nil
 	}
+	quoted, err := json.Marshal(tenant)
+	if err != nil {
+		return nil, err
+	}
+	fields["tenant"] = quoted
 	return json.Marshal(fields)
 }
 

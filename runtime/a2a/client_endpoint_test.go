@@ -301,3 +301,30 @@ func TestClient_IgnoresAnInterfaceOnAnotherPort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://agent:8080/a2a", url)
 }
+
+// A TLS-terminating proxy in front of a PromptKit server is the ordinary
+// case, not a misconfiguration: it is not warned about.
+func TestCallURL_WarnsOnlyAboutAnotherHost(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, declared string
+		warn                 bool
+	}{
+		{"TLS termination: same name, http card, https base", "https://agent.example", "http://agent.example/a2a", false},
+		{"TLS termination with a path", "https://agent.example", "http://agent.example:8080/rpc", false},
+		{"another host", "https://agent.example", "https://other.example/rpc", true},
+		{"same name, https card, http base", "http://agent.example", "https://agent.example/rpc", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(tc.base)
+			warnings := 0
+			c.warn = func(string, ...any) { warnings++ }
+			assert.Equal(t, tc.base+"/a2a", c.callURL(tc.declared), "not followed either way")
+			c.callURL(tc.declared)
+			want := 0
+			if tc.warn {
+				want = 1
+			}
+			assert.Equal(t, want, warnings, "logged once per client, and only for another host")
+		})
+	}
+}
