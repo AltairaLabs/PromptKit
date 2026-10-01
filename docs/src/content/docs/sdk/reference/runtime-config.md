@@ -99,6 +99,10 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 | `logging` | LoggingConfigSpec | Log level, format, and common fields. |
 | `evals` | map[string]ExecBinding | External eval process bindings keyed by eval type name. |
 | `hooks` | map[string]ExecHook | External hook process configurations. |
+| `sandboxes` | map[string]SandboxConfig | Named sandbox backends that hooks and selectors launch their processes in. |
+| `selectors` | map[string]SelectorConfig | External selector processes keyed by selector name. |
+| `skills` | SkillsConfig | Runtime skill wiring. |
+| `tool_selector` | string | Name of a selector under `selectors` that narrows the tool set offered to the LLM each turn. |
 
 ---
 
@@ -261,7 +265,7 @@ Map of tool bindings. Keys are tool names that must match names declared in the 
 
 #### exec
 
-Subprocess binding for tools. The command is resolved relative to the config file.
+Subprocess binding for tools. A relative `command` is resolved against the process working directory.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -300,6 +304,7 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget). |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
+| `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). Without it, the hook process runs directly on the host. |
 
 #### Valid phases by hook type
 
@@ -309,6 +314,47 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `tool` | `before_execution`, `after_execution` |
 | `session` | `session_start`, `session_update`, `session_end` |
 | `eval` | none; `eval` hooks ignore `phases` and `mode` and run once per eval result |
+
+---
+
+### spec.sandboxes
+
+Map of named sandbox backends. Hooks and selectors refer to an entry by name in their `sandbox` field. A `sandbox` that names an undeclared entry fails validation.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | yes | Name of a registered sandbox factory. `direct` is always registered; any other mode needs its factory registered with `sandbox.RegisterFactory` before the config is loaded. |
+| *(other keys)* | any | no | Passed to the factory as its configuration. Each factory defines its own keys. |
+
+See [Sandbox Hooks](/sdk/how-to/hooks/sandbox-hooks/) for the available modes.
+
+---
+
+### spec.selectors
+
+Map of external selector processes. Keys are selector names, which `skills.selector` and `tool_selector` refer to. A selector registered with `WithSelector` before `WithRuntimeConfig` keeps its name, and the entry of the same name here is skipped.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string | yes | Path to the selector executable. |
+| `args` | string[] | no | Additional command arguments. |
+| `env` | string[] | no | Environment variable names to pass through from the host. |
+| `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
+| `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). |
+
+---
+
+### spec.skills
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string | no | Name of a selector under [`spec.selectors`](#specselectors) that narrows the skills offered to the LLM. Without it, every eligible skill is offered. |
+
+---
+
+### spec.tool_selector
+
+Name of a selector under [`spec.selectors`](#specselectors). Each turn, the selector receives the last user message and the pack-declared tools, and the LLM is offered only the tools it returns. When the selector returns nothing or fails, the full tool list is offered. A name that is not declared under `spec.selectors` fails validation, as it does for `skills.selector`.
 
 ---
 
@@ -326,7 +372,7 @@ Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP).
 | `env` | map[string]string | no | Environment variables passed to the server process. |
 | `working_dir` | string | no | Working directory for the server process. |
 | `url` | string | conditional | URL of an HTTP MCP server. |
-| `transport` | string | no | Transport adapter: `stdio`, `sse` or `streamable_http`. Defaults to `stdio` for `command` and `sse` for `url`. |
+| `transport` | string | no | Transport adapter: `stdio`, `sse` or `streamable_http`. Defaults to `stdio` for `command`. For `url`, Streamable HTTP, falling back to `sse` when the server does not host a Streamable HTTP endpoint. |
 | `headers` | map[string]string | no | HTTP headers sent with every request to the server. |
 | `timeout_ms` | int | no | Per-request timeout in milliseconds. |
 | `tool_filter` | object | no | Tool filtering configuration. See [tool_filter](#tool_filter). |

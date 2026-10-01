@@ -87,7 +87,7 @@ Other settings combine instead of overriding:
 
 - MCP servers are additive. `WithMCPServer` and the YAML both append to the same list.
 - Extra LLM providers declared in the YAML stay in the pool next to a programmatic provider.
-- Exec eval bindings from the YAML replace a handler of the same type already registered, whatever the option order.
+- Exec eval bindings from the YAML register into the conversation's eval registry and replace a handler of the same type. A registry passed with `WithEvalRegistry` before `WithRuntimeConfig()` receives them. One passed after it replaces the whole registry, YAML bindings included.
 - Exec tool bindings have no programmatic counterpart, so they are always applied.
 
 ## The Polyglot Exec Protocol
@@ -101,7 +101,7 @@ Tools support two modes:
 
 Hook and eval bindings are always one-shot.
 
-Both modes are configured entirely in RuntimeConfig. The pack declares the tool name and schema; the tool's exec binding specifies the `command`, `runtime`, `args` and `env`. The runtime resolves `command` relative to the config file, and the subprocess inherits the host's working directory.
+Both modes are configured entirely in RuntimeConfig. The pack declares the tool name and schema; the tool's exec binding specifies the `command`, `runtime`, `args` and `env`. Nothing rewrites `command` against the config file's location: the runtime hands it to the operating system unchanged. A relative `command` therefore resolves against the host process's working directory, which the subprocess also inherits, and a bare name such as `python3` is looked up on `PATH`. The same config file can launch different executables depending on where the process starts.
 
 ## Security Model
 
