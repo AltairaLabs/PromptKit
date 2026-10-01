@@ -72,6 +72,9 @@ const (
 	reasonMetaDropped    = "_meta is not surfaced to callers"
 	reasonAnnotations    = "content annotations (audience, priority) are not surfaced to the model"
 	reasonNotImplemented = "the client does not implement this feature, so it does not advertise it"
+	reasonTasks          = "tasks are experimental in this revision; the client does not implement or advertise them"
+	reasonSampling       = "sampling is not implemented or advertised (deprecated in 2026-07-28)"
+	reasonRequestMeta    = "the client sends no request _meta (progress tokens are not requested)"
 )
 
 func mcpSpecPins() []specPin {
@@ -80,36 +83,33 @@ func mcpSpecPins() []specPin {
 			value: JSONRPCMessage{},
 			label: "JSON-RPC message",
 			refs: []string{
-				"definitions/JSONRPCRequest", "definitions/JSONRPCNotification",
-				"definitions/JSONRPCResponse", "definitions/JSONRPCError",
+				"JSONRPCRequest", "JSONRPCNotification",
+				"JSONRPCResultResponse", "JSONRPCErrorResponse",
 			},
 		},
-		{value: JSONRPCError{}, refs: []string{"definitions/JSONRPCError/properties/error"}},
+		{value: JSONRPCError{}, refs: []string{"Error"}},
 		{
-			value: InitializeRequest{},
-			refs:  []string{"definitions/InitializeRequest/properties/params"},
+			value:     InitializeRequest{},
+			refs:      []string{"InitializeRequest/properties/params"},
+			omissions: []specOmission{{"_meta", reasonRequestMeta}},
 		},
 		{
 			value: InitializeResponse{},
-			refs:  []string{"definitions/InitializeResult"},
+			refs:  []string{"InitializeResult"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
 				{"instructions", "server instructions are not passed to the model"},
 			},
 		},
-		{
-			value: Implementation{},
-			refs:  []string{"definitions/Implementation"},
-			omissions: []specOmission{
-				{"title", "the display title is not used; the client identifies servers by config name"},
-			},
-		},
+		{value: Implementation{}, refs: []string{"Implementation"}},
+		{value: Icon{}, refs: []string{"Icon"}},
 		{
 			value: ClientCapabilities{},
-			refs:  []string{"definitions/ClientCapabilities"},
+			refs:  []string{"ClientCapabilities"},
 			omissions: []specOmission{
 				{"experimental", reasonNotImplemented},
 				{"roots", reasonNotImplemented},
+				{"tasks", reasonTasks},
 			},
 			nonSpec: []nonSpecField{
 				{"logging", "logging is a server capability, not a client one; the client never sets this " +
@@ -118,46 +118,67 @@ func mcpSpecPins() []specPin {
 		},
 		{
 			value: ServerCapabilities{},
-			refs:  []string{"definitions/ServerCapabilities"},
+			refs:  []string{"ServerCapabilities"},
 			omissions: []specOmission{
 				{"completions", "the client does not use completions"},
 				{"experimental", "experimental server capabilities are ignored"},
 				{"logging", "server log messages are not consumed"},
+				{"tasks", reasonTasks},
 			},
 		},
-		{value: ToolsCapability{}, refs: []string{"definitions/ServerCapabilities/properties/tools"}},
+		{value: ToolsCapability{}, refs: []string{"ServerCapabilities/properties/tools"}},
 		{
 			value: ResourcesCapability{},
-			refs:  []string{"definitions/ServerCapabilities/properties/resources"},
+			refs:  []string{"ServerCapabilities/properties/resources"},
 			omissions: []specOmission{
 				{"subscribe", "the client does not use resources"},
 			},
 		},
-		{value: PromptsCapability{}, refs: []string{"definitions/ServerCapabilities/properties/prompts"}},
-		{value: ElicitationCapability{}, refs: []string{"definitions/ClientCapabilities/properties/elicitation"}},
-		{value: SamplingCapability{}, refs: []string{"definitions/ClientCapabilities/properties/sampling"}},
-		{value: ToolsListRequest{}, refs: []string{"definitions/ListToolsRequest/properties/params"}},
+		{value: PromptsCapability{}, refs: []string{"ServerCapabilities/properties/prompts"}},
+		{value: ElicitationCapability{}, refs: []string{"ClientCapabilities/properties/elicitation"}},
+		{
+			value: SamplingCapability{},
+			refs:  []string{"ClientCapabilities/properties/sampling"},
+			omissions: []specOmission{
+				{"context", reasonSampling},
+				{"tools", reasonSampling},
+			},
+		},
+		{
+			value:     ToolsListRequest{},
+			refs:      []string{"ListToolsRequest/properties/params"},
+			omissions: []specOmission{{"_meta", reasonRequestMeta}},
+		},
 		{
 			value: ToolsListResponse{},
-			refs:  []string{"definitions/ListToolsResult"},
+			refs:  []string{"ListToolsResult"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
 			},
 		},
 		{
 			value: Tool{},
-			refs:  []string{"definitions/Tool"},
+			refs:  []string{"Tool"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
 				{"annotations", "tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors"},
 				{"outputSchema", "the declared output schema is not carried to tool descriptors, so results are not validated (#2100)"},
+				{"execution", "execution hints (task support) are not carried; the client does not implement tasks"},
+				{"icons", "display icons are not carried to tool descriptors"},
 				{"title", "the display title is not carried to tool descriptors"},
 			},
 		},
-		{value: ToolCallRequest{}, refs: []string{"definitions/CallToolRequest/properties/params"}},
+		{
+			value: ToolCallRequest{},
+			refs:  []string{"CallToolRequest/properties/params"},
+			omissions: []specOmission{
+				{"_meta", reasonRequestMeta},
+				{"task", reasonTasks},
+			},
+		},
 		{
 			value: ToolCallResponse{},
-			refs:  []string{"definitions/CallToolResult"},
+			refs:  []string{"CallToolResult"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
 			},
@@ -166,13 +187,14 @@ func mcpSpecPins() []specPin {
 			value: Content{},
 			label: "ContentBlock",
 			refs: []string{
-				"definitions/TextContent", "definitions/ImageContent", "definitions/AudioContent",
-				"definitions/ResourceLink", "definitions/EmbeddedResource",
+				"TextContent", "ImageContent", "AudioContent",
+				"ResourceLink", "EmbeddedResource",
 			},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
 				{"annotations", reasonAnnotations},
 				{"description", "resource_link description is not carried"},
+				{"icons", "resource_link icons are not carried"},
 				{"name", "resource_link name is not carried"},
 				{"resource", "embedded resource contents are dropped (#2100)"},
 				{"size", "resource_link size is not carried"},
@@ -198,6 +220,9 @@ var notWire = map[string]string{
 	"LoggingCapability":   "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
 	"RPCError":            "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
 	"callOpts":            "per-call retry policy",
+	"streamCursor":        "resume position of an SSE stream, below the MCP message layer",
+	"ElicitRequest":       "the handler-facing form of elicitation/create params; pinned with the 2025-11-25 mirror",
+	"ElicitResult":        "the handler-facing form of the elicitation result; pinned with the 2025-11-25 mirror",
 	"httpStatusError":     "an HTTP status without a JSON-RPC body, below the MCP message layer",
 	"request":             "an outgoing message before it is framed; the wire shape is JSONRPCMessage",
 	"session":             "the protocol state machine",
@@ -232,19 +257,55 @@ func TestMCPSpecMirrorIsTheClaimedRevision(t *testing.T) {
 		"testdata/spec must mirror exactly the revision the client claims; run `make mcp-schema`")
 }
 
-// resolveSpecRef walks a slash path from the schema root to a definition.
+// resolveSpecRef walks a slash path from the schema's definitions to a
+// definition, following $refs on the way. Schemas through 2025-06-18 keep
+// definitions under "definitions" (draft-07); later ones under "$defs"
+// (2020-12), with request params behind a $ref (SEP-1319).
 func resolveSpecRef(t *testing.T, doc map[string]any, ref string) map[string]any {
 	t.Helper()
-	var node any = doc
+	defs := specDefinitions(t, doc)
+	var node any = defs
 	for _, seg := range strings.Split(ref, "/") {
+		node = followSpecRef(t, defs, node, ref)
 		m, ok := node.(map[string]any)
 		require.Truef(t, ok, "schema path %q: %q is not an object", ref, seg)
 		node, ok = m[seg]
 		require.Truef(t, ok, "schema path %q: no %q — has the spec renamed it?", ref, seg)
 	}
-	def, ok := node.(map[string]any)
+	def, ok := followSpecRef(t, defs, node, ref).(map[string]any)
 	require.Truef(t, ok, "schema path %q is not an object", ref)
 	return def
+}
+
+func specDefinitions(t *testing.T, doc map[string]any) map[string]any {
+	t.Helper()
+	for _, key := range []string{"$defs", "definitions"} {
+		if defs, ok := doc[key].(map[string]any); ok {
+			return defs
+		}
+	}
+	t.Fatal("mirrored schema has neither $defs nor definitions")
+	return nil
+}
+
+// followSpecRef resolves a {"$ref": "#/$defs/Name"} node to its definition.
+func followSpecRef(t *testing.T, defs map[string]any, node any, ref string) any {
+	t.Helper()
+	for range 10 {
+		m, ok := node.(map[string]any)
+		if !ok {
+			return node
+		}
+		target, ok := m["$ref"].(string)
+		if !ok {
+			return node
+		}
+		name := target[strings.LastIndex(target, "/")+1:]
+		node, ok = defs[name]
+		require.Truef(t, ok, "schema path %q: $ref %q does not resolve", ref, target)
+	}
+	t.Fatalf("schema path %q: $ref chain too deep", ref)
+	return nil
 }
 
 // specProperties returns the property names and required set of the given
@@ -419,12 +480,12 @@ const (
 )
 
 // specLabel names a pin's spec type for the docs: "InitializeRequest params"
-// for "definitions/InitializeRequest/properties/params".
+// for "InitializeRequest/properties/params".
 func specLabel(pin specPin) string {
 	if pin.label != "" {
 		return pin.label
 	}
-	parts := strings.Split(strings.TrimPrefix(pin.refs[0], "definitions/"), "/properties/")
+	parts := strings.Split(strings.TrimPrefix(pin.refs[0], ""), "/properties/")
 	return strings.Join(parts, " ")
 }
 
@@ -435,9 +496,9 @@ func renderMCPSpecSupport() string {
 		"** (`mcp.ProtocolVersion`). CI checks every message type it sends or reads against that " +
 		"revision's published schema, so the table below is the complete list of spec fields the " +
 		"client does not carry; every other field is carried.\n\n" +
-		"That check covers message fields, not behaviour. Known behavioural gaps — pagination, " +
-		"answering server requests such as `ping` and `elicitation/create`, session re-initialization, " +
-		"retries — are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).\n\n")
+		"That check covers message fields. Behaviour is checked by scenario tests and by the official " +
+		"[MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`); " +
+		"known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).\n\n")
 	b.WriteString("Spec fields PromptKit does not carry:\n\n")
 	b.WriteString("| Spec type | Field | Why |\n|---|---|---|\n")
 	var nonSpec []string

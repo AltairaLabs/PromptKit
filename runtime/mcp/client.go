@@ -37,6 +37,11 @@ type ClientOptions struct {
 	// MaxReconnectAttempts is the maximum number of times to attempt reconnection
 	// when a process death is detected. 0 disables auto-reconnection.
 	MaxReconnectAttempts int
+	// ElicitationHandler, when set, answers servers' requests for user input
+	// and makes the client advertise the elicitation capability (form mode).
+	// Without it the client does not advertise elicitation, and refuses
+	// elicitation requests.
+	ElicitationHandler ElicitationHandler
 }
 
 // DefaultClientOptions returns sensible defaults

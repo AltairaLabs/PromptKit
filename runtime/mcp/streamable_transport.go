@@ -40,6 +40,23 @@ const maxErrorBodyBytes = 64 << 10
 // sessionDeleteTimeout bounds the best-effort DELETE that ends a session.
 const sessionDeleteTimeout = 5 * time.Second
 
+// Stream resumption (2025-11-25 basic/transports): a server may close a
+// request's SSE connection before the response, once it has sent an event
+// id; the client resumes with GET and Last-Event-ID after the retry delay
+// the server asked for.
+const (
+	headerLastEventID = "Last-Event-ID"
+	// defaultSSERetry is the reconnection delay when the server set none.
+	defaultSSERetry = time.Second
+	// maxStreamResumes bounds how often one request's stream is resumed, so
+	// a server that keeps closing it cannot hold the client polling forever.
+	maxStreamResumes = 30
+)
+
+// errStreamEnded is returned when a request's stream ends without its
+// response and cannot be resumed.
+var errStreamEnded = errors.New("mcp/streamable: SSE stream closed without matching response")
+
 // streamableTransport implements the Streamable HTTP transport.
 //
 // One POST per JSON-RPC message; a request's response comes back on the same
@@ -60,6 +77,12 @@ type streamableTransport struct {
 	// protocolVersion is the MCP-Protocol-Version the session last sent,
 	// repeated on messages the transport originates (replies, DELETE).
 	protocolVersion string
+
+	// listening is set while the standalone GET stream runs; listenCancel
+	// stops it.
+	listening    atomic.Bool
+	listenCancel context.CancelFunc
+	wg           sync.WaitGroup
 
 	closed atomic.Bool
 	alive  atomic.Bool
@@ -89,11 +112,135 @@ func (t *streamableTransport) close() error {
 	t.mu.Lock()
 	sid := t.sessionID
 	t.sessionID = ""
+	stopListening := t.listenCancel
 	t.mu.Unlock()
+	if stopListening != nil {
+		stopListening()
+	}
+	t.wg.Wait()
 	if sid != "" {
 		t.deleteSession(sid)
 	}
 	return nil
+}
+
+// Standalone stream (2025-03-26 – 2025-11-25 basic/transports: "Listening
+// for Messages from the Server"): servers send requests and notifications not
+// tied to a client request — elicitation among them — on a GET stream.
+const (
+	// maxListenFailures stops reopening the standalone stream after this
+	// many consecutive failures; requests still work without it.
+	maxListenFailures = 5
+	// listenReadyTimeout bounds how long the handshake waits for the
+	// standalone stream to connect. A server sends standalone requests only
+	// on a connected stream, so a request made before it connects could
+	// trigger one that is lost.
+	listenReadyTimeout = 2 * time.Second
+)
+
+// handshakeDone opens the standalone stream once a session is established,
+// and returns when it has connected (or been refused), bounded by
+// listenReadyTimeout. It runs at most one listener; a server without the
+// stream answers 405.
+func (t *streamableTransport) handshakeDone() {
+	if t.closed.Load() || !t.listening.CompareAndSwap(false, true) {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.mu.Lock()
+	t.listenCancel = cancel
+	t.mu.Unlock()
+	ready := make(chan struct{})
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		defer t.listening.Store(false)
+		t.listen(ctx, ready)
+	}()
+	timer := time.NewTimer(listenReadyTimeout)
+	defer timer.Stop()
+	select {
+	case <-ready:
+	case <-timer.C:
+	}
+}
+
+// listen keeps the standalone stream open, reconnecting after the server's
+// retry delay, until the transport closes, the server refuses the stream,
+// or it keeps failing. ready is closed after the first attempt to connect.
+func (t *streamableTransport) listen(ctx context.Context, ready chan struct{}) {
+	cur := streamCursor{retry: defaultSSERetry}
+	failures := 0
+	signal := sync.OnceFunc(func() { close(ready) })
+	defer signal()
+	for ctx.Err() == nil && failures < maxListenFailures {
+		body, refused, err := t.openListen(ctx, cur.lastEventID)
+		signal()
+		if refused {
+			return
+		}
+		if err != nil {
+			failures++
+			logger.Debug("MCP/Streamable standalone stream failed", "server", t.config.Name, "error", err)
+		} else {
+			failures = 0
+			t.drainListen(ctx, body, &cur)
+			_ = body.Close()
+		}
+		if sleepCtx(ctx, cur.retry) != nil {
+			return
+		}
+	}
+}
+
+// openListen opens the standalone stream. refused reports that the server
+// does not offer one (405) or no longer knows the session (404).
+func (t *streamableTransport) openListen(ctx context.Context, lastEventID string) (io.ReadCloser, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, http.NoBody)
+	if err != nil {
+		return nil, true, err
+	}
+	req.Header.Set(headerAccept, contentTypeSSE)
+	if lastEventID != "" {
+		req.Header.Set(headerLastEventID, lastEventID)
+	}
+	t.applyConfigHeaders(req)
+	t.applySessionHeaders(req, "")
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	switch {
+	case resp.StatusCode == http.StatusMethodNotAllowed, resp.StatusCode == http.StatusNotFound:
+		_ = resp.Body.Close()
+		return nil, true, nil
+	case resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get(headerContentType), contentTypeSSE):
+		_ = resp.Body.Close()
+		return nil, false, fmt.Errorf("GET status %d", resp.StatusCode)
+	}
+	return resp.Body, false, nil
+}
+
+// drainListen routes the standalone stream's messages until it ends.
+// Responses do not belong on it (they arrive on resumed request streams).
+func (t *streamableTransport) drainListen(ctx context.Context, body io.Reader, cur *streamCursor) {
+	reader := bufio.NewReader(body)
+	for {
+		ev, err := readSSEEvent(reader)
+		if err != nil {
+			return
+		}
+		cur.observe(ev)
+		msg, ok := decodeStreamEvent(ev)
+		if !ok || isResponse(msg) {
+			continue
+		}
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			dispatchInbound(ctx, t.in, msg, func(r *JSONRPCMessage) { t.postReply(ctx, r) })
+		}()
+	}
 }
 
 func (t *streamableTransport) deleteSession(sid string) {
@@ -292,28 +439,119 @@ func (t *streamableTransport) dropSession(sid string) {
 // the request's id. Other messages on the stream — notifications, and
 // requests from the server — are handed to the session, and the session's
 // answers are POSTed back.
+//
+// If the connection closes before the response and the server has given the
+// stream an event id, the stream is resumed with GET and Last-Event-ID after
+// the server's retry delay. Closing the connection is not the server
+// canceling the request.
 func (t *streamableTransport) readStream(ctx context.Context, body io.Reader, wantID int64) (*JSONRPCMessage, error) {
+	cur := streamCursor{retry: defaultSSERetry}
+	var resumed io.ReadCloser
+	defer func() {
+		if resumed != nil {
+			_ = resumed.Close()
+		}
+	}()
+	for resumes := 0; ; resumes++ {
+		resp, err := t.readStreamOnce(ctx, body, wantID, &cur)
+		if resp != nil || err != nil {
+			return resp, err
+		}
+		if cur.lastEventID == "" || resumes >= maxStreamResumes {
+			return nil, errStreamEnded
+		}
+		if werr := sleepCtx(ctx, cur.retry); werr != nil {
+			return nil, werr
+		}
+		next, rerr := t.resume(ctx, cur.lastEventID)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if resumed != nil {
+			_ = resumed.Close()
+		}
+		resumed, body = next, next
+	}
+}
+
+// streamCursor is what a request's stream has delivered so far: where to
+// resume it, and how long to wait first.
+type streamCursor struct {
+	lastEventID string
+	retry       time.Duration
+}
+
+// readStreamOnce reads one connection of a request's stream. It returns the
+// response, an error, or (nil, nil) when the connection ended first.
+func (t *streamableTransport) readStreamOnce(
+	ctx context.Context, body io.Reader, wantID int64, cur *streamCursor,
+) (*JSONRPCMessage, error) {
 	reader := bufio.NewReader(body)
+	reply := func(r *JSONRPCMessage) { t.postReply(ctx, r) }
 	for {
 		ev, err := readSSEEvent(reader)
-		if errors.Is(err, io.EOF) {
-			return nil, errors.New("mcp/streamable: SSE stream closed without matching response")
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("mcp/streamable: read SSE: %w", err)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, nil // a dropped connection; resume if the stream allows
 		}
-		if ev.event != "" && ev.event != sseEventMessage {
+		cur.observe(ev)
+		msg, ok := decodeStreamEvent(ev)
+		if !ok {
 			continue
 		}
-		var msg JSONRPCMessage
-		if jerr := json.Unmarshal([]byte(ev.data), &msg); jerr != nil {
-			continue
-		}
-		reply := func(r *JSONRPCMessage) { t.postReply(ctx, r) }
-		if resp, ok := routeStreamMessage(ctx, t.in, &msg, wantID, reply); ok {
+		if resp, ok := routeStreamMessage(ctx, t.in, msg, wantID, reply); ok {
 			return resp, nil
 		}
 	}
+}
+
+// decodeStreamEvent returns the JSON-RPC message an SSE event carries, if
+// it carries one. Priming events (an id with empty data) and other event
+// types carry none.
+func decodeStreamEvent(ev sseEvent) (*JSONRPCMessage, bool) {
+	if ev.data == "" || (ev.event != "" && ev.event != sseEventMessage) {
+		return nil, false
+	}
+	var msg JSONRPCMessage
+	if json.Unmarshal([]byte(ev.data), &msg) != nil {
+		return nil, false
+	}
+	return &msg, true
+}
+
+func (c *streamCursor) observe(ev sseEvent) {
+	if ev.id != "" {
+		c.lastEventID = ev.id
+	}
+	if ev.retry > 0 {
+		c.retry = ev.retry
+	}
+}
+
+// resume reopens a stream with GET and Last-Event-ID.
+func (t *streamableTransport) resume(ctx context.Context, lastEventID string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("mcp/streamable: build resume GET: %w", err)
+	}
+	req.Header.Set(headerAccept, contentTypeSSE)
+	req.Header.Set(headerLastEventID, lastEventID)
+	t.applyConfigHeaders(req)
+	t.applySessionHeaders(req, "")
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("mcp/streamable: resume stream: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get(headerContentType), contentTypeSSE) {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("mcp/streamable: resume stream: GET status %d: %w", resp.StatusCode, errStreamEnded)
+	}
+	return resp.Body, nil
 }
 
 // postReply POSTs the client's response to a server request.

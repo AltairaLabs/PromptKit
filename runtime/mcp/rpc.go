@@ -50,6 +50,9 @@ func rpcErrorFrom(e *JSONRPCError) *RPCError {
 	return out
 }
 
+// jsonNull is the JSON null literal.
+const jsonNull = "null"
+
 // errNoResponse is returned by a conn when the server answered a request
 // without a JSON-RPC response (for example a Streamable HTTP 202).
 var errNoResponse = errors.New("mcp: server returned no response to the request")

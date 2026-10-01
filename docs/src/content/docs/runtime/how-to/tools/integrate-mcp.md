@@ -24,32 +24,42 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
 
 <!-- BEGIN GENERATED: mcp-spec-support. Do not edit; run `make mcp-spec-docs`. -->
 
-PromptKit's MCP client implements protocol revision **2025-06-18** (`mcp.ProtocolVersion`). CI checks every message type it sends or reads against that revision's published schema, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+PromptKit's MCP client implements protocol revision **2025-11-25** (`mcp.ProtocolVersion`). CI checks every message type it sends or reads against that revision's published schema, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
 
-That check covers message fields, not behaviour. Known behavioural gaps — pagination, answering server requests such as `ping` and `elicitation/create`, session re-initialization, retries — are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
+That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`); known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
 
 Spec fields PromptKit does not carry:
 
 | Spec type | Field | Why |
 |---|---|---|
+| InitializeRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
 | InitializeResult | `_meta` | _meta is not surfaced to callers |
 | InitializeResult | `instructions` | server instructions are not passed to the model |
-| Implementation | `title` | the display title is not used; the client identifies servers by config name |
 | ClientCapabilities | `experimental` | the client does not implement this feature, so it does not advertise it |
 | ClientCapabilities | `roots` | the client does not implement this feature, so it does not advertise it |
+| ClientCapabilities | `tasks` | tasks are experimental in this revision; the client does not implement or advertise them |
 | ServerCapabilities | `completions` | the client does not use completions |
 | ServerCapabilities | `experimental` | experimental server capabilities are ignored |
 | ServerCapabilities | `logging` | server log messages are not consumed |
+| ServerCapabilities | `tasks` | tasks are experimental in this revision; the client does not implement or advertise them |
 | ServerCapabilities resources | `subscribe` | the client does not use resources |
+| ClientCapabilities sampling | `context` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
+| ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
+| ListToolsRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
 | ListToolsResult | `_meta` | _meta is not surfaced to callers |
 | Tool | `_meta` | _meta is not surfaced to callers |
 | Tool | `annotations` | tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors |
 | Tool | `outputSchema` | the declared output schema is not carried to tool descriptors, so results are not validated (#2100) |
+| Tool | `execution` | execution hints (task support) are not carried; the client does not implement tasks |
+| Tool | `icons` | display icons are not carried to tool descriptors |
 | Tool | `title` | the display title is not carried to tool descriptors |
+| CallToolRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
+| CallToolRequest params | `task` | tasks are experimental in this revision; the client does not implement or advertise them |
 | CallToolResult | `_meta` | _meta is not surfaced to callers |
 | ContentBlock | `_meta` | _meta is not surfaced to callers |
 | ContentBlock | `annotations` | content annotations (audience, priority) are not surfaced to the model |
 | ContentBlock | `description` | resource_link description is not carried |
+| ContentBlock | `icons` | resource_link icons are not carried |
 | ContentBlock | `name` | resource_link name is not carried |
 | ContentBlock | `resource` | embedded resource contents are dropped (#2100) |
 | ContentBlock | `size` | resource_link size is not carried |
@@ -255,17 +265,41 @@ func main() {
 
 ## MCP Client Configuration
 
-### Timeouts
+### Timeouts and Retries
 
 ```go
-options := mcp.ClientOptions{
-    RequestTimeout: 30 * time.Second,
-    MaxRetries:     3,
-    RetryBackoff:   time.Second,
-}
+options := mcp.DefaultClientOptions()
+options.RequestTimeout = 30 * time.Second // every request, on every transport
+options.MaxRetries = 3
+options.RetryDelay = 100 * time.Millisecond // doubles on each retry
 
 client := mcp.NewStdioClientWithOptions(config, options)
 ```
+
+A request that outlives `RequestTimeout` fails with `mcp.ErrServerUnresponsive`
+and the server is sent `notifications/cancelled`. Retries apply only to
+`initialize` and `tools/list`, and only when the message could not be
+exchanged at all. `tools/call` is never retried, and neither is a request the
+server answered with an error: a tool may have side effects, and a timed-out
+call may already have run.
+
+### Elicitation
+
+A server can ask the user for input partway through a tool call. PromptKit does
+not talk to users, so the client advertises the `elicitation` capability only
+when the host supplies a handler:
+
+```go
+options := mcp.DefaultClientOptions()
+options.ElicitationHandler = func(ctx context.Context, server string, req mcp.ElicitRequest) (mcp.ElicitResult, error) {
+    // Show req.Message and a form built from req.RequestedSchema to the user.
+    return mcp.ElicitResult{Action: mcp.ElicitActionAccept, Content: answer}, nil
+}
+```
+
+Without a handler, elicitation is not advertised and any elicitation request is
+refused. With one, fields the user leaves out are filled from the defaults in
+the requested schema. Only form mode is supported.
 
 ### Manual Client Usage
 
@@ -378,18 +412,22 @@ if err != nil {
 
 ### Tool Execution Errors
 
+MCP reports two kinds of failure differently. A protocol error (unknown tool,
+invalid arguments) is a JSON-RPC error, returned as `*mcp.RPCError`. A tool that
+ran and failed returns a normal result with `IsError` set.
+
 ```go
 response, err := client.CallTool(ctx, "read_file", args)
-if err != nil {
-    log.Printf("Tool execution failed: %v", err)
+var rpcErr *mcp.RPCError
+switch {
+case errors.As(err, &rpcErr):
+    log.Printf("Server rejected the call: %d %s", rpcErr.Code, rpcErr.Message)
     return
-}
-
-// Check response for errors
-for _, content := range response.Content {
-    if content.Type == "error" {
-        log.Printf("Tool error: %s", content.Text)
-    }
+case err != nil:
+    log.Printf("Call failed: %v", err)
+    return
+case response.IsError:
+    log.Printf("Tool reported an error: %s", response.Content[0].Text)
 }
 ```
 

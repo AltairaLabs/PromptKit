@@ -29,7 +29,7 @@ const cancelNotifyTimeout = 2 * time.Second
 // legacyProtocolVersions are the handshake-era revisions the client can
 // speak, newest first. initialize offers the first; a server may answer with
 // any of them.
-var legacyProtocolVersions = []string{ProtocolVersion, "2025-03-26", "2024-11-05"}
+var legacyProtocolVersions = []string{ProtocolVersion, "2025-06-18", "2025-03-26", "2024-11-05"}
 
 // errRequestTimeout is the context cause set when a request outlives
 // ClientOptions.RequestTimeout, so it can be told apart from the caller's own
@@ -76,7 +76,11 @@ func (s *session) info() *InitializeResponse {
 // the client implements: advertising a capability invites the server to use
 // it.
 func (s *session) clientCapabilities() ClientCapabilities {
-	return ClientCapabilities{}
+	var caps ClientCapabilities
+	if s.opts.ElicitationHandler != nil {
+		caps.Elicitation = &ElicitationCapability{Form: &struct{}{}}
+	}
+	return caps
 }
 
 func clientInfo() Implementation {
@@ -122,7 +126,15 @@ func (s *session) initialize(ctx context.Context) (*InitializeResponse, error) {
 	if err := s.notify(initCtx, methodNotificationsInitialized, nil); err != nil {
 		logger.Warn(msgInitializedNotifyFailed, "server", s.name, "error", err)
 	}
+	if h, ok := s.conn.(handshakeAware); ok {
+		h.handshakeDone()
+	}
 	return &resp, nil
+}
+
+// handshakeAware is implemented by conns that act once a session exists.
+type handshakeAware interface {
+	handshakeDone()
 }
 
 // listTools returns every tool the server offers, following pagination.
@@ -284,9 +296,16 @@ func (s *session) notify(ctx context.Context, method string, params any) error {
 // answers ping, and refuses every method it has not advertised a capability
 // for with Method not found, so a server never waits on a request nobody
 // will answer.
-func (s *session) serverRequest(_ context.Context, msg *JSONRPCMessage) *JSONRPCMessage {
-	if msg.Method == methodPing {
+func (s *session) serverRequest(ctx context.Context, msg *JSONRPCMessage) *JSONRPCMessage {
+	switch msg.Method {
+	case methodPing:
 		return replyTo(msg.ID, struct{}{}, nil)
+	case methodElicitationCreate:
+		res, rpcErr := s.elicit(ctx, msg.Params)
+		if rpcErr != nil {
+			return replyTo(msg.ID, nil, rpcErr)
+		}
+		return replyTo(msg.ID, res, nil)
 	}
 	logger.Debug("MCP refusing unsupported server request", "server", s.name, "method", msg.Method)
 	return replyTo(msg.ID, nil, &JSONRPCError{Code: codeMethodNotFound, Message: "Method not found: " + msg.Method})

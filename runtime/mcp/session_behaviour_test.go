@@ -274,6 +274,10 @@ func (f *streamableFake) serve(t *testing.T) string {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if r.Method == http.MethodGet { // no standalone stream
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		var msg JSONRPCMessage
 		_ = json.NewDecoder(r.Body).Decode(&msg)
 		f.mu.Lock()
@@ -520,4 +524,212 @@ func TestSSE_ServerRequestWithCollidingIDIsAnsweredAndClosedStreamFailsPending(t
 		t.Fatal("request still pending after the stream closed")
 	}
 	assert.False(t, c.IsAlive())
+}
+
+func TestStdio_ElicitationIsAdvertisedAndAnsweredOnlyWithAHandler(t *testing.T) {
+	opts := DefaultClientOptions()
+	var gotServer string
+	var gotReq ElicitRequest
+	opts.ElicitationHandler = func(_ context.Context, server string, req ElicitRequest) (ElicitResult, error) {
+		gotServer, gotReq = server, req
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{"name":"octocat"}`)}, nil
+	}
+	p := newStdioPeer(t, opts)
+
+	caps, _ := json.Marshal(p.client.sess.clientCapabilities())
+	assert.JSONEq(t, `{"elicitation":{"form":{}}}`, string(caps), "a handler is what makes the client advertise elicitation")
+
+	p.send(`{"jsonrpc":"2.0","id":9,"method":"elicitation/create","params":{"message":"name?",` +
+		`"requestedSchema":{"type":"object","properties":{"name":{"type":"string"}}}}}`)
+	reply := p.next()
+	assert.EqualValues(t, 9, reply.ID)
+	require.Nil(t, reply.Error)
+	assert.JSONEq(t, `{"action":"accept","content":{"name":"octocat"}}`, string(reply.Result))
+	assert.Equal(t, "test-server", gotServer)
+	assert.Equal(t, ElicitModeForm, gotReq.Mode, "an absent mode is form mode")
+	assert.Equal(t, "name?", gotReq.Message)
+
+	p.send(`{"jsonrpc":"2.0","id":10,"method":"elicitation/create","params":{"mode":"url","message":"go","url":"https://x"}}`)
+	refused := p.next()
+	require.NotNil(t, refused.Error, "url mode is not advertised, so it is refused")
+	assert.Equal(t, codeInvalidParams, refused.Error.Code)
+}
+
+func TestSession_ElicitationHandlerAnswersAreValidated(t *testing.T) {
+	s := newSession("srv", DefaultClientOptions())
+	_, rpcErr := s.elicit(context.Background(), json.RawMessage(`{"message":"x"}`))
+	require.NotNil(t, rpcErr)
+	assert.Equal(t, codeMethodNotFound, rpcErr.Code, "without a handler elicitation is not offered")
+
+	s.opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: "maybe"}, nil
+	}
+	_, rpcErr = s.elicit(context.Background(), json.RawMessage(`{"message":"x"}`))
+	require.NotNil(t, rpcErr)
+	assert.Contains(t, rpcErr.Message, `"maybe"`)
+
+	s.opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: ElicitActionDecline, Content: json.RawMessage(`{"leak":true}`)}, nil
+	}
+	res, rpcErr := s.elicit(context.Background(), json.RawMessage(`{"message":"x"}`))
+	require.Nil(t, rpcErr)
+	assert.Nil(t, res.Content, "content is only sent with an accepted answer")
+
+	s.opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{}, fmt.Errorf("no user")
+	}
+	_, rpcErr = s.elicit(context.Background(), json.RawMessage(`{"message":"x"}`))
+	require.NotNil(t, rpcErr)
+	assert.Equal(t, codeInternalError, rpcErr.Code)
+
+	_, rpcErr = s.elicit(context.Background(), json.RawMessage(`not json`))
+	require.NotNil(t, rpcErr)
+	assert.Equal(t, codeInvalidParams, rpcErr.Code)
+}
+
+func TestStreamable_ResumesAStreamTheServerClosesBeforeTheResponse(t *testing.T) {
+	// 2025-11-25 basic/transports: once a stream has an event id the server
+	// MAY close the connection; the client waits the retry delay and resumes
+	// with GET and Last-Event-ID.
+	var mu sync.Mutex
+	var lastEventID string
+	var postAt, getAt time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			mu.Lock()
+			lastEventID, getAt = r.Header.Get(headerLastEventID), time.Now()
+			mu.Unlock()
+			w.Header().Set(headerContentType, contentTypeSSE)
+			_, _ = fmt.Fprint(w, "id: ev-2\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,"+
+				"\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"resumed\"}]}}\n\n")
+			return
+		}
+		mu.Lock()
+		postAt = time.Now()
+		mu.Unlock()
+		w.Header().Set(headerContentType, contentTypeSSE)
+		_, _ = fmt.Fprint(w, "id: ev-1\nretry: 200\ndata: \n\n") // priming event, then close
+	}))
+	defer srv.Close()
+
+	tr := newStreamableTransport(ServerConfig{Name: "s", URL: srv.URL}, DefaultClientOptions(), nil)
+	resp, err := tr.send(context.Background(), &request{id: 1, method: methodToolsCall, header: http.Header{}})
+	require.NoError(t, err)
+	var out ToolCallResponse
+	require.NoError(t, decodeResult(resp, &out))
+	assert.Equal(t, "resumed", out.Content[0].Text)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "ev-1", lastEventID)
+	assert.GreaterOrEqual(t, getAt.Sub(postAt), 200*time.Millisecond, "the client waits the retry delay the server set")
+}
+
+func TestStreamable_AStreamWithoutAnEventIDIsNotResumed(t *testing.T) {
+	gets := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gets++
+		}
+		w.Header().Set(headerContentType, contentTypeSSE)
+	}))
+	defer srv.Close()
+
+	tr := newStreamableTransport(ServerConfig{Name: "s", URL: srv.URL}, DefaultClientOptions(), nil)
+	_, err := tr.send(context.Background(), &request{id: 1, method: methodToolsCall, header: http.Header{}})
+	require.ErrorIs(t, err, errStreamEnded)
+	assert.Zero(t, gets)
+}
+
+func TestStreamable_ResumeRefusedByTheServerFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set(headerContentType, contentTypeSSE)
+		_, _ = fmt.Fprint(w, "id: ev-1\nretry: 1\ndata: \n\n")
+	}))
+	defer srv.Close()
+
+	tr := newStreamableTransport(ServerConfig{Name: "s", URL: srv.URL}, DefaultClientOptions(), nil)
+	_, err := tr.send(context.Background(), &request{id: 1, method: methodToolsCall, header: http.Header{}})
+	require.ErrorIs(t, err, errStreamEnded)
+	assert.Contains(t, err.Error(), "GET status 405")
+}
+
+func TestSession_AcceptedElicitationGetsSchemaDefaultsForOmittedFields(t *testing.T) {
+	s := newSession("srv", DefaultClientOptions())
+	s.opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{"name":"given"}`)}, nil
+	}
+	res, rpcErr := s.elicit(context.Background(), json.RawMessage(`{"message":"x","requestedSchema":{"type":"object",`+
+		`"properties":{"name":{"type":"string","default":"John Doe"},"age":{"type":"integer","default":30},`+
+		`"verified":{"type":"boolean","default":true},"note":{"type":"string"}}}}`))
+	require.Nil(t, rpcErr)
+	assert.JSONEq(t, `{"name":"given","age":30,"verified":true}`, string(res.Content),
+		"what the user gave wins; omitted fields take the schema default; fields without one stay absent")
+
+	s.opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`[1]`)}, nil
+	}
+	_, rpcErr = s.elicit(context.Background(), json.RawMessage(`{"message":"x","requestedSchema":{"properties":{"a":{"default":1}}}}`))
+	require.NotNil(t, rpcErr, "content must be an object")
+}
+
+func TestStreamable_ServerRequestOnTheStandaloneStreamIsAnswered(t *testing.T) {
+	// Servers send requests not tied to a client request — elicitation from
+	// the TypeScript SDK among them — on the GET stream. The client opens it
+	// after the handshake and answers by POST.
+	opts := DefaultClientOptions()
+	opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{"ok":true}`)}, nil
+	}
+	answered := make(chan JSONRPCMessage, 1)
+	var lastEventIDs []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			mu.Lock()
+			lastEventIDs = append(lastEventIDs, r.Header.Get(headerLastEventID))
+			first := len(lastEventIDs) == 1
+			mu.Unlock()
+			w.Header().Set(headerContentType, contentTypeSSE)
+			if first {
+				_, _ = fmt.Fprint(w, "id: L1\nretry: 10\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"e1\","+
+					"\"method\":\"elicitation/create\",\"params\":{\"message\":\"ok?\"}}\n\n")
+			}
+			return
+		}
+		var msg JSONRPCMessage
+		_ = json.NewDecoder(r.Body).Decode(&msg)
+		switch {
+		case isResponse(&msg):
+			answered <- msg
+			w.WriteHeader(http.StatusAccepted)
+		case msg.ID == nil:
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			writeJSONResult(w, msg.ID, initResult2025)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: srv.URL, TransportName: TransportStreamableHTTP}, opts)
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+
+	select {
+	case reply := <-answered:
+		assert.Equal(t, "e1", reply.ID)
+		assert.JSONEq(t, `{"action":"accept","content":{"ok":true}}`, string(reply.Result))
+	case <-time.After(3 * time.Second):
+		t.Fatal("elicitation on the standalone stream was not answered")
+	}
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(lastEventIDs) >= 2 && lastEventIDs[1] == "L1"
+	}, 3*time.Second, 10*time.Millisecond, "the stream is reopened from the last event id")
+	require.NoError(t, c.Close())
 }

@@ -213,7 +213,15 @@ func TestStreamableTransport_CustomHeadersAndProtocolVersion(t *testing.T) {
 	var mu sync.Mutex
 	var got []seen
 	mux := http.NewServeMux()
+	var listen seen
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			mu.Lock()
+			listen = seen{"GET", r.Header.Get("Authorization"), r.Header.Get("MCP-Protocol-Version"), r.Header.Get("Accept")}
+			mu.Unlock()
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		var req JSONRPCMessage
 		_ = json.Unmarshal(body, &req)
@@ -253,6 +261,8 @@ func TestStreamableTransport_CustomHeadersAndProtocolVersion(t *testing.T) {
 	assert.Equal(t, seen{"initialize", "Bearer tok", "", "application/json, text/event-stream"}, got[0])
 	assert.Equal(t, "2025-03-26", got[1].version, "notifications/initialized carries the negotiated version")
 	assert.Equal(t, seen{"tools/list", "Bearer tok", "2025-03-26", "application/json, text/event-stream"}, got[2])
+	assert.Equal(t, seen{"GET", "Bearer tok", "2025-03-26", "text/event-stream"}, listen,
+		"the standalone stream is opened after the handshake, with the negotiated version")
 }
 
 func TestStreamableTransport_NonOKStatus(t *testing.T) {

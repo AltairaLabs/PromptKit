@@ -8,15 +8,29 @@
 # itself; adding one is a decision a reviewer should see, not a way to get
 # green.
 #
-# The suite at 2025-06-18 is a floor, not a ceiling: it has two core client
-# scenarios (initialize, tools_call), and PromptKit passed both while the gaps
-# in #2100 were open. Behaviour the suite does not exercise is covered by
-# scenario tests in runtime/mcp.
+# The suite is a floor, not a ceiling: at 2025-06-18 it had two core client
+# scenarios, and PromptKit passed both while the gaps in #2100 were open.
+# Behaviour the suite does not exercise is covered by scenario tests in
+# runtime/mcp.
 
 client:
   # MCP authorization (OAuth 2.1 for HTTP transports) is OPTIONAL in the spec
-  # (basic/authorization.mdx) and PromptKit does not implement it or claim to:
-  # HTTP servers are authenticated with static headers (ServerConfig.Headers).
+  # (basic/authorization). PromptKit does not run OAuth flows itself: secret
+  # storage, browser redirects and token persistence belong to the host. The
+  # client delegates them to a host-supplied authorizer (tracked in #2100);
+  # until that interface lands, HTTP servers are authenticated with static
+  # headers (ServerConfig.Headers) and these scenarios fail.
+  - auth/metadata-default
+  - auth/metadata-var1
+  - auth/metadata-var2
+  - auth/metadata-var3
+  - auth/basic-cimd
+  - auth/scope-from-www-authenticate
+  - auth/scope-from-scopes-supported
+  - auth/scope-omitted-when-undefined
+  - auth/scope-step-up
+  - auth/scope-retry-limit
   - auth/token-endpoint-auth-basic
   - auth/token-endpoint-auth-post
   - auth/token-endpoint-auth-none
+  - auth/pre-registration

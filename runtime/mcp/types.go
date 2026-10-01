@@ -6,8 +6,10 @@ import (
 	"strings"
 )
 
-// ProtocolVersion defines the MCP protocol version (as of 2025-06-18).
-const ProtocolVersion = "2025-06-18"
+// ProtocolVersion is the newest MCP protocol revision the client speaks.
+// It is the claim the conformance checks grade against: the mirrored schema
+// in testdata/spec, the parity test, and the docs all follow it.
+const ProtocolVersion = "2025-11-25"
 
 // methodNotificationsInitialized is the notification a client MUST send after
 // a successful initialize response, before any other request.
@@ -51,6 +53,23 @@ type InitializeResponse struct {
 type Implementation struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	// Title is a display name.
+	Title string `json:"title,omitempty"`
+	// Description is a human-readable summary (2025-11-25).
+	Description string `json:"description,omitempty"`
+	// WebsiteURL links to the implementation's site (2025-11-25).
+	WebsiteURL string `json:"websiteUrl,omitempty"`
+	// Icons are display icons (2025-11-25).
+	Icons []Icon `json:"icons,omitempty"`
+}
+
+// Icon is a display icon for an implementation, tool or resource (2025-11-25).
+type Icon struct {
+	Src      string   `json:"src"`
+	MimeType string   `json:"mimeType,omitempty"`
+	Sizes    []string `json:"sizes,omitempty"`
+	// Theme is "light" or "dark", the background the icon is designed for.
+	Theme string `json:"theme,omitempty"`
 }
 
 // ClientCapabilities describes what the client supports
@@ -84,8 +103,13 @@ type PromptsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
-// ElicitationCapability indicates the client supports elicitation
-type ElicitationCapability struct{}
+// ElicitationCapability indicates the client supports elicitation. An empty
+// object means form mode only; Form and URL name the modes explicitly
+// (2025-11-25).
+type ElicitationCapability struct {
+	Form *struct{} `json:"form,omitempty"`
+	URL  *struct{} `json:"url,omitempty"`
+}
 
 // SamplingCapability indicates the client supports sampling
 type SamplingCapability struct{}
@@ -137,7 +161,7 @@ type ToolCallResponse struct {
 // HasStructuredContent reports whether the response carries a non-null
 // structuredContent payload.
 func (r *ToolCallResponse) HasStructuredContent() bool {
-	return len(r.StructuredContent) > 0 && string(r.StructuredContent) != "null"
+	return len(r.StructuredContent) > 0 && string(r.StructuredContent) != jsonNull
 }
 
 // Content represents a content item in MCP responses

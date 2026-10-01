@@ -55,11 +55,13 @@ func run(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
-	client := mcp.NewStreamableClient(mcp.ServerConfig{
+	opts := mcp.DefaultClientOptions()
+	opts.ElicitationHandler = acceptDefaults
+	client := mcp.NewStreamableClientWithOptions(mcp.ServerConfig{
 		Name:          sampleString,
 		URL:           url,
 		TransportName: mcp.TransportStreamableHTTP,
-	})
+	}, opts)
 	defer func() { _ = client.Close() }()
 
 	if _, err := client.Initialize(ctx); err != nil {
@@ -75,6 +77,12 @@ func run(url string) error {
 		}
 	}
 	return nil
+}
+
+// acceptDefaults plays a user who submits a form without changing it: the
+// client pre-populates the schema's defaults.
+func acceptDefaults(context.Context, string, mcp.ElicitRequest) (mcp.ElicitResult, error) {
+	return mcp.ElicitResult{Action: mcp.ElicitActionAccept}, nil
 }
 
 // sampleArgs builds arguments satisfying the top-level types of a tool's

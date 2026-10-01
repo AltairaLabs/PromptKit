@@ -10,9 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
@@ -87,6 +89,9 @@ type sseEvent struct {
 	event string
 	data  string
 	id    string
+	// retry is the reconnection delay the server asked for, or 0 if the
+	// frame set none.
+	retry time.Duration
 }
 
 // readSSEEvent reads a single SSE frame (terminated by a blank line) from r.
@@ -119,6 +124,10 @@ func readSSEEvent(r *bufio.Reader) (sseEvent, error) {
 			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		case strings.HasPrefix(line, "id:"):
 			ev.id = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+		case strings.HasPrefix(line, "retry:"):
+			if ms, perr := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "retry:"))); perr == nil && ms >= 0 {
+				ev.retry = time.Duration(ms) * time.Millisecond
+			}
 		}
 		// Unrecognized field lines (including SSE ":" comments) are ignored.
 	}
