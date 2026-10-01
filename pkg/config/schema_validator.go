@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,6 +37,46 @@ var SchemaValidationDisabled atomic.Bool
 
 // SchemaLocalPath is the path to local schema files (relative to repo root)
 const SchemaLocalPath = "schemas/v1alpha1"
+
+// embeddedSchemaPrefix marks a schema key served from the filesystem set with
+// UseSchemaFS rather than fetched or read from disk.
+const embeddedSchemaPrefix = "embedded:"
+
+// schemaFSSource is the filesystem registered with UseSchemaFS. gen changes on
+// every registration so cached schemas from an earlier filesystem are never
+// served under a new one.
+type schemaFSSource struct {
+	fsys fs.FS
+	gen  uint64
+}
+
+var (
+	registeredSchemaFS atomic.Pointer[schemaFSSource]
+	schemaFSGen        atomic.Uint64
+)
+
+// UseSchemaFS makes schema validation — ValidateWithSchema and every Load
+// function that validates — use the schemas in fsys, named <type>.json at its
+// root (arena.json, scenario.json, ...), instead of fetching the hosted copy.
+//
+// Without it, validation fetches the latest schemas from SchemaBaseURL and,
+// if that fails, falls back to a schemas/v1alpha1 directory found relative to
+// the working directory. So the result depends on network access, on where the
+// process runs, and on whatever the hosted copy is today — not on the version
+// of the program doing the validating. A program that embeds its schemas (as
+// the promptarena CLI does) calls this once at startup so that validation is
+// hermetic and matches the schemas it was built with.
+//
+// PROMPTKIT_SCHEMA_SOURCE=local still takes precedence, for working on the
+// schemas themselves, and ValidateWithLocalSchema's explicit directory wins
+// over both. Pass nil to return to the default.
+func UseSchemaFS(fsys fs.FS) {
+	if fsys == nil {
+		registeredSchemaFS.Store(nil)
+		return
+	}
+	registeredSchemaFS.Store(&schemaFSSource{fsys: fsys, gen: schemaFSGen.Add(1)})
+}
 
 // localSchemaDirIfRequested returns a local schema directory when
 // PROMPTKIT_SCHEMA_SOURCE=local is set. Returns empty string otherwise.
@@ -235,7 +276,24 @@ func buildSchemaKey(configType ConfigType, schemaDir string) string {
 	if schemaDir != "" {
 		return fmt.Sprintf("file://%s/%s.json", schemaDir, configType)
 	}
+	if src := registeredSchemaFS.Load(); src != nil {
+		return fmt.Sprintf("%s%d:%s.json", embeddedSchemaPrefix, src.gen, configType)
+	}
 	return fmt.Sprintf("%s/%s.json", SchemaBaseURL, configType)
+}
+
+// readEmbeddedSchema returns the bytes behind an embedded: schema key, from the
+// filesystem registered when the key was built.
+func readEmbeddedSchema(schemaKey string) ([]byte, error) {
+	src := registeredSchemaFS.Load()
+	if src == nil {
+		return nil, fmt.Errorf("schema %s: no schema filesystem registered", schemaKey)
+	}
+	gen, name, ok := strings.Cut(strings.TrimPrefix(schemaKey, embeddedSchemaPrefix), ":")
+	if !ok || gen != fmt.Sprint(src.gen) {
+		return nil, fmt.Errorf("schema %s: the schema filesystem changed since the key was built", schemaKey)
+	}
+	return fs.ReadFile(src.fsys, name)
 }
 
 // TODO: Use golang.org/x/sync/singleflight to deduplicate concurrent schema loads
@@ -259,6 +317,16 @@ func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir st
 }
 
 func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
+	// A registered schema filesystem is authoritative: no network fetch and no
+	// working-directory fallback, which are exactly what UseSchemaFS removes.
+	if strings.HasPrefix(schemaKey, embeddedSchemaPrefix) {
+		data, err := readEmbeddedSchema(schemaKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load schema: %w", err)
+		}
+		return gojsonschema.NewSchema(gojsonschema.NewBytesLoader(data))
+	}
+
 	// If a local schema directory is requested via env, prefer that
 	if schemaDir == "" {
 		if d := localSchemaDirIfRequested(); d != "" {
@@ -455,6 +523,8 @@ func loadRawSchemaForKey(schemaKey string) map[string]any {
 
 func fetchSchemaBytes(schemaKey string) ([]byte, error) {
 	switch {
+	case strings.HasPrefix(schemaKey, embeddedSchemaPrefix):
+		return readEmbeddedSchema(schemaKey)
 	case strings.HasPrefix(schemaKey, "file://"):
 		path := strings.TrimPrefix(schemaKey, "file://")
 		return os.ReadFile(path) //nolint:gosec // path comes from configured schemaDir

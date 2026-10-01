@@ -22,9 +22,16 @@ import (
 // feeds the input channel and, on exit, closes it and calls Wait() (which lets
 // the pump drain and close Response()) before canceling ctx — so a terminal
 // chunk is delivered before Done() fires. On a detected barge-in the session
-// calls Barge() (fires the out-of-band BargeIn() signal AND drops queued audio)
-// and skips still-arriving audio while Dropping() is true, clearing it at the
-// next response boundary with ClearDrop().
+// calls Barge() (fires the out-of-band BargeIn() signal and starts Dropping()),
+// then sends BargeMarker() on its input channel, and skips still-arriving audio
+// while Dropping() is true, clearing it at the next response boundary with
+// ClearDrop().
+//
+// The audio already queued for the interrupted response is dropped when the
+// pump reaches the marker — in order, on the same channel as the audio. An
+// out-of-band purge request raced the stream: the next response's first chunks
+// could reach the pump's queue before the request did and be dropped with the
+// interrupted audio, cutting the start of the agent's reply.
 type StreamPump struct {
 	// BargeInSignal provides the StreamInputSession.BargeIn() channel, fired by
 	// Barge(). Embedded so it (and BargeIn()) are promoted to the session.
@@ -33,10 +40,14 @@ type StreamPump struct {
 	ctx      context.Context //nolint:containedctx // session-scoped; bounds the pump's blocking sends
 	in       <-chan StreamChunk
 	respCh   chan StreamChunk
-	dropCh   chan struct{}
 	pumpDone chan struct{}
 	dropping atomic.Bool
 }
+
+// BargeMarker returns the chunk a session sends on the pump's input channel
+// right after Barge(). When the pump reaches it, it drops the audio queued
+// before it and keeps everything after it; the marker itself is not forwarded.
+func BargeMarker() StreamChunk { return StreamChunk{purgeAudio: true} }
 
 // NewStreamPump creates a pump reading from in (owned and closed by the caller)
 // and exposing a Response() channel buffered to buf. Call Start to run it.
@@ -46,7 +57,6 @@ func NewStreamPump(ctx context.Context, in <-chan StreamChunk, buf int) *StreamP
 		ctx:           ctx,
 		in:            in,
 		respCh:        make(chan StreamChunk, buf),
-		dropCh:        make(chan struct{}, 1),
 		pumpDone:      make(chan struct{}),
 	}
 }
@@ -71,16 +81,13 @@ func (p *StreamPump) Dropping() bool { return p.dropping.Load() }
 func (p *StreamPump) ClearDrop() { p.dropping.Store(false) }
 
 // Barge handles a detected barge-in: fire the out-of-band signal so a paced
-// consumer flushes immediately, start skipping still-arriving audio, and drop
-// the audio already queued for the interrupted response. Non-blocking; safe from
-// the receive goroutine.
+// consumer flushes immediately, and start skipping still-arriving audio.
+// Non-blocking; safe from the receive goroutine. The session then sends
+// BargeMarker() so the audio already queued for the interrupted response is
+// dropped in order.
 func (p *StreamPump) Barge() {
 	p.dropping.Store(true)
 	p.SignalBargeIn()
-	select {
-	case p.dropCh <- struct{}{}:
-	default:
-	}
 }
 
 func (p *StreamPump) run() {
@@ -99,18 +106,20 @@ func (p *StreamPump) run() {
 		}
 		select {
 		case chunk, ok := <-in:
-			if !ok {
+			switch {
+			case !ok:
 				in = nil // producer (receive loop) done; drain remaining queue
-			} else {
+			case chunk.purgeAudio:
+				// Barge-in marker: drop the audio queued before it so the
+				// interrupted response stops playing. head (if any) was a copy
+				// and is simply not sent. Chunks after the marker are kept.
+				queue = dropAudioChunks(queue)
+			default:
 				queue = append(queue, chunk)
 			}
 		case out <- head:
 			queue[0] = StreamChunk{} // release for GC
 			queue = queue[1:]
-		case <-p.dropCh:
-			// Barge-in: discard queued audio so the interrupted response stops
-			// playing. head (if any) was a copy and is simply not sent.
-			queue = dropAudioChunks(queue)
 		case <-p.ctx.Done():
 			return
 		}
