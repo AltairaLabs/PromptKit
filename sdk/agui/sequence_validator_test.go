@@ -201,6 +201,13 @@ func (v *sequenceValidator) acceptInRun(ev aguievents.Event) error {
 }
 
 func (v *sequenceValidator) toolCallStart(e *aguievents.ToolCallStartEvent) error {
+	// A start for a call that has its result is a new call that reuses the id:
+	// some providers number call ids per response (call_0, call_1, ...). Only a
+	// start for a call still waiting for its result is a reopening.
+	if v.answered[e.ToolCallID] {
+		delete(v.answered, e.ToolCallID)
+		delete(v.names, e.ToolCallID)
+	}
 	if name, seen := v.names[e.ToolCallID]; seen && name != e.ToolCallName {
 		return fmt.Errorf("TOOL_CALL_START reopens %q as %q, but it was opened as %q", e.ToolCallID, e.ToolCallName, name)
 	}
@@ -293,6 +300,14 @@ func TestValidateAGUISequence_AcceptsConformingStreams(t *testing.T) {
 		"late error":          {[]aguievents.Event{start, finish, aguievents.NewRunErrorEvent("x")}, phaseErrored},
 		"two runs":            {[]aguievents.Event{start, finish, aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewRunFinishedEvent("t", "r2")}, phaseFinished},
 		"unanswered frontend": {[]aguievents.Event{start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"), finish}, phaseFinished},
+		"answered id reused by a new call": {[]aguievents.Event{
+			start,
+			aguievents.NewToolCallStartEvent("call_0", "lookup"), aguievents.NewToolCallEndEvent("call_0"),
+			aguievents.NewToolCallResultEvent("m1", "call_0", "one"),
+			aguievents.NewToolCallStartEvent("call_0", "search"), aguievents.NewToolCallEndEvent("call_0"),
+			aguievents.NewToolCallResultEvent("m2", "call_0", "two"),
+			finish,
+		}, phaseFinished},
 		"result in a later run": {[]aguievents.Event{
 			start, aguievents.NewToolCallStartEvent("c0", "f"), aguievents.NewToolCallEndEvent("c0"), finish,
 			aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewToolCallResultEvent("m", "c0", "ok"),

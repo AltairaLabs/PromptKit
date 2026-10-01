@@ -277,7 +277,7 @@ NewWorkflowEventAdapter creates an EventAdapter for a workflow conversation. Eac
 Client\-tool results and approval resolutions go to the workflow's active conversation, the one serving the current state.
 
 <a name="EventAdapter.Events"></a>
-### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L209>)
+### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L210>)
 
 ```go
 func (a *EventAdapter) Events() <-chan aguievents.Event
@@ -285,21 +285,25 @@ func (a *EventAdapter) Events() <-chan aguievents.Event
 
 Events returns the read\-only channel of AG\-UI events. The channel is closed when the run ends, successfully or with an error.
 
-The adapter never drops an event. When the channel's buffer is full it waits for the reader, so a reader that stops reading holds the run until the run's context is canceled; cancel it \(an HTTP handler's request context is canceled when the client disconnects\) to release the run.
+Drain it concurrently with RunSend, RunResume or RunContinue, for example from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits for the reader, so a reader that stops reading holds the run until the run's context is canceled; cancel it \(an HTTP handler's request context is canceled when the client disconnects\) to release the run.
 
 <a name="EventAdapter.RunContinue"></a>
-### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L284>)
+### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L301>)
 
 ```go
 func (a *EventAdapter) RunContinue(ctx context.Context) error
 ```
 
-RunContinue continues a turn whose approval\-held tool calls were resolved \(sdk.Conversation.ResolveTool / RejectTool\) and emits it as a new run. The held calls' results are emitted as TOOL\_CALL\_RESULT events, since only the agent knows them.
+RunContinue continues a turn whose approval\-held tool calls were resolved \(sdk.Conversation.ResolveTool / RejectTool\) and emits it as a new run.
+
+Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full. A caller that lets the run finish before reading blocks there; adapters before this version dropped the events that did not fit instead.
+
+The held calls' results are emitted as TOOL\_CALL\_RESULT events, since only the agent knows them.
 
 It returns [ErrContinueUnsupported](<#ErrContinueUnsupported>) \(after a RUN\_ERROR\) when the conversation has no Continue method.
 
 <a name="EventAdapter.RunID"></a>
-### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L219>)
+### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L220>)
 
 ```go
 func (a *EventAdapter) RunID() string
@@ -308,7 +312,7 @@ func (a *EventAdapter) RunID() string
 RunID returns the run ID used by this adapter.
 
 <a name="EventAdapter.RunResume"></a>
-### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L264>)
+### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L275>)
 
 ```go
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error
@@ -316,10 +320,12 @@ func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) erro
 
 RunResume answers the client tool calls a previous run left pending and emits the continued turn as a new run.
 
+Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full. A caller that lets the run finish before reading blocks there; adapters before this version dropped the events that did not fit instead.
+
 In AG\-UI the application answers a frontend tool call in the next run's input, as a tool message per call; [ToolResultsFromAGUI](<#ToolResultsFromAGUI>) extracts them. The answers are the application's own, so the run does not echo them back as TOOL\_CALL\_RESULT events.
 
 <a name="EventAdapter.RunSend"></a>
-### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L251>)
+### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L257>)
 
 ```go
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error
@@ -344,8 +350,10 @@ Text arrives as one TEXT\_MESSAGE\_CONTENT per message once the turn has run; it
 
 On error, a RUN\_ERROR ends the run. The events channel is always closed when RunSend returns.
 
+Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full. A caller that lets the run finish before reading blocks there; adapters before this version dropped the events that did not fit instead.
+
 <a name="EventAdapter.ThreadID"></a>
-### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L214>)
+### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L215>)
 
 ```go
 func (a *EventAdapter) ThreadID() string

@@ -180,6 +180,8 @@ A tool registered with `OnToolAsync` can hold a call for approval. The run then 
 
 The adapter never drops an event. If the consumer stops reading, the adapter waits; canceling the run's context releases it.
 
+Read `Events()` while the run is in progress, from another goroutine. Once its buffer of 64 events is full, the run waits for the reader, so code that lets `RunSend` finish before it starts reading blocks there. Before this version the adapter dropped the events that did not fit, including `RUN_FINISHED`.
+
 ### What the Adapter Does Not Do
 
 - **Stream tokens.** Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.

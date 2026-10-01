@@ -202,7 +202,8 @@ func newAdapter(sender Sender, _ EventBusProvider, opts ...AdapterOption) *Event
 // Events returns the read-only channel of AG-UI events. The channel is closed
 // when the run ends, successfully or with an error.
 //
-// The adapter never drops an event. When the channel's buffer is full it waits
+// Drain it concurrently with RunSend, RunResume or RunContinue, for example
+// from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits
 // for the reader, so a reader that stops reading holds the run until the run's
 // context is canceled; cancel it (an HTTP handler's request context is
 // canceled when the client disconnects) to release the run.
@@ -248,6 +249,11 @@ func (a *EventAdapter) RunID() string {
 //
 // On error, a RUN_ERROR ends the run. The events channel is always closed when
 // RunSend returns.
+//
+// Read Events() concurrently with the run, or cancel ctx: the run waits for
+// the reader once the channel's buffer of 64 events is full. A caller that
+// lets the run finish before reading blocks there; adapters before this
+// version dropped the events that did not fit instead.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	return a.run(ctx, nil, func(ctx context.Context) (*sdk.Response, error) {
 		return a.sender.Send(ctx, msg)
@@ -256,6 +262,11 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 
 // RunResume answers the client tool calls a previous run left pending and
 // emits the continued turn as a new run.
+//
+// Read Events() concurrently with the run, or cancel ctx: the run waits for
+// the reader once the channel's buffer of 64 events is full. A caller that
+// lets the run finish before reading blocks there; adapters before this
+// version dropped the events that did not fit instead.
 //
 // In AG-UI the application answers a frontend tool call in the next run's
 // input, as a tool message per call; [ToolResultsFromAGUI] extracts them. The
@@ -275,9 +286,15 @@ func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) erro
 }
 
 // RunContinue continues a turn whose approval-held tool calls were resolved
-// (sdk.Conversation.ResolveTool / RejectTool) and emits it as a new run. The
-// held calls' results are emitted as TOOL_CALL_RESULT events, since only the
-// agent knows them.
+// (sdk.Conversation.ResolveTool / RejectTool) and emits it as a new run.
+//
+// Read Events() concurrently with the run, or cancel ctx: the run waits for
+// the reader once the channel's buffer of 64 events is full. A caller that
+// lets the run finish before reading blocks there; adapters before this
+// version dropped the events that did not fit instead.
+//
+// The held calls' results are emitted as TOOL_CALL_RESULT events, since only
+// the agent knows them.
 //
 // It returns [ErrContinueUnsupported] (after a RUN_ERROR) when the
 // conversation has no Continue method.
@@ -293,10 +310,15 @@ func (a *EventAdapter) RunContinue(ctx context.Context) error {
 
 // runState tracks what one run has emitted.
 type runState struct {
-	a        *EventAdapter
-	ctx      context.Context
-	answered map[string]bool // calls answered in this run, or by the run's input
-	step     string          // the open step, when stepOpen
+	a   *EventAdapter
+	ctx context.Context
+	// answered holds the calls of the current round that already have a
+	// result: emitted in this run, or answered by the run's input. A round is
+	// an assistant message and the tool results after it; call ids are only
+	// unique within one (Gemini numbers them call_0, call_1, ... per
+	// response), so the set starts afresh with each assistant message.
+	answered map[string]bool
+	step     string // the open step, when stepOpen
 	stepOpen bool
 }
 
@@ -418,6 +440,7 @@ func fallbackTurn(resp *sdk.Response) []types.Message {
 // message that only calls tools emits no text message; its calls still name it
 // as their parent.
 func (st *runState) emitAssistant(msg *types.Message) {
+	st.answered = map[string]bool{}
 	msgID := aguievents.GenerateMessageID()
 	text := msg.GetContent()
 	if text != "" || len(msg.ToolCalls) == 0 {
@@ -436,8 +459,8 @@ func (st *runState) emitAssistant(msg *types.Message) {
 	}
 }
 
-// emitToolMessage emits the result a tool message carries, unless the call
-// was already answered — by this run, or by the input that started it.
+// emitToolMessage emits the result a tool message carries, unless its call was
+// already answered in this round — by this run, or by the input that started it.
 func (st *runState) emitToolMessage(msg *types.Message) {
 	if msg.ToolResult == nil {
 		return

@@ -167,6 +167,8 @@ Create the adapter with the input's thread and run IDs, start the run in a gorou
 	}
 ```
 
+The run must be in its own goroutine, as here: the adapter's channel holds 64 events, and once it is full the run waits for the loop to read. Code that runs `RunSend` to completion before reading `Events()` blocks there; earlier versions dropped the events that did not fit instead.
+
 The `Events()` channel closes when the run ends, so the `range` loop exits cleanly. The adapter never drops an event: while the client is slow to read, the run waits. If the client disconnects, the request context is canceled, which releases the run.
 
 ---
