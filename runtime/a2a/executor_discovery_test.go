@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,4 +112,60 @@ func TestToolBridge_SharesItsCardWithTheExecutor(t *testing.T) {
 	}
 	assert.Equal(t, []string{"/", "/"}, agent.posted())
 	assert.Equal(t, 1, agent.gets(), "the bridge's card is used; no second fetch")
+}
+
+func TestExecutor_RetriesAFailedDiscoveryLater(t *testing.T) {
+	var mu sync.Mutex
+	cardFetches := 0
+	var posts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodGet {
+			cardFetches++
+			if cardFetches == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable) // a blip
+				return
+			}
+			_ = json.NewEncoder(w).Encode(rpcAtRoot("http://" + r.Host))
+			return
+		}
+		posts = append(posts, r.URL.Path)
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, SendMessageResponse{Task: &Task{ID: "t", Status: TaskStatus{State: TaskStateCompleted}}})
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	cfg := &tools.A2AConfig{AgentURL: srv.URL}
+	e.getOrCreateClientWithConfig(cfg).discoverBackoff = time.Millisecond
+	desc := &tools.ToolDescriptor{Name: "t", A2AConfig: cfg}
+
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
+	require.NoError(t, err)
+	time.Sleep(2 * time.Millisecond) // past the injected backoff
+	for i := 0; i < 2; i++ {
+		_, err = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
+		require.NoError(t, err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"/a2a", "/", "/"}, posts, "a failed discovery is retried; then the card is used")
+	assert.Equal(t, 2, cardFetches, "a successful discovery is kept")
+}
+
+func TestClient_DiscoveryIsNotBoundByTheCallersDeadline(t *testing.T) {
+	agent := &cardAgent{card: rpcAtRoot}
+	srv := httptest.NewServer(agent)
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.discoverForCalls(expired)
+	require.NoError(t, sendHi(t, c))
+	assert.Equal(t, []string{"/"}, agent.posted(),
+		"a short call deadline must not decide where every later call goes")
 }

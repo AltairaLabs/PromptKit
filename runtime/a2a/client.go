@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -169,8 +170,14 @@ type Client struct {
 	version       ProtocolVersion
 	versionPinned bool
 
-	// discoverOnce guards the executor's best-effort card discovery.
-	discoverOnce sync.Once
+	// discoverMu serializes the executor's best-effort card discovery;
+	// discoverRetryAt is when a failed attempt may be repeated.
+	discoverMu      sync.Mutex
+	discoverRetryAt time.Time
+	// discoverBackoff is how long a failed discovery waits before a later
+	// call tries again; discoverTimeout bounds one attempt.
+	discoverBackoff time.Duration
+	discoverTimeout time.Duration
 }
 
 // newDefaultTransport creates an HTTP transport with connection pooling,
@@ -218,6 +225,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		sseClient:      newDefaultSSEClient(),
 		sseIdleTimeout: DefaultSSEIdleTimeout,
 		version:        ProtocolVersion10,
+
+		discoverBackoff: defaultDiscoverBackoff,
+		discoverTimeout: defaultDiscoverTimeout,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -304,19 +314,37 @@ func (c *Client) cachedCard() *AgentCard {
 	return c.agentCard
 }
 
-// discoverForCalls fetches the agent card once, so calls reach the interface
-// it declares. It is best effort: when the card cannot be had, calls keep
-// going to {base}/a2a, as they always did, and discovery is not retried.
+// Card discovery before calls (discoverForCalls).
+const (
+	// defaultDiscoverBackoff is how long a failed discovery waits before a
+	// later call tries again.
+	defaultDiscoverBackoff = 30 * time.Second
+	// defaultDiscoverTimeout bounds one discovery attempt.
+	defaultDiscoverTimeout = 10 * time.Second
+)
+
+// discoverForCalls fetches the agent card, so calls reach the interface it
+// declares. It is best effort: while the card cannot be had, calls keep going
+// to {base}/a2a, as they always did. A successful discovery is kept; a failed
+// one is tried again by a call made after discoverBackoff. The attempt keeps
+// ctx's values but not its deadline, so a short per-call timeout does not
+// decide where every later call goes.
 func (c *Client) discoverForCalls(ctx context.Context) {
-	c.discoverOnce.Do(func() {
-		if c.cachedCard() != nil {
-			return
-		}
-		if _, err := c.Discover(ctx); err != nil {
-			logger.Debug("a2a: agent card unavailable; calling the default endpoint",
-				"agent_url", c.baseURL, "error", err)
-		}
-	})
+	if c.cachedCard() != nil {
+		return
+	}
+	c.discoverMu.Lock()
+	defer c.discoverMu.Unlock()
+	if c.cachedCard() != nil || time.Now().Before(c.discoverRetryAt) {
+		return
+	}
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.discoverTimeout)
+	defer cancel()
+	if _, err := c.Discover(dctx); err != nil {
+		c.discoverRetryAt = time.Now().Add(c.discoverBackoff)
+		logger.Debug("a2a: agent card unavailable; calling the default endpoint",
+			"agent_url", c.baseURL, "error", err)
+	}
 }
 
 // ProtocolVersion returns the protocol version the client currently speaks.
@@ -411,8 +439,9 @@ var errNoJSONRPCInterface = errors.New("a2a: the agent card declares no JSON-RPC
 // endpoint selects the interface to call in version v (A2A 1.0 §8.3.2): the
 // first JSON-RPC interface in the discovered card that serves v, or else the
 // first JSON-RPC interface at all. Without a discovered card that declares
-// interfaces, calls go to {base}/a2a and iface is nil.
-func (c *Client) endpoint(v ProtocolVersion) (url string, iface *AgentInterface, err error) {
+// interfaces, calls go to {base}/a2a and iface is nil. The interface's URL
+// is used as callURL allows.
+func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterface, err error) {
 	c.mu.RLock()
 	card := c.agentCard
 	c.mu.RUnlock()
@@ -429,13 +458,56 @@ func (c *Client) endpoint(v ProtocolVersion) (url string, iface *AgentInterface,
 			fallback = candidate
 		}
 		if served, perr := ParseProtocolVersion(candidate.ProtocolVersion); perr == nil && (served == "" || served == v) {
-			return candidate.URL, candidate, nil
+			return c.callURL(candidate.URL), candidate, nil
 		}
 	}
 	if fallback == nil {
 		return "", nil, errNoJSONRPCInterface
 	}
-	return fallback.URL, fallback, nil
+	return c.callURL(fallback.URL), fallback, nil
+}
+
+// defaultRPCPath is where PromptKit servers, and the client by default, put
+// the JSON-RPC endpoint.
+const defaultRPCPath = "/a2a"
+
+// callURL decides where calls go given the interface URL a card declares.
+// The card is followed only where it adds information, and never so as to
+// weaken the caller's choice of transport:
+//
+//   - an interface at the default /a2a path keeps the caller's base URL: a
+//     server behind a TLS-terminating proxy that derives the URL from the
+//     request describes itself by its internal, plain-http address;
+//   - a plain-http interface is never used from an https base: on the same
+//     host the card's path is used over the base's scheme and host, and on
+//     another host calls fall back to {base}/a2a, so credentials never go out
+//     unencrypted;
+//   - anything else (a different path, as a2a-python's "/", or a different
+//     host over https) is followed as declared.
+func (c *Client) callURL(declared string) string {
+	fallback := c.baseURL + defaultRPCPath
+	card, err := url.Parse(declared)
+	if err != nil || card.Host == "" {
+		return fallback
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || base.Host == "" {
+		return declared
+	}
+	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath {
+		return fallback
+	}
+	if strings.EqualFold(base.Scheme, "https") && !strings.EqualFold(card.Scheme, "https") {
+		if !strings.EqualFold(card.Hostname(), base.Hostname()) {
+			logger.Warn("a2a: agent card declares a non-https interface on another host; calling the agent URL instead",
+				"agent_url", c.baseURL, "interface_url", declared)
+			return fallback
+		}
+		upgraded := *card
+		upgraded.Scheme, upgraded.Host = base.Scheme, base.Host
+		return upgraded.String()
+	}
+	return declared
 }
 
 // withTenant sets the params' tenant to exactly the selected interface's, and
