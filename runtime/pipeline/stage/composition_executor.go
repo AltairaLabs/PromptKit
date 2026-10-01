@@ -153,6 +153,16 @@ func (deps CompositionExecutorDeps) execLLM(
 
 	// Per-step tool policy: agent steps configure MaxRounds/StopOnTool from
 	// Termination; prompt steps are always single-round.
+	//
+	// termination.max_steps bounds THIS agent step's LLM-tool loop: it counts
+	// the same rounds as the prompt's tool_policy.max_rounds. It is not a limit
+	// on how many composition steps execute — the spec requires the step graph
+	// to be acyclic (validate.go rejects cycles), so no step runs twice and
+	// looping belongs to the workflow layer (max_visits, engine.budget). The
+	// provider stage merges this policy with the step prompt's tool_policy and
+	// runs to the LOWER of max_steps and max_rounds; a step that sets only
+	// tool_called gets the prompt's max_rounds, or the default.
+	// See pipeline.MergeToolPolicy.
 	// Tool scoping is handled uniformly by toolScopeStage: it intersects the
 	// prompt template's AllowedTools with step.Tools, so a prompt step (empty
 	// Tools) yields no tools regardless of what the template declares.

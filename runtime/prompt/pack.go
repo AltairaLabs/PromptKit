@@ -276,6 +276,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		SystemTemplate: config.Spec.SystemTemplate,
 		Variables:      ptrSlice(compileVariables(config.Spec.Variables)),
 		Tools:          config.Spec.AllowedTools,
+		ToolPolicy:     config.Spec.ToolPolicy,
 		Validators:     ptrSlice(foldValidatorMessages(config.Spec.Validators)),
 		Media:          config.Spec.MediaConfig,
 		TestedModels:   ptrSlice(config.Spec.TestedModels),
@@ -932,6 +933,7 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 			Description:    pr.Description,
 			SystemTemplate: pr.SystemTemplate,
 			AllowedTools:   pr.Tools,
+			ToolPolicy:     pr.ToolPolicy,
 			Variables:      vars,
 		},
 	}

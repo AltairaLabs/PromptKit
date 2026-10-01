@@ -65,6 +65,9 @@ type Template struct {
 	AllowedTools  []string          `json:"allowed_tools,omitempty"`
 	Validators    []ValidatorConfig `json:"validators,omitempty"`
 	ModelOverride string            `json:"model_override,omitempty"`
+	// ToolPolicy is the prompt's declared tool_policy, if any. The provider
+	// stage merges it with its caller's policy (pipeline.MergeToolPolicy).
+	ToolPolicy *ToolPolicyPack `json:"tool_policy,omitempty"`
 }
 
 // UsesTools returns true if this prompt has tools configured
@@ -593,6 +596,7 @@ func (r *Registry) LoadTemplate(activity string, vars map[string]string, model s
 		AllowedTools:  config.Spec.AllowedTools,
 		Validators:    config.Spec.Validators,
 		ModelOverride: modelOverride,
+		ToolPolicy:    config.Spec.ToolPolicy,
 	}, nil
 }
 

@@ -100,6 +100,43 @@ if err != nil {
 
 The tool registry makes tools available for the LLM to call during conversations.
 
+## Limiting Tool Use
+
+A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
+
+```json
+"prompts": {
+  "builder": {
+    "tools": ["catalog_overview", "write_file", "delete_kit"],
+    "tool_policy": {
+      "max_rounds": 200,
+      "max_tool_calls_per_turn": 400,
+      "tool_choice": "auto",
+      "blocklist": ["delete_kit"]
+    }
+  }
+}
+```
+
+- `max_rounds`: how many LLM → tool → LLM cycles one turn may take. Defaults to 50. A turn that still wants tools at the limit fails with `max rounds (N) exceeded`.
+- `max_tool_calls_per_turn`: how many tool calls one turn may run, across all its rounds. A call over the limit is not run; the model gets an error result for it, and the next round offers no tools, so the model answers.
+- `tool_choice`: `auto`, `required` or `none`. With `none`, no tools are sent.
+- `blocklist`: tools this prompt may not run, even when listed in `tools`.
+
+`tool_policy` can only be set on a prompt. There is no pack-level `tool_policy`.
+
+### How other limits combine with it
+
+Three other limits can apply, and they work differently:
+
+| Limit | What it bounds | How it combines with `tool_policy` |
+|---|---|---|
+| A composition agent step's `termination.max_steps` | The LLM-tool loop of that one step, counted in the same rounds as `max_rounds` | The step stops at the lower of `max_steps` and its prompt's `max_rounds` |
+| `workflow.engine.budget` (`max_tool_calls`, `max_total_visits`, `max_wall_time_sec`) and a state's `max_visits` | The whole workflow run, across states and turns | Applies on top. Each turn is still bounded by its prompt's `tool_policy` |
+| Limits a host or test harness sets in code | Whatever the caller sets | These can only make the prompt's limits stricter, never looser |
+
+`max_steps` limits rounds inside one step, not how many steps run. A composition's steps form an acyclic graph, so no step runs twice. To loop, use workflow states with `max_visits`.
+
 ## Model Context Protocol (MCP)
 
 **MCP** is a standard for connecting LLMs to external data sources and tools.
