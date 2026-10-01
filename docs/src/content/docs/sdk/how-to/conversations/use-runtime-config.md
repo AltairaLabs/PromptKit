@@ -3,6 +3,24 @@ title: Use RuntimeConfig
 description: Load providers, tools, MCP servers, hooks, state store and logging from one YAML file
 sidebar:
   order: 15
+verified:
+  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  sources:
+    - pkg/config/logging.go
+    - pkg/config/runtime_config.go
+    - pkg/config/types.go
+    - runtime/credentials/resolver.go
+    - runtime/credentials/types.go
+    - runtime/hooks/exec_build.go
+    - runtime/hooks/exec_hooks.go
+    - runtime/hooks/execconfig/execconfig.go
+    - runtime/providers/claude/pricing_table.go
+    - sdk/conversation.go
+    - sdk/exec_tools.go
+    - sdk/options.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
+    - sdk/sdk.go
 ---
 
 Configure providers, tools, MCP servers, hooks, state store and logging from a single YAML file instead of programmatic options.

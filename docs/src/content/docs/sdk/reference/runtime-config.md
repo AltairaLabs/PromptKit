@@ -3,6 +3,57 @@ title: RuntimeConfig
 description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
+verified:
+  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  sources:
+    - pkg/config/logging.go
+    - pkg/config/role.go
+    - pkg/config/runtime_config.go
+    - pkg/config/types.go
+    - runtime/credentials/resolver.go
+    - runtime/credentials/resolver_platform.go
+    - runtime/credentials/types.go
+    - runtime/hooks/exec_build.go
+    - runtime/hooks/exec_hooks.go
+    - runtime/hooks/execconfig/execconfig.go
+    - runtime/inference/all/all.go
+    - runtime/inference/huggingface/register.go
+    - runtime/inference/openai/register.go
+    - runtime/inference/systemone/register.go
+    - runtime/logger/config.go
+    - runtime/mcp/types.go
+    - runtime/providers/all/all.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/bedrock/embedding_register.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/claude/pricing_table.go
+    - runtime/providers/cohere/rerank_register.go
+    - runtime/providers/gemini/embedding_register.go
+    - runtime/providers/huggingface/embedding_register.go
+    - runtime/providers/imagen/factory.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/multimodal.go
+    - runtime/providers/ollama/embedding_register.go
+    - runtime/providers/openai/embedding_register.go
+    - runtime/providers/registry.go
+    - runtime/providers/replay/factory.go
+    - runtime/providers/rerank_mock.go
+    - runtime/providers/stream_retry.go
+    - runtime/providers/stream_retry_driver.go
+    - runtime/providers/streaming.go
+    - runtime/providers/vertex/embedding_register.go
+    - runtime/providers/vllm/factory.go
+    - runtime/providers/voyageai/embedding_register.go
+    - runtime/providers/voyageai/rerank_register.go
+    - runtime/statestore/file/store.go
+    - runtime/statestore/redis.go
+    - runtime/statestore/types.go
+    - runtime/tools/types.go
+    - schemas/v1alpha1/runtime-config.json
+    - sdk/conversation_tools.go
+    - sdk/exec_tools.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
 ---
 
 RuntimeConfig is a Kubernetes-style YAML manifest that declaratively configures the SDK runtime environment. It separates _what_ an agent does (defined in a pack) from _how_ to run it (providers, tool bindings, state store, logging). This makes packs portable across environments while RuntimeConfig adapts them to each deployment target.

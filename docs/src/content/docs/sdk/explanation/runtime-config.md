@@ -3,6 +3,27 @@ title: RuntimeConfig Design
 description: Why RuntimeConfig exists and how it separates what an agent does from how it runs
 sidebar:
   order: 3
+verified:
+  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  sources:
+    - pkg/config/logging.go
+    - pkg/config/runtime_config.go
+    - pkg/config/types.go
+    - runtime/evals/exec_hook.go
+    - runtime/evals/handlers/exec_handler.go
+    - runtime/evals/registry.go
+    - runtime/hooks/exec_hooks.go
+    - runtime/hooks/execconfig/execconfig.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/tools/exec_executor.go
+    - runtime/tools/registry.go
+    - runtime/tools/server_executor.go
+    - runtime/tools/types.go
+    - sdk/exec_tools.go
+    - sdk/options.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
+    - sdk/sdk.go
 ---
 RuntimeConfig separates the agent definition from the execution environment.
 
