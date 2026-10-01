@@ -1017,7 +1017,10 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 		return nil
 	}
 
-	registry := mcp.NewRegistry()
+	registry := mcp.NewRegistryWithOptions(mcp.RegistryOptions{
+		MaxProcesses:    mcp.DefaultMaxProcesses,
+		ConfigureClient: mcpClientConfigurer(cfg),
+	})
 	conv.mcpRegistry = registry
 
 	for _, serverCfg := range cfg.mcpServers {
@@ -1031,6 +1034,20 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 		}
 	}
 	return nil
+}
+
+// mcpClientConfigurer applies the host's MCP authorizer and elicitation
+// handler to each server's client, or returns nil when neither is set.
+func mcpClientConfigurer(cfg *config) func(mcp.ServerConfig, *mcp.ClientOptions) {
+	if cfg.mcpAuthorizer == nil && cfg.mcpElicitation == nil {
+		return nil
+	}
+	return func(server mcp.ServerConfig, opts *mcp.ClientOptions) {
+		if cfg.mcpAuthorizer != nil {
+			opts.Authorizer = cfg.mcpAuthorizer(server.Name)
+		}
+		opts.ElicitationHandler = cfg.mcpElicitation
+	}
 }
 
 // resolveMCPEndpoint fills serverCfg.URL/Headers via the resolver when

@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := help
+.PHONY: mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance
 .PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy bench-audio-memory
 
 # Route unknown targets to help
@@ -287,6 +288,46 @@ api-compat-check: ## Check the API changes fit a claimed version (usage: make ap
 
 spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
 	@./scripts/check-spec-version.sh
+
+# MCP conformance. The client is dual-era: mcp.ProtocolVersion (stateless)
+# and mcp.LegacyProtocolVersion (the newest handshake revision) are the
+# claims. The mirrored schemas, the parity test
+# (runtime/mcp/spec_parity_test.go), the generated "Spec support" section of
+# the MCP how-to and the official suite all follow them.
+MCP_CONFORMANCE_VERSION ?= 0.2.0-alpha.11
+MCP_PROTOCOL_VERSION = $(shell sed -nE 's/^const ProtocolVersion = "([0-9-]+)"$$/\1/p' runtime/mcp/types.go)
+MCP_LEGACY_PROTOCOL_VERSION = $(shell sed -nE 's/^const LegacyProtocolVersion = "([0-9-]+)"$$/\1/p' runtime/mcp/types.go)
+
+mcp-schema: ## Refresh the mirrored MCP schemas for the claimed revisions
+	@./scripts/fetch-mcp-schema.sh
+
+mcp-schema-check: ## Check the mirrored MCP schemas ARE the published ones (for CI)
+	@tmp=$$(mktemp -d); \
+	./scripts/fetch-mcp-schema.sh "$$tmp" >/dev/null; \
+	if diff -r "$$tmp" runtime/mcp/testdata/spec >/dev/null 2>&1; then \
+		echo "✓ Mirrored MCP $(MCP_PROTOCOL_VERSION) and $(MCP_LEGACY_PROTOCOL_VERSION) schemas are the published ones"; \
+		rm -rf "$$tmp"; \
+	else \
+		echo "::error::runtime/mcp/testdata/spec is not the published MCP schemas for the claimed revisions."; \
+		echo "::error::They are verbatim mirrors and must never be hand-edited. Run 'make mcp-schema';"; \
+		echo "::error::if that breaks TestMCPSpecParity, change the Go type or record a specOmission."; \
+		diff -r "$$tmp" runtime/mcp/testdata/spec | head -40 || true; \
+		rm -rf "$$tmp"; exit 1; \
+	fi
+
+mcp-spec-docs: ## Regenerate the MCP how-to's "Spec support" section from the parity pins
+	@UPDATE_SPEC_DOCS=1 go -C runtime test ./mcp/ -run TestMCPSpecSupportDocIsCurrent -count=1 >/dev/null
+	@echo "✓ docs/src/content/docs/runtime/how-to/tools/integrate-mcp.md"
+
+mcp-conformance: ## Run the official MCP conformance suite against the client, for both claimed revisions (needs Node)
+	@bin=$$(mktemp -d)/mcp-conformance-client; \
+	go -C tools/mcp-conformance-client build -o "$$bin" . && \
+	for rev in $(MCP_PROTOCOL_VERSION) $(MCP_LEGACY_PROTOCOL_VERSION); do \
+		echo "== MCP $$rev requirements"; \
+		npx -y @modelcontextprotocol/conformance@$(MCP_CONFORMANCE_VERSION) client \
+			--command "$$bin" --requirements $$rev \
+			--expected-failures tools/mcp-conformance-client/conformance-baseline.yml || exit 1; \
+	done
 
 promptpack-schema-check: ## Check the embedded PromptPack schema IS the published release (for CI)
 	@echo "Checking embedded PromptPack schema matches the published release..."

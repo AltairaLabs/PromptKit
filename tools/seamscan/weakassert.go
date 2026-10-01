@@ -74,7 +74,9 @@ func scanTestFile(path string) ([]Finding, error) {
 	var out []Finding
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil || !strings.HasPrefix(fn.Name.Name, "Test") {
+		// TestMain is the package's setup hook, not a test: it has nothing
+		// to assert.
+		if !ok || fn.Body == nil || !strings.HasPrefix(fn.Name.Name, "Test") || fn.Name.Name == "TestMain" {
 			continue
 		}
 		out = append(out, inspectTestFunc(fset, path, fn)...)

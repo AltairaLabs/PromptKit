@@ -6,8 +6,19 @@ import (
 	"strings"
 )
 
-// ProtocolVersion defines the MCP protocol version (as of 2025-06-18).
-const ProtocolVersion = "2025-06-18"
+// ProtocolVersion is the newest MCP protocol revision the client speaks: the
+// stateless revision it uses with servers that support it.
+//
+// ProtocolVersion and LegacyProtocolVersion are the claims the conformance
+// checks grade against: the mirrored schemas in testdata/spec, the parity
+// test, the generated docs and the official suite all follow them.
+const ProtocolVersion = "2026-07-28"
+
+// LegacyProtocolVersion is the newest handshake-era revision the client
+// speaks, with servers that predate ProtocolVersion's stateless protocol.
+// The client also accepts the earlier handshake revisions a server may
+// choose (2025-06-18, 2025-03-26, 2024-11-05).
+const LegacyProtocolVersion = "2025-11-25"
 
 // methodNotificationsInitialized is the notification a client MUST send after
 // a successful initialize response, before any other request.
@@ -40,24 +51,50 @@ type InitializeRequest struct {
 	ClientInfo      Implementation     `json:"clientInfo"`
 }
 
-// InitializeResponse represents the initialization response
+// InitializeResponse represents the initialization response. For a modern
+// (2026-07-28) server, which has no handshake, the client builds it from the
+// server/discover result.
 type InitializeResponse struct {
 	ProtocolVersion string             `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
 	ServerInfo      Implementation     `json:"serverInfo"`
+	// Instructions is the server's guidance on how to use it.
+	Instructions string `json:"instructions,omitempty"`
 }
 
 // Implementation describes client or server implementation details
 type Implementation struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	// Title is a display name.
+	Title string `json:"title,omitempty"`
+	// Description is a human-readable summary (2025-11-25).
+	Description string `json:"description,omitempty"`
+	// WebsiteURL links to the implementation's site (2025-11-25).
+	WebsiteURL string `json:"websiteUrl,omitempty"`
+	// Icons are display icons (2025-11-25).
+	Icons []Icon `json:"icons,omitempty"`
+}
+
+// Icon is a display icon for an implementation, tool or resource (2025-11-25).
+type Icon struct {
+	Src      string   `json:"src"`
+	MimeType string   `json:"mimeType,omitempty"`
+	Sizes    []string `json:"sizes,omitempty"`
+	// Theme is "light" or "dark", the background the icon is designed for.
+	Theme string `json:"theme,omitempty"`
 }
 
 // ClientCapabilities describes what the client supports
 type ClientCapabilities struct {
 	Elicitation *ElicitationCapability `json:"elicitation,omitempty"`
 	Sampling    *SamplingCapability    `json:"sampling,omitempty"`
-	Logging     *LoggingCapability     `json:"logging,omitempty"`
+	// Deprecated: logging is a server capability; MCP defines no client
+	// "logging" capability. The client never sets this.
+	Logging *LoggingCapability `json:"logging,omitempty"`
+	// Extensions advertises optional protocol extensions, keyed by
+	// identifier (2026-07-28). The client advertises none.
+	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 
 // ServerCapabilities describes what the server supports
@@ -65,6 +102,9 @@ type ServerCapabilities struct {
 	Tools     *ToolsCapability     `json:"tools,omitempty"`
 	Resources *ResourcesCapability `json:"resources,omitempty"`
 	Prompts   *PromptsCapability   `json:"prompts,omitempty"`
+	// Extensions lists the optional protocol extensions the server supports,
+	// keyed by identifier (2026-07-28).
+	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 
 // ToolsCapability indicates the server supports tools
@@ -82,23 +122,43 @@ type PromptsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
-// ElicitationCapability indicates the client supports elicitation
-type ElicitationCapability struct{}
+// ElicitationCapability indicates the client supports elicitation. An empty
+// object means form mode only; Form and URL name the modes explicitly
+// (2025-11-25).
+type ElicitationCapability struct {
+	Form *struct{} `json:"form,omitempty"`
+	URL  *struct{} `json:"url,omitempty"`
+}
 
 // SamplingCapability indicates the client supports sampling
 type SamplingCapability struct{}
 
-// LoggingCapability indicates the client supports logging
+// LoggingCapability is not an MCP client capability: logging is declared by
+// servers (ServerCapabilities.logging), not clients.
+//
+// Deprecated: the client never sends it. Setting ClientCapabilities.Logging
+// sends a field the MCP spec does not define for clients.
 type LoggingCapability struct{}
 
 // ToolsListRequest represents a request to list available tools
 type ToolsListRequest struct {
-	// No parameters needed
+	// Cursor requests the page after the one that returned it as NextCursor.
+	Cursor string `json:"cursor,omitempty"`
 }
 
 // ToolsListResponse represents the response to a tools/list request
 type ToolsListResponse struct {
 	Tools []Tool `json:"tools"`
+	// NextCursor is set when more tools follow; the client requests the next
+	// page with it.
+	NextCursor string `json:"nextCursor,omitempty"`
+	// ResultType, TTLMs and CacheScope are set by 2026-07-28 servers.
+	// TTLMs is how long the list may be cached; CacheScope is "public" or
+	// "private". The client does not cache tool lists.
+	ResultType string                     `json:"resultType,omitempty"`
+	TTLMs      *int64                     `json:"ttlMs,omitempty"`
+	CacheScope string                     `json:"cacheScope,omitempty"`
+	Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // Tool represents an MCP tool definition
@@ -106,27 +166,117 @@ type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema"` // JSON Schema for tool input
+	// Title is a display name.
+	Title string `json:"title,omitempty"`
+	// OutputSchema is the JSON Schema the tool's structuredContent conforms to.
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	// Annotations are hints about the tool's behavior. They are not
+	// guaranteed: a client MUST NOT trust them from an untrusted server.
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	// Icons are display icons (2025-11-25).
+	Icons []Icon `json:"icons,omitempty"`
+	// Execution says whether the tool runs as a task (2025-11-25). The
+	// client does not implement tasks, so it never lists a tool that
+	// requires one.
+	Execution *ToolExecution             `json:"execution,omitempty"`
+	Meta      map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ToolExecution holds a tool's execution properties (2025-11-25).
+type ToolExecution struct {
+	// TaskSupport is "forbidden" (the default), "optional" or "required".
+	TaskSupport string `json:"taskSupport,omitempty"`
+}
+
+// taskSupportRequired marks a tool that may only be called as a task.
+const taskSupportRequired = "required"
+
+// ToolAnnotations are hints about a tool's behavior (server/tools).
+type ToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 // ToolCallRequest represents a request to execute a tool
 type ToolCallRequest struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+	// InputResponses answers a modern server's input_required result, keyed
+	// as the server keyed its inputRequests (2026-07-28 MRTR).
+	InputResponses map[string]json.RawMessage `json:"inputResponses,omitempty"`
+	// RequestState echoes, unchanged, the requestState of the input_required
+	// result being answered.
+	RequestState json.RawMessage `json:"requestState,omitempty"`
 }
 
 // ToolCallResponse represents the response from a tool execution
 type ToolCallResponse struct {
 	Content []Content `json:"content"`
-	IsError bool      `json:"isError,omitempty"`
+	// StructuredContent is the tool's structured result (MCP 2025-06-18).
+	// Servers SHOULD mirror it as serialized JSON in Content, but are not
+	// required to, so it is the authoritative result when present.
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	IsError           bool            `json:"isError,omitempty"`
+	// ResultType is "complete" from a 2026-07-28 server (absent before).
+	ResultType string                     `json:"resultType,omitempty"`
+	Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
-// Content represents a content item in MCP responses
+// HasStructuredContent reports whether the response carries a non-null
+// structuredContent payload.
+func (r *ToolCallResponse) HasStructuredContent() bool {
+	return len(r.StructuredContent) > 0 && string(r.StructuredContent) != jsonNull
+}
+
+// Content types a ContentBlock can have.
+const (
+	ContentTypeText         = "text"
+	ContentTypeImage        = "image"
+	ContentTypeAudio        = "audio"
+	ContentTypeResourceLink = "resource_link"
+	ContentTypeResource     = "resource"
+)
+
+// Content is one content block of a tool result. It is a flattened union of
+// the spec's text, image, audio, resource_link and embedded resource blocks;
+// Type says which fields apply.
 type Content struct {
-	Type     string `json:"type"` // "text", "image", "resource", etc.
+	Type     string `json:"type"` // one of the ContentType constants
 	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`     // Base64 encoded data
+	Data     string `json:"data,omitempty"`     // Base64 encoded data (image, audio)
 	MimeType string `json:"mimeType,omitempty"` // MIME type for data
-	URI      string `json:"uri,omitempty"`      // URI for resources
+	URI      string `json:"uri,omitempty"`      // URI for resource_link
+	// Name, Title, Description and Size describe a resource_link.
+	Name        string `json:"name,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
+	Icons       []Icon `json:"icons,omitempty"`
+	// Resource is an embedded resource's contents.
+	Resource    *ResourceContents          `json:"resource,omitempty"`
+	Annotations *Annotations               `json:"annotations,omitempty"`
+	Meta        map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ResourceContents is the content of an embedded resource: Text for a text
+// resource, Blob (base64) for a binary one.
+type ResourceContents struct {
+	URI      string                     `json:"uri"`
+	MimeType string                     `json:"mimeType,omitempty"`
+	Text     string                     `json:"text,omitempty"`
+	Blob     string                     `json:"blob,omitempty"`
+	Meta     map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// Annotations tell a client how to use a content block: who it is for and
+// how important it is.
+type Annotations struct {
+	Audience     []string `json:"audience,omitempty"`
+	Priority     *float64 `json:"priority,omitempty"`
+	LastModified string   `json:"lastModified,omitempty"`
 }
 
 // Client interface defines the MCP client operations
@@ -189,9 +339,9 @@ func (f ToolFilter) Includes(name string) bool {
 //
 // Exactly one transport should be specified:
 //   - Command: stdio transport — PromptKit spawns a local subprocess.
-//   - URL:     HTTP transport — by default the legacy SSE adapter is used.
-//     Set TransportName to TransportStreamableHTTP to opt into the
-//     modern Streamable HTTP transport (MCP 2025-03-26).
+//   - URL:     HTTP transport — Streamable HTTP, falling back to the
+//     deprecated HTTP+SSE transport when the server does not host a
+//     Streamable HTTP endpoint. Set TransportName to pin one.
 //
 // The registry selects the adapter via Transport(). Headers applies to all
 // HTTP transports (SSE and Streamable HTTP).
@@ -202,17 +352,15 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// WorkingDir sets the working directory for the server process (stdio only).
 	WorkingDir string `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
-	// URL is the base URL for an HTTP MCP server. When set without an
-	// explicit TransportName, the registry uses the legacy SSE adapter for
-	// back-compat. Set TransportName to TransportStreamableHTTP to opt into
-	// the modern transport.
+	// URL is the URL of an HTTP MCP server. Without a TransportName the
+	// registry uses Streamable HTTP, falling back to HTTP+SSE if the server
+	// does not host a Streamable HTTP endpoint at it.
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 	// Headers are sent on HTTP transports (both SSE and Streamable HTTP).
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	// TransportName selects the transport adapter explicitly. When empty, the
-	// legacy inference applies (URL → SSE, Command → Stdio) for back-compat.
-	// Set to TransportStreamableHTTP to opt into the modern Streamable HTTP
-	// transport against a URL.
+	// TransportName selects the transport adapter explicitly. When empty it
+	// is inferred: URL → Streamable HTTP (with the HTTP+SSE fallback),
+	// Command → stdio.
 	TransportName Transport `json:"transport,omitempty" yaml:"transport,omitempty"`
 	// TimeoutMs sets the per-request timeout in milliseconds.
 	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
@@ -237,14 +385,16 @@ const (
 )
 
 // Transport returns the resolved transport. An explicit TransportName field
-// wins; otherwise URL → TransportSSE (back-compat), Command → TransportStdio.
+// wins; otherwise URL → TransportStreamableHTTP, Command → TransportStdio.
+// For a URL with no TransportName the registry also falls back to HTTP+SSE
+// when the server does not host a Streamable HTTP endpoint.
 // Pointer receiver to avoid copying the (~120-byte) struct.
 func (c *ServerConfig) Transport() Transport {
 	if c.TransportName != "" {
 		return c.TransportName
 	}
 	if c.URL != "" {
-		return TransportSSE
+		return TransportStreamableHTTP
 	}
 	if c.Command != "" {
 		return TransportStdio

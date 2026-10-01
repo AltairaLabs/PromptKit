@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
@@ -110,62 +109,6 @@ func (e *localExecutor) Execute(
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
-	}
-
-	return resultJSON, nil
-}
-
-// mcpHandlerAdapter adapts MCP tool calls to the runtime's tools.Executor interface.
-type mcpHandlerAdapter struct {
-	qualifiedName string // Namespaced name used as registry key (e.g. "mcp__fs__read_file")
-	rawName       string // Original MCP tool name sent to the server (e.g. "read_file")
-	registry      mcp.Registry
-}
-
-// Name returns the qualified tool name.
-func (a *mcpHandlerAdapter) Name() string {
-	return a.qualifiedName
-}
-
-// Execute runs the MCP tool with the given arguments.
-func (a *mcpHandlerAdapter) Execute(
-	ctx context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
-) (json.RawMessage, error) {
-	// Use the raw MCP name for server communication
-	client, err := a.registry.GetClientForTool(ctx, a.rawName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get MCP client for tool %q: %w", a.qualifiedName, err)
-	}
-
-	// Call the tool using the raw name the MCP server knows
-	resp, err := client.CallTool(ctx, a.rawName, args)
-	if err != nil {
-		return nil, fmt.Errorf("MCP tool call failed: %w", err)
-	}
-
-	// Check for tool error
-	if resp.IsError {
-		errMsg := "MCP tool returned error"
-		if len(resp.Content) > 0 && resp.Content[0].Text != "" {
-			errMsg = resp.Content[0].Text
-		}
-		return nil, fmt.Errorf("%s", errMsg)
-	}
-
-	// Extract text content from response
-	var result any
-	if len(resp.Content) == 1 && resp.Content[0].Type == "text" {
-		// Single text response - return as-is
-		result = resp.Content[0].Text
-	} else {
-		// Multiple content items - return as array
-		result = resp.Content
-	}
-
-	// Serialize result
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize MCP tool result: %w", err)
 	}
 
 	return resultJSON, nil

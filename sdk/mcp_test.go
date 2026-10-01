@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
@@ -186,83 +187,6 @@ func TestWithMCPServer(t *testing.T) {
 	})
 }
 
-func TestMCPHandlerAdapter(t *testing.T) {
-	t.Run("name returns qualified tool name", func(t *testing.T) {
-		adapter := &mcpHandlerAdapter{
-			qualifiedName: "mcp__filesystem__read_file",
-			rawName:       "read_file",
-			registry:      newMockMCPRegistry(),
-		}
-		assert.Equal(t, "mcp__filesystem__read_file", adapter.Name())
-	})
-
-	t.Run("execute calls mcp tool with raw name", func(t *testing.T) {
-		registry := newMockMCPRegistry()
-		registry.callFunc = func(name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
-			assert.Equal(t, "read_file", name)
-			return &mcp.ToolCallResponse{
-				Content: []mcp.Content{{Type: "text", Text: "file contents"}},
-			}, nil
-		}
-
-		adapter := &mcpHandlerAdapter{
-			qualifiedName: "mcp__filesystem__read_file",
-			rawName:       "read_file",
-			registry:      registry,
-		}
-
-		result, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{"path":"/tmp/test"}`))
-		require.NoError(t, err)
-		assert.Contains(t, string(result), "file contents")
-	})
-
-	t.Run("execute handles error response", func(t *testing.T) {
-		registry := newMockMCPRegistry()
-		registry.callFunc = func(name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
-			return &mcp.ToolCallResponse{
-				Content: []mcp.Content{{Type: "text", Text: "file not found"}},
-				IsError: true,
-			}, nil
-		}
-
-		adapter := &mcpHandlerAdapter{
-			qualifiedName: "mcp__filesystem__read_file",
-			rawName:       "read_file",
-			registry:      registry,
-		}
-
-		_, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{}`))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "file not found")
-	})
-
-	t.Run("execute handles multiple content items", func(t *testing.T) {
-		registry := newMockMCPRegistry()
-		registry.callFunc = func(name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
-			return &mcp.ToolCallResponse{
-				Content: []mcp.Content{
-					{Type: "text", Text: "first"},
-					{Type: "text", Text: "second"},
-				},
-			}, nil
-		}
-
-		adapter := &mcpHandlerAdapter{
-			qualifiedName: "mcp__test__multi_output",
-			rawName:       "multi_output",
-			registry:      registry,
-		}
-
-		result, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{}`))
-		require.NoError(t, err)
-		// Multiple content items are returned as array
-		var content []mcp.Content
-		err = json.Unmarshal(result, &content)
-		require.NoError(t, err)
-		assert.Len(t, content, 2)
-	})
-}
-
 func TestBuildToolRegistryWithMCP(t *testing.T) {
 	t.Run("includes MCP tools", func(t *testing.T) {
 		conv := newTestConversation()
@@ -354,4 +278,37 @@ func TestConversationCloseWithMCP(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, mockRegistry.closed)
 	})
+}
+
+type stubMCPAuthorizer struct{ name string }
+
+func (stubMCPAuthorizer) Authorize(context.Context, *http.Request) error      { return nil }
+func (stubMCPAuthorizer) Challenge(context.Context, *mcp.AuthChallenge) error { return nil }
+
+func TestMCPClientConfigurer(t *testing.T) {
+	assert.Nil(t, mcpClientConfigurer(&config{}), "nothing to configure without an authorizer or elicitation handler")
+
+	handler := func(context.Context, string, mcp.ElicitRequest) (mcp.ElicitResult, error) {
+		return mcp.ElicitResult{Action: mcp.ElicitActionDecline}, nil
+	}
+	c := &config{}
+	require.NoError(t, WithMCPAuthorizer(func(server string) mcp.Authorizer {
+		if server == "secure" {
+			return stubMCPAuthorizer{name: server}
+		}
+		return nil
+	})(c))
+	require.NoError(t, WithMCPElicitation(handler)(c))
+
+	configure := mcpClientConfigurer(c)
+	require.NotNil(t, configure)
+	var secure, open mcp.ClientOptions
+	configure(mcp.ServerConfig{Name: "secure"}, &secure)
+	configure(mcp.ServerConfig{Name: "open"}, &open)
+	assert.Equal(t, stubMCPAuthorizer{name: "secure"}, secure.Authorizer)
+	assert.Nil(t, open.Authorizer)
+	require.NotNil(t, secure.ElicitationHandler)
+	res, err := open.ElicitationHandler(context.Background(), "open", mcp.ElicitRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, mcp.ElicitActionDecline, res.Action)
 }

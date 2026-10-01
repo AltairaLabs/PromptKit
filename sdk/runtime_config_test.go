@@ -113,10 +113,11 @@ func TestApplyRuntimeConfig_MCPStreamableHTTP_Propagates(t *testing.T) {
 	assert.Equal(t, "Bearer tok", got.Headers["Authorization"])
 }
 
-func TestApplyRuntimeConfig_MCPSSEDefault_PropagatesURLAndHeaders(t *testing.T) {
-	// Without an explicit Transport, URL-only configs continue to default to
-	// the legacy SSE adapter. The previous SDK code dropped URL and Headers
-	// on the floor here; this test guards against regression.
+func TestApplyRuntimeConfig_MCPURLDefault_PropagatesURLAndHeaders(t *testing.T) {
+	// Without an explicit Transport, a URL-only config resolves to Streamable
+	// HTTP (the registry falls back to HTTP+SSE if the server only hosts
+	// that). The previous SDK code dropped URL and Headers on the floor
+	// here; this test guards against regression.
 	spec := &pkgconfig.RuntimeConfigSpec{
 		MCPServers: []pkgconfig.MCPServerConfig{{
 			Name:    "legacy",
@@ -131,8 +132,7 @@ func TestApplyRuntimeConfig_MCPSSEDefault_PropagatesURLAndHeaders(t *testing.T) 
 	assert.Equal(t, "http://legacy.local", got.URL)
 	assert.Equal(t, "v", got.Headers["X-Custom"])
 	assert.Equal(t, mcp.Transport(""), got.TransportName)
-	// Resolution falls back to SSE per ServerConfig.Transport().
-	assert.Equal(t, mcp.TransportSSE, got.Transport())
+	assert.Equal(t, mcp.TransportStreamableHTTP, got.Transport())
 }
 
 func TestApplyRuntimeConfig_StateStore_Memory(t *testing.T) {

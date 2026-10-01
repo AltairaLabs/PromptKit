@@ -2,16 +2,19 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -19,11 +22,14 @@ import (
 
 // ClientOptions configures MCP client behavior
 type ClientOptions struct {
-	// RequestTimeout is the default timeout for RPC requests
+	// RequestTimeout is the default timeout for RPC requests, on every
+	// transport. A request that outlives it is abandoned and the server told so.
 	RequestTimeout time.Duration
 	// InitTimeout is the timeout for the initialization handshake
 	InitTimeout time.Duration
-	// MaxRetries is the number of times to retry failed requests
+	// MaxRetries is the number of times an idempotent request (initialize,
+	// tools/list) is retried after a transport failure. tools/call is never
+	// retried, and neither is a request the server answered with an error.
 	MaxRetries int
 	// RetryDelay is the initial delay between retries (exponential backoff)
 	RetryDelay time.Duration
@@ -32,6 +38,26 @@ type ClientOptions struct {
 	// MaxReconnectAttempts is the maximum number of times to attempt reconnection
 	// when a process death is detected. 0 disables auto-reconnection.
 	MaxReconnectAttempts int
+	// ElicitationHandler, when set, answers servers' requests for user input
+	// and makes the client advertise the elicitation capability (form mode).
+	// Without it the client does not advertise elicitation, and refuses
+	// elicitation requests.
+	ElicitationHandler ElicitationHandler
+	// DisableModernProtocol skips stateless (2026-07-28) detection and always
+	// uses the initialize handshake. For servers that misbehave when probed.
+	DisableModernProtocol bool
+	// EraProbeTimeout bounds how long the client waits for a stdio server to
+	// answer the server/discover probe before treating it as a handshake-era
+	// server, which may never answer a request sent before initialize.
+	// Defaults to 3s. A server slower than that to start is treated as
+	// handshake-era: raise it for modern-only servers with slow starts. HTTP
+	// servers always answer, so over HTTP the probe is bounded by InitTimeout
+	// and running out of time is an error.
+	EraProbeTimeout time.Duration
+	// Authorizer, when set, supplies credentials for an HTTP server and
+	// handles its authorization challenges. The host implements it; see
+	// Authorizer. Static credentials can go in ServerConfig.Headers instead.
+	Authorizer Authorizer
 }
 
 // DefaultClientOptions returns sensible defaults
@@ -53,6 +79,12 @@ const (
 	reconnectPollInterval = 100 * time.Millisecond
 	// reconnectPollMaxIterations is the max iterations to poll for concurrent reconnection.
 	reconnectPollMaxIterations = 50
+	// maxStdioMessageBytes bounds one newline-delimited message from a stdio
+	// server. The spec sets no limit; this one only stops a runaway server
+	// from exhausting memory. Exceeding it ends the connection.
+	maxStdioMessageBytes = 64 << 20
+	// stdioReadBufferBytes is the initial read buffer for stdout.
+	stdioReadBufferBytes = 64 << 10
 )
 
 var (
@@ -64,6 +96,9 @@ var (
 	ErrServerUnresponsive = errors.New("mcp: server unresponsive")
 	// ErrProcessDied is returned when server process dies unexpectedly
 	ErrProcessDied = errors.New("mcp: server process died")
+	// errMessageTooLarge ends a stdio connection whose server sent a message
+	// over maxStdioMessageBytes.
+	errMessageTooLarge = errors.New("mcp: stdio message exceeds size limit")
 )
 
 // StdioClient implements the MCP Client interface using stdio transport
@@ -75,15 +110,19 @@ type StdioClient struct {
 	stdout  io.ReadCloser
 	stderr  io.ReadCloser
 
-	// JSON-RPC state
-	nextID      atomic.Int64
+	sess *session
+
+	// pendingReqs maps a request id to the channel its response is delivered on.
 	pendingReqs sync.Map // map[int64]chan *JSONRPCMessage
+	writeMu     sync.Mutex
 
 	// Lifecycle
-	mu         sync.RWMutex
-	started    bool
-	closed     bool
-	serverInfo *InitializeResponse
+	mu      sync.RWMutex
+	started bool
+	closed  bool
+	// exited is set when the read loop ends: the process died or closed
+	// stdout. The client is then not alive, and the next call reconnects.
+	exited atomic.Bool
 
 	// Health monitoring
 	lastActivity atomic.Int64 // Unix timestamp of last successful RPC
@@ -106,12 +145,15 @@ func NewStdioClient(config ServerConfig) *StdioClient {
 // NewStdioClientWithOptions creates a client with custom options
 func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *StdioClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &StdioClient{
+	c := &StdioClient{
 		config:  config,
 		options: options,
 		ctx:     ctx,
 		cancel:  cancel,
+		sess:    newSession(config.Name, options),
 	}
+	c.sess.conn = &stdioConn{c: c}
+	return c
 }
 
 // Initialize establishes the MCP connection and negotiates capabilities
@@ -120,7 +162,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 
 	if c.started {
 		c.mu.Unlock()
-		return c.serverInfo, nil
+		return c.sess.info(), nil
 	}
 
 	if c.closed {
@@ -133,51 +175,17 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 		return nil, err
 	}
 
-	// Start background reader
-	c.wg.Add(1)
-	go c.readLoop()
-
-	// Mark as started before releasing lock
+	c.startReadLoop()
 	c.started = true
 	c.mu.Unlock()
 
-	// Send initialize request with timeout
-	initCtx, cancel := context.WithTimeout(ctx, c.options.InitTimeout)
-	defer cancel()
-
-	req := InitializeRequest{
-		ProtocolVersion: ProtocolVersion,
-		Capabilities: ClientCapabilities{
-			Elicitation: &ElicitationCapability{},
-		},
-		ClientInfo: Implementation{
-			Name:    "promptkit",
-			Version: "0.1.0",
-		},
+	resp, err := c.sess.connect(ctx)
+	if err != nil {
+		_ = c.Close()
+		return nil, err
 	}
-
-	var resp InitializeResponse
-	if err := c.sendRequestWithRetry(initCtx, "initialize", req, &resp); err != nil {
-		c.Close()
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("initialization timeout after %v: %w", c.options.InitTimeout, err)
-		}
-		return nil, fmt.Errorf("initialize request failed: %w", err)
-	}
-
-	// Send initialized notification
-	if err := c.sendNotification("notifications/initialized", nil); err != nil {
-		// Non-fatal: log but continue
-		logger.Warn("MCP initialized notification failed, continuing", "server", c.config.Name, "error", err)
-	}
-
-	// Store server info and update activity timestamp
-	c.mu.Lock()
-	c.serverInfo = &resp
-	c.mu.Unlock()
 	c.updateActivity()
-
-	return &resp, nil
+	return resp, nil
 }
 
 // ListTools retrieves all available tools from the server
@@ -185,18 +193,11 @@ func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error) {
 	if err := c.checkHealth(); err != nil {
 		return nil, err
 	}
-
-	var resp ToolsListResponse
-	if err := c.sendRequestWithRetry(ctx, "tools/list", nil, &resp); err != nil {
-		if c.options.EnableGracefulDegradation {
-			logger.Warn("MCP tools/list failed, using graceful degradation", "server", c.config.Name, "error", err)
-			return []Tool{}, nil // Return empty list instead of error
-		}
-		return nil, fmt.Errorf("tools/list request failed: %w", err)
+	tools, err := c.sess.listToolsDegrading(ctx)
+	if err == nil {
+		c.updateActivity()
 	}
-
-	c.updateActivity()
-	return resp.Tools, nil
+	return tools, err
 }
 
 // CallTool executes a tool with the given arguments
@@ -204,19 +205,12 @@ func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.
 	if err := c.checkHealth(); err != nil {
 		return nil, err
 	}
-
-	req := ToolCallRequest{
-		Name:      name,
-		Arguments: arguments,
+	resp, err := c.sess.callTool(ctx, name, arguments)
+	if err != nil {
+		return nil, err
 	}
-
-	var resp ToolCallResponse
-	if err := c.sendRequestWithRetry(ctx, "tools/call", req, &resp); err != nil {
-		return nil, fmt.Errorf("tools/call request failed: %w", err)
-	}
-
 	c.updateActivity()
-	return &resp, nil
+	return resp, nil
 }
 
 // Close terminates the connection to the MCP server
@@ -229,46 +223,74 @@ func (c *StdioClient) Close() error {
 	c.closed = true
 	c.mu.Unlock()
 
-	// Cancel context to stop background goroutines
+	c.shutdownProcess()
+
+	// Stop background goroutines and wait for them. Wait has closed the
+	// output pipes of a process it reaped; closing them again is harmless and
+	// ends the readers when there was no process to reap.
 	c.cancel()
-
-	// Close pipes and kill process
-	c.closePipesAndProcess()
-
-	// Wait for background goroutines
+	for _, r := range []io.Closer{c.stdout, c.stderr} {
+		if r != nil {
+			_ = r.Close()
+		}
+	}
 	c.wg.Wait()
 
 	return nil
 }
 
-// closePipesAndProcess closes stdio pipes and kills the subprocess.
-func (c *StdioClient) closePipesAndProcess() {
-	warnClose := func(name string, closer io.Closer) {
-		if closer != nil {
-			if err := closer.Close(); err != nil {
-				logger.Warn("MCP failed to close "+name, "server", c.config.Name, "error", err)
-			}
-		}
-	}
-	warnClose("stdin", c.stdin)
-	warnClose("stdout", c.stdout)
-	warnClose("stderr", c.stderr)
+// stdioShutdownGrace is how long the client waits for the server to exit
+// after closing its stdin, and again after SIGTERM, before killing it.
+var stdioShutdownGrace = 2 * time.Second
 
-	if c.cmd != nil && c.cmd.Process != nil {
-		if err := c.cmd.Process.Kill(); err != nil {
-			logger.Warn("MCP failed to kill process", "server", c.config.Name, "error", err)
-		}
-		if err := c.cmd.Wait(); err != nil {
-			logger.Warn("MCP process wait failed", "server", c.config.Name, "error", err)
+// shutdownProcess stops the server the way basic/lifecycle prescribes for
+// stdio: close its input, wait for it to exit, then SIGTERM, then SIGKILL.
+// Killing it outright denies the server the chance to flush and clean up.
+func (c *StdioClient) shutdownProcess() {
+	if c.stdin != nil {
+		if err := c.stdin.Close(); err != nil {
+			logger.Warn("MCP failed to close stdin", "server", c.config.Name, "error", err)
 		}
 	}
+	if c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.cmd.Wait() }()
+
+	exited := func() bool {
+		select {
+		case <-done:
+			return true
+		case <-time.After(stdioShutdownGrace):
+			return false
+		}
+	}
+	if exited() {
+		return
+	}
+	logger.Debug("MCP server did not exit after stdin closed; sending SIGTERM", "server", c.config.Name)
+	if err := c.cmd.Process.Signal(syscall.SIGTERM); err == nil && exited() {
+		return
+	}
+	logger.Warn("MCP server did not exit; killing it", "server", c.config.Name)
+	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		logger.Warn("MCP failed to kill process", "server", c.config.Name, "error", err)
+	}
+	<-done
 }
 
 // IsAlive checks if the connection is still active
 func (c *StdioClient) IsAlive() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.started && !c.closed && c.cmd != nil && c.cmd.Process != nil
+	return c.started && !c.closed && c.processRunning()
+}
+
+// processRunning reports whether the server process is up and its stdout is
+// still being read. Caller holds c.mu.
+func (c *StdioClient) processRunning() bool {
+	return c.cmd != nil && c.cmd.Process != nil && !c.exited.Load()
 }
 
 // startProcessWithRetry attempts to start the server process with exponential backoff.
@@ -356,12 +378,19 @@ func (c *StdioClient) startProcess() error {
 	if err := c.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
+	c.exited.Store(false)
 
 	// Start stderr logger
 	c.wg.Add(1)
 	go c.logStderr()
 
 	return nil
+}
+
+// startReadLoop starts the stdout reader. Caller holds c.mu.
+func (c *StdioClient) startReadLoop() {
+	c.wg.Add(1)
+	go c.readLoop(c.stdout)
 }
 
 // checkHealth verifies the client is in a healthy state.
@@ -379,8 +408,7 @@ func (c *StdioClient) checkHealth() error {
 		return ErrClientNotInitialized
 	}
 
-	// Check if process is still alive
-	if c.cmd != nil && c.cmd.Process != nil {
+	if c.processRunning() {
 		c.mu.RUnlock()
 		return nil
 	}
@@ -402,7 +430,7 @@ func (c *StdioClient) reconnect() error {
 	c.mu.Lock()
 
 	// Another goroutine may have already reconnected
-	if c.cmd != nil && c.cmd.Process != nil {
+	if c.processRunning() {
 		c.mu.Unlock()
 		return nil
 	}
@@ -433,6 +461,12 @@ func (c *StdioClient) reconnect() error {
 
 	// Fail all pending requests so callers don't hang until context timeout
 	c.failPendingRequests()
+
+	// End the dead process's context first: handlers for its requests (an
+	// elicitation waiting on a user) run on it, and cleanup waits for them.
+	c.mu.Lock()
+	c.cancel()
+	c.mu.Unlock()
 
 	// Clean up old process resources
 	c.cleanupDeadProcess()
@@ -488,38 +522,15 @@ func (c *StdioClient) attemptReconnect(ctx context.Context, attemptNum int) erro
 			"server", c.config.Name, "attempt", attemptNum, "error", err)
 		return err
 	}
-
-	// Start background reader
-	c.wg.Add(1)
-	go c.readLoop()
+	c.startReadLoop()
 	c.mu.Unlock()
 
-	// Re-initialize the MCP handshake
-	initCtx, initCancel := context.WithTimeout(ctx, c.options.InitTimeout)
-	defer initCancel()
-
-	req := InitializeRequest{
-		ProtocolVersion: ProtocolVersion,
-		Capabilities:    ClientCapabilities{Elicitation: &ElicitationCapability{}},
-		ClientInfo:      Implementation{Name: "promptkit", Version: "0.1.0"},
-	}
-
-	var resp InitializeResponse
-	if err = c.sendRequestWithRetry(initCtx, "initialize", req, &resp); err != nil {
+	// A new process is a new connection: establish the protocol again.
+	if _, err = c.sess.connect(ctx); err != nil {
 		logger.Warn("MCP reconnection attempt failed handshake",
 			"server", c.config.Name, "attempt", attemptNum, "error", err)
 		return err
 	}
-
-	// Send initialized notification (non-fatal)
-	if notifyErr := c.sendNotification("notifications/initialized", nil); notifyErr != nil {
-		logger.Warn("MCP initialized notification failed after reconnect",
-			"server", c.config.Name, "error", notifyErr)
-	}
-
-	c.mu.Lock()
-	c.serverInfo = &resp
-	c.mu.Unlock()
 	c.updateActivity()
 
 	logger.Info("MCP reconnection successful", "server", c.config.Name, "attempt", attemptNum)
@@ -540,7 +551,7 @@ func (c *StdioClient) waitForReconnect(doneCh <-chan struct{}) error {
 
 	c.mu.RLock()
 	closed := c.closed
-	alive := c.cmd != nil && c.cmd.Process != nil
+	alive := c.processRunning()
 	c.mu.RUnlock()
 
 	if closed {
@@ -552,13 +563,13 @@ func (c *StdioClient) waitForReconnect(doneCh <-chan struct{}) error {
 	return ErrProcessDied
 }
 
-// failPendingRequests sends an error response to all pending requests so they don't
-// hang until their context timeout.
+// failPendingRequests fails every request still waiting for a response, so
+// callers don't hang until their timeout once the connection is gone.
 func (c *StdioClient) failPendingRequests() {
-	c.pendingReqs.Range(func(key, value interface{}) bool {
+	c.pendingReqs.Range(func(key, value any) bool {
 		ch := value.(chan *JSONRPCMessage)
 		errMsg := &JSONRPCMessage{
-			JSONRPC: "2.0",
+			JSONRPC: jsonRPCVersion,
 			ID:      key,
 			Error: &JSONRPCError{
 				Code:    -32000,
@@ -602,115 +613,7 @@ func (c *StdioClient) updateActivity() {
 	c.lastActivity.Store(time.Now().Unix())
 }
 
-// sendRequestWithRetry sends a request with automatic retry on failure
-func (c *StdioClient) sendRequestWithRetry(ctx context.Context, method string, params, result interface{}) error {
-	var lastErr error
-
-	for attempt := 0; attempt <= c.options.MaxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff
-			delay := c.options.RetryDelay * time.Duration(1<<uint(attempt-1))
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-		}
-
-		err := c.sendRequest(ctx, method, params, result)
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		// Don't retry on context cancellation
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-
-		// Log retry attempt
-		if attempt < c.options.MaxRetries {
-			logger.Warn("MCP request failed, retrying",
-				"server", c.config.Name, "method", method, "attempt", attempt+1, "maxAttempts", c.options.MaxRetries+1, "error", err)
-		}
-	}
-
-	return fmt.Errorf("request failed after %d attempts: %w", c.options.MaxRetries+1, lastErr)
-}
-
-// sendRequest sends a JSON-RPC request and waits for the response
-func (c *StdioClient) sendRequest(ctx context.Context, method string, params, result interface{}) error {
-	id := c.nextID.Add(1)
-
-	// Marshal params
-	var paramsJSON json.RawMessage
-	if params != nil {
-		var err error
-		paramsJSON, err = json.Marshal(params)
-		if err != nil {
-			return fmt.Errorf("failed to marshal params: %w", err)
-		}
-	}
-
-	msg := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      id,
-		Method:  method,
-		Params:  paramsJSON,
-	}
-
-	// Create response channel
-	respChan := make(chan *JSONRPCMessage, 1)
-	c.pendingReqs.Store(id, respChan)
-	defer c.pendingReqs.Delete(id)
-
-	// Send the request
-	if err := c.writeMessage(&msg); err != nil {
-		return fmt.Errorf("failed to write request: %w", err)
-	}
-
-	// Wait for response with configurable timeout
-	timeout := c.options.RequestTimeout
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(timeout):
-		return fmt.Errorf("%w: request timeout after %v", ErrServerUnresponsive, timeout)
-	case resp := <-respChan:
-		if resp.Error != nil {
-			return fmt.Errorf("JSON-RPC error %d: %s", resp.Error.Code, resp.Error.Message)
-		}
-		if result != nil && resp.Result != nil {
-			if err := json.Unmarshal(resp.Result, result); err != nil {
-				return fmt.Errorf("failed to unmarshal result: %w", err)
-			}
-		}
-		return nil
-	}
-}
-
-// sendNotification sends a JSON-RPC notification (no response expected)
-func (c *StdioClient) sendNotification(method string, params interface{}) error {
-	var paramsJSON json.RawMessage
-	if params != nil {
-		var err error
-		paramsJSON, err = json.Marshal(params)
-		if err != nil {
-			return fmt.Errorf("failed to marshal params: %w", err)
-		}
-	}
-
-	msg := JSONRPCMessage{
-		JSONRPC: "2.0",
-		Method:  method,
-		Params:  paramsJSON,
-	}
-
-	return c.writeMessage(&msg)
-}
-
-// writeMessage writes a JSON-RPC message to stdin
+// writeMessage writes one newline-delimited JSON-RPC message to stdin.
 func (c *StdioClient) writeMessage(msg *JSONRPCMessage) error {
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -728,6 +631,8 @@ func (c *StdioClient) writeMessage(msg *JSONRPCMessage) error {
 		return fmt.Errorf("stdin not available")
 	}
 
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if _, err := stdin.Write(data); err != nil {
 		return fmt.Errorf("failed to write to stdin: %w", err)
 	}
@@ -735,77 +640,107 @@ func (c *StdioClient) writeMessage(msg *JSONRPCMessage) error {
 	return nil
 }
 
-// readLoop continuously reads messages from stdout
-func (c *StdioClient) readLoop() {
+// readLoop reads newline-delimited messages from stdout until it closes.
+// When it ends, the connection is gone: pending requests fail at once and
+// the client stops reporting itself alive.
+func (c *StdioClient) readLoop(stdout io.Reader) {
 	defer c.wg.Done()
 
-	scanner := bufio.NewScanner(c.stdout)
-	// Increase buffer size for large messages
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024) // 1MB max
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		var msg JSONRPCMessage
-		if err := json.Unmarshal(line, &msg); err != nil {
-			// Log error but continue reading
-			logger.Error("MCP failed to unmarshal message", "error", err)
+	reader := bufio.NewReaderSize(stdout, stdioReadBufferBytes)
+	for {
+		line, err := readLine(reader, maxStdioMessageBytes)
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !c.isClosed() {
+				logger.Error("MCP stdio read failed", "server", c.config.Name, "error", err)
+			}
+			break
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
 			continue
 		}
 
+		var msg JSONRPCMessage
+		if err := json.Unmarshal(line, &msg); err != nil {
+			logger.Error("MCP failed to unmarshal message", "server", c.config.Name, "error", err)
+			continue
+		}
 		c.handleMessage(&msg)
 	}
 
-	if err := scanner.Err(); err != nil && !c.closed {
-		logger.Error("MCP scanner error", "error", err)
+	c.exited.Store(true)
+	c.failPendingRequests()
+}
+
+// readLine reads one line of at most limit bytes. A longer line is an error:
+// the stream cannot be resynchronized without reading it whole.
+func readLine(r *bufio.Reader, limit int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if len(line)+len(chunk) > limit {
+			return nil, errMessageTooLarge
+		}
+		line = append(line, chunk...)
+		switch {
+		case err == nil:
+			return line, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF) && len(line) > 0:
+			return line, nil
+		default:
+			return nil, err
+		}
 	}
 }
 
-// handleMessage processes incoming JSON-RPC messages
+func (c *StdioClient) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
+}
+
+// handleMessage routes one message from the server. A response goes to the
+// request waiting for it. A server request or notification goes to the
+// session — even when a server request's id matches one of ours, since a
+// request carries a method and a response never does.
 func (c *StdioClient) handleMessage(msg *JSONRPCMessage) {
-	// If it's a response (has ID and no method), route to pending request
-	if msg.ID != nil && msg.Method == "" {
-		id, ok := msg.ID.(float64) // JSON numbers are float64
+	if isResponse(msg) {
+		id, ok := coerceID(msg.ID)
 		if !ok {
 			logger.Warn("MCP invalid response ID type", "type", fmt.Sprintf("%T", msg.ID))
 			return
 		}
-
-		if ch, ok := c.pendingReqs.Load(int64(id)); ok {
-			respChan := ch.(chan *JSONRPCMessage)
+		if ch, ok := c.pendingReqs.LoadAndDelete(id); ok {
 			select {
-			case respChan <- msg:
+			case ch.(chan *JSONRPCMessage) <- msg:
 			default:
-				// Channel full or closed
 			}
 		}
 		return
 	}
 
-	// If it's a notification (no ID), handle it
-	if msg.ID == nil && msg.Method != "" {
-		c.handleNotification(msg)
-		return
-	}
-
-	// If it's a request from server (has ID and method), we'd handle it here
-	// For now, we don't expect servers to call client methods
+	// Answer off the read loop: a handler may take time, and the loop must
+	// keep delivering responses meanwhile.
+	ctx := c.processContext()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		dispatchInbound(ctx, c.sess, msg, func(reply *JSONRPCMessage) {
+			if err := c.writeMessage(reply); err != nil {
+				logger.Warn("MCP failed to answer server request", "server", c.config.Name, "error", err)
+			}
+		})
+	}()
 }
 
-// handleNotification processes server notifications
-func (c *StdioClient) handleNotification(msg *JSONRPCMessage) {
-	// Handle notifications like "notifications/tools/list_changed"
-	switch msg.Method {
-	case "notifications/tools/list_changed":
-		// Tool list changed - could trigger a refresh
-		logger.Info("MCP tools list changed", "server", c.config.Name)
-	case "notifications/resources/list_changed":
-		logger.Info("MCP resources list changed", "server", c.config.Name)
-	default:
-		// Unknown notification
-		logger.Debug("MCP received unknown notification", "method", msg.Method)
-	}
+// processContext is the context of the current server process, ended when
+// the process is replaced or the client closes.
+func (c *StdioClient) processContext() context.Context {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ctx
 }
 
 // logStderr logs stderr output from the MCP server
@@ -818,3 +753,42 @@ func (c *StdioClient) logStderr() {
 		logger.Debug("MCP server stderr", "server", c.config.Name, "output", line)
 	}
 }
+
+// stdioConn is the conn view of a StdioClient's pipes.
+type stdioConn struct{ c *StdioClient }
+
+func (s *stdioConn) send(ctx context.Context, req *request) (*JSONRPCMessage, error) {
+	c := s.c
+	respChan := make(chan *JSONRPCMessage, 1)
+	c.pendingReqs.Store(req.id, respChan)
+	defer c.pendingReqs.Delete(req.id)
+
+	if err := c.writeMessage(req.message()); err != nil {
+		return nil, fmt.Errorf("failed to write request: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case resp := <-respChan:
+		return resp, nil
+	}
+}
+
+func (s *stdioConn) notify(_ context.Context, req *request) error {
+	return s.c.writeMessage(req.message())
+}
+
+// cancelRequest sends the cancellation notification: stdio has no per-request
+// stream to close, so the notification is the only signal.
+func (s *stdioConn) cancelRequest(ctx context.Context, id int64, reason string, header http.Header) {
+	if err := s.notify(ctx, cancelNotification(id, reason, header)); err != nil {
+		logger.Debug("MCP failed to send cancellation", "server", s.c.config.Name, "error", err)
+	}
+}
+
+func (s *stdioConn) close() error { return s.c.Close() }
+
+func (s *stdioConn) supportsModern() bool { return true }
+
+func (s *stdioConn) mayIgnoreEarlyRequests() bool { return true }

@@ -13,19 +13,19 @@ func TestServerConfig_Transport_Stdio(t *testing.T) {
 	}
 }
 
-func TestServerConfig_Transport_SSE(t *testing.T) {
+func TestServerConfig_Transport_URLIsStreamableHTTP(t *testing.T) {
 	cfg := ServerConfig{Name: "x", URL: "https://x"}
-	if got := cfg.Transport(); got != TransportSSE {
-		t.Errorf("Transport() = %q, want %q", got, TransportSSE)
+	if got := cfg.Transport(); got != TransportStreamableHTTP {
+		t.Errorf("Transport() = %q, want %q", got, TransportStreamableHTTP)
 	}
 }
 
 func TestServerConfig_Transport_URLTakesPrecedence(t *testing.T) {
 	// Belt-and-suspenders: if both are somehow set (validator should reject),
-	// URL wins — SSE is the higher-intent transport.
+	// URL wins — HTTP is the higher-intent transport.
 	cfg := ServerConfig{Name: "x", Command: "./foo", URL: "https://x"}
-	if got := cfg.Transport(); got != TransportSSE {
-		t.Errorf("Transport() = %q, want %q", got, TransportSSE)
+	if got := cfg.Transport(); got != TransportStreamableHTTP {
+		t.Errorf("Transport() = %q, want %q", got, TransportStreamableHTTP)
 	}
 }
 
@@ -46,9 +46,11 @@ func TestServerConfig_Transport_ExplicitSSE(t *testing.T) {
 	assert.Equal(t, TransportSSE, cfg.Transport())
 }
 
-func TestServerConfig_Transport_URLDefaultsToSSE_ForBackCompat(t *testing.T) {
+func TestServerConfig_Transport_URLDefaultsToStreamableHTTP(t *testing.T) {
+	// basic/transports: Streamable HTTP replaced HTTP+SSE in 2025-03-26; a
+	// client given only a URL tries it first.
 	cfg := ServerConfig{Name: "x", URL: "http://h"}
-	assert.Equal(t, TransportSSE, cfg.Transport())
+	assert.Equal(t, TransportStreamableHTTP, cfg.Transport())
 }
 
 func TestServerConfig_Transport_ExplicitStdioWithURL_HonoursExplicit(t *testing.T) {

@@ -1,0 +1,56 @@
+# Known failures of PromptKit's MCP client against the official conformance
+# suite (@modelcontextprotocol/conformance), run with the requirement sets of
+# both revisions the client claims (mcp.ProtocolVersion and
+# mcp.LegacyProtocolVersion). Read by `make mcp-conformance`.
+#
+# The suite fails on any failure NOT listed here, and on any entry listed here
+# that now PASSES — so this file cannot quietly go stale. Every entry says why
+# it fails and where that is tracked. Removing an entry is how a fix proves
+# itself; adding one is a decision a reviewer should see, not a way to get
+# green.
+#
+# The suite is a floor, not a ceiling: at 2025-06-18 it had two core client
+# scenarios, and PromptKit passed both while the gaps in #2100 were open.
+# Behaviour the suite does not exercise is covered by scenario tests in
+# runtime/mcp.
+
+client:
+  # MCP authorization (OAuth 2.1 for HTTP transports) is OPTIONAL in the spec
+  # (basic/authorization) and PromptKit delegates it to the host: the client
+  # calls a host-supplied mcp.Authorizer for every request and hands it each
+  # 401/403 challenge (bounded retries), while discovery, client
+  # registration, consent, issuer validation and token storage live in the
+  # Authorizer. These scenarios test that OAuth logic, so they pass or fail
+  # with the host's Authorizer, not with PromptKit. PromptKit's side — hook
+  # points, challenge parsing, step-up, the retry bound — is covered by
+  # runtime/mcp/auth_test.go.
+  - auth/authorization-server-migration
+  - auth/basic-cimd
+  - auth/client-credentials-basic
+  - auth/client-credentials-jwt
+  - auth/dpop
+  - auth/dpop-nonce
+  - auth/enterprise-managed-authorization
+  - auth/iss-normalized
+  - auth/iss-not-advertised
+  - auth/iss-supported
+  - auth/iss-supported-missing
+  - auth/iss-unexpected
+  - auth/iss-wrong-issuer
+  - auth/metadata-default
+  - auth/metadata-issuer-mismatch
+  - auth/metadata-var1
+  - auth/metadata-var2
+  - auth/metadata-var3
+  - auth/offline-access-not-supported
+  - auth/offline-access-scope
+  - auth/pre-registration
+  - auth/scope-from-scopes-supported
+  - auth/scope-from-www-authenticate
+  - auth/scope-omitted-when-undefined
+  - auth/scope-retry-limit
+  - auth/scope-step-up
+  - auth/token-endpoint-auth-basic
+  - auth/token-endpoint-auth-none
+  - auth/token-endpoint-auth-post
+  - auth/wif-jwt-bearer

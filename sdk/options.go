@@ -265,6 +265,10 @@ type config struct {
 	// agent-endpoint resolver pattern.
 	mcpEndpointResolver MCPEndpointResolver
 
+	// MCP authorization and elicitation, both delegated to the host.
+	mcpAuthorizer  func(serverName string) mcp.Authorizer
+	mcpElicitation mcp.ElicitationHandler
+
 	// Local agent executor for in-process multi-agent routing
 	localAgentExecutor *LocalAgentExecutor
 
@@ -2140,6 +2144,33 @@ func NewMCPServerByName(name string) *MCPServerBuilder {
 func WithMCPEndpoints(resolver MCPEndpointResolver) Option {
 	return func(c *config) error {
 		c.mcpEndpointResolver = resolver
+		return nil
+	}
+}
+
+// WithMCPAuthorizer delegates MCP authorization to the host. For each HTTP
+// MCP server, provider returns the [mcp.Authorizer] that supplies its
+// credentials and answers its authorization challenges (OAuth discovery,
+// consent, token storage and refresh) — or nil for a server that needs none
+// or uses static headers. PromptKit runs no OAuth flow and stores no secrets.
+//
+// Like [WithMCPEndpoints], this keeps provisioning out of the pack: the pack
+// declares servers by name, and the host — Omnia, or any embedder — owns how
+// they are reached and authorized.
+func WithMCPAuthorizer(provider func(serverName string) mcp.Authorizer) Option {
+	return func(c *config) error {
+		c.mcpAuthorizer = provider
+		return nil
+	}
+}
+
+// WithMCPElicitation lets MCP servers ask the user for input during a tool
+// call. PromptKit does not talk to users: handler presents the request and
+// returns the answer. Without it the client does not advertise elicitation,
+// and servers that need it cannot ask.
+func WithMCPElicitation(handler mcp.ElicitationHandler) Option {
+	return func(c *config) error {
+		c.mcpElicitation = handler
 		return nil
 	}
 }

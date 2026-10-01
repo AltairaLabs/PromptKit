@@ -5,7 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -442,23 +448,6 @@ func TestMCPExecutor_Execute_Timeout(t *testing.T) {
 	}
 }
 
-func TestMCPExecutor_ExtractTextContent_EmptyText(t *testing.T) {
-	executor := NewMCPExecutor(&mockMCPRegistry{})
-
-	content := []mcp.Content{
-		{Type: "text", Text: ""},
-		{Type: "text", Text: "Valid text"},
-	}
-
-	parts := executor.extractTextContent(content)
-	if len(parts) != 1 {
-		t.Errorf("extractTextContent() returned %d parts, want 1", len(parts))
-	}
-	if parts[0] != "Valid text" {
-		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
-	}
-}
-
 func TestMCPExecutor_Execute_ArgsNotLoggedAtInfo(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
@@ -503,20 +492,247 @@ func TestMCPExecutor_Execute_ArgsNotLoggedAtInfo(t *testing.T) {
 	}
 }
 
-func TestMCPExecutor_ExtractTextContent_NonTextTypes(t *testing.T) {
-	executor := NewMCPExecutor(&mockMCPRegistry{})
+func newStructuredContentExecutor(resp *mcp.ToolCallResponse) *MCPExecutor {
+	return NewMCPExecutor(&mockMCPRegistry{
+		getClientFunc: func(ctx context.Context, toolName string) (mcp.Client, error) {
+			return &mockMCPClient{
+				callToolFunc: func(ctx context.Context, name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
+					return resp, nil
+				},
+			}, nil
+		},
+	})
+}
 
-	content := []mcp.Content{
-		{Type: "resource", Text: "Should be ignored"},
-		{Type: "text", Text: "Valid text"},
-		{Type: "image", Text: "Also ignored"},
+func TestMCPExecutor_Execute_StructuredContent(t *testing.T) {
+	descriptor := &ToolDescriptor{Name: "structured_tool", Mode: modeMCP}
+
+	tests := []struct {
+		name string
+		resp *mcp.ToolCallResponse
+		want string
+	}{
+		{
+			name: "structuredContent only",
+			resp: &mcp.ToolCallResponse{
+				StructuredContent: json.RawMessage(`{"id":"checkout_abc123","status":"incomplete"}`),
+			},
+			want: `{"id":"checkout_abc123","status":"incomplete"}`,
+		},
+		{
+			name: "structuredContent preferred over serialized text fallback",
+			resp: &mcp.ToolCallResponse{
+				Content:           []mcp.Content{{Type: "text", Text: `{"id":"checkout_abc123"}`}},
+				StructuredContent: json.RawMessage(`{"id":"checkout_abc123"}`),
+			},
+			want: `{"id":"checkout_abc123"}`,
+		},
+		{
+			name: "null structuredContent falls back to content",
+			resp: &mcp.ToolCallResponse{
+				Content:           []mcp.Content{{Type: "text", Text: "plain"}},
+				StructuredContent: json.RawMessage(`null`),
+			},
+			want: `"plain"`,
+		},
 	}
 
-	parts := executor.extractTextContent(content)
-	if len(parts) != 1 {
-		t.Errorf("extractTextContent() returned %d parts, want 1", len(parts))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := newStructuredContentExecutor(tt.resp).Execute(
+				context.Background(), descriptor, json.RawMessage(`{}`))
+			if err != nil {
+				t.Fatalf("Execute() failed: %v", err)
+			}
+			if string(result) != tt.want {
+				t.Errorf("Execute() result = %s, want %s", result, tt.want)
+			}
+		})
 	}
-	if parts[0] != "Valid text" {
-		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
+}
+
+func TestMCPExecutor_Execute_ErrorStructuredContent(t *testing.T) {
+	descriptor := &ToolDescriptor{Name: "structured_tool", Mode: modeMCP}
+
+	tests := []struct {
+		name    string
+		resp    *mcp.ToolCallResponse
+		wantErr string
+	}{
+		{
+			name: "structuredContent used when no text content",
+			resp: &mcp.ToolCallResponse{
+				IsError:           true,
+				StructuredContent: json.RawMessage(`{"code":"out_of_stock"}`),
+			},
+			wantErr: `{"code":"out_of_stock"}`,
+		},
+		{
+			name: "text content still wins",
+			resp: &mcp.ToolCallResponse{
+				IsError:           true,
+				Content:           []mcp.Content{{Type: "text", Text: "Item out of stock"}},
+				StructuredContent: json.RawMessage(`{"code":"out_of_stock"}`),
+			},
+			wantErr: "Item out of stock",
+		},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newStructuredContentExecutor(tt.resp).Execute(
+				context.Background(), descriptor, json.RawMessage(`{}`))
+			if err == nil {
+				t.Fatal("Execute() with error response should return error")
+			}
+			if err.Error() != tt.wantErr {
+				t.Errorf("Execute() error = %q, want %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFormatMCPResult_ContentBlocks(t *testing.T) {
+	size := int64(42)
+	resp := &mcp.ToolCallResponse{Content: []mcp.Content{
+		{Type: mcp.ContentTypeText, Text: ""},
+		{Type: mcp.ContentTypeText, Text: "see chart"},
+		{Type: mcp.ContentTypeImage, Data: "aW1n", MimeType: "image/png"},
+		{Type: mcp.ContentTypeAudio, Data: "YXVk", MimeType: "audio/wav"},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///a.txt", MimeType: "text/plain", Text: "SECRET BODY"}},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///p.png", MimeType: "image/png", Blob: "cG5n"}},
+		{Type: mcp.ContentTypeResource, Resource: &mcp.ResourceContents{URI: "file:///b.bin", MimeType: "application/octet-stream", Blob: "YmlueQ=="}},
+		{Type: mcp.ContentTypeResourceLink, URI: "file:///big.csv", Name: "big.csv", Description: "the data", Size: &size},
+	}}
+
+	result, parts, err := formatMCPResult("t", resp, false)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[
+		"see chart",
+		{"type":"resource","uri":"file:///a.txt","mimeType":"text/plain","text":"SECRET BODY"},
+		{"type":"resource","uri":"file:///b.bin","mimeType":"application/octet-stream","note":"binary content (8 base64 characters) not shown"},
+		{"type":"resource_link","uri":"file:///big.csv","name":"big.csv","description":"the data","size":42}
+	]`, string(result), "an empty text block is skipped; nothing else is dropped")
+	require.Len(t, parts, 3, "image, audio and the embedded image reach the model as media parts")
+	assert.Equal(t, types.ContentTypeImage, parts[0].Type)
+	assert.Equal(t, "aW1n", *parts[0].Media.Data)
+	assert.Equal(t, types.ContentTypeAudio, parts[1].Type)
+	assert.Equal(t, types.ContentTypeImage, parts[2].Type)
+	assert.Equal(t, "cG5n", *parts[2].Media.Data)
+}
+
+func TestFormatMCPResult_Shapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content []mcp.Content
+		want    string
+		parts   int
+	}{
+		{"empty", nil, `"Operation completed successfully"`, 0},
+		{"one text stays a string", []mcp.Content{{Type: "text", Text: "a"}}, `"a"`, 0},
+		{"several texts stay an array", []mcp.Content{{Type: "text", Text: "a"}, {Type: "text", Text: "b"}}, `["a","b"]`, 0},
+		{"media only", []mcp.Content{{Type: "image", Data: "x", MimeType: "image/png"}}, `"Returned 1 media item(s)."`, 1},
+		{"unknown block passes through", []mcp.Content{{Type: "future", Text: "t"}}, `[{"type":"future","text":"t"}]`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, parts, err := formatMCPResult("t", &mcp.ToolCallResponse{Content: tc.content}, false)
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(result))
+			assert.Len(t, parts, tc.parts)
+		})
+	}
+}
+
+func TestMCPExecutor_ExecuteKeepsMediaInTheJSON(t *testing.T) {
+	// Execute has no channel for parts, so media stays in the result.
+	exec := newStructuredContentExecutor(&mcp.ToolCallResponse{Content: []mcp.Content{
+		{Type: "text", Text: "chart:"}, {Type: "image", Data: "aW1n", MimeType: "image/png"},
+	}})
+	result, err := exec.Execute(context.Background(), &ToolDescriptor{Name: "t", Mode: modeMCP}, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `["chart:",{"type":"image","data":"aW1n","mimeType":"image/png"}]`, string(result))
+
+	_, parts, err := exec.ExecuteMultimodal(context.Background(), &ToolDescriptor{Name: "t", Mode: modeMCP}, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Len(t, parts, 1)
+}
+
+func TestMCPExecutor_StructuredContentIsValidatedAgainstTheOutputSchema(t *testing.T) {
+	descriptor := &ToolDescriptor{
+		Name: "t", Mode: modeMCP,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"temp":{"type":"number"}},"required":["temp"]}`),
+	}
+	ok := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"temp":21.5}`)})
+	result, err := ok.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"temp":21.5}`, string(result))
+
+	bad := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"temp":"warm"}`)})
+	_, err = bad.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match its output schema")
+
+	noSchema := &ToolDescriptor{Name: "t", Mode: modeMCP}
+	_, err = bad.Execute(context.Background(), noSchema, json.RawMessage(`{}`))
+	require.NoError(t, err, "without a declared schema there is nothing to validate against")
+}
+
+func TestMCPExecutor_AnOutputSchemaTheValidatorCannotCompileDoesNotFailTheCall(t *testing.T) {
+	// A lookahead is valid ECMA-262 (what JSON Schema patterns use) but not
+	// RE2, so gojsonschema cannot compile it. That is no fault of the result.
+	descriptor := &ToolDescriptor{
+		Name: "t", Mode: modeMCP,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","pattern":"^(?=x)"}}}`),
+	}
+	exec := newStructuredContentExecutor(&mcp.ToolCallResponse{StructuredContent: json.RawMessage(`{"id":"x1"}`)})
+	result, err := exec.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"x1"}`, string(result))
+}
+
+func TestSchemaValidator_NeverDereferencesAnExternalRef(t *testing.T) {
+	// MCP SEP-2106: implementations MUST NOT dereference network $refs
+	// automatically. gojsonschema would fetch them (or read file:// URLs).
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"type":"string"}`))
+	}))
+	defer srv.Close()
+
+	for _, schema := range []string{
+		`{"type":"object","properties":{"a":{"$ref":"` + srv.URL + `/s.json"}}}`,
+		`{"type":"object","properties":{"a":{"$ref":"relative.json"}}}`,
+		`{"type":"object","allOf":[{"$dynamicRef":"` + srv.URL + `/d.json"}]}`,
+		// Properties may be named like data keywords; they are still schemas.
+		`{"type":"object","properties":{"default":{"$ref":"` + srv.URL + `/p.json"}}}`,
+		`{"type":"object","$defs":{"enum":{"$ref":"` + srv.URL + `/e.json"}}}`,
+	} {
+		r := NewRegistry()
+		desc := &ToolDescriptor{Name: "t", Description: "d", Mode: modeMCP,
+			InputSchema: json.RawMessage(schema), OutputSchema: json.RawMessage(schema)}
+		require.NoError(t, r.Register(desc))
+		assert.NoError(t, r.validator.ValidateArgs(desc, json.RawMessage(`{"a":1}`)), "validation is skipped, not failed")
+		assert.NoError(t, r.validator.ValidateResult(desc, json.RawMessage(`{"a":1}`)))
+		_, err := r.validator.getSchema(schema)
+		assert.ErrorIs(t, err, errExternalSchemaRef)
+	}
+	assert.Zero(t, hits.Load(), "no external schema was fetched")
+
+	v := NewSchemaValidator()
+	remote := `{"properties":{"a":{"$ref":"` + srv.URL + `/s.json"}}}`
+	for i := 0; i < 3; i++ {
+		_, err := v.getSchema(remote)
+		assert.ErrorIs(t, err, errExternalSchemaRef)
+	}
+	assert.Equal(t, 1, v.CacheLen(), "the refusal is cached, not recomputed per call")
+
+	data := `{"type":"object","properties":{"a":{"type":"string","default":{"$ref":"elsewhere.json"}}}}`
+	desc0 := &ToolDescriptor{Name: "t", InputSchema: json.RawMessage(data)}
+	assert.Error(t, v.ValidateArgs(desc0, json.RawMessage(`{"a":1}`)),
+		"a $ref inside a default value is data; the schema is still enforced")
+
+	local := `{"$defs":{"s":{"type":"string"}},"type":"object","properties":{"a":{"$ref":"#/$defs/s"}}}`
+	desc := &ToolDescriptor{Name: "t", InputSchema: json.RawMessage(local)}
+	assert.Error(t, NewSchemaValidator().ValidateArgs(desc, json.RawMessage(`{"a":1}`)), "local refs are still followed")
 }

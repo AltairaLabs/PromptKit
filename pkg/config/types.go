@@ -30,9 +30,10 @@ type MCPToolFilter struct {
 //
 // Exactly one transport must be specified:
 //   - Command: stdio (PromptKit spawns a local subprocess).
-//   - URL:     HTTP transport — by default the legacy SSE adapter is
-//     used. Set Transport to "streamable_http" to opt into the modern
-//     Streamable HTTP transport (MCP 2025-03-26).
+//   - URL:     HTTP transport — Streamable HTTP, falling back to the
+//     deprecated HTTP+SSE transport when the server does not host a
+//     Streamable HTTP endpoint. Set Transport to "streamable_http" or
+//     "sse" to pin one.
 //   - Source:  host-provisioned (a named MCPSource opens the endpoint at
 //     a scope boundary). Requires Scope.
 type MCPServerConfig struct {

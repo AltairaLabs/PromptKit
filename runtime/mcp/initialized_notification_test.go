@@ -26,9 +26,7 @@ const (
 	gatedTestHeader     = "X-Test-Auth"
 	gatedTestHeaderVal  = "secret"
 	gatedTestSessionID  = "sess-gated-1"
-	methodInitialize    = "initialize"
 	methodInitializedNt = "notifications/initialized"
-	methodToolsList     = "tools/list"
 )
 
 // gatedRecord is one message the gated fake received.
@@ -190,10 +188,13 @@ func TestStreamableClient_Initialize_SendsInitializedNotification(t *testing.T) 
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"always", "gated"}, toolNames(tools))
+	// The dual-era client probes with server/discover first; this server
+	// predates it, so the client falls back to the handshake.
 	recs := state.snapshot()
-	require.Len(t, recs, 3)
-	assert.Equal(t, []string{methodInitialize, methodInitializedNt, methodToolsList},
-		[]string{recs[0].method, recs[1].method, recs[2].method})
+	require.Len(t, recs, 4)
+	assert.Equal(t, []string{methodServerDiscover, methodInitialize, methodInitializedNt, methodToolsList},
+		[]string{recs[0].method, recs[1].method, recs[2].method, recs[3].method})
+	recs = recs[1:]
 	assert.False(t, recs[1].hasID, "a notification must not carry an id")
 	assert.Equal(t, gatedTestSessionID, recs[1].sessionID, "notification must carry the session id")
 	assert.Equal(t, gatedTestHeaderVal, recs[1].header, "notification must carry the configured headers")
@@ -238,8 +239,8 @@ func TestStreamableClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T
 	assert.Equal(t, "gated", resp.ServerInfo.Name)
 	assert.True(t, c.IsAlive())
 	recs := state.snapshot()
-	require.Len(t, recs, 2)
-	assert.Equal(t, methodInitializedNt, recs[1].method)
+	require.Len(t, recs, 3, "probe, initialize, initialized")
+	assert.Equal(t, methodInitializedNt, recs[2].method)
 }
 
 // The SSE client treats a rejected notification the same way: logged, and
@@ -263,17 +264,17 @@ func TestSSEClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T) {
 func TestStreamableTransport_SendNotification_RequestErrors(t *testing.T) {
 	ctx := context.Background()
 
-	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions())
+	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions(), nil)
 	err := tr.sendNotification(ctx, methodInitializedNt, make(chan int))
 	require.Error(t, err, "params that cannot be encoded must fail before sending")
 
-	tr = newStreamableTransport(ServerConfig{URL: "http://[::1"}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: "http://[::1"}, DefaultClientOptions(), nil)
 	require.Error(t, tr.sendNotification(ctx, methodInitializedNt, nil), "an invalid URL must fail to build a request")
 
 	down := httptest.NewServer(http.NotFoundHandler())
 	downURL := down.URL
 	down.Close()
-	tr = newStreamableTransport(ServerConfig{URL: downURL}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: downURL}, DefaultClientOptions(), nil)
 	err = tr.sendNotification(ctx, methodInitializedNt, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mcp/streamable: POST:", "a transport failure must be reported as such")
@@ -291,10 +292,10 @@ func statusServer(t *testing.T, status int) string {
 
 func TestStreamableTransport_SendNotification_StatusHandling(t *testing.T) {
 	ctx := context.Background()
-	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions())
+	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions(), nil)
 	require.NoError(t, tr.sendNotification(ctx, methodInitializedNt, nil), "202 with no body is success")
 
-	tr = newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusBadRequest)}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusBadRequest)}, DefaultClientOptions(), nil)
 	err := tr.sendNotification(ctx, methodInitializedNt, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 400")
@@ -305,7 +306,7 @@ func TestStreamableTransport_SendNotification_StatusHandling(t *testing.T) {
 
 func TestSSETransport_SendNotification_StatusHandling(t *testing.T) {
 	ctx := context.Background()
-	tr := newSSETransport(ServerConfig{}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{}, DefaultClientOptions(), nil)
 	require.Error(t, tr.sendNotification(ctx, methodInitializedNt, nil), "unconnected transport must refuse")
 
 	tr.messageURL = statusServer(t, http.StatusAccepted)

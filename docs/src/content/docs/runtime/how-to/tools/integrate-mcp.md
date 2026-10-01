@@ -15,10 +15,63 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
 
 - **stdio** (default when `Command` is set) — PromptKit spawns the MCP server as a local
   subprocess. Set `Command` and optional `Args` / `Env`.
-- **HTTP+SSE** (default when `URL` is set) — the legacy two-endpoint transport from the MCP
-  2024-11-05 spec.
-- **Streamable HTTP** — the single-endpoint POST transport from the MCP 2025-03-26 spec. Explicit
-  opt-in: set `URL` together with `TransportName: mcp.TransportStreamableHTTP`.
+- **Streamable HTTP** (default when `URL` is set) — the single-endpoint POST transport,
+  introduced in MCP 2025-03-26. If the server does not host a Streamable HTTP endpoint at the
+  URL (it refuses the POST with 400, 404 or 405), the client falls back to HTTP+SSE.
+- **HTTP+SSE** — the deprecated two-endpoint transport from MCP 2024-11-05. Set
+  `TransportName: mcp.TransportSSE` to use it without trying Streamable HTTP first.
+  `URL` is the SSE endpoint itself (for example `http://host:3001/sse`). A URL that
+  does not serve the stream is retried with `/sse` appended, which is what earlier
+  releases always did; the client logs a warning when it needs that.
+
+Over stdio and Streamable HTTP the client speaks both generations of the protocol. It
+first asks the server which revisions it supports (`server/discover`). A 2026-07-28 server is
+then used statelessly: every request carries the protocol version and client capabilities, and
+there is no handshake or session. A server that predates discovery gets the `initialize`
+handshake of revisions up to 2025-11-25. Set `ClientOptions.DisableModernProtocol` to skip the
+discovery probe for a server that misbehaves when it receives one.
+
+## Spec support
+
+<!-- BEGIN GENERATED: mcp-spec-support. Do not edit; run `make mcp-spec-docs`. -->
+
+PromptKit's MCP client implements protocol revision **2026-07-28** (`mcp.ProtocolVersion`), the stateless revision, and **2025-11-25** (`mcp.LegacyProtocolVersion`), the newest revision with an `initialize` handshake, for servers that predate it. It detects which a server speaks, and also accepts the earlier handshake revisions a server may choose (2025-06-18, 2025-03-26, 2024-11-05).
+
+CI checks every message type the client sends or reads against both revisions' published schemas, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+
+That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) against both revisions' requirements; known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
+
+Spec fields PromptKit does not carry:
+
+| Spec type | Field | Why |
+|---|---|---|
+| InitializeRequest params | `_meta` (2025-11-25 only) | the handshake request carries no metadata (progress tokens are not requested) |
+| InitializeResult | `_meta` (2025-11-25 only) | _meta is not surfaced to callers |
+| ClientCapabilities | `experimental` | the client does not implement this feature, so it does not advertise it |
+| ClientCapabilities | `roots` | the client does not implement this feature, so it does not advertise it |
+| ClientCapabilities | `tasks` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| ServerCapabilities | `completions` | the client does not use completions |
+| ServerCapabilities | `experimental` | experimental server capabilities are ignored |
+| ServerCapabilities | `logging` | server log messages are not consumed |
+| ServerCapabilities | `tasks` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| ServerCapabilities resources | `subscribe` | the client does not use resources |
+| ClientCapabilities sampling | `context` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
+| ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
+| ListToolsRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
+| CallToolRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
+| CallToolRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| InputRequest | `id` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
+| InputRequest | `jsonrpc` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
+| ElicitRequest params | `_meta` (2025-11-25 only) | _meta is not surfaced to callers |
+| ElicitRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| ElicitRequest params | `elicitationId` (2025-11-25 only) | URL-mode elicitation is not advertised, so its correlation id is not used |
+| ElicitResult | `_meta` (2025-11-25 only) | the client attaches no metadata to its answers |
+
+Fields PromptKit declares that the spec does not define:
+
+- ClientCapabilities `logging`: logging is a server capability, not a client one; the client never sets this field, so it is never sent. Exported, so it stays until the next major (see LoggingCapability)
+
+<!-- END GENERATED: mcp-spec-support -->
 
 ## Quick Start
 
@@ -214,17 +267,75 @@ func main() {
 
 ## MCP Client Configuration
 
-### Timeouts
+### Timeouts and Retries
 
 ```go
-options := mcp.ClientOptions{
-    RequestTimeout: 30 * time.Second,
-    MaxRetries:     3,
-    RetryBackoff:   time.Second,
-}
+options := mcp.DefaultClientOptions()
+options.RequestTimeout = 30 * time.Second // every request, on every transport
+options.MaxRetries = 3
+options.RetryDelay = 100 * time.Millisecond // doubles on each retry
 
 client := mcp.NewStdioClientWithOptions(config, options)
 ```
+
+A request that outlives `RequestTimeout` fails with `mcp.ErrServerUnresponsive`
+and the server is sent `notifications/cancelled`. Retries apply only to
+`initialize` and `tools/list`, and only when the message could not be
+exchanged at all. `tools/call` is never retried, and neither is a request the
+server answered with an error: a tool may have side effects, and a timed-out
+call may already have run.
+
+### Elicitation
+
+A server can ask the user for input partway through a tool call. PromptKit does
+not talk to users, so the client advertises the `elicitation` capability only
+when the host supplies a handler:
+
+```go
+options := mcp.DefaultClientOptions()
+options.ElicitationHandler = func(ctx context.Context, server string, req mcp.ElicitRequest) (mcp.ElicitResult, error) {
+    // Show req.Message and a form built from req.RequestedSchema to the user.
+    return mcp.ElicitResult{Action: mcp.ElicitActionAccept, Content: answer}, nil
+}
+```
+
+Without a handler, elicitation is not advertised and any elicitation request is
+refused. With one, fields the user leaves out are filled from the defaults in
+the requested schema. Only form mode is supported. The same handler answers a
+2026-07-28 server's `input_required` results.
+
+### Authorization
+
+For an HTTP server with static credentials, put them in `ServerConfig.Headers`.
+For [MCP authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization)
+(OAuth 2.1), supply an `mcp.Authorizer`. PromptKit runs no OAuth flow and stores
+no secrets: the host does both, because it owns secret storage and the user.
+
+```go
+type Authorizer interface {
+    // Set credentials on every request (Authorization, DPoP, ...).
+    Authorize(ctx context.Context, req *http.Request) error
+    // Called on 401, or 403 with error="insufficient_scope". Obtain new
+    // credentials and return nil to have the request sent again.
+    Challenge(ctx context.Context, c *mcp.AuthChallenge) error
+}
+```
+
+`AuthChallenge` carries the parsed `WWW-Authenticate` challenge, including the
+protected resource metadata URL and the scope the server needs. A request is
+challenged at most three times before failing with `*mcp.AuthError`.
+
+With the SDK, supply one per server:
+
+```go
+conv, _ := sdk.Open(packPath, "assistant",
+    sdk.WithMCPAuthorizer(func(server string) mcp.Authorizer { return host.AuthorizerFor(server) }),
+    sdk.WithMCPElicitation(host.Elicit),
+)
+```
+
+With the runtime directly, use `RegistryOptions.ConfigureClient` to set
+`ClientOptions.Authorizer` (and `ElicitationHandler`) for each server.
 
 ### Manual Client Usage
 
@@ -337,18 +448,22 @@ if err != nil {
 
 ### Tool Execution Errors
 
+MCP reports two kinds of failure differently. A protocol error (unknown tool,
+invalid arguments) is a JSON-RPC error, returned as `*mcp.RPCError`. A tool that
+ran and failed returns a normal result with `IsError` set.
+
 ```go
 response, err := client.CallTool(ctx, "read_file", args)
-if err != nil {
-    log.Printf("Tool execution failed: %v", err)
+var rpcErr *mcp.RPCError
+switch {
+case errors.As(err, &rpcErr):
+    log.Printf("Server rejected the call: %d %s", rpcErr.Code, rpcErr.Message)
     return
-}
-
-// Check response for errors
-for _, content := range response.Content {
-    if content.Type == "error" {
-        log.Printf("Tool error: %s", content.Text)
-    }
+case err != nil:
+    log.Printf("Call failed: %v", err)
+    return
+case response.IsError:
+    log.Printf("Tool reported an error: %s", response.Content[0].Text)
 }
 ```
 
