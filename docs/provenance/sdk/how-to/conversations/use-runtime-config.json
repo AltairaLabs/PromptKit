@@ -1,0 +1,471 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/use-runtime-config.md",
+ "commit": "a87b70f25076b0e5c6898a4450cdd1dc0793041a",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "import \"github.com/AltairaLabs/PromptKit/sdk/v2\"",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "sdk.Open function exists and accepts packPath string and promptName string",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:82"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sdk.WithRuntimeConfig option function exists",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:102",
+    "sdk/runtime_config.go:96"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Conversation type has Close() method",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1430"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "WithRuntimeConfig loads YAML file and applies every section as if individual With* options were called",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:116",
+    "sdk/runtime_config.go:190",
+    "sdk/runtime_config.go:193",
+    "sdk/runtime_config.go:201",
+    "sdk/runtime_config.go:96"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "apiVersion field value must be: promptkit.altairalabs.ai/v1alpha1",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:20",
+    "pkg/config/runtime_config.go:319"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "kind field value must be: RuntimeConfig",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:21",
+    "pkg/config/runtime_config.go:326"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "metadata field exists in RuntimeConfig",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:23"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "spec field exists in RuntimeConfig",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:25",
+    "sdk/runtime_config.go:102"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "providers field exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:32",
+    "sdk/runtime_config.go:127"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Provider has id field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:141",
+    "sdk/provider_file.go:33"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Provider has type field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:142",
+    "sdk/provider_file.go:39"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Provider has model field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:411",
+    "pkg/config/types.go:143"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Provider has credential field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:188",
+    "sdk/runtime_config.go:555"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "credential_env field exists to specify environment variable for API key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:113",
+    "runtime/credentials/types.go:12"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Model name: claude-sonnet-4-20250514",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/pricing_table.go:140"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "WithRuntimeConfig is equivalent to calling sdk.WithProvider(...) with same settings",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:460",
+    "sdk/provider_file.go:39",
+    "sdk/provider_file.go:51",
+    "sdk/runtime_config.go:127"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "tools section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:76",
+    "sdk/runtime_config.go:190"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "tool entry has name (sentiment_check) as key",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:76",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "tool has exec section",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:387",
+    "sdk/exec_tools.go:40",
+    "sdk/runtime_config.go:459"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "exec has command field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:39",
+    "sdk/runtime_config.go:467"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "exec has timeout_ms field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:51",
+    "sdk/runtime_config.go:470"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "exec has env field for environment variables",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:45",
+    "sdk/runtime_config.go:469"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "evals section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:93",
+    "sdk/runtime_config.go:193"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "eval entry (sentiment_check) has command field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:39",
+    "sdk/runtime_config.go:483"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "mcp_servers section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:80",
+    "sdk/runtime_config.go:154"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "MCP server has name field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:40",
+    "sdk/runtime_config.go:156"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "MCP server has command field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:41",
+    "sdk/runtime_config.go:157"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "MCP server has args field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:42",
+    "sdk/runtime_config.go:158"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "hooks section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:97",
+    "sdk/runtime_config.go:201"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "hook has name as key (pii_redactor)",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:97",
+    "runtime/hooks/exec_build.go:70",
+    "runtime/hooks/execconfig/execconfig.go:57"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "hook has command field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:796",
+    "runtime/hooks/execconfig/execconfig.go:39"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "hook has hook field (provider value)",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:808",
+    "runtime/hooks/execconfig/execconfig.go:67"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "hook has phases field with values before_call, after_call",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:191",
+    "runtime/hooks/exec_hooks.go:206",
+    "runtime/hooks/execconfig/execconfig.go:70"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "hook has mode field with value filter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:102",
+    "runtime/hooks/execconfig/execconfig.go:73"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "hook has timeout_ms field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_build.go:70",
+    "runtime/hooks/execconfig/execconfig.go:51"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "state_store section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:84",
+    "sdk/runtime_config.go:176"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "state_store has type field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:62",
+    "sdk/runtime_config.go:606"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "state_store type can be redis",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:437",
+    "pkg/config/types.go:61",
+    "sdk/runtime_config.go:609"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "state_store has redis field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:65",
+    "sdk/runtime_config.go:613"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "redis has address field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:90",
+    "sdk/runtime_config.go:614"
+   ]
+  },
+  {
+   "id": 42,
+   "claim": "redis address example: localhost:6379",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:89",
+    "sdk/runtime_config.go:614"
+   ]
+  },
+  {
+   "id": 43,
+   "claim": "redis has ttl field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:99",
+    "sdk/runtime_config.go:620"
+   ]
+  },
+  {
+   "id": 44,
+   "claim": "logging section exists in RuntimeConfigSpec",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:88",
+    "sdk/runtime_config.go:185"
+   ]
+  },
+  {
+   "id": 45,
+   "claim": "logging has defaultLevel field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:20",
+    "sdk/runtime_config.go:500"
+   ]
+  },
+  {
+   "id": 46,
+   "claim": "defaultLevel can be: info",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:20",
+    "sdk/runtime_config.go:527"
+   ]
+  },
+  {
+   "id": 47,
+   "claim": "logging has format field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:26",
+    "sdk/runtime_config.go:505"
+   ]
+  },
+  {
+   "id": 48,
+   "claim": "format can be: json",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:26",
+    "sdk/runtime_config.go:505"
+   ]
+  },
+  {
+   "id": 49,
+   "claim": "Programmatic options applied after WithRuntimeConfig take precedence over YAML config",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:176",
+    "sdk/runtime_config.go:185",
+    "sdk/runtime_config.go:83",
+    "sdk/sdk.go:356",
+    "sdk/sdk.go:506"
+   ]
+  },
+  {
+   "id": 50,
+   "claim": "sdk.WithProvider can override YAML provider setting",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:460",
+    "sdk/provider_file.go:46",
+    "sdk/sdk.go:506"
+   ]
+  },
+  {
+   "id": 51,
+   "claim": "Each RuntimeConfigSpec section is optional",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:29",
+    "pkg/config/runtime_config.go:341"
+   ]
+  }
+ ]
+}

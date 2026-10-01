@@ -1,0 +1,628 @@
+{
+ "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
+ "commit": "a87b70f25076b0e5c6898a4450cdd1dc0793041a",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "The Go types backing RuntimeConfig schema live in `pkg/config/runtime_config.go` and `pkg/config/types.go`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:18",
+    "pkg/config/types.go:150"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "apiVersion must be `promptkit.altairalabs.ai/v1alpha1`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:18",
+    "pkg/config/runtime_config.go:319"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "kind must be `RuntimeConfig`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:326"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Provider role `llm` is the default",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:57",
+    "sdk/provider_file.go:36"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Provider role values: llm, image, video, tts, stt, embedding, inference, rerank",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:45",
+    "pkg/config/role.go:68",
+    "pkg/config/types.go:173"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Provider id defaults to type value",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:418",
+    "sdk/provider_file.go:22"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "LLM provider types registered by SDK import: claude, openai, gemini, ollama, mock",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/all/all.go:30",
+    "runtime/providers/mock/mock.go:64",
+    "sdk/runtime_config.go:25"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Image provider types: imagen",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/imagen/factory.go:11",
+    "sdk/runtime_config.go:30"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Embedding provider types: openai, gemini, ollama, voyageai, bedrock, vertex, huggingface",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/bedrock/embedding_register.go:9",
+    "runtime/providers/gemini/embedding_register.go:7",
+    "runtime/providers/huggingface/embedding_register.go:11",
+    "runtime/providers/ollama/embedding_register.go:7",
+    "runtime/providers/openai/embedding_register.go:7",
+    "runtime/providers/vertex/embedding_register.go:9",
+    "runtime/providers/voyageai/embedding_register.go:7",
+    "sdk/runtime_config.go:26"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Rerank provider types: voyageai, cohere, mock",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/cohere/rerank_register.go:7",
+    "runtime/providers/rerank_mock.go:131",
+    "runtime/providers/voyageai/rerank_register.go:7",
+    "sdk/runtime_config.go:27"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Inference provider types: huggingface, openai, systemone, nvidia-topic-control (alias: openai + NemoGuard topic control)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/all/all.go:8",
+    "runtime/inference/huggingface/register.go:15",
+    "runtime/inference/openai/register.go:33",
+    "runtime/inference/openai/register.go:45",
+    "runtime/inference/systemone/register.go:18",
+    "sdk/runtime_config.go:25"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "vllm provider is registered by `runtime/providers/vllm`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/vllm/factory.go:9"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "replay provider is registered by `runtime/providers/replay`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/replay/factory.go:12"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "vllm provider import path: `github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/vllm/factory.go:1"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Credentials are resolved in order of precedence: api_key > credential_file > credential_env",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:102",
+    "runtime/credentials/resolver.go:113",
+    "runtime/credentials/resolver.go:95",
+    "sdk/runtime_config.go:572"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "stream_retry retry_window default is `pre_first_chunk` (safe, invisible retry before first chunk)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:320",
+    "runtime/providers/registry.go:392",
+    "runtime/providers/stream_retry.go:44"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "stream_retry retry_window values: `pre_first_chunk` (default) or `always` (mid-stream reset retry, costs tokens)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:316",
+    "runtime/providers/base_provider.go:619",
+    "runtime/providers/stream_retry.go:44",
+    "runtime/providers/stream_retry.go:51"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "stream_retry max_attempts default: 2",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:307",
+    "runtime/providers/stream_retry.go:28",
+    "runtime/providers/stream_retry.go:96"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "stream_retry initial_delay default: `250ms` (Go duration string)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:311",
+    "runtime/providers/stream_retry.go:29"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "stream_retry max_delay default: `2s` (Go duration string)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:314",
+    "runtime/providers/stream_retry.go:30"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "StreamRetryPolicy.MaxRetryAfter can be changed in code to adjust 60-second cap",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/stream_retry.go:131",
+    "runtime/providers/stream_retry.go:33",
+    "runtime/providers/stream_retry.go:80",
+    "runtime/providers/stream_retry_driver.go:142"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "stream_idle_timeout default: `30s` (Go duration string)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:206",
+    "runtime/providers/registry.go:381",
+    "runtime/providers/streaming.go:44"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "stream_max_concurrent default: 0 (unlimited)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:220",
+    "runtime/providers/registry.go:402"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "http_transport max_conns_per_host default: 100",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/types.go:286",
+    "runtime/providers/base_provider.go:104",
+    "runtime/providers/base_provider.go:36"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "http_transport max_idle_conns_per_host default: 100",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:289",
+    "runtime/providers/base_provider.go:108",
+    "runtime/providers/base_provider.go:30"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "http_transport idle_conn_timeout default: `90s` (Go duration string)",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:294",
+    "runtime/providers/base_provider.go:112",
+    "runtime/providers/base_provider.go:37"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/types.go:380",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "Tool spec requires description field",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:342",
+    "schemas/v1alpha1/runtime-config.json",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "Tool spec requires input_schema (JSON Schema Draft-07)",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:342",
+    "schemas/v1alpha1/runtime-config.json",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "Tool spec requires output_schema (JSON Schema Draft-07)",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:342",
+    "schemas/v1alpha1/runtime-config.json",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "Tool spec requires mode field",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:342",
+    "schemas/v1alpha1/runtime-config.json",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "Exec tool runtime default: `exec` (one-shot), or `server` (long-running JSON-RPC)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:42",
+    "sdk/exec_tools.go:20",
+    "sdk/exec_tools.go:47",
+    "sdk/runtime_config.go:468"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "Hook interface types: `provider`, `tool`, or `session`",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:794",
+    "runtime/hooks/exec_build.go:11",
+    "runtime/hooks/execconfig/execconfig.go:67",
+    "sdk/runtime_config.go:58"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "Hook mode values: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:102",
+    "runtime/hooks/exec_hooks.go:171",
+    "runtime/hooks/exec_hooks.go:71",
+    "runtime/hooks/execconfig/execconfig.go:71"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "Provider hook valid phases: `before_call`, `after_call`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:191",
+    "runtime/hooks/exec_hooks.go:206"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "Tool hook valid phases: `before_execution`, `after_execution`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:234",
+    "runtime/hooks/exec_hooks.go:247"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "Session hook valid phases: `session_start`, `session_update`, `session_end`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:275",
+    "runtime/hooks/exec_hooks.go:280",
+    "runtime/hooks/exec_hooks.go:285"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "MCP server config requires `name` field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:618",
+    "schemas/v1alpha1/runtime-config.json"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "MCP server config requires `command` field",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:634",
+    "schemas/v1alpha1/runtime-config.json"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "tool_filter allowlist is applied first, then blocklist removes from the result",
+   "verdict": "false",
+   "evidence": [
+    "runtime/mcp/types.go:301",
+    "runtime/mcp/types.go:319",
+    "sdk/conversation_tools.go:518"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "state_store type values: `memory` (default), `redis`, or `file`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:441",
+    "sdk/runtime_config.go:607"
+   ]
+  },
+  {
+   "id": 42,
+   "claim": "Redis database field accepts int 0-15 (default: 0)",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/types.go:96",
+    "sdk/runtime_config.go:616"
+   ]
+  },
+  {
+   "id": 43,
+   "claim": "Redis ttl default: `24h` (Go duration string)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:80",
+    "runtime/statestore/types.go:16",
+    "sdk/runtime_config.go:620"
+   ]
+  },
+  {
+   "id": 44,
+   "claim": "Redis prefix default: `promptkit`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:81",
+    "sdk/runtime_config.go:627"
+   ]
+  },
+  {
+   "id": 45,
+   "claim": "File state_store fsync values: `off`, `on-save` (default), `on-append`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:80",
+    "sdk/runtime_config.go:646"
+   ]
+  },
+  {
+   "id": 46,
+   "claim": "File state_store ttl_days default: 0 (disabled)",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:84",
+    "runtime/statestore/file/store.go:86",
+    "sdk/runtime_config.go:658"
+   ]
+  },
+  {
+   "id": 47,
+   "claim": "Logging defaultLevel values: `trace`, `debug`, `info` (default), `warn`, `error`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:21",
+    "sdk/runtime_config.go:528"
+   ]
+  },
+  {
+   "id": 48,
+   "claim": "Logging format values: `text` (default) or `json`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:93",
+    "sdk/runtime_config.go:505"
+   ]
+  },
+  {
+   "id": 49,
+   "claim": "More specific module names take precedence over less specific ones in logging",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/logger/config.go:104",
+    "runtime/logger/config.go:52",
+    "sdk/runtime_config.go:499"
+   ]
+  },
+  {
+   "id": 50,
+   "claim": "Example RuntimeConfig uses apiVersion `promptkit.altairalabs.ai/v1alpha1` and kind `RuntimeConfig`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:319",
+    "pkg/config/runtime_config.go:326"
+   ]
+  },
+  {
+   "id": 51,
+   "claim": "Example shows Claude model `claude-sonnet-4-20250514`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/pricing_table.go:140"
+   ]
+  },
+  {
+   "id": 52,
+   "claim": "Example shows embedding provider type `voyageai` with model `voyage-3`",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/registry.go:48",
+    "runtime/providers/voyageai/embedding_register.go:7",
+    "sdk/provider_file.go:36"
+   ]
+  },
+  {
+   "id": 53,
+   "claim": "Example tool mode `exec` with runtime `server`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:265",
+    "sdk/exec_tools.go:20",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 54,
+   "claim": "Example tool mode `live` with HTTP method GET",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:380",
+    "sdk/runtime_config.go:458"
+   ]
+  },
+  {
+   "id": 55,
+   "claim": "Example hook type `provider` with phases `before_call`, `after_call`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:191",
+    "runtime/hooks/exec_hooks.go:206"
+   ]
+  },
+  {
+   "id": 56,
+   "claim": "Example hook type `tool` with phase `after_execution`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:247"
+   ]
+  },
+  {
+   "id": 57,
+   "claim": "Example MCP server uses `npx` command with `@modelcontextprotocol/server-filesystem` args",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:634",
+    "sdk/runtime_config.go:154"
+   ]
+  },
+  {
+   "id": 58,
+   "claim": "Example MCP server tool_filter blocklist includes `delete_file`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/types.go:319",
+    "sdk/conversation_tools.go:518"
+   ]
+  },
+  {
+   "id": 59,
+   "claim": "Example state_store type `redis` with database `1`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:609",
+    "sdk/runtime_config.go:616"
+   ]
+  },
+  {
+   "id": 60,
+   "claim": "Example logging defaultLevel `info` with format `json`",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:21",
+    "sdk/runtime_config.go:499"
+   ]
+  },
+  {
+   "id": 61,
+   "claim": "platform.type values: `bedrock`, `vertex`, or `azure`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver_platform.go:11",
+    "runtime/credentials/types.go:19"
+   ]
+  },
+  {
+   "id": 62,
+   "claim": "type field is required on every provider entry",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:404"
+   ]
+  },
+  {
+   "id": 63,
+   "claim": "model field required for completion roles (llm, image, video)",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:385",
+    "pkg/config/runtime_config.go:411"
+   ]
+  },
+  {
+   "id": 64,
+   "claim": "Provider capabilities values: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_multimodal.go:39",
+    "runtime/providers/multimodal.go:11",
+    "runtime/providers/multimodal.go:25"
+   ]
+  },
+  {
+   "id": 65,
+   "claim": "request_timeout is a Go duration string (e.g., `60s`, `2m`), does not apply to streaming",
+   "verdict": "dead",
+   "evidence": [
+    "pkg/config/types.go:201",
+    "runtime/providers/registry.go:378"
+   ]
+  }
+ ]
+}

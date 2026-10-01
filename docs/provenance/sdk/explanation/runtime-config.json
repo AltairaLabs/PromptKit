@@ -1,0 +1,196 @@
+{
+ "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
+ "commit": "a87b70f25076b0e5c6898a4450cdd1dc0793041a",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "RuntimeConfig reuses `Provider` type from pkg/config",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:30",
+    "pkg/config/types.go:140"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "RuntimeConfig reuses `ToolSpec` type from pkg/config",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:76",
+    "pkg/config/types.go:373"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "RuntimeConfig reuses `MCPServerConfig` type from pkg/config",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:80",
+    "pkg/config/types.go:39"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "RuntimeConfig reuses `StateStoreConfig` type from pkg/config",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:84",
+    "pkg/config/types.go:60"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "RuntimeConfig reuses `LoggingConfigSpec` type from pkg/config",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/logging.go:17",
+    "pkg/config/runtime_config.go:88"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "There is a programmatic option `WithRuntimeConfig()` that accepts configuration files",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:18",
+    "sdk/runtime_config.go:96"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Options applied after WithRuntimeConfig() take precedence over YAML-declared settings",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:901",
+    "sdk/runtime_config.go:83",
+    "sdk/sdk.go:356",
+    "sdk/sdk.go:506"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Code wins: if both YAML file and programmatic option configure the same thing, the programmatic option takes effect",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/registry.go:124",
+    "sdk/options.go:2089",
+    "sdk/provider_file.go:46",
+    "sdk/runtime_config.go:172",
+    "sdk/runtime_config.go:176",
+    "sdk/runtime_config.go:185",
+    "sdk/runtime_config.go:491"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Tools, evals, and hooks can be implemented as external subprocesses in any language",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:76",
+    "pkg/config/runtime_config.go:93",
+    "pkg/config/runtime_config.go:97",
+    "runtime/tools/exec_executor.go:57",
+    "sdk/runtime_config.go:190"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "One-shot (exec) mode spawns a new process for each invocation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/exec_executor.go:97",
+    "sdk/exec_tools.go:52"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "One-shot mode: runtime passes input as JSON on stdin and reads result from stdout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/exec_executor.go:41",
+    "runtime/tools/exec_executor.go:57"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Server mode maintains a long-running process that communicates over JSON-RPC",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/server_executor.go:137",
+    "runtime/tools/server_executor.go:191",
+    "sdk/exec_tools.go:19"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Server mode amortizes startup cost and allows subprocess to maintain state between invocations",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/server_executor.go:100",
+    "runtime/tools/server_executor.go:36"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Tool bindings (command, arguments, working directory, environment variables) are configured entirely in RuntimeConfig",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:37",
+    "runtime/tools/exec_executor.go:97",
+    "runtime/tools/types.go:265",
+    "sdk/runtime_config.go:466"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Exec bindings live in RuntimeConfig (operator-controlled), not in pack",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:76",
+    "pkg/config/runtime_config.go:93",
+    "runtime/prompt/schema/promptpack.schema.json"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "`env` field in RuntimeConfig passes variable names, not values; actual values come from process environment at runtime",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:45",
+    "runtime/tools/exec_executor.go:115",
+    "runtime/tools/server_executor.go:155"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Every exec binding can specify a timeout",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/evals/handlers/exec_handler.go:156",
+    "runtime/hooks/exec_hooks.go:91",
+    "runtime/tools/registry.go:785",
+    "sdk/exec_tools.go:52",
+    "sdk/runtime_config.go:471"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Runtime kills processes that exceed their timeout and returns an error to the LLM",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/exec_hook.go:97",
+    "runtime/hooks/exec_hooks.go:91",
+    "runtime/tools/exec_executor.go:97",
+    "runtime/tools/registry.go:428",
+    "runtime/tools/registry.go:504",
+    "runtime/tools/server_executor.go:216"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Documentation page exists at /sdk/how-to/conversations/use-runtime-config/",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

@@ -108,6 +108,15 @@ Stages 1 and 2 can run in parallel for the same page. Stage 3 needs stage 2,
 and stage 4 needs stages 1 and 3.
 
 Rules you enforce between stages:
+- Read every stage 1 action other than `keep` before stage 4 runs. Override
+  any that strips a how-to of the config its steps need, moves a block to a
+  page that does not exist, or contradicts the quadrant rules; record the
+  override in the stage 1 JSON's `why`.
+- If a move targets another page in the batch, run that page's stage 4
+  first, then the mover's: two agents must not edit one file at once.
+- Spot-check every `dead` verdict in the code before stage 4 removes the
+  field from the docs, and report the field as a bug if it looks like a
+  wiring gap rather than a field to delete.
 - Stage 4 must not change a fact that stage 3 marked `true`. It must use
   stage 3's `correct` value verbatim for `false` claims, and it must leave
   `unverified` claims as written.

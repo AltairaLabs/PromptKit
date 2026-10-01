@@ -1,29 +1,55 @@
 ---
 title: Use RuntimeConfig
-description: Configure the SDK declaratively with a YAML file
+description: Load providers, tools, MCP servers, hooks, state store and logging from one YAML file
 sidebar:
   order: 15
+verified:
+  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  sources:
+    - pkg/config/logging.go
+    - pkg/config/runtime_config.go
+    - pkg/config/types.go
+    - runtime/credentials/resolver.go
+    - runtime/credentials/types.go
+    - runtime/hooks/exec_build.go
+    - runtime/hooks/exec_hooks.go
+    - runtime/hooks/execconfig/execconfig.go
+    - runtime/providers/claude/pricing_table.go
+    - sdk/conversation.go
+    - sdk/exec_tools.go
+    - sdk/options.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
+    - sdk/sdk.go
 ---
 
-Replace dozens of programmatic option calls with a single YAML file that declares providers, tools, MCP servers, hooks, and more.
+Configure providers, tools, MCP servers, hooks, state store and logging from a single YAML file instead of programmatic options.
 
 ---
 
 ## Quick Start
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/v2"
+package main
 
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig("./runtime.yaml"),
+import (
+    "log"
+
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
-if err != nil {
-    log.Fatal(err)
+
+func main() {
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig("./runtime.yaml"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
 }
-defer conv.Close()
 ```
 
-`WithRuntimeConfig` loads the YAML file and applies every section as if you had called the equivalent `With*` options individually.
+`WithRuntimeConfig` loads the YAML file and applies each section it contains. See [Combine with Programmatic Overrides](#combine-with-programmatic-overrides) for how it interacts with other options.
 
 ---
 
@@ -45,78 +71,47 @@ spec:
         credential_env: ANTHROPIC_API_KEY
 ```
 
-This is equivalent to calling `sdk.WithProvider(...)` with the same settings, but easier to change without recompiling.
+This registers the same provider as `sdk.WithProvider(...)` with the same settings.
 
 ---
 
 ## Full Config
 
-Add tools, MCP servers, hooks, state store, and logging:
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: RuntimeConfig
-metadata:
-  name: production
-spec:
-  providers:
-    - id: anthropic-main
-      type: claude
-      model: claude-sonnet-4-20250514
-      credential:
-        credential_env: ANTHROPIC_API_KEY
-
-  tools:
-    sentiment_check:
-      exec:
-        command: ./tools/sentiment-check.py
-        timeout_ms: 5000
-        env: [NLTK_DATA]
-
-  evals:
-    sentiment_check:
-      command: ./evals/sentiment-check.py
-
-  mcp_servers:
-    - name: filesystem
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem"]
-
-  hooks:
-    pii_redactor:
-      command: ./hooks/pii-redactor
-      hook: provider
-      phases: [before_call, after_call]
-      mode: filter
-      timeout_ms: 3000
-
-  state_store:
-    type: redis
-    redis:
-      address: localhost:6379
-      ttl: 24h
-
-  logging:
-    defaultLevel: info
-    format: json
-```
-
-Each section is optional. Include only what you need.
+See [RuntimeConfig Reference](/sdk/reference/runtime-config/) for every section: tools, evals, MCP servers, hooks, state store and logging. Each section is optional.
 
 ---
 
 ## Combine with Programmatic Overrides
 
-Pass `WithRuntimeConfig` alongside other options. Programmatic options are applied after the YAML config, so they take precedence:
+Pass `WithRuntimeConfig` alongside other options. `WithProvider`, `WithStateStore` and `WithLogger` win over the YAML file whichever side of `WithRuntimeConfig` you list them on:
 
 ```go
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig("./base.runtime.yaml"),
-    sdk.WithProvider(testProvider),  // overrides the YAML provider
+package main
+
+import (
+    "log"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
+
+func main() {
+    testProvider := mock.NewProvider("test", "mock-model", false)
+
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig("./base.runtime.yaml"),
+        sdk.WithProvider(testProvider), // wins over the YAML provider
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+}
 ```
 
-This is useful for tests where you want the full production config but need to swap in a mock provider.
+The YAML provider stays registered in the provider pool. The YAML state store and logger apply only when you have not set one. MCP servers from the YAML file are appended to those you set programmatically, not replaced.
+
+Use this in tests to keep the production config and swap in a mock provider.
 
 ---
 
@@ -124,7 +119,7 @@ This is useful for tests where you want the full production config but need to s
 
 Create separate config files for each environment and select at startup:
 
-```
+```text
 config/
   production.runtime.yaml    # real providers, Redis state store, JSON logging
   development.runtime.yaml   # cheaper model, local state store, text logging
@@ -132,21 +127,40 @@ config/
 ```
 
 ```go
-env := os.Getenv("APP_ENV") // "production", "development", "test"
-configPath := fmt.Sprintf("./config/%s.runtime.yaml", env)
+package main
 
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig(configPath),
+import (
+    "fmt"
+    "log"
+    "os"
+
+    _ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock" // registers type: mock
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
+
+func main() {
+    env := os.Getenv("APP_ENV") // "production", "development", "test"
+    configPath := fmt.Sprintf("./config/%s.runtime.yaml", env)
+
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig(configPath),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+}
 ```
 
-This keeps environment-specific settings out of your code and lets you change behavior without recompiling.
+The blank import of `runtime/providers/mock` is needed only because `test.runtime.yaml` uses `type: mock`. Without it, loading fails with `unsupported provider type: mock`.
+
+Environment-specific settings stay out of your code.
 
 ---
 
 ## See Also
 
-- [Exec Tools](/sdk/how-to/tools/exec-tools/) -- configure external process tools
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) -- configure pipeline hooks
-- [RuntimeConfig Reference](/sdk/reference/runtime-config/) -- full schema documentation
-- [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/) -- MCP server builder pattern
+- [Exec Tools](/sdk/how-to/tools/exec-tools/): configure external process tools
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): configure pipeline hooks
+- [RuntimeConfig Reference](/sdk/reference/runtime-config/): full schema documentation
+- [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/): MCP server builder pattern

@@ -3,6 +3,57 @@ title: RuntimeConfig
 description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
+verified:
+  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  sources:
+    - pkg/config/logging.go
+    - pkg/config/role.go
+    - pkg/config/runtime_config.go
+    - pkg/config/types.go
+    - runtime/credentials/resolver.go
+    - runtime/credentials/resolver_platform.go
+    - runtime/credentials/types.go
+    - runtime/hooks/exec_build.go
+    - runtime/hooks/exec_hooks.go
+    - runtime/hooks/execconfig/execconfig.go
+    - runtime/inference/all/all.go
+    - runtime/inference/huggingface/register.go
+    - runtime/inference/openai/register.go
+    - runtime/inference/systemone/register.go
+    - runtime/logger/config.go
+    - runtime/mcp/types.go
+    - runtime/providers/all/all.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/bedrock/embedding_register.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/claude/pricing_table.go
+    - runtime/providers/cohere/rerank_register.go
+    - runtime/providers/gemini/embedding_register.go
+    - runtime/providers/huggingface/embedding_register.go
+    - runtime/providers/imagen/factory.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/multimodal.go
+    - runtime/providers/ollama/embedding_register.go
+    - runtime/providers/openai/embedding_register.go
+    - runtime/providers/registry.go
+    - runtime/providers/replay/factory.go
+    - runtime/providers/rerank_mock.go
+    - runtime/providers/stream_retry.go
+    - runtime/providers/stream_retry_driver.go
+    - runtime/providers/streaming.go
+    - runtime/providers/vertex/embedding_register.go
+    - runtime/providers/vllm/factory.go
+    - runtime/providers/voyageai/embedding_register.go
+    - runtime/providers/voyageai/rerank_register.go
+    - runtime/statestore/file/store.go
+    - runtime/statestore/redis.go
+    - runtime/statestore/types.go
+    - runtime/tools/types.go
+    - schemas/v1alpha1/runtime-config.json
+    - sdk/conversation_tools.go
+    - sdk/exec_tools.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
 ---
 
 RuntimeConfig is a Kubernetes-style YAML manifest that declaratively configures the SDK runtime environment. It separates _what_ an agent does (defined in a pack) from _how_ to run it (providers, tool bindings, state store, logging). This makes packs portable across environments while RuntimeConfig adapts them to each deployment target.
@@ -45,15 +96,19 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 | `tools` | map[string]ToolSpec | Tool implementation bindings keyed by pack tool name. |
 | `mcp_servers` | MCPServerConfig[] | MCP tool server configurations. |
 | `state_store` | StateStoreConfig | Conversation state persistence. |
-| `logging` | LoggingConfigSpec | Log levels, format, and per-module settings. |
+| `logging` | LoggingConfigSpec | Log level, format, and common fields. |
 | `evals` | map[string]ExecBinding | External eval process bindings keyed by eval type name. |
 | `hooks` | map[string]ExecHook | External hook process configurations. |
+| `sandboxes` | map[string]SandboxConfig | Named sandbox backends that hooks and selectors launch their processes in. |
+| `selectors` | map[string]SelectorConfig | External selector processes keyed by selector name. |
+| `skills` | SkillsConfig | Runtime skill wiring. |
+| `tool_selector` | string | Name of a selector under `selectors` that narrows the tool set offered to the LLM each turn. |
 
 ---
 
 ### spec.providers[]
 
-Array of provider configurations. Each entry configures credentials, model selection, rate limits, and default generation parameters for one provider.
+Array of provider configurations. Each entry configures credentials, model selection, and default generation parameters for one provider.
 
 **Every entry is routed by its `role`.** Providers with a completion role
 (`llm`, `image`, `video`) go into the agent pool — the first one declared becomes
@@ -115,17 +170,11 @@ the same ID in both spellings is rejected.
 | `base_url` | string | no | Custom API base URL. Overrides the default endpoint for the provider type. |
 | `credential` | object | no | API key configuration. See [credential](#credential). |
 | `defaults` | object | no | Default generation parameters. See [defaults](#defaults). |
-| `rate_limit` | object | no | Rate limiting. See [rate_limit](#rate_limit). |
 | `pricing` | object | no | Token cost tracking. See [pricing](#pricing). |
 | `platform` | object | no | Cloud platform config for hyperscaler hosting. See [platform](#platform). |
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. |
-| `request_timeout` | string | no | Wall-clock timeout for non-streaming HTTP calls (Predict, embeddings). Go duration string, e.g. `"60s"`, `"2m"`. Does not apply to streaming. |
-| `stream_idle_timeout` | string | no | Max silence between bytes on a streaming body before the stream is aborted. Timer resets on every byte received. Default: `"30s"`. |
-| `stream_retry` | object | no | Streaming retry configuration. See [stream_retry](#stream_retry). |
-| `stream_max_concurrent` | int | no | Max concurrent streaming requests in flight. Requests beyond the limit block on the caller's context. `0` = unlimited (default). |
-| `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
 
 #### provider types
 
@@ -137,7 +186,7 @@ Importing the SDK registers these:
 
 | Role | Types |
 |------|-------|
-| `llm` | `claude`, `openai`, `gemini`, `ollama`, `mock` |
+| `llm` | `claude`, `openai`, `gemini`, `ollama` |
 | `image` | `imagen` |
 | `embedding` | `openai`, `gemini`, `ollama`, `voyageai`, `bedrock`, `vertex`, `huggingface` |
 | `rerank` | `voyageai`, `cohere`, `mock` |
@@ -148,8 +197,9 @@ Each type calls exactly one vendor API; `base_url`, `credential` and
 same API (the Vercel AI Gateway for `systemone`, LiteLLM or vLLM for `openai`)
 is only a `base_url` and a credential, not a new type.
 
-Others need a blank import of their package — `vllm` and `replay` (both `llm`)
-are registered by `runtime/providers/vllm` and `runtime/providers/replay`:
+Others need a blank import of their package: `vllm`, `replay` and `mock` (all `llm`)
+are registered by `runtime/providers/vllm`, `runtime/providers/replay` and `runtime/providers/mock`. `runtime/providers/all` registers every provider package.
+The `vllm` import:
 
 ```go
 import _ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
@@ -168,7 +218,7 @@ Credentials are resolved in order of precedence: `api_key` > `credential_file` >
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `api_key` | string | Explicit API key value. Not recommended for production — prefer `credential_env`. |
+| `api_key` | string | Explicit API key value. |
 | `credential_file` | string | Path to a file containing the API key. |
 | `credential_env` | string | Name of an environment variable containing the API key. |
 
@@ -181,13 +231,6 @@ Default generation parameters applied to every request unless overridden per-cal
 | `temperature` | float | Sampling temperature (e.g., `0.7`). |
 | `top_p` | float | Top-p (nucleus) sampling parameter. |
 | `max_tokens` | int | Maximum number of output tokens. |
-
-#### rate_limit
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rps` | int | Maximum requests per second. |
-| `burst` | int | Maximum burst size above the steady-state rate. |
 
 #### pricing
 
@@ -210,62 +253,19 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 | `endpoint` | string | Custom endpoint URL override. |
 | `additional_config` | map[string]any | Platform-specific settings. |
 
-#### stream_retry
-
-Bounded retry for streaming requests. By default, retry only fires in the pre-first-chunk window (before any content has been forwarded to the caller), which is safe and invisible. Setting `retry_window: always` enables mid-stream retry: on failure after content has been forwarded, a `Reset` signal is emitted so consumers discard accumulated state, then the full request is retried from scratch. Mid-stream retry costs additional tokens because the provider generates a new response.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `enabled` | bool | Turn the retry loop on. Default: `false`. |
-| `max_attempts` | int | Total attempts including the initial request. `2` = one retry. Default: `2`. |
-| `initial_delay` | string | Base backoff before the first retry. Go duration string. Default: `"250ms"`. |
-| `max_delay` | string | Maximum per-attempt backoff. Go duration string. Default: `"2s"`. This caps PromptKit's own backoff, not the server's: when a `429` or `503` response carries `Retry-After`, the retry waits the longer of `Retry-After` and the backoff. If `Retry-After` asks for more than 60 seconds, the request is not retried and the error is returned immediately, rather than retrying while the limit is still in force. The 60-second cap can be changed in code with `StreamRetryPolicy.MaxRetryAfter`. |
-| `retry_window` | string | `"pre_first_chunk"` (default, safe) or `"always"` (mid-stream reset retry, costs tokens). |
-| `budget` | object | Token bucket that gates retry attempts to prevent thundering-herd reconnects. See below. |
-
-**stream_retry.budget:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rate_per_sec` | float | Sustained token refill rate. |
-| `burst` | int | Maximum tokens that can accumulate. |
-
-#### http_transport
-
-Per-provider HTTP connection pool tuning. Controls how many TCP connections the provider opens to its upstream and how long idle connections linger. The effective concurrent-stream ceiling per upstream is `max_conns_per_host` multiplied by the upstream's HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (typically 100-256).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `max_conns_per_host` | int | Max TCP connections to any single host (in-use + idle). Default: `100`. |
-| `max_idle_conns_per_host` | int | Max idle keep-alive connections retained per host. Default: `100`. |
-| `idle_conn_timeout` | string | How long idle connections linger before being closed. Go duration string. Default: `"90s"`. |
-
 ---
 
 ### spec.tools
 
-Map of tool bindings. Keys are tool names that must match names declared in the pack. Values configure how the tool is implemented at runtime.
+Map of tool bindings. Keys are tool names that must match names declared in the pack.
 
-Each tool spec can use one of several modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution).
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | no | Tool name (usually inferred from the map key). |
-| `description` | string | yes | Human-readable description of the tool. |
-| `input_schema` | object | yes | JSON Schema (Draft-07) defining the tool's input. |
-| `output_schema` | object | yes | JSON Schema (Draft-07) defining the tool's output. |
-| `mode` | string | yes | Execution mode: `mock`, `live`, `exec`, or `client`. |
-| `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
-| `mock_result` | any | no | Static mock response (mode: `mock`). |
-| `mock_template` | string | no | Go template for dynamic mock responses (mode: `mock`). |
-| `mock_parts` | MockPartSpec[] | no | Multimodal mock response parts (mode: `mock`). |
-| `http` | object | no | HTTP binding configuration (mode: `live`). |
-| `exec` | object | no | Subprocess binding configuration (mode: `exec`). See [exec](#exec). |
-| `client` | object | no | Client-side execution configuration (mode: `client`). |
+| Field | Type | Description |
+|-------|------|-------------|
+| `exec` | object | Subprocess binding configuration. See [exec](#exec). |
 
 #### exec
 
-Subprocess binding for tools. The command is resolved relative to the config file.
+Subprocess binding for tools. A relative `command` is resolved against the process working directory.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -273,13 +273,12 @@ Subprocess binding for tools. The command is resolved relative to the config fil
 | `args` | string[] | Additional command arguments. |
 | `runtime` | string | Execution mode: `exec` (one-shot, default) or `server` (long-running JSON-RPC). |
 | `env` | string[] | Environment variable names to pass through from the host. |
-| `timeout_ms` | int | Per-invocation timeout in milliseconds. |
 
 ---
 
 ### spec.evals
 
-Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers.
+Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation.
 
 Each value is an `ExecBinding`:
 
@@ -287,7 +286,6 @@ Each value is an `ExecBinding`:
 |-------|------|----------|-------------|
 | `command` | string | yes | Path to the executable. |
 | `args` | string[] | no | Additional command arguments. |
-| `runtime` | string | no | Execution mode: `exec` (default) or `server`. |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
 
@@ -295,18 +293,18 @@ Each value is an `ExecBinding`:
 
 ### spec.hooks
 
-Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events.
+Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `command` | string | yes | Path to the executable. |
 | `args` | string[] | no | Additional command arguments. |
-| `hook` | string | yes | Hook interface type: `provider`, `tool`, or `session`. |
+| `hook` | string | yes | Hook interface type: `provider`, `tool`, `session`, or `eval`. |
 | `phases` | string[] | no | Lifecycle phases to intercept. See below. |
 | `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget). |
-| `runtime` | string | no | Process mode: `exec` (default) or `server`. |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
+| `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). Without it, the hook process runs directly on the host. |
 
 #### Valid phases by hook type
 
@@ -315,28 +313,73 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `provider` | `before_call`, `after_call` |
 | `tool` | `before_execution`, `after_execution` |
 | `session` | `session_start`, `session_update`, `session_end` |
+| `eval` | none; `eval` hooks ignore `phases` and `mode` and run once per eval result |
+
+---
+
+### spec.sandboxes
+
+Map of named sandbox backends. Hooks and selectors refer to an entry by name in their `sandbox` field. A `sandbox` that names an undeclared entry fails validation.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | yes | Name of a registered sandbox factory. `direct` is always registered; any other mode needs its factory registered with `sandbox.RegisterFactory` before the config is loaded. |
+| *(other keys)* | any | no | Passed to the factory as its configuration. Each factory defines its own keys. |
+
+See [Sandbox Hooks](/sdk/how-to/hooks/sandbox-hooks/) for the available modes.
+
+---
+
+### spec.selectors
+
+Map of external selector processes. Keys are selector names, which `skills.selector` and `tool_selector` refer to. A selector registered with `WithSelector` before `WithRuntimeConfig` keeps its name, and the entry of the same name here is skipped.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string | yes | Path to the selector executable. |
+| `args` | string[] | no | Additional command arguments. |
+| `env` | string[] | no | Environment variable names to pass through from the host. |
+| `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
+| `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). |
+
+---
+
+### spec.skills
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string | no | Name of a selector under [`spec.selectors`](#specselectors) that narrows the skills offered to the LLM. Without it, every eligible skill is offered. |
+
+---
+
+### spec.tool_selector
+
+Name of a selector under [`spec.selectors`](#specselectors). Each turn, the selector receives the last user message and the pack-declared tools, and the LLM is offered only the tools it returns. When the selector returns nothing or fails, the full tool list is offered. A name that is not declared under `spec.selectors` fails validation, as it does for `skills.selector`.
 
 ---
 
 ### spec.mcp_servers[]
 
-Array of MCP (Model Context Protocol) server configurations. Each entry starts and manages a stdio-based MCP server process.
+Array of MCP (Model Context Protocol) server configurations. Each entry configures one MCP server, reached over stdio, `sse` or `streamable_http`.
 
-Validation requires `name` and `command` on every entry.
+Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Unique server name. |
-| `command` | string | yes | Command to start the server process. |
+| `command` | string | conditional | Command to start the server process (stdio transport). |
 | `args` | string[] | no | Command arguments. |
 | `env` | map[string]string | no | Environment variables passed to the server process. |
 | `working_dir` | string | no | Working directory for the server process. |
+| `url` | string | conditional | URL of an HTTP MCP server. |
+| `transport` | string | no | Transport adapter: `stdio`, `sse` or `streamable_http`. Defaults to `stdio` for `command`. For `url`, Streamable HTTP, falling back to `sse` when the server does not host a Streamable HTTP endpoint. |
+| `headers` | map[string]string | no | HTTP headers sent with every request to the server. |
 | `timeout_ms` | int | no | Per-request timeout in milliseconds. |
 | `tool_filter` | object | no | Tool filtering configuration. See [tool_filter](#tool_filter). |
 
 #### tool_filter
 
-Controls which tools from the MCP server are exposed to the LLM. If both lists are set, `allowlist` is applied first, then `blocklist` removes from the result.
+Controls which tools from the MCP server are exposed to the LLM. If `allowlist` is non-empty, only allowlisted tools are exposed and `blocklist` is not consulted. `blocklist` applies only when `allowlist` is empty. Entries ending in `*` are prefix matches.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -361,7 +404,7 @@ Configures conversation state persistence. Defaults to in-memory storage when om
 |-------|------|----------|-------------|
 | `address` | string | yes | Redis server address (`host:port`). |
 | `password` | string | no | Redis authentication password. |
-| `database` | int | no | Redis database number (0-15, default: 0). |
+| `database` | int | no | Redis database number, passed to the server as configured. Default: `0`. |
 | `ttl` | string | no | Key TTL as a Go duration string (e.g., `24h`, `168h`). Default: `24h`. |
 | `prefix` | string | no | Key prefix for all state keys. Default: `promptkit`. |
 
@@ -386,17 +429,6 @@ Configures structured logging output.
 | `defaultLevel` | string | no | Default log level: `trace`, `debug`, `info` (default), `warn`, `error`. |
 | `format` | string | no | Output format: `text` (default) or `json`. |
 | `commonFields` | map[string]string | no | Key-value pairs added to every log entry. Useful for environment, service name, etc. |
-| `modules` | ModuleLoggingConfig[] | no | Per-module log level overrides. See [modules](#modules). |
-
-#### modules
-
-Override log levels for specific subsystems. More specific module names take precedence over less specific ones.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Module name using dot notation (e.g., `runtime`, `runtime.pipeline`, `providers.openai`). |
-| `level` | string | Log level for this module: `trace`, `debug`, `info`, `warn`, `error`. |
-| `fields` | map[string]string | Additional fields added to logs from this module. |
 
 ---
 
@@ -419,27 +451,12 @@ spec:
       defaults:
         temperature: 0.7
         max_tokens: 4096
-      rate_limit:
-        rps: 10
-        burst: 20
       pricing:
         input_cost_per_1k: 0.003
         output_cost_per_1k: 0.015
-      request_timeout: "60s"
-      stream_idle_timeout: "30s"
-      stream_retry:
-        enabled: true
-        max_attempts: 2
-        retry_window: pre_first_chunk  # or "always" for mid-stream reset retry
-        budget:
-          rate_per_sec: 5
-          burst: 10
-      stream_max_concurrent: 100
-      http_transport:
-        max_conns_per_host: 200
-        max_idle_conns_per_host: 200
 
     - id: embeddings
+      role: embedding
       type: voyageai
       model: voyage-3
       credential:
@@ -447,38 +464,11 @@ spec:
 
   tools:
     search_knowledge_base:
-      description: Search the knowledge base
-      input_schema:
-        type: object
-        properties:
-          query:
-            type: string
-      output_schema:
-        type: object
-        properties:
-          results:
-            type: array
-      mode: exec
       exec:
         command: ./tools/search
         args: ["--format", "json"]
         runtime: server
         env: [DATABASE_URL]
-        timeout_ms: 5000
-
-    get_weather:
-      description: Get current weather
-      input_schema:
-        type: object
-        properties:
-          location:
-            type: string
-      output_schema:
-        type: object
-      mode: live
-      http:
-        url: https://api.weather.com/v1/current
-        method: GET
 
   evals:
     custom_accuracy:
@@ -534,17 +524,12 @@ spec:
     commonFields:
       service: my-agent
       env: production
-    modules:
-      - name: runtime.pipeline
-        level: debug
-      - name: providers
-        level: warn
 ```
 
 ---
 
 ## See Also
 
-- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/) — how-to guide for loading and applying RuntimeConfig
-- [Exec Tools](/sdk/how-to/tools/exec-tools/) — how-to guide for subprocess tool bindings
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — how-to guide for external process hooks
+- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/): how-to guide for loading and applying RuntimeConfig
+- [Exec Tools](/sdk/how-to/tools/exec-tools/): how-to guide for subprocess tool bindings
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): how-to guide for external process hooks
