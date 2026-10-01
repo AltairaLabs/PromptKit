@@ -266,7 +266,9 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // The resolved tool results are injected as tool-result messages and a new
 // LLM round is triggered. The returned Response contains the assistant's reply.
 // A result for a call the history already answers, or a second result for the
-// same call, is dropped: each call is answered once.
+// same call, is dropped: each call is answered once. So is a result for a
+// call the suspended turn did not make. Results stored for a suspended turn
+// are discarded when Send or Stream starts a new turn instead of resuming it.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
@@ -508,10 +510,13 @@ func (c *Conversation) unansweredResolutions(
 	ctx context.Context, resolutions []*sdktools.ToolResolution,
 ) []*sdktools.ToolResolution {
 	answered := map[string]bool{}
+	var made map[string]bool
 	if c.getBaseSession() != nil {
-		for _, id := range answeredSinceLastAssistant(c.Messages(ctx)) {
+		history := c.Messages(ctx)
+		for _, id := range answeredSinceLastAssistant(history) {
 			answered[id] = true
 		}
+		made = callsOfLastAssistant(history)
 	}
 	out := make([]*sdktools.ToolResolution, 0, len(resolutions))
 	for _, res := range resolutions {
@@ -519,10 +524,44 @@ func (c *Conversation) unansweredResolutions(
 			logger.Debug("dropping a second answer for a tool call", "call_id", res.ID)
 			continue
 		}
+		if len(made) > 0 && !made[res.ID] {
+			logger.Warn("dropping an answer for a call the suspended turn did not make", "call_id", res.ID)
+			continue
+		}
 		answered[res.ID] = true
 		out = append(out, res)
 	}
 	return out
+}
+
+// callsOfLastAssistant returns the ids of the calls the last assistant message
+// in history made: the calls a suspended turn is waiting on.
+func callsOfLastAssistant(history []types.Message) map[string]bool {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != roleAssistant {
+			continue
+		}
+		made := make(map[string]bool, len(history[i].ToolCalls))
+		for _, tc := range history[i].ToolCalls {
+			made[tc.ID] = true
+		}
+		return made
+	}
+	return nil
+}
+
+// discardAbandonedResolutions drops answers stored for a suspended turn when
+// a new turn starts instead of resuming it. They answer calls of the turn the
+// user moved on from; resumed later, they would reach the model as results
+// for calls the current turn never made, or, where a provider reuses call ids
+// (call_0, call_1, ...), in place of the real answer.
+func (c *Conversation) discardAbandonedResolutions() {
+	if c.resolvedStore == nil {
+		return
+	}
+	if dropped := c.resolvedStore.PopAll(); len(dropped) > 0 {
+		logger.Debug("discarding tool answers for an abandoned suspended turn", "count", len(dropped))
+	}
 }
 
 // answeredSinceLastAssistant lists the calls answered by tool results after the

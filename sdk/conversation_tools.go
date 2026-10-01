@@ -341,7 +341,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// Get all resolved tool results
 	var resolutions []*sdktools.ToolResolution
 	if c.resolvedStore != nil {
-		resolutions = c.resolvedStore.PopAll()
+		resolutions = c.unansweredResolutions(ctx, c.resolvedStore.PopAll())
 	}
 
 	if len(resolutions) == 0 {

@@ -175,6 +175,69 @@ func TestAnsweredSinceLastAssistant(t *testing.T) {
 	assert.Empty(t, answeredSinceLastAssistant(nil))
 }
 
+// A call held by an abandoned turn stays in the pending store, so it can still
+// be resolved after the user moved on. Its result must not reach the model
+// when the current turn continues: the current turn never made that call.
+func TestContinue_DropsAnswerForAnAbandonedHold(t *testing.T) {
+	provider := &roundsProvider{
+		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
+		rounds: []providers.PredictionResponse{
+			{Content: "First.", ToolCalls: []types.MessageToolCall{{ID: "h1", Name: "lookup", Args: []byte(`{}`)}}},
+			{Content: "Second.", ToolCalls: []types.MessageToolCall{{ID: "h2", Name: "lookup", Args: []byte(`{}`)}}},
+			{Content: "Done."},
+		},
+	}
+	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	conv.OnToolAsync("lookup",
+		func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{Reason: "approve"} },
+		func(map[string]any) (any, error) { return "ok", nil })
+	ctx := context.Background()
+
+	_, err = conv.Send(ctx, "first")
+	require.NoError(t, err)
+	_, err = conv.Send(ctx, "second instead") // h1 is abandoned, still held
+	require.NoError(t, err)
+	_, err = conv.ResolveTool(ctx, "h1")
+	require.NoError(t, err)
+	_, err = conv.ResolveTool(ctx, "h2")
+	require.NoError(t, err)
+
+	_, err = conv.Continue(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]int{"h2": 1}, resultCounts(provider.seen[len(provider.seen)-1]))
+}
+
+// A new turn discards answers stored for the turn it replaces.
+func TestSend_DiscardsAnswersOfAnAbandonedTurn(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+	require.NoError(t, conv.SendToolResult(context.Background(), "c1", "stale"))
+
+	conv.discardAbandonedResolutions()
+
+	assert.Empty(t, conv.resolvedStore.PopAll())
+	(&Conversation{}).discardAbandonedResolutions() // no store: nothing to do
+}
+
+// Stream starts a new turn too, and discards the same way.
+func TestStream_DiscardsAnswersOfAnAbandonedTurn(t *testing.T) {
+	provider := &roundsProvider{ToolProvider: mock.NewToolProvider("x", "m", false, nil)}
+	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	ctx := context.Background()
+	require.NoError(t, conv.SendToolResult(ctx, "c-stale", "stale"))
+
+	for chunk := range conv.Stream(ctx, "something new") {
+		require.NoError(t, chunk.Error)
+	}
+
+	assert.Empty(t, conv.resolvedStore.PopAll())
+}
+
 // Two resolutions for one call keep the first.
 func TestBuildToolResultMessages_OneAnswerPerCall(t *testing.T) {
 	conv := newTestConversation()
