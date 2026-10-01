@@ -147,3 +147,6 @@ benchmarks/results/*.md
 
 # packspec-gen build artifact
 tools/packspec-gen/packspec-gen
+
+# Python bytecode (scripts/docs-*.py)
+__pycache__/

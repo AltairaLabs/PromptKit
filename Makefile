@@ -470,6 +470,19 @@ docs-clean: ## Clean generated documentation
 
 docs: docs-build ## Generate all documentation (alias for docs-build)
 
+docs-voice: ## Check docs prose against docs/STYLE.md (fails only in enforced dirs)
+	@bash scripts/check-docs-voice.sh
+
+docs-stale: ## List docs pages whose verified sources changed (warn-only)
+	@bash scripts/docs-stale.sh
+
+docs-coverage: ## List public-surface files no docs page cites (warn-only)
+	@bash scripts/docs-coverage.sh
+
+docs-scripts-test: ## Test the docs-review scripts (voice, stale, provenance, coverage)
+	@for t in scripts/check-docs-voice_test.sh scripts/docs-stale_test.sh \
+		scripts/docs-provenance_test.sh scripts/docs-coverage_test.sh; do bash $$t || exit 1; done
+
 # Code Quality targets
 sonar-install: ## Install SonarScanner locally
 	@echo "📊 Installing SonarScanner..."

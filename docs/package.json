@@ -8,6 +8,7 @@
     "preview": "astro preview",
     "astro": "astro",
     "check-links": "node check-links.js",
+    "check:mermaid": "node check-mermaid.mjs",
     "check-doc-urls": "node check-doc-urls.js"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "starlight-theme-galaxy": "^1.0.0"
   },
   "devDependencies": {
+    "jsdom": "^29.1.1",
     "linkinator": "^8.1.0",
     "playwright": "^1.63.0"
   }

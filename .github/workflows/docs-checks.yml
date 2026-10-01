@@ -1,0 +1,72 @@
+name: Docs Checks
+
+# Mechanical checks behind docs/STYLE.md and the /docs-review skill:
+# - the docs scripts' own tests;
+# - the voice check (fails only in directories listed in
+#   scripts/docs-voice-enforced.txt, warns elsewhere);
+# - pages whose verified facts this PR may have changed: warn-only, written to
+#   the job summary. Uncovered surface is reported weekly by docs-freshness.yml.
+# Runs on every PR, because a code change is what makes a page stale.
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-checks:
+    name: Docs Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Test the docs scripts
+        run: |
+          status=0
+          for t in scripts/check-docs-voice_test.sh scripts/docs-stale_test.sh \
+                   scripts/docs-provenance_test.sh scripts/docs-coverage_test.sh; do
+            echo "::group::$t"
+            bash "$t" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Check docs voice
+        run: |
+          set +e
+          bash scripts/check-docs-voice.sh > "$RUNNER_TEMP/voice.txt"
+          status=$?
+          set -e
+          grep '^error ' "$RUNNER_TEMP/voice.txt" || true
+          {
+            echo "## Docs voice"
+            echo
+            echo "$(grep -c '^error ' "$RUNNER_TEMP/voice.txt" || true) errors (enforced directories),"
+            echo "$(grep -c '^warn ' "$RUNNER_TEMP/voice.txt" || true) warnings. See docs/STYLE.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Report stale pages
+        if: github.event_name == 'pull_request'
+        run: |
+          stale=$(bash scripts/docs-stale.sh --base HEAD^1 | grep -E '^(stale|missing) ' || true)
+          {
+            echo "## Docs freshness (warn-only)"
+            echo
+            if [ -n "$stale" ]; then
+              echo "This PR changes code that these pages cite. Update them in this PR, or run \`/docs-review --stale\`:"
+              echo
+              echo '```'; echo "$stale"; echo '```'
+            else
+              echo "No verified page cites code this PR changes."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$stale" ]; then
+            while IFS= read -r l; do echo "::warning::$l"; done <<<"$stale"
+          fi

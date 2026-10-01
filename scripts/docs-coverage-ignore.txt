@@ -1,0 +1,2 @@
+# Public-surface files that deliberately have no docs page (one path per line).
+# scripts/docs-coverage.sh skips these.

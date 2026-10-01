@@ -147,6 +147,13 @@ jq '.properties.metadata.additionalProperties' runtime/prompt/schema/promptpack.
 
 Spec open + generated closed is a generator bug (promptarena#134/#169), not spec alignment.
 
+## Documentation
+
+`docs/STYLE.md` governs every page under `docs/src/content/docs/` (voice, Diátaxis quadrants,
+Mermaid-only diagrams, no issue links). The `/docs-review` skill applies it and records what each
+page was verified against; `make docs-voice` runs the mechanical subset. When a PR changes code a
+page cites, update the page in the same PR (Docs Checks lists them in its job summary).
+
 ## Concurrent Agents and Worktrees
 
 When running in a worktree or when concurrent agents may operate on the repo, **always use `git -C <path>` instead of `cd <path> && git ...`**. Compound `cd && git` commands require extra approval to prevent bare repository attacks, whereas `git -C` is safe and non-interactive.

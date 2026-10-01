@@ -1,0 +1,10 @@
+# Public surface: files whose additions are things a reader can use, so a new
+# one needs a docs page. Globs, relative to the repo root; `**` recurses.
+# Test files (*_test.go) are never surface. Read by scripts/docs-stale.py
+# (a page owning one is stale when lines are added) and
+# scripts/docs-coverage.py (one no page cites is "uncovered").
+sdk/*.go
+server/a2a/*.go
+pkg/config/*.go
+runtime/prompt/schema/promptpack.schema.json
+schemas/v1alpha1/*.json
