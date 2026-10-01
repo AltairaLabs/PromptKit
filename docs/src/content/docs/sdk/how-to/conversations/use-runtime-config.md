@@ -1,11 +1,11 @@
 ---
 title: Use RuntimeConfig
-description: Configure the SDK declaratively with a YAML file
+description: Load providers, tools, MCP servers, hooks, state store and logging from one YAML file
 sidebar:
   order: 15
 ---
 
-Replace dozens of programmatic option calls with a single YAML file that declares providers, tools, MCP servers, hooks, and more.
+Configure providers, tools, MCP servers, hooks, state store and logging from a single YAML file instead of programmatic options.
 
 ---
 
@@ -45,69 +45,19 @@ spec:
         credential_env: ANTHROPIC_API_KEY
 ```
 
-This is equivalent to calling `sdk.WithProvider(...)` with the same settings, but easier to change without recompiling.
+This registers the same provider as `sdk.WithProvider(...)` with the same settings.
 
 ---
 
 ## Full Config
 
-Add tools, MCP servers, hooks, state store, and logging:
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: RuntimeConfig
-metadata:
-  name: production
-spec:
-  providers:
-    - id: anthropic-main
-      type: claude
-      model: claude-sonnet-4-20250514
-      credential:
-        credential_env: ANTHROPIC_API_KEY
-
-  tools:
-    sentiment_check:
-      exec:
-        command: ./tools/sentiment-check.py
-        timeout_ms: 5000
-        env: [NLTK_DATA]
-
-  evals:
-    sentiment_check:
-      command: ./evals/sentiment-check.py
-
-  mcp_servers:
-    - name: filesystem
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem"]
-
-  hooks:
-    pii_redactor:
-      command: ./hooks/pii-redactor
-      hook: provider
-      phases: [before_call, after_call]
-      mode: filter
-      timeout_ms: 3000
-
-  state_store:
-    type: redis
-    redis:
-      address: localhost:6379
-      ttl: 24h
-
-  logging:
-    defaultLevel: info
-    format: json
-```
-
-Each section is optional. Include only what you need.
+See [RuntimeConfig Reference](/sdk/reference/runtime-config/) for every section: tools, evals, MCP servers, hooks, state store and logging. Each section is optional.
 
 ---
 
 ## Combine with Programmatic Overrides
 
-Pass `WithRuntimeConfig` alongside other options. Programmatic options are applied after the YAML config, so they take precedence:
+Pass `WithRuntimeConfig` alongside other options. Options apply in call order, so a programmatic option wins only when you list it after `WithRuntimeConfig`:
 
 ```go
 conv, err := sdk.Open("./agent.pack.json", "assistant",
@@ -116,7 +66,11 @@ conv, err := sdk.Open("./agent.pack.json", "assistant",
 )
 ```
 
-This is useful for tests where you want the full production config but need to swap in a mock provider.
+`WithProvider` replaces the agent provider. The YAML provider stays registered in the provider pool.
+
+If you list `WithProvider`, `WithStateStore` or `WithLogger` before `WithRuntimeConfig`, the YAML state store and logger are skipped and the YAML provider is only pooled. MCP servers and hooks from the YAML file are appended to those you set programmatically, not replaced.
+
+Use this in tests to keep the production config and swap in a mock provider.
 
 ---
 
@@ -124,7 +78,7 @@ This is useful for tests where you want the full production config but need to s
 
 Create separate config files for each environment and select at startup:
 
-```
+```text
 config/
   production.runtime.yaml    # real providers, Redis state store, JSON logging
   development.runtime.yaml   # cheaper model, local state store, text logging
@@ -140,13 +94,13 @@ conv, err := sdk.Open("./agent.pack.json", "assistant",
 )
 ```
 
-This keeps environment-specific settings out of your code and lets you change behavior without recompiling.
+Environment-specific settings stay out of your code.
 
 ---
 
 ## See Also
 
-- [Exec Tools](/sdk/how-to/tools/exec-tools/) -- configure external process tools
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) -- configure pipeline hooks
-- [RuntimeConfig Reference](/sdk/reference/runtime-config/) -- full schema documentation
-- [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/) -- MCP server builder pattern
+- [Exec Tools](/sdk/how-to/tools/exec-tools/): configure external process tools
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): configure pipeline hooks
+- [RuntimeConfig Reference](/sdk/reference/runtime-config/): full schema documentation
+- [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/): MCP server builder pattern
