@@ -167,7 +167,7 @@ func (s *session) listTools(ctx context.Context) ([]Tool, error) {
 		}
 		tools = append(tools, resp.Tools...)
 		if resp.NextCursor == "" {
-			return s.indexToolHeaders(tools), nil
+			return s.indexToolHeaders(s.callableTools(tools)), nil
 		}
 		if seen[resp.NextCursor] {
 			return nil, fmt.Errorf("mcp: server %s repeated tools/list cursor %q", s.name, resp.NextCursor)
@@ -176,6 +176,22 @@ func (s *session) listTools(ctx context.Context) ([]Tool, error) {
 		cursor = resp.NextCursor
 	}
 	return nil, fmt.Errorf("mcp: server %s returned more than %d pages of tools", s.name, maxToolPages)
+}
+
+// callableTools drops the tools this client cannot call: those that must
+// run as a task, which a client without task support MUST NOT call plainly
+// (2025-11-25 basic/utilities/tasks). Listing them would offer the model a
+// tool that always fails.
+func (s *session) callableTools(tools []Tool) []Tool {
+	kept := tools[:0]
+	for i := range tools {
+		if e := tools[i].Execution; e != nil && e.TaskSupport == taskSupportRequired {
+			logger.Warn("MCP excluding tool that requires task execution", "server", s.name, "tool", tools[i].Name)
+			continue
+		}
+		kept = append(kept, tools[i])
+	}
+	return kept
 }
 
 // indexToolHeaders records the tools' x-mcp-header designations and drops
@@ -492,7 +508,13 @@ func decodeResult(resp *JSONRPCMessage, out any) error {
 func isTransportFailure(err error) bool {
 	var rpcErr *RPCError
 	var ir *inputRequiredError
+	var statusErr *httpStatusError
 	switch {
+	case errors.As(err, &statusErr):
+		// A client error is the server's answer and would only be repeated;
+		// only "try later" statuses and server errors are worth another try.
+		return statusErr.status >= http.StatusInternalServerError ||
+			statusErr.status == http.StatusRequestTimeout || statusErr.status == http.StatusTooManyRequests
 	case errors.As(err, &rpcErr),
 		errors.As(err, &ir),
 		errors.Is(err, context.Canceled),

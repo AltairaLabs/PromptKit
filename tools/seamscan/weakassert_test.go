@@ -375,3 +375,24 @@ func TestUsesUpperCaseHelper(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestWeakAssertions_IgnoresTestMain(t *testing.T) {
+	dir := writeGo(t, "x_test.go", `package p
+
+import (
+	"os"
+	"testing"
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
+func TestDoesNothing(t *testing.T) {}
+`)
+
+	got, err := WeakAssertions([]string{dir})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "only the real test is graded")
+	assert.Equal(t, "TestDoesNothing", got[0].Subject)
+}

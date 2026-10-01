@@ -102,6 +102,7 @@ Conformance with the claimed revision \(ProtocolVersion\) is checked by spec\_pa
 - [type ToolCallRequest](<#ToolCallRequest>)
 - [type ToolCallResponse](<#ToolCallResponse>)
   - [func \(r \*ToolCallResponse\) HasStructuredContent\(\) bool](<#ToolCallResponse.HasStructuredContent>)
+- [type ToolExecution](<#ToolExecution>)
 - [type ToolFilter](<#ToolFilter>)
   - [func \(f ToolFilter\) Includes\(name string\) bool](<#ToolFilter.Includes>)
 - [type ToolsCapability](<#ToolsCapability>)
@@ -191,7 +192,7 @@ var (
 ```
 
 <a name="Annotations"></a>
-## type [Annotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L263-L267>)
+## type [Annotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L276-L280>)
 
 Annotations tell a client how to use a content block: who it is for and how important it is.
 
@@ -289,7 +290,7 @@ type Authorizer interface {
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L270-L285>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L283-L298>)
 
 Client interface defines the MCP client operations
 
@@ -331,7 +332,7 @@ type ClientCapabilities struct {
 ```
 
 <a name="ClientOptions"></a>
-## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L23-L56>)
+## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L24-L57>)
 
 ClientOptions configures MCP client behavior
 
@@ -373,7 +374,7 @@ type ClientOptions struct {
 ```
 
 <a name="DefaultClientOptions"></a>
-### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L59>)
+### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L60>)
 
 ```go
 func DefaultClientOptions() ClientOptions
@@ -382,7 +383,7 @@ func DefaultClientOptions() ClientOptions
 DefaultClientOptions returns sensible defaults
 
 <a name="Content"></a>
-## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L233-L249>)
+## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L246-L262>)
 
 Content is one content block of a tool result. It is a flattened union of the spec's text, image, audio, resource\_link and embedded resource blocks; Type says which fields apply.
 
@@ -638,7 +639,7 @@ func (e *RPCError) Error() string
 
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L393-L418>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L406-L431>)
 
 Registry interface defines the MCP server registry operations
 
@@ -831,7 +832,7 @@ type RegistryOptions struct {
 ```
 
 <a name="ResourceContents"></a>
-## type [ResourceContents](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L253-L259>)
+## type [ResourceContents](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L266-L272>)
 
 ResourceContents is the content of an embedded resource: Text for a text resource, Blob \(base64\) for a binary one.
 
@@ -956,7 +957,7 @@ type ServerCapabilities struct {
 ```
 
 <a name="ServerConfig"></a>
-## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L335-L356>)
+## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L348-L369>)
 
 ServerConfig represents configuration for an MCP server.
 
@@ -993,7 +994,7 @@ type ServerConfig struct {
 ```
 
 <a name="ServerConfig.Transport"></a>
-### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L379>)
+### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L392>)
 
 ```go
 func (c *ServerConfig) Transport() Transport
@@ -1022,7 +1023,7 @@ type ServerConfigData struct {
 ```
 
 <a name="StdioClient"></a>
-## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L100-L133>)
+## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L101-L134>)
 
 StdioClient implements the MCP Client interface using stdio transport
 
@@ -1033,7 +1034,7 @@ type StdioClient struct {
 ```
 
 <a name="NewStdioClient"></a>
-### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L136>)
+### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L137>)
 
 ```go
 func NewStdioClient(config ServerConfig) *StdioClient
@@ -1042,7 +1043,7 @@ func NewStdioClient(config ServerConfig) *StdioClient
 NewStdioClient creates a new MCP client using stdio transport
 
 <a name="NewStdioClientWithOptions"></a>
-### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L141>)
+### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L142>)
 
 ```go
 func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *StdioClient
@@ -1051,7 +1052,7 @@ func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *Stdi
 NewStdioClientWithOptions creates a client with custom options
 
 <a name="StdioClient.CallTool"></a>
-### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L199>)
+### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L200>)
 
 ```go
 func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -1060,7 +1061,7 @@ func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.
 CallTool executes a tool with the given arguments
 
 <a name="StdioClient.Close"></a>
-### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L212>)
+### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L213>)
 
 ```go
 func (c *StdioClient) Close() error
@@ -1069,7 +1070,7 @@ func (c *StdioClient) Close() error
 Close terminates the connection to the MCP server
 
 <a name="StdioClient.Initialize"></a>
-### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L155>)
+### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L156>)
 
 ```go
 func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, error)
@@ -1078,7 +1079,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 Initialize establishes the MCP connection and negotiates capabilities
 
 <a name="StdioClient.IsAlive"></a>
-### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L257>)
+### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L280>)
 
 ```go
 func (c *StdioClient) IsAlive() bool
@@ -1087,7 +1088,7 @@ func (c *StdioClient) IsAlive() bool
 IsAlive checks if the connection is still active
 
 <a name="StdioClient.ListTools"></a>
-### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L187>)
+### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L188>)
 
 ```go
 func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -1170,7 +1171,7 @@ func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="Tool"></a>
-## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L165-L179>)
+## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L165-L183>)
 
 Tool represents an MCP tool definition
 
@@ -1187,13 +1188,17 @@ type Tool struct {
     // guaranteed: a client MUST NOT trust them from an untrusted server.
     Annotations *ToolAnnotations `json:"annotations,omitempty"`
     // Icons are display icons (2025-11-25).
-    Icons []Icon                     `json:"icons,omitempty"`
-    Meta  map[string]json.RawMessage `json:"_meta,omitempty"`
+    Icons []Icon `json:"icons,omitempty"`
+    // Execution says whether the tool runs as a task (2025-11-25). The
+    // client does not implement tasks, so it never lists a tool that
+    // requires one.
+    Execution *ToolExecution             `json:"execution,omitempty"`
+    Meta      map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 ```
 
 <a name="ToolAnnotations"></a>
-## type [ToolAnnotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L182-L188>)
+## type [ToolAnnotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L195-L201>)
 
 ToolAnnotations are hints about a tool's behavior \(server/tools\).
 
@@ -1208,7 +1213,7 @@ type ToolAnnotations struct {
 ```
 
 <a name="ToolCallRequest"></a>
-## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L191-L200>)
+## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L204-L213>)
 
 ToolCallRequest represents a request to execute a tool
 
@@ -1226,7 +1231,7 @@ type ToolCallRequest struct {
 ```
 
 <a name="ToolCallResponse"></a>
-## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L203-L213>)
+## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L216-L226>)
 
 ToolCallResponse represents the response from a tool execution
 
@@ -1245,7 +1250,7 @@ type ToolCallResponse struct {
 ```
 
 <a name="ToolCallResponse.HasStructuredContent"></a>
-### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L217>)
+### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L230>)
 
 ```go
 func (r *ToolCallResponse) HasStructuredContent() bool
@@ -1253,8 +1258,20 @@ func (r *ToolCallResponse) HasStructuredContent() bool
 
 HasStructuredContent reports whether the response carries a non\-null structuredContent payload.
 
+<a name="ToolExecution"></a>
+## type [ToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L186-L189>)
+
+ToolExecution holds a tool's execution properties \(2025\-11\-25\).
+
+```go
+type ToolExecution struct {
+    // TaskSupport is "forbidden" (the default), "optional" or "required".
+    TaskSupport string `json:"taskSupport,omitempty"`
+}
+```
+
 <a name="ToolFilter"></a>
-## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L291-L294>)
+## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L304-L307>)
 
 ToolFilter controls which tools from an MCP server are exposed to the LLM. If Allowlist is non\-empty, only those tools are included. If Blocklist is non\-empty, those tools are excluded. Allowlist takes precedence over Blocklist.
 
@@ -1266,7 +1283,7 @@ type ToolFilter struct {
 ```
 
 <a name="ToolFilter.Includes"></a>
-### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L308>)
+### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L321>)
 
 ```go
 func (f ToolFilter) Includes(name string) bool
@@ -1319,7 +1336,7 @@ type ToolsListResponse struct {
 ```
 
 <a name="Transport"></a>
-## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L359>)
+## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L372>)
 
 Transport identifies which transport adapter should serve a config.
 

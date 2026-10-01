@@ -144,7 +144,7 @@ type sseTransport struct {
 	in      inbound
 
 	doer       *httpDoer
-	baseURL    string
+	streamURL  string // the URL the stream was opened at
 	messageURL string // absolute URL for POSTs (populated by connect())
 
 	pending *pendingRequests
@@ -177,7 +177,6 @@ func newSSETransport(config ServerConfig, options ClientOptions, in inbound) *ss
 			auth:   options.Authorizer,
 			server: config.Name,
 		},
-		baseURL: strings.TrimRight(config.URL, "/"),
 		pending: newPendingRequests(),
 		ctx:     ctx,
 		cancel:  cancel,
@@ -193,24 +192,11 @@ func newSSETransport(config ServerConfig, options ClientOptions, in inbound) *ss
 // caller-ctx expiry. This prevents the caller's short init timeout from
 // killing the long-lived SSE stream after connect returns.
 func (t *sseTransport) connect(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(t.ctx, http.MethodGet, t.baseURL+"/sse", http.NoBody)
-	if err != nil {
-		return fmt.Errorf("mcp/sse: build GET /sse: %w", err)
-	}
-	req.Header.Set(headerAccept, contentTypeSSE)
-	for k, v := range t.config.Headers {
-		req.Header.Set(k, v)
-	}
-
 	// NB: on success we hand resp.Body off to t.stream and close it in
 	// sseTransport.close(); error paths close it explicitly.
-	resp, err := t.doer.do(req) //nolint:bodyclose // body adopted by t.stream or closed below
+	resp, err := t.openStream() //nolint:bodyclose // body adopted by t.stream or closed below
 	if err != nil {
-		return fmt.Errorf("mcp/sse: GET /sse: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		_ = resp.Body.Close()
-		return fmt.Errorf("mcp/sse: GET /sse status %d", resp.StatusCode)
+		return err
 	}
 
 	watchdogDone := make(chan struct{})
@@ -249,13 +235,65 @@ func (t *sseTransport) connect(ctx context.Context) error {
 	return nil
 }
 
-// resolveMessageURL turns the endpoint event's data (absolute or relative)
-// into an absolute URL against baseURL.
-func (t *sseTransport) resolveMessageURL(data string) (string, error) {
-	if strings.HasPrefix(data, "http://") || strings.HasPrefix(data, "https://") {
-		return data, nil
+// sseEndpoints lists the URLs to open the stream at. The configured URL is
+// the SSE endpoint (2024-11-05 basic/transports; the Streamable HTTP
+// fallback GETs the same URL). Earlier releases appended "/sse" to it, so
+// that is tried second, for configs that name the server's base URL.
+func sseEndpoints(configured string) []string {
+	base := strings.TrimRight(configured, "/")
+	if strings.HasSuffix(base, "/sse") {
+		return []string{configured}
 	}
-	u, err := url.Parse(t.baseURL)
+	return []string{configured, base + "/sse"}
+}
+
+// openStream GETs the SSE stream from the first endpoint that serves one.
+// On success the caller owns the response body.
+func (t *sseTransport) openStream() (*http.Response, error) {
+	endpoints := sseEndpoints(t.config.URL)
+	for i, endpoint := range endpoints {
+		resp, err := t.getStream(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusOK {
+			if i > 0 {
+				logger.Warn("MCP SSE stream found at the URL plus /sse; configure the SSE endpoint URL itself",
+					"server", t.config.Name, "url", endpoint)
+			}
+			t.streamURL = endpoint
+			return resp, nil
+		}
+		_ = resp.Body.Close()
+		notHere := resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed
+		if !notHere || i == len(endpoints)-1 {
+			return nil, fmt.Errorf("mcp/sse: GET %s status %d", endpoint, resp.StatusCode)
+		}
+	}
+	return nil, errors.New("mcp/sse: no endpoint") // unreachable: endpoints is never empty
+}
+
+// getStream sends the GET that opens an SSE stream.
+func (t *sseTransport) getStream(endpoint string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(t.ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("mcp/sse: build GET %s: %w", endpoint, err)
+	}
+	req.Header.Set(headerAccept, contentTypeSSE)
+	for k, v := range t.config.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := t.doer.do(req)
+	if err != nil {
+		return nil, fmt.Errorf("mcp/sse: GET %s: %w", endpoint, err)
+	}
+	return resp, nil
+}
+
+// resolveMessageURL turns the endpoint event's data (absolute or relative)
+// into an absolute URL against the stream's URL.
+func (t *sseTransport) resolveMessageURL(data string) (string, error) {
+	u, err := url.Parse(t.streamURL)
 	if err != nil {
 		return "", err
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,11 +127,72 @@ func TestSSETransport_ResolveMessageURL_Absolute(t *testing.T) {
 }
 
 func TestSSETransport_ResolveMessageURL_Relative(t *testing.T) {
-	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080"}, DefaultClientOptions(), nil)
+	// The endpoint event's URI is relative to the stream it arrived on.
+	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080/mcp/sse"}, DefaultClientOptions(), nil)
 	defer tr.close()
+	tr.streamURL = "http://localhost:8080/mcp/sse"
 	got, err := tr.resolveMessageURL("/message?sessionID=abc")
 	require.NoError(t, err)
 	assert.Equal(t, "http://localhost:8080/message?sessionID=abc", got)
+	got, err = tr.resolveMessageURL("message?sessionID=abc")
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:8080/mcp/message?sessionID=abc", got)
+}
+
+func TestSSETransport_OpensTheConfiguredURLFirst(t *testing.T) {
+	// The configured URL is the SSE endpoint; servers that host it anywhere
+	// but <base>/sse (the TypeScript SDK's examples among them) failed.
+	var gets []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		gets = append(gets, r.URL.Path)
+		w.Header().Set("Content-Type", contentTypeSSE)
+		_, _ = fmt.Fprint(w, "event: endpoint\ndata: post\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		gets = append(gets, r.URL.Path)
+		http.NotFound(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL + "/events"}, DefaultClientOptions(), nil)
+	defer tr.close()
+	require.NoError(t, tr.connect(context.Background()))
+	assert.Equal(t, []string{"/events"}, gets, "no /sse suffix is appended to a URL that serves the stream")
+	assert.Equal(t, srv.URL+"/post", tr.messageURL)
+}
+
+func TestSSETransport_FallsBackToTheLegacySSESuffix(t *testing.T) {
+	// Configs written for earlier releases name the base URL.
+	var gets []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		gets = append(gets, r.URL.Path)
+		w.Header().Set("Content-Type", contentTypeSSE)
+		_, _ = fmt.Fprint(w, "event: endpoint\ndata: /message\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		gets = append(gets, r.URL.Path)
+		http.NotFound(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions(), nil)
+	defer tr.close()
+	require.NoError(t, tr.connect(context.Background()))
+	assert.Equal(t, []string{"/", "/sse"}, gets)
+
+	other := newSSETransport(ServerConfig{Name: "y", URL: srv.URL + "/nothing"}, DefaultClientOptions(), nil)
+	defer other.close()
+	err := other.connect(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/nothing/sse status 404", "the last endpoint's failure is reported")
 }
 
 func TestSSETransport_SendRequest_NotConnected(t *testing.T) {

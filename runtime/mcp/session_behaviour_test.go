@@ -744,3 +744,47 @@ func TestStreamable_ServerRequestOnTheStandaloneStreamIsAnswered(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond, "the stream is reopened from the last event id")
 	require.NoError(t, c.Close())
 }
+
+func TestIsTransportFailure_HTTPStatus(t *testing.T) {
+	// A 4xx is the server's answer; retrying it only delays the URL-only
+	// fallback to HTTP+SSE (found against the Go SDK's SSE server).
+	for status, want := range map[int]bool{
+		http.StatusBadRequest:          false,
+		http.StatusNotFound:            false,
+		http.StatusMethodNotAllowed:    false,
+		http.StatusRequestTimeout:      true,
+		http.StatusTooManyRequests:     true,
+		http.StatusInternalServerError: true,
+		http.StatusBadGateway:          true,
+	} {
+		err := fmt.Errorf("wrapped: %w", &httpStatusError{status: status})
+		assert.Equal(t, want, isTransportFailure(err), "status %d", status)
+	}
+}
+
+func TestSession_ListToolsExcludesToolsThatRequireTasks(t *testing.T) {
+	// 2025-11-25: a tool with taskSupport "required" must be called as a
+	// task, which this client cannot do. server-everything's
+	// simulate-research-query is one; offering it to the model only
+	// produced a -32601 on every call.
+	p := newStdioPeer(t, DefaultClientOptions())
+
+	done := make(chan []Tool, 1)
+	go func() {
+		tools, err := p.client.sess.listTools(context.Background())
+		assert.NoError(t, err)
+		done <- tools
+	}()
+	req := p.next()
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%v,"result":{"tools":[`+
+		`{"name":"plain","inputSchema":{}},`+
+		`{"name":"forbidden","inputSchema":{},"execution":{"taskSupport":"forbidden"}},`+
+		`{"name":"optional","inputSchema":{},"execution":{"taskSupport":"optional"}},`+
+		`{"name":"required","inputSchema":{},"execution":{"taskSupport":"required"}}]}}`, req.ID))
+
+	var names []string
+	for _, tool := range <-done {
+		names = append(names, tool.Name)
+	}
+	assert.Equal(t, []string{"plain", "forbidden", "optional"}, names)
+}

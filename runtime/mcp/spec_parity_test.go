@@ -155,13 +155,8 @@ func mcpSpecPins() []specPin {
 			omissions: []specOmission{{"_meta", reasonRequestMeta}},
 		},
 		{value: ToolsListResponse{}, refs: []string{"ListToolsResult"}},
-		{
-			value: Tool{},
-			refs:  []string{"Tool"},
-			omissions: []specOmission{
-				{"execution", "execution hints (task support) are not carried; the client does not implement tasks"},
-			},
-		},
+		{value: Tool{}, refs: []string{"Tool"}},
+		{value: ToolExecution{}, refs: []string{"ToolExecution"}},
 		{value: ToolAnnotations{}, refs: []string{"ToolAnnotations"}},
 		{
 			value: ToolCallRequest{},

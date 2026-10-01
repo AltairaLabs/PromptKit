@@ -174,9 +174,22 @@ type Tool struct {
 	// guaranteed: a client MUST NOT trust them from an untrusted server.
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 	// Icons are display icons (2025-11-25).
-	Icons []Icon                     `json:"icons,omitempty"`
-	Meta  map[string]json.RawMessage `json:"_meta,omitempty"`
+	Icons []Icon `json:"icons,omitempty"`
+	// Execution says whether the tool runs as a task (2025-11-25). The
+	// client does not implement tasks, so it never lists a tool that
+	// requires one.
+	Execution *ToolExecution             `json:"execution,omitempty"`
+	Meta      map[string]json.RawMessage `json:"_meta,omitempty"`
 }
+
+// ToolExecution holds a tool's execution properties (2025-11-25).
+type ToolExecution struct {
+	// TaskSupport is "forbidden" (the default), "optional" or "required".
+	TaskSupport string `json:"taskSupport,omitempty"`
+}
+
+// taskSupportRequired marks a tool that may only be called as a task.
+const taskSupportRequired = "required"
 
 // ToolAnnotations are hints about a tool's behavior (server/tools).
 type ToolAnnotations struct {

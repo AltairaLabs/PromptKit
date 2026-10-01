@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -218,39 +219,61 @@ func (c *StdioClient) Close() error {
 	c.closed = true
 	c.mu.Unlock()
 
-	// Cancel context to stop background goroutines
+	c.shutdownProcess()
+
+	// Stop background goroutines and wait for them. Wait has closed the
+	// output pipes of a process it reaped; closing them again is harmless and
+	// ends the readers when there was no process to reap.
 	c.cancel()
-
-	// Close pipes and kill process
-	c.closePipesAndProcess()
-
-	// Wait for background goroutines
+	for _, r := range []io.Closer{c.stdout, c.stderr} {
+		if r != nil {
+			_ = r.Close()
+		}
+	}
 	c.wg.Wait()
 
 	return nil
 }
 
-// closePipesAndProcess closes stdio pipes and kills the subprocess.
-func (c *StdioClient) closePipesAndProcess() {
-	warnClose := func(name string, closer io.Closer) {
-		if closer != nil {
-			if err := closer.Close(); err != nil {
-				logger.Warn("MCP failed to close "+name, "server", c.config.Name, "error", err)
-			}
-		}
-	}
-	warnClose("stdin", c.stdin)
-	warnClose("stdout", c.stdout)
-	warnClose("stderr", c.stderr)
+// stdioShutdownGrace is how long the client waits for the server to exit
+// after closing its stdin, and again after SIGTERM, before killing it.
+var stdioShutdownGrace = 2 * time.Second
 
-	if c.cmd != nil && c.cmd.Process != nil {
-		if err := c.cmd.Process.Kill(); err != nil {
-			logger.Warn("MCP failed to kill process", "server", c.config.Name, "error", err)
-		}
-		if err := c.cmd.Wait(); err != nil {
-			logger.Warn("MCP process wait failed", "server", c.config.Name, "error", err)
+// shutdownProcess stops the server the way basic/lifecycle prescribes for
+// stdio: close its input, wait for it to exit, then SIGTERM, then SIGKILL.
+// Killing it outright denies the server the chance to flush and clean up.
+func (c *StdioClient) shutdownProcess() {
+	if c.stdin != nil {
+		if err := c.stdin.Close(); err != nil {
+			logger.Warn("MCP failed to close stdin", "server", c.config.Name, "error", err)
 		}
 	}
+	if c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.cmd.Wait() }()
+
+	exited := func() bool {
+		select {
+		case <-done:
+			return true
+		case <-time.After(stdioShutdownGrace):
+			return false
+		}
+	}
+	if exited() {
+		return
+	}
+	logger.Debug("MCP server did not exit after stdin closed; sending SIGTERM", "server", c.config.Name)
+	if err := c.cmd.Process.Signal(syscall.SIGTERM); err == nil && exited() {
+		return
+	}
+	logger.Warn("MCP server did not exit; killing it", "server", c.config.Name)
+	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		logger.Warn("MCP failed to kill process", "server", c.config.Name, "error", err)
+	}
+	<-done
 }
 
 // IsAlive checks if the connection is still active

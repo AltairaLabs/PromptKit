@@ -20,6 +20,9 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
   URL (it refuses the POST with 400, 404 or 405), the client falls back to HTTP+SSE.
 - **HTTP+SSE** — the deprecated two-endpoint transport from MCP 2024-11-05. Set
   `TransportName: mcp.TransportSSE` to use it without trying Streamable HTTP first.
+  `URL` is the SSE endpoint itself (for example `http://host:3001/sse`). A URL that
+  does not serve the stream is retried with `/sse` appended, which is what earlier
+  releases always did; the client logs a warning when it needs that.
 
 Over stdio and Streamable HTTP the client speaks both generations of the protocol. It
 first asks the server which revisions it supports (`server/discover`). A 2026-07-28 server is
@@ -55,7 +58,6 @@ Spec fields PromptKit does not carry:
 | ClientCapabilities sampling | `context` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ListToolsRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
-| Tool | `execution` (2025-11-25 only) | execution hints (task support) are not carried; the client does not implement tasks |
 | CallToolRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
 | CallToolRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
 | InputRequest | `id` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
