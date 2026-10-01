@@ -57,7 +57,9 @@ type Implementation struct {
 type ClientCapabilities struct {
 	Elicitation *ElicitationCapability `json:"elicitation,omitempty"`
 	Sampling    *SamplingCapability    `json:"sampling,omitempty"`
-	Logging     *LoggingCapability     `json:"logging,omitempty"`
+	// Deprecated: logging is a server capability; MCP defines no client
+	// "logging" capability. The client never sets this.
+	Logging *LoggingCapability `json:"logging,omitempty"`
 }
 
 // ServerCapabilities describes what the server supports
@@ -88,7 +90,11 @@ type ElicitationCapability struct{}
 // SamplingCapability indicates the client supports sampling
 type SamplingCapability struct{}
 
-// LoggingCapability indicates the client supports logging
+// LoggingCapability is not an MCP client capability: logging is declared by
+// servers (ServerCapabilities.logging), not clients.
+//
+// Deprecated: the client never sends it. Setting ClientCapabilities.Logging
+// sends a field the MCP spec does not define for clients.
 type LoggingCapability struct{}
 
 // ToolsListRequest represents a request to list available tools

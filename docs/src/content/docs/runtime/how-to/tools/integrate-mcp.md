@@ -20,6 +20,49 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
 - **Streamable HTTP** — the single-endpoint POST transport from the MCP 2025-03-26 spec. Explicit
   opt-in: set `URL` together with `TransportName: mcp.TransportStreamableHTTP`.
 
+## Spec support
+
+<!-- BEGIN GENERATED: mcp-spec-support. Do not edit; run `make mcp-spec-docs`. -->
+
+PromptKit's MCP client implements protocol revision **2025-06-18** (`mcp.ProtocolVersion`). CI checks every message type it sends or reads against that revision's published schema, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+
+That check covers message fields, not behaviour. Known behavioural gaps — pagination, answering server requests such as `ping` and `elicitation/create`, session re-initialization, retries — are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
+
+Spec fields PromptKit does not carry:
+
+| Spec type | Field | Why |
+|---|---|---|
+| InitializeResult | `_meta` | _meta is not surfaced to callers |
+| InitializeResult | `instructions` | server instructions are not passed to the model |
+| Implementation | `title` | the display title is not used; the client identifies servers by config name |
+| ClientCapabilities | `experimental` | the client does not implement this feature, so it does not advertise it |
+| ClientCapabilities | `roots` | the client does not implement this feature, so it does not advertise it |
+| ServerCapabilities | `completions` | the client does not use completions |
+| ServerCapabilities | `experimental` | experimental server capabilities are ignored |
+| ServerCapabilities | `logging` | server log messages are not consumed |
+| ServerCapabilities resources | `subscribe` | the client does not use resources |
+| ListToolsRequest params | `cursor` | pagination is not implemented: tools/list is read as a single page (#2100) |
+| ListToolsResult | `_meta` | _meta is not surfaced to callers |
+| ListToolsResult | `nextCursor` | pagination is not implemented: tools/list is read as a single page (#2100) |
+| Tool | `_meta` | _meta is not surfaced to callers |
+| Tool | `annotations` | tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors |
+| Tool | `outputSchema` | the declared output schema is not carried to tool descriptors, so results are not validated (#2100) |
+| Tool | `title` | the display title is not carried to tool descriptors |
+| CallToolResult | `_meta` | _meta is not surfaced to callers |
+| ContentBlock | `_meta` | _meta is not surfaced to callers |
+| ContentBlock | `annotations` | content annotations (audience, priority) are not surfaced to the model |
+| ContentBlock | `description` | resource_link description is not carried |
+| ContentBlock | `name` | resource_link name is not carried |
+| ContentBlock | `resource` | embedded resource contents are dropped (#2100) |
+| ContentBlock | `size` | resource_link size is not carried |
+| ContentBlock | `title` | resource_link title is not carried |
+
+Fields PromptKit declares that the spec does not define:
+
+- ClientCapabilities `logging`: logging is a server capability, not a client one; the client never sets this field, so it is never sent. Exported, so it stays until the next major (see LoggingCapability)
+
+<!-- END GENERATED: mcp-spec-support -->
+
 ## Quick Start
 
 ### Step 1: Create MCP Registry

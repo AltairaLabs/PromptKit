@@ -1,0 +1,92 @@
+name: MCP Conformance
+
+# Keeps what PromptKit's MCP client does, what it claims and what the spec
+# says in step. mcp.ProtocolVersion (runtime/mcp/types.go) is the claim; each
+# job checks one thing against it:
+#
+#   - spec-parity: the wire types against the mirrored schema for that
+#     revision (TestMCPSpecParity / TestMCPSpecCoverage), and the "Spec
+#     support" section of the MCP how-to against the same pins
+#     (TestMCPSpecSupportDocIsCurrent). ci.yml ignores docs-only changes, so a
+#     hand-edit of that generated section would otherwise go unchecked.
+#   - mirror: the mirrored schema against the published one, so the parity
+#     test cannot be passed by editing the document it grades against.
+#   - official-suite: the client against @modelcontextprotocol/conformance,
+#     with known failures in tools/mcp-conformance-client/conformance-baseline.yml.
+#     A new failure fails the job, and so does a baselined one that now passes.
+#
+# Why: the client claimed 2025-06-18 while dropping that revision's
+# structuredContent (#2099), and the audit that found it turned up a dozen more
+# gaps (#2100). Nothing compared the client to the spec it named.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/mcp/**'
+      - 'runtime/tools/mcp_executor.go'
+      - 'tools/mcp-conformance-client/**'
+      - 'scripts/fetch-mcp-schema.sh'
+      - 'docs/src/content/docs/runtime/how-to/tools/integrate-mcp.md'
+      - '.github/workflows/mcp-conformance.yml'
+      - 'Makefile'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'runtime/mcp/**'
+      - 'runtime/tools/mcp_executor.go'
+      - 'tools/mcp-conformance-client/**'
+      - 'scripts/fetch-mcp-schema.sh'
+      - 'docs/src/content/docs/runtime/how-to/tools/integrate-mcp.md'
+      - '.github/workflows/mcp-conformance.yml'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spec-parity:
+    name: Wire types and docs match the claimed revision
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Check wire types and the generated docs section
+      run: go -C runtime test ./mcp/ -run 'TestMCPSpec' -count=1 -v
+
+  mirror:
+    name: Mirrored schema is the published one
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Check the mirror
+      run: make mcp-schema-check
+
+  official-suite:
+    name: Official conformance suite
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache-dependency-path: tools/mcp-conformance-client/go.sum
+
+    - name: Set up Node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+
+    - name: Run the suite against the client
+      run: make mcp-conformance

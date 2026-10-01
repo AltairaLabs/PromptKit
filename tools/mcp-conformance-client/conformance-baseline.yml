@@ -1,0 +1,22 @@
+# Known failures of PromptKit's MCP client against the official conformance
+# suite (@modelcontextprotocol/conformance), at the revision the client claims
+# (mcp.ProtocolVersion). Read by `make mcp-conformance`.
+#
+# The suite fails on any failure NOT listed here, and on any entry listed here
+# that now PASSES — so this file cannot quietly go stale. Every entry says why
+# it fails and where that is tracked. Removing an entry is how a fix proves
+# itself; adding one is a decision a reviewer should see, not a way to get
+# green.
+#
+# The suite at 2025-06-18 is a floor, not a ceiling: it has two core client
+# scenarios (initialize, tools_call), and PromptKit passed both while the gaps
+# in #2100 were open. Behaviour the suite does not exercise is covered by
+# scenario tests in runtime/mcp.
+
+client:
+  # MCP authorization (OAuth 2.1 for HTTP transports) is OPTIONAL in the spec
+  # (basic/authorization.mdx) and PromptKit does not implement it or claim to:
+  # HTTP servers are authenticated with static headers (ServerConfig.Headers).
+  - auth/token-endpoint-auth-basic
+  - auth/token-endpoint-auth-post
+  - auth/token-endpoint-auth-none

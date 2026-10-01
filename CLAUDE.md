@@ -124,7 +124,7 @@ serves it at `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`.
 
 ### Generated artifacts — never hand-edit
 
-Three things here are generated, each with a `make` target to regenerate and a `-check`
+Several things here are generated, each with a `make` target to regenerate and a `-check`
 target CI runs. Editing the output instead of the source is reverted on the next
 regeneration and fails that check.
 
@@ -133,6 +133,8 @@ regeneration and fails that check.
 | `schemas/v1alpha1/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
 | `runtime/prompt/schema/promptpack.schema.json` | the PromptPack spec release — a **verbatim mirror**; runtime divergence belongs in `deliberateOmission`, never in the file | `make promptpack-schema` |
 | `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
+| `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schema for `mcp.ProtocolVersion` — a **verbatim mirror**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |
+| the "Spec support" section of `docs/.../how-to/tools/integrate-mcp.md` | the pins in `runtime/mcp/spec_parity_test.go` | `make mcp-spec-docs` |
 
 A generated schema can be **stricter than the spec it came from** — `schema-gen` closes
 every `$def` it emits, so where the spec says `additionalProperties: true` the generated
