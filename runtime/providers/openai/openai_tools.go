@@ -399,6 +399,16 @@ func resolveImageURL(media *types.MediaContent) string {
 	return ""
 }
 
+// replayArgs renders a tool call's arguments for replay in history. Arguments
+// the model produced that are not valid JSON (some models answer a
+// zero-argument tool with "{") replay as "{}": OpenAI-compatible servers parse
+// history strictly, so replaying them verbatim fails every later request in
+// the conversation, not just the round that produced them (#2103). The
+// model already saw the validation error as that call's result.
+func replayArgs(args json.RawMessage) string {
+	return string(types.NormalizeRawMessage(args))
+}
+
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
 func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(toolCalls))
@@ -408,7 +418,7 @@ func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCal
 			"type": "function",
 			"function": map[string]interface{}{
 				"name":      tc.Name,
-				"arguments": string(tc.Args),
+				"arguments": replayArgs(tc.Args),
 			},
 		}
 	}

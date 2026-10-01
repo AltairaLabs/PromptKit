@@ -162,7 +162,7 @@ func (p *Provider) assistantToolCallItems(msg *types.Message) []map[string]any {
 			"id":         transformToResponsesCallID(tc.ID),
 			keyCallID:    tc.ID,
 			keyName:      tc.Name,
-			keyArguments: string(tc.Args),
+			keyArguments: replayArgs(tc.Args),
 		})
 	}
 	return items
