@@ -124,21 +124,22 @@ When serving via an A2A server, client tool suspension surfaces as an input-requ
 }
 ```
 
-The A2A client sends tool results back via `message/send` with `tool_call_id` and `tool_result` in part metadata:
+The A2A client sends tool results back via `message/send` on the same task: the message carries the input-required task's `taskId`, and each result is a data part whose `data` is the result and whose metadata names the `tool_call_id`. The task resumes and goes back to `working`; the context is taken from the task.
 
 ```json
 {
   "method": "message/send",
   "params": {
     "message": {
-      "contextId": "original-context-id",
+      "kind": "message",
+      "messageId": "msg-2",
+      "taskId": "input-required-task-id",
       "role": "user",
       "parts": [
         {
-          "metadata": {
-            "tool_call_id": "call_abc123",
-            "tool_result": { "lat": 40.7128, "lon": -74.0060 }
-          }
+          "kind": "data",
+          "data": { "lat": 40.7128, "lon": -74.0060 },
+          "metadata": { "tool_call_id": "call_abc123" }
         }
       ]
     }
@@ -146,10 +147,14 @@ The A2A client sends tool results back via `message/send` with `tool_call_id` an
 }
 ```
 
-To reject a tool, use `"rejected": "reason"` instead of `"tool_result"`:
+A result in the part's metadata as `tool_result` takes precedence over its `data`. A message without a `taskId` still resumes the conversation, but under a new task, leaving the input-required one behind.
+
+To reject a tool, put `"rejected": "reason"` in the part's metadata instead of a result:
 
 ```json
 {
+  "kind": "data",
+  "data": {},
   "metadata": {
     "tool_call_id": "call_abc123",
     "rejected": "User denied location access"

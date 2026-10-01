@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // HTTP client defaults for A2A communication.
@@ -50,10 +53,18 @@ const (
 type RPCError struct {
 	Code    int
 	Message string
+	// Data is the error object's optional data member (A2A 1.0 §9.5: an
+	// array of detail objects, each with an "@type").
+	Data any
 }
 
 func (e *RPCError) Error() string {
 	return fmt.Sprintf("a2a: rpc error %d: %s", e.Code, e.Message)
+}
+
+// newRPCError converts a JSON-RPC error object into an *RPCError.
+func newRPCError(e *JSONRPCError) *RPCError {
+	return &RPCError{Code: e.Code, Message: e.Message, Data: e.Data}
 }
 
 // HTTPStatusError is returned when an A2A HTTP request receives a non-200 status code.
@@ -74,6 +85,9 @@ type StreamEvent struct {
 	Message        *Message
 	StatusUpdate   *TaskStatusUpdateEvent
 	ArtifactUpdate *TaskArtifactUpdateEvent
+	// Error is set when the agent ends the stream with a JSON-RPC error
+	// (an *RPCError). It is the last event on the channel.
+	Error error
 }
 
 // ClientOption configures a [Client].
@@ -155,6 +169,25 @@ type Client struct {
 	// 1.0 method.
 	version       ProtocolVersion
 	versionPinned bool
+
+	// discoverMu guards the executor's best-effort card discovery state:
+	// discovering is closed when the fetch in flight ends (nil when none
+	// is), and discoverRetryAt is when a failed fetch may be repeated. The
+	// lock is never held across the fetch itself.
+	discoverMu      sync.Mutex
+	discovering     chan struct{}
+	discoverRetryAt time.Time
+	// discoverBackoff is how long a failed discovery waits before a later
+	// call tries again; discoverTimeout bounds one attempt.
+	discoverBackoff time.Duration
+	discoverTimeout time.Duration
+	// discoverWaitMax caps how long a call waits on a discovery in flight.
+	discoverWaitMax time.Duration
+
+	// otherHostWarning logs, once, a card that names another host, through
+	// warn (logger.Warn; replaced in tests).
+	otherHostWarning sync.Once
+	warn             func(msg string, args ...any)
 }
 
 // newDefaultTransport creates an HTTP transport with connection pooling,
@@ -202,6 +235,11 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		sseClient:      newDefaultSSEClient(),
 		sseIdleTimeout: DefaultSSEIdleTimeout,
 		version:        ProtocolVersion10,
+
+		discoverBackoff: defaultDiscoverBackoff,
+		discoverTimeout: defaultDiscoverTimeout,
+		discoverWaitMax: defaultDiscoverWaitMax,
+		warn:            logger.Warn,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -250,17 +288,128 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	}
 
 	c.mu.Lock()
-	c.agentCard = card
-	// Only a card that says which versions it serves settles the question.
-	// One that declares no interfaces — a pre-1.0 PromptKit server's, say —
-	// leaves negotiation on, so the 0.3 fallback still works.
-	if v, declared := card.declaredVersion(); declared && !c.versionPinned {
-		c.version = v
-		c.versionPinned = true
-	}
+	c.adoptCardLocked(card)
 	c.mu.Unlock()
 
 	return card, nil
+}
+
+// adoptCardLocked makes card the one calls are routed by. c.mu must be held.
+func (c *Client) adoptCardLocked(card *AgentCard) {
+	c.agentCard = card
+	// Only a card that says which versions it serves settles the question.
+	// One that declares no interfaces — a pre-1.0 PromptKit server's, say —
+	// leaves negotiation on, so the 0.3 fallback still works. Interfaces on
+	// another host are not followed (callURL), so their versions do not count.
+	onHost := AgentCard{SupportedInterfaces: c.interfacesOnBaseHost(card)}
+	if v, declared := onHost.declaredVersion(); declared && !c.versionPinned {
+		c.version = v
+		c.versionPinned = true
+	}
+}
+
+// useCard adopts a card discovered elsewhere (by a ToolBridge), unless the
+// client already has one.
+func (c *Client) useCard(card *AgentCard) {
+	if card == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.agentCard == nil {
+		c.adoptCardLocked(card)
+	}
+}
+
+// cachedCard returns the card the client holds, or nil.
+func (c *Client) cachedCard() *AgentCard {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentCard
+}
+
+// Card discovery before calls (discoverForCalls).
+const (
+	// defaultDiscoverBackoff is how long a failed discovery waits before a
+	// later call tries again.
+	defaultDiscoverBackoff = 30 * time.Second
+	// defaultDiscoverTimeout bounds one discovery attempt.
+	defaultDiscoverTimeout = 10 * time.Second
+	// defaultDiscoverWaitMax caps how long a call waits on a discovery; a
+	// call with a deadline waits at most a quarter of the time it has left.
+	defaultDiscoverWaitMax      = time.Second
+	discoverWaitShareOfDeadline = 4
+)
+
+// discoverForCalls fetches the agent card, so calls reach the interface it
+// declares (as callURL allows). It is best effort: while the card cannot be had, calls keep going
+// to {base}/a2a, as they always did. A successful discovery is kept; a failed
+// one is tried again by a call made after discoverBackoff.
+//
+// One fetch is in flight at a time, and every caller waits on it — but only
+// until its own ctx ends or its wait budget (discoveryWait) runs out; a
+// caller that stops waiting makes its call against whatever endpoint is
+// known by then. The fetch itself keeps ctx's values but
+// runs on its own timeout, so it can outlive the caller that started it and
+// a short per-call timeout does not decide where every later call goes.
+func (c *Client) discoverForCalls(ctx context.Context) {
+	if c.cachedCard() != nil {
+		return
+	}
+	c.discoverMu.Lock()
+	if c.cachedCard() != nil {
+		c.discoverMu.Unlock()
+		return
+	}
+	if c.discovering == nil {
+		if time.Now().Before(c.discoverRetryAt) {
+			c.discoverMu.Unlock()
+			return
+		}
+		c.discovering = make(chan struct{})
+		go c.fetchCardForCalls(context.WithoutCancel(ctx), c.discovering)
+	}
+	inFlight := c.discovering
+	c.discoverMu.Unlock()
+
+	timer := time.NewTimer(c.discoveryWait(ctx))
+	defer timer.Stop()
+	select {
+	case <-inFlight:
+	case <-ctx.Done():
+	case <-timer.C:
+		// The fetch carries on in the background; this call uses the
+		// endpoint known now.
+	}
+}
+
+// discoveryWait is how long a call may wait on a discovery in flight:
+// discoverWaitMax, and no more than a share of the time left before ctx's
+// deadline, so the call itself still has time to run.
+func (c *Client) discoveryWait(ctx context.Context) time.Duration {
+	wait := c.discoverWaitMax
+	if deadline, ok := ctx.Deadline(); ok {
+		wait = min(wait, time.Until(deadline)/discoverWaitShareOfDeadline)
+	}
+	return wait
+}
+
+// fetchCardForCalls runs one discovery for discoverForCalls and closes done
+// when it ends.
+func (c *Client) fetchCardForCalls(ctx context.Context, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(ctx, c.discoverTimeout)
+	defer cancel()
+	_, err := c.Discover(ctx)
+
+	c.discoverMu.Lock()
+	if err != nil {
+		c.discoverRetryAt = time.Now().Add(c.discoverBackoff)
+		logger.Debug("a2a: agent card unavailable; calling the default endpoint",
+			"agent_url", c.baseURL, "error", err)
+	}
+	c.discovering = nil
+	c.discoverMu.Unlock()
+	close(done)
 }
 
 // ProtocolVersion returns the protocol version the client currently speaks.
@@ -325,6 +474,9 @@ func (c *Client) fetchCard(ctx context.Context, path string) (*AgentCard, int, e
 	if err != nil {
 		return nil, 0, fmt.Errorf("a2a: discover: %w", err)
 	}
+	// A2A 1.0 §3.6.1: every request names the version the client speaks, so
+	// the agent answers with that version's card.
+	httpReq.Header.Set(HeaderVersion, string(c.ProtocolVersion()))
 	c.setAuth(httpReq)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 
@@ -345,13 +497,187 @@ func (c *Client) fetchCard(ctx context.Context, path string) (*AgentCard, int, e
 	return &card, resp.StatusCode, nil
 }
 
+// errNoJSONRPCInterface is returned when the agent's card declares interfaces
+// but none of them uses the JSON-RPC binding, the only one the client speaks.
+var errNoJSONRPCInterface = errors.New("a2a: the agent card declares no JSON-RPC interface")
+
+// endpoint selects the interface to call in version v (A2A 1.0 §8.3.2): the
+// first JSON-RPC interface in the discovered card that serves v, or else the
+// first JSON-RPC interface at all. Without a discovered card that declares
+// interfaces, calls go to {base}/a2a and iface is nil. The interface's URL
+// is used as callURL allows.
+func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterface, err error) {
+	c.mu.RLock()
+	card := c.agentCard
+	c.mu.RUnlock()
+	if card == nil || len(card.SupportedInterfaces) == 0 {
+		return c.baseURL + "/a2a", nil, nil
+	}
+	var fallback *AgentInterface
+	onHost := c.interfacesOnBaseHost(card)
+	for i := range onHost {
+		candidate := &onHost[i]
+		if !IsJSONRPCBinding(candidate.ProtocolBinding) {
+			continue
+		}
+		if fallback == nil {
+			fallback = candidate
+		}
+		if served, perr := ParseProtocolVersion(candidate.ProtocolVersion); perr == nil && (served == "" || served == v) {
+			return c.callURL(candidate.URL), candidate, nil
+		}
+	}
+	if fallback != nil {
+		return c.callURL(fallback.URL), fallback, nil
+	}
+	for i := range card.SupportedInterfaces {
+		if other := &card.SupportedInterfaces[i]; IsJSONRPCBinding(other.ProtocolBinding) {
+			// Only on another host: not followed, and its tenant and
+			// version belong to that server, so none are sent.
+			return c.callURL(other.URL), nil, nil
+		}
+	}
+	return "", nil, errNoJSONRPCInterface
+}
+
+// interfacesOnBaseHost returns the card's interfaces on the host the client
+// was configured with — the only ones it calls (see callURL).
+func (c *Client) interfacesOnBaseHost(card *AgentCard) []AgentInterface {
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil
+	}
+	var out []AgentInterface
+	for _, iface := range card.SupportedInterfaces {
+		if u, perr := url.Parse(iface.URL); perr == nil && sameHostPort(u, base) {
+			out = append(out, iface)
+		}
+	}
+	return out
+}
+
+// sameHostPort reports whether a and b name the same host and port, each
+// port defaulting to its scheme's (80 for http, 443 for https). Another port
+// is another service, so it does not match.
+func sameHostPort(a, b *url.URL) bool {
+	return a.Host != "" && b.Host != "" &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) && effectivePort(a) == effectivePort(b)
+}
+
+// effectivePort is u's port, or its scheme's default.
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+// defaultRPCPath is where PromptKit servers, and the client by default, put
+// the JSON-RPC endpoint.
+const defaultRPCPath = "/a2a"
+
+// callURL decides where calls go given the interface URL a card declares.
+// The scheme, host and port the caller configured are authoritative and are
+// never changed (an interface matches the base only on the same host AND
+// port, defaults filled in, so another port counts as another host): a
+// card's URL is what the agent believes about itself, and behind proxies and
+// ingresses that is often an address the caller cannot or must not use.
+// From the card the client takes only what adds information on that same
+// host:
+//
+//   - an interface on the base's host contributes its path (a2a-python's "/",
+//     say), over the base's scheme, host and port; the default /a2a path keeps
+//     the base URL as configured, path prefix included;
+//   - an interface on another host is not followed: calls go to {base}/a2a,
+//     and the client logs it once. To call that host, configure the client
+//     with it.
+func (c *Client) callURL(declared string) string {
+	fallback := c.baseURL + defaultRPCPath
+	card, err := url.Parse(declared)
+	if err != nil || card.Host == "" {
+		return fallback
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || base.Host == "" {
+		return fallback
+	}
+	if !sameHostPort(card, base) {
+		if isTLSTermination(card, base) {
+			// A server behind a TLS-terminating proxy describing itself by
+			// its plain-http side: expected, so not worth a warning.
+			logger.Debug("a2a: agent card names the plain-http side of a TLS proxy; calling the configured agent URL",
+				"agent_url", c.baseURL, "interface_url", declared)
+			return fallback
+		}
+		c.otherHostWarning.Do(func() {
+			c.warn("a2a: agent card names another host, which is not followed; "+
+				"calling the configured agent URL (configure the client with that host to use it)",
+				"agent_url", c.baseURL, "interface_url", declared)
+		})
+		return fallback
+	}
+	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath {
+		return fallback
+	}
+	onBase := *base
+	onBase.Path, onBase.RawPath = card.Path, card.RawPath
+	return onBase.String()
+}
+
+// isTLSTermination reports whether card is base's own name over plain http
+// while base is https: what a server behind a TLS-terminating proxy reports.
+func isTLSTermination(card, base *url.URL) bool {
+	return strings.EqualFold(base.Scheme, "https") && strings.EqualFold(card.Scheme, "http") &&
+		strings.EqualFold(card.Hostname(), base.Hostname())
+}
+
+// withTenant fills in the params' tenant from the selected interface (A2A 1.0
+// §8.3.2) when the caller left it empty. A tenant the caller set is kept as
+// it is. Params that are not a JSON object are returned as they are.
+func withTenant(params json.RawMessage, tenant string) (json.RawMessage, error) {
+	if tenant == "" {
+		return params, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(params, &fields); err != nil {
+		return params, nil
+	}
+	if fields == nil {
+		fields = map[string]json.RawMessage{}
+	}
+	var set string
+	if raw, ok := fields["tenant"]; ok && json.Unmarshal(raw, &set) == nil && set != "" {
+		return params, nil
+	}
+	quoted, err := json.Marshal(tenant)
+	if err != nil {
+		return nil, err
+	}
+	fields["tenant"] = quoted
+	return json.Marshal(fields)
+}
+
 // newRPCRequest builds the HTTP request for one JSON-RPC call in version v.
 func (c *Client) newRPCRequest(
 	ctx context.Context, v ProtocolVersion, method string, params any,
 ) (*http.Request, error) {
+	url, iface, err := c.endpoint(v)
+	if err != nil {
+		return nil, fmt.Errorf("a2a: %s: %w", method, err)
+	}
+
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("a2a: marshal params: %w", err)
+	}
+	// 0.3 has no tenant; 1.0 carries the selected interface's.
+	if iface != nil && v != ProtocolVersion03 {
+		if paramsJSON, err = withTenant(paramsJSON, iface.Tenant); err != nil {
+			return nil, fmt.Errorf("a2a: marshal params: %w", err)
+		}
 	}
 
 	body, err := json.Marshal(JSONRPCRequest{
@@ -364,8 +690,7 @@ func (c *Client) newRPCRequest(
 		return nil, fmt.Errorf("a2a: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/a2a", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("a2a: %s: %w", method, err)
 	}
@@ -417,7 +742,7 @@ func (c *Client) rpcCallVersion(
 	}
 
 	if rpcResp.Error != nil {
-		return nil, &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
+		return nil, newRPCError(rpcResp.Error)
 	}
 	return rpcResp.Result, nil
 }
@@ -548,7 +873,7 @@ func (c *Client) openStream(ctx context.Context, v ProtocolVersion, method strin
 			return nil, fmt.Errorf("a2a: %s: decode response: %w", method, err)
 		}
 		if rpcResp.Error != nil {
-			return nil, &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
+			return nil, newRPCError(rpcResp.Error)
 		}
 		return nil, fmt.Errorf("a2a: %s: expected an event stream, got a JSON result", method)
 	}
@@ -805,7 +1130,8 @@ func appendDataLine(buf *strings.Builder, line string) {
 }
 
 // emitEvent parses data as a stream event and sends it to ch.
-// Returns false if the context is canceled and the caller should stop.
+// Returns false if the caller should stop: the context is canceled, or the
+// event was an error, which ends the stream.
 func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 	evt, ok := parseStreamEvent(data)
 	if !ok {
@@ -813,7 +1139,7 @@ func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 	}
 	select {
 	case ch <- evt:
-		return true
+		return evt.Error == nil
 	case <-ctx.Done():
 		return false
 	}
@@ -827,12 +1153,19 @@ func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 func parseStreamEvent(data string) (StreamEvent, bool) {
 	raw := json.RawMessage(data)
 
-	// Unwrap JSON-RPC envelope if present.
+	// Unwrap JSON-RPC envelope if present. An error response ends the
+	// stream (A2A 1.0 §9.4.2, §9.5) and is handed to the caller.
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
+		Error  *JSONRPCError   `json:"error"`
 	}
-	if json.Unmarshal(raw, &envelope) == nil && len(envelope.Result) > 0 {
-		raw = envelope.Result
+	if json.Unmarshal(raw, &envelope) == nil {
+		if envelope.Error != nil {
+			return StreamEvent{Error: newRPCError(envelope.Error)}, true
+		}
+		if len(envelope.Result) > 0 {
+			raw = envelope.Result
+		}
 	}
 
 	var fields map[string]json.RawMessage

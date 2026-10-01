@@ -69,6 +69,18 @@ func (b *ToolBridge) RegisterAgent(ctx context.Context) ([]*tools.ToolDescriptor
 	return registered, nil
 }
 
+// ShareCards hands the agent card the bridge discovered to e, so the tools
+// it registered reach the interface the card declares without e fetching
+// the card again. It does nothing before RegisterAgent has succeeded.
+func (b *ToolBridge) ShareCards(e *Executor) {
+	if e == nil || b.client == nil {
+		return
+	}
+	if card := b.client.cachedCard(); card != nil {
+		e.shareCard(b.client.baseURL, card)
+	}
+}
+
 // GetToolDescriptors returns all tool descriptors accumulated via
 // RegisterAgent calls.
 func (b *ToolBridge) GetToolDescriptors() []*tools.ToolDescriptor {

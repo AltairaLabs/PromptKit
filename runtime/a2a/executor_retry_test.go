@@ -26,9 +26,23 @@ func okTask(id string) *Task {
 	}
 }
 
+// noCard serves an agent without an agent card: the executor's card
+// discovery (two GETs, current and legacy path) gets 404s and falls back to
+// {base}/a2a, and only JSON-RPC POSTs reach h, so h counts call attempts
+// alone.
+func noCard(h http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		h(w, r)
+	})
+}
+
 func TestExecutor_RetryOn502(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		if n <= 2 {
@@ -69,7 +83,7 @@ func TestExecutor_RetryOn502(t *testing.T) {
 
 func TestExecutor_RetryOn503(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		if n == 1 {
@@ -102,7 +116,7 @@ func TestExecutor_RetryOn503(t *testing.T) {
 
 func TestExecutor_RetryOn504(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		if n == 1 {
@@ -135,7 +149,7 @@ func TestExecutor_RetryOn504(t *testing.T) {
 
 func TestExecutor_NoRetryOn400(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
 	}))
@@ -163,7 +177,7 @@ func TestExecutor_NoRetryOn400(t *testing.T) {
 
 func TestExecutor_NoRetryOnRPCError(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		rpcErrorResp(w, req.ID, -32600, "invalid request")
@@ -192,7 +206,7 @@ func TestExecutor_NoRetryOnRPCError(t *testing.T) {
 
 func TestExecutor_RetryExhausted(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -221,7 +235,7 @@ func TestExecutor_RetryExhausted(t *testing.T) {
 
 func TestExecutor_NoRetryOnContextCanceled(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -249,7 +263,7 @@ func TestExecutor_NoRetryOnContextCanceled(t *testing.T) {
 
 func TestExecutor_WithNoRetry(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -401,7 +415,7 @@ func TestHTTPStatusError(t *testing.T) {
 
 func TestExecutor_RetryOn429(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		if n == 1 {
@@ -434,7 +448,7 @@ func TestExecutor_RetryOn429(t *testing.T) {
 
 func TestExecutor_RetrySucceedsFirstAttempt(t *testing.T) {
 	var attempts int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		req := decodeRPC(r)
 		rpcResult(w, req.ID, okTask("task-first-attempt"))

@@ -8,19 +8,32 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // streamWriter writes events to one SSE caller, in that caller's protocol
-// version and under its JSON-RPC id.
+// version and under its JSON-RPC id. Once the caller has gone (detach), writes
+// are dropped: the turn behind the stream runs on without it.
 type streamWriter struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	id      any
 	v       a2a.ProtocolVersion
-	started bool
+
+	mu       sync.Mutex
+	started  bool
+	detached bool
+}
+
+// detach stops all further writes. After it returns, the response writer is
+// never touched again, so the HTTP handler may return.
+func (sw *streamWriter) detach() {
+	sw.mu.Lock()
+	sw.detached = true
+	sw.mu.Unlock()
 }
 
 // newStreamWriter prepares an SSE response for call, answering with an error
@@ -37,6 +50,11 @@ func newStreamWriter(call *rpcCall) *streamWriter {
 // write sends one event: a *Task, *Message, *TaskStatusUpdateEvent or
 // *TaskArtifactUpdateEvent.
 func (sw *streamWriter) write(event any) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if sw.detached {
+		return
+	}
 	if !sw.started {
 		h := sw.w.Header()
 		h.Set("Content-Type", "text/event-stream")
@@ -85,6 +103,12 @@ type streamTurn struct {
 	// pending records an EventPending: the turn ends waiting on something the
 	// server cannot see, which is input-required, not completed.
 	pending bool
+	// batchClientTools is set for a turn whose events come from a finished
+	// Send (sendAsStream): its client tools all arrive before EventDone, and
+	// are reported together in one input-required status, as SendMessage
+	// reports them. A live stream ends at its first client tool.
+	batchClientTools bool
+	clientTools      []PendingClientToolInfo
 }
 
 // textRun is one text artifact being streamed.
@@ -190,17 +214,6 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 	}})
 }
 
-// abandon marks the task canceled after its caller went away mid-stream and
-// tells its subscribers. A task CancelTask already finished is left alone.
-func (st *streamTurn) abandon() {
-	if err := st.srv.taskStore.Cancel(st.taskID); err != nil {
-		return
-	}
-	if task, err := st.srv.taskStore.Get(st.taskID); err == nil {
-		st.srv.publishStatus(task.ID, task.ContextID, task.Status)
-	}
-}
-
 // reportActualState tells the caller the task's stored status.
 func (st *streamTurn) reportActualState() {
 	task, err := st.srv.taskStore.Get(st.taskID)
@@ -211,23 +224,18 @@ func (st *streamTurn) reportActualState() {
 }
 
 // process consumes the conversation's events until the turn ends. It watches
-// ctx so a client disconnect or a CancelTask ends the loop promptly instead of
-// blocking on a channel read (and leaking the goroutine).
-func (st *streamTurn) process(ctx, reqCtx context.Context, events <-chan StreamEvent) {
+// ctx so a CancelTask (or Shutdown) ends the loop promptly instead of blocking
+// on a channel read (and leaking the goroutine). The caller disconnecting does
+// not end it: the task's lifecycle is independent of any one stream's (A2A
+// 1.0 §3.5.2).
+func (st *streamTurn) process(ctx context.Context, events <-chan StreamEvent) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Still connected means CancelTask stopped the turn: tell the
-			// caller how its task ended.
-			if reqCtx.Err() == nil {
-				st.flushText()
-				st.reportActualState()
-				return
-			}
-			// The caller disconnected, which ended the turn. Record that,
-			// so the task does not sit "working" forever and subscribers
-			// get the final event that ends their streams.
-			st.abandon()
+			// CancelTask stopped the turn: tell the caller, if still
+			// there, how its task ended.
+			st.flushText()
+			st.reportActualState()
 			return
 
 		case evt, ok := <-events:
@@ -244,6 +252,14 @@ func (st *streamTurn) process(ctx, reqCtx context.Context, events <-chan StreamE
 
 // finishDone ends a turn whose producer finished normally.
 func (st *streamTurn) finishDone() {
+	if len(st.clientTools) > 0 {
+		parts := make([]a2a.Part, len(st.clientTools))
+		for i, tool := range st.clientTools {
+			parts[i] = clientToolPart(tool)
+		}
+		st.finish(a2a.TaskStateInputRequired, &a2a.Message{Parts: parts})
+		return
+	}
 	if st.pending {
 		st.finish(a2a.TaskStateInputRequired, nil)
 		return
@@ -280,6 +296,10 @@ func (st *streamTurn) handle(evt StreamEvent) (done bool) {
 		// Suppressed — agent opacity. Task stays working.
 
 	case EventClientTool:
+		if st.batchClientTools && evt.ClientTool != nil {
+			st.clientTools = append(st.clientTools, *evt.ClientTool)
+			return false
+		}
 		var msg *a2a.Message
 		if evt.ClientTool != nil {
 			msg = &a2a.Message{Parts: []a2a.Part{clientToolPart(*evt.ClientTool)}}
@@ -311,10 +331,11 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 		return
 	}
 
-	contextID := params.Message.ContextID
-	if contextID == "" {
-		contextID = generateID()
+	target, ok := s.resolveTarget(call, &params.Message)
+	if !ok {
+		return
 	}
+	contextID := target.contextID
 
 	out := newStreamWriter(call)
 	if out == nil {
@@ -322,33 +343,50 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	}
 
 	// Which half of the server owns conversations decides where the events come
-	// from. Resolved before the task exists, so a refusal costs nothing.
-	startTurn, ok := s.resolveStreamTurn(call, contextID, params)
+	// from. Resolved before the task is claimed, so a refusal costs nothing —
+	// except for tool results, which are submitted only once it is.
+	startTurn, batch, ok := s.resolveStreamTurn(call, &target, params)
 	if !ok {
 		return
 	}
 
-	taskID := generateID()
-	if err := s.createTask(call, taskID, contextID); err != nil {
-		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
+	if !s.beginTask(call, &target) {
 		return
 	}
-	s.setState(taskID, contextID, a2a.TaskStateWorking, nil)
+	taskID := target.taskID
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
+		// The task is claimed (and may hold submitted tool results) but no
+		// turn will run: give it back, as claimAndSubmit does.
+		s.releaseTask(&target, err)
 		call.internalError(fmt.Sprintf("failed to read task %s", taskID), err)
 		return
 	}
 	out.write(task)
 
-	// Use request context so client disconnect cancels the stream.
-	ctx, cancel := context.WithCancel(call.r.Context())
-	defer cancel()
-	s.registerCancel(taskID, cancel)
-	defer s.unregisterCancel(taskID)
+	// The turn is detached from the request: closing a stream must not affect
+	// its task (A2A 1.0 §3.5.2). It keeps the request's values, as SendMessage
+	// does, and CancelTask still reaches it.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(call.r.Context()))
+	reg := s.registerCancel(taskID, cancel)
+	events := startTurn(ctx, taskID)
 
-	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID}
-	st.process(ctx, call.r.Context(), startTurn(ctx, taskID))
+	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID, batchClientTools: batch}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cancel()
+		defer s.unregisterCancel(taskID, reg)
+		st.process(ctx, events)
+	}()
+
+	select {
+	case <-done:
+	case <-call.r.Context().Done():
+		// The caller left. Its stream ends here; the turn runs on, and its
+		// result still reaches the task and its subscribers.
+		out.detach()
+	}
 }
 
 // handleTaskSubscribe processes SubscribeToTask (0.3: tasks/resubscribe).
@@ -420,47 +458,103 @@ func relayEvents(ctx context.Context, out *streamWriter, events <-chan TaskEvent
 }
 
 // resolveStreamTurn produces the function that starts this request's event
-// stream, for either server mode. ok is false when the request has already
-// been answered with an error.
+// stream, for either server mode, and whether that stream batches its client
+// tools (see streamTurn.batchClientTools). ok is false when the request has
+// already been answered with an error.
+//
+// Tool results are submitted here, after the target's task is claimed, so
+// the task is already claimed when it returns with them.
 func (s *Server) resolveStreamTurn(
-	call *rpcCall, contextID string, params a2a.SendMessageRequest,
-) (start func(ctx context.Context, taskID string) <-chan StreamEvent, ok bool) {
+	call *rpcCall, target *turnTarget, params a2a.SendMessageRequest,
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, batch, ok bool) {
 	toolResults := extractToolResults(params.Message.Parts)
+	contextID := target.contextID
 
 	if s.handler != nil {
-		return s.statelessStreamTurn(call, contextID, params, toolResults)
+		start, ok = s.statelessStreamTurn(call, contextID, params, toolResults)
+		return start, false, ok
 	}
 
 	conv := s.openConversation(call, contextID)
 	if conv == nil {
-		return nil, false
-	}
-
-	streamConv, isStreaming := conv.(StreamingConversation)
-	if !isStreaming {
-		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported by this agent")
-		return nil, false
+		return nil, false, false
 	}
 
 	if len(toolResults) > 0 {
-		resumable := submitToolResults(call, streamConv, toolResults)
+		resumable := s.claimAndSubmit(call, target, conv, toolResults)
 		if resumable == nil {
-			return nil, false
+			return nil, false, false
 		}
 		return func(ctx context.Context, _ string) <-chan StreamEvent {
 			return resumable.ResumeStream(ctx)
-		}, true
+		}, false, true
 	}
 
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
-		return nil, false
+		return nil, false, false
 	}
 
+	// A conversation that cannot stream is streamed from its Send result, so
+	// the streaming the card declares is never refused.
+	if streamConv, isStreaming := conv.(StreamingConversation); isStreaming {
+		return func(ctx context.Context, _ string) <-chan StreamEvent {
+			return streamConv.Stream(ctx, pkMsg)
+		}, false, true
+	}
 	return func(ctx context.Context, _ string) <-chan StreamEvent {
-		return streamConv.Stream(ctx, pkMsg)
-	}, true
+		return sendAsStream(ctx, conv, pkMsg)
+	}, true, true
+}
+
+// sendAsStream runs a non-streaming conversation's Send and delivers its
+// result as stream events: the content, then what the turn ended on.
+func sendAsStream(ctx context.Context, conv Conversation, msg any) <-chan StreamEvent {
+	ch := make(chan StreamEvent)
+	go func() {
+		defer close(ch)
+		resp, err := conv.Send(ctx, msg)
+		for _, evt := range resultEvents(resp, err) {
+			select {
+			case ch <- evt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch
+}
+
+// resultEvents is a finished turn's SendResult as the stream events a
+// streaming conversation would have produced for it.
+func resultEvents(resp SendResult, err error) []StreamEvent {
+	if err != nil {
+		return []StreamEvent{{Error: err}}
+	}
+	var events []StreamEvent
+	parts := resp.Parts()
+	for i := range parts {
+		switch part := &parts[i]; {
+		case part.Media != nil:
+			events = append(events, StreamEvent{Kind: EventMedia, Media: part.Media})
+		case part.Text != nil:
+			events = append(events, StreamEvent{Kind: EventText, Text: *part.Text})
+		}
+	}
+	if len(parts) == 0 && resp.Text() != "" {
+		// As on the SendMessage path (GH-428): Text when Parts is empty.
+		events = append(events, StreamEvent{Kind: EventText, Text: resp.Text()})
+	}
+	switch {
+	case resp.HasPendingClientTools():
+		for _, tool := range resp.PendingClientTools() {
+			events = append(events, StreamEvent{Kind: EventClientTool, ClientTool: &tool})
+		}
+	case resp.HasPendingTools():
+		events = append(events, StreamEvent{Kind: EventPending})
+	}
+	return append(events, StreamEvent{Kind: EventDone})
 }
 
 // statelessStreamTurn is resolveStreamTurn's handler-mode half: no conversation
