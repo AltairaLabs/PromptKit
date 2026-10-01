@@ -370,6 +370,14 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	if wc.closed {
 		return nil, ErrWorkflowClosed
 	}
+	// A turn suspended on client tools or approval holds is not finished.
+	// Committing now would swap in the destination state's conversation, and
+	// the answers would go to a conversation that never made the calls. The
+	// transition stays pending; the resumed turn commits it in its tool loop
+	// once the answers are in.
+	if resp.HasPendingClientTools() || len(resp.PendingTools()) > 0 {
+		return resp, nil
+	}
 	if err := wc.commitDeferredTransition(); err != nil {
 		return resp, err
 	}
