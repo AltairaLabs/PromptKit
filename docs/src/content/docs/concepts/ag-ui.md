@@ -168,6 +168,8 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn ha
 
 A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them.
 
+A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`null` when there is none, `""` for an empty string).
+
 ### Frontend Tools
 
 The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered — no `TOOL_CALL_RESULT` — and the application answers it in the next run's input, as a tool message. `EventAdapter.RunResume` takes those answers and continues the turn.

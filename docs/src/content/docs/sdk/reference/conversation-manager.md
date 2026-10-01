@@ -6563,7 +6563,7 @@ func (w *WorkflowCapability) RegisterToolsForState(registry *tools.Registry, sta
 RegisterToolsForState registers workflow\_\_transition for a specific state. Called by WorkflowConversation when opening a conversation for a state.
 
 <a name="WorkflowConversation"></a>
-## type [WorkflowConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L61-L87>)
+## type [WorkflowConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L61-L90>)
 
 WorkflowConversation manages a stateful workflow that transitions between different prompts in a pack based on events.
 
@@ -6592,7 +6592,7 @@ type WorkflowConversation struct {
 ```
 
 <a name="OpenWorkflow"></a>
-### func [OpenWorkflow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L100>)
+### func [OpenWorkflow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L103>)
 
 ```go
 func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error)
@@ -6609,7 +6609,7 @@ wc, err := sdk.OpenWorkflow("./support.pack.json",
 ```
 
 <a name="ResumeWorkflow"></a>
-### func [ResumeWorkflow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L225>)
+### func [ResumeWorkflow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L228>)
 
 ```go
 func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConversation, error)
@@ -6626,7 +6626,7 @@ wc, err := sdk.ResumeWorkflow("workflow-123", "./support.pack.json",
 ```
 
 <a name="WorkflowConversation.ActiveConversation"></a>
-### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L696>)
+### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L721>)
 
 ```go
 func (wc *WorkflowConversation) ActiveConversation() *Conversation
@@ -6635,7 +6635,7 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation
 ActiveConversation returns the current state's Conversation. Use this to access conversation\-specific methods like SetVar, OnTool, etc.
 
 <a name="WorkflowConversation.AvailableEvents"></a>
-### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L663>)
+### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L688>)
 
 ```go
 func (wc *WorkflowConversation) AvailableEvents() []string
@@ -6644,7 +6644,7 @@ func (wc *WorkflowConversation) AvailableEvents() []string
 AvailableEvents returns the events available in the current state, sorted alphabetically.
 
 <a name="WorkflowConversation.Close"></a>
-### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L703>)
+### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L728>)
 
 ```go
 func (wc *WorkflowConversation) Close() error
@@ -6653,7 +6653,7 @@ func (wc *WorkflowConversation) Close() error
 Close closes the active conversation and marks the workflow as closed.
 
 <a name="WorkflowConversation.Context"></a>
-### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L671>)
+### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L696>)
 
 ```go
 func (wc *WorkflowConversation) Context() *workflow.Context
@@ -6662,7 +6662,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context
 Context returns a snapshot of the workflow execution context including transition history and metadata.
 
 <a name="WorkflowConversation.CurrentPromptTask"></a>
-### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L649>)
+### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L674>)
 
 ```go
 func (wc *WorkflowConversation) CurrentPromptTask() string
@@ -6671,7 +6671,7 @@ func (wc *WorkflowConversation) CurrentPromptTask() string
 CurrentPromptTask returns the prompt\_task for the current state.
 
 <a name="WorkflowConversation.CurrentState"></a>
-### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L642>)
+### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L667>)
 
 ```go
 func (wc *WorkflowConversation) CurrentState() string
@@ -6680,7 +6680,7 @@ func (wc *WorkflowConversation) CurrentState() string
 CurrentState returns the current workflow state name.
 
 <a name="WorkflowConversation.IsComplete"></a>
-### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L656>)
+### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L681>)
 
 ```go
 func (wc *WorkflowConversation) IsComplete() bool
@@ -6689,7 +6689,7 @@ func (wc *WorkflowConversation) IsComplete() bool
 IsComplete returns true if the workflow is in a terminal state \(no outgoing transitions\).
 
 <a name="WorkflowConversation.OrchestrationMode"></a>
-### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L680>)
+### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L705>)
 
 ```go
 func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration
@@ -6698,7 +6698,7 @@ func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration
 OrchestrationMode returns the orchestration mode of the current state. External orchestration means transitions are driven by outside callers \(e.g., HTTP handlers, message queues\) rather than from within the conversation loop.
 
 <a name="WorkflowConversation.Send"></a>
-### func \(\*WorkflowConversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L339>)
+### func \(\*WorkflowConversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L342>)
 
 ```go
 func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -6712,7 +6712,7 @@ fmt.Println(resp.Text())
 ```
 
 <a name="WorkflowConversation.Transition"></a>
-### func \(\*WorkflowConversation\) [Transition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L532>)
+### func \(\*WorkflowConversation\) [Transition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L557>)
 
 ```go
 func (wc *WorkflowConversation) Transition(event string) (string, error)

@@ -68,7 +68,10 @@ type WorkflowConversation struct {
 	// activeStateName is the workflow state name for which activeConv was
 	// opened. It is set by openConvForCurrentState so reconcileActiveConv can
 	// detect drift on composition states whose prompt_task is "".
-	activeStateName     string
+	activeStateName string
+	// suspendedTurn is set when the last Send ended suspended on client tools
+	// or approval holds, leaving any transition it made pending.
+	suspendedTurn       bool
 	opts                []Option
 	emitter             *events.Emitter
 	stateStore          statestore.Store
@@ -342,8 +345,9 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 		wc.mu.Unlock()
 		return nil, ErrWorkflowClosed
 	}
-	if wc.transExec != nil {
-		wc.transExec.ClearPending()
+	if err := wc.settlePendingTransition(); err != nil {
+		wc.mu.Unlock()
+		return nil, err
 	}
 	// Heal any state-machine / active-conv drift left over from a prior
 	// Send that errored mid-pipeline. Without this, the next Send runs in
@@ -376,12 +380,33 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	// transition stays pending; the resumed turn commits it in its tool loop
 	// once the answers are in.
 	if resp.HasPendingClientTools() || len(resp.PendingTools()) > 0 {
+		wc.suspendedTurn = true
 		return resp, nil
 	}
 	if err := wc.commitDeferredTransition(); err != nil {
 		return resp, err
 	}
 	return resp, nil
+}
+
+// settlePendingTransition deals with a transition left pending when a new Send
+// starts. One left by a turn that suspended on client tools or approval holds
+// is committed: the model was told it succeeded, and the user moving on
+// without answering abandons the suspended calls, not the transition, so the
+// new message goes to the destination state as it would have had the turn not
+// suspended. Any other pending transition is left over from a Send that failed
+// mid-pipeline and is discarded. Caller must hold wc.mu.
+func (wc *WorkflowConversation) settlePendingTransition() error {
+	suspended := wc.suspendedTurn
+	wc.suspendedTurn = false
+	if wc.transExec == nil {
+		return nil
+	}
+	if suspended && wc.transExec.Pending() != nil {
+		return wc.commitDeferredTransition()
+	}
+	wc.transExec.ClearPending()
+	return nil
 }
 
 // commitDeferredTransition finalizes any workflow transition that fired

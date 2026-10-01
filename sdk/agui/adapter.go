@@ -476,13 +476,42 @@ func (st *runState) emitResult(callID, content string) {
 	st.emit(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), callID, content))
 }
 
-// toolResultText is the TOOL_CALL_RESULT content for a tool result: its text,
-// or its error when it carries no text.
+// TOOL_CALL_RESULT content is never empty: the AG-UI Go SDK rejects an event
+// whose content is, so a Go consumer could not decode the stream. A result
+// with no text is described instead: by its error, by the media it holds
+// ("[image/png image]"), or by the JSON encoding of its value ("null" for no
+// value, "\"\"" for the empty string).
+
+// toolResultText is the TOOL_CALL_RESULT content for a tool result: its text;
+// with none, its error, a description of its media, or the empty string as
+// JSON.
 func toolResultText(r *types.MessageToolResult) string {
 	if text := r.GetTextContent(); text != "" {
 		return text
 	}
-	return r.Error
+	if r.Error != "" {
+		return r.Error
+	}
+	if r.HasMedia() {
+		return describeMedia(r.Parts)
+	}
+	return `""`
+}
+
+// describeMedia names each media part, as "[<mime type> <kind>]".
+func describeMedia(parts []types.ContentPart) string {
+	var names []string
+	for _, p := range parts {
+		if p.Type == types.ContentTypeText {
+			continue
+		}
+		mime := ""
+		if p.Media != nil {
+			mime = p.Media.MIMEType + " "
+		}
+		names = append(names, "["+mime+p.Type+"]")
+	}
+	return strings.Join(names, " ")
 }
 
 // fulfillAndResume asks the ToolResultProvider for the pending calls' results
@@ -552,8 +581,24 @@ func resultText(r *ToolResult) string {
 	case r.Error != "":
 		return toolErrorText(r)
 	default:
-		return valueText(r.Result)
+		return nonEmptyValueText(r.Result)
 	}
+}
+
+// nonEmptyValueText is valueText, falling back when that is empty to a
+// description of the value's media or its JSON encoding ("null", "\"\"").
+func nonEmptyValueText(v any) string {
+	if text := valueText(v); text != "" {
+		return text
+	}
+	if parts, ok := v.([]types.ContentPart); ok && hasMedia(parts) {
+		return describeMedia(parts)
+	}
+	data, err := json.Marshal(v)
+	if err != nil || len(data) == 0 {
+		return "null"
+	}
+	return string(data)
 }
 
 func valueText(v any) string {

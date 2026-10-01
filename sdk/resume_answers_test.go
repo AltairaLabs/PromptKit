@@ -40,6 +40,12 @@ func (p *roundsProvider) PredictWithTools(
 	return r, r.ToolCalls, nil
 }
 
+// Predict serves a prompt offered no tools from the same script.
+func (p *roundsProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	r, _, err := p.PredictWithTools(ctx, req, nil, "")
+	return r, err
+}
+
 const twoToolPackJSON = `{
 	"id": "resume-answers", "version": "1.0.0",
 	"template_engine": {"version": "v1", "syntax": "{{variable}}"},

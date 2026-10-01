@@ -95,13 +95,10 @@ func replay(evts []aguievents.Event) (runPhase, error) {
 	return v.phase, nil
 }
 
-// checkEventFields runs the SDK's own field validation. A TOOL_CALL_RESULT
-// with empty content is exempt: tool-calls.mdx answers a call whose every part
-// was dropped with the empty string, which the SDK's validator does not allow.
+// checkEventFields runs the AG-UI Go SDK's own field validation on every
+// event, since a Go consumer decoding the stream applies it. It is stricter
+// than the spec in one place: TOOL_CALL_RESULT content must not be empty.
 func checkEventFields(ev aguievents.Event) error {
-	if r, ok := ev.(*aguievents.ToolCallResultEvent); ok && r.Content == "" {
-		return nil
-	}
 	return ev.Validate()
 }
 
@@ -353,6 +350,10 @@ func TestValidateAGUISequence_RejectsViolations(t *testing.T) {
 		"step left open":            {start, aguievents.NewStepStartedEvent("s"), finish},
 		"step opened twice":         {start, aguievents.NewStepStartedEvent("s"), aguievents.NewStepStartedEvent("s")},
 		"invalid event fields":      {start, aguievents.NewTextMessageStartEvent(""), finish},
+		"empty result content": {
+			start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"),
+			aguievents.NewToolCallResultEvent("m", "c", ""), finish,
+		},
 	}
 	for name, evts := range cases {
 		t.Run(name, func(t *testing.T) {
