@@ -80,14 +80,17 @@ func run(url string, sc scenarioContext, stderr io.Writer) error {
 
 	opts := mcp.DefaultClientOptions()
 	opts.ElicitationHandler = acceptDefaults
-	client := mcp.NewStreamableClientWithOptions(mcp.ServerConfig{
-		Name:          sampleString,
-		URL:           url,
-		TransportName: mcp.TransportStreamableHTTP,
-	}, opts)
-	defer func() { _ = client.Close() }()
-
-	if _, err := client.Initialize(ctx); err != nil {
+	// Built through the registry, as PromptKit builds the clients it uses.
+	cfg := mcp.ServerConfig{Name: sampleString, URL: url, TransportName: mcp.TransportStreamableHTTP}
+	reg := mcp.NewRegistryWithOptions(mcp.RegistryOptions{ConfigureClient: func(_ mcp.ServerConfig, o *mcp.ClientOptions) {
+		*o = opts
+	}})
+	defer func() { _ = reg.Close() }()
+	if err := reg.RegisterServer(cfg); err != nil {
+		return err
+	}
+	client, err := reg.GetClient(ctx, cfg.Name)
+	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	tools, err := client.ListTools(ctx)

@@ -83,6 +83,10 @@ func (e *AuthError) Unwrap() error { return e.Err }
 // server that keeps asking for more scope cannot hold the client in a loop.
 const maxAuthChallenges = 3
 
+// maxErrorBodyBytes bounds how much of a refused response is read before
+// the request is retried.
+const maxErrorBodyBytes = 64 << 10
+
 // errAuthRetriesExhausted is wrapped in an AuthError when the server still
 // refuses after maxAuthChallenges challenges.
 var errAuthRetriesExhausted = errors.New("still unauthorized after answering its challenges")
@@ -260,4 +264,13 @@ func (p *challengeParser) value() string {
 		}
 	}
 	return b.String()
+}
+
+// isTokenChar reports whether c may appear in an RFC 9110 token.
+func isTokenChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
 }

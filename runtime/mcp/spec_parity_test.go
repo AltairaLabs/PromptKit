@@ -193,11 +193,6 @@ func mcpSpecPins() []specPin {
 			},
 		},
 		{
-			value: unsupportedVersionData{},
-			label: "UnsupportedProtocolVersionError data",
-			refs:  []string{"UnsupportedProtocolVersionError/properties/error/allOf/1/properties/data"},
-		},
-		{
 			value: ElicitRequest{},
 			label: "ElicitRequest params",
 			refs:  []string{"ElicitRequestFormParams", "ElicitRequestURLParams"},
@@ -219,37 +214,25 @@ func mcpSpecPins() []specPin {
 // why. A struct that is neither pinned nor listed here fails
 // TestMCPSpecCoverage.
 var notWire = map[string]string{
-	"ClientOptions":       "client configuration, never serialized to a server",
-	"StdioClient":         "transport implementation",
-	"SSEClient":           "transport implementation",
-	"StreamableClient":    "transport implementation",
-	"httpClient":          "the HTTP clients' shared lifecycle",
-	"httpAutoClient":      "transport selection: Streamable HTTP with the HTTP+SSE fallback",
-	"httpDoer":            "HTTP plumbing below the MCP message layer",
-	"challengeParser":     "WWW-Authenticate parsing state",
-	"AuthChallenge":       "an HTTP authorization challenge handed to the host's Authorizer; not an MCP message",
-	"WWWAuthenticate":     "a parsed HTTP WWW-Authenticate challenge; not an MCP message",
-	"AuthError":           "the Go error for a request that stays unauthorized",
-	"RegistryOptions":     "registry configuration",
-	"RegistryImpl":        "registry implementation",
-	"ServerConfigData":    "PromptKit's server config file shape, not MCP",
-	"ServerConfig":        "PromptKit's server configuration, not MCP",
-	"ToolFilter":          "PromptKit's tool allow/deny configuration, not MCP",
-	"LoggingCapability":   "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
-	"RPCError":            "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
-	"callOpts":            "per-call retry policy",
-	"callState":           "per-call recovery bookkeeping",
-	"paramHeader":         "an x-mcp-header designation parsed from a tool's inputSchema",
-	"inputRequiredError":  "carries an input_required result to the caller that retries",
-	"streamCursor":        "resume position of an SSE stream, below the MCP message layer",
-	"httpStatusError":     "an HTTP status without a JSON-RPC body, below the MCP message layer",
-	"request":             "an outgoing message before it is framed; the wire shape is JSONRPCMessage",
-	"session":             "the protocol state machine",
-	"stdioConn":           "transport implementation",
-	"pendingRequests":     "transport bookkeeping",
-	"sseEvent":            "an SSE frame, below the MCP message layer",
-	"sseTransport":        "transport implementation",
-	"streamableTransport": "transport implementation",
+	"ClientOptions":        "client configuration, never serialized to a server",
+	"StdioClient":          "transport implementation",
+	"SSEClient":            "transport implementation",
+	"StreamableClient":     "transport implementation",
+	"sdkClient":            "the client over the official go-sdk session",
+	"liveSession":          "one connection's go-sdk session and lifetime",
+	"authorizingTransport": "http.RoundTripper adding headers and the Authorizer",
+	"httpDoer":             "HTTP plumbing below the MCP message layer",
+	"challengeParser":      "WWW-Authenticate parsing state",
+	"AuthChallenge":        "an HTTP authorization challenge handed to the host's Authorizer; not an MCP message",
+	"WWWAuthenticate":      "a parsed HTTP WWW-Authenticate challenge; not an MCP message",
+	"AuthError":            "the Go error for a request that stays unauthorized",
+	"RegistryOptions":      "registry configuration",
+	"RegistryImpl":         "registry implementation",
+	"ServerConfigData":     "PromptKit's server config file shape, not MCP",
+	"ServerConfig":         "PromptKit's server configuration, not MCP",
+	"ToolFilter":           "PromptKit's tool allow/deny configuration, not MCP",
+	"LoggingCapability":    "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
+	"RPCError":             "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
 }
 
 // claimedRevisions are the revisions the client claims, newest first: the
@@ -570,14 +553,16 @@ func renderMCPSpecSupport(t *testing.T, docs map[string]map[string]any) string {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString(specDocBegin + "\n\n")
-	b.WriteString("PromptKit's MCP client implements protocol revision **" + ProtocolVersion +
+	b.WriteString("PromptKit's MCP client is built on the official " +
+		"[Go SDK](https://github.com/modelcontextprotocol/go-sdk), which owns the protocol. It implements " +
+		"revision **" + ProtocolVersion +
 		"** (`mcp.ProtocolVersion`), the stateless revision, and **" + LegacyProtocolVersion +
 		"** (`mcp.LegacyProtocolVersion`), the newest revision with an `initialize` handshake, for " +
 		"servers that predate it. It detects which a server speaks, and also accepts the earlier " +
 		"handshake revisions a server may choose (2025-06-18, 2025-03-26, 2024-11-05).\n\n" +
-		"CI checks every message type the client sends or reads against both revisions' published " +
-		"schemas, so the table below is the complete list of spec fields the client does not carry; " +
-		"every other field is carried.\n\n" +
+		"Results reach callers as PromptKit's types (`mcp.Tool`, `mcp.ToolCallResponse`, ...). CI checks " +
+		"those types against both revisions' published schemas, so the table below is the complete list " +
+		"of spec fields they do not carry; every other field is carried.\n\n" +
 		"That check covers message fields. Behaviour is checked by scenario tests and by the official " +
 		"[MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) " +
 		"against both revisions' requirements.\n\n")

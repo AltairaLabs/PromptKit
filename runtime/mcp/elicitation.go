@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
 // Elicitation modes (MCP client/elicitation).
@@ -19,10 +21,7 @@ const (
 	ElicitActionCancel  = "cancel"
 )
 
-const (
-	methodElicitationCreate = "elicitation/create"
-	codeInvalidParams       = -32602
-)
+const codeInvalidParams = -32602
 
 // ElicitRequest is a server's request for information from the user
 // (MCP client/elicitation). In form mode the answer is structured input
@@ -51,44 +50,40 @@ type ElicitResult struct {
 // capability, so a client without one is never asked.
 type ElicitationHandler func(ctx context.Context, server string, req ElicitRequest) (ElicitResult, error)
 
-// elicit runs the handler for one elicitation request and validates the
-// answer, returning a JSON-RPC error for anything the client cannot serve.
-func (s *session) elicit(ctx context.Context, params json.RawMessage) (*ElicitResult, *JSONRPCError) {
-	if s.opts.ElicitationHandler == nil {
-		return nil, &JSONRPCError{Code: codeMethodNotFound, Message: "Method not found: " + methodElicitationCreate}
-	}
-	var req ElicitRequest
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, &JSONRPCError{Code: codeInvalidParams, Message: "invalid elicitation request: " + err.Error()}
-	}
+// answerElicitation runs the host's handler for one elicitation request and
+// checks its answer: only form mode is advertised, the action must be one the
+// spec defines, only an accepted form carries content, and an accepted form
+// is pre-populated with the schema's defaults (SEP-1034). A *jsonrpc.Error
+// is answered to the server with its code; any other error as an internal
+// error.
+func answerElicitation(
+	ctx context.Context, h ElicitationHandler, server string, req ElicitRequest,
+) (ElicitResult, error) {
 	if req.Mode == "" {
 		req.Mode = ElicitModeForm
 	}
 	if req.Mode != ElicitModeForm {
-		// Only form mode is advertised.
-		return nil, &JSONRPCError{Code: codeInvalidParams, Message: "unsupported elicitation mode: " + req.Mode}
+		return ElicitResult{}, &jsonrpc.Error{Code: codeInvalidParams, Message: "unsupported elicitation mode: " + req.Mode}
 	}
-	res, err := s.opts.ElicitationHandler(ctx, s.name, req)
+	res, err := h(ctx, server, req)
 	if err != nil {
-		return nil, &JSONRPCError{Code: codeInternalError, Message: "elicitation failed: " + err.Error()}
+		return ElicitResult{}, fmt.Errorf("elicitation failed: %w", err)
 	}
 	switch res.Action {
 	case ElicitActionAccept, ElicitActionDecline, ElicitActionCancel:
 	default:
-		msg := fmt.Sprintf("elicitation handler returned action %q", res.Action)
-		return nil, &JSONRPCError{Code: codeInternalError, Message: msg}
+		return ElicitResult{}, fmt.Errorf("elicitation handler returned action %q", res.Action)
 	}
 	if res.Action != ElicitActionAccept {
 		res.Content = nil
-		return &res, nil
+		return res, nil
 	}
 	content, err := applyElicitDefaults(req.RequestedSchema, res.Content)
 	if err != nil {
-		msg := "elicitation handler returned invalid content: " + err.Error()
-		return nil, &JSONRPCError{Code: codeInternalError, Message: msg}
+		return ElicitResult{}, fmt.Errorf("elicitation handler returned invalid content: %w", err)
 	}
 	res.Content = content
-	return &res, nil
+	return res, nil
 }
 
 // applyElicitDefaults fills properties the answer omits with the defaults

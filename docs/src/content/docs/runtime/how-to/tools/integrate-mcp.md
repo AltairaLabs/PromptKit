@@ -24,20 +24,23 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
   does not serve the stream is retried with `/sse` appended, which is what earlier
   releases always did; the client logs a warning when it needs that.
 
-Over stdio and Streamable HTTP the client speaks both generations of the protocol. It
-first asks the server which revisions it supports (`server/discover`). A 2026-07-28 server is
-then used statelessly: every request carries the protocol version and client capabilities, and
-there is no handshake or session. A server that predates discovery gets the `initialize`
-handshake of revisions up to 2025-11-25. Set `ClientOptions.DisableModernProtocol` to skip the
-discovery probe for a server that misbehaves when it receives one.
+The client is built on the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk),
+the same implementation many MCP hosts use. Over stdio and Streamable HTTP it speaks both
+generations of the protocol. It first asks the server which revisions it supports
+(`server/discover`). A 2026-07-28 server is then used statelessly: every request carries the
+protocol version and client capabilities, and there is no handshake or session. A server that
+predates discovery gets the `initialize` handshake of revisions up to 2025-11-25. A stdio server
+that never answers the discovery request is restarted with the handshake after
+`ClientOptions.EraProbeTimeout` (3s by default). Set `ClientOptions.DisableModernProtocol` to skip
+the discovery probe for a server that misbehaves when it receives one.
 
 ## Spec support
 
 <!-- BEGIN GENERATED: mcp-spec-support. Do not edit; run `make mcp-spec-docs`. -->
 
-PromptKit's MCP client implements protocol revision **2026-07-28** (`mcp.ProtocolVersion`), the stateless revision, and **2025-11-25** (`mcp.LegacyProtocolVersion`), the newest revision with an `initialize` handshake, for servers that predate it. It detects which a server speaks, and also accepts the earlier handshake revisions a server may choose (2025-06-18, 2025-03-26, 2024-11-05).
+PromptKit's MCP client is built on the official [Go SDK](https://github.com/modelcontextprotocol/go-sdk), which owns the protocol. It implements revision **2026-07-28** (`mcp.ProtocolVersion`), the stateless revision, and **2025-11-25** (`mcp.LegacyProtocolVersion`), the newest revision with an `initialize` handshake, for servers that predate it. It detects which a server speaks, and also accepts the earlier handshake revisions a server may choose (2025-06-18, 2025-03-26, 2024-11-05).
 
-CI checks every message type the client sends or reads against both revisions' published schemas, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+Results reach callers as PromptKit's types (`mcp.Tool`, `mcp.ToolCallResponse`, ...). CI checks those types against both revisions' published schemas, so the table below is the complete list of spec fields they do not carry; every other field is carried.
 
 That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) against both revisions' requirements.
 
@@ -278,12 +281,18 @@ options.RetryDelay = 100 * time.Millisecond // doubles on each retry
 client := mcp.NewStdioClientWithOptions(config, options)
 ```
 
-A request that outlives `RequestTimeout` fails with `mcp.ErrServerUnresponsive`
-and the server is sent `notifications/cancelled`. Retries apply only to
-`initialize` and `tools/list`, and only when the message could not be
-exchanged at all. `tools/call` is never retried, and neither is a request the
-server answered with an error: a tool may have side effects, and a timed-out
-call may already have run.
+A request that outlives `RequestTimeout` is canceled and fails with
+`mcp.ErrServerUnresponsive`. The clock does not run while the host is answering
+the server's own request for user input (see Elicitation): that time is the
+user's, not the server's.
+
+Retries apply only to connecting, and only to failures that are not the server's
+answer: an error response, or an authorization the host's `Authorizer` refused,
+is returned at once. `tools/call` is never retried: a tool may have side effects,
+and a timed-out call may already have run.
+
+If the connection is lost (a stdio server exits, an SSE stream ends), the next
+request reconnects, up to `MaxReconnectAttempts` times.
 
 ### Elicitation
 
