@@ -133,7 +133,7 @@ stateDiagram-v2
 
 | State | Meaning |
 |-------|---------|
-| `submitted` | Task created, not yet processing |
+| `submitted` | Task created, processing has not started |
 | `working` | Agent is actively processing |
 | `completed` | Task finished successfully |
 | `failed` | Task encountered an error |

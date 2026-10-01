@@ -186,7 +186,7 @@ func (s *ElevenLabsService) Synthesize(
 
 // SpokenText reports the text ElevenLabs will actually speak for the given input,
 // after markup lowering: eleven_v3 keeps inline tags (the model interprets them),
-// other models strip tags. Implements tts.SpokenTextReporter (#1657).
+// other models strip tags. Implements tts.SpokenTextReporter.
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string {
 	model := config.Model
 	if model == "" {

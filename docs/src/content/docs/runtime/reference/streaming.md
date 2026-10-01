@@ -112,7 +112,7 @@ const (
 var ErrEmptyResponse = errors.New("empty response, likely interrupted")
 ```
 
-<a name="ErrSessionEnded"></a>ErrSessionEnded is returned when the streaming session has ended. This is not necessarily an error, just indicates the session is complete.
+<a name="ErrSessionEnded"></a>ErrSessionEnded is returned when the streaming session has ended. This is not necessarily an error; it indicates the session is complete.
 
 ```go
 var ErrSessionEnded = errors.New("session ended")

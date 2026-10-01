@@ -166,7 +166,7 @@ The executor must implement `runtime/tools.Executor`.
 ### Executors for conversations you never hold
 
 `OnToolExecutor` needs a conversation. Constructors that own the conversation
-lifecycle — `A2AOpener` above all, which opens one per context ID internally —
+lifecycle (`A2AOpener` above all, which opens one per context ID internally)
 never hand one back, so pass the executor as an option instead:
 
 ```go

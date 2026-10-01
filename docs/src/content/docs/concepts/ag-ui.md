@@ -172,7 +172,7 @@ A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event w
 
 ### Frontend Tools
 
-The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered — no `TOOL_CALL_RESULT` — and the application answers it in the next run's input, as a tool message. `EventAdapter.RunResume` takes those answers and continues the turn.
+The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered (no `TOOL_CALL_RESULT`), and the application answers it in the next run's input, as a tool message. `EventAdapter.RunResume` takes those answers and continues the turn.
 
 ### Approval Holds
 

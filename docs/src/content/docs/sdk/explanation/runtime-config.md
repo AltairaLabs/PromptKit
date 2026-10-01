@@ -39,7 +39,7 @@ The connection between pack and RuntimeConfig is name-based. The pack declares a
 
 At invocation time, the tool registry looks up the name and dispatches to whatever implementation the RuntimeConfig bound it to. The pack never knows whether the tool is Go code, a Python subprocess, or an HTTP endpoint. The same principle applies to evals: the pack declares an eval type like `sentiment_check`, and RuntimeConfig binds it to a handler.
 
-This indirection is deliberate. It means the pack author and the platform operator can work independently. The pack author defines the contract (name + schema). The platform operator fulfills it (binding + implementation). Neither needs to know the details of the other's work.
+This indirection means the pack author and the platform operator can work independently. The pack author defines the contract (name + schema). The platform operator fulfills it (binding + implementation). Neither needs to know the details of the other's work.
 
 ## Config Struct Reuse
 

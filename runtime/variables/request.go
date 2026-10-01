@@ -7,8 +7,8 @@ import "context"
 type requestVarsKey struct{}
 
 // WithRequestVars returns a context carrying per-request template variables.
-// These are resolved into the variable set for a single request — both when
-// validating required variables and when rendering — and take precedence over
+// These are resolved into the variable set for a single request (both when
+// validating required variables and when rendering) and take precedence over
 // static and provider-supplied variables. Returns ctx unchanged when vars is
 // empty.
 //

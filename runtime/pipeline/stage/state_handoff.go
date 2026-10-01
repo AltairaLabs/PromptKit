@@ -5,11 +5,11 @@ import "context"
 // Handoff describes the prompt and tool set the workflow's current state needs.
 //
 // It is a statement of what the turn *should* be running, not a record that
-// something changed — the stage compares it against what the turn is actually
+// something changed: the stage compares it against what the turn is actually
 // running and swaps only on a mismatch. That distinction matters: a pipeline
 // re-execution (HITL resume, deferred client tool) re-runs PromptAssemblyStage,
 // which resets the turn's prompt to the state the pipeline was built for. A
-// "did a transition just happen" signal is unobservable by then; a "what should
+// "did a transition happen this run" signal is unobservable by then; a "what should
 // be running" signal self-corrects.
 type Handoff struct {
 	// Valid reports whether SystemPrompt and AllowedTools are meaningful.
@@ -66,7 +66,7 @@ type WorkflowStateResolver interface {
 // counting site, so the SDK's and Arena's totals cannot drift apart; consumers
 // only forward the number to the workflow context they own.
 //
-// It is deliberately separate from WorkflowStateResolver and type-asserted at
+// It is separate from WorkflowStateResolver and type-asserted at
 // the call site: adding a method to that interface would break every existing
 // implementer, and a resolver with no budget to enforce need not implement this.
 type ToolCallRecorder interface {

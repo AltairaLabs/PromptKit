@@ -1,3 +1,10 @@
 # Directories under docs/src/content/docs/ where check-docs-voice.sh findings FAIL.
 # Elsewhere they only warn. Each docs-review batch PR adds its directory here.
 # When every directory is listed, the allow-list mechanism is removed.
+architecture/
+concepts/
+contributors/
+devops/
+reference/
+runtime/
+sdk/

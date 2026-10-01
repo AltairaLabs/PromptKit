@@ -3,7 +3,7 @@
 // converters between PromptKit and AG-UI messages and tools, and an
 // EventAdapter that turns one conversation turn into one AG-UI run.
 //
-// Not yet produced: token-by-token text streaming (each message's text
+// Not produced: token-by-token text streaming (each message's text
 // arrives in one TEXT_MESSAGE_CONTENT), reasoning events, STATE_DELTA,
 // MESSAGES_SNAPSHOT, and the pendingToolCallIds of a run that leaves frontend
 // tool calls unanswered. Message ids are minted per conversion, so converting

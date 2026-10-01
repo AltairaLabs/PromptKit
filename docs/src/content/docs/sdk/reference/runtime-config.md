@@ -108,7 +108,7 @@ the same ID in both spellings is rejected.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | no | Unique provider identifier. Used to reference this provider elsewhere. Defaults to `type`. |
+| `id` | string | no | Unique provider identifier. Other config refers to this provider by this value. Defaults to `type`. |
 | `role` | string | no | What this provider is for: `llm` (default), `image`, `video`, `tts`, `stt`, `embedding`, `inference`, `rerank`. |
 | `type` | string | yes | Provider type. Not an enum — it names a registered factory, and which factories exist depends on which provider packages are linked in. See [provider types](#provider-types). |
 | `model` | string | for completion roles | Model name (e.g., `claude-sonnet-4-20250514`, `gpt-4o`). Optional for capability roles, where it overrides the provider default. |
@@ -145,8 +145,8 @@ Importing the SDK registers these:
 
 Each type calls exactly one vendor API; `base_url`, `credential` and
 `additional_config` only adjust calls to that API. A gateway that serves the
-same API — the Vercel AI Gateway for `systemone`, LiteLLM or vLLM for `openai` —
-is just a `base_url` and a credential, not a new type.
+same API (the Vercel AI Gateway for `systemone`, LiteLLM or vLLM for `openai`)
+is only a `base_url` and a credential, not a new type.
 
 Others need a blank import of their package — `vllm` and `replay` (both `llm`)
 are registered by `runtime/providers/vllm` and `runtime/providers/replay`:

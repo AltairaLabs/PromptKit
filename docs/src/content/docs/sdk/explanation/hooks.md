@@ -33,7 +33,7 @@ All hooks that can modify behavior fall into one of two shapes.
 
 **Enforcing stops the round loop, and pending tool calls are dropped.** This is the consequence most likely to surprise you. If an `AfterCall` hook enforces on a response that also requested tool calls, those calls are **not executed**, and they are stripped from the message before it lands in history — an assistant message carrying tool calls with no matching tool results is a protocol error on the next provider call. Earlier releases executed the tools and rolled on to another round.
 
-What enforcement does **not** do is abort the pipeline. A hook belongs to one stage: the provider call is skipped and that `ProviderStage`'s round loop stops, but the message is emitted and every downstream stage — saving, TTS, recording, evals — still runs, exactly as it would for a real response. Only `Deny` aborts.
+What enforcement does **not** do is abort the pipeline. A hook belongs to one stage: the provider call is skipped and that `ProviderStage`'s round loop stops, but the message is emitted and every downstream stage (saving, TTS, recording, evals) still runs, exactly as it would for a real response. Only `Deny` aborts.
 
 **Direct-mutation** (Eval). The hook is handed a pointer to the result and mutates it in place. There's no decision struct — the hook is observational by contract, but it's allowed to edit the observation before it propagates (redact explanations, enrich details, add tracing metadata). No pipeline gating happens either way.
 
@@ -46,25 +46,29 @@ gating or content modification — they cannot deny anything.
 
 Hooks do not fire in a flat sequence. The nesting is **turn ⊃ provider ⊃ round ⊃ call**:
 
-```
-SessionHook.OnSessionStart                    once per conversation
-pipeline.started                              event
-  ┌─ per ProviderStage (a composition runs one per step) ──────────┐
-  │  ┌─ ROUND 1..MaxRounds ──────────────────────────────────────┐ │
-  │  │  ProviderHook.BeforeCall                                  │ │
-  │  │  provider.call.started      event                         │ │
-  │  │  → provider request → (1..N HTTP attempts on retry)       │ │
-  │  │  ChunkInterceptor.OnChunk   per chunk (streaming only)    │ │
-  │  │  provider.call.completed    event                         │ │
-  │  │  ProviderHook.AfterCall                                   │ │
-  │  │  ToolHook.BeforeExecution   per tool call                 │ │
-  │  │  tool.call.started          event                         │ │
-  │  │  ToolHook.AfterExecution    per tool call                 │ │
-  │  │  ─── if the response requested tools, loop to BeforeCall ─┘ │
-  └─────────────────────────────────────────────────────────────────┘
-pipeline.completed                            event
-SessionHook.OnSessionUpdate                   once per turn, AFTER it completes
-EvalHook.OnEvalResult                         per eval result, from the eval runner
+```mermaid
+flowchart TD
+  SS["SessionHook.OnSessionStart (once per conversation)"]
+  PST["pipeline.started (event)"]
+  subgraph PS["per ProviderStage (a composition runs one per step)"]
+    subgraph RD["ROUND 1..MaxRounds"]
+      BC["ProviderHook.BeforeCall"]
+      PCS["provider.call.started (event)"]
+      REQ["provider request (1..N HTTP attempts on retry)"]
+      OC["ChunkInterceptor.OnChunk (per chunk, streaming only)"]
+      PCC["provider.call.completed (event)"]
+      AC["ProviderHook.AfterCall"]
+      TBE["ToolHook.BeforeExecution (per tool call)"]
+      TCS["tool.call.started (event)"]
+      TAE["ToolHook.AfterExecution (per tool call)"]
+    end
+  end
+  PC["pipeline.completed (event)"]
+  SU["SessionHook.OnSessionUpdate (once per turn, AFTER it completes)"]
+  ER["EvalHook.OnEvalResult (per eval result, from the eval runner)"]
+  SS --> PST --> BC --> PCS --> REQ --> OC --> PCC --> AC --> TBE --> TCS --> TAE
+  TAE -->|"if the response requested tools, loop"| BC
+  TAE --> PC --> SU --> ER
 ```
 
 Four consequences that a flat list hides:
@@ -93,9 +97,9 @@ runs — a panic in one doesn't block the others.
 
 **Nil-safety.** A nil `*hooks.Registry` is a no-op. You can wire hooks optionally without special-casing "no hooks configured."
 
-**Panic safety.** Eval hooks run inside a `recover()` scoped to each hook — one panic does not block the rest, and the eval result is still emitted. Provider, tool, and session hooks do **not** currently recover panics; a panicking hook crashes the request. Don't panic in a hook.
+**Panic safety.** Eval hooks run inside a `recover()` scoped to each hook — one panic does not block the rest, and the eval result is still emitted. Provider, tool, and session hooks do **not** recover panics; a panicking hook crashes the request. Don't panic in a hook.
 
-**Timeouts.** Exec-based hooks (subprocess-backed) have a configurable `timeout_ms`. If the subprocess exceeds it, the parent kills it and — in `filter` mode — treats the timeout as a denial. In `observe` mode and for eval hooks, the timeout just aborts the subprocess and the pipeline continues.
+**Timeouts.** Exec-based hooks (subprocess-backed) have a configurable `timeout_ms`. If the subprocess exceeds it, the parent kills it and, in `filter` mode, treats the timeout as a denial. In `observe` mode and for eval hooks, the timeout aborts the subprocess and the pipeline continues.
 
 **Concurrency.** Hooks may run concurrently with one another across different conversations. Stateless hooks are always safe. Stateful hooks (e.g. a streaming buffer per response) must scope their state to a single conversation or synchronize explicitly.
 
@@ -115,7 +119,7 @@ Exec hooks are slower (process spawn per call) and less expressive (JSON round-t
 
 ## When not to reach for a hook
 
-Hooks are the right tool for **cross-cutting concerns** — observability, safety, policy — that apply uniformly across many calls. They are the wrong tool for:
+Hooks are the right tool for **cross-cutting concerns** (observability, safety, policy) that apply uniformly across many calls. They are the wrong tool for:
 
 - **Per-prompt behavior** — use the prompt itself, or a scenario variable.
 - **Business logic** — put it in a tool, not a tool hook.

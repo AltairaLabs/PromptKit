@@ -65,7 +65,7 @@ type toolDescriptorOverride struct {
 // For memory__remember and a2a the extras merge into the typed Metadata
 // field with typed-fields-win on conflict. memory__recall and memory__list
 // put them on a dedicated Extras field of the options struct they hand the
-// store, so a store that does not recognize a key simply ignores it.
+// store, so a store that does not recognize a key ignores it.
 // Workflow uses a separate HostExtras field, which is reserved exclusively
 // for this passthrough channel — the runtime never writes to it from
 // elsewhere.
@@ -76,7 +76,7 @@ type toolDescriptorOverride struct {
 // Delete.
 //
 // Tools without a host-facing callback (workflow__set_artifact, the skills
-// tools) currently drop unknown top-level fields. Extending those schemas
+// tools) drop unknown top-level fields. Extending those schemas
 // will pass the new field to the LLM but the data is not observable
 // host-side. If you need this for one of them, file an issue describing
 // the use case so the right observation point can be designed.

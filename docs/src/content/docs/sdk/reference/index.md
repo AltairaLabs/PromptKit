@@ -12,10 +12,10 @@ task-focused recipes.
 
 ## SDK API
 
-The complete `sdk` package — `Open`, the `Conversation` type (`Send`, `Stream`,
-`OnTool`, `Fork`, `EventBus`, …), `Response`, `StreamChunk`, every `With*`
-option, and the exported error values — is generated from source, so it never
-drifts from the code:
+The complete `sdk` package is generated from source, so it never drifts from the
+code. It covers `Open`, the `Conversation` type (`Send`, `Stream`, `OnTool`,
+`Fork`, `EventBus`, …), `Response`, `StreamChunk`, every `With*` option, and the
+exported error values:
 
 - **[Conversation &amp; SDK API](/sdk/reference/conversation-manager/)** — the full generated `sdk` package reference.
 

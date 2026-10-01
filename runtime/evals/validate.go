@@ -98,7 +98,7 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 }
 
 // ValidateEvalTypes checks that every EvalDef's Type has a registered handler
-// in the given registry, AND — when the handler implements ParamValidator —
+// in the given registry, AND (when the handler implements ParamValidator)
 // that its params are usable by the handler. Returns a list of human-readable
 // error strings for any type-lookup or param-validation failures.
 //

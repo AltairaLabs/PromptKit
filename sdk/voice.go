@@ -66,8 +66,8 @@ func OpenVoice(packPath, promptName string, opts ...Option) (*Conversation, erro
 }
 
 // WithVoiceObserver registers a callback invoked with every response chunk
-// during Conversation.Start — text deltas, input-transcription metadata, tool
-// events, and audio chunks alike — so an application can display or log the
+// during Conversation.Start (text deltas, input-transcription metadata, tool
+// events, and audio chunks alike), so an application can display or log the
 // conversation while Start manages microphone and speaker.
 //
 // The callback runs on Start's output-pump goroutine; keep it quick and do not

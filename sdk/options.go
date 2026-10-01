@@ -1067,7 +1067,7 @@ func WithEventBus(bus events.Bus) Option {
 //     pipeline tap (synchronous, no bus drops).
 //
 //  2. Low-rate observability events that don't flow through the pipeline as
-//     StreamElement (currently EventConversationStarted, EventStreamInterrupted)
+//     StreamElement (EventConversationStarted, EventStreamInterrupted)
 //     are persisted via a targeted bus subscription.
 //
 // All events for a session are written to a single JSONL file by FileEventStore,
@@ -1415,16 +1415,16 @@ func WithMemoryRetriever(r memory.Retriever) MemoryOption {
 //	    ),
 //	)
 //
-// Without a retriever this option simply disables memory entirely (no tools,
-// no injection). See AltairaLabs/PromptKit#1427.
+// Without a retriever this option disables memory entirely (no tools, no
+// injection).
 func WithMemoryToolsDisabled() MemoryOption {
 	return func(c *MemoryCapability) { c.toolsDisabled = true }
 }
 
 // WithMemorySubjectKey declares which scope key identifies the memory subject.
 // The memory tools (memory__remember / memory__recall, etc.) are registered
-// only when the scope carries a non-empty value for it; see
-// AltairaLabs/PromptKit#852 for why.
+// only when the scope carries a non-empty value for it, which avoids backend
+// errors when the memory store rejects operations for an anonymous subject.
 //
 // Defaults to [DefaultMemorySubjectKey] ("user_id"). Hosts whose scope map
 // spells the subject differently must say so, otherwise the gate never opens
@@ -1437,8 +1437,7 @@ func WithMemoryToolsDisabled() MemoryOption {
 //	)
 //
 // Passing "" removes the gate entirely: the tools are always registered and
-// the store decides what an anonymous subject means. See
-// AltairaLabs/PromptKit#1946.
+// the store decides what an anonymous subject means.
 func WithMemorySubjectKey(key string) MemoryOption {
 	return func(c *MemoryCapability) { c.subjectKey = key }
 }
@@ -1479,8 +1478,8 @@ func WithExecutionTimeout(d time.Duration) Option {
 }
 
 // WithIdleTimeout overrides the default pipeline idle timeout (30s). The idle
-// timer cancels a pipeline that shows no activity — no provider tokens, no
-// tool progress — for that long. Pass 0 to disable it entirely, leaving
+// timer cancels a pipeline that shows no activity (no provider tokens, no
+// tool progress) for that long. Pass 0 to disable it entirely, leaving
 // [WithExecutionTimeout] as the only bound on a turn.
 //
 // Time spent inside a tool call does not count as idle, so this does not need
@@ -1500,12 +1499,12 @@ func WithIdleTimeout(d time.Duration) Option {
 	}
 }
 
-// WithGuardrailTimeout bounds how long a single guardrail check — its
-// classifier or judge call, or a func guardrail's function — may run before it
+// WithGuardrailTimeout bounds how long a single guardrail check (its
+// classifier or judge call, or a func guardrail's function) may run before it
 // fails closed. Exceeding it
 // enforces the validator's configured message on the turn, exactly as an
 // explicit deny would: a guardrail must never leave the caller with an empty
-// response (#2064). Zero or unset uses the runtime default
+// response. Zero or unset uses the runtime default
 // (evals.DefaultEvalTimeout, 30s).
 //
 // Raise it for a slow-judge host — an LLM-backed check against a loaded model
@@ -1747,8 +1746,8 @@ func WithProviderHook(h hooks.ProviderHook) Option {
 // WithGuardrail registers one or more guardrails. Guardrails are eval-backed
 // or func-backed provider hooks with an explicit direction: input guardrails
 // gate the user's message before the LLM call, output guardrails gate the
-// response. An input guardrail that enforces blocks the call entirely — no
-// tokens are spent — and the conversation returns a canned assistant turn.
+// response. An input guardrail that enforces blocks the call entirely (no
+// tokens are spent) and the conversation returns a canned assistant turn.
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithGuardrail(
@@ -2155,7 +2154,7 @@ func WithMCPEndpoints(resolver MCPEndpointResolver) Option {
 // or uses static headers. PromptKit runs no OAuth flow and stores no secrets.
 //
 // Like [WithMCPEndpoints], this keeps provisioning out of the pack: the pack
-// declares servers by name, and the host — Omnia, or any embedder — owns how
+// declares servers by name, and the host (Omnia, or any embedder) owns how
 // they are reached and authorized.
 func WithMCPAuthorizer(provider func(serverName string) mcp.Authorizer) Option {
 	return func(c *config) error {
@@ -2200,7 +2199,7 @@ func WithA2ATools(bridge *a2a.ToolBridge) Option {
 // WithA2AToolExecutor runs A2A tools (from [WithA2ATools], [WithA2AAgent] and
 // a pack's agents section) on executor instead of the SDK's own A2A executor,
 // so a host
-// can put its own governance — policy checks, receipts, audit — in front of
+// can put its own governance (policy checks, receipts, audit) in front of
 // remote agent calls. The executor receives each call's full descriptor,
 // including its A2AConfig; wrap [a2a.NewExecutor] to keep the default
 // transport:
@@ -2612,7 +2611,7 @@ func WithNamedProvider(spec ProviderSpec) Option {
 //
 // It sets the AGENT: the last call wins, and a provider registered this way
 // becomes the model the conversation talks to. To bind an ancillary provider a
-// pack names — a judge, say — use [WithNamedProvider] instead.
+// pack names (a judge, say), use [WithNamedProvider] instead.
 //
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithLLMProvider(spec ProviderSpec) Option {
@@ -2646,7 +2645,7 @@ func WithImageProvider(spec ProviderSpec) Option {
 // WithTTSProvider builds a TTS service from a spec and sets it as the default
 // ttsService (first-wins; does not overwrite one already set by WithTTS or a
 // prior WithTTSProvider call). Registering the same ID twice is an error,
-// matching the declarative path (#2000).
+// matching the declarative path.
 //
 //nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
 func WithTTSProvider(spec ProviderSpec) Option {
@@ -2679,7 +2678,7 @@ func WithTTSProvider(spec ProviderSpec) Option {
 
 // WithSTTProvider builds an STT service from a spec and sets it as the default
 // sttService (first-wins; does not overwrite one already set). Registering the
-// same ID twice is an error, matching the declarative path (#2000).
+// same ID twice is an error, matching the declarative path.
 //
 //nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
 func WithSTTProvider(spec ProviderSpec) Option {
@@ -2715,9 +2714,8 @@ func WithSTTProvider(spec ProviderSpec) Option {
 // set by WithContextRetrieval or a prior WithEmbeddingProvider call).
 //
 // Registering the same ID twice is an error, matching what the declarative
-// path (a runtime config's embedding_providers) already does. Silently keeping
-// one provider while listing its ID twice made the ID list stop being a set
-// (#2000).
+// path (a runtime config's embedding_providers) does. Silently keeping one
+// provider while listing its ID twice would make the ID list stop being a set.
 //
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithEmbeddingProvider(spec ProviderSpec) Option {
@@ -2887,8 +2885,8 @@ func DefaultVADModeConfig() *VADModeConfig {
 // This is an alternative to ASM mode (WithStreamingConfig) for providers without
 // native audio streaming support.
 //
-// The model runs once per detected turn — when the speaker falls silent for
-// SilenceDuration — and conversation history threads across turns for the life
+// The model runs once per detected turn (when the speaker falls silent for
+// SilenceDuration), and conversation history threads across turns for the life
 // of the session, so a caller hears a reply without the session having to end.
 //
 // Example:
@@ -3519,8 +3517,8 @@ func WithEvalsDisabled() Option {
 	}
 }
 
-// WithJudgeProvider configures the LLM judge that judge-backed checks — bias,
-// toxicity, pii_leakage, role_violation, llm_judge and the RAG primitives —
+// WithJudgeProvider configures the LLM judge that judge-backed checks (bias,
+// toxicity, pii_leakage, role_violation, llm_judge and the RAG primitives)
 // evaluate through, as evals and as pack `validators:` guardrails alike.
 //
 // If not set, the judge is the provider registered under [JudgeProviderKey],
@@ -3530,8 +3528,7 @@ func WithEvalsDisabled() Option {
 // a default.
 //
 // A judge-backed guardrail with no judge from either route fails Open() rather
-// than failing per turn, where it used to block every turn or none of them
-// silently (#1996).
+// than failing per turn.
 func WithJudgeProvider(jp handlers.JudgeProvider) Option {
 	return func(c *config) error {
 		c.judgeProvider = jp
@@ -3646,7 +3643,7 @@ func WithSkillSource(src skills.SkillSource) Option {
 
 // WithSkillSelectorOption sets the skill selector for filtering available skills.
 // The selector determines which skills from the available set are presented
-// to the model in the Phase 1 index.
+// to the model in the skill index.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "chat",
 //	    sdk.WithSkillSelectorOption(skills.NewTagSelector([]string{"coding"})),
@@ -3695,7 +3692,7 @@ func WithShutdownManager(mgr *ShutdownManager) Option {
 // WithTelemetryContentCapture attaches conversation content and tool payloads
 // to spans.
 //
-// OFF by default, and deliberately so: tool arguments are composed by the model
+// OFF by default, because tool arguments are composed by the model
 // and carry whatever your tools take — identifiers, addresses, free text, and
 // under on-behalf-of token exchange, live delegated credentials. Exporting a
 // trace exports all of it to whatever backend you have configured. Span
@@ -3704,8 +3701,8 @@ func WithShutdownManager(mgr *ShutdownManager) Option {
 // payload.
 //
 // You cannot achieve this from a tool handler. Three of the four content
-// attributes are produced by the model rather than your code, and the fourth —
-// the tool result — is the same value the MODEL consumes, so redacting it in a
+// attributes are produced by the model rather than your code, and the fourth
+// (the tool result) is the same value the MODEL consumes, so redacting it in a
 // handler withholds it from the model rather than from the trace.
 //
 // Pair with WithTelemetryRedactor when enabling this on tools that take
@@ -3727,8 +3724,8 @@ func WithTelemetryContentCapture(enabled bool) Option {
 // the metrics collector.
 //
 // Applied per subscriber, so each consumer receives its own redacted copy and
-// the underlying event is untouched. Content is customer data — tool arguments
-// the model composed, tool results, message text — and different consumers sit
+// the underlying event is untouched. Content is customer data (tool arguments
+// the model composed, tool results, message text), and different consumers sit
 // behind different trust boundaries, so stripping it at the source would be
 // wrong: it would take the payload from consumers whose purpose is to hold it.
 //

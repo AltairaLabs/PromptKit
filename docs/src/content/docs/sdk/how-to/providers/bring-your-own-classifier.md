@@ -5,7 +5,7 @@ sidebar:
   order: 21
 ---
 
-Inference-backed checks — `audio_emotion`, `image_moderation`, `text_toxicity`, `topic_policy` and friends — call **one interface**, `inference.Provider`, never a specific backend. That means you can plug in *any* classifier: a local ONNX model, a hosted model server, a cloud API, Core ML, whatever. The runtime stays dependency-light; the native code lives in your module.
+Inference-backed checks (`audio_emotion`, `image_moderation`, `text_toxicity`, `topic_policy` and friends) call **one interface**, `inference.Provider`, never a specific backend. That means you can plug in *any* classifier: a local ONNX model, a hosted model server, a cloud API, Core ML, whatever. The runtime stays dependency-light; the native code lives in your module.
 
 ## The interface
 
@@ -32,7 +32,7 @@ type Response struct {
 
 A check reads the probability of the label it cares about — `audio_emotion` with `expected_label: "angry"` reads that label's score, and `topic_policy` compares `on-topic` with `off-topic`.
 
-Audio and image checks deliver the media as an inline part on the first input message; audio arrives at the target rate — SER models want **16 kHz mono** — so your provider owns decode/normalize/run, not resampling.
+Audio and image checks deliver the media as an inline part on the first input message; audio arrives at the target rate (SER models want **16 kHz mono**), so your provider owns decode/normalize/run, not resampling.
 
 ## Registering it
 

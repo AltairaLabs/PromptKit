@@ -134,7 +134,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 // Preloading is best-effort — a skill that fails here can still be activated
 // on first use, so a failure does not abort the open. It is reported, though:
 // when the cause is MaxActive the "activate later" recovery does not hold,
-// because the limit is just as full at first use as it is now (#1953).
+// because the limit is as full at first use as it is now.
 func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet {
 	set := skills.NewActiveSet()
 	if c.executor == nil {

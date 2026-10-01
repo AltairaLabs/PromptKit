@@ -25,8 +25,7 @@ const ExecutorMode = "memory"
 // The scope it was constructed with is a default, not a binding: every call
 // prefers the scope on the context (see [WithScope]). One Executor is all a
 // tools.Registry holds per name, so a host running concurrent conversations
-// over a shared registry must scope per call or their memories cross
-// (#2011).
+// over a shared registry must scope per call or their memories cross.
 type Executor struct {
 	store Store
 	scope map[string]string

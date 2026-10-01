@@ -201,7 +201,7 @@ type EmitterAware interface {
 
 ExecHookConfig holds the configuration for creating exec\-based hooks.
 
-Sandbox, when non\-nil, controls how the hook subprocess is launched. When nil, the exec hooks fall back to the built\-in direct sandbox which matches the historical behavior: exec.CommandContext\(Command, Args...\) in\-process with the local environment. SDK consumers that want their hooks to run elsewhere — in a sidecar, a disposable container, a managed cloud sandbox — construct a Sandbox implementation and pass it here.
+Sandbox, when non\-nil, controls how the hook subprocess is launched. When nil, the exec hooks fall back to the built\-in direct sandbox which matches the historical behavior: exec.CommandContext\(Command, Args...\) in\-process with the local environment. SDK consumers that want their hooks to run elsewhere \(in a sidecar, a disposable container, a managed cloud sandbox\) construct a Sandbox implementation and pass it here.
 
 ```go
 type ExecHookConfig struct {

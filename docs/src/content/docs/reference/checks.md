@@ -143,8 +143,8 @@ Session-level tool checks use the `on_session_complete` or `on_conversation_comp
 
 Unlike the tool checks above (which evaluate tools the agent already
 called), this check **invokes a tool itself** and asserts on the
-result. Typical use is to run a verification tool — a sandbox's
-`run_tests`, a render-and-diff utility, a custom HTTP probe — as the
+result. Typical use is to run a verification tool (a sandbox's
+`run_tests`, a render-and-diff utility, a custom HTTP probe) as the
 hard gate after the conversation completes.
 
 ### `tool_exec`
@@ -428,7 +428,7 @@ conversation_assertions:
 
 These eval primitives call an `inference` provider through its one interface, `Infer` (content in, a probability per label out), and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
-They depend on a provider with `role: inference` being declared in the arena config. Without one — for example a keyless CI run with no `HF_TOKEN` — most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. That difference is deliberate — a safety control that silently does not run is the failure it exists to prevent.
+They depend on a provider with `role: inference` being declared in the arena config. Without one (for example a keyless CI run with no `HF_TOKEN`), most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. The difference exists because a safety control that silently does not run is the failure it exists to prevent.
 
 **Two declaration sites:**
 
@@ -489,7 +489,7 @@ messages, runs it through an `ImageClassifier` (e.g. `Falconsai/nsfw_image_detec
 on HuggingFace), and emits the model's score for `expected_label` (e.g. `nsfw`).
 By default it scores the agent's output (`message_role: assistant`), which also
 covers images a tool produced during the turn — so it moderates images from the
-`image__generate` tool, not just images the model emitted inline.
+`image__generate` tool as well as images the model emitted inline.
 
 **Surfaces:** A E (conversation assertion / guardrail when wrapped; runtime eval when declared in `evals:`)
 
@@ -606,9 +606,9 @@ additional_config:
   timeout_seconds: 20   # optional; default 20
 ```
 
-**Choosing the backend.** Every backend receives the same prompt — NemoGuard
+**Choosing the backend.** Every backend receives the same prompt (NemoGuard
 topic control's trained format: the policy as the instruction, ending with its
-required closing sentence — and is asked for `on-topic` or `off-topic`. The
+required closing sentence) and is asked for `on-topic` or `off-topic`. The
 check allows whichever label gets the higher probability and records that
 probability as `confidence`.
 
@@ -628,7 +628,7 @@ working. Pick a model that will comply with "respond with `on-topic` or
 
 **`timeout_seconds`** (the `openai` and `nvidia-topic-control` types) bounds a
 single classification call. For `nvidia-topic-control` the default of 20s is
-deliberately tight — this call sits in the request path ahead of the agent's own
+tight because this call sits in the request path ahead of the agent's own
 call. Raise it for a NIM answering from cold or a shared endpoint under load: a
 timeout is an error, `on_error` denies, so a too-short timeout takes the
 conversation offline rather than letting anything through. It caps the call
@@ -654,19 +654,10 @@ always wins.
 
 **Declaring `topic_policy` directly as a `validators:` entry is the normal
 form**, and the one `sdk/examples/topic-policy` uses. Wrapping it in `type: guardrail` or
-`type: assertion` now behaves identically: a wrapper inherits the inner check's
+`type: assertion` behaves identically: a wrapper inherits the inner check's
 `direction: input` default and runs the inner check's param validation, so both
 forms gate the user's message and both reject a malformed policy at load.
-
-That was not always true. A wrapper used to resolve defaults against the
-*outer* type name, so `direction` reverted to the shared `output` default and a
-wrapped topic gate let every user message through to the agent, inspecting only
-the reply — while appearing configured. It also skipped the inner check's
-`ValidateParams`, so a misspelled key inside `eval_params` loaded clean and
-produced a policy missing the exclusions its author wrote. If you are reading
-older notes that say wrapping does not work, they describe that fixed state.
-
-Unknown keys are rejected at load time — and rejection is fatal: a pack whose
+Unknown keys are rejected at load time, and rejection is fatal: a pack whose
 validator params `topic_policy` refuses (a misspelled `dissallowed:`, an empty
 `allowed:`, a bad enum value) fails to load rather than opening with the
 guardrail quietly dropped. `min_score` / `max_score` are rejected the same way,
@@ -683,24 +674,24 @@ messages. Tool-result messages in the transcript are filtered out before the
 window is applied, so a turn answered with several tool calls does not evict the
 history an anaphoric follow-up ("What about Azure?") needs to be resolved.
 
-**A previously blocked turn's replacement text is not replayed.** A denied turn
+**Replacement text from an earlier blocked turn is not replayed.** A denied turn
 is persisted with this check's own `message` as the assistant reply; sending it
 back as history would present the guardrail's output to the classifier as the
 agent's voice, spend the anaphora window on a refusal with no subject in it, and
 disclose prior denials the policy never asked to convey. Assistant messages
-finishing for `safety` — this check's substitutions, and provider-side content
-filtering — are dropped before the window is applied, so they do not cost a
+finishing for `safety` (this check's substitutions, and provider-side content
+filtering) are dropped before the window is applied, so they do not cost a
 turn either. The user's denied *message* is kept: it is genuinely what the user
 said, and it is what a follow-up may refer back to.
 
 **`on_unknown` and `on_error` describe the same event today.** They are
-conceptually different — `on_unknown` covers a classifier that answered but
+conceptually different (`on_unknown` covers a classifier that answered but
 gave no usable label, `on_error` covers a classifier that could not be
-reached or parsed, including nothing configured at all — but the only shipped
+reached or parsed, including nothing configured at all), but the only shipped
 backend (`nvidia-topic-control`) is a label-emitting chat model: any response
 that isn't exactly its two trained labels already falls to `on_unknown`, and
 everything else that can go wrong (network, non-2xx, malformed JSON) is an
-actual error. In practice both params currently mean "the classifier did not
+actual error. In practice both params mean "the classifier did not
 give an actionable answer," and most pack authors should set them the same
 way. The split exists for a future backend that can distinguish "infrastructure
 is down" from "genuinely unsure" with different confidence.
@@ -758,8 +749,8 @@ Turn-level LLM evaluation. The judge sees the current assistant response and eva
 ### `llm_judge_session`
 
 Session-level LLM evaluation. The judge sees a full role-labeled transcript of the
-conversation — every turn (user, assistant, and any other role), plus every tool
-call with its arguments and result — so tool-using and observer agents are judged
+conversation (every turn: user, assistant, and any other role, plus every tool
+call with its arguments and result), so tool-using and observer agents are judged
 on what they actually did, not only on their prose. Alias: `llm_judge_conversation`.
 
 Same params as `llm_judge`. **Surfaces:** A E
@@ -888,7 +879,7 @@ assertions:
 ```
 
 :::note[Three-role model]
-RAG checks are eval primitives invoked as assertions. They can also be wired as guardrails via `runtime/hooks/guardrails/factory.go` — guardrails always enforce (there is no monitor-only mode) — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
+RAG checks are eval primitives invoked as assertions. They can also be wired as guardrails via `runtime/hooks/guardrails/factory.go`. Guardrails always enforce (there is no monitor-only mode), but for retrieval quality the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
 :::
 
 ---
@@ -921,7 +912,7 @@ Any check used as a guardrail accepts a `direction` param:
 | Value | Evaluates | On a hit |
 |---|---|---|
 | `output` (default) | the assistant response | rewrites the response (truncate/replace) and stops the provider round loop |
-| `input` | the user's message, before the LLM call | blocks the call entirely — no tokens spent — and returns a canned assistant turn |
+| `input` | the user's message, before the LLM call | blocks the call entirely (no tokens spent) and returns a canned assistant turn |
 | `both` | input, then output | whichever fires first |
 
 `direction` lives inside `params` (the PromptPack spec allows arbitrary keys there):
@@ -948,15 +939,15 @@ Input guardrails are evaluated **once per user turn**, not once per provider rou
 check runs only when the last message is a user message, so a tool-using turn does not
 re-run (and re-bill) an LLM-judged check on every round.
 
-A check marked `G` in the table above evaluates whichever side `direction` selects — the
-content under test — so the pattern-matching checks (`contains`, `regex`,
+A check marked `G` in the table above evaluates whichever side `direction` selects (the
+content under test), so the pattern-matching checks (`contains`, `regex`,
 `content_excludes` / `banned_words`, `contains_any`) work in either direction. As an output
 guardrail such a check judges that response only: neither the user's message nor an earlier
 assistant turn affects the verdict, so one tripped turn does not re-block the rest of the
 conversation.
 
-Used as an eval or assertion instead, the same checks scan the whole transcript — "was this
-ever said" — which is the behavior those surfaces rely on.
+Used as an eval or assertion instead, the same checks scan the whole transcript ("was this
+ever said"), which is the behavior those surfaces rely on.
 
 Programmatically, use the directional constructors instead of raw params:
 
@@ -1106,7 +1097,7 @@ evals:
 
 `guardrail_triggered` inspects prior eval results in the same batch, verifying that a specific guardrail did (or did not) fire. Pipeline-level guardrail firings are seeded into those prior results from the assistant message's validations, so a guardrail that fired during the turn is visible here without any extra wiring.
 
-`direction` narrows the match to the side the guardrail judged — `input` (the user's message, before the LLM call) or `output` (the assistant response) — mirroring the [`direction` param on the guardrail declaration](#guardrail-direction):
+`direction` narrows the match to the side the guardrail judged, `input` (the user's message, before the LLM call) or `output` (the assistant response), mirroring the [`direction` param on the guardrail declaration](#guardrail-direction):
 
 ```yaml
 assertions:

@@ -45,7 +45,7 @@ type ProviderTransportError struct {
 // this error reformats the same text, so one failure would otherwise write the
 // credential to the log repeatedly.
 //
-// Unwrap deliberately still returns the raw cause: errors.Is/As must keep
+// Unwrap still returns the raw cause: errors.Is/As must keep
 // working against the original *url.Error. Anything that formats the unwrapped
 // cause directly bypasses this, which is why the credential should not be in
 // the URL to begin with.

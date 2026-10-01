@@ -12,7 +12,7 @@ import (
 
 // EvalTrigger names when an eval fires.
 //
-// The constants below are deliberately UNTYPED. $defs/Eval types `trigger` as a
+// The constants below are UNTYPED. $defs/Eval types `trigger` as a
 // plain string with no enum, so the generated EvalDef.Trigger is a string; an
 // untyped constant assigns to both that and EvalTrigger, which keeps the
 // vocabulary in one place without forcing a conversion at every call site.
@@ -170,8 +170,8 @@ var ValidMetricTypes = map[MetricType]bool{
 //     where the spec defines {operator, value} with additionalProperties:false.
 //     A spec-authored threshold loaded as all-nil and emitted as {}; a
 //     promptkit one emitted a document the schema rejects. Nothing in promptkit
-//     reads the field — an eval never states a pass/fail, only an assertion or
-//     guardrail coerces one — so it existed solely to be serialized wrongly.
+//     reads the field (an eval never states a pass/fail, only an assertion or
+//     guardrail coerces one), so it existed solely to be serialized wrongly.
 //
 // The accessors below were methods. A type alias cannot carry methods
 // ("cannot define new methods on non-local type"), so they are free functions
@@ -295,7 +295,7 @@ func SetMetricLabels(m *MetricDef, labels map[string]string) {
 
 // MetricLabels returns the Prometheus labels a metric declares, or nil.
 //
-// labels live in MetricDef.Extra because the spec deliberately does not define
+// labels live in MetricDef.Extra because the spec does not define
 // them (RFC 0006: "the spec defines the envelope; runtimes extend it"). This
 // keeps the type assertion in one place rather than at each call site, which is
 // where a silent nil creeps in. A labels value of the wrong shape yields nil

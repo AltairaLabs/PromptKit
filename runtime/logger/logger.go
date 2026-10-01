@@ -157,8 +157,8 @@ func SetVerbose(verbose bool) {
 // The provided logger is also set as the slog default so that any
 // code using slog directly picks it up.
 //
-// Once a custom logger is set, SetLevel and SetVerbose will no longer
-// recreate the handler — the custom logger is preserved until reset.
+// Once a custom logger is set, SetLevel and SetVerbose do not recreate
+// the handler — the custom logger is preserved until reset.
 // Pass nil to reset to the built-in default logger.
 func SetLogger(l *slog.Logger) {
 	if l == nil {

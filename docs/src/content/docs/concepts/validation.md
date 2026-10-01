@@ -59,10 +59,10 @@ downstream pipeline stage still runs.
   blocker. Guardrails always act — there is no log-only mode. If you want to record a
   violation without changing the response, declare an eval and assert on it instead.
 - **Input guardrails** (`direction: input`): evaluated before the provider call. On a hit
-  the call is never made — no tokens are spent — and the conversation returns a canned
+  the call is never made (no tokens are spent), and the conversation returns a canned
   assistant turn (`message`, falling back to the default blocked message). Evaluated once
   per user turn, not once per tool round.
-- **Round termination**: when a guardrail enforces — input or output — the round loop stops,
+- **Round termination**: when a guardrail enforces, input or output, the round loop stops,
   so no further provider/tool rounds run for that turn. Any tool calls requested by an
   enforced output response are dropped rather than executed.
 
@@ -91,7 +91,7 @@ See the [Checks Reference](/reference/checks/#extending-the-check-system) for im
 | **Check type** | The identifier for a check implementation (e.g., `contains`, `regex`, `banned_words`) |
 
 :::note
-The docs previously used "validator" as a synonym for "guardrail." We now consistently use **guardrail** for the runtime enforcement surface. You will still see `validators:` as the YAML key in pack files for backward compatibility.
+These docs use **guardrail** for the runtime enforcement surface. The YAML key in pack files is `validators:`, kept for backward compatibility.
 :::
 
 ## See Also

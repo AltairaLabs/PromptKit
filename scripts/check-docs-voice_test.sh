@@ -105,4 +105,16 @@ d=$(fixture reference/)
 printf 'See docs/local-backlog/voice.md for the plan.\n' > "$d/$P/reference/a.md"
 run_case "internal reference flagged" 1 "$d" 'a.md:1: internal'
 
+d=$(fixture reference/)
+printf 'It used to fail (#1234). Simply retry.\n' > "$d/$P/reference/a.md"
+printf '# exemptions\nreference/a.md\thistory,issue-ref\n' > "$d/scripts/docs-voice-exempt.txt"
+run_case "exempt rules are dropped for that page" 1 "$d" 'a.md:1: filler'
+out=$(bash "$SCRIPT" --root "$d" 2>&1)
+if grep -qE 'history|issue-ref' <<<"$out"; then echo "FAIL - exempt rules stay dropped"; FAILURES=1; else echo "ok   - exempt rules stay dropped"; fi
+
+d=$(fixture reference/)
+printf 'Simply retry.\n' > "$d/$P/reference/a.md"; printf 'Simply retry.\n' > "$d/$P/reference/b.md"
+printf 'reference/a.md\t*\n' > "$d/scripts/docs-voice-exempt.txt"
+run_case "a * exemption covers every rule on that page only" 1 "$d" 'b.md:1: filler'
+
 exit $FAILURES

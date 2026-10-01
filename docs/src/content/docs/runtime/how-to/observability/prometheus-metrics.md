@@ -85,8 +85,8 @@ Every other metric on this page is derived from events. These are not, and the
 difference matters precisely when you need them.
 
 The event bus drops events when its buffer is full, counting the casualties in
-`DroppedCount()`. That is the correct behavior — a realtime audio pipeline must
-not block on telemetry — but it means bus-derived metrics under-report exactly
+`DroppedCount()`. That is the correct behavior, because a realtime audio pipeline must
+not block on telemetry, but it means bus-derived metrics under-report exactly
 during the burst that caused the drop. An audio underrun metric that loses
 counts when audio is struggling measures the wrong thing at the only moment it
 is being read.
@@ -104,10 +104,10 @@ though it costs an extra line.
 `direction` is `input` (audio arriving from the user) or `output` (audio being
 played back). Nothing else appears in it.
 
-There is deliberately **no stream, session, or conversation label**. A realtime
+There is **no stream, session, or conversation label**. A realtime
 deployment opens one session per call, so a session-labeled counter grows a new
 time series per call and never stops — the classic unbounded-cardinality
-failure, which takes the whole Prometheus instance down rather than just this
+failure, which takes the whole Prometheus instance down rather than only this
 metric. Aggregate health is the question these answer: *is audio breaking up
 right now, in which direction*. Attributing a stutter to one specific call is a
 tracing question, and the span carries the session ID.

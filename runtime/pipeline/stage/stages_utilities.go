@@ -145,10 +145,9 @@ func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage {
 }
 
 // NewTemplateStageWithTurnState creates a template stage that uses a shared
-// *TurnState as a per-Turn render cache. This is the per-#1035 fix path:
-// the system_template is rendered once per Send regardless of how many
-// elements flow through (history loaders fan-out N elements per turn but
-// this stage now does a single render).
+// *TurnState as a per-Turn render cache. The system_template is rendered
+// once per Send regardless of how many elements flow through (history
+// loaders fan-out N elements per turn but this stage does a single render).
 func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState) *TemplateStage {
 	return &TemplateStage{
 		BaseStage: NewBaseStage("template", StageTypeTransform),
@@ -675,7 +674,8 @@ type ContextBuilderPolicy struct {
 // Truncation strategies (TruncationStrategy):
 //   - TruncateOldest: removes oldest messages first (keeps most recent context)
 //   - TruncateLeastRelevant: removes least relevant messages (requires RelevanceConfig with EmbeddingProvider)
-//   - TruncateSummarize: not yet implemented (returns error)
+//   - TruncateSummarize: replaces older messages with a summary from the policy's Summarizer
+//     (falls back to TruncateOldest without one)
 //   - TruncateFail: returns error if budget exceeded (strict mode)
 //
 // Configuration (ContextBuilderPolicy):

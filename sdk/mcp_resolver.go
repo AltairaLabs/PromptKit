@@ -12,8 +12,8 @@ type MCPEndpoint struct {
 // MCPEndpointResolver maps an MCP server name to a live endpoint.
 //
 // The SDK calls Resolve at conversation open for any server declared by
-// name (without a static URL or stdio Command) so the host — Omnia, a
-// dev-only docker shim, a custom orchestrator — can decide where the
+// name (without a static URL or stdio Command) so the host (Omnia, a
+// dev-only docker shim, a custom orchestrator) can decide where the
 // server actually lives. Pack/agent authors stay oblivious to
 // provisioning concerns.
 //

@@ -709,8 +709,8 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage {
 // EventAudioTranscription for each completed transcription.
 //
 // The event type and its payload (events.AudioTranscriptionData) were declared
-// and already consumed — session export writes transcriptions out as subtitles,
-// and annotated sessions query them by type — but nothing produced them, so
+// and already consumed (session export writes transcriptions out as subtitles,
+// and annotated sessions query them by type), but nothing produced them, so
 // subscribers waited forever and both consumers saw an empty set. Applications
 // wanting a live transcript had to thread their own callback through the stage
 // graph instead.

@@ -56,19 +56,18 @@ func (c *MemoryCapability) Init(_ CapabilityContext) error { return nil }
 // RegisterTools implements Capability. Registers the memory executor and
 // tool descriptors, plus any custom tools from ToolProvider stores.
 //
-// When the scope carries no value for the subject key — "user_id" by
-// default, or whatever [WithMemorySubjectKey] declared — tools are NOT
-// registered: the LLM simply doesn't see memory as an option. This
-// prevents confusing backend errors when the memory store rejects
-// operations for an anonymous subject. See AltairaLabs/PromptKit#852.
-// The skip is logged at Warn naming both the key looked for and the keys
-// the scope actually has, because the symptom otherwise surfaces three
-// layers away as "tool not registered" (#1946).
+// When the scope carries no value for the subject key ("user_id" by
+// default, or whatever [WithMemorySubjectKey] declared), tools are NOT
+// registered: the LLM doesn't see memory as an option. This prevents
+// confusing backend errors when the memory store rejects operations for an
+// anonymous subject. The skip is logged at Warn naming both the key looked
+// for and the keys the scope actually has, because the symptom otherwise
+// surfaces three layers away as "tool not registered".
 //
 // When tools are disabled via [WithMemoryToolsDisabled], no executor or
 // tool descriptors are registered at all — the LLM never sees memory as an
 // option, but ambient RAG injection still works because the retriever is
-// wired separately from this method (see AltairaLabs/PromptKit#1427).
+// wired separately from this method.
 func (c *MemoryCapability) RegisterTools(registry *tools.Registry) {
 	if c.toolsDisabled {
 		logger.Debug("memory tools skipped: tools disabled (retriever-only mode)")

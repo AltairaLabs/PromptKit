@@ -38,7 +38,7 @@ The pre-commit hook runs four checks:
 
 ### Normal Workflow
 
-Just commit as usual - the hook runs automatically:
+Commit as usual. The hook runs automatically:
 
 ```bash
 git add .

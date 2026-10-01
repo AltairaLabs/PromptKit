@@ -178,7 +178,7 @@ result, err := pipeline.ExecuteSync(ctx, inputElements...)
 // result.Response contains the final response
 ```
 
-This is just `Execute()` + drain and accumulate.
+This is `Execute()` + drain and accumulate.
 
 ## Execution Modes
 
@@ -374,8 +374,8 @@ These events are automatically emitted by the pipeline — stage authors don't n
 
 `RecordingStage` is an observe-only stage that writes content-carrying events
 **directly to an `EventStore`**, bypassing the EventBus. That is what lets it
-stay synchronous, lossless and full-fidelity — it retains binary content for
-replay — at the cost of back-pressuring the pipeline on a slow sink.
+stay synchronous, lossless and full-fidelity (it retains binary content for
+replay) at the cost of back-pressuring the pipeline on a slow sink.
 
 ```go
 stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{
@@ -411,7 +411,7 @@ It is added whenever an event emitter is configured, so it needs no
 `EventStore`, no `WithRecording()` and no state store. It is the route a TUI, an
 SSE relay or a log tail wants.
 
-The two stages differ in exactly one payload field, deliberately: the bus route
+The two stages differ in exactly one payload field: the bus route
 strips binary content parts to metadata, the recording route retains them. Both
 build through `events.NewMessageCreatedData`, so nothing else can drift.
 

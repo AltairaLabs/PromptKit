@@ -332,7 +332,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 // Exported because detecting it is a caller's decision. Returning prose is the
 // right trade against losing a completed tool loop's work, but only if the
 // caller can tell it happened — an unmarked fallback is indistinguishable from
-// a model that simply answered in prose, which is the unobservable-success
+// a model that answered in prose, which is the unobservable-success
 // failure this whole mode exists to remove.
 const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
 

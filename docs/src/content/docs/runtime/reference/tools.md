@@ -653,7 +653,7 @@ ExecExecutor runs tool invocations as one\-shot subprocesses. The tool arguments
 
 ### Security: Trust Boundary
 
-The command and arguments executed by ExecExecutor come from pack files \(tool definitions\) and runtime config files \(YAML manifests\). These config files are the trust boundary: commands are not sandboxed, validated, or restricted in any way. This is by design for maximum flexibility.
+The command and arguments executed by ExecExecutor come from pack files \(tool definitions\) and runtime config files \(YAML manifests\). These config files are the trust boundary: commands are not sandboxed, validated, or restricted in any way, which keeps the executor maximally flexible.
 
 Pack files and runtime config files MUST come from trusted sources. Untrusted or unreviewed packs should never be loaded, as they can execute arbitrary commands with the privileges of the host process.
 
@@ -1214,7 +1214,7 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
 
 <a name="Registry.Child"></a>
-### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L30>)
+### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L29>)
 
 ```go
 func (r *Registry) Child(opts ...RegistryOption) *Registry
@@ -1222,16 +1222,16 @@ func (r *Registry) Child(opts ...RegistryOption) *Registry
 
 Child returns a registry that shares this one's tool DESCRIPTORS but owns its own EXECUTORS.
 
-The split is deliberate. Executors are the dangerous half: they are keyed by name, one per name, and several hold per\-conversation state, so sharing them across conversations is the bug. Descriptors are data, and a host that passes a registry in with WithToolRegistry reads it back to inspect and override the tool set \-\- sdk/integration/contract\_tool\_overrides\_test.go asserts exactly that. So Register writes through to the parent and only RegisterExecutor stays local.
+Executors are the dangerous half: they are keyed by name, one per name, and several hold per\-conversation state, so sharing them across conversations is the bug. Descriptors are data, and a host that passes a registry in with WithToolRegistry reads it back to inspect and override the tool set \-\- sdk/integration/contract\_tool\_overrides\_test.go asserts exactly that. So Register writes through to the parent and only RegisterExecutor stays local.
 
-A Registry keys executors by name and holds exactly one per name, so a host that shares a single registry across concurrent conversations had each conversation's executors overwrite the previous one's \-\- and with them any per\-conversation state those executors held. Giving each conversation a child makes that unrepresentable rather than merely avoided: RegisterExecutor writes to the child, and executor lookup falls through to the parent only for names the child never claimed, so a host's own custom executor is still used. See AltairaLabs/PromptKit\#2011.
+A Registry keys executors by name and holds exactly one per name, so a host that shares a single registry across concurrent conversations has each conversation's executors overwrite the previous one's \-\- and with them any per\-conversation state those executors held. Giving each conversation a child makes that unrepresentable rather than merely avoided: RegisterExecutor writes to the child, and executor lookup falls through to the parent only for names the child never claimed, so a host's own custom executor is still used.
 
 Descriptor lookup is live, not a snapshot. A tool registered on the parent after the child was created is visible to the child, which is what a copy\-at\-creation child would get wrong.
 
 Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without branching on whether the host supplied one.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L443-L445>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L440-L442>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
@@ -1240,7 +1240,7 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 Execute executes a tool with the given arguments
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L557-L559>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L554-L556>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1262,7 +1262,7 @@ Use this to give each concurrent run its own per\-run dispatch state — a per\-
 Memory cost is two shallow map copies; descriptor and executor values are pointer\-typed so the underlying objects are shared.
 
 <a name="Registry.Get"></a>
-### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L222>)
+### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L221>)
 
 ```go
 func (r *Registry) Get(name string) *ToolDescriptor
@@ -1271,7 +1271,7 @@ func (r *Registry) Get(name string) *ToolDescriptor
 Get retrieves a tool descriptor by name, or nil when none is registered.
 
 <a name="Registry.GetByNamespace"></a>
-### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L376>)
+### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L375>)
 
 ```go
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
@@ -1280,7 +1280,7 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
 GetByNamespace returns all tool descriptors in the given namespace.
 
 <a name="Registry.GetTool"></a>
-### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L334>)
+### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L333>)
 
 ```go
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
@@ -1289,7 +1289,7 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
 GetTool retrieves a tool descriptor by name.
 
 <a name="Registry.GetTools"></a>
-### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L345>)
+### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L344>)
 
 ```go
 func (r *Registry) GetTools() map[string]*ToolDescriptor
@@ -1298,7 +1298,7 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor
 GetTools returns all loaded tool descriptors. The returned map is a shallow copy \(safe to iterate/delete keys\), but the \*ToolDescriptor pointers are shared with the registry. Callers MUST NOT mutate the returned descriptors.
 
 <a name="Registry.GetToolsByNames"></a>
-### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L363>)
+### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L362>)
 
 ```go
 func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
@@ -1307,7 +1307,7 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
 GetToolsByNames returns tool descriptors for the specified names
 
 <a name="Registry.IterateTools"></a>
-### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L356>)
+### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L355>)
 
 ```go
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor))
@@ -1316,7 +1316,7 @@ func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor))
 IterateTools calls fn for each loaded tool descriptor while holding the read lock. This avoids the map copy that GetTools performs, which matters when the registry is large and the caller only needs to inspect each tool once \(e.g. building a provider tool list\). The callback MUST NOT call back into the Registry \(deadlock\).
 
 <a name="Registry.List"></a>
-### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L228>)
+### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L227>)
 
 ```go
 func (r *Registry) List() []string
@@ -1325,7 +1325,7 @@ func (r *Registry) List() []string
 List returns the names of every registered tool, sorted.
 
 <a name="Registry.LoadToolFromBytes"></a>
-### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L242>)
+### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L241>)
 
 ```go
 func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
@@ -1334,7 +1334,7 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
 LoadToolFromBytes loads a tool descriptor from raw bytes data. This is useful when tool data has already been read from a file or received from another source, avoiding redundant file I/O. The filename parameter is used only for error reporting.
 
 <a name="Registry.MaxToolResultSize"></a>
-### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L423>)
+### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L420>)
 
 ```go
 func (r *Registry) MaxToolResultSize() int
@@ -1352,7 +1352,7 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error
 Register adds a tool descriptor to the registry with validation.
 
 <a name="Registry.RegisterExecutor"></a>
-### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L401>)
+### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L398>)
 
 ```go
 func (r *Registry) RegisterExecutor(executor Executor)
@@ -1360,12 +1360,12 @@ func (r *Registry) RegisterExecutor(executor Executor)
 
 RegisterExecutor registers a tool executor under its Executor.Name.
 
-A registry holds exactly one executor per name, so registering a second one under a name already taken EVICTS the first. That is almost always a bug: two owners \-\- typically two conversations sharing a registry \-\- each believe they installed the executor that serves their tool calls, and the loser silently starts getting the winner's answers, along with whatever per\-conversation state the winner's executor holds. Every bug in AltairaLabs/PromptKit\#2011 was that, and all of them were invisible because this used to overwrite without a word.
+A registry holds exactly one executor per name, so registering a second one under a name already taken EVICTS the first. That is almost always a bug: two owners \-\- typically two conversations sharing a registry \-\- each believe they installed the executor that serves their tool calls, and the loser silently starts getting the winner's answers, along with whatever per\-conversation state the winner's executor holds.
 
-So it now says so, at Warn. Nothing in PromptKit legitimately re\-registers a name on the same registry \-\- each conversation owns its own \(see [Registry.Child](<#Registry.Child>)\), and a workflow state change opens a fresh conversation with a fresh registry \-\- so in practice this fires only on the bug.
+RegisterExecutor logs the eviction at Warn. Nothing in PromptKit legitimately re\-registers a name on the same registry \-\- each conversation owns its own \(see [Registry.Child](<#Registry.Child>)\), and a workflow state change opens a fresh conversation with a fresh registry \-\- so in practice this fires only on the bug.
 
 <a name="Registry.Unregister"></a>
-### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L204>)
+### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L203>)
 
 ```go
 func (r *Registry) Unregister(name string) bool
@@ -1375,7 +1375,7 @@ Unregister removes a tool descriptor by name. Returns true if a descriptor was r
 
 Used when a workflow state machine transitions into a terminal state: the previous state's workflow\_\_transition descriptor \(with its now\-stale enum of events\) must be torn down so the LLM can't call it against a dead state. Safe to call concurrently with Get/List.
 
-Removal is final for every read path — Get, GetTool and List all read the same store. There is no repository fallback to resurrect the descriptor \(\#1951\).
+Removal is final for every read path — Get, GetTool and List all read the same store. There is no repository fallback to resurrect the descriptor.
 
 <a name="RegistryOption"></a>
 ## type [RegistryOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L48>)
@@ -1572,7 +1572,7 @@ NewSchemaValidatorWithSize creates a new schema validator with the given maximum
 func (sv *SchemaValidator) CacheLen() int
 ```
 
-CacheLen returns the number of entries currently in the schema cache. Exported for testing and monitoring.
+CacheLen returns the number of entries in the schema cache. Exported for testing and monitoring.
 
 <a name="SchemaValidator.CoerceArgs"></a>
 ### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L375-L377>)
@@ -1603,7 +1603,7 @@ func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.
 
 CoerceResult attempts to coerce simple type mismatches in tool results.
 
-Currently this is a pass\-through: if the result validates, it is returned as\-is; otherwise validation is re\-attempted after a round\-trip through JSON \(which normalises whitespace/encoding\). Actual type coercion \(e.g., string↔number\) is not yet implemented — the Coercion slice is always empty.
+This is a pass\-through: if the result validates, it is returned as\-is; otherwise validation is re\-attempted after a round\-trip through JSON \(which normalises whitespace/encoding\). Actual type coercion \(e.g., string↔number\) is not implemented — the Coercion slice is always empty.
 
 <a name="SchemaValidator.ValidateArgs"></a>
 ### func \(\*SchemaValidator\) [ValidateArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L124>)
@@ -1632,7 +1632,7 @@ Each tool gets its own subprocess, started lazily on first invocation. Requests 
 
 ### Security: Trust Boundary
 
-The command and arguments used to start server processes come from pack files \(tool definitions\) and runtime config files \(YAML manifests\). These config files are the trust boundary: commands are not sandboxed, validated, or restricted in any way. This is by design for maximum flexibility.
+The command and arguments that start server processes come from pack files \(tool definitions\) and runtime config files \(YAML manifests\). These config files are the trust boundary: commands are not sandboxed, validated, or restricted in any way, which keeps the executor maximally flexible.
 
 Pack files and runtime config files MUST come from trusted sources. Untrusted or unreviewed packs should never be loaded, as they can execute arbitrary commands with the privileges of the host process.
 
@@ -1712,7 +1712,7 @@ type ToolConfig struct {
 func (c *ToolConfig) FunctionName() string
 ```
 
-FunctionName is the name the LLM calls the tool by: spec.name when set, otherwise metadata.name. metadata.name is a resource name, where hyphens are conventional, so it cannot always be a function name \(issue \#2081\).
+FunctionName is the name the LLM calls the tool by: spec.name when set, otherwise metadata.name. metadata.name is a resource name, where hyphens are conventional, so it cannot always be a function name.
 
 <a name="ToolDescriptor"></a>
 ## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L111-L138>)
@@ -1813,7 +1813,7 @@ const (
 <a name="ToolRepository"></a>
 ## type [ToolRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L41-L45>)
 
-ToolRepository is the source a registry is LOADED from at construction: NewRegistryWithRepository copies every descriptor it lists into the registry and does not consult it again. It is a loader, not a store — pack content is immutable for a session, so there is nothing to re\-read and nothing to write back \(\#1951\). Local interface to avoid import cycles.
+ToolRepository is the source a registry is LOADED from at construction: NewRegistryWithRepository copies every descriptor it lists into the registry and does not consult it again. It is a loader, not a store — pack content is immutable for a session, so there is nothing to re\-read and nothing to write back. Local interface to avoid import cycles.
 
 ```go
 type ToolRepository interface {

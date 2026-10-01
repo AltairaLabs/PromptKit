@@ -32,9 +32,9 @@ var urlSecretParams = regexp.MustCompile(
 // It exists because credentials in URLs reach logs through error strings, not
 // through the logger. Gemini carries its API key as `?key=`, Go's *url.Error
 // embeds the full URL, and every layer that wraps that error reformats the same
-// text — so one transport failure wrote a live key to the log several times
+// text, so one transport failure can write a live key to the log several times
 // over. Redacting where the error is FORMATTED covers every wrapping layer at
-// once, and covers any provider, not just the one that was noticed.
+// once, and covers every provider.
 //
 // This is a backstop, not the primary defense. A credential is better kept out
 // of the URL entirely — see the Gemini provider's x-goog-api-key header.

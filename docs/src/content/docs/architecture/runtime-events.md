@@ -151,8 +151,8 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 
 An **eval** measures and returns a value; it does not pass or fail, and its
 `Passed` is always nil. Only a role that coerces that measurement to a
-boolean — an **assertion** (score against thresholds) or a **guardrail** (the
-same shape, used to gate rather than to report) — states one.
+boolean, an **assertion** (score against thresholds) or a **guardrail** (the
+same shape, gating rather than reporting), states one.
 
 Do not derive the boolean yourself. `Passed` was once computed from
 `score >= 1.0`, which reported an `llm_judge` scoring 0.9 as FAILED: that
@@ -221,7 +221,7 @@ which one a consumer is on changes what it receives:
 
 Both build the payload with `events.NewMessageCreatedData`, so `Parts` is the
 only difference. `Index` is transcript-absolute on both. Because the bus makes
-no ordering promise — it dispatches through a worker pool — subscribers should
+no ordering promise (it dispatches through a worker pool), subscribers should
 order by `Index` rather than by arrival.
 
 :::tip[Read `GetContent()`, not `.Content`]
@@ -262,7 +262,7 @@ emitter.EmitCustom("middleware.cache.hit", events.CustomEventData{
 
 ### Ordering and nesting
 
-This page lists event *types*; it deliberately does not restate their order. Provider and
+This page lists event *types*; it does not restate their order. Provider and
 tool events are emitted inside a round loop that can repeat many times per turn, and a
 turn can run several provider stages. See [The Hook System](/sdk/explanation/hooks/#execution-ordering)
 for the canonical timeline showing where each event sits relative to the hooks.
@@ -430,7 +430,7 @@ if err != nil {
 
 ## Design Principles
 
-### Asynchronous, and lossy on purpose
+### Asynchronous and lossy
 
 `Publish` hands the event to a buffered channel drained by a worker pool. It
 never blocks the pipeline, and it **returns `false` when the event was dropped**
@@ -453,8 +453,8 @@ func (eb *EventBus) Publish(event *Event) bool {
 Two consequences a consumer must design around:
 
 - **Delivery is not guaranteed.** Under burst, events are dropped so
-  observability never stalls the pipeline. Anything that must be complete —
-  a transcript, an audit trail — reads the state store or a recording, not the
+  observability never stalls the pipeline. Anything that must be complete
+  (a transcript, an audit trail) reads the state store or a recording, not the
   bus.
 - **Arrival order is not publish order.** A pool of workers drains the channel,
   so listeners can receive out of order. `Event.Sequence` is a monotonic
@@ -479,8 +479,8 @@ Handling binary is precisely what the **opt-in recording route** exists for.
 `RecordingStage` writes straight to an `EventStore` and never publishes, so
 turning recording on does not start putting payloads on the bus.
 
-The API enforces it structurally: `events.Emitter` — the only thing that
-publishes — has no method that accepts raw bytes, and `BinaryPayload` is
+The API enforces it structurally: `events.Emitter`, the only thing that
+publishes, has no method that accepts raw bytes, and `BinaryPayload` is
 constructed only by the recording stage and the blob store. A bus subscriber
 sees MIME type, dimensions, size and URL references; never the bytes.
 
@@ -521,7 +521,7 @@ received nothing or the wrong thing.
 | Availability | wherever an emitter is configured | opt-in: `WithRecording` + an `EventStore` |
 | Purpose | observability, live views | replay, audit |
 
-An event may take **both** — `message.created` does — but then both producers
+An event may take **both** (`message.created` does), but then both producers
 must build the payload through **one shared constructor**, so the two cannot
 drift. `events.NewMessageCreatedData` is the worked example; before it existed,
 the recording route silently omitted `Index` while the bus route set it.

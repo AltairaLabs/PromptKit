@@ -65,7 +65,7 @@ const (
 //
 // These are the single-process h2 pool controls that bound how many
 // concurrent streams a provider can multiplex to a single upstream
-// host. See AltairaLabs/PromptKit#873 for background: in combination
+// host. In combination
 // with the upstream's advertised SETTINGS_MAX_CONCURRENT_STREAMS
 // (RFC 7540 §6.5.2), MaxConnsPerHost is the wall that determines the
 // realistic steady-state ceiling for concurrent streams per process.
@@ -295,7 +295,7 @@ func (b *BaseProvider) GetStreamingHTTPClient() *http.Client {
 // SetHTTPTimeout replaces the request/response HTTP client with a new one
 // that uses the given timeout while preserving the existing transport
 // configuration. Does not affect the streaming client, which remains at
-// Timeout=0 by design.
+// Timeout=0.
 func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 	var transport http.RoundTripper
 	if b.client != nil {
@@ -321,8 +321,8 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 // traffic to the same upstream.
 //
 // This is the hook CreateProviderFromSpec uses to apply per-provider
-// connection pool config (see ProviderSpec.HTTPTransport and
-// AltairaLabs/PromptKit#873). Provider factories are not aware of this
+// connection pool config (see ProviderSpec.HTTPTransport).
+// Provider factories are not aware of this
 // plumbing — they create their client with the default pooled transport
 // and the spec wiring replaces it after construction when the operator
 // has configured overrides.
@@ -354,9 +354,9 @@ func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 	b.customHeaders = headers
 }
 
-// SetMediaStorageService injects the media storage service used to resolve
+// SetMediaStorageService injects the media storage service that resolves
 // MediaContent.StorageReference values at request-build time. Nil (the default)
-// preserves prior behavior. See MediaStorageConfigurable in registry.go.
+// disables storage-reference resolution. See MediaStorageConfigurable in registry.go.
 func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService) {
 	b.mediaStorage = store
 }

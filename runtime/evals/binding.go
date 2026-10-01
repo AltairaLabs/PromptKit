@@ -40,8 +40,8 @@ var ErrWrongKind = errors.New("provider bound to this key cannot do what the che
 //
 // Implementations live with the host (the SDK, Arena), because only the host
 // knows what it has. Each method answers for one KIND of use, so a mismatch is
-// reported as a mismatch — "you bound an embedder to the name a judge check
-// uses" — rather than as an absence, which is what makes the failure legible.
+// reported as a mismatch ("you bound an embedder to the name a judge check
+// uses") rather than as an absence, which makes the failure legible.
 type ProviderBinding interface {
 	// LLM returns a provider that can run completions, for the logical key —
 	// what a judge-backed check needs. ErrWrongKind when the host bound

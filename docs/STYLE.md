@@ -240,5 +240,7 @@ lists, re-checking only the claims whose sources changed.
   rules above. `scripts/check-docs-voice.sh` applies it, together with the
   em-dash, ASCII-diagram and unterminated-fence rules. Findings fail in
   directories listed in `scripts/docs-voice-enforced.txt` and warn
-  elsewhere.
+  elsewhere. `scripts/docs-voice-exempt.txt` drops a rule for a page whose
+  purpose contradicts it (upgrade notes and the history rule, a verbatim
+  code of conduct).
 - `docs/check-mermaid.mjs` parses every Mermaid diagram.

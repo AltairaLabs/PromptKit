@@ -10,7 +10,7 @@ import (
 
 // Store defines the interface for persistent conversation state storage.
 //
-// Store is read-shaped: it deliberately does not include bulk-write methods.
+// Store is read-shaped: it does not include bulk-write methods.
 // Callers needing to persist state should use the typed write interfaces
 // (MessageAppender, MetadataAccessor.MergeMetadata, SummaryAccessor.SaveSummary).
 // Admin/seed paths that need to replace whole state should type-assert for
@@ -89,7 +89,7 @@ type MessageAppender interface {
 // fall back to Store.Load when LoadMetadata is unavailable, and writes fall
 // back to BulkWriter when MergeMetadata is unavailable.
 type MetadataAccessor interface {
-	// LoadMetadata returns just the metadata map for the given conversation.
+	// LoadMetadata returns only the metadata map for the given conversation.
 	// Returns ErrNotFound if the conversation doesn't exist.
 	// The returned map is a deep copy safe for mutation by the caller.
 	LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
@@ -117,7 +117,7 @@ type SummaryAccessor interface {
 // (JSON-encoded by the caller) per conversation. Each list is keyed by
 // a stable name (e.g. "workflow.history").
 //
-// Stores that implement this interface persist appends incrementally —
+// Stores that implement this interface persist appends incrementally:
 // MemoryStore in a Go slice, RedisStore as a Redis list (RPUSH). This
 // keeps per-write cost O(new entries) regardless of how long the
 // collection has grown — the load-bearing property for long-running

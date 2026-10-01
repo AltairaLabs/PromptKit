@@ -106,7 +106,7 @@ func (h *InterruptionHandler) Interrupt() {
 	}
 }
 
-// SetBotSpeaking sets whether the bot is currently outputting audio.
+// SetBotSpeaking sets whether the bot is outputting audio.
 func (h *InterruptionHandler) SetBotSpeaking(speaking bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -122,7 +122,7 @@ func (h *InterruptionHandler) SetBotSpeaking(speaking bool) {
 	}
 }
 
-// IsBotSpeaking returns true if the bot is currently outputting audio.
+// IsBotSpeaking returns true if the bot is outputting audio.
 func (h *InterruptionHandler) IsBotSpeaking() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

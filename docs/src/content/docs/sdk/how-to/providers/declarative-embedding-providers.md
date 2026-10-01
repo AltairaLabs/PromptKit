@@ -5,7 +5,7 @@ sidebar:
   order: 19
 ---
 
-Embedding providers used to be Go-only: a consumer who wanted RAG retrieval or an embedding-backed selector had to import the provider package and pass an instance to `WithContextRetrieval`. As of #979, embedding providers can be declared in `RuntimeConfig` the same way chat providers are.
+Embedding providers can be declared in `RuntimeConfig` the same way chat providers are, so a consumer who wants RAG retrieval or an embedding-backed selector does not have to import the provider package and pass an instance to `WithContextRetrieval`.
 
 ## Quick Start
 
@@ -66,7 +66,7 @@ spellings is rejected rather than silently resolved.
 | `voyageai` | `runtime/providers/voyageai` |
 | `ollama` | `runtime/providers/ollama` |
 
-`additional_config` carries provider-specific extras. Currently honored:
+`additional_config` carries provider-specific extras. Honored keys:
 
 - **All types** — `dimensions` (int): the vector size you want. It is sent to
   the API (`dimensions`, `outputDimensionality` or `output_dimension`), which
@@ -76,7 +76,7 @@ spellings is rejected rather than silently resolved.
 - **VoyageAI** — `input_type` (`query` | `document`)
 
 Without `dimensions`, the provider reports the size of a model it knows, and
-for any other model — typically one behind an OpenAI-compatible server —
+for any other model (typically one behind an OpenAI-compatible server)
 reports `0` until the first response gives the real size. It never guesses.
 
 ## Programmatic Path Still Works

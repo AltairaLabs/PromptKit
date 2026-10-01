@@ -63,7 +63,7 @@ Skills load in three phases, saving 95-98% of tokens for unused skills:
 | **2. Activation** | Full SKILL.md instructions | 1-5K tokens | On `skill__activate` |
 | **3. Resources** | Supporting files | As needed | On `skill__read_resource` |
 
-With 8 skills installed, Phase 1 costs ~400 tokens instead of ~8,000 for loading everything.
+With 8 skills installed, the discovery phase costs ~400 tokens instead of ~8,000 for loading everything.
 
 ---
 
@@ -93,7 +93,7 @@ Skills integrate via the `skill__` namespace, alongside `a2a__`, `workflow__`, a
 | `skill__deactivate` | Remove a skill's instructions + retract tools |
 | `skill__read_resource` | Read a file from a skill's directory |
 
-The `skill__activate` tool description includes the Phase 1 index — a list of available skills with descriptions. The model reads this and decides which to activate.
+The `skill__activate` tool description includes the discovery index — a list of available skills with descriptions. The model reads this and decides which to activate.
 
 ---
 
@@ -142,7 +142,7 @@ conv, _ := sdk.Open("base.pack.json", "assistant",
 
 ## Key Concepts
 
-**Skills are knowledge, not just tools.** A skill can be pure behavioral guidance (brand voice, communication style) with no tools at all. Or it can bring knowledge *and* tools together — compliance rules plus the refund tool.
+**Skills are knowledge as well as tools.** A skill can be pure behavioral guidance (brand voice, communication style) with no tools at all. Or it can bring knowledge *and* tools together — compliance rules plus the refund tool.
 
 **The model drives activation.** The model reads the skill index and calls `skill__activate` when it determines knowledge is needed. No external orchestration required.
 

@@ -19,8 +19,8 @@ const defaultExecHookTimeout = 10 * time.Second
 // When nil, the exec hooks fall back to the built-in direct sandbox
 // which matches the historical behavior: exec.CommandContext(Command,
 // Args...) in-process with the local environment. SDK consumers that
-// want their hooks to run elsewhere — in a sidecar, a disposable
-// container, a managed cloud sandbox — construct a Sandbox
+// want their hooks to run elsewhere (in a sidecar, a disposable
+// container, a managed cloud sandbox) construct a Sandbox
 // implementation and pass it here.
 type ExecHookConfig struct {
 	Name      string

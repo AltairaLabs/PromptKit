@@ -138,7 +138,7 @@ type EvaluateOpts struct {
 }
 
 // Evaluate runs evals from a PromptPack against a conversation snapshot.
-// No live agent or provider connection is needed — just messages in, results out.
+// No live agent or provider connection is needed: messages in, results out.
 //
 // Eval definitions can come from three sources (checked in order):
 //  1. EvalDefs — pass pre-resolved definitions directly
@@ -379,7 +379,7 @@ type ValidateEvalTypesOpts struct {
 // eval definitions has a registered handler in the EvalTypeRegistry.
 // Returns a list of eval IDs whose types are missing, or nil if all are valid.
 //
-// This is useful as a preflight check — e.g. at startup or in CI — to catch
+// This is useful as a preflight check (e.g. at startup or in CI) to catch
 // configuration errors (typos, missing RuntimeConfig bindings) before evals
 // are actually executed.
 //

@@ -14,7 +14,7 @@ import (
 // The session owns the input channel (so it controls when no more chunks are
 // coming, by closing it); the pump owns the output channel and an unbounded
 // internal queue between them. Because the queue is unbounded, a slow consumer
-// back-pressures only Response() and the queue — never the receive loop — so
+// back-pressures only Response() and the queue (never the receive loop), so
 // control events (barge-in) are handled promptly instead of waiting for the
 // buffered audio backlog to drain.
 //

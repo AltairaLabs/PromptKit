@@ -35,13 +35,12 @@ var supportedWhenKeys, supportedWhenKeyList = func() (map[string]bool, string) {
 // the wrong type.
 //
 // The spec defines $defs/Eval.when as additionalProperties:true with no named
-// properties, and its own two examples — has_variable and turn_count_gte — are
+// properties, and its own two examples (has_variable and turn_count_gte) are
 // conditions promptkit does not implement. So nothing upstream rejects a key
-// this runtime cannot honor, and until v1.8.0 opened promptconfig.json's `when`
-// to match the spec, the closed schema was the only thing catching a typo.
+// this runtime cannot honor.
 // Neither running the eval as though no gate had been written nor skipping it
 // as though the gate had failed is a defensible reading of "the author asked
-// for something this runtime cannot do", so it is reported instead (#1931).
+// for something this runtime cannot do", so it is reported instead.
 func ValidateEvalWhen(raw map[string]any) error {
 	if len(raw) == 0 {
 		return nil
@@ -79,7 +78,7 @@ func ValidateEvalWhen(raw map[string]any) error {
 //
 // A `when` this runtime cannot honor gates the eval off with the authoring
 // fault as its reason, rather than running it unconditionally. Callers that can
-// report an error rather than a skip — the eval runner does — should check
+// report an error rather than a skip (the eval runner does) should check
 // ValidateEvalWhen first and surface that instead.
 //
 // Takes the raw map because that is what the spec defines: $defs/Eval.when is

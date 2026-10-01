@@ -31,7 +31,7 @@ for _, r := range results {
 }
 ```
 
-No live provider connection is needed — just messages in, results out.
+No live provider connection is needed: messages in, results out.
 
 ## Eval Sources
 
@@ -103,8 +103,8 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 ## LLM Judge Support
 
-Judge-backed checks — `llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
-`pii_leakage`, `role_violation` and the RAG primitives — need an LLM to grade
+Judge-backed checks (`llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
+`pii_leakage`, `role_violation` and the RAG primitives) need an LLM to grade
 with. They get it the same way every other ancillary provider is supplied: the
 pack names what it needs, the host decides what answers.
 
@@ -141,8 +141,8 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 ```
 
 Nothing falls back to the conversation's own provider. Which model grades the
-output is your decision, and self-grading on the agent model — with the agent's
-bill — is a decision rather than a default.
+output is your decision, and self-grading on the agent model (with the agent's
+bill) is a decision rather than a default.
 
 Everything that can go wrong is caught at `Open()`, and the error says whose
 problem it is:

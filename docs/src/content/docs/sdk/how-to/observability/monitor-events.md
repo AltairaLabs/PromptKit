@@ -53,8 +53,8 @@ its text in `Parts[0].Text`, while the **assistant** reply arrives with
 `Content` set and no `Parts`. A consumer reading `.Content` directly renders a
 blank user turn for every conversation.
 
-`GetContent()` applies the canonical precedence — tool result, then text parts,
-then the legacy `Content` field — matching `types.Message.GetContent`.
+`GetContent()` applies the canonical precedence (tool result, then text parts,
+then the legacy `Content` field), matching `types.Message.GetContent`.
 :::
 
 Three things to know before you rely on it:
@@ -64,7 +64,7 @@ Three things to know before you rely on it:
   once.
 - **Arrival order is not publish order.** The bus dispatches through a worker
   pool. Order by `Index` rather than by arrival.
-- **The bus is lossy.** Under burst an event can be dropped, by design, so
+- **The bus is lossy.** Under burst an event can be dropped, so
   observability never blocks the pipeline. For a transcript that must be
   complete, read the state store; for a lossless record, use
   [session recording](/sdk/examples/session-recording/), which takes a

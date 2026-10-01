@@ -118,7 +118,7 @@ func (j *JitterBuffer) Clear() {
 	j.mu.Unlock()
 }
 
-// Len returns the number of samples currently in the buffer.
+// Len returns the number of samples in the buffer.
 func (j *JitterBuffer) Len() int {
 	j.mu.Lock()
 	n := j.count

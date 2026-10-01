@@ -220,11 +220,10 @@ providerStage := stage.NewProviderStage(
 **Behavior**:
 - Saves only the new messages via `MessageAppender` when the state store implements it
 - Falls back to a full state save when it does not
-- Replaces the original `StateStoreSaveStage` (removed in PR #461 alongside the introduction of the hook system)
 
-#### Validation (no longer a stage)
+#### Validation (not a stage)
 
-`ValidationStage` was removed in PR #461. The accumulating-then-validating pattern was incompatible with streaming. Validation now runs as `ProviderHook` chains invoked from inside `ProviderStage`:
+Validation is not a pipeline stage, because an accumulating-then-validating pattern is incompatible with streaming. Validation runs as `ProviderHook` chains invoked from inside `ProviderStage`:
 
 - `BeforeCall` — input validation before the provider is called
 - `AfterCall` — output validation after the response

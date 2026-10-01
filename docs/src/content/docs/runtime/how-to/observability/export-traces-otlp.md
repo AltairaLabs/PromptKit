@@ -208,8 +208,8 @@ by default**:
 | `gen_ai.tool_result` | tool return values |
 | `gen_ai.message.content` | raw message content |
 
-Everything else — span structure, timing, token usage, model, provider and tool
-**names** — is exported regardless. That is the operational signal without the
+Everything else (span structure, timing, token usage, model, provider and tool
+**names**) is exported regardless. That is the operational signal without the
 payload.
 
 The reason is that tool arguments are composed by the model and carry whatever
@@ -231,7 +231,7 @@ conv, err := sdk.Open(pack, prompt,
 ### Scrubbing what you capture
 
 `WithEventRedactor` runs at the event bus, so one policy covers the tracer, a
-configured event store and the metrics collector — not just spans:
+configured event store and the metrics collector as well as spans:
 
 ```go
 sdk.WithEventRedactor(func(field, value string) string {
@@ -249,7 +249,7 @@ original.
 :::caution
 The capture gate is a **tracing** control. It keeps payloads off spans and does
 nothing for other consumers — an `EventStore` you wire still receives raw
-events. Use `WithEventRedactor` for those. `WithRecording` is deliberately
+events. Use `WithEventRedactor` for those. `WithRecording` is
 unaffected by both: `RecordingStage` writes straight to its store without a bus
 hop, so recordings keep full fidelity.
 :::
@@ -260,7 +260,7 @@ shows all three configurations side by side.
 
 ## Event Ordering
 
-Runtime events are dispatched to subscribers — including the OTel listener — through a worker
+Runtime events are dispatched to subscribers, including the OTel listener, through a worker
 pool, not strictly in publish order, so a `*.completed` event can be delivered before its matching
 `*.started` event under concurrent load. The listener handles this transparently: early
 completions are buffered and applied once the matching start event arrives, so spans still end up

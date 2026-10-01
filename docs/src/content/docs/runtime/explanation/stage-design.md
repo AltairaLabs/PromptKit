@@ -23,8 +23,10 @@ type Stage interface {
 
 Stages connect via channels to form pipelines:
 
-```
-[Stage A] ──channel──▶ [Stage B] ──channel──▶ [Stage C]
+```mermaid
+flowchart LR
+    A[Stage A] -->|channel| B[Stage B]
+    B -->|channel| C[Stage C]
 ```
 
 Each stage runs in its own goroutine, enabling concurrent processing.
@@ -124,7 +126,7 @@ tool calls.
 :::
 **IncrementalSaveStage**: Only persists new messages
 
-Validation is not a stage. It runs as `ProviderHook` / `ToolHook` chains invoked from inside `ProviderStage` (`BeforeCall`, `AfterCall`, `ChunkInterceptor` for streaming). Three authoring sources — pack-declared validators, eval-handler-as-guardrail, and user-registered `WithProviderHook` / `WithToolHook` calls — all converge on a single `hooks.Registry`.
+Validation is not a stage. It runs as `ProviderHook` / `ToolHook` chains invoked from inside `ProviderStage` (`BeforeCall`, `AfterCall`, `ChunkInterceptor` for streaming). Three authoring sources (pack-declared validators, eval-handler-as-guardrail, and user-registered `WithProviderHook` / `WithToolHook` calls) all converge on a single `hooks.Registry`.
 
 ### 2. Composability
 

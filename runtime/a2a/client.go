@@ -412,7 +412,7 @@ func (c *Client) fetchCardForCalls(ctx context.Context, done chan struct{}) {
 	close(done)
 }
 
-// ProtocolVersion returns the protocol version the client currently speaks.
+// ProtocolVersion returns the protocol version the client speaks.
 func (c *Client) ProtocolVersion() ProtocolVersion {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

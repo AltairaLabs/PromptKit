@@ -36,7 +36,7 @@ type RetryBudget struct {
 //
 // Typical sizing: start with rate=5/s, burst=10 and tune based on
 // promptkit_stream_retries_total{outcome="budget_exhausted"}. These
-// defaults are deliberately conservative — a healthy workload should
+// defaults are conservative: a healthy workload should
 // almost never hit the budget, so high rejection counts are a signal
 // that either retries are storming (upstream degraded) or the budget
 // is undersized (bump it).

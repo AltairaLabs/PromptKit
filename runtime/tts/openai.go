@@ -114,7 +114,7 @@ func (s *OpenAIService) ModelName() string { return s.Model }
 // markup rubric on gpt-4o-mini-tts (the model honors arbitrary instructions
 // via the request's instructions field). Older models (tts-1, tts-1-hd) do
 // not understand the markup, so we return the empty string — emitting tags
-// would just waste persona tokens.
+// would only waste persona tokens.
 func (s *OpenAIService) PersonaRubric() string {
 	if s.Model == ModelGPT4oMiniTTS {
 		return markup.RubricExpressiveFull
@@ -220,7 +220,7 @@ func (s *OpenAIService) Synthesize(
 // SpokenText reports the text OpenAI will actually speak for the given input,
 // after markup lowering: on gpt-4o-mini-tts the bracket tags become the
 // `instructions` field so the spoken text is the stripped remainder; other
-// models strip tags entirely. Implements tts.SpokenTextReporter (#1657).
+// models strip tags entirely. Implements tts.SpokenTextReporter.
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string {
 	model := config.Model
 	if model == "" {

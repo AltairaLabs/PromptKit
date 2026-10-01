@@ -33,7 +33,7 @@ Normal workflow state:  input → PromptAssembly → ProviderStage (LLM tool loo
 Composition state:      input → CompositionStage (step DAG) → output
 ```
 
-The rest of the pipeline — state store, events, eval hooks, guardrails — remains unchanged.
+The rest of the pipeline (state store, events, eval hooks, guardrails) remains unchanged.
 
 ---
 
@@ -142,7 +142,7 @@ modifiers:
 ```
 
 - `retry.max_attempts` — retries the step on transient failure.
-- `eval` — runs the listed pack eval keys against the step's output for observability. These are **pure observability signals** — they are captured in the eval report but never gate control flow.
+- `eval` — runs the listed pack eval keys against the step's output for observability. These are **pure observability signals**: they are captured in the eval report but never gate control flow.
 
 ---
 
@@ -350,7 +350,7 @@ The following are reserved for future RFC revisions and are not supported in the
 
 ## Related Documentation
 
-- [RFC 0010 — Workflow Composition](https://promptpack.org/docs/rfcs/workflow-composition) — the canonical spec
+- [RFC 0010 — Workflow Composition](https://promptpack.org/docs/rfcs/workflow-composition): the canonical spec
 - [State Management](/concepts/state-management/) — workflow state machines and persistence
 - [Workflow Regression Testing](https://promptarena.altairalabs.ai/arena/how-to/workflow-regression/) — CI gate patterns for workflow scenarios
 - [Composition Checks](/reference/checks/#composition-checks) — `composition_step_output`, `composition_branch_taken`, `composition_parallel_complete`, `composition_output`

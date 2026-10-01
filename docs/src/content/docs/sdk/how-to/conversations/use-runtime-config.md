@@ -29,7 +29,7 @@ defer conv.Close()
 
 ## Minimal Config
 
-A RuntimeConfig file with just a provider:
+A RuntimeConfig file with only a provider:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1

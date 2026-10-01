@@ -75,13 +75,13 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 {"error": "city not found"}
 ```
 
-**Pending (schema only — not currently acted on):**
+**Pending (schema only; not acted on):**
 
 ```json
 {"pending": {"reason": "requires_approval", "message": "Refund of $500 requires manager approval"}}
 ```
 
-`ExecExecutor.Execute` (`runtime/tools/exec_executor.go`) unmarshals this field but never reads it: it checks `error`, then `result`, and otherwise falls back to returning the raw stdout bytes as the tool result. There is currently **no subprocess-level pause/resume mechanism** for exec tools — a `pending`-only response does not suspend the pipeline. The working human-in-the-loop path is the in-process `sdk.OnToolAsync` / `PendingResult` (`sdk/tools/pending.go`), which is unrelated to this wire protocol. Do not rely on `pending` from an exec subprocess to suspend execution.
+`ExecExecutor.Execute` (`runtime/tools/exec_executor.go`) unmarshals this field but never reads it: it checks `error`, then `result`, and otherwise falls back to returning the raw stdout bytes as the tool result. There is **no subprocess-level pause/resume mechanism** for exec tools — a `pending`-only response does not suspend the pipeline. The working human-in-the-loop path is the in-process `sdk.OnToolAsync` / `PendingResult` (`sdk/tools/pending.go`), which is unrelated to this wire protocol. Do not rely on `pending` from an exec subprocess to suspend execution.
 
 ## Eval Protocol
 
@@ -145,7 +145,7 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 Hooks receive a JSON object describing the hook type, phase, and event-specific payload.
 
 :::caution
-The envelope fields (`hook`, `phase`, `request`, `response`, `event`) are tagged on `execHookRequest` (`runtime/hooks/exec_hooks.go`) and always serialize as shown below. The **nested payload structs** — `ProviderRequest`, `ProviderResponse`, `ToolRequest`, `ToolResponse`, `SessionEvent` (`runtime/hooks/types.go`) — have **no `json` tags**, so `encoding/json` marshals them using the Go field names verbatim (PascalCase), not snake_case. A subprocess coded to snake_case keys inside `request`/`response`/`event` gets all-zero values. The examples below show the actual wire casing.
+The envelope fields (`hook`, `phase`, `request`, `response`, `event`) are tagged on `execHookRequest` (`runtime/hooks/exec_hooks.go`) and always serialize as shown below. The **nested payload structs** (`ProviderRequest`, `ProviderResponse`, `ToolRequest`, `ToolResponse`, `SessionEvent` in `runtime/hooks/types.go`) have **no `json` tags**, so `encoding/json` marshals them using the Go field names verbatim (PascalCase), not snake_case. A subprocess coded to snake_case keys inside `request`/`response`/`event` gets all-zero values. The examples below show the actual wire casing.
 :::
 
 ### Provider Hook

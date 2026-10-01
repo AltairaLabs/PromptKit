@@ -81,7 +81,7 @@ This tutorial uses the **conversation-owning** mode: you hand the server an
 opener, and it keeps the conversations it opens, reusing one per `contextID`.
 That is the right fit when A2A and the runtime run in the same process, as here.
 
-If your runtime lives somewhere else — another service, another container — and
+If your runtime lives somewhere else (another service, another container) and
 you already track sessions yourself, use
 [`a2aserver.NewStatelessServer`](/sdk/reference/a2a-server/) instead. It hands
 each message to a handler you write, along with the HTTP request's context, and

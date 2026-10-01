@@ -72,7 +72,7 @@ DeleteMedia traces, times, and announces a delete operation.
 func (s *InstrumentedStorage) GetURL(ctx context.Context, reference Reference, expiry time.Duration) (string, error)
 ```
 
-GetURL traces and times URL generation. No success event is emitted — URL generation is a metadata operation that doesn't move bytes — but failures still publish an error event so opaque 404s are visible.
+GetURL traces and times URL generation. No success event is emitted \(URL generation is a metadata operation that doesn't move bytes\), but failures still publish an error event so opaque 404s are visible.
 
 <a name="InstrumentedStorage.Inner"></a>
 ### func \(\*InstrumentedStorage\) [Inner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L86>)
@@ -113,7 +113,7 @@ StoreMedia traces, times, and announces a store operation.
 <a name="MediaMetadata"></a>
 ## type [MediaMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L9-L39>)
 
-MediaMetadata contains metadata about stored media for organization and policy enforcement. This metadata is used to organize media files in storage and apply retention policies.
+MediaMetadata contains metadata about stored media for organization and policy enforcement. Storage uses this metadata to organize media files and apply retention policies.
 
 ```go
 type MediaMetadata struct {

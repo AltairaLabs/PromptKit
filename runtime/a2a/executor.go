@@ -131,7 +131,7 @@ var (
 // Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools.
 // It dispatches tool calls to remote A2A agents via the A2A client.
 // The executor maintains a cache of A2A clients with TTL-based eviction.
-// Call Close when the executor is no longer needed to release resources.
+// Call Close when you are done with the executor to release resources.
 type Executor struct {
 	mu         sync.RWMutex
 	clients    map[string]*clientEntry
@@ -152,7 +152,7 @@ type Executor struct {
 
 // NewExecutor creates a new A2A executor with optional configuration.
 // The executor starts a background goroutine for cache cleanup.
-// Call Close when the executor is no longer needed.
+// Call Close when you are done with the executor.
 func NewExecutor(opts ...ExecutorOption) *Executor {
 	e := &Executor{
 		retryPolicy: DefaultRetryPolicy(),

@@ -159,7 +159,7 @@ func NewDuplexProviderStage(
 }
 
 // NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support.
-// The emitter is used to emit audio.input and audio.output events for session recording.
+// The stage emits audio.input and audio.output events through it for session recording.
 func NewDuplexProviderStageWithEmitter(
 	provider providers.StreamInputSupport,
 	baseConfig *providers.StreamingInputConfig,

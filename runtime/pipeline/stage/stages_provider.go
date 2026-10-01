@@ -94,7 +94,7 @@ type offeredToolSet struct {
 // like data.
 func (s *ProviderStage) currentTurn() int { return s.turnState.TurnIndex() }
 
-// SetWorkflowStateResolver installs the resolver used to apply workflow state
+// SetWorkflowStateResolver installs the resolver that applies workflow state
 // changes mid-turn. Pass nil to disable. Must be called before the stage runs.
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
 	s.stateResolver = r
@@ -214,8 +214,8 @@ func NewProviderStage(
 }
 
 // NewProviderStageWithEmitter creates a new provider stage with event emission support.
-// The emitter is used to emit provider.call.started, provider.call.completed, and
-// provider.call.failed events for observability and session recording.
+// The stage emits provider.call.started, provider.call.completed, and
+// provider.call.failed events through it for observability and session recording.
 func NewProviderStageWithEmitter(
 	provider providers.Provider,
 	toolRegistry *tools.Registry,
