@@ -261,7 +261,7 @@ func (sv *SchemaValidator) store(key string, entry *schemaEntry) (*gojsonschema.
 	return entry.schema, entry.err
 }
 
-// CacheLen returns the number of entries currently in the schema cache.
+// CacheLen returns the number of entries in the schema cache.
 // Exported for testing and monitoring.
 func (sv *SchemaValidator) CacheLen() int {
 	sv.mu.RLock()
@@ -271,10 +271,10 @@ func (sv *SchemaValidator) CacheLen() int {
 
 // CoerceResult attempts to coerce simple type mismatches in tool results.
 //
-// Currently this is a pass-through: if the result validates, it is returned as-is;
+// This is a pass-through: if the result validates, it is returned as-is;
 // otherwise validation is re-attempted after a round-trip through JSON (which
 // normalises whitespace/encoding). Actual type coercion (e.g., string↔number)
-// is not yet implemented — the Coercion slice is always empty.
+// is not implemented — the Coercion slice is always empty.
 func (sv *SchemaValidator) CoerceResult(
 	descriptor *ToolDescriptor, result json.RawMessage,
 ) (json.RawMessage, []Coercion, error) {

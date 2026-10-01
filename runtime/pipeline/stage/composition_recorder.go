@@ -59,7 +59,7 @@ func NewCompositionRecorder() *CompositionRecorder {
 }
 
 // SetEmitter wires an Emitter so the recorder publishes composition.* events.
-// Safe to call concurrently; replaces any previously set emitter.
+// Safe to call concurrently; replaces any emitter already set.
 func (r *CompositionRecorder) SetEmitter(em *events.Emitter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

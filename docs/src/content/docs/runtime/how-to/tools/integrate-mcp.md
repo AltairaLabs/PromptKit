@@ -39,7 +39,7 @@ PromptKit's MCP client implements protocol revision **2026-07-28** (`mcp.Protoco
 
 CI checks every message type the client sends or reads against both revisions' published schemas, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
 
-That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) against both revisions' requirements; known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
+That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) against both revisions' requirements.
 
 Spec fields PromptKit does not carry:
 

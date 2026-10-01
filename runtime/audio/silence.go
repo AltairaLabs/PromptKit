@@ -211,7 +211,7 @@ func (d *SilenceDetector) triggerTurnComplete() {
 	d.userSpeaking = false
 }
 
-// IsUserSpeaking returns true if user is currently speaking.
+// IsUserSpeaking returns true if user is speaking.
 func (d *SilenceDetector) IsUserSpeaking() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

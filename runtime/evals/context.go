@@ -54,23 +54,21 @@ func BuildEvalContext(
 // BuildGuardrailEvalContext constructs an EvalContext for a guardrail, which
 // judges one specific message rather than scanning a transcript.
 //
-// Two things make this different from BuildEvalContext, and both are
-// deliberate:
+// Two things make this different from BuildEvalContext:
 //
 // It does NOT infer CurrentOutput from the last assistant turn. An input
 // guardrail judges the *user's* message, so deriving the content under test
-// from assistant messages makes a content check silently pass everything —
-// that was #1679. The caller states the content, and ContentScope is pinned to
+// from assistant messages makes a content check silently pass everything. The
+// caller states the content, and ContentScope is pinned to
 // ContentScopeCurrent to match.
 //
 // Everything else is derived from the same message history BuildEvalContext
 // uses. factory.go promises that any registered eval handler can serve as a
 // guardrail, so a handler must see the same ToolCalls, Extras, Metadata and
-// PriorResults either way. Building this context inline with only three fields
-// set left ~30 ToolCalls-reading handlers blind, made cost_budget compute zero
-// spend and never fire, and made state_is report "no workflow state" — which
-// scores 0, and a score below 1.0 means enforce, so it blocked every turn
-// (#1704).
+// PriorResults either way. A context with only three fields set leaves ~30
+// ToolCalls-reading handlers blind, makes cost_budget compute zero spend and
+// never fire, and makes state_is report "no workflow state", which scores 0; a
+// score below 1.0 means enforce, so it would block every turn.
 //
 // TurnIndex, SessionID, PromptID and Variables are still absent: unlike the
 // rest they cannot be derived from the message history, and the hook boundary
@@ -95,11 +93,11 @@ func BuildGuardrailEvalContext(
 // eval handlers read, deriving them from data the caller already holds.
 //
 // cost_budget reads total_cost/input_tokens/output_tokens and latency_budget
-// reads latency_ms, all off EvalContext.Metadata. Nothing populated those on the
-// guardrail hook path, so cost_budget computed zero spend and never fired, while
-// latency_budget treated its missing key as a hard fail — scoring 0, which a
-// guardrail reads as enforce — and therefore blocked every turn regardless of
-// actual latency (#1707).
+// reads latency_ms, all off EvalContext.Metadata. Without those values on the
+// guardrail hook path, cost_budget computes zero spend and never fires, while
+// latency_budget treats its missing key as a hard fail (scoring 0, which a
+// guardrail reads as enforce) and so blocks every turn regardless of actual
+// latency.
 //
 // Neither value needs threading through the pipeline. Spend and tokens
 // accumulate on per-message CostInfo (the same source sumHistoryCost totals for
@@ -210,9 +208,9 @@ func currentTurnMessages(messages []types.Message) []types.Message {
 // ExtractToolsOffered returns the union of the tool sets recorded on the
 // messages, sorted and deduplicated.
 //
-// A turn can hand the provider a different set on each tool round — that is the
-// point of skill tool grants, which widen the set mid-turn — so the union is
-// what "this turn offered" means. A caller needing per-round detail should read
+// A turn can hand the provider a different set on each tool round (skill tool
+// grants widen the set mid-turn), so the union is what "this turn offered"
+// means. A caller needing per-round detail should read
 // the per-message meta directly.
 func ExtractToolsOffered(messages []types.Message) []string {
 	seen := map[string]bool{}

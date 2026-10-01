@@ -206,7 +206,7 @@ CountPartsByType returns the number of parts of a specific type in a message
 func ExtractTextContent(msg Message) string
 ```
 
-ExtractTextContent extracts all text content from a message, regardless of format. This is useful for backward compatibility when you need just the text.
+ExtractTextContent extracts all text content from a message, regardless of format. This is useful for backward compatibility when you need only the text.
 
 <a name="HasOnlyTextContent"></a>
 ## func [HasOnlyTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L205>)
@@ -1182,7 +1182,7 @@ type MessageToolResult struct {
 func NewTextToolResult(id, name, text string) MessageToolResult
 ```
 
-NewTextToolResult creates a MessageToolResult with text\-only content. This is the most common case and should be used everywhere that previously set a text string Content.
+NewTextToolResult creates a MessageToolResult with text\-only content. This is the most common case and should be used everywhere that would otherwise set a text string Content.
 
 <a name="MessageToolResult.GetTextContent"></a>
 ### func \(\*MessageToolResult\) [GetTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L113>)
@@ -1219,7 +1219,7 @@ type OpaqueReasoning struct {
 <a name="ReasoningTrace"></a>
 ## type [ReasoningTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L112-L116>)
 
-ReasoningTrace holds a model's reasoning/"thinking" for one assistant turn. It is a sibling of content \(NOT a ContentPart\), so GetContent\(\)/Parts\-based consumers — external conversation stores, exports, the events bus — exclude it by default. Text is human\-readable \(display/record only\); Opaque holds provider round\-trip tokens that may be fed back where a provider requires, never shown.
+ReasoningTrace holds a model's reasoning/"thinking" for one assistant turn. It is a sibling of content \(NOT a ContentPart\), so GetContent\(\)/Parts\-based consumers \(external conversation stores, exports, the events bus\) exclude it by default. Text is human\-readable \(display/record only\); Opaque holds provider round\-trip tokens that may be fed back where a provider requires, never shown.
 
 ```go
 type ReasoningTrace struct {
@@ -1232,7 +1232,7 @@ type ReasoningTrace struct {
 <a name="StreamingMediaConfig"></a>
 ## type [StreamingMediaConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L52-L103>)
 
-StreamingMediaConfig configures streaming media input parameters. Used to configure audio/video streaming sessions with providers.
+StreamingMediaConfig configures streaming media input parameters. It configures audio/video streaming sessions with providers.
 
 Example usage for audio streaming:
 
@@ -1384,7 +1384,7 @@ type ToolStats struct {
 <a name="ValidationError"></a>
 ## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L239-L243>)
 
-ValidationError represents a validation failure in tool usage or message content. Used to provide structured error information when validation fails.
+ValidationError represents a validation failure in tool usage or message content. It provides structured error information when validation fails.
 
 ```go
 type ValidationError struct {

@@ -382,7 +382,7 @@ Interrupted returns a channel closed when an interruption fires for the current 
 func (h *InterruptionHandler) IsBotSpeaking() bool
 ```
 
-IsBotSpeaking returns true if the bot is currently outputting audio.
+IsBotSpeaking returns true if the bot is outputting audio.
 
 <a name="InterruptionHandler.NotifySentenceBoundary"></a>
 ### func \(\*InterruptionHandler\) [NotifySentenceBoundary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L245>)
@@ -436,7 +436,7 @@ Reset clears interruption state for a new turn.
 func (h *InterruptionHandler) SetBotSpeaking(speaking bool)
 ```
 
-SetBotSpeaking sets whether the bot is currently outputting audio.
+SetBotSpeaking sets whether the bot is outputting audio.
 
 <a name="InterruptionHandler.WasInterrupted"></a>
 ### func \(\*InterruptionHandler\) [WasInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L224>)
@@ -527,7 +527,7 @@ Drops returns the cumulative number of samples that have been dropped due to buf
 func (j *JitterBuffer) Len() int
 ```
 
-Len returns the number of samples currently in the buffer.
+Len returns the number of samples in the buffer.
 
 <a name="JitterBuffer.Pull"></a>
 ### func \(\*JitterBuffer\) [Pull](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L78>)
@@ -785,7 +785,7 @@ GetAccumulatedAudio returns audio accumulated so far.
 func (d *SilenceDetector) IsUserSpeaking() bool
 ```
 
-IsUserSpeaking returns true if user is currently speaking.
+IsUserSpeaking returns true if user is speaking.
 
 <a name="SilenceDetector.Name"></a>
 ### func \(\*SilenceDetector\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/silence.go#L114>)
@@ -1013,7 +1013,7 @@ type TurnDetector interface {
     // Returns true if end of turn is detected based on VAD state.
     ProcessVADState(ctx context.Context, state VADState) (bool, error)
 
-    // IsUserSpeaking returns true if user is currently speaking.
+    // IsUserSpeaking returns true if user is speaking.
     IsUserSpeaking() bool
 
     // Reset clears state for a new conversation.

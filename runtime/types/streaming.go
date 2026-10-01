@@ -37,7 +37,7 @@ type MediaChunk struct {
 }
 
 // StreamingMediaConfig configures streaming media input parameters.
-// Used to configure audio/video streaming sessions with providers.
+// It configures audio/video streaming sessions with providers.
 //
 // Example usage for audio streaming:
 //

@@ -43,8 +43,8 @@ func RegisterPlatformEmbeddingProvider(typeName string, spec PlatformEmbeddingSp
 }
 
 // EmbeddingWiring is the transport-derived configuration every platform-native
-// embedding provider applies the same way. Family-specific settings — Cohere's
-// input_type, Vertex's task_type — stay with their own provider.
+// embedding provider applies the same way. Family-specific settings (Cohere's
+// input_type, Vertex's task_type) stay with their own provider.
 type EmbeddingWiring struct {
 	Model        string
 	BaseURL      string

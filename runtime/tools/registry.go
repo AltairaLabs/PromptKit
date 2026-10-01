@@ -37,7 +37,7 @@ const (
 // NewRegistryWithRepository copies every descriptor it lists into the
 // registry and does not consult it again. It is a loader, not a store — pack
 // content is immutable for a session, so there is nothing to re-read and
-// nothing to write back (#1951). Local interface to avoid import cycles.
+// nothing to write back. Local interface to avoid import cycles.
 type ToolRepository interface {
 	LoadTool(name string) (*ToolDescriptor, error)
 	ListTools() ([]string, error)
@@ -199,8 +199,7 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 // against a dead state. Safe to call concurrently with Get/List.
 //
 // Removal is final for every read path — Get, GetTool and List all read the
-// same store. There is no repository fallback to resurrect the descriptor
-// (#1951).
+// same store. There is no repository fallback to resurrect the descriptor.
 func (r *Registry) Unregister(name string) bool {
 	// Descriptors live on the parent (see [Registry.Child]), so removal has to
 	// reach the registry that actually holds them.
@@ -390,11 +389,9 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
 // two owners -- typically two conversations sharing a registry -- each believe
 // they installed the executor that serves their tool calls, and the loser
 // silently starts getting the winner's answers, along with whatever
-// per-conversation state the winner's executor holds. Every bug in
-// AltairaLabs/PromptKit#2011 was that, and all of them were invisible because
-// this used to overwrite without a word.
+// per-conversation state the winner's executor holds.
 //
-// So it now says so, at Warn. Nothing in PromptKit legitimately re-registers a
+// RegisterExecutor logs the eviction at Warn. Nothing in PromptKit legitimately re-registers a
 // name on the same registry -- each conversation owns its own (see
 // [Registry.Child]), and a workflow state change opens a fresh conversation with
 // a fresh registry -- so in practice this fires only on the bug.

@@ -297,7 +297,7 @@ SetLogger replaces the global logger with a custom \*slog.Logger. This allows SD
 
 The provided logger is also set as the slog default so that any code using slog directly picks it up.
 
-Once a custom logger is set, SetLevel and SetVerbose will no longer recreate the handler — the custom logger is preserved until reset. Pass nil to reset to the built\-in default logger.
+Once a custom logger is set, SetLevel and SetVerbose do not recreate the handler — the custom logger is preserved until reset. Pass nil to reset to the built\-in default logger.
 
 <a name="SetOutput"></a>
 ## func [SetOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L177>)

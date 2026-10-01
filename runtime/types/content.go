@@ -106,7 +106,7 @@ func NewThinkingPart(text string) ContentPart {
 
 // ReasoningTrace holds a model's reasoning/"thinking" for one assistant turn.
 // It is a sibling of content (NOT a ContentPart), so GetContent()/Parts-based
-// consumers — external conversation stores, exports, the events bus — exclude it
+// consumers (external conversation stores, exports, the events bus) exclude it
 // by default. Text is human-readable (display/record only); Opaque holds provider
 // round-trip tokens that may be fed back where a provider requires, never shown.
 type ReasoningTrace struct {

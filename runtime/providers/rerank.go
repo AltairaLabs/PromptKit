@@ -70,14 +70,14 @@ type RerankUsage struct {
 
 // RerankProvider orders a bounded candidate list by relevance to a query.
 //
-// It is deliberately not a tool and not an agent: reranking is a synchronous
+// It is not a tool and not an agent: reranking is a synchronous
 // model-backed function with no conversation, no tool loop and no state. Hosts
 // call it directly, typically as an optional stage after a vector search has
 // produced more candidates than the prompt can afford to carry.
 //
 // Implementations may be hosted APIs (Voyage AI, Cohere), a local
 // cross-encoder, or an LLM-based scorer, and callers should not need to know
-// which. See AltairaLabs/PromptKit#1993.
+// which.
 type RerankProvider interface {
 	// Provider supplies lifecycle and health: Name, Type, Pricing,
 	// Validate, Init, HealthCheck, Close.

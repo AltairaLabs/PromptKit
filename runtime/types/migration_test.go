@@ -261,6 +261,44 @@ func TestCloneMessage(t *testing.T) {
 	}
 }
 
+func TestCloneMessage_MediaOptionalFieldsAreDeepCopied(t *testing.T) {
+	media := &MediaContent{
+		MIMEType: MIMETypeVideoMP4,
+		Data:     testutil.Ptr("ZGF0YQ=="),
+		FilePath: testutil.Ptr("/tmp/clip.mp4"),
+		URL:      testutil.Ptr("https://example.com/clip.mp4"),
+		Format:   testutil.Ptr("mp4"),
+		SizeKB:   testutil.Ptr(int64(512)),
+		Detail:   testutil.Ptr("high"),
+		Caption:  testutil.Ptr("a clip"),
+		Duration: testutil.Ptr(12),
+		BitRate:  testutil.Ptr(128),
+		Channels: testutil.Ptr(2),
+		Width:    testutil.Ptr(640),
+		Height:   testutil.Ptr(480),
+		FPS:      testutil.Ptr(30),
+	}
+	original := Message{Role: "user", Parts: []ContentPart{{Type: ContentTypeVideo, Media: media}}}
+
+	got := CloneMessage(original).Parts[0].Media
+
+	if got == media {
+		t.Fatal("Media pointer was shared, want a copy")
+	}
+	if got.MIMEType != media.MIMEType || *got.Data != *media.Data || *got.FilePath != *media.FilePath ||
+		*got.URL != *media.URL || *got.Format != *media.Format || *got.SizeKB != *media.SizeKB ||
+		*got.Detail != *media.Detail || *got.Caption != *media.Caption || *got.Duration != *media.Duration ||
+		*got.BitRate != *media.BitRate || *got.Channels != *media.Channels || *got.Width != *media.Width ||
+		*got.Height != *media.Height || *got.FPS != *media.FPS {
+		t.Fatalf("clone differs from original: got %+v, want %+v", *got, *media)
+	}
+
+	*got.URL, *got.SizeKB, *got.FPS = "https://example.com/other.mp4", 1, 60
+	if *media.URL != "https://example.com/clip.mp4" || *media.SizeKB != 512 || *media.FPS != 30 {
+		t.Error("modifying the clone changed the original media")
+	}
+}
+
 func TestCloneMessageWithToolCalls(t *testing.T) {
 	original := Message{
 		Role: "assistant",

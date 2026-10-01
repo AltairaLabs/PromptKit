@@ -23,7 +23,7 @@ var elementPool = sync.Pool{
 
 // GetElement retrieves a StreamElement from the pool or creates a new one.
 // The returned element is reset to its zero state.
-// Callers should use PutElement when the element is no longer needed.
+// Callers should call PutElement once they are done with the element.
 func GetElement() *StreamElement {
 	return elementPool.Get().(*StreamElement)
 }

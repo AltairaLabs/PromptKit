@@ -566,7 +566,7 @@ const (
 
 Two causes reach it: the re\-ask failed at the provider, or the tool loop exhausted its rounds and never produced a final turn to constrain.
 
-Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened — an unmarked fallback is indistinguishable from a model that simply answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
+Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened — an unmarked fallback is indistinguishable from a model that answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
 
 ```go
 const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
@@ -650,7 +650,7 @@ var ErrIdleTimeout = errors.New("pipeline idle timeout: no activity detected")
 
 <a name="ErrTemplateUnresolved"></a>ErrTemplateUnresolved is returned by TemplateStage when the system prompt references a variable nothing supplied.
 
-The turn fails rather than proceeding. The alternative — sending the unrendered template — puts literal \{\{...\}\} in front of the model, and since rendering aborts at the first missing name, every other variable in that prompt goes unrendered too. That reads in production as a model ignoring its instructions, which is a far longer trail back to a missing variable than an error naming it.
+The turn fails rather than proceeding. The alternative \(sending the unrendered template\) puts literal \{\{...\}\} in front of the model, and since rendering aborts at the first missing name, every other variable in that prompt goes unrendered too. That reads in production as a model ignoring its instructions, which is a far longer trail back to a missing variable than an error naming it.
 
 ```go
 var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
@@ -707,7 +707,7 @@ NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
 func NewFileSchemaResolver(configDir string) func(path string) (json.RawMessage, error)
 ```
 
-NewFileSchemaResolver returns a resolver that reads a schema file path relative to configDir \(absolute paths are used as\-is\). An empty path resolves to \(nil, nil\) — "no schema" — matching CompositionExecutorDeps.SchemaResolver's contract.
+NewFileSchemaResolver returns a resolver that reads a schema file path relative to configDir \(absolute paths are used as\-is\). An empty path resolves to \(nil, nil\) \("no schema"\), matching CompositionExecutorDeps.SchemaResolver's contract.
 
 <a name="NormalizeEmbedding"></a>
 ## func [NormalizeEmbedding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/similarity.go#L75>)
@@ -1426,7 +1426,7 @@ Reset clears all recorded data \(called per turn\). Does NOT clear the emitter.
 func (r *CompositionRecorder) SetEmitter(em *events.Emitter)
 ```
 
-SetEmitter wires an Emitter so the recorder publishes composition.\* events. Safe to call concurrently; replaces any previously set emitter.
+SetEmitter wires an Emitter so the recorder publishes composition.\* events. Safe to call concurrently; replaces any emitter already set.
 
 <a name="CompositionRecorder.Snapshot"></a>
 ### func \(\*CompositionRecorder\) [Snapshot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_recorder.go#L105>)
@@ -1682,7 +1682,7 @@ func (s *ContextAssemblyStage) Process(ctx context.Context, input <-chan StreamE
 Process loads context tiers and emits them before the current input.
 
 <a name="ContextBuilderPolicy"></a>
-## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L645-L664>)
+## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L644-L663>)
 
 ContextBuilderPolicy defines token budget and truncation behavior.
 
@@ -1726,7 +1726,7 @@ Truncation strategies \(TruncationStrategy\):
 
 - TruncateOldest: removes oldest messages first \(keeps most recent context\)
 - TruncateLeastRelevant: removes least relevant messages \(requires RelevanceConfig with EmbeddingProvider\)
-- TruncateSummarize: not yet implemented \(returns error\)
+- TruncateSummarize: replaces older messages with a summary from the policy's Summarizer \(falls back to TruncateOldest without one\)
 - TruncateFail: returns error if budget exceeded \(strict mode\)
 
 Configuration \(ContextBuilderPolicy\):
@@ -1919,7 +1919,7 @@ NewDuplexProviderStage creates a new duplex provider stage. The session is creat
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
 ```
 
-NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The emitter is used to emit audio.input and audio.output events for session recording.
+NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
 ### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L176-L181>)
@@ -2392,7 +2392,7 @@ Process implements the Stage interface. Collects frames and composes them into m
 
 Handoff describes the prompt and tool set the workflow's current state needs.
 
-It is a statement of what the turn \*should\* be running, not a record that something changed — the stage compares it against what the turn is actually running and swaps only on a mismatch. That distinction matters: a pipeline re\-execution \(HITL resume, deferred client tool\) re\-runs PromptAssemblyStage, which resets the turn's prompt to the state the pipeline was built for. A "did a transition just happen" signal is unobservable by then; a "what should be running" signal self\-corrects.
+It is a statement of what the turn \*should\* be running, not a record that something changed: the stage compares it against what the turn is actually running and swaps only on a mismatch. That distinction matters: a pipeline re\-execution \(HITL resume, deferred client tool\) re\-runs PromptAssemblyStage, which resets the turn's prompt to the state the pipeline was built for. A "did a transition happen this run" signal is unobservable by then; a "what should be running" signal self\-corrects.
 
 ```go
 type Handoff struct {
@@ -2970,7 +2970,7 @@ func (s *MediaConvertStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Converts media elements to target formats as needed.
 
 <a name="MediaExternalizerConfig"></a>
-## type [MediaExternalizerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L392-L400>)
+## type [MediaExternalizerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L391-L399>)
 
 MediaExternalizerConfig configures media externalization behavior.
 
@@ -2987,7 +2987,7 @@ type MediaExternalizerConfig struct {
 ```
 
 <a name="MediaExternalizerStage"></a>
-## type [MediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L421-L424>)
+## type [MediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L420-L423>)
 
 MediaExternalizerStage externalizes large media content to external storage.
 
@@ -3017,7 +3017,7 @@ type MediaExternalizerStage struct {
 ```
 
 <a name="NewMediaExternalizerStage"></a>
-### func [NewMediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L427>)
+### func [NewMediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L426>)
 
 ```go
 func NewMediaExternalizerStage(config *MediaExternalizerConfig) *MediaExternalizerStage
@@ -3026,7 +3026,7 @@ func NewMediaExternalizerStage(config *MediaExternalizerConfig) *MediaExternaliz
 NewMediaExternalizerStage creates a media externalizer stage.
 
 <a name="MediaExternalizerStage.Process"></a>
-### func \(\*MediaExternalizerStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L435-L439>)
+### func \(\*MediaExternalizerStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L434-L438>)
 
 ```go
 func (s *MediaExternalizerStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3171,7 +3171,7 @@ Process implements Stage.
 
 MemoryRetrievalStage injects relevant memories into the conversation context. Accumulates messages from input elements, then calls Retriever.RetrieveContext\(\) once the input channel closes and writes the formatted memory context onto TurnState.Variables\["memory\_context"\] for the template stage to consume.
 
-It MUST be placed before TemplateStage. That stage is the single render point, and a variable written after it renders is invisible: the prompt reaches the model with \{\{memory\_context\}\} unresolved while retrieval reports success. Ordering it after the render is what \#1958 was.
+It MUST be placed before TemplateStage. That stage is the single render point, and a variable written after it renders is invisible: the prompt reaches the model with \{\{memory\_context\}\} unresolved while retrieval reports success.
 
 No\-op passthrough when retriever or turnState is nil.
 
@@ -3216,7 +3216,7 @@ Process implements Stage.
 func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) *MemoryRetrievalStage
 ```
 
-WithContextFormatter overrides the formatter used to render retrieved memories into the "memory\_context" template variable. Falls back to \[memory.DefaultContextFormatter\] when nil.
+WithContextFormatter overrides the formatter that renders retrieved memories into the "memory\_context" template variable. Falls back to \[memory.DefaultContextFormatter\] when nil.
 
 <a name="MergeStage"></a>
 ## type [MergeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L109-L112>)
@@ -3270,7 +3270,7 @@ RecordingStage is the FIDELITY route for the same event type: synchronous, lossl
 
 INVARIANT: no BINARY ever reaches the bus. Not "usually", and not "only when recording is off" — always. A megabyte of base64 per turn would swamp a channel whose whole job is to stay out of the pipeline's way, and handling binary is exactly what the opt\-in recording route exists for.
 
-This is about bytes, not about content. A subscriber gets the message TEXT — that is the point of a live route — along with MIME type, dimensions, size and URL references for any media. What it never gets is the media itself. Held by TestMessageBroadcastStage\_NeverPutsBinaryOnTheBus and its recording\-side sibling, alongside the audio guard for \#853.
+This is about bytes, not about content. A subscriber gets the message TEXT, which a live route exists to carry, along with MIME type, dimensions, size and URL references for any media. What it never gets is the media itself. Held by TestMessageBroadcastStage\_NeverPutsBinaryOnTheBus and its recording\-side sibling, alongside the audio guard.
 
 Because the bus is lossy under burst, a live view can miss a message. That is the right trade for observability and the wrong one for a transcript: the state store remains the source of truth.
 
@@ -3282,11 +3282,11 @@ Two things make that work, and both are load\-bearing:
 
 - History is detected by Message.Source, NOT by Meta.FromHistory. ProviderStage rebuilds every message with NewMessageElement \(stages\_provider.go:561\), which produces a zero Meta, so element metadata does not survive to any stage downstream of the provider. Source travels with the message value and does. isNewMessage is the same predicate IncrementalSaveStage uses for the same question.
 
-PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message element, in transcript order, within a single Process call. The pipeline is a DAG — PipelineBuilder offers Branch, Merge and Connect, and RouterStage does selective fan\-out — so that is a real constraint, not a formality, and nothing enforces it:
+PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message element, in transcript order, within a single Process call. The pipeline is a DAG \(PipelineBuilder offers Branch, Merge and Connect, and RouterStage does selective fan\-out\), so that is a real constraint, not a formality, and nothing enforces it:
 
 - Downstream of every message producer. Assistant messages are created by ProviderStage, by CompositionStage \(which REPLACES ProviderStage for composition states\), and by the media\-compose and video\-frame stages. A message routed down a branch this stage is not on is silently never published.
 
-- On an order\-preserving path. Index is the element's position in the stream this call saw. It is transcript\-absolute only because the provider re\-emits the accumulated transcript in order down a linear chain. MergeStage spawns a goroutine per input, so downstream of a fan\-in the interleaving — and therefore Index — is nondeterministic. Completeness survives a merge; ordering does not. Both are pinned by tests.
+- On an order\-preserving path. Index is the element's position in the stream this call saw. It is transcript\-absolute only because the provider re\-emits the accumulated transcript in order down a linear chain. MergeStage spawns a goroutine per input, so downstream of a fan\-in the interleaving \(and therefore Index\) is nondeterministic. Completeness survives a merge; ordering does not. Both are pinned by tests.
 
 It does NOT need to be adjacent to the save stage. The SDK builder places it immediately before that sink only so a message broadcasts as soon as it exists; correctness does not depend on it.
 
@@ -3995,7 +3995,7 @@ NewProviderStage creates a new provider stage for request/response mode.
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
 ```
 
-NewProviderStageWithEmitter creates a new provider stage with event emission support. The emitter is used to emit provider.call.started, provider.call.completed, and provider.call.failed events for observability and session recording.
+NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
 ### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L232-L239>)
@@ -4031,10 +4031,10 @@ Process executes the LLM provider call and handles tool execution.
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
 ```
 
-SetWorkflowStateResolver installs the resolver used to apply workflow state changes mid\-turn. Pass nil to disable. Must be called before the stage runs.
+SetWorkflowStateResolver installs the resolver that applies workflow state changes mid\-turn. Pass nil to disable. Must be called before the stage runs.
 
 <a name="QuerySourceType"></a>
-## type [QuerySourceType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L599>)
+## type [QuerySourceType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L598>)
 
 QuerySourceType defines how to construct the relevance query.
 
@@ -4127,22 +4127,22 @@ const (
 ```
 
 <a name="RecordingStage"></a>
-## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L115-L120>)
+## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L114-L119>)
 
 RecordingStage captures pipeline elements as events for session recording. It observes elements flowing through without modifying them.
 
 Writes synchronously to the EventStore. Slow disk applies back\-pressure to upstream — recording correctness wins over pipeline throughput. For production use cases where this trade\-off is wrong, inject a buffered EventStore implementation via Engine.EnableSessionRecordingWithStore.
 
-Routing: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It does not use events.Emitter — it builds each Event itself — which is why searching for a producer by emitter method name finds nothing here.
+Routing: this stage writes DIRECTLY to the EventStore and never touches the EventBus. It does not use events.Emitter \(it builds each Event itself\), so searching for a producer by emitter method name finds nothing here.
 
-It is NOT the only producer of message.created. MessageBroadcastStage publishes the same event on the bus for live consumers, which is the route a TUI or SSE relay wants. The two differ in exactly one way, and deliberately:
+It is NOT the only producer of message.created. MessageBroadcastStage publishes the same event on the bus for live consumers, which is the route a TUI or SSE relay wants. The two differ in exactly one way:
 
 - this route retains full binary, because its purpose is lossless replay;
 - the bus route strips content parts to metadata, so blobs stay out of observability.
 
-Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in — it exists only when a RecordingConfig and an EventStore are both set — but the live route is not, so a consumer without recording still sees messages.
+Both build the payload with events.NewMessageCreatedData so nothing else can drift. This stage is opt\-in \(it exists only when a RecordingConfig and an EventStore are both set\), but the live route is not, so a consumer without recording still sees messages.
 
-Replayed history is counted for position but not re\-recorded: the load stage runs ahead of this one, so history flows through every turn, and appending it again made an N\-turn recording hold turn 1 N times \(\#1879\). Each message is recorded once, on the turn it was new.
+Replayed history is counted for position but not re\-recorded: the load stage runs ahead of this one, so history flows through every turn, and appending it again would make an N\-turn recording hold turn 1 N times. Each message is recorded once, on the turn it was new.
 
 See the routing note on events.Emitter.emit for the other side.
 
@@ -4154,7 +4154,7 @@ type RecordingStage struct {
 ```
 
 <a name="NewRecordingStage"></a>
-### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L123>)
+### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L122>)
 
 ```go
 func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *RecordingStage
@@ -4163,7 +4163,7 @@ func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *Re
 NewRecordingStage creates a new recording stage.
 
 <a name="RecordingStage.Process"></a>
-### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L134-L138>)
+### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L133-L137>)
 
 ```go
 func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4172,7 +4172,7 @@ func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElemen
 Process observes elements and records them as events.
 
 <a name="RecordingStage.WithConversationID"></a>
-### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L444>)
+### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L443>)
 
 ```go
 func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingStage
@@ -4181,7 +4181,7 @@ func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingSt
 WithConversationID sets the conversation ID for recorded events.
 
 <a name="RecordingStage.WithSessionID"></a>
-### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L438>)
+### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L437>)
 
 ```go
 func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
@@ -4231,7 +4231,7 @@ func DefaultRecordingStageConfig() RecordingStageConfig
 DefaultRecordingStageConfig returns sensible defaults.
 
 <a name="RelevanceConfig"></a>
-## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L612-L642>)
+## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L611-L641>)
 
 RelevanceConfig configures embedding\-based relevance truncation. Used when TruncationStrategy is TruncateLeastRelevant.
 
@@ -4518,7 +4518,7 @@ func NewSTTStageWithEmitter(service base.STTProvider, config STTStageConfig, emi
 
 NewSTTStageWithEmitter creates an STT stage that publishes an EventAudioTranscription for each completed transcription.
 
-The event type and its payload \(events.AudioTranscriptionData\) were declared and already consumed — session export writes transcriptions out as subtitles, and annotated sessions query them by type — but nothing produced them, so subscribers waited forever and both consumers saw an empty set. Applications wanting a live transcript had to thread their own callback through the stage graph instead.
+The event type and its payload \(events.AudioTranscriptionData\) were declared and already consumed \(session export writes transcriptions out as subtitles, and annotated sessions query them by type\), but nothing produced them, so subscribers waited forever and both consumers saw an empty set. Applications wanting a live transcript had to thread their own callback through the stage graph instead.
 
 The emitter is optional; NewSTTStage remains the no\-events constructor.
 
@@ -4691,11 +4691,11 @@ func WithNamePrefix(prefix string, s Stage) Stage
 
 WithNamePrefix returns s renamed to "\<prefix\>\_\<name\>", so the same stage constructors can be instantiated once per branch in a single pipeline.
 
-PipelineBuilder.Build rejects duplicate stage names, so a fan\-out that runs identical sub\-chains — one audio track per speaker on a two\-party call, one per camera, one per tenant — must give each branch's stages distinct names. Without a shared helper, every consumer re\-derives the same wrapper by embedding Stage and overriding Name\(\).
+PipelineBuilder.Build rejects duplicate stage names, so a fan\-out that runs identical sub\-chains \(one audio track per speaker on a two\-party call, one per camera, one per tenant\) must give each branch's stages distinct names. Without a shared helper, every consumer re\-derives the same wrapper by embedding Stage and overriding Name\(\).
 
 An empty prefix returns s unchanged, which is the single\-branch case: the constructors' natural names are already unique and no wrapper is warranted.
 
-The original stage is not mutated, so the same instance can be wrapped more than once — though note that wrapping shares the underlying stage, including any state it holds. Branches needing independent state must construct separate stages.
+The original stage is not mutated, so the same instance can be wrapped more than once. Wrapping shares the underlying stage, including any state it holds. Branches needing independent state must construct separate stages.
 
 <a name="StageError"></a>
 ## type [StageError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L76-L80>)
@@ -5014,7 +5014,7 @@ GetAudioElement retrieves a StreamElement from the pool and initializes it with 
 func GetElement() *StreamElement
 ```
 
-GetElement retrieves a StreamElement from the pool or creates a new one. The returned element is reset to its zero state. Callers should use PutElement when the element is no longer needed.
+GetElement retrieves a StreamElement from the pool or creates a new one. The returned element is reset to its zero state. Callers should call PutElement once they are done with the element.
 
 <a name="GetEndOfStreamElement"></a>
 ### func [GetEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L131>)
@@ -5489,16 +5489,16 @@ func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage
 NewTemplateStageWithEmitter creates a template stage that emits lifecycle events.
 
 <a name="NewTemplateStageWithTurnState"></a>
-### func [NewTemplateStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L152>)
+### func [NewTemplateStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L151>)
 
 ```go
 func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState) *TemplateStage
 ```
 
-NewTemplateStageWithTurnState creates a template stage that uses a shared \*TurnState as a per\-Turn render cache. This is the per\-\#1035 fix path: the system\_template is rendered once per Send regardless of how many elements flow through \(history loaders fan\-out N elements per turn but this stage now does a single render\).
+NewTemplateStageWithTurnState creates a template stage that uses a shared \*TurnState as a per\-Turn render cache. The system\_template is rendered once per Send regardless of how many elements flow through \(history loaders fan\-out N elements per turn but this stage does a single render\).
 
 <a name="TemplateStage.Process"></a>
-### func \(\*TemplateStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L162-L166>)
+### func \(\*TemplateStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L161-L165>)
 
 ```go
 func (s *TemplateStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5582,7 +5582,7 @@ ToolCallRecorder is an optional interface a WorkflowStateResolver may implement 
 
 RFC 0009's engine.budget.max\_tool\_calls needs a per\-round count, and the tool loop is the only place that sees every call on every path — unary, streaming, and resumed\-after\-HITL. Counting here rather than in each consumer keeps one counting site, so the SDK's and Arena's totals cannot drift apart; consumers only forward the number to the workflow context they own.
 
-It is deliberately separate from WorkflowStateResolver and type\-asserted at the call site: adding a method to that interface would break every existing implementer, and a resolver with no budget to enforce need not implement this.
+It is separate from WorkflowStateResolver and type\-asserted at the call site: adding a method to that interface would break every existing implementer, and a resolver with no budget to enforce need not implement this.
 
 ```go
 type ToolCallRecorder interface {
@@ -5599,7 +5599,7 @@ type ToolCallRecorder interface {
 
 TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text — even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
 
-It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime — only the transcript log is reordered. Crucially the turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
+It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime — only the transcript log is reordered. The turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
 
 The mechanism is provider\-agnostic; whether it is wired is decided upstream. It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
 
@@ -5650,7 +5650,7 @@ type Transcription struct {
 ```
 
 <a name="TruncationStrategy"></a>
-## type [TruncationStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L585>)
+## type [TruncationStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L584>)
 
 TruncationStrategy defines how to handle messages when over token budget.
 
@@ -5678,7 +5678,7 @@ const (
 
 TurnState holds per\-Turn invariants shared across stages within a single pipeline execution \(one Send / one TurnExecutor.ExecuteTurn\). It is constructed by the pipeline builder and held by reference by every stage that needs to read or write per\-Turn data.
 
-See \`runtime/pipeline/stage/ARCHITECTURE.md\` §4 for the data\-flow principle and the rationale for moving per\-Turn data out of \`StreamElement.Metadata\` \(issue \#1035\).
+See \`runtime/pipeline/stage/ARCHITECTURE.md\` §4 for the data\-flow principle and the rationale for moving per\-Turn data out of \`StreamElement.Metadata\`.
 
 ### Synchronization
 
@@ -5768,11 +5768,11 @@ AdvanceTurn moves to the next turn, returning the new value.
 func (t *TurnState) BeginTurn()
 ```
 
-BeginTurn clears the per\-turn render cache so the next TemplateStage run renders again. A caller that reuses one TurnState across turns — the SDK Conversation does, to carry the turn index — must call this at the start of every turn.
+BeginTurn clears the per\-turn render cache so the next TemplateStage run renders again. A caller that reuses one TurnState across turns \(the SDK Conversation does, to carry the turn index\) must call this at the start of every turn.
 
-Without it, SystemPrompt stays populated from the first turn and renderSystemTemplate returns early forever, so the prompt is rendered once per conversation rather than once per turn. Everything that varies between turns then silently stops reaching the model: SetVar, per\-send bindings, dynamic variable providers, and retrieved memory context. See \#1959.
+Without it, SystemPrompt stays populated from the first turn and renderSystemTemplate returns early forever, so the prompt is rendered once per conversation rather than once per turn. Everything that varies between turns then silently stops reaching the model: SetVar, per\-send bindings, dynamic variable providers, and retrieved memory context.
 
-It deliberately leaves the turn's other fields alone. Template, AllowedTools and Validators are repopulated by PromptAssemblyStage on each run, and the turn index belongs to the load stage.
+It leaves the turn's other fields alone. Template, AllowedTools and Validators are repopulated by PromptAssemblyStage on each run, and the turn index belongs to the load stage.
 
 <a name="TurnState.SetTurnIndex"></a>
 ### func \(\*TurnState\) [SetTurnIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L116>)
@@ -5792,10 +5792,10 @@ func (t *TurnState) TurnIndex() int
 
 TurnIndex is the 1\-based number of the turn being executed, or 0 when none was established \(no state store, so no transcript to count\).
 
-It is what places an event against the transcript, so everything reporting a turn — guardrail events, eval results — must read it from here rather than counting locally. A local count is only right while one pipeline instance outlives the conversation, and is always wrong for a conversation resumed from history it did not itself produce.
+It is what places an event against the transcript, so everything reporting a turn \(guardrail events, eval results\) must read it from here rather than counting locally. A local count is only right while one pipeline instance outlives the conversation, and is always wrong for a conversation resumed from history it did not itself produce.
 
 <a name="VariableProviderStage"></a>
-## type [VariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L311-L316>)
+## type [VariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L310-L315>)
 
 VariableProviderStage resolves variables from dynamic providers and adds them to metadata.
 
@@ -5827,7 +5827,7 @@ type VariableProviderStage struct {
 ```
 
 <a name="NewVariableProviderStage"></a>
-### func [NewVariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L343>)
+### func [NewVariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L342>)
 
 ```go
 func NewVariableProviderStage(variableProviders ...variables.Provider) *VariableProviderStage
@@ -5836,7 +5836,7 @@ func NewVariableProviderStage(variableProviders ...variables.Provider) *Variable
 NewVariableProviderStage creates a variable provider stage.
 
 <a name="NewVariableProviderStageWithVars"></a>
-### func [NewVariableProviderStageWithVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L320-L323>)
+### func [NewVariableProviderStageWithVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L319-L322>)
 
 ```go
 func NewVariableProviderStageWithVars(staticVars map[string]string, variableProviders []variables.Provider) *VariableProviderStage
@@ -5845,7 +5845,7 @@ func NewVariableProviderStageWithVars(staticVars map[string]string, variableProv
 NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers. Static variables are injected first; dynamic providers can override them.
 
 <a name="NewVariableProviderStageWithVarsAndTurnState"></a>
-### func [NewVariableProviderStageWithVarsAndTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L329-L333>)
+### func [NewVariableProviderStageWithVarsAndTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L328-L332>)
 
 ```go
 func NewVariableProviderStageWithVarsAndTurnState(staticVars map[string]string, variableProviders []variables.Provider, turnState *TurnState) *VariableProviderStage
@@ -5854,7 +5854,7 @@ func NewVariableProviderStageWithVarsAndTurnState(staticVars map[string]string, 
 NewVariableProviderStageWithVarsAndTurnState creates a stage that publishes the resolved variables onto the supplied TurnState.Variables.
 
 <a name="VariableProviderStage.Process"></a>
-### func \(\*VariableProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L349-L353>)
+### func \(\*VariableProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L348-L352>)
 
 ```go
 func (s *VariableProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

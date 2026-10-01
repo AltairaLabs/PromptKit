@@ -430,7 +430,7 @@ const (
 )
 ```
 
-<a name="DefaultStreamRetryMaxAttempts"></a>Default values for StreamRetryPolicy. Kept small on purpose: streaming retry targets transient h2 stream resets, not generic 5xx storms, and the wrong default is "retry aggressively". See docs/local\-backlog/STREAMING\_RETRY\_AT\_SCALE.md.
+<a name="DefaultStreamRetryMaxAttempts"></a>Default values for StreamRetryPolicy. They are small because streaming retry targets transient h2 stream resets, not generic 5xx storms, and the wrong default is "retry aggressively".
 
 ```go
 const (
@@ -548,7 +548,7 @@ func DoAncillaryJSONRequest(ctx context.Context, client *http.Client, providerID
 
 DoAncillaryJSONRequest POSTs a JSON body for one of the ancillary provider roles \(embedding, rerank\) and returns the raw response body.
 
-Shared by both rather than copied, because the error handling is the part worth getting right once: a transport failure is wrapped as ProviderTransportError, not a bare fmt.Errorf, because that is the type whose Error\(\) redacts credential\-bearing query parameters. A plain wrap formats the raw \*url.Error — full URL included — straight into the message, which is how a live key once reached the logs. It also makes these failures classifiable by IsTransient, like every other provider path.
+Shared by both rather than copied, because the error handling is the part worth getting right once: a transport failure is wrapped as ProviderTransportError, not a bare fmt.Errorf, because that is the type whose Error\(\) redacts credential\-bearing query parameters. A plain wrap formats the raw \*url.Error \(full URL included\) straight into the message, which can put a live key in the logs. It also makes these failures classifiable by IsTransient, like every other provider path.
 
 <a name="DoWithRetry"></a>
 ## func [DoWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/retry.go#L186-L191>)
@@ -620,7 +620,7 @@ HasVideoSupport checks if a provider supports video inputs
 func HostFromURL(raw string) string
 ```
 
-HostFromURL extracts just the host portion \(without scheme or path\) from a URL string, intended for use as a Prometheus label on streaming metrics. Returns an empty string on parse error — callers treat empty\-host labels as "unknown host" rather than failing.
+HostFromURL extracts only the host portion \(without scheme or path\) from a URL string, intended for use as a Prometheus label on streaming metrics. Returns an empty string on parse error — callers treat empty\-host labels as "unknown host" rather than failing.
 
 <a name="IntFromConfig"></a>
 ## func [IntFromConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L130>)
@@ -649,7 +649,7 @@ func IsRetryableStreamError(err error) bool
 
 IsRetryableStreamError returns true if the error looks like a transient streaming failure that is safe to retry from the pre\-first\-chunk window.
 
-This deliberately covers a narrower set than isRetryableError in retry.go: we want h2 stream resets, TCP resets, TLS close\_notify races, and idle connection reuse failures — but never context cancellation, deadline, or application\-layer parse errors.
+This covers a narrower set than isRetryableError in retry.go: we want h2 stream resets, TCP resets, TLS close\_notify races, and idle connection reuse failures — but never context cancellation, deadline, or application\-layer parse errors.
 
 <a name="IsRetryableStreamStatus"></a>
 ## func [IsRetryableStreamStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L216>)
@@ -698,7 +698,7 @@ LoadFileAsBase64 reads a file and returns its content as a base64\-encoded strin
 
 Deprecated: Use MediaLoader.GetBase64Data instead for better functionality including storage reference support, URL loading, and proper context handling.
 
-This function is kept for backward compatibility but will be removed in a future version. It now delegates to the new MediaLoader implementation.
+This function is kept for backward compatibility. It delegates to the MediaLoader implementation.
 
 <a name="LogEmbeddingRequest"></a>
 ## func [LogEmbeddingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_embedding.go#L286>)
@@ -808,7 +808,7 @@ func RedactURLSecrets(s string) string
 
 RedactURLSecrets masks credential\-bearing query parameters in any URLs found in s, leaving the rest of the string untouched.
 
-It exists because credentials in URLs reach logs through error strings, not through the logger. Gemini carries its API key as \`?key=\`, Go's \*url.Error embeds the full URL, and every layer that wraps that error reformats the same text — so one transport failure wrote a live key to the log several times over. Redacting where the error is FORMATTED covers every wrapping layer at once, and covers any provider, not just the one that was noticed.
+It exists because credentials in URLs reach logs through error strings, not through the logger. Gemini carries its API key as \`?key=\`, Go's \*url.Error embeds the full URL, and every layer that wraps that error reformats the same text, so one transport failure can write a live key to the log several times over. Redacting where the error is FORMATTED covers every wrapping layer at once, and covers every provider.
 
 This is a backstop, not the primary defense. A credential is better kept out of the URL entirely — see the Gemini provider's x\-goog\-api\-key header.
 
@@ -1426,7 +1426,7 @@ SetCustomHeaders stores custom HTTP headers that will be applied to every outgoi
 func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration)
 ```
 
-SetHTTPTimeout replaces the request/response HTTP client with a new one that uses the given timeout while preserving the existing transport configuration. Does not affect the streaming client, which remains at Timeout=0 by design.
+SetHTTPTimeout replaces the request/response HTTP client with a new one that uses the given timeout while preserving the existing transport configuration. Does not affect the streaming client, which remains at Timeout=0.
 
 <a name="BaseProvider.SetHTTPTransport"></a>
 ### func \(\*BaseProvider\) [SetHTTPTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L335>)
@@ -1437,7 +1437,7 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper)
 
 SetHTTPTransport replaces the RoundTripper on both the regular and streaming HTTP clients so the provider routes every outbound request through the supplied transport. Both clients share the transport so connection pooling is effective across request/response and streaming traffic to the same upstream.
 
-This is the hook CreateProviderFromSpec uses to apply per\-provider connection pool config \(see ProviderSpec.HTTPTransport and AltairaLabs/PromptKit\#873\). Provider factories are not aware of this plumbing — they create their client with the default pooled transport and the spec wiring replaces it after construction when the operator has configured overrides.
+This is the hook CreateProviderFromSpec uses to apply per\-provider connection pool config \(see ProviderSpec.HTTPTransport\). Provider factories are not aware of this plumbing — they create their client with the default pooled transport and the spec wiring replaces it after construction when the operator has configured overrides.
 
 A nil transport resets both clients to Go's http.DefaultTransport via the http.Client zero\-value behavior. Passing nil is not the typical use case; callers should build a transport via NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport so the OpenTelemetry span wiring is preserved.
 
@@ -1457,7 +1457,7 @@ SetMaxPayloadSize configures the maximum allowed request payload size in bytes. 
 func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
 ```
 
-SetMediaStorageService injects the media storage service used to resolve MediaContent.StorageReference values at request\-build time. Nil \(the default\) preserves prior behavior. See MediaStorageConfigurable in registry.go.
+SetMediaStorageService injects the media storage service that resolves MediaContent.StorageReference values at request\-build time. Nil \(the default\) disables storage\-reference resolution. See MediaStorageConfigurable in registry.go.
 
 <a name="BaseProvider.SetRateLimit"></a>
 ### func \(\*BaseProvider\) [SetRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L754>)
@@ -1750,7 +1750,7 @@ PeekFirstFrame reads one complete event\-stream message from r and returns the r
 <a name="ContextWindowProvider"></a>
 ## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L186-L188>)
 
-ContextWindowProvider is an optional interface for providers that can report their context window size. Used to auto\-configure the compactor budget.
+ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it.
 
 ```go
 type ContextWindowProvider interface {
@@ -1958,7 +1958,7 @@ type EmbeddingUsage struct {
 <a name="EmbeddingWiring"></a>
 ## type [EmbeddingWiring](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_platform.go#L48-L56>)
 
-EmbeddingWiring is the transport\-derived configuration every platform\-native embedding provider applies the same way. Family\-specific settings — Cohere's input\_type, Vertex's task\_type — stay with their own provider.
+EmbeddingWiring is the transport\-derived configuration every platform\-native embedding provider applies the same way. Family\-specific settings \(Cohere's input\_type, Vertex's task\_type\) stay with their own provider.
 
 ```go
 type EmbeddingWiring struct {
@@ -2042,7 +2042,7 @@ type HTTPRequestConfig struct {
 
 HTTPTransportOptions configures the connection pool for a pooled HTTP transport. Zero values mean unlimited for connection counts \(matching Go's http.Transport\) and fall back to DefaultIdleConnTimeout for the timeout. Negative values fall back to package\-level defaults.
 
-These are the single\-process h2 pool controls that bound how many concurrent streams a provider can multiplex to a single upstream host. See AltairaLabs/PromptKit\#873 for background: in combination with the upstream's advertised SETTINGS\_MAX\_CONCURRENT\_STREAMS \(RFC 7540 §6.5.2\), MaxConnsPerHost is the wall that determines the realistic steady\-state ceiling for concurrent streams per process.
+These are the single\-process h2 pool controls that bound how many concurrent streams a provider can multiplex to a single upstream host. In combination with the upstream's advertised SETTINGS\_MAX\_CONCURRENT\_STREAMS \(RFC 7540 §6.5.2\), MaxConnsPerHost is the wall that determines the realistic steady\-state ceiling for concurrent streams per process.
 
 ```go
 type HTTPTransportOptions struct {
@@ -2154,9 +2154,9 @@ JSONArrayFrameDetector detects the first complete top\-level object inside a str
 
 parsed incrementally by a downstream \`json.Decoder\`. The detector reads past leading whitespace and the opening \`\[\`, then scans bytes until it finds the end of the first \`\{...\}\` at depth 0 \(respecting JSON string escapes\).
 
-Byte\-level parsing is deliberate — a \`json.Decoder\` would work but it buffers aggressively and makes it harder to track exactly how many bytes have been consumed from the underlying reader.
+The detector parses at byte level because a \`json.Decoder\` would work but it buffers aggressively and makes it harder to track exactly how many bytes have been consumed from the underlying reader.
 
-On success the returned bytes form a prefix of the stream ending at the closing brace of the first object. The downstream \`json.Decoder\` continues from there and expects either \`,\` or \`\]\` next, which is exactly what remains in the stream.
+On success the returned bytes form a prefix of the stream ending at the closing brace of the first object. The downstream \`json.Decoder\` continues from there and expects either \`,\` or \`\]\` next, and that is what remains in the stream.
 
 ```go
 type JSONArrayFrameDetector struct{}
@@ -2200,7 +2200,7 @@ type JitterHealthReporter struct {
 func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters, direction string)
 ```
 
-Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics / AltairaLabs/PromptKit\#853\).
+Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics\).
 
 <a name="LateInputTranscriber"></a>
 ## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L187-L191>)
@@ -2367,7 +2367,7 @@ WithMockRerankMaxDocuments sets the reported document cap, so a test can exercis
 
 MockRerankProvider ranks without a network call, for tests and local development.
 
-It scores by counting how many of the query's whitespace\-separated terms appear in each document, case\-insensitively. That is deliberately crude — it is not trying to be a good reranker, it is trying to be a \*predictable\* one, so a test can assert an exact order without pinning a vendor model's behavior. Ties keep the input order, so the result is fully deterministic.
+It scores by counting how many of the query's whitespace\-separated terms appear in each document, case\-insensitively. That is crude: it is not trying to be a good reranker, it is trying to be a \*predictable\* one, so a test can assert an exact order without pinning a vendor model's behavior. Ties keep the input order, so the result is fully deterministic.
 
 Scores are normalized to 0..1 \(matched terms over query terms\) purely so they look like the hosted providers' scores; they are not comparable to them, which is true of any two rerankers.
 
@@ -2905,7 +2905,7 @@ func (e *ProviderTransportError) Error() string
 
 Error redacts credential\-bearing query parameters. The cause is typically a \*url.Error, which embeds the full request URL — and every layer that wraps this error reformats the same text, so one failure would otherwise write the credential to the log repeatedly.
 
-Unwrap deliberately still returns the raw cause: errors.Is/As must keep working against the original \*url.Error. Anything that formats the unwrapped cause directly bypasses this, which is why the credential should not be in the URL to begin with.
+Unwrap still returns the raw cause: errors.Is/As must keep working against the original \*url.Error. Anything that formats the unwrapped cause directly bypasses this, which is why the credential should not be in the URL to begin with.
 
 <a name="ProviderTransportError.Unwrap"></a>
 ### func \(\*ProviderTransportError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/errors.go#L56>)
@@ -3068,9 +3068,9 @@ type RequestHeaders map[string]string
 
 RerankProvider orders a bounded candidate list by relevance to a query.
 
-It is deliberately not a tool and not an agent: reranking is a synchronous model\-backed function with no conversation, no tool loop and no state. Hosts call it directly, typically as an optional stage after a vector search has produced more candidates than the prompt can afford to carry.
+It is not a tool and not an agent: reranking is a synchronous model\-backed function with no conversation, no tool loop and no state. Hosts call it directly, typically as an optional stage after a vector search has produced more candidates than the prompt can afford to carry.
 
-Implementations may be hosted APIs \(Voyage AI, Cohere\), a local cross\-encoder, or an LLM\-based scorer, and callers should not need to know which. See AltairaLabs/PromptKit\#1993.
+Implementations may be hosted APIs \(Voyage AI, Cohere\), a local cross\-encoder, or an LLM\-based scorer, and callers should not need to know which.
 
 ```go
 type RerankProvider interface {
@@ -3107,7 +3107,7 @@ func CreateRerankProviderFromSpec(spec RerankProviderSpec) (RerankProvider, erro
 
 CreateRerankProviderFromSpec builds a rerank provider for spec.Type.
 
-This is the seam worth testing a new backend through: a factory that was never registered — an import missing, an init\(\) that did not run — produces exactly this error, and a constructor test would not catch it because it calls the constructor directly.
+This is the seam worth testing a new backend through: a factory that was never registered \(an import missing, an init\(\) that did not run\) produces exactly this error, and a constructor test would not catch it because it calls the constructor directly.
 
 <a name="RerankProviderFactory"></a>
 ## type [RerankProviderFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rerank_factory.go#L42>)
@@ -3207,7 +3207,7 @@ type RerankTransport struct {
 ```
 
 <a name="ResolveRerankTransport"></a>
-### func [ResolveRerankTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rerank_factory.go#L126>)
+### func [ResolveRerankTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rerank_factory.go#L125>)
 
 ```go
 func ResolveRerankTransport(spec RerankProviderSpec) (RerankTransport, error)
@@ -3215,7 +3215,7 @@ func ResolveRerankTransport(spec RerankProviderSpec) (RerankTransport, error)
 
 ResolveRerankTransport turns a spec's credential into the base URL and API key a vendor constructor needs.
 
-Platform\-hosted reranking \(Azure/Bedrock/Vertex\) is not wired: no hyperscaler exposes a first\-party rerank endpoint the way they do embeddings, so rather than guess at an endpoint shape this rejects the combination outright. A declared\-but\-unroutable platform would otherwise fall through to the direct API path and fail later with a confusing auth error. See \#1330 for the platform\-auth base layer this would build on.
+Platform\-hosted reranking \(Azure/Bedrock/Vertex\) is not wired: no hyperscaler exposes a first\-party rerank endpoint the way they do embeddings, so rather than guess at an endpoint shape this rejects the combination outright. A declared\-but\-unroutable platform would otherwise fall through to the direct API path and fail later with a confusing auth error.
 
 <a name="RerankUsage"></a>
 ## type [RerankUsage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rerank.go#L65-L69>)
@@ -3297,7 +3297,7 @@ func NewRetryBudget(ratePerSec float64, burst int) *RetryBudget
 
 NewRetryBudget creates a new token bucket sized for streaming retries. ratePerSec is the sustained refill rate; burst is the maximum number of tokens that can accumulate. Returns nil when either parameter is non\-positive \(unlimited budget\).
 
-Typical sizing: start with rate=5/s, burst=10 and tune based on promptkit\_stream\_retries\_total\{outcome="budget\_exhausted"\}. These defaults are deliberately conservative — a healthy workload should almost never hit the budget, so high rejection counts are a signal that either retries are storming \(upstream degraded\) or the budget is undersized \(bump it\).
+Typical sizing: start with rate=5/s, burst=10 and tune based on promptkit\_stream\_retries\_total\{outcome="budget\_exhausted"\}. These defaults are conservative: a healthy workload should almost never hit the budget, so high rejection counts are a signal that either retries are storming \(upstream degraded\) or the budget is undersized \(bump it\).
 
 <a name="RetryBudget.Available"></a>
 ### func \(\*RetryBudget\) [Available](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry_budget.go#L74>)
@@ -3743,7 +3743,7 @@ DefaultStreamMetrics returns the process\-wide StreamMetrics instance or nil if 
 func NewStreamMetrics(registerer prometheus.Registerer, namespace string, constLabels prometheus.Labels) *StreamMetrics
 ```
 
-NewStreamMetrics creates and registers the Phase 1 streaming metrics into the given registerer under the given namespace. Const labels are applied to every metric.
+NewStreamMetrics creates and registers the streaming metrics into the given registerer under the given namespace. Const labels are applied to every metric.
 
 Returns a non\-nil \*StreamMetrics. Re\-registration of the same metric name into the same registry will panic \(Prometheus semantic\), so the default registration path uses sync.Once via RegisterDefaultStreamMetrics.
 
@@ -3994,7 +3994,7 @@ type StreamObserver interface {
 
 StreamPump is the shared core behind every streaming provider's barge\-in behavior. It decouples a session's single\-threaded receive loop from the \(real\-time\-paced\) consumer of Response\(\), and implements the barge\-in audio drop — so a new provider gets working, consistent barge\-in by wiring its wire\-protocol signals, not by reimplementing the concurrency.
 
-The session owns the input channel \(so it controls when no more chunks are coming, by closing it\); the pump owns the output channel and an unbounded internal queue between them. Because the queue is unbounded, a slow consumer back\-pressures only Response\(\) and the queue — never the receive loop — so control events \(barge\-in\) are handled promptly instead of waiting for the buffered audio backlog to drain.
+The session owns the input channel \(so it controls when no more chunks are coming, by closing it\); the pump owns the output channel and an unbounded internal queue between them. Because the queue is unbounded, a slow consumer back\-pressures only Response\(\) and the queue \(never the receive loop\), so control events \(barge\-in\) are handled promptly instead of waiting for the buffered audio backlog to drain.
 
 Lifecycle: NewStreamPump\(ctx, in, buf\) then Start\(\); the receive goroutine feeds the input channel and, on exit, closes it and calls Wait\(\) \(which lets the pump drain and close Response\(\)\) before canceling ctx — so a terminal chunk is delivered before Done\(\) fires. On a detected barge\-in the session calls Barge\(\) \(fires the out\-of\-band BargeIn\(\) signal and starts Dropping\(\)\), then sends BargeMarker\(\) on its input channel, and skips still\-arriving audio while Dropping\(\) is true, clearing it at the next response boundary with ClearDrop\(\).
 
@@ -4127,7 +4127,7 @@ Attempts returns the normalized number of attempts \(\>=1\). Returns 1 when retr
 func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration
 ```
 
-BackoffFor computes the delay for the given attempt index \(0\-based\) using full jitter: uniform random in \[0, min\(maxDelay, initialDelay \* 2^attempt\)\]. Full jitter \(as opposed to equal or decorrelated jitter\) is deliberate — when a single h2 connection reset kills \~100 streams, equal jitter still synchronizes the retries into narrow buckets; full jitter smears them.
+BackoffFor computes the delay for the given attempt index \(0\-based\) using full jitter: uniform random in \[0, min\(maxDelay, initialDelay \* 2^attempt\)\]. It uses full jitter \(as opposed to equal or decorrelated jitter\) because when a single h2 connection reset kills \~100 streams, equal jitter still synchronizes the retries into narrow buckets; full jitter smears them.
 
 <a name="StreamRetryPolicy.InitialDelayOrDefault"></a>
 ### func \(StreamRetryPolicy\) [InitialDelayOrDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry.go#L102>)
@@ -4278,7 +4278,7 @@ type StreamScanner interface {
 
 StreamSemaphore caps the number of concurrent streaming requests a provider will have in flight at any one time. Acquire blocks \(subject to context cancellation\) when the limit is reached, so the caller's deadline controls fail\-fast vs. queueing behavior: a short context means "reject me quickly if you're full", a long one means "queue".
 
-Rationale: per\-request bounded retry \+ budget \(Phase 1\-2\) does not bound the \*number\* of streams a provider can hold open. At 1000 concurrent streams each provider holds \~1000 goroutines, timers, and channel buffers, even though it only needs a handful of h2 connections to serve them. The semaphore turns unbounded goroutine growth into back\-pressure that surfaces cleanly at the caller.
+Rationale: per\-request bounded retry \+ budget does not bound the \*number\* of streams a provider can hold open. At 1000 concurrent streams each provider holds \~1000 goroutines, timers, and channel buffers, even though it only needs a handful of h2 connections to serve them. The semaphore turns unbounded goroutine growth into back\-pressure that surfaces cleanly at the caller.
 
 Design: wraps golang.org/x/sync/semaphore.Weighted. Nil\-safe — a nil \*StreamSemaphore never blocks and has a no\-op Release, so callers can use it unconditionally.
 

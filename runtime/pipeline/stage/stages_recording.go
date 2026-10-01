@@ -89,26 +89,25 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // EventStore implementation via Engine.EnableSessionRecordingWithStore.
 //
 // Routing: this stage writes DIRECTLY to the EventStore and never touches the
-// EventBus. It does not use events.Emitter — it builds each Event itself —
-// which is why searching for a producer by emitter method name finds nothing
-// here.
+// EventBus. It does not use events.Emitter (it builds each Event itself), so
+// searching for a producer by emitter method name finds nothing here.
 //
 // It is NOT the only producer of message.created. MessageBroadcastStage
 // publishes the same event on the bus for live consumers, which is the route a
-// TUI or SSE relay wants. The two differ in exactly one way, and deliberately:
+// TUI or SSE relay wants. The two differ in exactly one way:
 //
 //   - this route retains full binary, because its purpose is lossless replay;
 //   - the bus route strips content parts to metadata, so blobs stay out of
 //     observability.
 //
 // Both build the payload with events.NewMessageCreatedData so nothing else can
-// drift. This stage is opt-in — it exists only when a RecordingConfig and an
-// EventStore are both set — but the live route is not, so a consumer without
+// drift. This stage is opt-in (it exists only when a RecordingConfig and an
+// EventStore are both set), but the live route is not, so a consumer without
 // recording still sees messages.
 //
 // Replayed history is counted for position but not re-recorded: the load stage
 // runs ahead of this one, so history flows through every turn, and appending it
-// again made an N-turn recording hold turn 1 N times (#1879). Each message is
+// again would make an N-turn recording hold turn 1 N times. Each message is
 // recorded once, on the turn it was new.
 //
 // See the routing note on events.Emitter.emit for the other side.

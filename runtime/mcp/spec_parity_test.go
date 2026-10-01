@@ -580,8 +580,7 @@ func renderMCPSpecSupport(t *testing.T, docs map[string]map[string]any) string {
 		"every other field is carried.\n\n" +
 		"That check covers message fields. Behaviour is checked by scenario tests and by the official " +
 		"[MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) " +
-		"against both revisions' requirements; known gaps are tracked in " +
-		"[#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).\n\n")
+		"against both revisions' requirements.\n\n")
 	b.WriteString("Spec fields PromptKit does not carry:\n\n")
 	b.WriteString("| Spec type | Field | Why |\n|---|---|---|\n")
 	var nonSpec []string

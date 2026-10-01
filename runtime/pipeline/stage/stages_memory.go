@@ -17,7 +17,7 @@ import (
 // It MUST be placed before TemplateStage. That stage is the single render
 // point, and a variable written after it renders is invisible: the prompt
 // reaches the model with {{memory_context}} unresolved while retrieval
-// reports success. Ordering it after the render is what #1958 was.
+// reports success.
 //
 // No-op passthrough when retriever or turnState is nil.
 type MemoryRetrievalStage struct {
@@ -50,7 +50,7 @@ func NewMemoryRetrievalStageWithTurnState(
 	}
 }
 
-// WithContextFormatter overrides the formatter used to render retrieved
+// WithContextFormatter overrides the formatter that renders retrieved
 // memories into the "memory_context" template variable. Falls back to
 // [memory.DefaultContextFormatter] when nil.
 func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) *MemoryRetrievalStage {

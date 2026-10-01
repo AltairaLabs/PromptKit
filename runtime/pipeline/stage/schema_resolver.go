@@ -9,7 +9,7 @@ import (
 
 // NewFileSchemaResolver returns a resolver that reads a schema file path relative to
 // configDir (absolute paths are used as-is). An empty path resolves to (nil, nil)
-// — "no schema" — matching CompositionExecutorDeps.SchemaResolver's contract.
+// ("no schema"), matching CompositionExecutorDeps.SchemaResolver's contract.
 func NewFileSchemaResolver(configDir string) func(path string) (json.RawMessage, error) {
 	return func(path string) (json.RawMessage, error) {
 		if path == "" {

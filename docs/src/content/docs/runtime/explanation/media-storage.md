@@ -7,7 +7,7 @@ Understanding how Runtime stores and deduplicates media content.
 
 ## Overview
 
-`runtime/storage` defines the interfaces used to store media content (images, audio, video)
+`runtime/storage` defines the interfaces for storing media content (images, audio, video)
 referenced from conversations. `runtime/storage/local` provides a filesystem-backed
 implementation, `FileStore` — this page explains two of its behaviors that aren't obvious from the
 API surface alone: content deduplication and crash-safe writes.
@@ -33,7 +33,7 @@ cost and a shared index file that requires locking across concurrent writers.
 
 `FileStore` writes are crash-safe: content is written to a temporary file in the target directory
 first, then renamed into place. The atomic rename means readers never observe a partially-written
-file, and any leftover temp file after a crash is just abandoned data, not corruption.
+file, and any leftover temp file after a crash is abandoned data, not corruption.
 
 ## See Also
 

@@ -41,7 +41,7 @@ type Service interface {
 // model-specific (e.g. OpenAI gpt-4o-mini-tts moves tags to `instructions`, so
 // the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags).
 // The lowering is pure, so this reports the value without synthesizing. Returns
-// "" when unknown, letting consumers fall back to the LLM text. (#1657)
+// "" when unknown, letting consumers fall back to the LLM text.
 type SpokenTextReporter interface {
 	// SpokenText returns the text that would actually be spoken for the given
 	// input and config, after markup lowering.

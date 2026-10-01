@@ -10,7 +10,7 @@ import (
 )
 
 // ErrSessionEnded is returned when the streaming session has ended.
-// This is not necessarily an error, just indicates the session is complete.
+// This is not necessarily an error; it indicates the session is complete.
 var ErrSessionEnded = errors.New("session ended")
 
 // ResponseCollectorConfig configures response collection behavior.

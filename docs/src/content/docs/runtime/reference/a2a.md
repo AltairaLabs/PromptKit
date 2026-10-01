@@ -641,7 +641,7 @@ ListTasks lists tasks \(ListTasks, which A2A 1.0 added; to a 0.3 agent the clien
 func (c *Client) ProtocolVersion() ProtocolVersion
 ```
 
-ProtocolVersion returns the protocol version the client currently speaks.
+ProtocolVersion returns the protocol version the client speaks.
 
 <a name="Client.SendMessage"></a>
 ### func \(\*Client\) [SendMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L762>)
@@ -740,7 +740,7 @@ WithSSEIdleTimeout sets the idle timeout for SSE streams. If no event is receive
 <a name="Executor"></a>
 ## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L135-L151>)
 
-Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools. It dispatches tool calls to remote A2A agents via the A2A client. The executor maintains a cache of A2A clients with TTL\-based eviction. Call Close when the executor is no longer needed to release resources.
+Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools. It dispatches tool calls to remote A2A agents via the A2A client. The executor maintains a cache of A2A clients with TTL\-based eviction. Call Close when you are done with the executor to release resources.
 
 ```go
 type Executor struct {
@@ -755,7 +755,7 @@ type Executor struct {
 func NewExecutor(opts ...ExecutorOption) *Executor
 ```
 
-NewExecutor creates a new A2A executor with optional configuration. The executor starts a background goroutine for cache cleanup. Call Close when the executor is no longer needed.
+NewExecutor creates a new A2A executor with optional configuration. The executor starts a background goroutine for cache cleanup. Call Close when you are done with the executor.
 
 <a name="Executor.Close"></a>
 ### func \(\*Executor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L589>)
@@ -1165,7 +1165,7 @@ func (v ProtocolVersion) WireAgentCard(card *AgentCard) any
 
 WireAgentCard returns card in version v's shape.
 
-For 1.0 the card is returned as is. For 0.3 \(and for a request that names no version, which the spec reads as 0.3\) it is the 0.3 card — url, preferredTransport, protocolVersion, additionalInterfaces, 0.3\-style security — with supportedInterfaces kept as well, so a 1.0 client reading the same document still finds its interface.
+For 1.0 the card is returned as is. For 0.3 \(and for a request that names no version, which the spec reads as 0.3\) it is the 0.3 card \(url, preferredTransport, protocolVersion, additionalInterfaces, 0.3\-style security\) with supportedInterfaces kept as well, so a 1.0 client reading the same document still finds its interface.
 
 <a name="ProtocolVersion.WireSendParams"></a>
 ### func \(ProtocolVersion\) [WireSendParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/wire.go#L72>)

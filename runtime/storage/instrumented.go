@@ -183,7 +183,7 @@ func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Referen
 }
 
 // GetURL traces and times URL generation. No success event is emitted
-// — URL generation is a metadata operation that doesn't move bytes —
+// (URL generation is a metadata operation that doesn't move bytes),
 // but failures still publish an error event so opaque 404s are visible.
 func (s *InstrumentedStorage) GetURL(
 	ctx context.Context, reference Reference, expiry time.Duration,

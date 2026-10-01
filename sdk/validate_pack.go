@@ -52,15 +52,15 @@ func (p PackIssue) String() string {
 	return fmt.Sprintf("%s %s: %s (%s)", p.Severity, loc, p.Reason, tag)
 }
 
-// ValidatePack loads the pack at path and reports any semantic issues —
-// unknown validator/eval types, missing required params — that would
+// ValidatePack loads the pack at path and reports any semantic issues
+// (unknown validator/eval types, missing required params) that would
 // cause Open() to warn-and-skip them or Arena to fail fast.
 //
 // When skipSchemaValidation is false (the default for callers who pass
 // the zero value), ValidatePack runs strict promptpack JSON schema
 // validation against the embedded schema. A pack that fails schema
 // validation (for example, a validator declaring a forbidden field like
-// "monitor") is returned as a non-nil error — not as PackIssues —
+// "monitor") is returned as a non-nil error, not as PackIssues,
 // because the file itself is non-spec. Pass true to bypass this and
 // check only handler-level issues.
 //
@@ -94,11 +94,10 @@ func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 // Without this a pack validator or eval naming a custom eval type is
 // reported as an unknown-type issue even though Open() with the matching
 // WithEvalRegistry builds and enforces it — preflight and runtime
-// disagreeing about the same pack, in the direction that cries wolf
-// (#1725).
+// disagreeing about the same pack, in the direction that cries wolf.
 //
-// Everything else — the error/issue split, strict schema validation, the
-// (nil, nil) fully-valid result — is exactly as documented on ValidatePack.
+// Everything else (the error/issue split, strict schema validation, the
+// (nil, nil) fully-valid result) is exactly as documented on ValidatePack.
 func ValidatePackWithRegistry(
 	path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry,
 ) ([]PackIssue, error) {

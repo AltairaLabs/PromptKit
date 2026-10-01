@@ -72,7 +72,7 @@ func RegisteredRerankProviderTypes() []string {
 // CreateRerankProviderFromSpec builds a rerank provider for spec.Type.
 //
 // This is the seam worth testing a new backend through: a factory that was
-// never registered — an import missing, an init() that did not run — produces
+// never registered (an import missing, an init() that did not run) produces
 // exactly this error, and a constructor test would not catch it because it
 // calls the constructor directly.
 func CreateRerankProviderFromSpec(spec RerankProviderSpec) (RerankProvider, error) {
@@ -121,8 +121,7 @@ type RerankTransport struct {
 // exposes a first-party rerank endpoint the way they do embeddings, so rather
 // than guess at an endpoint shape this rejects the combination outright. A
 // declared-but-unroutable platform would otherwise fall through to the direct
-// API path and fail later with a confusing auth error. See #1330 for the
-// platform-auth base layer this would build on.
+// API path and fail later with a confusing auth error.
 func ResolveRerankTransport(spec RerankProviderSpec) (RerankTransport, error) {
 	if spec.Platform != "" {
 		return RerankTransport{}, fmt.Errorf(

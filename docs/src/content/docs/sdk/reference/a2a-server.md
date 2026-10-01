@@ -377,7 +377,7 @@ SetState transitions the task to a new state with an optional status message.
 
 MessageHandler turns one inbound A2A message into a stream of events.
 
-Handle is called once per message and the server keeps no state between calls. ctx is the HTTP request's context, so whatever the embedder's middleware put on it — caller identity, tenant, trace — is readable here, which is the thing [ConversationOpener](<#ConversationOpener>) cannot offer.
+Handle is called once per message and the server keeps no state between calls. ctx is the HTTP request's context, so whatever the embedder's middleware put on it \(caller identity, tenant, trace\) is readable here, which is the thing [ConversationOpener](<#ConversationOpener>) cannot offer.
 
 The returned channel must be closed when the turn is over. A closing channel that sent no [EventDone](<#EventText>) is treated as a completed turn.
 
@@ -669,7 +669,7 @@ func NewServer(opener ConversationOpener, opts ...Option) *Server
 
 NewServer creates a new A2A server that OWNS its conversations: it opens one per context id through the supplied opener, caches it, and reuses it when that id returns. Suits an embedder running A2A and the runtime in one process.
 
-For an embedder that owns conversations itself — because the runtime lives elsewhere, or it already tracks sessions — see [NewStatelessServer](<#NewStatelessServer>).
+For an embedder that owns conversations itself \(because the runtime lives elsewhere, or it already tracks sessions\), see [NewStatelessServer](<#NewStatelessServer>).
 
 <a name="NewStatelessServer"></a>
 ### func [NewStatelessServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L93>)
@@ -793,7 +793,7 @@ type TaskCanceler interface {
 
 TaskEvent is one update to a task, as SubscribeToTask callers receive it. Exactly one field is set.
 
-It is version\-neutral on purpose: a subscriber may speak a different protocol version, and carries a different JSON\-RPC id, than the caller whose turn produced the event, so each subscriber encodes it for itself.
+It is version\-neutral because a subscriber may speak a different protocol version, and carries a different JSON\-RPC id, than the caller whose turn produced the event, so each subscriber encodes it for itself.
 
 ```go
 type TaskEvent struct {
@@ -900,7 +900,7 @@ type TaskStore interface {
 <a name="ToolResult"></a>
 ## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L76-L84>)
 
-ToolResult is one fulfilled — or refused — client\-side tool call.
+ToolResult is one fulfilled \(or refused\) client\-side tool call.
 
 ```go
 type ToolResult struct {
@@ -917,7 +917,7 @@ type ToolResult struct {
 <a name="ToolResultHandler"></a>
 ## type [ToolResultHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L61-L63>)
 
-ToolResultHandler is the optional client\-tool half of [MessageHandler](<#MessageHandler>). A handler that implements it can receive the results of client\-side tool calls it previously asked for and continue the turn.
+ToolResultHandler is the optional client\-tool half of [MessageHandler](<#MessageHandler>). A handler that implements it can receive the results of client\-side tool calls it asked for earlier and continue the turn.
 
 Without it, a stateless server rejects tool\-result messages rather than pretending to resume something it is not holding.
 

@@ -19,7 +19,7 @@ type TurnDetector interface {
 	// Returns true if end of turn is detected based on VAD state.
 	ProcessVADState(ctx context.Context, state VADState) (bool, error)
 
-	// IsUserSpeaking returns true if user is currently speaking.
+	// IsUserSpeaking returns true if user is speaking.
 	IsUserSpeaking() bool
 
 	// Reset clears state for a new conversation.

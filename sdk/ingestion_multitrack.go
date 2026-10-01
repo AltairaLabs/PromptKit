@@ -55,8 +55,8 @@ type MultiTrackIngestionConfig struct {
 }
 
 // MultiTrackIngestion returns an IngestionFunc (for WithIngestion) that fans
-// inbound audio out to one independent per-track pipeline each — resample → VAD
-// turn detection → STT → speaker-labeled Message — keyed on StreamChunk.Source,
+// inbound audio out to one independent per-track pipeline each (resample → VAD
+// turn detection → STT → speaker-labeled Message), keyed on StreamChunk.Source,
 // then merges the labeled transcripts back into the single stream the standard
 // agent chain consumes.
 //

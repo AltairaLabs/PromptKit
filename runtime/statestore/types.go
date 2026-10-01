@@ -29,7 +29,7 @@ type ConversationState struct {
 }
 
 // Summary represents a compressed version of conversation turns.
-// Used to maintain context while reducing token count for older conversations.
+// It maintains context while reducing token count for older conversations.
 type Summary struct {
 	StartTurn  int       // First turn included in this summary
 	EndTurn    int       // Last turn included in this summary

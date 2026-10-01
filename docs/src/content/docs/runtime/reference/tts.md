@@ -524,7 +524,7 @@ PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Retu
 func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
 ```
 
-SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter \(\#1657\).
+SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter.
 
 <a name="CartesiaService.SupportedFormats"></a>
 ### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L391>)
@@ -680,7 +680,7 @@ PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Retu
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
 ```
 
-SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: eleven\_v3 keeps inline tags \(the model interprets them\), other models strip tags. Implements tts.SpokenTextReporter \(\#1657\).
+SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: eleven\_v3 keeps inline tags \(the model interprets them\), other models strip tags. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
 ### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L274>)
@@ -827,7 +827,7 @@ ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) PersonaRubric() string
 ```
 
-PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would just waste persona tokens.
+PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would only waste persona tokens.
 
 <a name="OpenAIService.SpokenText"></a>
 ### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L224>)
@@ -836,7 +836,7 @@ PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Retu
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 ```
 
-SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter \(\#1657\).
+SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
 ### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L337>)
@@ -976,7 +976,7 @@ CreateFromSpec returns a Service implementation for the given spec.
 <a name="SpokenTextReporter"></a>
 ## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L45-L49>)
 
-SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered — provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text. \(\#1657\)
+SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered — provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text.
 
 ```go
 type SpokenTextReporter interface {

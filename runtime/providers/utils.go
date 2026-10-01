@@ -17,8 +17,8 @@ func StringPtr(s string) *string {
 // Deprecated: Use MediaLoader.GetBase64Data instead for better functionality including
 // storage reference support, URL loading, and proper context handling.
 //
-// This function is kept for backward compatibility but will be removed in a future version.
-// It now delegates to the new MediaLoader implementation.
+// This function is kept for backward compatibility.
+// It delegates to the MediaLoader implementation.
 func LoadFileAsBase64(filePath string) (string, error) {
 	// Delegate to the new media_loader.go implementation
 	// This maintains backward compatibility while using the new infrastructure

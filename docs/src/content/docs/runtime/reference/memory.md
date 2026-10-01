@@ -111,7 +111,7 @@ func IsKnownCategory(s string) bool
 IsKnownCategory reports whether s exactly matches one of the canonical category strings. Unknown values are not rejected by the storage layer — this helper exists for consumer validation only.
 
 <a name="RegisterMemoryTools"></a>
-## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L222>)
+## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L221>)
 
 ```go
 func RegisterMemoryTools(registry *tools.Registry)
@@ -120,7 +120,7 @@ func RegisterMemoryTools(registry *tools.Registry)
 RegisterMemoryTools registers the four base memory tools with executor routing.
 
 <a name="ScopeFromContext"></a>
-## func [ScopeFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/scope.go#L31>)
+## func [ScopeFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/scope.go#L30>)
 
 ```go
 func ScopeFromContext(ctx context.Context) map[string]string
@@ -129,7 +129,7 @@ func ScopeFromContext(ctx context.Context) map[string]string
 ScopeFromContext returns the scope attached by [WithScope](<#WithScope>), or nil when the context carries none.
 
 <a name="WithScope"></a>
-## func [WithScope](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/scope.go#L22>)
+## func [WithScope](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/scope.go#L21>)
 
 ```go
 func WithScope(ctx context.Context, scope map[string]string) context.Context
@@ -137,14 +137,14 @@ func WithScope(ctx context.Context, scope map[string]string) context.Context
 
 WithScope attaches a conversation's memory scope to the context. The [Executor](<#Executor>) reads it on each Execute and reads and writes memories under it, falling back to the scope it was constructed with when absent.
 
-This is what lets a single memory executor, registered once into a shared tools.Registry, serve concurrent conversations without their memories crossing. The scope used to be captured at construction, and a Registry keeps exactly one executor per name, so the last conversation to register owned the memory tool for every conversation in flight \-\- one conversation's remember landed in another's scope and was invisible in its own. It mirrors tools.WithMCPRegistry, which exists for the same reason. See AltairaLabs/PromptKit\#2011.
+This is what lets a single memory executor, registered once into a shared tools.Registry, serve concurrent conversations without their memories crossing. A Registry keeps exactly one executor per name, so if the scope were captured at construction, the last conversation to register would own the memory tool for every conversation in flight \-\- one conversation's remember would land in another's scope and be invisible in its own. It mirrors tools.WithMCPRegistry, which exists for the same reason.
 
 An empty scope is ignored: installing one would silently widen or narrow every read rather than doing nothing.
 
 <a name="ConsentCategory"></a>
 ## type [ConsentCategory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/consent_category.go#L14>)
 
-ConsentCategory is the well\-known taxonomy used by consent\-aware consumers \(e.g. Omnia\) to apply per\-category retention, opt\-outs, and PII rules at memory\-write time. Values are stored in [Memory.Metadata](<#Memory>) under the key [MetaKeyConsentCategory](<#MetaKeyProvenance>) regardless of which path produced the memory: the explicit \`memory\_\_remember\` tool \(LLM\-supplied category arg\) or an extractor stage that classifies and tags during write.
+ConsentCategory is the well\-known taxonomy used by consent\-aware consumers \(e.g. Omnia\) to apply per\-category retention, opt\-outs, and PII rules at memory\-write time. Values are stored in \[Memory.Metadata\] under the key [MetaKeyConsentCategory](<#MetaKeyProvenance>) regardless of which path produced the memory: the explicit \`memory\_\_remember\` tool \(LLM\-supplied category arg\) or an extractor stage that classifies and tags during write.
 
 PromptKit defines the vocabulary and helpers; semantics \(retention, access control, redaction\) are owned by the consumer.
 
@@ -186,7 +186,7 @@ type ContextFormatter func(memories []*Memory) string
 <a name="DeleteOptions"></a>
 ## type [DeleteOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/types.go#L116-L120>)
 
-DeleteOptions configures a memory delete. It exists only to carry Extras: Store.Delete has no options parameter, so a store that wants the passthrough args implements [ExtrasDeleter](<#ExtrasDeleter>) instead.
+DeleteOptions configures a memory delete. It exists only to carry Extras: \[Store.Delete\] has no options parameter, so a store that wants the passthrough args implements [ExtrasDeleter](<#ExtrasDeleter>) instead.
 
 ```go
 type DeleteOptions struct {
@@ -197,11 +197,11 @@ type DeleteOptions struct {
 ```
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L30-L33>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L29-L32>)
 
 Executor implements tools.Executor for all memory tools. It routes by tool name to the appropriate Store method.
 
-The scope it was constructed with is a default, not a binding: every call prefers the scope on the context \(see [WithScope](<#WithScope>)\). One Executor is all a tools.Registry holds per name, so a host running concurrent conversations over a shared registry must scope per call or their memories cross \(\#2011\).
+The scope it was constructed with is a default, not a binding: every call prefers the scope on the context \(see [WithScope](<#WithScope>)\). One Executor is all a tools.Registry holds per name, so a host running concurrent conversations over a shared registry must scope per call or their memories cross.
 
 ```go
 type Executor struct {
@@ -210,7 +210,7 @@ type Executor struct {
 ```
 
 <a name="NewExecutor"></a>
-### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L36>)
+### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L35>)
 
 ```go
 func NewExecutor(store Store, scope map[string]string) *Executor
@@ -219,7 +219,7 @@ func NewExecutor(store Store, scope map[string]string) *Executor
 NewExecutor creates a Executor for the given store and default scope.
 
 <a name="Executor.Execute"></a>
-### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L53-L55>)
+### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L52-L54>)
 
 ```go
 func (e *Executor) Execute(ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -228,7 +228,7 @@ func (e *Executor) Execute(ctx context.Context, desc *tools.ToolDescriptor, args
 Execute implements tools.Executor. Routes by tool name.
 
 <a name="Executor.Name"></a>
-### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L50>)
+### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L49>)
 
 ```go
 func (e *Executor) Name() string
@@ -248,13 +248,13 @@ type Extractor interface {
 ```
 
 <a name="ExtrasDeleter"></a>
-## type [ExtrasDeleter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L38-L42>)
+## type [ExtrasDeleter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L37-L41>)
 
 ExtrasDeleter is optionally implemented by stores that accept backend\-specific arguments on delete.
 
-Store.Delete takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature — which every Store implementation would have to follow — a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
+\[Store.Delete\] takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature \(which every Store implementation would have to follow\), a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
 
-Recall and list need no equivalent: RetrieveOptions and ListOptions were already parameters, so Extras went straight onto them. See AltairaLabs/PromptKit\#1987.
+Recall and list need no equivalent: RetrieveOptions and ListOptions are parameters, so Extras is a field on each of them.
 
 ```go
 type ExtrasDeleter interface {
@@ -348,7 +348,7 @@ type ListOptions struct {
 <a name="Memory"></a>
 ## type [Memory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/types.go#L14-L26>)
 
-Memory represents a single memory unit. Deliberately thin — domain\-specific concerns \(purpose, trust model, sensitivity\) belong in the store implementation, not the type.
+Memory represents a single memory unit. It is thin: domain\-specific concerns \(purpose, trust model, sensitivity\) belong in the store implementation, not the type.
 
 ```go
 type Memory struct {
@@ -373,7 +373,7 @@ type Memory struct {
 func (m *Memory) GetConsentCategory() ConsentCategory
 ```
 
-GetConsentCategory returns the consent category previously written via [Memory.SetConsentCategory](<#Memory.SetConsentCategory>) or the \`memory\_\_remember\` tool, or empty string when unset.
+GetConsentCategory returns the consent category written via [Memory.SetConsentCategory](<#Memory.SetConsentCategory>) or the \`memory\_\_remember\` tool, or empty string when unset.
 
 <a name="Memory.GetProvenance"></a>
 ### func \(\*Memory\) [GetProvenance](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/types.go#L78>)

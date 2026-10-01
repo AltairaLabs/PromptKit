@@ -260,8 +260,8 @@ type Server struct {
 // that id returns. Suits an embedder running A2A and the runtime in one
 // process.
 //
-// For an embedder that owns conversations itself — because the runtime lives
-// elsewhere, or it already tracks sessions — see [NewStatelessServer].
+// For an embedder that owns conversations itself (because the runtime lives
+// elsewhere, or it already tracks sessions), see [NewStatelessServer].
 func NewServer(opener ConversationOpener, opts ...Option) *Server {
 	s := newServer(opts...)
 	s.opener = opener

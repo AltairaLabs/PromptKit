@@ -44,8 +44,8 @@ type RedisOption func(*RedisStore)
 // once it has gone this long without being read or written. Reading a
 // conversation (Load, LoadRecentMessages, LoadMetadata) extends it, so a
 // conversation in active use is never collected underneath its owner. Bulk or
-// diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List —
-// deliberately do not extend it, so inspecting a store cannot keep it alive.
+// diagnostic reads (MessageCount, LoadSummaries, LoadList, LogLoad, List)
+// do not extend it, so inspecting a store cannot keep it alive.
 //
 // MemoryStore applies the same rule to the same set of operations, so a given
 // TTL means the same thing whichever backend is configured.
@@ -807,8 +807,8 @@ func decodeMetadataHash(fields map[string]string) (map[string]interface{}, error
 
 // MergeMetadata writes the supplied keys into the conversation's metadata
 // hash via a single HMSET. Each Redis hash field write is server-atomic,
-// so concurrent MergeMetadata calls on the same conversation just work —
-// no WATCH/MULTI/EXEC, no retry loop. Updates the meta-key TTL too so
+// so concurrent MergeMetadata calls on the same conversation need no
+// WATCH/MULTI/EXEC and no retry loop. Updates the meta-key TTL too so
 // metadata-only writes count as activity for retention purposes.
 func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error {
 	if id == "" {

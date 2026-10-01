@@ -188,14 +188,14 @@ func (NDJSONFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error) {
 // until it finds the end of the first `{...}` at depth 0 (respecting
 // JSON string escapes).
 //
-// Byte-level parsing is deliberate — a `json.Decoder` would work but
+// The detector parses at byte level because a `json.Decoder` would work but
 // it buffers aggressively and makes it harder to track exactly how
 // many bytes have been consumed from the underlying reader.
 //
 // On success the returned bytes form a prefix of the stream ending at
 // the closing brace of the first object. The downstream `json.Decoder`
-// continues from there and expects either `,` or `]` next, which is
-// exactly what remains in the stream.
+// continues from there and expects either `,` or `]` next, and that is
+// what remains in the stream.
 type JSONArrayFrameDetector struct{}
 
 // Name implements FrameDetector.

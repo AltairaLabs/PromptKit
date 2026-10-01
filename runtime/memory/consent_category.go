@@ -83,7 +83,7 @@ func (m *Memory) SetConsentCategory(c ConsentCategory) {
 	m.Metadata[MetaKeyConsentCategory] = v
 }
 
-// GetConsentCategory returns the consent category previously written via
+// GetConsentCategory returns the consent category written via
 // [Memory.SetConsentCategory] or the `memory__remember` tool, or empty
 // string when unset.
 func (m *Memory) GetConsentCategory() ConsentCategory {

@@ -9,7 +9,7 @@ A pack can declare governance facts about the agent it defines — who is answer
 
 These are **human-declared claims, not enforcement**. PromptKit carries them, resolves them, and hands them to you. It does not act on them. Nothing in the runtime refuses a request because a pack declared a low autonomy level, and nothing gates a tool because it was marked irreversible.
 
-That is deliberate, and it is the specification's design rather than a gap in the implementation. A declaration describes; the decisions belong to the host that knows its own policy, its own deployment, and its own obligations.
+This follows the specification. A declaration describes; the decisions belong to the host that knows its own policy, its own deployment, and its own obligations.
 
 ---
 
@@ -55,7 +55,7 @@ agents:
         autonomy_level: suggests
 ```
 
-Here the pack says its agents act with approval; the `refunds` agent narrows itself to only suggesting. Everything it does not restate — the owner, the purpose, the disclosure requirement — it inherits.
+Here the pack says its agents act with approval; the `refunds` agent narrows itself to only suggesting. Everything it does not restate (the owner, the purpose, the disclosure requirement) it inherits.
 
 ---
 
@@ -153,7 +153,7 @@ Most fields cannot tell "declared as empty" from "not declared", and it rarely m
 - **Absent** — the pack says nothing. An agent inherits whatever the pack declared.
 - **`false`** — someone decided disclosure is not required here.
 
-An agent under a pack that requires disclosure can therefore state `requires_ai_disclosure: false` and have it stick. That is a deliberate exemption someone wrote down, and it reads differently in a review from an agent that simply never mentioned it.
+An agent under a pack that requires disclosure can therefore state `requires_ai_disclosure: false` and have it stick. That is an explicit exemption someone wrote down, and it reads differently in a review from an agent that never mentioned it.
 
 ---
 

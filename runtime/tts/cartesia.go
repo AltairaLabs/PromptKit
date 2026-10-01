@@ -231,7 +231,7 @@ func (s *CartesiaService) Synthesize(
 
 // SpokenText reports the text Cartesia will actually speak for the given input:
 // emotion tags become generation config, so the spoken transcript is the text
-// with tags removed. Implements tts.SpokenTextReporter (#1657).
+// with tags removed. Implements tts.SpokenTextReporter.
 func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string {
 	transcript, _ := lowerCartesiaMarkup(text)
 	return transcript

@@ -75,8 +75,8 @@ type MemoryStoreOption func(*MemoryStore)
 // once it has gone this long without being read or written. Reading a
 // conversation (Load, LoadRecentMessages, LoadMetadata) extends it, so a
 // conversation in active use is never collected underneath its owner. Bulk or
-// diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List —
-// deliberately do not extend it, so inspecting a store cannot keep it alive.
+// diagnostic reads (MessageCount, LoadSummaries, LoadList, LogLoad, List)
+// do not extend it, so inspecting a store cannot keep it alive.
 //
 // RedisStore applies the same rule to the same set of operations, so a given
 // TTL means the same thing whichever backend is configured.
@@ -461,7 +461,7 @@ func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error) 
 	return len(state.Messages), nil
 }
 
-// LoadMetadata returns just the metadata map for the given conversation.
+// LoadMetadata returns only the metadata map for the given conversation.
 // This avoids the cost of deep-copying the entire message history, making it
 // significantly cheaper than Load() for callers that only need metadata.
 // Expired entries are lazily evicted and return ErrNotFound.
@@ -673,8 +673,8 @@ func (s *MemoryStore) MergeMetadata(ctx context.Context, id string, updates map[
 	return nil
 }
 
-// Len returns the number of entries currently in the store, including expired entries
-// that have not yet been evicted. This is primarily useful for testing.
+// Len returns the number of entries in the store, including expired entries
+// that are awaiting eviction. This is primarily useful for testing.
 func (s *MemoryStore) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

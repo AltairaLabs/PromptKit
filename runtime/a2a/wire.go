@@ -87,9 +87,9 @@ func (v ProtocolVersion) WireSendParams(req *SendMessageRequest) any {
 // WireAgentCard returns card in version v's shape.
 //
 // For 1.0 the card is returned as is. For 0.3 (and for a request that names
-// no version, which the spec reads as 0.3) it is the 0.3 card — url,
+// no version, which the spec reads as 0.3) it is the 0.3 card (url,
 // preferredTransport, protocolVersion, additionalInterfaces, 0.3-style
-// security — with supportedInterfaces kept as well, so a 1.0 client reading
+// security) with supportedInterfaces kept as well, so a 1.0 client reading
 // the same document still finds its interface.
 func (v ProtocolVersion) WireAgentCard(card *AgentCard) any {
 	if v == ProtocolVersion03 {

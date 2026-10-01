@@ -57,8 +57,8 @@ type OTelOption func(*OTelEventListener)
 // and remain on regardless.
 //
 // Enable this only where the trace backend is an appropriate place for customer
-// data. Where tool arguments may carry credentials — on-behalf-of token
-// exchange puts per-user delegated OAuth tokens there — wrap the subscriber in
+// data. Where tool arguments may carry credentials (on-behalf-of token
+// exchange puts per-user delegated OAuth tokens there), wrap the subscriber in
 // events.Redacting rather than reaching for a hook on this listener.
 func WithContentCapture(enabled bool) OTelOption {
 	return func(l *OTelEventListener) { l.content.enabled = enabled }

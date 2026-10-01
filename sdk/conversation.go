@@ -1090,8 +1090,8 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 // pipeline's output stage sends here; an unread channel fills and back-pressures
 // the whole pipeline to a halt.
 //
-// A session whose Response() is never called does not stall — the SDK drops
-// output once the buffer fills, logging a one-time warning — so call Response()
+// A session whose Response() is never called does not stall: the SDK drops
+// output once the buffer fills, logging a one-time warning. Call Response()
 // before the session produces output, or early chunks may be dropped.
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
 	c.mu.RLock()

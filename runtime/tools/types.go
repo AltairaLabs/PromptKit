@@ -99,7 +99,7 @@ type ToolConfig struct {
 
 // FunctionName is the name the LLM calls the tool by: spec.name when set,
 // otherwise metadata.name. metadata.name is a resource name, where hyphens are
-// conventional, so it cannot always be a function name (issue #2081).
+// conventional, so it cannot always be a function name.
 func (c *ToolConfig) FunctionName() string {
 	if c.Spec.Name != "" {
 		return c.Spec.Name

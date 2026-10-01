@@ -63,7 +63,7 @@ type pendingEnd struct {
 // OTelEventListener converts runtime events into OTel spans in real time.
 // It implements the events.Listener function signature via its OnEvent method.
 // It is safe for concurrent use and tolerates out-of-order event delivery.
-// Call Close when the listener is no longer needed to stop the cleanup goroutine.
+// Call Close when you are done with the listener to stop the cleanup goroutine.
 type OTelEventListener struct {
 	tracer trace.Tracer
 
@@ -81,7 +81,7 @@ type OTelEventListener struct {
 
 // NewOTelEventListener creates a listener that creates OTel spans from runtime events.
 // A background goroutine periodically cleans up stale entries to prevent unbounded
-// map growth. Call Close when the listener is no longer needed.
+// map growth. Call Close when you are done with the listener.
 func NewOTelEventListener(tracer trace.Tracer, opts ...OTelOption) *OTelEventListener {
 	l := &OTelEventListener{
 		tracer:      tracer,

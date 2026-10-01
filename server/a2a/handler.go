@@ -29,7 +29,7 @@ import (
 //
 // Handle is called once per message and the server keeps no state between
 // calls. ctx is the HTTP request's context, so whatever the embedder's
-// middleware put on it — caller identity, tenant, trace — is readable here,
+// middleware put on it (caller identity, tenant, trace) is readable here,
 // which is the thing [ConversationOpener] cannot offer.
 //
 // The returned channel must be closed when the turn is over. A closing channel
@@ -54,7 +54,7 @@ type MessageRequest struct {
 
 // ToolResultHandler is the optional client-tool half of [MessageHandler]. A
 // handler that implements it can receive the results of client-side tool calls
-// it previously asked for and continue the turn.
+// it asked for earlier and continue the turn.
 //
 // Without it, a stateless server rejects tool-result messages rather than
 // pretending to resume something it is not holding.
@@ -72,7 +72,7 @@ type ToolResultRequest struct {
 	Results []ToolResult
 }
 
-// ToolResult is one fulfilled — or refused — client-side tool call.
+// ToolResult is one fulfilled (or refused) client-side tool call.
 type ToolResult struct {
 	CallID string
 	Result any

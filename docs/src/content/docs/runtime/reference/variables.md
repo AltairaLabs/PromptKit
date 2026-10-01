@@ -54,7 +54,7 @@ RequestVars returns the per\-request variables carried on ctx, or nil if none.
 func WithRequestVars(ctx context.Context, vars map[string]string) context.Context
 ```
 
-WithRequestVars returns a context carrying per\-request template variables. These are resolved into the variable set for a single request — both when validating required variables and when rendering — and take precedence over static and provider\-supplied variables. Returns ctx unchanged when vars is empty.
+WithRequestVars returns a context carrying per\-request template variables. These are resolved into the variable set for a single request \(both when validating required variables and when rendering\) and take precedence over static and provider\-supplied variables. Returns ctx unchanged when vars is empty.
 
 This is the vehicle for per\-send variables \(e.g. an SDK structured input\): because the values ride on the context, they are available at the very start of request processing, before any pipeline stage runs.
 

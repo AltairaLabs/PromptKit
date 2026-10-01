@@ -10,9 +10,9 @@ import (
 // RerankProvider returns the default rerank provider — the first one declared
 // via [WithRerankProvider] or a role: rerank provider file.
 //
-// Reranking has no built-in consumer: nothing in the pipeline calls it, by
-// design, because which candidates are worth reranking is the host's decision
-// and depends on a retrieval step PromptKit does not own. This accessor is how
+// Reranking has no built-in consumer: nothing in the pipeline calls it,
+// because which candidates are worth reranking is the host's decision and
+// depends on a retrieval step PromptKit does not own. This accessor is how
 // a configured provider is reached.
 //
 // Returns an error rather than nil when none is configured, so a host that

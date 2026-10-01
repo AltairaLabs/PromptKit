@@ -21,9 +21,9 @@ var ErrTooManySubscribers = errors.New("a2a: too many subscribers")
 // TaskEvent is one update to a task, as SubscribeToTask callers receive it.
 // Exactly one field is set.
 //
-// It is version-neutral on purpose: a subscriber may speak a different
-// protocol version, and carries a different JSON-RPC id, than the caller whose
-// turn produced the event, so each subscriber encodes it for itself.
+// It is version-neutral because a subscriber may speak a different protocol
+// version, and carries a different JSON-RPC id, than the caller whose turn
+// produced the event, so each subscriber encodes it for itself.
 type TaskEvent struct {
 	StatusUpdate   *a2a.TaskStatusUpdateEvent   `json:"statusUpdate,omitempty"`
 	ArtifactUpdate *a2a.TaskArtifactUpdateEvent `json:"artifactUpdate,omitempty"`

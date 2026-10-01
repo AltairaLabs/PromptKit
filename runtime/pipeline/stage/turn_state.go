@@ -16,7 +16,7 @@ import (
 //
 // See `runtime/pipeline/stage/ARCHITECTURE.md` §4 for the data-flow
 // principle and the rationale for moving per-Turn data out of
-// `StreamElement.Metadata` (issue #1035).
+// `StreamElement.Metadata`.
 //
 // # Synchronization
 //
@@ -99,7 +99,7 @@ type TurnState struct {
 // was established (no state store, so no transcript to count).
 //
 // It is what places an event against the transcript, so everything reporting a
-// turn — guardrail events, eval results — must read it from here rather than
+// turn (guardrail events, eval results) must read it from here rather than
 // counting locally. A local count is only right while one pipeline instance
 // outlives the conversation, and is always wrong for a conversation resumed
 // from history it did not itself produce.
@@ -133,17 +133,17 @@ func NewTurnState() *TurnState {
 }
 
 // BeginTurn clears the per-turn render cache so the next TemplateStage run
-// renders again. A caller that reuses one TurnState across turns — the SDK
-// Conversation does, to carry the turn index — must call this at the start of
+// renders again. A caller that reuses one TurnState across turns (the SDK
+// Conversation does, to carry the turn index) must call this at the start of
 // every turn.
 //
 // Without it, SystemPrompt stays populated from the first turn and
 // renderSystemTemplate returns early forever, so the prompt is rendered once
 // per conversation rather than once per turn. Everything that varies between
 // turns then silently stops reaching the model: SetVar, per-send bindings,
-// dynamic variable providers, and retrieved memory context. See #1959.
+// dynamic variable providers, and retrieved memory context.
 //
-// It deliberately leaves the turn's other fields alone. Template, AllowedTools
+// It leaves the turn's other fields alone. Template, AllowedTools
 // and Validators are repopulated by PromptAssemblyStage on each run, and the
 // turn index belongs to the load stage.
 func (t *TurnState) BeginTurn() {

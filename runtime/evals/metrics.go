@@ -87,12 +87,12 @@ const MetricExpressionKey = "jmespath_expression"
 // ExtractValue returns the number to record for this metric, and whether there
 // is one at all.
 //
-// The bool is the point. This used to return a bare float64 ending in
-// `return 0`, so an eval that produced no scalar — a judge answering with a
-// rubric, an eval calling a service and getting back a JSON object — was
-// recorded as a gauge reading of ZERO: a flatline indistinguishable from a real
-// measurement of zero. Callers must skip the sample when ok is false rather
-// than substituting anything.
+// The bool separates "no value" from a measured zero. An eval that produces no
+// scalar (a judge answering with a rubric, an eval calling a service and
+// getting back a JSON object) returns ok false; recording it as a gauge reading
+// of ZERO would give a flatline indistinguishable from a real measurement of
+// zero. Callers must skip the sample when ok is false rather than substituting
+// anything.
 //
 // Precedence:
 //

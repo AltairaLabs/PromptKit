@@ -146,8 +146,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 // Provider requirements depend on how the input side is driven:
 //
 //   - ASM mode (default): audio is sent to the model itself, so the provider
-//     must implement providers.StreamInputSupport. Currently that means Gemini
-//     with certain models.
+//     must implement providers.StreamInputSupport. That means Gemini with
+//     certain models.
 //   - WithVADMode / WithIngestion: the pipeline owns the input side and the
 //     model only ever sees text, so any text provider works — including Claude
 //     and OpenAI Chat Completions.
@@ -1108,7 +1108,7 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 
 // Resume loads an existing conversation from state storage.
 //
-// Use this to continue a conversation that was previously persisted:
+// Use this to continue a persisted conversation:
 //
 //	store := statestore.NewRedisStore("redis://localhost:6379")
 //	conv, err := sdk.Resume("session-123", "./chat.pack.json", "assistant",

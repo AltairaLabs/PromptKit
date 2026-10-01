@@ -12,7 +12,7 @@ import (
 // deadline controls fail-fast vs. queueing behavior: a short context
 // means "reject me quickly if you're full", a long one means "queue".
 //
-// Rationale: per-request bounded retry + budget (Phase 1-2) does not
+// Rationale: per-request bounded retry + budget does not
 // bound the *number* of streams a provider can hold open. At 1000
 // concurrent streams each provider holds ~1000 goroutines, timers, and
 // channel buffers, even though it only needs a handful of h2 connections

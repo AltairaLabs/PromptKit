@@ -9,7 +9,7 @@ package memory
 import "time"
 
 // Memory represents a single memory unit.
-// Deliberately thin — domain-specific concerns (purpose, trust model,
+// It is thin: domain-specific concerns (purpose, trust model,
 // sensitivity) belong in the store implementation, not the type.
 type Memory struct {
 	ID         string            `json:"id"`

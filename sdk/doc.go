@@ -6,7 +6,7 @@
 //
 // # Quick Start
 //
-// The simplest possible usage is just 5 lines:
+// The simplest possible usage is 5 lines:
 //
 //	conv, err := sdk.Open("./assistant.pack.json", "chat")
 //	if err != nil {
@@ -44,7 +44,7 @@
 //
 // Tools:
 //
-// Tools defined in the pack just need implementation handlers:
+// Tools defined in the pack need only implementation handlers:
 //
 //	conv.OnTool("list_devices", func(args map[string]any) (any, error) {
 //	    return myAPI.ListDevices(args["customer_id"].(string))

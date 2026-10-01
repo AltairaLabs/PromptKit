@@ -196,7 +196,7 @@ func ConvertTextToMultimodal(role, content string) Message {
 }
 
 // ExtractTextContent extracts all text content from a message, regardless of format.
-// This is useful for backward compatibility when you need just the text.
+// This is useful for backward compatibility when you need only the text.
 func ExtractTextContent(msg Message) string {
 	return msg.GetContent()
 }

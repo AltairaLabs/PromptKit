@@ -5,7 +5,7 @@ import (
 )
 
 // MediaMetadata contains metadata about stored media for organization and policy enforcement.
-// This metadata is used to organize media files in storage and apply retention policies.
+// Storage uses this metadata to organize media files and apply retention policies.
 type MediaMetadata struct {
 	// RunID identifies the test run that generated this media
 	RunID string `json:"run_id"`

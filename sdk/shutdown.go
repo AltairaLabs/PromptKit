@@ -135,7 +135,7 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// Len returns the number of currently tracked conversations.
+// Len returns the number of tracked conversations.
 func (m *ShutdownManager) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

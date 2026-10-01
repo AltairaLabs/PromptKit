@@ -217,7 +217,7 @@ func resolveCompositionOptForState(p *pack.Pack, stateName string) (Option, erro
 	return resolveCompositionForState(p, stateName)
 }
 
-// ResumeWorkflow restores a WorkflowConversation from a previously persisted state.
+// ResumeWorkflow restores a WorkflowConversation from a persisted state.
 //
 // The workflow context is loaded from the state store's metadata["workflow"] key.
 // A state store must be configured via WithStateStore.

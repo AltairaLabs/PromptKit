@@ -28,7 +28,7 @@ type JitterHealthReporter struct {
 // Report emits the counter deltas since the last call to m (nil-safe) for the
 // given direction ("input"/"output"). jb is the live jitter buffer. This is a
 // DIRECT-UPDATE path: it never publishes to the event bus (see the off-bus
-// invariant on StreamMetrics / AltairaLabs/PromptKit#853).
+// invariant on StreamMetrics).
 func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters, direction string) {
 	u := jb.Underruns()
 	if d := u - r.prevUnderruns; d > 0 {

@@ -33,10 +33,10 @@ const (
 //
 // # Security: Trust Boundary
 //
-// The command and arguments used to start server processes come from pack
+// The command and arguments that start server processes come from pack
 // files (tool definitions) and runtime config files (YAML manifests). These
 // config files are the trust boundary: commands are not sandboxed, validated,
-// or restricted in any way. This is by design for maximum flexibility.
+// or restricted in any way, which keeps the executor maximally flexible.
 //
 // Pack files and runtime config files MUST come from trusted sources.
 // Untrusted or unreviewed packs should never be loaded, as they can execute

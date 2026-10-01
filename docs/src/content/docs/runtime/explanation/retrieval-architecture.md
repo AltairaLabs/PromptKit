@@ -11,7 +11,7 @@ An agent that needs knowledge it was not given can obtain it in one of two ways,
 
 **Model-initiated.** The model reads the question, concludes it needs something, and calls a tool. Retrieval happens mid-turn, as part of the tool loop.
 
-**Pipeline-initiated.** The pipeline retrieves before the model runs and puts the result in the system prompt. The model never chooses; the content is simply there.
+**Pipeline-initiated.** The pipeline retrieves before the model runs and puts the result in the system prompt. The model never chooses; the content is already there.
 
 Both end with retrieved text in the model's context. Everything else about them differs.
 
@@ -31,7 +31,7 @@ Two consequences are easy to miss:
 
 ## Choosing
 
-Grounding that should apply to every answer — a product catalog, a policy set, the documentation an agent speaks for — belongs in the pipeline. The model should not have to remember to consult the thing it exists to speak about, and the round trip you save is spent on every single turn.
+Grounding that should apply to every answer (a product catalog, a policy set, the documentation an agent speaks for) belongs in the pipeline. The model should not have to remember to consult the thing it exists to speak about, and the round trip you save is spent on every single turn.
 
 Knowledge that is occasionally relevant, or expensive to fetch, belongs behind a tool. So does anything where the query needs interpretation the raw conversation does not supply.
 
@@ -43,13 +43,13 @@ They compose, and in a mature agent usually do: ambient grounding in the corpus 
 
 A tempting shortcut is to point ambient retrieval at the same store the memory tools write to. It reliably confuses the resulting agent.
 
-The model then encounters the same rows twice — once injected without explanation, once by asking — with no way to tell that they are the same rows. Worse, the two paths usually apply different filters: a host that enforces consent or tenancy inside its `Retriever` gets no such enforcement on the tool path, because the tool goes to the store directly. What looks like one policy is two, and only one of them is written down.
+The model then encounters the same rows twice, once injected without explanation and once by asking, with no way to tell that they are the same rows. Worse, the two paths usually apply different filters: a host that enforces consent or tenancy inside its `Retriever` gets no such enforcement on the tool path, because the tool goes to the store directly. What looks like one policy is two, and only one of them is written down.
 
 Separate sources keep the responsibilities legible: the corpus grounds answers, the store remembers the subject, and each has one filter.
 
 ## Why PromptKit ships no retriever
 
-`memory.Retriever` is an interface with no production implementation in PromptKit, and that is deliberate rather than unfinished.
+`memory.Retriever` is an interface with no production implementation in PromptKit. Hosts supply their own, for the reasons below.
 
 Relevance is a property of a corpus. What counts as the right document depends on how your content is chunked, what embedding model indexed it, whether the domain wants recall or precision, and how the answer must be cited. A default would be wrong for most corpora while looking authoritative, and hosts would build around it before discovering that.
 

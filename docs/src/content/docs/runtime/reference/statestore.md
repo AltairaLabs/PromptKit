@@ -295,7 +295,7 @@ Summarize compresses the given messages into a concise summary.
 
 ListAccessor allows storing append\-only collections of opaque items \(JSON\-encoded by the caller\) per conversation. Each list is keyed by a stable name \(e.g. "workflow.history"\).
 
-Stores that implement this interface persist appends incrementally — MemoryStore in a Go slice, RedisStore as a Redis list \(RPUSH\). This keeps per\-write cost O\(new entries\) regardless of how long the collection has grown — the load\-bearing property for long\-running workflows whose History/ArtifactHistory grow without bound.
+Stores that implement this interface persist appends incrementally: MemoryStore in a Go slice, RedisStore as a Redis list \(RPUSH\). This keeps per\-write cost O\(new entries\) regardless of how long the collection has grown — the load\-bearing property for long\-running workflows whose History/ArtifactHistory grow without bound.
 
 Optional. Callers \(typically the SDK workflow code\) type\-assert; the caller surfaces a clear error when the store doesn't satisfy.
 
@@ -463,7 +463,7 @@ Fork creates a copy of an existing conversation state with a new ID.
 func (s *MemoryStore) Len() int
 ```
 
-Len returns the number of entries currently in the store, including expired entries that have not yet been evicted. This is primarily useful for testing.
+Len returns the number of entries in the store, including expired entries that are awaiting eviction. This is primarily useful for testing.
 
 <a name="MemoryStore.List"></a>
 ### func \(\*MemoryStore\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L342>)
@@ -508,7 +508,7 @@ LoadList returns all items of the named list, deep\-copied. Returns \(nil, nil\)
 func (s *MemoryStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
 ```
 
-LoadMetadata returns just the metadata map for the given conversation. This avoids the cost of deep\-copying the entire message history, making it significantly cheaper than Load\(\) for callers that only need metadata. Expired entries are lazily evicted and return ErrNotFound.
+LoadMetadata returns only the metadata map for the given conversation. This avoids the cost of deep\-copying the entire message history, making it significantly cheaper than Load\(\) for callers that only need metadata. Expired entries are lazily evicted and return ErrNotFound.
 
 <a name="MemoryStore.LoadRecentMessages"></a>
 ### func \(\*MemoryStore\) [LoadRecentMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L408>)
@@ -627,7 +627,7 @@ func WithMemoryTTL(ttl time.Duration) MemoryStoreOption
 
 WithMemoryTTL sets the time\-to\-live for conversation states.
 
-The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List — deliberately do not extend it, so inspecting a store cannot keep it alive.
+The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads \(MessageCount, LoadSummaries, LoadList, LogLoad, List\) do not extend it, so inspecting a store cannot keep it alive.
 
 RedisStore applies the same rule to the same set of operations, so a given TTL means the same thing whichever backend is configured.
 
@@ -736,7 +736,7 @@ MetadataAccessor allows reading and writing metadata without loading the full st
 
 ```go
 type MetadataAccessor interface {
-    // LoadMetadata returns just the metadata map for the given conversation.
+    // LoadMetadata returns only the metadata map for the given conversation.
     // Returns ErrNotFound if the conversation doesn't exist.
     // The returned map is a deep copy safe for mutation by the caller.
     LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
@@ -776,7 +776,7 @@ func WithTTL(ttl time.Duration) RedisOption
 
 WithTTL sets the time\-to\-live for conversation states.
 
-The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads — MessageCount, LoadSummaries, LoadList, LogLoad, List — deliberately do not extend it, so inspecting a store cannot keep it alive.
+The TTL is a sliding window measured from last use: a conversation expires once it has gone this long without being read or written. Reading a conversation \(Load, LoadRecentMessages, LoadMetadata\) extends it, so a conversation in active use is never collected underneath its owner. Bulk or diagnostic reads \(MessageCount, LoadSummaries, LoadList, LogLoad, List\) do not extend it, so inspecting a store cannot keep it alive.
 
 MemoryStore applies the same rule to the same set of operations, so a given TTL means the same thing whichever backend is configured.
 
@@ -947,7 +947,7 @@ LogLoad returns messages for the conversation. Empty \(not an error\) when the c
 func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error
 ```
 
-MergeMetadata writes the supplied keys into the conversation's metadata hash via a single HMSET. Each Redis hash field write is server\-atomic, so concurrent MergeMetadata calls on the same conversation just work — no WATCH/MULTI/EXEC, no retry loop. Updates the meta\-key TTL too so metadata\-only writes count as activity for retention purposes.
+MergeMetadata writes the supplied keys into the conversation's metadata hash via a single HMSET. Each Redis hash field write is server\-atomic, so concurrent MergeMetadata calls on the same conversation need no WATCH/MULTI/EXEC and no retry loop. Updates the meta\-key TTL too so metadata\-only writes count as activity for retention purposes.
 
 <a name="RedisStore.MessageCount"></a>
 ### func \(\*RedisStore\) [MessageCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L990>)
@@ -981,7 +981,7 @@ SaveSummary appends a summary to the conversation's summary list. Uses a pipelin
 
 Store defines the interface for persistent conversation state storage.
 
-Store is read\-shaped: it deliberately does not include bulk\-write methods. Callers needing to persist state should use the typed write interfaces \(MessageAppender, MetadataAccessor.MergeMetadata, SummaryAccessor.SaveSummary\). Admin/seed paths that need to replace whole state should type\-assert for BulkWriter; hot\-path pipeline stages must not.
+Store is read\-shaped: it does not include bulk\-write methods. Callers needing to persist state should use the typed write interfaces \(MessageAppender, MetadataAccessor.MergeMetadata, SummaryAccessor.SaveSummary\). Admin/seed paths that need to replace whole state should type\-assert for BulkWriter; hot\-path pipeline stages must not.
 
 ```go
 type Store interface {
@@ -1009,7 +1009,7 @@ type Summarizer interface {
 <a name="Summary"></a>
 ## type [Summary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/types.go#L33-L39>)
 
-Summary represents a compressed version of conversation turns. Used to maintain context while reducing token count for older conversations.
+Summary represents a compressed version of conversation turns. It maintains context while reducing token count for older conversations.
 
 ```go
 type Summary struct {

@@ -217,7 +217,7 @@ RFC 0014 defaults `control` to `user`. PromptKit treats an **absent** `control` 
 
 In-turn state handoff shipped here on 2026-08-14, seventeen days before RFC 0014 existed, and at the time the spec said nothing about who holds the turn after a transition. Adopting the RFC's default would silently turn every routing state in every existing pack into a dead stop, so an undeclared `control` keeps the behavior those packs were written against.
 
-A **declared** `control` is honored exactly as the RFC specifies. The divergence is limited to what absent means, and it is deliberate and permanent — declare `control` explicitly on any state where the turn-taking matters, and the spec's semantics apply exactly.
+A **declared** `control` is honored exactly as the RFC specifies. The divergence is limited to what absent means, and it is permanent. Declare `control` explicitly on any state where the turn-taking matters, and the spec's semantics apply exactly.
 :::
 
 Two combinations are flagged at validation time: `control: agent` on a terminal state (terminal wins, so it does nothing), and a cycle of `control: agent` states with no state that yields, no terminal state and no `max_visits` — that loop runs until the workflow budget stops it.

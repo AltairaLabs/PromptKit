@@ -131,8 +131,8 @@ func (r *MessageToolResult) HasMedia() bool {
 }
 
 // NewTextToolResult creates a MessageToolResult with text-only content.
-// This is the most common case and should be used everywhere that previously
-// set a text string Content.
+// This is the most common case and should be used everywhere that would
+// otherwise set a text string Content.
 func NewTextToolResult(id, name, text string) MessageToolResult {
 	return MessageToolResult{
 		ID:   id,
@@ -235,7 +235,7 @@ type ToolStats struct {
 }
 
 // ValidationError represents a validation failure in tool usage or message content.
-// Used to provide structured error information when validation fails.
+// It provides structured error information when validation fails.
 type ValidationError struct {
 	Type   string `json:"type"`   // Error type: "args_invalid" | "result_invalid" | "policy_violation"
 	Tool   string `json:"tool"`   // Name of the tool that failed validation

@@ -19,7 +19,7 @@ Definitions of key terms used throughout PromptKit documentation.
 The ability for a user to interrupt the AI assistant while it's speaking. Enables natural back-and-forth conversations in voice interactions. Requires real-time [turn detection](#turn-detection).
 
 ### Bit Depth
-The number of bits used to represent each audio sample. PromptKit typically uses 16-bit audio, which provides good quality for voice while keeping file sizes manageable.
+The number of bits that represent each audio sample. PromptKit typically uses 16-bit audio, which provides good quality for voice while keeping file sizes manageable.
 
 ### Channels
 The number of audio tracks in a stream. Mono (1 channel) is used for voice conversations; stereo (2 channels) is unnecessary for speech.
@@ -46,7 +46,7 @@ A single exchange in a conversation consisting of user input followed by an AI r
 The process of determining when a user has finished speaking. Uses [VAD](#vad) to identify speech boundaries based on silence duration and speech patterns. Also called "endpointing."
 
 ### VAD
-**Voice Activity Detection** - A mode that detects when a user is speaking versus silent. Used to determine turn boundaries in voice conversations. VAD mode pipelines use separate [STT](#stt) and [TTS](#tts) stages. Compare with [ASM](#asm).
+**Voice Activity Detection** - A mode that detects when a user is speaking versus silent. Determines turn boundaries in voice conversations. VAD mode pipelines use separate [STT](#stt) and [TTS](#tts) stages. Compare with [ASM](#asm).
 
 ## PromptKit Components
 
@@ -164,7 +164,7 @@ Initial instructions that set the LLM's behavior, personality, and constraints. 
 A parameter controlling LLM output randomness. Lower values (0.0-0.3) produce more deterministic responses; higher values (0.7-1.0) produce more creative/varied responses.
 
 ### Token
-The basic unit of text processing for LLMs. Roughly 4 characters or 0.75 words in English. Used to measure [context window](#context-window) size and API costs.
+The basic unit of text processing for LLMs. Roughly 4 characters or 0.75 words in English. The unit for measuring [context window](#context-window) size and API costs.
 
 ### Tool
 A function that an LLM can call to perform actions or retrieve information. Also known as function calling. Defined in prompt packs and executed by the runtime.

@@ -13,7 +13,7 @@ import "github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 
 Package agui serves PromptKit conversations over the AG\-UI protocol \(1.0\), using the AG\-UI community Go SDK's types. It provides bidirectional converters between PromptKit and AG\-UI messages and tools, and an EventAdapter that turns one conversation turn into one AG\-UI run.
 
-Not yet produced: token\-by\-token text streaming \(each message's text arrives in one TEXT\_MESSAGE\_CONTENT\), reasoning events, STATE\_DELTA, MESSAGES\_SNAPSHOT, and the pendingToolCallIds of a run that leaves frontend tool calls unanswered. Message ids are minted per conversion, so converting the same message twice gives two ids.
+Not produced: token\-by\-token text streaming \(each message's text arrives in one TEXT\_MESSAGE\_CONTENT\), reasoning events, STATE\_DELTA, MESSAGES\_SNAPSHOT, and the pendingToolCallIds of a run that leaves frontend tool calls unanswered. Message ids are minted per conversion, so converting the same message twice gives two ids.
 
 ## Index
 

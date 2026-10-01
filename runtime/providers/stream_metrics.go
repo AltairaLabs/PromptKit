@@ -73,7 +73,7 @@ type StreamMetrics struct {
 	audioPacingBehindDeadline   *prometheus.CounterVec
 }
 
-// NewStreamMetrics creates and registers the Phase 1 streaming metrics
+// NewStreamMetrics creates and registers the streaming metrics
 // into the given registerer under the given namespace. Const labels are
 // applied to every metric.
 //

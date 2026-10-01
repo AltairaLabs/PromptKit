@@ -23,10 +23,10 @@ var scoreThresholdParamKeys = []string{"min_score", "max_score"}
 // implementation of that decision.
 //
 // Every role that wraps an eval needs it: the "assertion" and "guardrail" eval
-// types here, and the pipeline's guardrail hook adapter. The adapter used to
-// carry its own copy hardcoded at `< 1.0` in three places, which ignored
-// min_score entirely and so made continuous-score handlers (cost_budget,
-// latency_budget) untunable and effectively unusable as guardrails (#1707).
+// types here, and the pipeline's guardrail hook adapter. A copy hardcoded at
+// `< 1.0` would ignore min_score entirely and so make continuous-score handlers
+// (cost_budget, latency_budget) untunable and effectively unusable as
+// guardrails.
 type ScoreThresholds struct {
 	// Min fails a score below it. Max fails a score above it. Both optional;
 	// with neither set, Triggered requires a perfect 1.0.
@@ -77,8 +77,8 @@ func StripScoreThresholds(params map[string]any) map[string]any {
 //
 // A nil result or nil score means the handler could not judge, and a safety
 // mechanism that cannot judge blocks: this is fail-closed, matching what the
-// pipeline's guardrail hook has always done. Note the assertion role makes the
-// opposite choice — see AssertionEvalHandler.applyThresholds — because failing
+// pipeline's guardrail hook does. The assertion role makes the opposite choice
+// (see AssertionEvalHandler.applyThresholds) because failing
 // a *test* over a handler that declined to score would be noise, whereas
 // allowing unjudged content through a *guardrail* is a hole.
 func (t ScoreThresholds) Triggered(result *EvalResult) bool {

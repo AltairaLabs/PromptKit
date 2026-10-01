@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// HostFromURL extracts just the host portion (without scheme or path)
+// HostFromURL extracts only the host portion (without scheme or path)
 // from a URL string, intended for use as a Prometheus label on
 // streaming metrics. Returns an empty string on parse error — callers
 // treat empty-host labels as "unknown host" rather than failing.
@@ -21,9 +21,9 @@ func HostFromURL(raw string) string {
 	return u.Host
 }
 
-// Default values for StreamRetryPolicy. Kept small on purpose: streaming retry
+// Default values for StreamRetryPolicy. They are small because streaming retry
 // targets transient h2 stream resets, not generic 5xx storms, and the wrong
-// default is "retry aggressively". See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md.
+// default is "retry aggressively".
 const (
 	DefaultStreamRetryMaxAttempts  = 2
 	DefaultStreamRetryInitialDelay = 250 * time.Millisecond
@@ -137,7 +137,7 @@ func (p StreamRetryPolicy) RetryDelay(attempt int, retryAfter time.Duration) (de
 
 // BackoffFor computes the delay for the given attempt index (0-based) using
 // full jitter: uniform random in [0, min(maxDelay, initialDelay * 2^attempt)].
-// Full jitter (as opposed to equal or decorrelated jitter) is deliberate —
+// It uses full jitter (as opposed to equal or decorrelated jitter) because
 // when a single h2 connection reset kills ~100 streams, equal jitter still
 // synchronizes the retries into narrow buckets; full jitter smears them.
 func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration {
@@ -163,7 +163,7 @@ func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration {
 // IsRetryableStreamError returns true if the error looks like a transient
 // streaming failure that is safe to retry from the pre-first-chunk window.
 //
-// This deliberately covers a narrower set than isRetryableError in retry.go:
+// This covers a narrower set than isRetryableError in retry.go:
 // we want h2 stream resets, TCP resets, TLS close_notify races, and idle
 // connection reuse failures — but never context cancellation, deadline, or
 // application-layer parse errors.

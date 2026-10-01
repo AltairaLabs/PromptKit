@@ -25,11 +25,11 @@ import (
 // channel whose whole job is to stay out of the pipeline's way, and handling
 // binary is exactly what the opt-in recording route exists for.
 //
-// This is about bytes, not about content. A subscriber gets the message TEXT —
-// that is the point of a live route — along with MIME type, dimensions, size
+// This is about bytes, not about content. A subscriber gets the message TEXT,
+// which a live route exists to carry, along with MIME type, dimensions, size
 // and URL references for any media. What it never gets is the media itself.
 // Held by TestMessageBroadcastStage_NeverPutsBinaryOnTheBus and its
-// recording-side sibling, alongside the audio guard for #853.
+// recording-side sibling, alongside the audio guard.
 //
 // Because the bus is lossy under burst, a live view can miss a message. That is
 // the right trade for observability and the wrong one for a transcript: the
@@ -57,8 +57,8 @@ import (
 //
 // PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message
 // element, in transcript order, within a single Process call. The pipeline is a
-// DAG — PipelineBuilder offers Branch, Merge and Connect, and RouterStage does
-// selective fan-out — so that is a real constraint, not a formality, and
+// DAG (PipelineBuilder offers Branch, Merge and Connect, and RouterStage does
+// selective fan-out), so that is a real constraint, not a formality, and
 // nothing enforces it:
 //
 //   - Downstream of every message producer. Assistant messages are created by
@@ -71,7 +71,7 @@ import (
 //     stream this call saw. It is transcript-absolute only because the provider
 //     re-emits the accumulated transcript in order down a linear chain.
 //     MergeStage spawns a goroutine per input, so downstream of a fan-in the
-//     interleaving — and therefore Index — is nondeterministic. Completeness
+//     interleaving (and therefore Index) is nondeterministic. Completeness
 //     survives a merge; ordering does not. Both are pinned by tests.
 //
 // It does NOT need to be adjacent to the save stage. The SDK builder places it

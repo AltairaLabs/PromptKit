@@ -23,7 +23,7 @@ const defaultTranscriptHoldTimeout = 3 * time.Second
 // It buffers assistant TEXT elements and HOLDS the turn-end until the user turn
 // for that turn arrives (or a short timeout elapses), then emits user-then-text
 // in order. AUDIO passes through immediately, so playback stays realtime — only
-// the transcript log is reordered. Crucially the turn-end (EndOfStream) is held
+// the transcript log is reordered. The turn-end (EndOfStream) is held
 // too, so a late transcript is never emitted after the turn boundary (which both
 // mis-orders the log and can confuse downstream turn-scoped stages). If the
 // transcript never arrives, a configurable placeholder user turn is emitted.
