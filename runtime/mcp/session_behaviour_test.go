@@ -223,7 +223,7 @@ func TestSession_AdvertisesOnlyWhatItImplements(t *testing.T) {
 	require.Equal(t, methodInitialize, init.Method)
 	var params InitializeRequest
 	require.NoError(t, json.Unmarshal(init.Params, &params))
-	assert.Equal(t, ProtocolVersion, params.ProtocolVersion)
+	assert.Equal(t, LegacyProtocolVersion, params.ProtocolVersion, "the handshake offers the newest handshake-era revision")
 	raw, _ := json.Marshal(params.Capabilities)
 	assert.JSONEq(t, `{}`, string(raw))
 	assert.Equal(t, clientImplName, params.ClientInfo.Name)

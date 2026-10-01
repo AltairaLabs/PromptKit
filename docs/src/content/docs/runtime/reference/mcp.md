@@ -150,10 +150,18 @@ const (
 const DefaultMaxProcesses = 0
 ```
 
-<a name="ProtocolVersion"></a>ProtocolVersion is the newest MCP protocol revision the client speaks. It is the claim the conformance checks grade against: the mirrored schema in testdata/spec, the parity test, and the docs all follow it.
+<a name="LegacyProtocolVersion"></a>LegacyProtocolVersion is the newest handshake\-era revision the client speaks, with servers that predate ProtocolVersion's stateless protocol. The client also accepts the earlier handshake revisions a server may choose \(2025\-06\-18, 2025\-03\-26, 2024\-11\-05\).
 
 ```go
-const ProtocolVersion = "2025-11-25"
+const LegacyProtocolVersion = "2025-11-25"
+```
+
+<a name="ProtocolVersion"></a>ProtocolVersion is the newest MCP protocol revision the client speaks: the stateless revision it uses with servers that support it.
+
+ProtocolVersion and LegacyProtocolVersion are the claims the conformance checks grade against: the mirrored schemas in testdata/spec, the parity test, the generated docs and the official suite all follow them.
+
+```go
+const ProtocolVersion = "2026-07-28"
 ```
 
 ## Variables
@@ -183,7 +191,7 @@ var (
 ```
 
 <a name="Annotations"></a>
-## type [Annotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L239-L243>)
+## type [Annotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L263-L267>)
 
 Annotations tell a client how to use a content block: who it is for and how important it is.
 
@@ -281,7 +289,7 @@ type Authorizer interface {
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L246-L261>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L270-L285>)
 
 Client interface defines the MCP client operations
 
@@ -305,7 +313,7 @@ type Client interface {
 ```
 
 <a name="ClientCapabilities"></a>
-## type [ClientCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L80-L86>)
+## type [ClientCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L89-L98>)
 
 ClientCapabilities describes what the client supports
 
@@ -316,6 +324,9 @@ type ClientCapabilities struct {
     // Deprecated: logging is a server capability; MCP defines no client
     // "logging" capability. The client never sets this.
     Logging *LoggingCapability `json:"logging,omitempty"`
+    // Extensions advertises optional protocol extensions, keyed by
+    // identifier (2026-07-28). The client advertises none.
+    Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 ```
 
@@ -371,7 +382,7 @@ func DefaultClientOptions() ClientOptions
 DefaultClientOptions returns sensible defaults
 
 <a name="Content"></a>
-## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L209-L225>)
+## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L233-L249>)
 
 Content is one content block of a tool result. It is a flattened union of the spec's text, image, audio, resource\_link and embedded resource blocks; Type says which fields apply.
 
@@ -396,7 +407,7 @@ type Content struct {
 ```
 
 <a name="DiscoverResult"></a>
-## type [DiscoverResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/era.go#L69-L74>)
+## type [DiscoverResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/era.go#L69-L77>)
 
 DiscoverResult is a server's answer to server/discover: its supported versions, capabilities and identity \(2026\-07\-28 server/discover\).
 
@@ -405,6 +416,9 @@ type DiscoverResult struct {
     SupportedVersions []string                   `json:"supportedVersions"`
     Capabilities      ServerCapabilities         `json:"capabilities"`
     Instructions      string                     `json:"instructions,omitempty"`
+    ResultType        string                     `json:"resultType"`
+    TTLMs             *int64                     `json:"ttlMs"`
+    CacheScope        string                     `json:"cacheScope"`
     Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 ```
@@ -439,7 +453,7 @@ type ElicitResult struct {
 ```
 
 <a name="ElicitationCapability"></a>
-## type [ElicitationCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L113-L116>)
+## type [ElicitationCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L128-L131>)
 
 ElicitationCapability indicates the client supports elicitation. An empty object means form mode only; Form and URL name the modes explicitly \(2025\-11\-25\).
 
@@ -462,7 +476,7 @@ type ElicitationHandler func(ctx context.Context, server string, req ElicitReque
 ```
 
 <a name="Icon"></a>
-## type [Icon](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L71-L77>)
+## type [Icon](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L80-L86>)
 
 Icon is a display icon for an implementation, tool or resource \(2025\-11\-25\).
 
@@ -477,7 +491,7 @@ type Icon struct {
 ```
 
 <a name="Implementation"></a>
-## type [Implementation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L57-L68>)
+## type [Implementation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L66-L77>)
 
 Implementation describes client or server implementation details
 
@@ -497,7 +511,7 @@ type Implementation struct {
 ```
 
 <a name="InitializeRequest"></a>
-## type [InitializeRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L39-L43>)
+## type [InitializeRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L48-L52>)
 
 InitializeRequest represents the initialization request params
 
@@ -510,7 +524,7 @@ type InitializeRequest struct {
 ```
 
 <a name="InitializeResponse"></a>
-## type [InitializeResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L48-L54>)
+## type [InitializeResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L57-L63>)
 
 InitializeResponse represents the initialization response. For a modern \(2026\-07\-28\) server, which has no handshake, the client builds it from the server/discover result.
 
@@ -551,7 +565,7 @@ type InputRequiredResult struct {
 ```
 
 <a name="JSONRPCError"></a>
-## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L32-L36>)
+## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L41-L45>)
 
 JSONRPCError represents a JSON\-RPC 2.0 error
 
@@ -564,7 +578,7 @@ type JSONRPCError struct {
 ```
 
 <a name="JSONRPCMessage"></a>
-## type [JSONRPCMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L22-L29>)
+## type [JSONRPCMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L31-L38>)
 
 JSONRPCMessage represents a JSON\-RPC 2.0 message
 
@@ -580,7 +594,7 @@ type JSONRPCMessage struct {
 ```
 
 <a name="LoggingCapability"></a>
-## type [LoggingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L126>)
+## type [LoggingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L141>)
 
 LoggingCapability is not an MCP client capability: logging is declared by servers \(ServerCapabilities.logging\), not clients.
 
@@ -591,7 +605,7 @@ type LoggingCapability struct{}
 ```
 
 <a name="PromptsCapability"></a>
-## type [PromptsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L106-L108>)
+## type [PromptsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L121-L123>)
 
 PromptsCapability indicates the server supports prompts
 
@@ -624,7 +638,7 @@ func (e *RPCError) Error() string
 
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L369-L394>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L393-L418>)
 
 Registry interface defines the MCP server registry operations
 
@@ -817,7 +831,7 @@ type RegistryOptions struct {
 ```
 
 <a name="ResourceContents"></a>
-## type [ResourceContents](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L229-L235>)
+## type [ResourceContents](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L253-L259>)
 
 ResourceContents is the content of an embedded resource: Text for a text resource, Blob \(base64\) for a binary one.
 
@@ -832,7 +846,7 @@ type ResourceContents struct {
 ```
 
 <a name="ResourcesCapability"></a>
-## type [ResourcesCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L101-L103>)
+## type [ResourcesCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L116-L118>)
 
 ResourcesCapability indicates the server supports resources
 
@@ -917,7 +931,7 @@ func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="SamplingCapability"></a>
-## type [SamplingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L119>)
+## type [SamplingCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L134>)
 
 SamplingCapability indicates the client supports sampling
 
@@ -926,7 +940,7 @@ type SamplingCapability struct{}
 ```
 
 <a name="ServerCapabilities"></a>
-## type [ServerCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L89-L93>)
+## type [ServerCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L101-L108>)
 
 ServerCapabilities describes what the server supports
 
@@ -935,11 +949,14 @@ type ServerCapabilities struct {
     Tools     *ToolsCapability     `json:"tools,omitempty"`
     Resources *ResourcesCapability `json:"resources,omitempty"`
     Prompts   *PromptsCapability   `json:"prompts,omitempty"`
+    // Extensions lists the optional protocol extensions the server supports,
+    // keyed by identifier (2026-07-28).
+    Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 ```
 
 <a name="ServerConfig"></a>
-## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L311-L332>)
+## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L335-L356>)
 
 ServerConfig represents configuration for an MCP server.
 
@@ -976,7 +993,7 @@ type ServerConfig struct {
 ```
 
 <a name="ServerConfig.Transport"></a>
-### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L355>)
+### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L379>)
 
 ```go
 func (c *ServerConfig) Transport() Transport
@@ -1153,7 +1170,7 @@ func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="Tool"></a>
-## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L143-L157>)
+## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L165-L179>)
 
 Tool represents an MCP tool definition
 
@@ -1176,7 +1193,7 @@ type Tool struct {
 ```
 
 <a name="ToolAnnotations"></a>
-## type [ToolAnnotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L160-L166>)
+## type [ToolAnnotations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L182-L188>)
 
 ToolAnnotations are hints about a tool's behavior \(server/tools\).
 
@@ -1191,7 +1208,7 @@ type ToolAnnotations struct {
 ```
 
 <a name="ToolCallRequest"></a>
-## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L169-L178>)
+## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L191-L200>)
 
 ToolCallRequest represents a request to execute a tool
 
@@ -1209,7 +1226,7 @@ type ToolCallRequest struct {
 ```
 
 <a name="ToolCallResponse"></a>
-## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L181-L189>)
+## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L203-L213>)
 
 ToolCallResponse represents the response from a tool execution
 
@@ -1219,14 +1236,16 @@ type ToolCallResponse struct {
     // StructuredContent is the tool's structured result (MCP 2025-06-18).
     // Servers SHOULD mirror it as serialized JSON in Content, but are not
     // required to, so it is the authoritative result when present.
-    StructuredContent json.RawMessage            `json:"structuredContent,omitempty"`
-    IsError           bool                       `json:"isError,omitempty"`
-    Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
+    StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+    IsError           bool            `json:"isError,omitempty"`
+    // ResultType is "complete" from a 2026-07-28 server (absent before).
+    ResultType string                     `json:"resultType,omitempty"`
+    Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 ```
 
 <a name="ToolCallResponse.HasStructuredContent"></a>
-### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L193>)
+### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L217>)
 
 ```go
 func (r *ToolCallResponse) HasStructuredContent() bool
@@ -1235,7 +1254,7 @@ func (r *ToolCallResponse) HasStructuredContent() bool
 HasStructuredContent reports whether the response carries a non\-null structuredContent payload.
 
 <a name="ToolFilter"></a>
-## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L267-L270>)
+## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L291-L294>)
 
 ToolFilter controls which tools from an MCP server are exposed to the LLM. If Allowlist is non\-empty, only those tools are included. If Blocklist is non\-empty, those tools are excluded. Allowlist takes precedence over Blocklist.
 
@@ -1247,7 +1266,7 @@ type ToolFilter struct {
 ```
 
 <a name="ToolFilter.Includes"></a>
-### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L284>)
+### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L308>)
 
 ```go
 func (f ToolFilter) Includes(name string) bool
@@ -1256,7 +1275,7 @@ func (f ToolFilter) Includes(name string) bool
 Includes returns true if the given tool name passes the filter. Allowlist and blocklist entries may use a trailing\-"\*" prefix wildcard.
 
 <a name="ToolsCapability"></a>
-## type [ToolsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L96-L98>)
+## type [ToolsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L111-L113>)
 
 ToolsCapability indicates the server supports tools
 
@@ -1267,7 +1286,7 @@ type ToolsCapability struct {
 ```
 
 <a name="ToolsListRequest"></a>
-## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L129-L132>)
+## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L144-L147>)
 
 ToolsListRequest represents a request to list available tools
 
@@ -1279,7 +1298,7 @@ type ToolsListRequest struct {
 ```
 
 <a name="ToolsListResponse"></a>
-## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L135-L140>)
+## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L150-L162>)
 
 ToolsListResponse represents the response to a tools/list request
 
@@ -1289,11 +1308,18 @@ type ToolsListResponse struct {
     // NextCursor is set when more tools follow; the client requests the next
     // page with it.
     NextCursor string `json:"nextCursor,omitempty"`
+    // ResultType, TTLMs and CacheScope are set by 2026-07-28 servers.
+    // TTLMs is how long the list may be cached; CacheScope is "public" or
+    // "private". The client does not cache tool lists.
+    ResultType string                     `json:"resultType,omitempty"`
+    TTLMs      *int64                     `json:"ttlMs,omitempty"`
+    CacheScope string                     `json:"cacheScope,omitempty"`
+    Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 ```
 
 <a name="Transport"></a>
-## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L335>)
+## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L359>)
 
 Transport identifies which transport adapter should serve a config.
 

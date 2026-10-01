@@ -6,10 +6,19 @@ import (
 	"strings"
 )
 
-// ProtocolVersion is the newest MCP protocol revision the client speaks.
-// It is the claim the conformance checks grade against: the mirrored schema
-// in testdata/spec, the parity test, and the docs all follow it.
-const ProtocolVersion = "2025-11-25"
+// ProtocolVersion is the newest MCP protocol revision the client speaks: the
+// stateless revision it uses with servers that support it.
+//
+// ProtocolVersion and LegacyProtocolVersion are the claims the conformance
+// checks grade against: the mirrored schemas in testdata/spec, the parity
+// test, the generated docs and the official suite all follow them.
+const ProtocolVersion = "2026-07-28"
+
+// LegacyProtocolVersion is the newest handshake-era revision the client
+// speaks, with servers that predate ProtocolVersion's stateless protocol.
+// The client also accepts the earlier handshake revisions a server may
+// choose (2025-06-18, 2025-03-26, 2024-11-05).
+const LegacyProtocolVersion = "2025-11-25"
 
 // methodNotificationsInitialized is the notification a client MUST send after
 // a successful initialize response, before any other request.
@@ -83,6 +92,9 @@ type ClientCapabilities struct {
 	// Deprecated: logging is a server capability; MCP defines no client
 	// "logging" capability. The client never sets this.
 	Logging *LoggingCapability `json:"logging,omitempty"`
+	// Extensions advertises optional protocol extensions, keyed by
+	// identifier (2026-07-28). The client advertises none.
+	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 
 // ServerCapabilities describes what the server supports
@@ -90,6 +102,9 @@ type ServerCapabilities struct {
 	Tools     *ToolsCapability     `json:"tools,omitempty"`
 	Resources *ResourcesCapability `json:"resources,omitempty"`
 	Prompts   *PromptsCapability   `json:"prompts,omitempty"`
+	// Extensions lists the optional protocol extensions the server supports,
+	// keyed by identifier (2026-07-28).
+	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
 }
 
 // ToolsCapability indicates the server supports tools
@@ -137,6 +152,13 @@ type ToolsListResponse struct {
 	// NextCursor is set when more tools follow; the client requests the next
 	// page with it.
 	NextCursor string `json:"nextCursor,omitempty"`
+	// ResultType, TTLMs and CacheScope are set by 2026-07-28 servers.
+	// TTLMs is how long the list may be cached; CacheScope is "public" or
+	// "private". The client does not cache tool lists.
+	ResultType string                     `json:"resultType,omitempty"`
+	TTLMs      *int64                     `json:"ttlMs,omitempty"`
+	CacheScope string                     `json:"cacheScope,omitempty"`
+	Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // Tool represents an MCP tool definition
@@ -183,9 +205,11 @@ type ToolCallResponse struct {
 	// StructuredContent is the tool's structured result (MCP 2025-06-18).
 	// Servers SHOULD mirror it as serialized JSON in Content, but are not
 	// required to, so it is the authoritative result when present.
-	StructuredContent json.RawMessage            `json:"structuredContent,omitempty"`
-	IsError           bool                       `json:"isError,omitempty"`
-	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	IsError           bool            `json:"isError,omitempty"`
+	// ResultType is "complete" from a 2026-07-28 server (absent before).
+	ResultType string                     `json:"resultType,omitempty"`
+	Meta       map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // HasStructuredContent reports whether the response carries a non-null

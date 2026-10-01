@@ -133,7 +133,7 @@ regeneration and fails that check.
 | `schemas/v1alpha1/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
 | `runtime/prompt/schema/promptpack.schema.json` | the PromptPack spec release — a **verbatim mirror**; runtime divergence belongs in `deliberateOmission`, never in the file | `make promptpack-schema` |
 | `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
-| `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schema for `mcp.ProtocolVersion` — a **verbatim mirror**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |
+| `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schemas for `mcp.ProtocolVersion` and `mcp.LegacyProtocolVersion` — **verbatim mirrors**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |
 | the "Spec support" section of `docs/.../how-to/tools/integrate-mcp.md` | the pins in `runtime/mcp/spec_parity_test.go` | `make mcp-spec-docs` |
 
 A generated schema can be **stricter than the spec it came from** — `schema-gen` closes

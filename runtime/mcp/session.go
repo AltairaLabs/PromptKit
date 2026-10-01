@@ -29,7 +29,7 @@ const cancelNotifyTimeout = 2 * time.Second
 // legacyProtocolVersions are the handshake-era revisions the client can
 // speak, newest first. initialize offers the first; a server may answer with
 // any of them.
-var legacyProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+var legacyProtocolVersions = []string{LegacyProtocolVersion, "2025-06-18", "2025-03-26", "2024-11-05"}
 
 // errRequestTimeout is the context cause set when a request outlives
 // ClientOptions.RequestTimeout, so it can be told apart from the caller's own

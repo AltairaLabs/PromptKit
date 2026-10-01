@@ -20,7 +20,7 @@ import (
 
 // modernProtocolVersions are the stateless revisions the client speaks,
 // newest first.
-var modernProtocolVersions = []string{"2026-07-28"}
+var modernProtocolVersions = []string{ProtocolVersion}
 
 const (
 	methodServerDiscover = "server/discover"
@@ -70,6 +70,9 @@ type DiscoverResult struct {
 	SupportedVersions []string                   `json:"supportedVersions"`
 	Capabilities      ServerCapabilities         `json:"capabilities"`
 	Instructions      string                     `json:"instructions,omitempty"`
+	ResultType        string                     `json:"resultType"`
+	TTLMs             *int64                     `json:"ttlMs"`
+	CacheScope        string                     `json:"cacheScope"`
 	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 

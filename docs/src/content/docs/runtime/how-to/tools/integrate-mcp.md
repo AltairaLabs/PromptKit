@@ -32,37 +32,42 @@ discovery probe for a server that misbehaves when it receives one.
 
 <!-- BEGIN GENERATED: mcp-spec-support. Do not edit; run `make mcp-spec-docs`. -->
 
-PromptKit's MCP client implements protocol revision **2025-11-25** (`mcp.ProtocolVersion`). CI checks every message type it sends or reads against that revision's published schema, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+PromptKit's MCP client implements protocol revision **2026-07-28** (`mcp.ProtocolVersion`), the stateless revision, and **2025-11-25** (`mcp.LegacyProtocolVersion`), the newest revision with an `initialize` handshake, for servers that predate it. It detects which a server speaks, and also accepts the earlier handshake revisions a server may choose (2025-06-18, 2025-03-26, 2024-11-05).
 
-That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`); known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
+CI checks every message type the client sends or reads against both revisions' published schemas, so the table below is the complete list of spec fields the client does not carry; every other field is carried.
+
+That check covers message fields. Behaviour is checked by scenario tests and by the official [MCP conformance suite](https://github.com/modelcontextprotocol/conformance) (`make mcp-conformance`) against both revisions' requirements; known gaps are tracked in [#2100](https://github.com/AltairaLabs/PromptKit/issues/2100).
 
 Spec fields PromptKit does not carry:
 
 | Spec type | Field | Why |
 |---|---|---|
-| InitializeRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
-| InitializeResult | `_meta` | _meta is not surfaced to callers |
+| InitializeRequest params | `_meta` (2025-11-25 only) | the handshake request carries no metadata (progress tokens are not requested) |
+| InitializeResult | `_meta` (2025-11-25 only) | _meta is not surfaced to callers |
 | ClientCapabilities | `experimental` | the client does not implement this feature, so it does not advertise it |
 | ClientCapabilities | `roots` | the client does not implement this feature, so it does not advertise it |
-| ClientCapabilities | `tasks` | tasks are experimental in this revision; the client does not implement or advertise them |
+| ClientCapabilities | `tasks` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
 | ServerCapabilities | `completions` | the client does not use completions |
 | ServerCapabilities | `experimental` | experimental server capabilities are ignored |
 | ServerCapabilities | `logging` | server log messages are not consumed |
-| ServerCapabilities | `tasks` | tasks are experimental in this revision; the client does not implement or advertise them |
+| ServerCapabilities | `tasks` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
 | ServerCapabilities resources | `subscribe` | the client does not use resources |
 | ClientCapabilities sampling | `context` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
-| ListToolsRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
-| ListToolsResult | `_meta` | _meta is not surfaced to callers |
-| Tool | `execution` | execution hints (task support) are not carried; the client does not implement tasks |
-| CallToolRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
-| CallToolRequest params | `task` | tasks are experimental in this revision; the client does not implement or advertise them |
+| ListToolsRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
+| Tool | `execution` (2025-11-25 only) | execution hints (task support) are not carried; the client does not implement tasks |
+| CallToolRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
+| CallToolRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| InputRequest | `id` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
+| InputRequest | `jsonrpc` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
+| ElicitRequest params | `_meta` (2025-11-25 only) | _meta is not surfaced to callers |
+| ElicitRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
+| ElicitRequest params | `elicitationId` (2025-11-25 only) | URL-mode elicitation is not advertised, so its correlation id is not used |
+| ElicitResult | `_meta` (2025-11-25 only) | the client attaches no metadata to its answers |
 
 Fields PromptKit declares that the spec does not define:
 
 - ClientCapabilities `logging`: logging is a server capability, not a client one; the client never sets this field, so it is never sent. Exported, so it stays until the next major (see LoggingCapability)
-- CallToolRequest params `inputResponses`: 2026-07-28 MRTR field, sent only to modern servers and only in answer to input_required
-- CallToolRequest params `requestState`: 2026-07-28 MRTR field, sent only to modern servers and only in answer to input_required
 
 <!-- END GENERATED: mcp-spec-support -->
 

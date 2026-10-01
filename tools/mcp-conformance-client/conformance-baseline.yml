@@ -1,6 +1,7 @@
 # Known failures of PromptKit's MCP client against the official conformance
-# suite (@modelcontextprotocol/conformance), at the revision the client claims
-# (mcp.ProtocolVersion). Read by `make mcp-conformance`.
+# suite (@modelcontextprotocol/conformance), run with the requirement sets of
+# both revisions the client claims (mcp.ProtocolVersion and
+# mcp.LegacyProtocolVersion). Read by `make mcp-conformance`.
 #
 # The suite fails on any failure NOT listed here, and on any entry listed here
 # that now PASSES — so this file cannot quietly go stale. Every entry says why
@@ -23,17 +24,33 @@ client:
   # with the host's Authorizer, not with PromptKit. PromptKit's side — hook
   # points, challenge parsing, step-up, the retry bound — is covered by
   # runtime/mcp/auth_test.go.
+  - auth/authorization-server-migration
+  - auth/basic-cimd
+  - auth/client-credentials-basic
+  - auth/client-credentials-jwt
+  - auth/dpop
+  - auth/dpop-nonce
+  - auth/enterprise-managed-authorization
+  - auth/iss-normalized
+  - auth/iss-not-advertised
+  - auth/iss-supported
+  - auth/iss-supported-missing
+  - auth/iss-unexpected
+  - auth/iss-wrong-issuer
   - auth/metadata-default
+  - auth/metadata-issuer-mismatch
   - auth/metadata-var1
   - auth/metadata-var2
   - auth/metadata-var3
-  - auth/basic-cimd
-  - auth/scope-from-www-authenticate
-  - auth/scope-from-scopes-supported
-  - auth/scope-omitted-when-undefined
-  - auth/scope-step-up
-  - auth/scope-retry-limit
-  - auth/token-endpoint-auth-basic
-  - auth/token-endpoint-auth-post
-  - auth/token-endpoint-auth-none
+  - auth/offline-access-not-supported
+  - auth/offline-access-scope
   - auth/pre-registration
+  - auth/scope-from-scopes-supported
+  - auth/scope-from-www-authenticate
+  - auth/scope-omitted-when-undefined
+  - auth/scope-retry-limit
+  - auth/scope-step-up
+  - auth/token-endpoint-auth-basic
+  - auth/token-endpoint-auth-none
+  - auth/token-endpoint-auth-post
+  - auth/wif-jwt-bearer
