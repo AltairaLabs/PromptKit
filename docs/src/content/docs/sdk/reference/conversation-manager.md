@@ -809,7 +809,7 @@ func NewA2ACapability() *A2ACapability
 NewA2ACapability creates a new A2ACapability.
 
 <a name="A2ACapability.Close"></a>
-### func \(\*A2ACapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_a2a.go#L206>)
+### func \(\*A2ACapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_a2a.go#L217>)
 
 ```go
 func (c *A2ACapability) Close() error

@@ -133,9 +133,12 @@ var (
 // The executor maintains a cache of A2A clients with TTL-based eviction.
 // Call Close when the executor is no longer needed to release resources.
 type Executor struct {
-	mu          sync.RWMutex
-	clients     map[string]*clientEntry
-	clientHeap  clientHeap // min-heap for O(log N) LRU eviction
+	mu         sync.RWMutex
+	clients    map[string]*clientEntry
+	clientHeap clientHeap // min-heap for O(log N) LRU eviction
+	// cards are agent cards a ToolBridge already discovered, by agent URL;
+	// a client created for that URL starts with its card.
+	cards       map[string]*AgentCard
 	retryPolicy RetryPolicy
 	clientTTL   time.Duration
 	maxClients  int
@@ -325,6 +328,10 @@ func (e *Executor) executeRequest(
 
 	logger.Info("A2A tool call",
 		"tool", toolName, "agent_url", cfg.AgentURL, "skill_id", cfg.SkillID)
+
+	// AgentURL is the agent's base URL; its card says where its JSON-RPC
+	// endpoint is (A2A 1.0 §8.3.2).
+	client.discoverForCalls(ctx)
 
 	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
 	if err != nil {
@@ -680,6 +687,7 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	}
 
 	c := NewClient(agentURL)
+	c.useCard(e.cards[agentURL])
 	entry := &clientEntry{client: c, lastUsed: now, url: agentURL}
 	e.clients[agentURL] = entry
 	heap.Push(&e.clientHeap, entry)
@@ -737,10 +745,25 @@ func (e *Executor) getOrCreateClientWithConfig(cfg *tools.A2AConfig) *Client {
 	}
 
 	c := NewClient(cfg.AgentURL, opts...)
+	c.useCard(e.cards[cfg.AgentURL])
 	entry := &clientEntry{client: c, lastUsed: now, url: cfg.AgentURL}
 	e.clients[cfg.AgentURL] = entry
 	heap.Push(&e.clientHeap, entry)
 	return c
+}
+
+// shareCard records the card a ToolBridge discovered for agentURL, and gives
+// it to the client already cached for that URL, if any.
+func (e *Executor) shareCard(agentURL string, card *AgentCard) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cards == nil {
+		e.cards = make(map[string]*AgentCard)
+	}
+	e.cards[agentURL] = card
+	if entry, ok := e.clients[agentURL]; ok {
+		entry.client.useCard(card)
+	}
 }
 
 // resolveHeaders merges static headers with headers resolved from environment variables.

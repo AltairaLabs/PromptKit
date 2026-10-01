@@ -18,6 +18,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // HTTP client defaults for A2A communication.
@@ -166,6 +168,9 @@ type Client struct {
 	// 1.0 method.
 	version       ProtocolVersion
 	versionPinned bool
+
+	// discoverOnce guards the executor's best-effort card discovery.
+	discoverOnce sync.Once
 }
 
 // newDefaultTransport creates an HTTP transport with connection pooling,
@@ -261,6 +266,14 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	}
 
 	c.mu.Lock()
+	c.adoptCardLocked(card)
+	c.mu.Unlock()
+
+	return card, nil
+}
+
+// adoptCardLocked makes card the one calls are routed by. c.mu must be held.
+func (c *Client) adoptCardLocked(card *AgentCard) {
 	c.agentCard = card
 	// Only a card that says which versions it serves settles the question.
 	// One that declares no interfaces — a pre-1.0 PromptKit server's, say —
@@ -269,9 +282,41 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 		c.version = v
 		c.versionPinned = true
 	}
-	c.mu.Unlock()
+}
 
-	return card, nil
+// useCard adopts a card discovered elsewhere (by a ToolBridge), unless the
+// client already has one.
+func (c *Client) useCard(card *AgentCard) {
+	if card == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.agentCard == nil {
+		c.adoptCardLocked(card)
+	}
+}
+
+// cachedCard returns the card the client holds, or nil.
+func (c *Client) cachedCard() *AgentCard {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentCard
+}
+
+// discoverForCalls fetches the agent card once, so calls reach the interface
+// it declares. It is best effort: when the card cannot be had, calls keep
+// going to {base}/a2a, as they always did, and discovery is not retried.
+func (c *Client) discoverForCalls(ctx context.Context) {
+	c.discoverOnce.Do(func() {
+		if c.cachedCard() != nil {
+			return
+		}
+		if _, err := c.Discover(ctx); err != nil {
+			logger.Debug("a2a: agent card unavailable; calling the default endpoint",
+				"agent_url", c.baseURL, "error", err)
+		}
+	})
 }
 
 // ProtocolVersion returns the protocol version the client currently speaks.
