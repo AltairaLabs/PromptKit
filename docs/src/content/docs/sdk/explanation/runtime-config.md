@@ -40,7 +40,7 @@ PromptKit separates two concerns:
 - The pack defines what the agent does: its prompts, tool schemas, eval definitions and conversation structure.
 - The RuntimeConfig defines how the agent runs: which provider to call, where tools are hosted and how to persist state.
 
-```
+```text
 agent.pack.json              <- what the agent does (portable)
 production.runtime.yaml      <- how to run it in production
 development.runtime.yaml     <- how to run it locally
@@ -48,11 +48,11 @@ development.runtime.yaml     <- how to run it locally
 
 The pack is platform-agnostic. You can share it across teams, check it into version control, and run it in any environment without modification. It declares _names_ for tools and evals, along with their schemas and trigger conditions, and carries no implementations.
 
-RuntimeConfig is environment-specific. It binds those names to concrete implementations: a Python script, an HTTP endpoint, a Go function. Different environments get different RuntimeConfig files while sharing the same pack. A pack that works in development works in production, because only the RuntimeConfig changes.
+RuntimeConfig is environment-specific. It binds those names to exec implementations: external commands such as a Python script or a long-running server process. Different environments get different RuntimeConfig files while sharing the same pack. A pack that works in development works in production, because only the RuntimeConfig changes.
 
 ## Name-Based Resolution
 
-The pack declares a tool named `sentiment_check` with a JSON Schema describing its parameters. RuntimeConfig binds that name to an implementation, for example `./tools/sentiment-check.py` in development and `https://api.internal/sentiment` in production.
+The pack declares a tool named `sentiment_check` with a JSON Schema describing its parameters. RuntimeConfig binds that name to an implementation, for example a local script, `./tools/sentiment-check.py`, in development and a long-running server-mode process, `./bin/sentiment-server`, in production. Both are `exec` bindings; the SDK reads only the `exec` block of a `spec.tools` entry.
 
 The following diagram shows how one pack resolves to different implementations in two environments.
 
@@ -62,10 +62,10 @@ flowchart LR
     Dev["development.runtime.yaml"] --> Registry
     Prod["production.runtime.yaml"] --> Registry
     Registry --> Script["sentiment-check.py"]
-    Registry --> HTTP["api.internal/sentiment"]
+    Registry --> Server["sentiment-server (server mode)"]
 ```
 
-At invocation time, the tool registry looks up the name and dispatches to the implementation the RuntimeConfig bound it to. The pack does not know whether the tool is Go code, a Python subprocess or an HTTP endpoint. The same applies to evals: the pack declares an eval type such as `sentiment_check`, and RuntimeConfig binds it to a handler.
+At invocation time, the tool registry looks up the name and dispatches to the implementation the RuntimeConfig bound it to. The pack does not know which command, or which mode, implements the tool. The same applies to evals: the pack declares an eval type such as `sentiment_check`, and RuntimeConfig binds it to a handler.
 
 This indirection lets the pack author and the platform operator work independently. The pack author defines the contract (name and schema). The platform operator fulfils it (binding and implementation).
 
@@ -81,7 +81,7 @@ RuntimeConfig provides a base layer of configuration. `WithRuntimeConfig()` take
 
 A team can maintain a shared RuntimeConfig file for the common case (provider settings, standard tool bindings, logging) and individual applications can override specific settings in code. A development build might load `base.runtime.yaml` and then swap in a mock provider. A production build might load the same file and add a custom state store.
 
-Code wins only for the single-valued settings: the agent provider, the state store and the logger. A later `WithProvider`, `WithStateStore` or `WithLogger` overwrites what the file set. The file applies its state store and logger only when none is set yet.
+Code wins for the single-valued settings: the agent provider, the state store and the logger. `WithProvider`, `WithStateStore` and `WithLogger` win on either side of `WithRuntimeConfig()`. Placed after it, they overwrite what the file set. Placed before it, the file leaves them alone: it applies its state store and logger only when none is set yet, and a provider it declares joins the pool without becoming the agent provider.
 
 Other settings combine instead of overriding:
 
@@ -116,5 +116,5 @@ Tool calls run under a timeout, which limits runaway subprocesses. The timeout i
 ## See Also
 
 - [How-To: Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/): practical guide to loading and applying RuntimeConfig
-- RuntimeConfig Reference: field-by-field documentation of the RuntimeConfig schema
-- Exec Protocol Reference: specification for the subprocess communication protocol
+- [RuntimeConfig Reference](/sdk/reference/runtime-config/): field-by-field documentation of the RuntimeConfig schema
+- [Exec Protocol Reference](/sdk/reference/exec-protocol/): specification for the subprocess communication protocol

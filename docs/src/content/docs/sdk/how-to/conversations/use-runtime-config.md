@@ -30,18 +30,26 @@ Configure providers, tools, MCP servers, hooks, state store and logging from a s
 ## Quick Start
 
 ```go
-import "github.com/AltairaLabs/PromptKit/sdk/v2"
+package main
 
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig("./runtime.yaml"),
+import (
+    "log"
+
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
-if err != nil {
-    log.Fatal(err)
+
+func main() {
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig("./runtime.yaml"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
 }
-defer conv.Close()
 ```
 
-`WithRuntimeConfig` loads the YAML file and applies every section as if you had called the equivalent `With*` options individually.
+`WithRuntimeConfig` loads the YAML file and applies each section it contains. See [Combine with Programmatic Overrides](#combine-with-programmatic-overrides) for how it interacts with other options.
 
 ---
 
@@ -75,18 +83,33 @@ See [RuntimeConfig Reference](/sdk/reference/runtime-config/) for every section:
 
 ## Combine with Programmatic Overrides
 
-Pass `WithRuntimeConfig` alongside other options. Options apply in call order, so a programmatic option wins only when you list it after `WithRuntimeConfig`:
+Pass `WithRuntimeConfig` alongside other options. `WithProvider`, `WithStateStore` and `WithLogger` win over the YAML file whichever side of `WithRuntimeConfig` you list them on:
 
 ```go
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig("./base.runtime.yaml"),
-    sdk.WithProvider(testProvider),  // overrides the YAML provider
+package main
+
+import (
+    "log"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
+
+func main() {
+    testProvider := mock.NewProvider("test", "mock-model", false)
+
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig("./base.runtime.yaml"),
+        sdk.WithProvider(testProvider), // wins over the YAML provider
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+}
 ```
 
-`WithProvider` replaces the agent provider. The YAML provider stays registered in the provider pool.
-
-If you list `WithProvider`, `WithStateStore` or `WithLogger` before `WithRuntimeConfig`, the YAML state store and logger are skipped and the YAML provider is only pooled. MCP servers and hooks from the YAML file are appended to those you set programmatically, not replaced.
+The YAML provider stays registered in the provider pool. The YAML state store and logger apply only when you have not set one. MCP servers from the YAML file are appended to those you set programmatically, not replaced.
 
 Use this in tests to keep the production config and swap in a mock provider.
 
@@ -104,13 +127,32 @@ config/
 ```
 
 ```go
-env := os.Getenv("APP_ENV") // "production", "development", "test"
-configPath := fmt.Sprintf("./config/%s.runtime.yaml", env)
+package main
 
-conv, err := sdk.Open("./agent.pack.json", "assistant",
-    sdk.WithRuntimeConfig(configPath),
+import (
+    "fmt"
+    "log"
+    "os"
+
+    _ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock" // registers type: mock
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
+
+func main() {
+    env := os.Getenv("APP_ENV") // "production", "development", "test"
+    configPath := fmt.Sprintf("./config/%s.runtime.yaml", env)
+
+    conv, err := sdk.Open("./agent.pack.json", "assistant",
+        sdk.WithRuntimeConfig(configPath),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conv.Close()
+}
 ```
+
+The blank import of `runtime/providers/mock` is needed only because `test.runtime.yaml` uses `type: mock`. Without it, loading fails with `unsupported provider type: mock`.
 
 Environment-specific settings stay out of your code.
 

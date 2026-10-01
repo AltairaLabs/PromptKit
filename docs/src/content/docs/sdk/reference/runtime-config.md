@@ -104,7 +104,7 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 
 ### spec.providers[]
 
-Array of provider configurations. Each entry configures credentials, model selection, rate limits, and default generation parameters for one provider.
+Array of provider configurations. Each entry configures credentials, model selection, and default generation parameters for one provider.
 
 **Every entry is routed by its `role`.** Providers with a completion role
 (`llm`, `image`, `video`) go into the agent pool — the first one declared becomes
@@ -166,7 +166,6 @@ the same ID in both spellings is rejected.
 | `base_url` | string | no | Custom API base URL. Overrides the default endpoint for the provider type. |
 | `credential` | object | no | API key configuration. See [credential](#credential). |
 | `defaults` | object | no | Default generation parameters. See [defaults](#defaults). |
-| `rate_limit` | object | no | Rate limiting. See [rate_limit](#rate_limit). |
 | `pricing` | object | no | Token cost tracking. See [pricing](#pricing). |
 | `platform` | object | no | Cloud platform config for hyperscaler hosting. See [platform](#platform). |
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
@@ -229,13 +228,6 @@ Default generation parameters applied to every request unless overridden per-cal
 | `top_p` | float | Top-p (nucleus) sampling parameter. |
 | `max_tokens` | int | Maximum number of output tokens. |
 
-#### rate_limit
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rps` | int | Maximum requests per second. |
-| `burst` | int | Maximum burst size above the steady-state rate. |
-
 #### pricing
 
 Used for cost tracking and reporting.
@@ -261,18 +253,10 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 
 ### spec.tools
 
-Map of tool bindings. Keys are tool names that must match names declared in the pack. The SDK reads the `exec` block of each entry.
-
-The published schema lists `description`, `input_schema`, `output_schema` and `mode` as required. Nothing in the SDK enforces that: an entry with only an `exec` block loads and works.
+Map of tool bindings. Keys are tool names that must match names declared in the pack.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Tool name (usually inferred from the map key). |
-| `description` | string | Human-readable description of the tool. |
-| `input_schema` | object | JSON Schema (Draft-07) defining the tool's input. |
-| `output_schema` | object | JSON Schema (Draft-07) defining the tool's output. |
-| `mode` | string | Execution mode: `mock`, `live`, `mcp`, `exec`, or `client`. |
-| `timeout_ms` | int | Per-invocation timeout in milliseconds. |
 | `exec` | object | Subprocess binding configuration. See [exec](#exec). |
 
 #### exec
@@ -285,13 +269,12 @@ Subprocess binding for tools. The command is resolved relative to the config fil
 | `args` | string[] | Additional command arguments. |
 | `runtime` | string | Execution mode: `exec` (one-shot, default) or `server` (long-running JSON-RPC). |
 | `env` | string[] | Environment variable names to pass through from the host. |
-| `timeout_ms` | int | Per-invocation timeout in milliseconds. |
 
 ---
 
 ### spec.evals
 
-Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers.
+Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation.
 
 Each value is an `ExecBinding`:
 
@@ -299,7 +282,6 @@ Each value is an `ExecBinding`:
 |-------|------|----------|-------------|
 | `command` | string | yes | Path to the executable. |
 | `args` | string[] | no | Additional command arguments. |
-| `runtime` | string | no | Execution mode: `exec` (default) or `server`. |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
 
@@ -307,7 +289,7 @@ Each value is an `ExecBinding`:
 
 ### spec.hooks
 
-Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events.
+Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -316,7 +298,6 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `hook` | string | yes | Hook interface type: `provider`, `tool`, `session`, or `eval`. |
 | `phases` | string[] | no | Lifecycle phases to intercept. See below. |
 | `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget). |
-| `runtime` | string | no | Process mode: `exec` (default) or `server`. |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
 
@@ -333,9 +314,9 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 
 ### spec.mcp_servers[]
 
-Array of MCP (Model Context Protocol) server configurations. Each entry starts and manages a stdio-based MCP server process.
+Array of MCP (Model Context Protocol) server configurations. Each entry configures one MCP server, reached over stdio, `sse` or `streamable_http`.
 
-Validation requires `name` on every entry and exactly one transport: `command` (stdio), `url` (HTTP, `streamable_http` or `sse`) or `source` (host-provisioned, needs `scope`).
+Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -344,6 +325,9 @@ Validation requires `name` on every entry and exactly one transport: `command` (
 | `args` | string[] | no | Command arguments. |
 | `env` | map[string]string | no | Environment variables passed to the server process. |
 | `working_dir` | string | no | Working directory for the server process. |
+| `url` | string | conditional | URL of an HTTP MCP server. |
+| `transport` | string | no | Transport adapter: `stdio`, `sse` or `streamable_http`. Defaults to `stdio` for `command` and `sse` for `url`. |
+| `headers` | map[string]string | no | HTTP headers sent with every request to the server. |
 | `timeout_ms` | int | no | Per-request timeout in milliseconds. |
 | `tool_filter` | object | no | Tool filtering configuration. See [tool_filter](#tool_filter). |
 
@@ -421,9 +405,6 @@ spec:
       defaults:
         temperature: 0.7
         max_tokens: 4096
-      rate_limit:
-        rps: 10
-        burst: 20
       pricing:
         input_cost_per_1k: 0.003
         output_cost_per_1k: 0.015
@@ -437,24 +418,11 @@ spec:
 
   tools:
     search_knowledge_base:
-      description: Search the knowledge base
-      input_schema:
-        type: object
-        properties:
-          query:
-            type: string
-      output_schema:
-        type: object
-        properties:
-          results:
-            type: array
-      mode: exec
       exec:
         command: ./tools/search
         args: ["--format", "json"]
         runtime: server
         env: [DATABASE_URL]
-        timeout_ms: 5000
 
   evals:
     custom_accuracy:
@@ -516,6 +484,6 @@ spec:
 
 ## See Also
 
-- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/) — how-to guide for loading and applying RuntimeConfig
-- [Exec Tools](/sdk/how-to/tools/exec-tools/) — how-to guide for subprocess tool bindings
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — how-to guide for external process hooks
+- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/): how-to guide for loading and applying RuntimeConfig
+- [Exec Tools](/sdk/how-to/tools/exec-tools/): how-to guide for subprocess tool bindings
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): how-to guide for external process hooks
