@@ -873,19 +873,46 @@ func lastUserMessageText(msgs []types.Message) string {
 	return ""
 }
 
+// policy returns the tool policy in force for this turn: the policy this stage
+// was built with, merged with the tool_policy of the prompt PromptAssemblyStage
+// loaded onto TurnState. Limits only narrow — see pipeline.MergeToolPolicy for
+// how this relates to composition max_steps and workflow budgets.
+//
+// It is the prompt the turn STARTED with. An in-turn workflow handoff
+// (state_handoff.go) swaps the system prompt and tools mid-turn but not the
+// template, so the new state's tool_policy applies from its next turn.
+//
+// Every read of the policy goes through here; never read s.toolPolicy directly,
+// or the prompt's tool_policy is silently ignored again (#2104).
+func (s *ProviderStage) policy() *pipeline.ToolPolicy {
+	if s.turnState == nil || s.turnState.Template == nil {
+		return s.toolPolicy
+	}
+	return pipeline.MergeToolPolicy(s.toolPolicy, s.turnState.Template.ToolPolicy)
+}
+
 // getMaxRounds returns the maximum number of tool call rounds.
 func (s *ProviderStage) getMaxRounds() int {
-	if s.toolPolicy != nil && s.toolPolicy.MaxRounds > 0 {
-		return s.toolPolicy.MaxRounds
+	if p := s.policy(); p != nil && p.MaxRounds > 0 {
+		return p.MaxRounds
 	}
 	return defaultMaxRounds
+}
+
+// getMaxToolCallsPerTurn returns the cap on tool calls across all of a turn's
+// rounds, or 0 for no cap.
+func (s *ProviderStage) getMaxToolCallsPerTurn() int {
+	if p := s.policy(); p != nil {
+		return p.MaxToolCallsPerTurn
+	}
+	return 0
 }
 
 // getMaxIdenticalToolCalls returns the threshold for aborting a loop where the
 // same tool is called repeatedly with identical arguments.
 func (s *ProviderStage) getMaxIdenticalToolCalls() int {
-	if s.toolPolicy != nil && s.toolPolicy.MaxIdenticalToolCalls > 0 {
-		return s.toolPolicy.MaxIdenticalToolCalls
+	if p := s.policy(); p != nil && p.MaxIdenticalToolCalls > 0 {
+		return p.MaxIdenticalToolCalls
 	}
 	return defaultMaxIdenticalCalls
 }
@@ -1037,6 +1064,7 @@ type toolLoop struct {
 	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
 	nudgedLoop          bool           // already fed an identical-loop back to the model once
+	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
 
 	// acc is the live turn input. Held as a pointer rather than copied because
 	// applyStateHandoff can swap the system prompt mid-loop, and the
@@ -1174,7 +1202,7 @@ func (tl *toolLoop) afterRound(
 		tl.cumulativeCached += response.CostInfo.CachedTokens
 	}
 	tl.warnIfCachingStalled(round)
-	policy := tl.stage.toolPolicy
+	policy := tl.stage.policy()
 	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
 		tl.persistMessages(ctx, round)
 		return true, tl.messages, fmt.Errorf(
@@ -1215,7 +1243,9 @@ func (tl *toolLoop) afterRound(
 	}
 
 	grantsBefore := tl.stage.grantedTools()
-	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls, rr)
+	calls, overBudget := tl.splitCallBudget(response.ToolCalls)
+	toolResults, err := tl.stage.executeToolCalls(ctx, calls, rr)
+	toolResults = append(toolResults, overBudgetResults(overBudget)...)
 	if err != nil {
 		if _, ok := tools.IsErrToolsPending(err); ok {
 			tl.messages = append(tl.messages, toolResults...)
@@ -1243,6 +1273,13 @@ func (tl *toolLoop) afterRound(
 	}
 
 	tl.toolChoice = toolChoiceAuto
+
+	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
+	// round is the model's answer rather than more calls to reject.
+	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 && tl.toolCallsExecuted >= limit {
+		tl.providerTools = nil
+		tl.toolChoice = ""
+	}
 
 	// RFC 0010 termination.tool_called: stop cleanly after the round in which
 	// the named terminal tool fired. The tool has already executed and its result
@@ -1273,6 +1310,37 @@ func (tl *toolLoop) afterRound(
 	}
 
 	return false, nil, nil
+}
+
+// splitCallBudget divides a round's tool calls into those within the turn's
+// max_tool_calls_per_turn budget and those over it, counting the former as
+// executed. Without a cap every call is within budget.
+func (tl *toolLoop) splitCallBudget(
+	calls []types.MessageToolCall,
+) (within, over []types.MessageToolCall) {
+	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 {
+		remaining := max(limit-tl.toolCallsExecuted, 0)
+		if len(calls) > remaining {
+			calls, over = calls[:remaining], calls[remaining:]
+		}
+	}
+	tl.toolCallsExecuted += len(calls)
+	return calls, over
+}
+
+// overBudgetResults answers each call over the max_tool_calls_per_turn budget
+// with a policy rejection. Every call the model made still gets a result, so
+// the history stays valid to replay.
+func overBudgetResults(calls []types.MessageToolCall) []types.Message {
+	results := make([]types.Message, 0, len(calls))
+	for _, tc := range calls {
+		errMsg := fmt.Sprintf("Tool %s not executed: the tool call limit for this turn is reached", tc.Name)
+		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
+		result.Error = errMsg
+		result.ErrorType = types.ToolErrorApproval
+		results = append(results, types.NewToolResultMessage(result))
+	}
+	return results
 }
 
 // preSeedLog writes the history messages that were already present in
@@ -2136,8 +2204,8 @@ type toolCallResult struct {
 
 // getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
 func (s *ProviderStage) getMaxParallelToolCalls() int {
-	if s.toolPolicy != nil && s.toolPolicy.MaxParallelToolCalls > 0 {
-		return s.toolPolicy.MaxParallelToolCalls
+	if p := s.policy(); p != nil && p.MaxParallelToolCalls > 0 {
+		return p.MaxParallelToolCalls
 	}
 	return defaultMaxParallelToolCalls
 }
@@ -2210,7 +2278,7 @@ func (s *ProviderStage) executeToolCalls(
 func (s *ProviderStage) preExecCheck(
 	ctx context.Context, toolCall types.MessageToolCall,
 ) (hooks.Decision, toolCallResult, bool) {
-	if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
+	if p := s.policy(); p != nil && isToolBlocked(toolCall.Name, p.Blocklist) {
 		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
 		result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
 		result.Error = errMsg
@@ -3124,7 +3192,8 @@ func (s *ProviderStage) buildProviderTools(
 	// declarations only wastes input tokens and — on some models — primes
 	// spurious tool calls. Returning nil routes the provider to its non-tool
 	// path, which omits both the declarations and any tool_config.
-	if s.toolPolicy != nil && s.toolPolicy.ToolChoice == toolChoiceNone {
+	policy := s.policy()
+	if policy != nil && policy.ToolChoice == toolChoiceNone {
 		return nil, "", nil
 	}
 
@@ -3142,8 +3211,8 @@ func (s *ProviderStage) buildProviderTools(
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default
-	if s.toolPolicy != nil && s.toolPolicy.ToolChoice != "" {
-		toolChoice = s.toolPolicy.ToolChoice
+	if policy != nil && policy.ToolChoice != "" {
+		toolChoice = policy.ToolChoice
 	}
 
 	return providerTools, toolChoice, nil

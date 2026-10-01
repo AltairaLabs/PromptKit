@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -27,6 +28,87 @@ type ToolPolicy struct {
 	// StopOnTool, when non-empty, stops the agent tool loop at the end of any round
 	// in which a tool with this name was called (RFC 0010 termination.tool_called).
 	StopOnTool string `json:"stop_on_tool,omitempty"`
+}
+
+// MergeToolPolicy combines the policy a caller configured for a provider stage
+// with the tool_policy declared on the prompt that stage is running.
+//
+// Where the limits come from. Each layer bounds something different; only the
+// first two bound the same thing, which is why they are merged here:
+//
+//   - prompts.<task>.tool_policy (PromptPack spec) bounds ONE turn of that
+//     prompt: max_rounds is LLM → tool → LLM cycles, max_tool_calls_per_turn is
+//     tool calls, across all of the turn's rounds.
+//   - compositions.<name>.steps[].termination.max_steps (RFC 0010) bounds the
+//     LLM-tool loop of ONE agent step — the same unit as max_rounds, not a count
+//     of composition steps. The spec requires a composition's step graph to be
+//     acyclic, so a composition never re-executes a step and has no "steps
+//     executed" limit; its total is the sum of its steps' loops. The composition
+//     executor passes max_steps in as the caller's MaxRounds.
+//   - workflow.engine.budget (max_tool_calls, max_total_visits,
+//     max_wall_time_sec) and per-state max_visits bound the WHOLE workflow run,
+//     across states and turns. That is where looping lives (the spec says to
+//     encode loops there, not in a composition), and it is enforced by the
+//     workflow state machine on top of each turn's limits, never merged here.
+//
+// The merge only ever narrows: every layer can tighten a limit, none can widen
+// one another layer set. So:
+//
+//   - MaxRounds and MaxToolCallsPerTurn: the smaller of the values that are set
+//     (0 means unset). An agent step's max_steps therefore runs until the lower
+//     of max_steps and the prompt's max_rounds.
+//   - Blocklist: the union.
+//   - ToolChoice: the caller's when set, otherwise the prompt's. It is a mode,
+//     not a limit, and the caller (a composition step, an Arena scenario) is the
+//     more specific context.
+//   - Every other field is runtime-only (not in the spec) and comes from the
+//     caller unchanged.
+//
+// Returns caller unchanged when prompt is nil, so the result may be nil.
+func MergeToolPolicy(caller *ToolPolicy, prompt *packspec.ToolPolicy) *ToolPolicy {
+	if prompt == nil {
+		return caller
+	}
+	merged := ToolPolicy{}
+	if caller != nil {
+		merged = *caller
+	}
+	merged.MaxRounds = minPositive(merged.MaxRounds, packspec.Deref(prompt.MaxRounds, 0))
+	merged.MaxToolCallsPerTurn = minPositive(merged.MaxToolCallsPerTurn, packspec.Deref(prompt.MaxToolCallsPerTurn, 0))
+	if merged.ToolChoice == "" {
+		merged.ToolChoice = packspec.Deref(prompt.ToolChoice, "")
+	}
+	merged.Blocklist = unionStrings(merged.Blocklist, prompt.Blocklist)
+	return &merged
+}
+
+// minPositive returns the smaller of a and b, treating a non-positive value as
+// unset.
+func minPositive(a, b int) int {
+	switch {
+	case a <= 0:
+		return b
+	case b <= 0:
+		return a
+	default:
+		return min(a, b)
+	}
+}
+
+// unionStrings returns a followed by the members of b not already in a.
+func unionStrings(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	out := make([]string, 0, len(a)+len(b))
+	seen := make(map[string]bool, len(a)+len(b))
+	for _, s := range append(append([]string{}, a...), b...) {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // PipelineConfig represents the complete pipeline configuration for pack format

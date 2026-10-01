@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,4 +61,33 @@ func TestPackPrompt_ToPromptConfig(t *testing.T) {
 	// Empty-variables path.
 	empty := ToConfig(&PackPrompt{Version: "1"}, "t")
 	assert.Empty(t, empty.Spec.Variables)
+}
+
+// A pack prompt's tool_policy must survive every hop to the pipeline: pack →
+// ToConfig (the SDK's load path) → registry → LoadTemplate, which is what
+// PromptAssemblyStage puts on TurnState for the provider stage (#2104).
+func TestToolPolicy_SurvivesPackToTemplate(t *testing.T) {
+	policy := &ToolPolicyPack{MaxRounds: packspec.Ptr(200), Blocklist: []string{"delete_kit"}}
+	cfg := ToConfig(&PackPrompt{Version: "1", SystemTemplate: "hi", ToolPolicy: policy}, "builder")
+	assert.Equal(t, policy, cfg.Spec.ToolPolicy)
+
+	repo := newMockRepository()
+	repo.prompts["builder"] = cfg
+	tmpl, err := NewRegistryWithRepository(repo).LoadTemplate("builder", nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, policy, tmpl.ToolPolicy)
+}
+
+// Compile (packc's single-prompt path) writes the prompt's tool_policy into the pack.
+func TestPackCompiler_CompileCarriesToolPolicy(t *testing.T) {
+	policy := &ToolPolicyPack{MaxRounds: packspec.Ptr(200)}
+	repo := newMockRepository()
+	repo.prompts["builder"] = &Config{Spec: Spec{
+		TaskType: "builder", Version: "1.0.0", SystemTemplate: "hi", ToolPolicy: policy,
+	}}
+	compiler := NewPackCompilerWithDeps(NewRegistryWithRepository(repo),
+		mockTimeProvider{fixedTime: time.Unix(0, 0)}, newMockFileWriter())
+	pack, err := compiler.Compile("builder", "test")
+	require.NoError(t, err)
+	assert.Equal(t, policy, pack.Prompts["builder"].ToolPolicy)
 }
