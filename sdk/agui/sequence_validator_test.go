@@ -208,11 +208,15 @@ func (v *sequenceValidator) toolCallStart(e *aguievents.ToolCallStartEvent) erro
 	return open(v.calls, e.ToolCallID, "tool call")
 }
 
-// toolCallResult checks a result against the calls this stream carried. A
-// result for a call this stream never started is accepted: the call can have
-// been made by an earlier run on another stream, as when a run continues
-// after an approval hold and reports the approved tool's result.
+// toolCallResult checks a result against the calls the stream carried. The
+// call may belong to an earlier run on the stream, as when a run continues
+// after an approval hold and reports the approved tool's result, but it must
+// have been started and left unanswered. Tests of a continuing run validate it
+// together with the runs before it (continueAndCollect).
 func (v *sequenceValidator) toolCallResult(e *aguievents.ToolCallResultEvent) error {
+	if _, seen := v.names[e.ToolCallID]; !seen {
+		return fmt.Errorf("TOOL_CALL_RESULT for call %q that no run on the stream started", e.ToolCallID)
+	}
 	if v.calls[e.ToolCallID] {
 		return fmt.Errorf("TOOL_CALL_RESULT for call %q before its TOOL_CALL_END", e.ToolCallID)
 	}
@@ -284,12 +288,16 @@ func TestValidateAGUISequence_AcceptsConformingStreams(t *testing.T) {
 			aguievents.NewStepFinishedEvent("s"),
 			finish,
 		}, phaseFinished},
-		"error first":             {[]aguievents.Event{aguievents.NewRunErrorEvent("unreachable")}, phaseErrored},
-		"error mid-run":           {[]aguievents.Event{start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewRunErrorEvent("x")}, phaseErrored},
-		"late error":              {[]aguievents.Event{start, finish, aguievents.NewRunErrorEvent("x")}, phaseErrored},
-		"two runs":                {[]aguievents.Event{start, finish, aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewRunFinishedEvent("t", "r2")}, phaseFinished},
-		"unanswered frontend":     {[]aguievents.Event{start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"), finish}, phaseFinished},
-		"result from earlier run": {[]aguievents.Event{start, aguievents.NewToolCallResultEvent("m", "c0", "ok"), finish}, phaseFinished},
+		"error first":         {[]aguievents.Event{aguievents.NewRunErrorEvent("unreachable")}, phaseErrored},
+		"error mid-run":       {[]aguievents.Event{start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewRunErrorEvent("x")}, phaseErrored},
+		"late error":          {[]aguievents.Event{start, finish, aguievents.NewRunErrorEvent("x")}, phaseErrored},
+		"two runs":            {[]aguievents.Event{start, finish, aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewRunFinishedEvent("t", "r2")}, phaseFinished},
+		"unanswered frontend": {[]aguievents.Event{start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"), finish}, phaseFinished},
+		"result in a later run": {[]aguievents.Event{
+			start, aguievents.NewToolCallStartEvent("c0", "f"), aguievents.NewToolCallEndEvent("c0"), finish,
+			aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewToolCallResultEvent("m", "c0", "ok"),
+			aguievents.NewRunFinishedEvent("t", "r2"),
+		}, phaseFinished},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -304,19 +312,26 @@ func TestValidateAGUISequence_RejectsViolations(t *testing.T) {
 	start := aguievents.NewRunStartedEvent("t", "r")
 	finish := aguievents.NewRunFinishedEvent("t", "r")
 	cases := map[string][]aguievents.Event{
-		"empty":                     {},
-		"no RUN_STARTED first":      {aguievents.NewTextMessageStartEvent("m")},
-		"never finished":            {start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewTextMessageEndEvent("m")},
-		"nested RUN_STARTED":        {start, aguievents.NewRunStartedEvent("t", "r2")},
-		"event after RUN_FINISHED":  {start, finish, aguievents.NewStepStartedEvent("late")},
-		"event after RUN_ERROR":     {start, aguievents.NewRunErrorEvent("x"), aguievents.NewRunFinishedEvent("t", "r")},
-		"runId mismatch":            {start, aguievents.NewRunFinishedEvent("t", "other")},
-		"message left open":         {start, aguievents.NewTextMessageStartEvent("m"), finish},
-		"message reopened open":     {start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewTextMessageStartEvent("m")},
-		"content for closed":        {start, aguievents.NewTextMessageContentEvent("m", "x"), finish},
-		"tool call left open":       {start, aguievents.NewToolCallStartEvent("c", "f"), finish},
-		"args for unopened call":    {start, aguievents.NewToolCallArgsEvent("c", "{}"), finish},
-		"result before end":         {start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallResultEvent("m", "c", "x")},
+		"empty":                    {},
+		"no RUN_STARTED first":     {aguievents.NewTextMessageStartEvent("m")},
+		"never finished":           {start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewTextMessageEndEvent("m")},
+		"nested RUN_STARTED":       {start, aguievents.NewRunStartedEvent("t", "r2")},
+		"event after RUN_FINISHED": {start, finish, aguievents.NewStepStartedEvent("late")},
+		"event after RUN_ERROR":    {start, aguievents.NewRunErrorEvent("x"), aguievents.NewRunFinishedEvent("t", "r")},
+		"runId mismatch":           {start, aguievents.NewRunFinishedEvent("t", "other")},
+		"message left open":        {start, aguievents.NewTextMessageStartEvent("m"), finish},
+		"message reopened open":    {start, aguievents.NewTextMessageStartEvent("m"), aguievents.NewTextMessageStartEvent("m")},
+		"content for closed":       {start, aguievents.NewTextMessageContentEvent("m", "x"), finish},
+		"tool call left open":      {start, aguievents.NewToolCallStartEvent("c", "f"), finish},
+		"args for unopened call":   {start, aguievents.NewToolCallArgsEvent("c", "{}"), finish},
+		"result before end":        {start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallResultEvent("m", "c", "x")},
+		"result for unknown call":  {start, aguievents.NewToolCallResultEvent("m", "c", "x"), finish},
+		"answered call answered again in a later run": {
+			start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"),
+			aguievents.NewToolCallResultEvent("m1", "c", "x"), finish,
+			aguievents.NewRunStartedEvent("t", "r2"), aguievents.NewToolCallResultEvent("m2", "c", "x"),
+			aguievents.NewRunFinishedEvent("t", "r2"),
+		},
 		"duplicate result":          {start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"), aguievents.NewToolCallResultEvent("m1", "c", "x"), aguievents.NewToolCallResultEvent("m2", "c", "x"), finish},
 		"reopen with another name":  {start, aguievents.NewToolCallStartEvent("c", "f"), aguievents.NewToolCallEndEvent("c"), aguievents.NewToolCallStartEvent("c", "g"), aguievents.NewToolCallEndEvent("c"), finish},
 		"step finished not started": {start, aguievents.NewStepFinishedEvent("s"), finish},

@@ -32,6 +32,7 @@ type scriptedProvider struct {
 	mu     sync.Mutex
 	rounds []providers.PredictionResponse
 	next   int
+	seen   [][]types.Message // the messages each model call was given
 }
 
 func newScriptedProvider(rounds ...providers.PredictionResponse) *scriptedProvider {
@@ -42,10 +43,11 @@ func newScriptedProvider(rounds ...providers.PredictionResponse) *scriptedProvid
 func (p *scriptedProvider) SupportsStreaming() bool { return false }
 
 func (p *scriptedProvider) PredictWithTools(
-	_ context.Context, _ providers.PredictionRequest, _ providers.ProviderTools, _ string,
+	_ context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.seen = append(p.seen, append([]types.Message(nil), req.Messages...))
 	if p.next >= len(p.rounds) {
 		return providers.PredictionResponse{Content: "(no more script)"}, nil, nil
 	}
@@ -244,7 +246,7 @@ func TestE2E_ApprovalHoldInterruptsThenContinues(t *testing.T) {
 	require.NoError(t, err)
 
 	b := NewEventAdapter(conv)
-	evts, err = runAndCollect(t, b, b.RunContinue)
+	evts, err = continueAndCollect(t, b, evts, b.RunContinue)
 	require.NoError(t, err)
 	results := eventsOf[*aguievents.ToolCallResultEvent](evts)
 	require.Len(t, results, 1)

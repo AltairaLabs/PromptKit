@@ -229,6 +229,11 @@ func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message {
 // [EventAdapter.RunResume]. It returns nil when msgs does not end with a tool
 // message.
 //
+// The trailing tool messages can include results the agent itself produced in
+// that round (a server tool's TOOL_CALL_RESULT the application kept in its
+// history). An sdk.Conversation resumes with an answer only for a call it has
+// no result for yet, so passing them along is harmless.
+//
 // A tool message's content becomes the Result: text that is a JSON document
 // is passed through as JSON, other text as a string, and content parts as
 // []types.ContentPart. Its error becomes Error.

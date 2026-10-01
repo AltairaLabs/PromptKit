@@ -763,7 +763,13 @@ func TestRunContinue_EmitsApprovedResult(t *testing.T) {
 		[]types.Message{toolMsg("call-1", `{"sent":true}`), assistantMsg("Sent.")}))}
 	a := newTestAdapter(sender, &mockEventBusProvider{})
 
-	evts, err := runAndCollect(t, a, a.RunContinue)
+	held := []aguievents.Event{
+		aguievents.NewRunStartedEvent("t", "r0"),
+		aguievents.NewToolCallStartEvent("call-1", "send_message"),
+		aguievents.NewToolCallEndEvent("call-1"),
+		aguievents.NewRunFinishedEvent("t", "r0"),
+	}
+	evts, err := continueAndCollect(t, a, held, a.RunContinue)
 	require.NoError(t, err)
 
 	assert.True(t, sender.continued)

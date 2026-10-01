@@ -36,6 +36,17 @@ func runAndCollect(
 	t *testing.T, a *EventAdapter, run func(ctx context.Context) error,
 ) ([]aguievents.Event, error) {
 	t.Helper()
+	return continueAndCollect(t, a, nil, run)
+}
+
+// continueAndCollect is runAndCollect for a run that continues a thread: the
+// stream is checked together with the earlier runs' events, as one stream
+// carrying the thread's runs in order, so a result for a call an earlier run
+// left open is judged against that call.
+func continueAndCollect(
+	t *testing.T, a *EventAdapter, earlier []aguievents.Event, run func(ctx context.Context) error,
+) ([]aguievents.Event, error) {
+	t.Helper()
 	collected := make(chan []aguievents.Event, 1)
 	go func() { collected <- collectEvents(a.Events()) }()
 
@@ -47,7 +58,7 @@ func runAndCollect(
 	case <-time.After(collectTimeout):
 		t.Fatal("timed out waiting for the adapter to close its event channel")
 	}
-	requireValidSequence(t, evts)
+	requireValidSequence(t, append(append([]aguievents.Event{}, earlier...), evts...))
 	return evts, err
 }
 

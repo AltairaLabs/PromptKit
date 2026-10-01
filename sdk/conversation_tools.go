@@ -375,15 +375,21 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// returns the LLM's response incorporating all accumulated tool results.
 	var result *rtpipeline.ExecutionResult
 	var err error
+	var turn []types.Message
 
 	for i := range toolMsgs {
 		result, err = c.executePipeline(ctx, &toolMsgs[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to process tool result %d: %w", i, err)
 		}
+		// Each execution loads the earlier ones as history, so the turn is
+		// what every execution added, not only the last.
+		turn = append(turn, turnMessagesOf(result.Messages)...)
 	}
 
-	return c.buildResponse(ctx, result, startTime), nil
+	resp := c.buildResponse(ctx, result, startTime)
+	resp.turnMessages = turn
+	return resp, nil
 }
 
 // ContinueDuplex sends resolved/rejected HITL tool results back into the

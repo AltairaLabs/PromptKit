@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -264,6 +265,8 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 //
 // The resolved tool results are injected as tool-result messages and a new
 // LLM round is triggered. The returned Response contains the assistant's reply.
+// A result for a call the history already answers, or a second result for the
+// same call, is dropped: each call is answered once.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
@@ -271,7 +274,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 		return nil, err
 	}
 
-	toolMsgs, err := c.buildToolResultMessages()
+	toolMsgs, err := c.buildToolResultMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +323,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
-		toolMsgs, err := c.buildToolResultMessages()
+		toolMsgs, err := c.buildToolResultMessages(ctx)
 		if err != nil {
 			ch <- StreamChunk{Error: err}
 			return
@@ -352,8 +355,8 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 // buildToolResultMessages pops all resolved tool results and builds
 // tool-result messages. Shared by Resume() and ResumeStream().
 // It also emits tool.client.resolved events for each resolution.
-func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
-	resolutions := c.resolvedStore.PopAll()
+func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Message, error) {
+	resolutions := c.unansweredResolutions(ctx, c.resolvedStore.PopAll())
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
@@ -489,4 +492,33 @@ func (e *clientExecutor) executeHandlerAsync(
 		Status:  tools.ToolStatusComplete,
 		Content: resultJSON,
 	}, nil
+}
+
+// unansweredResolutions drops the resolutions that would answer a call twice:
+// one for a call the history already holds a result for (a server-side tool
+// that ran in the same round as the suspended client call), and any second
+// resolution for the same call, keeping the first. A provider rejects a
+// history in which one call is answered twice.
+func (c *Conversation) unansweredResolutions(
+	ctx context.Context, resolutions []*sdktools.ToolResolution,
+) []*sdktools.ToolResolution {
+	answered := map[string]bool{}
+	if c.getBaseSession() != nil {
+		history := c.Messages(ctx)
+		for i := range history {
+			if history[i].ToolResult != nil {
+				answered[history[i].ToolResult.ID] = true
+			}
+		}
+	}
+	out := make([]*sdktools.ToolResolution, 0, len(resolutions))
+	for _, res := range resolutions {
+		if answered[res.ID] {
+			logger.Debug("dropping a second answer for a tool call", "call_id", res.ID)
+			continue
+		}
+		answered[res.ID] = true
+		out = append(out, res)
+	}
+	return out
 }

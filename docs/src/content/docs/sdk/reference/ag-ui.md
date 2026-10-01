@@ -167,7 +167,7 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
 MessagesToAGUI converts a slice of PromptKit Messages to AG\-UI Messages.
 
 <a name="ToolsFromAGUI"></a>
-## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L294>)
+## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L299>)
 
 ```go
 func ToolsFromAGUI(aguiTools []aguitypes.Tool) []*tools.ToolDescriptor
@@ -178,7 +178,7 @@ ToolsFromAGUI converts a slice of AG\-UI Tool definitions to PromptKit ToolDescr
 The tools in RunAgentInput.tools are the application's own, executed by the application, so each descriptor has Mode "client": a call to one suspends the turn until the application answers it.
 
 <a name="ToolsToAGUI"></a>
-## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L266>)
+## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L271>)
 
 ```go
 func ToolsToAGUI(descs []tools.ToolDescriptor) []aguitypes.Tool
@@ -407,13 +407,15 @@ type ToolResult struct {
 ```
 
 <a name="ToolResultsFromAGUI"></a>
-### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L235>)
+### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L240>)
 
 ```go
 func ToolResultsFromAGUI(msgs []aguitypes.Message) []ToolResult
 ```
 
 ToolResultsFromAGUI returns the answers a RunAgentInput carries for the client tool calls a previous run left pending: the tool messages at the end of msgs, after the last message of any other role. Pass them to [EventAdapter.RunResume](<#EventAdapter.RunResume>). It returns nil when msgs does not end with a tool message.
+
+The trailing tool messages can include results the agent itself produced in that round \(a server tool's TOOL\_CALL\_RESULT the application kept in its history\). An sdk.Conversation resumes with an answer only for a call it has no result for yet, so passing them along is harmless.
 
 A tool message's content becomes the Result: text that is a JSON document is passed through as JSON, other text as a string, and content parts as \[\]types.ContentPart. Its error becomes Error.
 

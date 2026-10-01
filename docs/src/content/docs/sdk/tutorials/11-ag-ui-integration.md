@@ -92,8 +92,8 @@ The model is offered only the tools your pack's prompt declares, so declare each
 
 Each request starts one of three kinds of run:
 
-- **The input ends with tool messages.** They answer the frontend tool calls the previous run left pending. `ToolResultsFromAGUI` extracts them and `RunResume` hands them to the conversation and continues the turn.
-- **The input carries `resume` entries.** The previous run was held for tool approval (see [Approval Holds](#approval-holds)). Approve or reject each held call, then `RunContinue` continues the turn.
+- **The input carries `resume` entries.** The previous run was held for tool approval (see [Approval Holds](#approval-holds)). Approve or reject each held call, then `RunContinue` continues the turn. Check this first: the input can also end with tool messages, the results of server tools that ran before the hold.
+- **The input ends with tool messages.** They answer the frontend tool calls the previous run left pending. `ToolResultsFromAGUI` extracts them and `RunResume` hands them to the conversation and continues the turn. The input repeats the results of any server tools that ran in the same round; the conversation already holds those and ignores them.
 - **Otherwise** the last message is the user's new message, and `RunSend` sends it.
 
 ```go
@@ -113,14 +113,14 @@ func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiType
 }
 
 func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(context.Context) error {
+	if len(input.Resume) > 0 {
+		return adapter.RunContinue
+	}
+
 	if results := agui.ToolResultsFromAGUI(input.Messages); len(results) > 0 {
 		return func(ctx context.Context) error {
 			return adapter.RunResume(ctx, results)
 		}
-	}
-
-	if len(input.Resume) > 0 {
-		return adapter.RunContinue
 	}
 
 	msg := agui.MessageFromAGUI(&input.Messages[len(input.Messages)-1])
@@ -299,14 +299,14 @@ func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiType
 }
 
 func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(context.Context) error {
+	if len(input.Resume) > 0 {
+		return adapter.RunContinue
+	}
+
 	if results := agui.ToolResultsFromAGUI(input.Messages); len(results) > 0 {
 		return func(ctx context.Context) error {
 			return adapter.RunResume(ctx, results)
 		}
-	}
-
-	if len(input.Resume) > 0 {
-		return adapter.RunContinue
 	}
 
 	msg := agui.MessageFromAGUI(&input.Messages[len(input.Messages)-1])
