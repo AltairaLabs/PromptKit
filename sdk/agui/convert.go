@@ -255,7 +255,10 @@ func ToolResultsFromAGUI(msgs []aguitypes.Message) []ToolResult {
 
 func toolResultValue(msg *aguitypes.Message) any {
 	if contents := contentInputContents(msg); contents != nil {
-		return partsFromAGUI(contents)
+		if parts := partsFromAGUI(contents); len(parts) > 0 {
+			return parts
+		}
+		// Every part was unusable: fall back to the message's text, if any.
 	}
 	text := contentString(msg)
 	if text == "" {

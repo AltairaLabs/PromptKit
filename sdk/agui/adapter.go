@@ -564,9 +564,16 @@ func answersAll(pending []sdk.PendingClientTool, results []ToolResult) bool {
 	return true
 }
 
+// toolMessagesByCall maps call ids to the results that open a resumed turn:
+// the answers to the calls the turn was suspended on. It stops at the turn's
+// first assistant message, since a later round can reuse a call id (Gemini
+// numbers them call_0, call_1, ... per response).
 func toolMessagesByCall(msgs []types.Message) map[string]string {
 	out := map[string]string{}
 	for i := range msgs {
+		if msgs[i].Role == roleAssistant {
+			break
+		}
 		if msgs[i].Role == roleTool && msgs[i].ToolResult != nil {
 			out[msgs[i].ToolResult.ID] = toolResultText(msgs[i].ToolResult)
 		}
@@ -671,6 +678,10 @@ func (a *EventAdapter) failClientTool(ctx context.Context, r *ToolResult) error 
 
 func (a *EventAdapter) sendResult(ctx context.Context, r *ToolResult) error {
 	if parts, ok := r.Result.([]types.ContentPart); ok {
+		if len(parts) == 0 {
+			// Every part was dropped: there is nothing to send as parts.
+			return a.sender.SendToolResult(ctx, r.CallID, nil)
+		}
 		if mm, ok := a.sender.(multimodalResultSender); ok {
 			return mm.SendToolResultMultimodal(ctx, r.CallID, parts)
 		}
