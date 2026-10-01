@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrPayloadTooLarge is returned when a request payload exceeds the provider's
@@ -18,6 +19,9 @@ type ProviderHTTPError struct {
 	URL        string
 	Body       string
 	Provider   string
+	// RetryAfter is the delay the response's Retry-After header asked for,
+	// or zero when it sent none.
+	RetryAfter time.Duration
 }
 
 // Error redacts credential-bearing query parameters in the URL. Some providers
