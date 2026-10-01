@@ -457,14 +457,8 @@ func (s *Server) resolveStreamTurn(
 		return nil, false
 	}
 
-	streamConv, isStreaming := conv.(StreamingConversation)
-	if !isStreaming {
-		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported by this agent")
-		return nil, false
-	}
-
 	if len(toolResults) > 0 {
-		resumable := s.claimAndSubmit(call, target, streamConv, toolResults)
+		resumable := s.claimAndSubmit(call, target, conv, toolResults)
 		if resumable == nil {
 			return nil, false
 		}
@@ -479,9 +473,65 @@ func (s *Server) resolveStreamTurn(
 		return nil, false
 	}
 
+	// A conversation that cannot stream is streamed from its Send result, so
+	// the streaming the card declares is never refused.
+	if streamConv, isStreaming := conv.(StreamingConversation); isStreaming {
+		return func(ctx context.Context, _ string) <-chan StreamEvent {
+			return streamConv.Stream(ctx, pkMsg)
+		}, true
+	}
 	return func(ctx context.Context, _ string) <-chan StreamEvent {
-		return streamConv.Stream(ctx, pkMsg)
+		return sendAsStream(ctx, conv, pkMsg)
 	}, true
+}
+
+// sendAsStream runs a non-streaming conversation's Send and delivers its
+// result as stream events: the content, then what the turn ended on.
+func sendAsStream(ctx context.Context, conv Conversation, msg any) <-chan StreamEvent {
+	ch := make(chan StreamEvent)
+	go func() {
+		defer close(ch)
+		resp, err := conv.Send(ctx, msg)
+		for _, evt := range resultEvents(resp, err) {
+			select {
+			case ch <- evt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch
+}
+
+// resultEvents is a finished turn's SendResult as the stream events a
+// streaming conversation would have produced for it.
+func resultEvents(resp SendResult, err error) []StreamEvent {
+	if err != nil {
+		return []StreamEvent{{Error: err}}
+	}
+	var events []StreamEvent
+	parts := resp.Parts()
+	for i := range parts {
+		switch part := &parts[i]; {
+		case part.Media != nil:
+			events = append(events, StreamEvent{Kind: EventMedia, Media: part.Media})
+		case part.Text != nil:
+			events = append(events, StreamEvent{Kind: EventText, Text: *part.Text})
+		}
+	}
+	if len(parts) == 0 && resp.Text() != "" {
+		// As on the SendMessage path (GH-428): Text when Parts is empty.
+		events = append(events, StreamEvent{Kind: EventText, Text: resp.Text()})
+	}
+	switch {
+	case resp.HasPendingClientTools():
+		for _, tool := range resp.PendingClientTools() {
+			events = append(events, StreamEvent{Kind: EventClientTool, ClientTool: &tool})
+		}
+	case resp.HasPendingTools():
+		events = append(events, StreamEvent{Kind: EventPending})
+	}
+	return append(events, StreamEvent{Kind: EventDone})
 }
 
 // statelessStreamTurn is resolveStreamTurn's handler-mode half: no conversation

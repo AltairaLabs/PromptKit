@@ -407,25 +407,59 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	}, time.Second, time.Millisecond)
 }
 
-func TestServer_StreamMessage_NotStreamable(t *testing.T) {
-	// Use a regular (non-streaming) mockConv.
-	mock := completingMock()
-	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
-	defer ts.Close()
+// The served card always declares streaming, so a conversation that cannot
+// stream is streamed anyway: its Send result is sent as the turn's events.
+func TestServer_StreamMessage_NotStreamableIsStreamedFromSend(t *testing.T) {
+	image := "aGk="
+	for _, tc := range []struct {
+		name      string
+		result    SendResult
+		err       error
+		wantState a2a.TaskState
+		wantText  string
+	}{
+		{name: "parts", result: &mockSendResult{parts: []types.ContentPart{
+			types.NewTextPart("Hello"),
+			{Type: types.ContentTypeImage, Media: &types.MediaContent{Data: &image, MIMEType: "image/png"}},
+		}}, wantState: a2a.TaskStateCompleted, wantText: "Hello"},
+		{name: "text fallback", result: &mockSendResult{text: "just text"},
+			wantState: a2a.TaskStateCompleted, wantText: "just text"},
+		{name: "client tool", result: &mockSendResult{hasPending: true, hasPendingClient: true,
+			pendingClientTools: []PendingClientToolInfo{{CallID: "c1", ToolName: "loc"}}},
+			wantState: a2a.TaskStateInputRequired},
+		{name: "approval pending", result: &mockSendResult{hasPending: true},
+			wantState: a2a.TaskStateInputRequired},
+		{name: "error", err: errors.New("boom"), wantState: a2a.TaskStateFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &mockConv{sendFunc: func(context.Context, any) (SendResult, error) { return tc.result, tc.err }}
+			srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+			defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
-		Message: a2a.Message{
-			ContextID: "ctx-nostream",
-			Role:      a2a.RoleUser,
-			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
-		},
-	})
+			events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+				Message: a2a.Message{ContextID: "ctx-nostream", Role: a2a.RoleUser, Parts: []a2a.Part{{Text: serverTextPtr("Hi")}}},
+			})
+			require.NotEmpty(t, events)
+			require.NotNil(t, events[0].Task, "the stream opens with the task")
+			last := events[len(events)-1]
+			require.NotNil(t, last.StatusUpdate)
+			assert.Equal(t, tc.wantState, last.StatusUpdate.Status.State)
 
-	if resp.Error == nil {
-		t.Fatal("expected error for non-streaming conversation")
-	}
-	if resp.Error.Code != a2a.ErrCodeUnsupportedOperation {
-		t.Errorf("error code = %d, want %d (UnsupportedOperation)", resp.Error.Code, a2a.ErrCodeUnsupportedOperation)
+			task, err := srv.taskStore.Get(events[0].Task.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantState, task.Status.State)
+			if tc.wantText != "" {
+				require.NotEmpty(t, task.Artifacts)
+				assert.Equal(t, tc.wantText, *task.Artifacts[0].Parts[0].Text)
+			}
+			if tc.name == "parts" {
+				require.Len(t, task.Artifacts, 2)
+				assert.Equal(t, "image/png", task.Artifacts[1].Parts[0].MediaType)
+			}
+			if tc.name == "client tool" {
+				assert.Equal(t, "c1", last.StatusUpdate.Status.Message.Parts[0].Metadata["tool_call_id"])
+			}
+		})
 	}
 }
 
