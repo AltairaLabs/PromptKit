@@ -170,9 +170,12 @@ type Client struct {
 	version       ProtocolVersion
 	versionPinned bool
 
-	// discoverMu serializes the executor's best-effort card discovery;
-	// discoverRetryAt is when a failed attempt may be repeated.
+	// discoverMu guards the executor's best-effort card discovery state:
+	// discovering is closed when the fetch in flight ends (nil when none
+	// is), and discoverRetryAt is when a failed fetch may be repeated. The
+	// lock is never held across the fetch itself.
 	discoverMu      sync.Mutex
+	discovering     chan struct{}
 	discoverRetryAt time.Time
 	// discoverBackoff is how long a failed discovery waits before a later
 	// call tries again; discoverTimeout bounds one attempt.
@@ -326,25 +329,55 @@ const (
 // discoverForCalls fetches the agent card, so calls reach the interface it
 // declares. It is best effort: while the card cannot be had, calls keep going
 // to {base}/a2a, as they always did. A successful discovery is kept; a failed
-// one is tried again by a call made after discoverBackoff. The attempt keeps
-// ctx's values but not its deadline, so a short per-call timeout does not
-// decide where every later call goes.
+// one is tried again by a call made after discoverBackoff.
+//
+// One fetch is in flight at a time, and every caller waits on it — but only
+// until its own ctx ends; a caller that stops waiting makes its call against
+// whatever endpoint is known by then. The fetch itself keeps ctx's values but
+// runs on its own timeout, so it can outlive the caller that started it and
+// a short per-call timeout does not decide where every later call goes.
 func (c *Client) discoverForCalls(ctx context.Context) {
 	if c.cachedCard() != nil {
 		return
 	}
 	c.discoverMu.Lock()
-	defer c.discoverMu.Unlock()
-	if c.cachedCard() != nil || time.Now().Before(c.discoverRetryAt) {
+	if c.cachedCard() != nil {
+		c.discoverMu.Unlock()
 		return
 	}
-	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.discoverTimeout)
+	if c.discovering == nil {
+		if time.Now().Before(c.discoverRetryAt) {
+			c.discoverMu.Unlock()
+			return
+		}
+		c.discovering = make(chan struct{})
+		go c.fetchCardForCalls(context.WithoutCancel(ctx), c.discovering)
+	}
+	inFlight := c.discovering
+	c.discoverMu.Unlock()
+
+	select {
+	case <-inFlight:
+	case <-ctx.Done():
+	}
+}
+
+// fetchCardForCalls runs one discovery for discoverForCalls and closes done
+// when it ends.
+func (c *Client) fetchCardForCalls(ctx context.Context, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(ctx, c.discoverTimeout)
 	defer cancel()
-	if _, err := c.Discover(dctx); err != nil {
+	_, err := c.Discover(ctx)
+
+	c.discoverMu.Lock()
+	if err != nil {
 		c.discoverRetryAt = time.Now().Add(c.discoverBackoff)
 		logger.Debug("a2a: agent card unavailable; calling the default endpoint",
 			"agent_url", c.baseURL, "error", err)
 	}
+	c.discovering = nil
+	c.discoverMu.Unlock()
+	close(done)
 }
 
 // ProtocolVersion returns the protocol version the client currently speaks.
@@ -451,7 +484,7 @@ func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterfa
 	var fallback *AgentInterface
 	for i := range card.SupportedInterfaces {
 		candidate := &card.SupportedInterfaces[i]
-		if !strings.EqualFold(candidate.ProtocolBinding, ProtocolBindingJSONRPC) {
+		if !IsJSONRPCBinding(candidate.ProtocolBinding) {
 			continue
 		}
 		if fallback == nil {
@@ -475,9 +508,10 @@ const defaultRPCPath = "/a2a"
 // The card is followed only where it adds information, and never so as to
 // weaken the caller's choice of transport:
 //
-//   - an interface at the default /a2a path keeps the caller's base URL: a
-//     server behind a TLS-terminating proxy that derives the URL from the
-//     request describes itself by its internal, plain-http address;
+//   - an interface at the default /a2a path, on plain http or on the base's
+//     own host, keeps the caller's base URL: a server behind a
+//     TLS-terminating proxy that derives the URL from the request describes
+//     itself by its internal, plain-http address;
 //   - a plain-http interface is never used from an https base: on the same
 //     host the card's path is used over the base's scheme and host, and on
 //     another host calls fall back to {base}/a2a, so credentials never go out
@@ -494,11 +528,13 @@ func (c *Client) callURL(declared string) string {
 	if err != nil || base.Host == "" {
 		return declared
 	}
-	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath {
+	sameHost := strings.EqualFold(card.Hostname(), base.Hostname())
+	plainHTTP := !strings.EqualFold(card.Scheme, "https")
+	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath && (plainHTTP || sameHost) {
 		return fallback
 	}
-	if strings.EqualFold(base.Scheme, "https") && !strings.EqualFold(card.Scheme, "https") {
-		if !strings.EqualFold(card.Hostname(), base.Hostname()) {
+	if strings.EqualFold(base.Scheme, "https") && plainHTTP {
+		if !sameHost {
 			logger.Warn("a2a: agent card declares a non-https interface on another host; calling the agent URL instead",
 				"agent_url", c.baseURL, "interface_url", declared)
 			return fallback

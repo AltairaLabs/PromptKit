@@ -426,7 +426,7 @@ func toV03Card(card *AgentCard) *v03Card {
 	// additionalInterfaces (0.3 §5.6).
 	for _, iface := range card.SupportedInterfaces {
 		transport := iface.ProtocolBinding
-		if strings.EqualFold(transport, ProtocolBindingJSONRPC) {
+		if IsJSONRPCBinding(transport) {
 			transport = ProtocolBindingJSONRPC
 			if out.URL == "" {
 				out.URL = iface.URL

@@ -2,12 +2,18 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // Following the card's interface must never make things worse than the
@@ -43,11 +49,150 @@ func TestClient_DefaultPathKeepsTheCallersBaseURL(t *testing.T) {
 	require.NoError(t, sendHi(t, c))
 	assert.Equal(t, []string{"/a2a"}, agent.posted(), "the call reaches the caller's https base")
 
-	// The same holds when the server was told its scheme but not the
-	// public host: the default path adds nothing, so the base URL stands.
-	agent, c = tlsAgent(t, singleInterface("https://internal.invalid/a2a"))
+}
+
+func TestCallURL(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, declared, want string
+	}{
+		{"default path on plain http keeps the base", "https://gw.example/agents/x",
+			"http://internal.invalid:8080/a2a", "https://gw.example/agents/x/a2a"},
+		{"default path on the same host keeps the base", "https://gw.example/agents/x",
+			"https://gw.example/a2a", "https://gw.example/agents/x/a2a"},
+		{"another host over https is followed", "https://agents.example.com/x",
+			"https://rpc.example.com/a2a", "https://rpc.example.com/a2a"},
+		{"a distinct path is followed", "http://agent.example",
+			"http://agent.example/", "http://agent.example/"},
+		{"plain http on the same host is upgraded", "https://agent.example",
+			"http://agent.example/rpc", "https://agent.example/rpc"},
+		{"plain http on another host falls back", "https://agent.example",
+			"http://elsewhere.example/rpc", "https://agent.example/a2a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, NewClient(tc.base).callURL(tc.declared))
+		})
+	}
+}
+
+func TestClient_AcceptsJSONRPCBindingAliases(t *testing.T) {
+	agent := &cardAgent{card: func(base string) AgentCard {
+		// A pre-1.0 PromptKit server's spelling of the binding.
+		return AgentCard{Name: "a", SupportedInterfaces: []AgentInterface{
+			{URL: base + "/rpc", ProtocolBinding: "jsonrpc+http", ProtocolVersion: "0.3"},
+		}}
+	}}
+	srv := httptest.NewServer(agent)
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Discover(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, ProtocolVersion03, c.ProtocolVersion(), "the aliased interface declares the version")
 	require.NoError(t, sendHi(t, c))
-	assert.Equal(t, []string{"/a2a"}, agent.posted())
+	assert.Equal(t, []string{"/rpc"}, agent.posted())
+
+	for _, alias := range []string{"JSONRPC", "jsonrpc", "JSONRPC+HTTP", "json-rpc", "jsonrpc2"} {
+		assert.True(t, IsJSONRPCBinding(alias), alias)
+	}
+	assert.False(t, IsJSONRPCBinding("GRPC"))
+}
+
+// slowCardAgent never answers a card fetch until released, and counts them.
+type slowCardAgent struct {
+	release chan struct{}
+	mu      sync.Mutex
+	fetches int
+}
+
+func (a *slowCardAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		a.mu.Lock()
+		a.fetches++
+		a.mu.Unlock()
+		<-a.release
+		http.NotFound(w, r)
+		return
+	}
+	req := decodeRPC(r)
+	rpcResult(w, req.ID, SendMessageResponse{Task: &Task{ID: "t", Status: TaskStatus{State: TaskStateCompleted}}})
+}
+
+func (a *slowCardAgent) count() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.fetches
+}
+
+func hangingCard(t *testing.T) (*slowCardAgent, *httptest.Server) {
+	t.Helper()
+	agent := &slowCardAgent{release: make(chan struct{})}
+	srv := httptest.NewServer(agent)
+	t.Cleanup(func() {
+		close(agent.release)
+		srv.Close()
+	})
+	return agent, srv
+}
+
+// returnsWithin runs f and reports whether it returned within d.
+func returnsWithin(d time.Duration, f func()) bool {
+	done := make(chan struct{})
+	go func() {
+		f()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func TestExecutor_HangingCardDoesNotOutlastTheCallTimeout(t *testing.T) {
+	_, srv := hangingCard(t)
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "t", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL, TimeoutMs: 20}}
+
+	var err error
+	assert.True(t, returnsWithin(time.Second, func() {
+		_, err = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
+	}), "the call must end at its own timeout, not the discovery's")
+	assert.Error(t, err)
+}
+
+func TestDiscoverForCalls_CancellationReleasesAWaiter(t *testing.T) {
+	_, srv := hangingCard(t)
+	c := NewClient(srv.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	released := make(chan struct{})
+	go func() {
+		c.discoverForCalls(ctx)
+		close(released)
+	}()
+	cancel()
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("a canceled caller kept waiting on discovery")
+	}
+}
+
+func TestDiscoverForCalls_ConcurrentCallersShareOneFetchAndDoNotQueue(t *testing.T) {
+	agent, srv := hangingCard(t)
+	c := NewClient(srv.URL)
+
+	patient, stop := context.WithCancel(context.Background())
+	defer stop()
+	go c.discoverForCalls(patient)
+	require.Eventually(t, func() bool { return agent.count() == 1 }, time.Second, time.Millisecond)
+
+	hurried, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	assert.True(t, returnsWithin(time.Second, func() { c.discoverForCalls(hurried) }),
+		"a second caller is not stuck behind the first one's fetch")
+	assert.Equal(t, 1, agent.count(), "one fetch in flight serves every caller")
 }
 
 func TestClient_NeverDowngradesToPlainHTTP(t *testing.T) {

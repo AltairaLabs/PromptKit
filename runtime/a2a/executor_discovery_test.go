@@ -164,7 +164,8 @@ func TestClient_DiscoveryIsNotBoundByTheCallersDeadline(t *testing.T) {
 	c := NewClient(srv.URL)
 	expired, cancel := context.WithCancel(context.Background())
 	cancel()
-	c.discoverForCalls(expired)
+	c.discoverForCalls(expired) // returns at once; the fetch carries on
+	require.Eventually(t, func() bool { return c.cachedCard() != nil }, time.Second, time.Millisecond)
 	require.NoError(t, sendHi(t, c))
 	assert.Equal(t, []string{"/"}, agent.posted(),
 		"a short call deadline must not decide where every later call goes")

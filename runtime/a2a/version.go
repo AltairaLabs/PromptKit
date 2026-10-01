@@ -22,6 +22,19 @@ const HeaderVersion = "A2A-Version"
 // transport (0.3 calls the same field "transport").
 const ProtocolBindingJSONRPC = "JSONRPC"
 
+// jsonRPCBindingAliases are the names PromptKit and its hosts used for the
+// JSON-RPC binding before A2A 1.0 fixed it as "JSONRPC", lower-cased.
+var jsonRPCBindingAliases = map[string]bool{
+	"jsonrpc": true, "jsonrpc+http": true, "json-rpc": true, "jsonrpc2": true,
+}
+
+// IsJSONRPCBinding reports whether binding names the JSON-RPC transport:
+// [ProtocolBindingJSONRPC] in any case, or one of the names PromptKit used for
+// it before A2A 1.0 (jsonrpc+http, json-rpc, jsonrpc2).
+func IsJSONRPCBinding(binding string) bool {
+	return jsonRPCBindingAliases[strings.ToLower(binding)]
+}
+
 // v03CardProtocolVersion is what a 0.3 agent card declares in protocolVersion.
 const v03CardProtocolVersion = "0.3.0"
 
@@ -141,7 +154,7 @@ func (card *AgentCard) declaredVersion() (ProtocolVersion, bool) {
 		return "", false
 	}
 	for _, iface := range card.SupportedInterfaces {
-		if strings.EqualFold(iface.ProtocolBinding, ProtocolBindingJSONRPC) {
+		if IsJSONRPCBinding(iface.ProtocolBinding) {
 			return card.PreferredVersion(), true
 		}
 	}
@@ -157,7 +170,7 @@ func (card *AgentCard) PreferredVersion() ProtocolVersion {
 	}
 	sawJSONRPC := false
 	for _, iface := range card.SupportedInterfaces {
-		if !strings.EqualFold(iface.ProtocolBinding, ProtocolBindingJSONRPC) {
+		if !IsJSONRPCBinding(iface.ProtocolBinding) {
 			continue
 		}
 		sawJSONRPC = true
