@@ -353,7 +353,11 @@ func (a *EventAdapter) run(
 	for {
 		st.emitTurn(resp)
 		st.syncStep()
-		if !resp.HasPendingClientTools() || a.cfg.toolResultProvider == nil {
+		// A call held for approval cannot be answered here, and resuming
+		// without its result would send the model a tool call with no
+		// result. The run ends with the hold's interrupt; the client calls
+		// stay pending for the application.
+		if !resp.HasPendingClientTools() || a.cfg.toolResultProvider == nil || len(resp.PendingTools()) > 0 {
 			break
 		}
 		next, err := st.fulfillAndResume(resp.ClientTools())
