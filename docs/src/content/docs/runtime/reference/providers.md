@@ -273,6 +273,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(s \*SSEScanner\) Err\(\) error](<#SSEScanner.Err>)
   - [func \(s \*SSEScanner\) Scan\(\) bool](<#SSEScanner.Scan>)
 - [type StreamChunk](<#StreamChunk>)
+  - [func BargeMarker\(\) StreamChunk](<#BargeMarker>)
 - [type StreamConsumer](<#StreamConsumer>)
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamInputSession](<#StreamInputSession>)
@@ -678,7 +679,7 @@ func IsTransient(err error) bool
 IsTransient returns true if err represents a transient provider failure \(retryable HTTP status or connection\-level error\). Uses errors.As to traverse wrapped error chains. Context cancellation and deadline errors are never transient — they represent deliberate caller action.
 
 <a name="IsValidationAbort"></a>
-## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L153>)
+## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L157>)
 
 ```go
 func IsValidationAbort(err error) bool
@@ -3445,7 +3446,7 @@ func (s *SSEScanner) Scan() bool
 Scan advances to the next SSE event
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L50-L117>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L50-L121>)
 
 StreamChunk represents a batch of tokens with metadata
 
@@ -3517,8 +3518,18 @@ type StreamChunk struct {
     // Source labels the input track/speaker for fan-out routing (e.g. "caller",
     // "agent"). Copied onto StreamElement.Source at the session boundary.
     Source string `json:"source,omitempty"`
+    // contains filtered or unexported fields
 }
 ```
+
+<a name="BargeMarker"></a>
+### func [BargeMarker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L50>)
+
+```go
+func BargeMarker() StreamChunk
+```
+
+BargeMarker returns the chunk a session sends on the pump's input channel right after Barge\(\). When the pump reaches it, it drops the audio queued before it and keeps everything after it; the marker itself is not forwarded.
 
 <a name="StreamConsumer"></a>
 ## type [StreamConsumer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L480>)
@@ -3530,7 +3541,7 @@ type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<-
 ```
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L120-L132>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L124-L136>)
 
 StreamEvent is sent to observers for monitoring
 
@@ -3966,7 +3977,7 @@ func (m *StreamMetrics) StreamsInFlightInc(provider string)
 StreamsInFlightInc increments the in\-flight stream gauge for a provider. Nil\-safe.
 
 <a name="StreamObserver"></a>
-## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L135-L139>)
+## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L139-L143>)
 
 StreamObserver receives stream events for monitoring
 
@@ -3979,13 +3990,15 @@ type StreamObserver interface {
 ```
 
 <a name="StreamPump"></a>
-## type [StreamPump](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L28-L39>)
+## type [StreamPump](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L35-L45>)
 
 StreamPump is the shared core behind every streaming provider's barge\-in behavior. It decouples a session's single\-threaded receive loop from the \(real\-time\-paced\) consumer of Response\(\), and implements the barge\-in audio drop — so a new provider gets working, consistent barge\-in by wiring its wire\-protocol signals, not by reimplementing the concurrency.
 
 The session owns the input channel \(so it controls when no more chunks are coming, by closing it\); the pump owns the output channel and an unbounded internal queue between them. Because the queue is unbounded, a slow consumer back\-pressures only Response\(\) and the queue — never the receive loop — so control events \(barge\-in\) are handled promptly instead of waiting for the buffered audio backlog to drain.
 
-Lifecycle: NewStreamPump\(ctx, in, buf\) then Start\(\); the receive goroutine feeds the input channel and, on exit, closes it and calls Wait\(\) \(which lets the pump drain and close Response\(\)\) before canceling ctx — so a terminal chunk is delivered before Done\(\) fires. On a detected barge\-in the session calls Barge\(\) \(fires the out\-of\-band BargeIn\(\) signal AND drops queued audio\) and skips still\-arriving audio while Dropping\(\) is true, clearing it at the next response boundary with ClearDrop\(\).
+Lifecycle: NewStreamPump\(ctx, in, buf\) then Start\(\); the receive goroutine feeds the input channel and, on exit, closes it and calls Wait\(\) \(which lets the pump drain and close Response\(\)\) before canceling ctx — so a terminal chunk is delivered before Done\(\) fires. On a detected barge\-in the session calls Barge\(\) \(fires the out\-of\-band BargeIn\(\) signal and starts Dropping\(\)\), then sends BargeMarker\(\) on its input channel, and skips still\-arriving audio while Dropping\(\) is true, clearing it at the next response boundary with ClearDrop\(\).
+
+The audio already queued for the interrupted response is dropped when the pump reaches the marker — in order, on the same channel as the audio. An out\-of\-band purge request raced the stream: the next response's first chunks could reach the pump's queue before the request did and be dropped with the interrupted audio, cutting the start of the agent's reply.
 
 ```go
 type StreamPump struct {
@@ -3997,7 +4010,7 @@ type StreamPump struct {
 ```
 
 <a name="NewStreamPump"></a>
-### func [NewStreamPump](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L43>)
+### func [NewStreamPump](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L54>)
 
 ```go
 func NewStreamPump(ctx context.Context, in <-chan StreamChunk, buf int) *StreamPump
@@ -4006,16 +4019,16 @@ func NewStreamPump(ctx context.Context, in <-chan StreamChunk, buf int) *StreamP
 NewStreamPump creates a pump reading from in \(owned and closed by the caller\) and exposing a Response\(\) channel buffered to buf. Call Start to run it.
 
 <a name="StreamPump.Barge"></a>
-### func \(\*StreamPump\) [Barge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L77>)
+### func \(\*StreamPump\) [Barge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L88>)
 
 ```go
 func (p *StreamPump) Barge()
 ```
 
-Barge handles a detected barge\-in: fire the out\-of\-band signal so a paced consumer flushes immediately, start skipping still\-arriving audio, and drop the audio already queued for the interrupted response. Non\-blocking; safe from the receive goroutine.
+Barge handles a detected barge\-in: fire the out\-of\-band signal so a paced consumer flushes immediately, and start skipping still\-arriving audio. Non\-blocking; safe from the receive goroutine. The session then sends BargeMarker\(\) so the audio already queued for the interrupted response is dropped in order.
 
 <a name="StreamPump.ClearDrop"></a>
-### func \(\*StreamPump\) [ClearDrop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L71>)
+### func \(\*StreamPump\) [ClearDrop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L81>)
 
 ```go
 func (p *StreamPump) ClearDrop()
@@ -4024,7 +4037,7 @@ func (p *StreamPump) ClearDrop()
 ClearDrop stops skipping audio — call when a new response begins or the interrupted response completes.
 
 <a name="StreamPump.Dropping"></a>
-### func \(\*StreamPump\) [Dropping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L67>)
+### func \(\*StreamPump\) [Dropping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L77>)
 
 ```go
 func (p *StreamPump) Dropping() bool
@@ -4033,7 +4046,7 @@ func (p *StreamPump) Dropping() bool
 Dropping reports whether the interrupted response's audio should be skipped.
 
 <a name="StreamPump.Response"></a>
-### func \(\*StreamPump\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L59>)
+### func \(\*StreamPump\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L69>)
 
 ```go
 func (p *StreamPump) Response() <-chan StreamChunk
@@ -4042,7 +4055,7 @@ func (p *StreamPump) Response() <-chan StreamChunk
 Response returns the consumer\-facing channel; the pump closes it after the input channel closes and the queue drains \(or the context is canceled\).
 
 <a name="StreamPump.Start"></a>
-### func \(\*StreamPump\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L55>)
+### func \(\*StreamPump\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L65>)
 
 ```go
 func (p *StreamPump) Start()
@@ -4051,7 +4064,7 @@ func (p *StreamPump) Start()
 Start launches the pump goroutine. Call exactly once.
 
 <a name="StreamPump.Wait"></a>
-### func \(\*StreamPump\) [Wait](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L64>)
+### func \(\*StreamPump\) [Wait](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_pump.go#L74>)
 
 ```go
 func (p *StreamPump) Wait()
@@ -4557,7 +4570,7 @@ func (e *UnsupportedProviderPlatformError) Error() string
 Error returns the error message for this unsupported pair.
 
 <a name="ValidationAbortError"></a>
-## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L142-L145>)
+## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L146-L149>)
 
 ValidationAbortError is returned when a streaming validator aborts a stream
 
@@ -4569,7 +4582,7 @@ type ValidationAbortError struct {
 ```
 
 <a name="ValidationAbortError.Error"></a>
-### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L148>)
+### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L152>)
 
 ```go
 func (e *ValidationAbortError) Error() string

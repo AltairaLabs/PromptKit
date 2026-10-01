@@ -624,6 +624,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		if s.responseActive {
 			logger.Debug("OpenAI Realtime: barge-in (speech started during response)", "item_id", e.ItemID)
 			s.Barge()
+			s.emitCh <- providers.BargeMarker()
 		} else {
 			logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
 		}
