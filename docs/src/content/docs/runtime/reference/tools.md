@@ -1358,7 +1358,7 @@ Register adds a tool descriptor to the registry with validation.
 func (r *Registry) RegisterExecutor(executor Executor)
 ```
 
-RegisterExecutor registers a tool executor under its \[Executor.Name\].
+RegisterExecutor registers a tool executor under its Executor.Name.
 
 A registry holds exactly one executor per name, so registering a second one under a name already taken EVICTS the first. That is almost always a bug: two owners \-\- typically two conversations sharing a registry \-\- each believe they installed the executor that serves their tool calls, and the loser silently starts getting the winner's answers, along with whatever per\-conversation state the winner's executor holds.
 

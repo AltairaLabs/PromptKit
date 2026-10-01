@@ -144,7 +144,7 @@ An empty scope is ignored: installing one would silently widen or narrow every r
 <a name="ConsentCategory"></a>
 ## type [ConsentCategory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/consent_category.go#L14>)
 
-ConsentCategory is the well\-known taxonomy used by consent\-aware consumers \(e.g. Omnia\) to apply per\-category retention, opt\-outs, and PII rules at memory\-write time. Values are stored in \[Memory.Metadata\] under the key [MetaKeyConsentCategory](<#MetaKeyProvenance>) regardless of which path produced the memory: the explicit \`memory\_\_remember\` tool \(LLM\-supplied category arg\) or an extractor stage that classifies and tags during write.
+ConsentCategory is the well\-known taxonomy used by consent\-aware consumers \(e.g. Omnia\) to apply per\-category retention, opt\-outs, and PII rules at memory\-write time. Values are stored in [Memory.Metadata](<#Memory>) under the key [MetaKeyConsentCategory](<#MetaKeyProvenance>) regardless of which path produced the memory: the explicit \`memory\_\_remember\` tool \(LLM\-supplied category arg\) or an extractor stage that classifies and tags during write.
 
 PromptKit defines the vocabulary and helpers; semantics \(retention, access control, redaction\) are owned by the consumer.
 
@@ -186,7 +186,7 @@ type ContextFormatter func(memories []*Memory) string
 <a name="DeleteOptions"></a>
 ## type [DeleteOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/types.go#L116-L120>)
 
-DeleteOptions configures a memory delete. It exists only to carry Extras: \[Store.Delete\] has no options parameter, so a store that wants the passthrough args implements [ExtrasDeleter](<#ExtrasDeleter>) instead.
+DeleteOptions configures a memory delete. It exists only to carry Extras: Store.Delete has no options parameter, so a store that wants the passthrough args implements [ExtrasDeleter](<#ExtrasDeleter>) instead.
 
 ```go
 type DeleteOptions struct {
@@ -252,7 +252,7 @@ type Extractor interface {
 
 ExtrasDeleter is optionally implemented by stores that accept backend\-specific arguments on delete.
 
-\[Store.Delete\] takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature \(which every Store implementation would have to follow\), a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
+Store.Delete takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature \(which every Store implementation would have to follow\), a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
 
 Recall and list need no equivalent: RetrieveOptions and ListOptions are parameters, so Extras is a field on each of them.
 
