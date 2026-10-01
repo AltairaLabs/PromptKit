@@ -115,3 +115,34 @@ func TestE2E_AbandonedApprovalDoesNotLeak(t *testing.T) {
 	assert.Empty(t, toolContents(last, "h1"), "the abandoned hold's result does not reach the model")
 	assert.Equal(t, []string{`"second"`}, toolContents(last, "h2"))
 }
+
+// A provider answered call_0 in run 1 and its TOOL_CALL_RESULT went out
+// then; call_1 waited for the application. Run 2 resumes with the
+// application's answer, and the resumed turn feeds both answers to the model.
+// Neither is reported again: call_0 was reported in run 1, call_1 is the
+// application's own.
+func TestE2E_ResumeDoesNotRepeatProviderAnswers(t *testing.T) {
+	provider := newScriptedProvider(
+		say("Two things.", call("call_0", "get_location", `{}`), call("call_1", "send_message", `{"body":"hi"}`)),
+		say("Done."),
+	)
+	conv := openConv(t, provider)
+	bindClientTool(t, conv, "get_location")
+	bindClientTool(t, conv, "send_message")
+	answerFirst := func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
+		return []ToolResult{{CallID: "call_0", Result: "Paris"}}, nil
+	}
+
+	run1, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(answerFirst)), "go")
+	require.NoError(t, err)
+	assert.Equal(t, []string{`call_0=Paris`}, resultIDs(run1))
+
+	b := NewEventAdapter(conv)
+	run2, err := continueAndCollect(t, b, run1, func(ctx context.Context) error {
+		return b.RunResume(ctx, []ToolResult{{CallID: "call_1", Result: "sent"}})
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, resultIDs(run2), "no answer is reported twice")
+	assert.Equal(t, map[string]int{"call_0": 1, "call_1": 1}, toolResultCounts(provider.seen[len(provider.seen)-1]))
+}

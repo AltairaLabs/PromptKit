@@ -255,7 +255,7 @@ func (a *EventAdapter) RunID() string {
 // lets the run finish before reading blocks there; adapters before this
 // version dropped the events that did not fit instead.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
-	return a.run(ctx, nil, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, false, func(ctx context.Context) (*sdk.Response, error) {
 		return a.sender.Send(ctx, msg)
 	})
 }
@@ -271,13 +271,11 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 // In AG-UI the application answers a frontend tool call in the next run's
 // input, as a tool message per call; [ToolResultsFromAGUI] extracts them. The
 // answers are the application's own, so the run does not echo them back as
-// TOOL_CALL_RESULT events.
+// TOOL_CALL_RESULT events. Nor does it repeat answers a ToolResultProvider
+// gave in the earlier run, which reported them then: the resumed turn feeds
+// every answer to the model, but none of them is new to the client.
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error {
-	answered := make(map[string]bool, len(results))
-	for _, r := range results {
-		answered[r.CallID] = true
-	}
-	return a.run(ctx, answered, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, true, func(ctx context.Context) (*sdk.Response, error) {
 		if err := a.resolveClientTools(ctx, results); err != nil {
 			return nil, err
 		}
@@ -299,7 +297,7 @@ func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) erro
 // It returns [ErrContinueUnsupported] (after a RUN_ERROR) when the
 // conversation has no Continue method.
 func (a *EventAdapter) RunContinue(ctx context.Context) error {
-	return a.run(ctx, nil, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, false, func(ctx context.Context) (*sdk.Response, error) {
 		c, ok := a.sender.(continuer)
 		if !ok {
 			return nil, ErrContinueUnsupported
@@ -313,11 +311,17 @@ type runState struct {
 	a   *EventAdapter
 	ctx context.Context
 	// answered holds the calls of the current round that already have a
-	// result: emitted in this run, or answered by the run's input. A round is
-	// an assistant message and the tool results after it; call ids are only
-	// unique within one (Gemini numbers them call_0, call_1, ... per
-	// response), so the set starts afresh with each assistant message.
+	// result emitted in this run. A round is an assistant message and the tool
+	// results after it; call ids are only unique within one (Gemini numbers
+	// them call_0, call_1, ... per response), so the set starts afresh with
+	// each assistant message.
 	answered map[string]bool
+	// resuming is set while a resumed turn's leading tool results are being
+	// read: the answers to the calls the earlier run left pending. The client
+	// already has every one of them, from its own input or from the earlier
+	// run's TOOL_CALL_RESULT, so none is emitted. It clears at the turn's
+	// first assistant message.
+	resuming bool
 	step     string // the open step, when stepOpen
 	stepOpen bool
 }
@@ -325,15 +329,12 @@ type runState struct {
 // run emits one AG-UI run around start, which produces the turn's response.
 func (a *EventAdapter) run(
 	ctx context.Context,
-	answeredByInput map[string]bool,
+	resuming bool,
 	start func(ctx context.Context) (*sdk.Response, error),
 ) error {
 	defer a.closeEvents()
 
-	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}}
-	for id := range answeredByInput {
-		st.answered[id] = true
-	}
+	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}, resuming: resuming}
 
 	st.emit(aguievents.NewRunStartedEvent(a.cfg.threadID, a.cfg.runID))
 	if a.cfg.stateProvider != nil {
@@ -441,6 +442,7 @@ func fallbackTurn(resp *sdk.Response) []types.Message {
 // as their parent.
 func (st *runState) emitAssistant(msg *types.Message) {
 	st.answered = map[string]bool{}
+	st.resuming = false
 	msgID := aguievents.GenerateMessageID()
 	text := msg.GetContent()
 	if text != "" || len(msg.ToolCalls) == 0 {
@@ -460,9 +462,9 @@ func (st *runState) emitAssistant(msg *types.Message) {
 }
 
 // emitToolMessage emits the result a tool message carries, unless its call was
-// already answered in this round — by this run, or by the input that started it.
+// already answered in this round, or it answers a call the run resumes.
 func (st *runState) emitToolMessage(msg *types.Message) {
-	if msg.ToolResult == nil {
+	if msg.ToolResult == nil || st.resuming {
 		return
 	}
 	st.emitResult(msg.ToolResult.ID, toolResultText(msg.ToolResult))
