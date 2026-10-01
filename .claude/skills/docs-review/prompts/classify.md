@@ -31,7 +31,13 @@ Return JSON only:
 }
 
 "move" means the block belongs on another page, and this page keeps a link.
+Before proposing one, check the content's owner:
+- A how-to keeps the commands and config its steps need; only full option
+  lists leave it.
+- A reference page keeps its one-paragraph purpose and a usage example.
+- A comparison of alternatives is explanation (trade-offs), not reference.
 "link" means the target already covers it, so replace the block with a link.
 "delete" is only for content that duplicates text on this same page.
 To find existing target pages, list the quadrant directories named in the
-skill's "This repository" section and match by topic. Do not invent page paths when a matching page exists.
+skill's "This repository" section and match by topic. Do not invent page paths when a matching page exists, and never propose a
+new page for a single block: keep it or link the closest existing page.

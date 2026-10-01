@@ -9,7 +9,12 @@ stage 3 verification.
 Hard rules:
 1. Facts come from stage 3 only. For each claim:
    - `true`: keep it.
-   - `false`: replace it with `correct` verbatim.
+   - `false`: state the fact in `correct`, with its exact values. `correct`
+     fixes the fact, not the wording: write it in the page's register. On a
+     reference page that means a positive statement (a table that lists the
+     real fields, "defaults to X"), never "X is not a field", "there is no
+     default", rationale or `file.go:line` citations. If the page no longer
+     makes the false claim, the correction needs no sentence at all.
    - `dead`: remove it and every mention of it.
    - `unverified`: leave the original text unchanged.
 2. Fix every stage 0 finding.
