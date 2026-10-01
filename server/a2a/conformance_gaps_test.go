@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -147,6 +148,57 @@ func TestContinuation_Refusals(t *testing.T) {
 	task, err := srv.taskStore.Get("waiting")
 	require.NoError(t, err)
 	assert.Equal(t, a2a.TaskStateInputRequired, task.Status.State, "a refused message leaves the task alone")
+}
+
+// A message for a task already running a turn is refused, and its tool
+// results must not reach the conversation: the claim comes first.
+func TestContinuation_RefusedClaimSubmitsNoToolResults(t *testing.T) {
+	for _, method := range []string{a2a.MethodV1SendMessage, a2a.MethodV1SendStreamingMessage} {
+		conv := clientToolConv()
+		srv, ts := newTestServer(func(string) (Conversation, error) { return conv, nil })
+
+		_, err := srv.taskStore.Create("busy", "ctx-busy")
+		require.NoError(t, err)
+		require.NoError(t, srv.taskStore.SetState("busy", a2a.TaskStateWorking, nil))
+
+		e := rawError(t, rawRPC(t, ts, "1.0", method, a2a.SendMessageRequest{Message: toolResultMessage("", "busy")}))
+		assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code, method)
+		conv.mu.Lock()
+		assert.Empty(t, conv.toolResults, "%s: a refused message submits nothing", method)
+		conv.mu.Unlock()
+		task, err := srv.taskStore.Get("busy")
+		require.NoError(t, err)
+		assert.Equal(t, a2a.TaskStateWorking, task.Status.State, method)
+		ts.Close()
+	}
+}
+
+// failingResumeConv refuses every tool result it is given.
+type failingResumeConv struct{ *mockResumableStreamConv }
+
+func (failingResumeConv) SendToolResult(string, any) error { return errors.New("unknown call") }
+
+// When the results cannot be submitted, a continued task goes back to waiting
+// for them, with the request that asked for them, rather than staying working.
+func TestContinuation_SubmitFailureRestoresTheWaitingTask(t *testing.T) {
+	for _, method := range []string{a2a.MethodV1SendMessage, a2a.MethodV1SendStreamingMessage} {
+		inner := clientToolConv()
+		conv := failingResumeConv{inner}
+		srv, ts := newTestServer(func(string) (Conversation, error) { return conv, nil })
+
+		first := decodeTaskResult(t, rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+			a2a.SendMessageRequest{Message: userMessage("ctx-restore")})))
+		require.Equal(t, a2a.TaskStateInputRequired, first.Status.State)
+
+		e := rawError(t, rawRPC(t, ts, "1.0", method, a2a.SendMessageRequest{Message: toolResultMessage("", first.ID)}))
+		assert.Equal(t, a2a.ErrCodeInternal, e.Code, method)
+		task, err := srv.taskStore.Get(first.ID)
+		require.NoError(t, err)
+		assert.Equal(t, a2a.TaskStateInputRequired, task.Status.State, method)
+		require.NotNil(t, task.Status.Message, method)
+		assert.Equal(t, "call-1", task.Status.Message.Parts[0].Metadata["tool_call_id"], method)
+		ts.Close()
+	}
 }
 
 func TestContinuation_AnotherCallersTaskIsNotFound(t *testing.T) {

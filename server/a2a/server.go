@@ -597,8 +597,12 @@ func (s *Server) rpcHandlers() map[a2a.Operation]func(*rpcCall) {
 type turnTarget struct {
 	taskID    string
 	contextID string
-	// existing is true when the message continues taskID.
+	// existing is true when the message continues taskID; prior is the
+	// status it was waiting in.
 	existing bool
+	prior    a2a.TaskStatus
+	// claimed is true once beginTask has made the task this turn's.
+	claimed bool
 }
 
 // resolveTarget works out which task a message runs on. A message without a
@@ -629,7 +633,7 @@ func (s *Server) resolveTarget(call *rpcCall, msg *a2a.Message) (target turnTarg
 		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId does not match the task's context")
 		return target, false
 	}
-	return turnTarget{taskID: task.ID, contextID: task.ContextID, existing: true}, true
+	return turnTarget{taskID: task.ID, contextID: task.ContextID, existing: true, prior: task.Status}, true
 }
 
 // beginTask readies the target's task for a turn and marks it working: it
@@ -638,6 +642,9 @@ func (s *Server) resolveTarget(call *rpcCall, msg *a2a.Message) (target turnTarg
 // running a turn is refused, so two messages never drive one task at once.
 // It answers the call itself and returns false when it cannot.
 func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
+	if target.claimed {
+		return true
+	}
 	if !target.existing {
 		target.taskID = generateID()
 		if err := s.createTask(call, target.taskID, target.contextID); err != nil {
@@ -645,12 +652,14 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 			return false
 		}
 		s.setState(target.taskID, target.contextID, a2a.TaskStateWorking, nil)
+		target.claimed = true
 		return true
 	}
 
 	switch err := s.taskStore.SetState(target.taskID, a2a.TaskStateWorking, nil); {
 	case err == nil:
 		s.publishStatus(target.taskID, target.contextID, a2a.TaskStatus{State: a2a.TaskStateWorking})
+		target.claimed = true
 		return true
 	case errors.Is(err, ErrTaskNotFound):
 		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
@@ -748,13 +757,20 @@ func extractToolResults(parts []a2a.Part) []toolResultEntry {
 	return results
 }
 
-// submitToolResults hands client tool results to a resumable conversation.
-// It answers the call itself and returns nil when the conversation cannot take
-// them.
-func submitToolResults(call *rpcCall, conv Conversation, results []toolResultEntry) ResumableConversation {
+// claimAndSubmit claims the target's task, then hands the client tool
+// results to the conversation — in that order, so a message the task cannot
+// take never leaves its results in the conversation. When the results cannot
+// be submitted the task is released (see releaseTask). It answers the call
+// itself and returns nil when the turn cannot go ahead.
+func (s *Server) claimAndSubmit(
+	call *rpcCall, target *turnTarget, conv Conversation, results []toolResultEntry,
+) ResumableConversation {
 	resumable, ok := conv.(ResumableConversation)
 	if !ok {
 		call.fail(a2a.ErrCodeUnsupportedOperation, "Conversation does not support client tool results")
+		return nil
+	}
+	if !s.beginTask(call, target) {
 		return nil
 	}
 	for _, tr := range results {
@@ -763,11 +779,23 @@ func submitToolResults(call *rpcCall, conv Conversation, results []toolResultEnt
 			continue
 		}
 		if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
+			s.releaseTask(target, err)
 			call.internalError(fmt.Sprintf("failed to submit tool result %s", tr.CallID), err)
 			return nil
 		}
 	}
 	return resumable
+}
+
+// releaseTask undoes a claim whose turn never started: a continued task goes
+// back to the status it was waiting in, request included, and a new task is
+// failed with cause.
+func (s *Server) releaseTask(target *turnTarget, cause error) {
+	if !target.existing {
+		s.failTask(target.taskID, target.contextID, cause)
+		return
+	}
+	s.setState(target.taskID, target.contextID, target.prior.State, target.prior.Message)
 }
 
 // handleToolResultMessage processes a SendMessage that carries client tool
@@ -779,11 +807,8 @@ func (s *Server) handleToolResultMessage(
 	call *rpcCall, conv Conversation, target *turnTarget,
 	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
 ) {
-	resumable := submitToolResults(call, conv, results)
+	resumable := s.claimAndSubmit(call, target, conv, results)
 	if resumable == nil {
-		return
-	}
-	if !s.beginTask(call, target) {
 		return
 	}
 

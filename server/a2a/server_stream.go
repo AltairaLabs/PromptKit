@@ -325,8 +325,9 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	}
 
 	// Which half of the server owns conversations decides where the events come
-	// from. Resolved before the task is claimed, so a refusal costs nothing.
-	startTurn, ok := s.resolveStreamTurn(call, contextID, params)
+	// from. Resolved before the task is claimed, so a refusal costs nothing —
+	// except for tool results, which are submitted only once it is.
+	startTurn, ok := s.resolveStreamTurn(call, &target, params)
 	if !ok {
 		return
 	}
@@ -438,10 +439,14 @@ func relayEvents(ctx context.Context, out *streamWriter, events <-chan TaskEvent
 // resolveStreamTurn produces the function that starts this request's event
 // stream, for either server mode. ok is false when the request has already
 // been answered with an error.
+//
+// Tool results are submitted here, after the target's task is claimed, so
+// the task is already claimed when it returns with them.
 func (s *Server) resolveStreamTurn(
-	call *rpcCall, contextID string, params a2a.SendMessageRequest,
+	call *rpcCall, target *turnTarget, params a2a.SendMessageRequest,
 ) (start func(ctx context.Context, taskID string) <-chan StreamEvent, ok bool) {
 	toolResults := extractToolResults(params.Message.Parts)
+	contextID := target.contextID
 
 	if s.handler != nil {
 		return s.statelessStreamTurn(call, contextID, params, toolResults)
@@ -459,7 +464,7 @@ func (s *Server) resolveStreamTurn(
 	}
 
 	if len(toolResults) > 0 {
-		resumable := submitToolResults(call, streamConv, toolResults)
+		resumable := s.claimAndSubmit(call, target, streamConv, toolResults)
 		if resumable == nil {
 			return nil, false
 		}
