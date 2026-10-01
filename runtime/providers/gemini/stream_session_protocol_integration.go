@@ -221,6 +221,10 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 		// still-arriving audio until the turn completes — plus the in-band
 		// Interrupted chunk for the pipeline.
 		s.Barge()
+		marker := providers.BargeMarker()
+		if err := s.sendChunk(&marker); err != nil {
+			return err
+		}
 		return s.sendChunk(&providers.StreamChunk{Interrupted: true})
 	}
 

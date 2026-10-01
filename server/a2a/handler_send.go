@@ -2,7 +2,6 @@ package a2aserver
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
@@ -17,7 +16,7 @@ import (
 // must not depend on which mode the embedder chose.
 
 // handleSendViaHandler serves message/send from a MessageHandler.
-func (s *Server) handleSendViaHandler(call *rpcCall, contextID string, params a2a.SendMessageRequest) {
+func (s *Server) handleSendViaHandler(call *rpcCall, target *turnTarget, params a2a.SendMessageRequest) {
 	toolResults := extractToolResults(params.Message.Parts)
 
 	// A tool result is a continuation, and only a handler that asked for client
@@ -29,11 +28,10 @@ func (s *Server) handleSendViaHandler(call *rpcCall, contextID string, params a2
 		return
 	}
 
-	taskID := generateID()
-	if err := s.createTask(call, taskID, contextID); err != nil {
-		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
+	if !s.beginTask(call, target) {
 		return
 	}
+	taskID, contextID := target.taskID, target.contextID
 
 	// Detached from the request's cancellation because this goroutine outlives
 	// the HTTP handler on the non-blocking path, but keeping its values so the

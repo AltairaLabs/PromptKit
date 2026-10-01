@@ -53,7 +53,7 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 			},
 		}, nil
 
-	case len(part.Data) > 0:
+	case part.dataValue() != nil:
 		return types.ContentPart{}, fmt.Errorf("a2a: structured data parts are not supported")
 
 	default:

@@ -45,7 +45,7 @@ func TestExecutor_Execute_BasicTextQuery(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		if req.Method != MethodV1SendMessage {
 			t.Errorf("method = %q, want %q", req.Method, MethodV1SendMessage)
@@ -92,7 +92,7 @@ func TestExecutor_Execute_ArtifactFallback(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcResult(w, req.ID, task)
 	}))
@@ -127,7 +127,7 @@ func TestExecutor_Execute_EmptyResponse(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcResult(w, req.ID, task)
 	}))
@@ -171,7 +171,7 @@ func TestExecutor_Execute_InvalidArgs(t *testing.T) {
 func TestExecutor_Execute_WithSkillIDMetadata(t *testing.T) {
 	var receivedMetadata map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		var params SendMessageRequest
 		raw, _ := json.Marshal(req.Params)
@@ -220,7 +220,7 @@ func TestExecutor_Execute_PassesUnknownArgsAlongsideSkillID(t *testing.T) {
 	// any skillId set by the descriptor — without clobbering it.
 	var receivedMetadata map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		var params SendMessageRequest
 		raw, _ := json.Marshal(req.Params)
@@ -267,7 +267,7 @@ func TestExecutor_Execute_PassesUnknownArgsAlongsideSkillID(t *testing.T) {
 func TestExecutor_Execute_NoSkillIDMetadata(t *testing.T) {
 	var receivedMetadata map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		var params SendMessageRequest
 		raw, _ := json.Marshal(req.Params)
@@ -306,7 +306,7 @@ func TestExecutor_Execute_NoSkillIDMetadata(t *testing.T) {
 func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 	var receivedParts []Part
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		var params SendMessageRequest
 		raw, _ := json.Marshal(req.Params)
@@ -332,7 +332,9 @@ func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"base64data","audio_data":"audiodata"}`
+	// Base64 of bytes no sniffer recognizes, so each part falls back to its
+	// family's range.
+	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"AAEC","audio_data":"AwQF"}`
 	_, err := e.Execute(context.Background(), desc, json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -358,7 +360,7 @@ func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 
 func TestExecutor_ClientCaching(t *testing.T) {
 	var callCount int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		req := decodeRPC(r)
 		text := "ok"
@@ -398,7 +400,7 @@ func TestExecutor_ClientCaching(t *testing.T) {
 }
 
 func TestExecutor_Execute_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcErrorResp(w, req.ID, -32600, "bad request")
 	}))
@@ -628,7 +630,7 @@ func TestExecutor_ExecuteMultimodal_BasicFlow(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcResult(w, req.ID, task)
 	}))
@@ -670,7 +672,7 @@ func TestExecutor_ExecuteMultimodal_BasicFlow(t *testing.T) {
 }
 
 func TestExecutor_ExecuteMultimodal_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcErrorResp(w, req.ID, -32600, "bad request")
 	}))
@@ -714,7 +716,7 @@ func TestExecutor_ExecuteMultimodal_WithTimeout(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPC(r)
 		rpcResult(w, req.ID, task)
 	}))

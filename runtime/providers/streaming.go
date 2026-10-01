@@ -86,6 +86,10 @@ type StreamChunk struct {
 	// When true, clients should clear any buffered audio and prepare for a new response
 	Interrupted bool `json:"interrupted,omitempty"`
 
+	// purgeAudio marks the in-band barge-in marker (see BargeMarker). The
+	// StreamPump consumes it; it never reaches Response().
+	purgeAudio bool
+
 	// Reset signals that the stream is being retried from scratch after a
 	// mid-stream failure. Consumers must discard all accumulated state
 	// (content, tool calls, cost info) and treat subsequent chunks as a

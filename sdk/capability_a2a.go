@@ -123,7 +123,18 @@ func (c *A2ACapability) bridgeExecutor() tools.Executor {
 	if c.toolExecutor != nil {
 		return namedExecutor{Executor: c.toolExecutor, name: nsA2A}
 	}
-	return sdka2a.NewExecutor()
+	exec := sdka2a.NewExecutor()
+	// Each bridge has already fetched its agent's card; hand it over so the
+	// executor calls the interface it declares without fetching it again.
+	if c.bridge != nil {
+		c.bridge.ShareCards(exec)
+	}
+	for _, bridge := range c.agentBridges {
+		if bridge != nil {
+			bridge.ShareCards(exec)
+		}
+	}
+	return exec
 }
 
 // namedExecutor registers a host executor under the "a2a" name the registry

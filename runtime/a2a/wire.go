@@ -161,9 +161,9 @@ func toV03Part(p *Part) v03Part {
 	case p.URL != nil:
 		out.Kind = kindFile
 		out.File = &v03File{URI: *p.URL, MimeType: p.MediaType, Name: p.Filename}
-	case p.Data != nil:
+	case p.dataValue() != nil:
 		out.Kind = kindData
-		out.Data = p.Data
+		out.Data = p.dataValue()
 	default:
 		out.Kind = kindText
 		text := ""
@@ -426,7 +426,7 @@ func toV03Card(card *AgentCard) *v03Card {
 	// additionalInterfaces (0.3 §5.6).
 	for _, iface := range card.SupportedInterfaces {
 		transport := iface.ProtocolBinding
-		if strings.EqualFold(transport, ProtocolBindingJSONRPC) {
+		if IsJSONRPCBinding(transport) {
 			transport = ProtocolBindingJSONRPC
 			if out.URL == "" {
 				out.URL = iface.URL

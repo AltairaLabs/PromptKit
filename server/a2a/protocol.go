@@ -116,14 +116,9 @@ func decodePageToken(token string) (int, error) {
 	return offset, nil
 }
 
-// bindingAliases are the names PromptKit and its hosts have used for the
-// JSON-RPC binding; each is normalized to 1.0's "JSONRPC".
-var bindingAliases = map[string]bool{
-	"jsonrpc": true, "jsonrpc+http": true, "json-rpc": true, "jsonrpc2": true,
-}
-
 // servedCard returns the card as this server should publish it: a copy with
-// the JSON-RPC interface declared for both versions the server speaks.
+// the JSON-RPC interface declared for both versions the server speaks, and
+// the streaming and push notification capabilities the server actually has.
 //
 // A card with no interfaces gets one pointing at this server's /a2a endpoint,
 // derived from the request's Host. A JSON-RPC interface under any of the names
@@ -153,6 +148,13 @@ func servedCard(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
 			cp.SupportedInterfaces = append(cp.SupportedInterfaces, twin)
 		}
 	}
+
+	// Declare what the server serves, whatever the card said (A2A 1.0
+	// §3.3.4): it answers SendStreamingMessage and SubscribeToTask in every
+	// mode — a conversation that cannot stream is streamed from its Send
+	// result (sendAsStream) — and refuses every push notification method.
+	cp.Capabilities.Streaming = true
+	cp.Capabilities.PushNotifications = false
 	return &cp
 }
 
@@ -161,7 +163,7 @@ func servedCard(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
 func normalizeInterfaces(ifaces []a2a.AgentInterface) []a2a.AgentInterface {
 	out := make([]a2a.AgentInterface, 0, len(ifaces))
 	for _, iface := range ifaces {
-		if bindingAliases[strings.ToLower(iface.ProtocolBinding)] {
+		if a2a.IsJSONRPCBinding(iface.ProtocolBinding) {
 			iface.ProtocolBinding = a2a.ProtocolBindingJSONRPC
 		}
 		if iface.ProtocolBinding == a2a.ProtocolBindingJSONRPC && iface.ProtocolVersion == "" {

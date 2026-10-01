@@ -406,8 +406,10 @@ func TestClient_PinnedVersionDoesNotFallBack(t *testing.T) {
 }
 
 func TestClient_DiscoverPinsCardVersion(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"name":"x","url":"http://x","protocolVersion":"0.3.0"}`))
+	// The card's interface is on the agent's own host; one on another host
+	// is not followed and settles nothing.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"name":"x","url":"http://` + r.Host + `/a2a","protocolVersion":"0.3.0"}`))
 	}))
 	defer srv.Close()
 	c := NewClient(srv.URL)

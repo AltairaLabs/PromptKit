@@ -396,8 +396,10 @@ func TestConformance_UnsupportedOperations(t *testing.T) {
 		e := rawError(t, rawRPC(t, ts, "", method, map[string]any{"taskId": "t"}))
 		assert.Equal(t, a2a.ErrCodePushNotificationNotSupported, e.Code, method)
 	}
+	// The card does not declare an extended card, so the method is
+	// unsupported (A2A 1.0 §3.3.4), not "not configured".
 	e := rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
-	assert.Equal(t, a2a.ErrCodeExtendedAgentCardNotConfigured, e.Code)
+	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code)
 	e = rawError(t, rawRPC(t, ts, "", "tasks/frobnicate", map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeMethodNotFound, e.Code)
 	e = rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetTask, nil))

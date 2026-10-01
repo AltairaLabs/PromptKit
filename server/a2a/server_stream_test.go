@@ -276,7 +276,7 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
@@ -302,17 +302,29 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 		t.Fatalf("POST /a2a: %v", err)
 	}
 
-	// Wait for stream to start, then cancel.
+	// Wait for stream to start, then disconnect. The turn runs on (A2A 1.0
+	// §3.5.2); CancelTask is what stops it.
 	<-streamStarted
 	cancel()
 	resp.Body.Close()
 
-	// The stream context should have been canceled.
+	var taskID string
+	require.Eventually(t, func() bool {
+		srv.cancelsMu.Lock()
+		defer srv.cancelsMu.Unlock()
+		for id := range srv.cancels {
+			taskID = id
+		}
+		return taskID != ""
+	}, time.Second, time.Millisecond)
+	resp2 := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID})
+	require.Nil(t, resp2.Error, "the task is still running after its caller left")
+
 	select {
 	case <-ctxCanceled:
 		// ok
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for stream context cancellation")
+		t.Fatal("timed out waiting for CancelTask to reach the turn")
 	}
 }
 
@@ -377,35 +389,83 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 		t.Fatal("timed out: processEvents did not exit after client disconnect (goroutine leak)")
 	}
 
-	// Wait briefly for async cleanup, then verify the turn was unregistered.
-	time.Sleep(50 * time.Millisecond)
+	// The turn is not the caller's to end: it stays registered, so
+	// CancelTask can still reach it, and canceling it unregisters it.
+	var taskID string
 	srv.cancelsMu.Lock()
-	remaining := len(srv.cancels)
-	srv.cancelsMu.Unlock()
-	if remaining != 0 {
-		t.Errorf("expected 0 in-flight turns after disconnect, got %d", remaining)
+	for id := range srv.cancels {
+		taskID = id
 	}
+	srv.cancelsMu.Unlock()
+	require.NotEmpty(t, taskID, "the turn outlives the caller's stream")
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID})
+	require.Nil(t, resp.Error)
+	require.Eventually(t, func() bool {
+		srv.cancelsMu.Lock()
+		defer srv.cancelsMu.Unlock()
+		return len(srv.cancels) == 0
+	}, time.Second, time.Millisecond)
 }
 
-func TestServer_StreamMessage_NotStreamable(t *testing.T) {
-	// Use a regular (non-streaming) mockConv.
-	mock := completingMock()
-	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
-	defer ts.Close()
+// The served card always declares streaming, so a conversation that cannot
+// stream is streamed anyway: its Send result is sent as the turn's events.
+func TestServer_StreamMessage_NotStreamableIsStreamedFromSend(t *testing.T) {
+	image := "aGk="
+	for _, tc := range []struct {
+		name      string
+		result    SendResult
+		err       error
+		wantState a2a.TaskState
+		wantText  string
+	}{
+		{name: "parts", result: &mockSendResult{parts: []types.ContentPart{
+			types.NewTextPart("Hello"),
+			{Type: types.ContentTypeImage, Media: &types.MediaContent{Data: &image, MIMEType: "image/png"}},
+		}}, wantState: a2a.TaskStateCompleted, wantText: "Hello"},
+		{name: "text fallback", result: &mockSendResult{text: "just text"},
+			wantState: a2a.TaskStateCompleted, wantText: "just text"},
+		{name: "client tools", result: &mockSendResult{hasPending: true, hasPendingClient: true,
+			pendingClientTools: []PendingClientToolInfo{{CallID: "c1", ToolName: "loc"}, {CallID: "c2", ToolName: "time"}}},
+			wantState: a2a.TaskStateInputRequired},
+		{name: "approval pending", result: &mockSendResult{hasPending: true},
+			wantState: a2a.TaskStateInputRequired},
+		{name: "error", err: errors.New("boom"), wantState: a2a.TaskStateFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &mockConv{sendFunc: func(context.Context, any) (SendResult, error) { return tc.result, tc.err }}
+			srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+			defer ts.Close()
 
-	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
-		Message: a2a.Message{
-			ContextID: "ctx-nostream",
-			Role:      a2a.RoleUser,
-			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
-		},
-	})
+			events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+				Message: a2a.Message{ContextID: "ctx-nostream", Role: a2a.RoleUser, Parts: []a2a.Part{{Text: serverTextPtr("Hi")}}},
+			})
+			require.NotEmpty(t, events)
+			require.NotNil(t, events[0].Task, "the stream opens with the task")
+			last := events[len(events)-1]
+			require.NotNil(t, last.StatusUpdate)
+			assert.Equal(t, tc.wantState, last.StatusUpdate.Status.State)
 
-	if resp.Error == nil {
-		t.Fatal("expected error for non-streaming conversation")
-	}
-	if resp.Error.Code != a2a.ErrCodeUnsupportedOperation {
-		t.Errorf("error code = %d, want %d (UnsupportedOperation)", resp.Error.Code, a2a.ErrCodeUnsupportedOperation)
+			task, err := srv.taskStore.Get(events[0].Task.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantState, task.Status.State)
+			if tc.wantText != "" {
+				require.NotEmpty(t, task.Artifacts)
+				assert.Equal(t, tc.wantText, *task.Artifacts[0].Parts[0].Text)
+			}
+			if tc.name == "parts" {
+				require.Len(t, task.Artifacts, 2)
+				assert.Equal(t, "image/png", task.Artifacts[1].Parts[0].MediaType)
+			}
+			if tc.name == "client tools" {
+				// Every pending tool, as SendMessage reports them.
+				parts := last.StatusUpdate.Status.Message.Parts
+				require.Len(t, parts, 2)
+				assert.Equal(t, "c1", parts[0].Metadata["tool_call_id"])
+				assert.Equal(t, "c2", parts[1].Metadata["tool_call_id"])
+				require.NotNil(t, task.Status.Message)
+				assert.Len(t, task.Status.Message.Parts, 2)
+			}
+		})
 	}
 }
 

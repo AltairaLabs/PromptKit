@@ -244,12 +244,17 @@ func (r *Role) UnmarshalJSON(data []byte) error {
 }
 
 // Part represents a piece of content within a message or artifact.
-// Exactly one of Text, Raw, URL, or Data should be set.
+// Exactly one of Text, Raw, URL, or Data (or DataValue) should be set.
 type Part struct {
 	Text *string        `json:"text,omitempty"`
 	Raw  []byte         `json:"raw,omitempty"`
 	URL  *string        `json:"url,omitempty"`
 	Data map[string]any `json:"data,omitempty"`
+	// DataValue holds a data part whose value is not a JSON object: A2A 1.0
+	// types data as any JSON value (an array, string, number or boolean as
+	// well). An object is decoded into Data; anything else into DataValue.
+	// When both are set, Data is sent.
+	DataValue any `json:"-"`
 
 	Metadata  map[string]any `json:"metadata,omitempty"`
 	Filename  string         `json:"filename,omitempty"`
@@ -263,19 +268,60 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 	type plain Part
 	var wire struct {
 		plain
-		Kind string   `json:"kind"`
-		File *v03File `json:"file"`
+		// Data shadows plain.Data: it may be any JSON value.
+		Data json.RawMessage `json:"data"`
+		Kind string          `json:"kind"`
+		File *v03File        `json:"file"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
 	*p = Part(wire.plain)
+	if err := p.setData(wire.Data); err != nil {
+		return err
+	}
 	if wire.File != nil {
 		if err := wire.File.into(p); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// setData decodes a data part's value: an object into Data, any other
+// value into DataValue. JSON null leaves both unset.
+func (p *Part) setData(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("a2a: part data: %w", err)
+	}
+	if obj, ok := v.(map[string]any); ok {
+		p.Data = obj
+		return nil
+	}
+	p.DataValue = v
+	return nil
+}
+
+// dataValue returns the data part's value, or nil when p is not a data part.
+func (p *Part) dataValue() any {
+	if p.Data != nil {
+		return p.Data
+	}
+	return p.DataValue
+}
+
+// MarshalJSON implements json.Marshaler. It writes the A2A 1.0 shape, with
+// "data" carrying Data (an empty object included) or DataValue.
+func (p Part) MarshalJSON() ([]byte, error) {
+	type plain Part
+	return json.Marshal(struct {
+		plain
+		Data any `json:"data,omitempty"`
+	}{plain: plain(p), Data: p.dataValue()})
 }
 
 // Message is a communication unit in the A2A protocol.

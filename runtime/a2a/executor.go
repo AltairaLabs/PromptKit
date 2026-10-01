@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -132,9 +133,12 @@ var (
 // The executor maintains a cache of A2A clients with TTL-based eviction.
 // Call Close when the executor is no longer needed to release resources.
 type Executor struct {
-	mu          sync.RWMutex
-	clients     map[string]*clientEntry
-	clientHeap  clientHeap // min-heap for O(log N) LRU eviction
+	mu         sync.RWMutex
+	clients    map[string]*clientEntry
+	clientHeap clientHeap // min-heap for O(log N) LRU eviction
+	// cards are agent cards a ToolBridge already discovered, by agent URL;
+	// a client created for that URL starts with its card.
+	cards       map[string]*AgentCard
 	retryPolicy RetryPolicy
 	clientTTL   time.Duration
 	maxClients  int
@@ -206,11 +210,18 @@ func buildRequest(
 	if input.ImageURL != "" {
 		parts = append(parts, Part{URL: &input.ImageURL, MediaType: "image/*"})
 	}
-	if input.ImageData != "" {
-		parts = append(parts, Part{Raw: []byte(input.ImageData), MediaType: "image/*"})
-	}
-	if input.AudioData != "" {
-		parts = append(parts, Part{Raw: []byte(input.AudioData), MediaType: "audio/*"})
+	for _, media := range []struct{ arg, data, family string }{
+		{"image_data", input.ImageData, "image"},
+		{"audio_data", input.AudioData, "audio"},
+	} {
+		if media.data == "" {
+			continue
+		}
+		part, err := mediaPart(media.arg, media.data, media.family)
+		if err != nil {
+			return nil, nil, err
+		}
+		parts = append(parts, part)
 	}
 
 	// Build metadata with skillId for mock server routing, then merge any
@@ -237,6 +248,72 @@ func buildRequest(
 	return cfg, req, nil
 }
 
+// mediaPart builds a raw part from the base64 media an LLM supplied, bare or
+// as a data URL (data:image/png;base64,...). Raw holds the decoded bytes,
+// since the wire encodes it as base64 itself. The media type is the data
+// URL's, else sniffed from the bytes, else the family's range (image/*).
+func mediaPart(arg, data, family string) (Part, error) {
+	mediaType := ""
+	payload := data
+	if rest, isDataURL := strings.CutPrefix(data, "data:"); isDataURL {
+		meta, encoded, found := strings.Cut(rest, ",")
+		if !found || !strings.HasSuffix(meta, ";base64") {
+			return Part{}, fmt.Errorf("a2a executor: %s: only base64 data URLs are supported", arg)
+		}
+		mediaType = strings.TrimSuffix(meta, ";base64")
+		payload = encoded
+	}
+	raw, err := decodeBase64(payload)
+	if err != nil {
+		return Part{}, fmt.Errorf("a2a executor: %s is not base64: %w", arg, err)
+	}
+	if mediaType == "" {
+		mediaType = sniffMediaType(raw, family)
+	}
+	return Part{Raw: raw, MediaType: mediaType}, nil
+}
+
+// decodeBase64 accepts standard base64, padded or not.
+func decodeBase64(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return raw, nil
+	}
+	return base64.RawStdEncoding.DecodeString(s)
+}
+
+// sniffMediaType names raw's media type when it is recognizably of family,
+// and falls back to the family's range otherwise.
+func sniffMediaType(raw []byte, family string) string {
+	detected, _, _ := strings.Cut(http.DetectContentType(raw), ";")
+	if strings.HasPrefix(detected, family+"/") {
+		return detected
+	}
+	return family + "/*"
+}
+
+// unfinishedTaskError reports a task that did not complete: failed, rejected,
+// canceled, or interrupted waiting for input or auth the executor cannot
+// give. Its status message, when it has one, says why.
+func unfinishedTaskError(task *Task) error {
+	if task.Status.State == TaskStateCompleted {
+		return nil
+	}
+	reason := ""
+	if msg := task.Status.Message; msg != nil {
+		for _, part := range msg.Parts {
+			if part.Text != nil && *part.Text != "" {
+				reason = *part.Text
+				break
+			}
+		}
+	}
+	if reason == "" {
+		return fmt.Errorf("task %s ended %s", task.ID, task.Status.State.V03Name())
+	}
+	return fmt.Errorf("task %s ended %s: %s", task.ID, task.Status.State.V03Name(), reason)
+}
+
 // executeRequest sends an A2A request with timeout and retry, returning the completed task.
 func (e *Executor) executeRequest(
 	ctx context.Context, toolName string, cfg *tools.A2AConfig, req *SendMessageRequest,
@@ -252,6 +329,10 @@ func (e *Executor) executeRequest(
 	logger.Info("A2A tool call",
 		"tool", toolName, "agent_url", cfg.AgentURL, "skill_id", cfg.SkillID)
 
+	// AgentURL is the agent's base URL; its card says where its JSON-RPC
+	// endpoint is (A2A 1.0 §8.3.2).
+	client.discoverForCalls(ctx)
+
 	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
 	if err != nil {
 		logger.Error("A2A tool call failed",
@@ -266,6 +347,15 @@ func (e *Executor) executeRequest(
 			"tool", toolName, "agent_url", cfg.AgentURL, "task_id", task.ID,
 			"task_state", string(task.Status.State), "error", err)
 		return nil, fmt.Errorf("a2a executor: task %s did not finish: %w", task.ID, err)
+	}
+
+	if err := unfinishedTaskError(task); err != nil {
+		// An interrupted task waits for an answer that will never come.
+		cancelAbandonedTask(client, task)
+		logger.Error("A2A tool call did not complete",
+			"tool", toolName, "agent_url", cfg.AgentURL, "task_id", task.ID,
+			"task_state", string(task.Status.State), "error", err)
+		return nil, fmt.Errorf("a2a executor: %w", err)
 	}
 
 	logger.Info("A2A tool call completed",
@@ -597,6 +687,7 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	}
 
 	c := NewClient(agentURL)
+	c.useCard(e.cards[agentURL])
 	entry := &clientEntry{client: c, lastUsed: now, url: agentURL}
 	e.clients[agentURL] = entry
 	heap.Push(&e.clientHeap, entry)
@@ -654,10 +745,25 @@ func (e *Executor) getOrCreateClientWithConfig(cfg *tools.A2AConfig) *Client {
 	}
 
 	c := NewClient(cfg.AgentURL, opts...)
+	c.useCard(e.cards[cfg.AgentURL])
 	entry := &clientEntry{client: c, lastUsed: now, url: cfg.AgentURL}
 	e.clients[cfg.AgentURL] = entry
 	heap.Push(&e.clientHeap, entry)
 	return c
+}
+
+// shareCard records the card a ToolBridge discovered for agentURL, and gives
+// it to the client already cached for that URL, if any.
+func (e *Executor) shareCard(agentURL string, card *AgentCard) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cards == nil {
+		e.cards = make(map[string]*AgentCard)
+	}
+	e.cards[agentURL] = card
+	if entry, ok := e.clients[agentURL]; ok {
+		entry.client.useCard(card)
+	}
 }
 
 // resolveHeaders merges static headers with headers resolved from environment variables.
