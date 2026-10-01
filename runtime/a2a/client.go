@@ -296,8 +296,10 @@ func (c *Client) adoptCardLocked(card *AgentCard) {
 	c.agentCard = card
 	// Only a card that says which versions it serves settles the question.
 	// One that declares no interfaces — a pre-1.0 PromptKit server's, say —
-	// leaves negotiation on, so the 0.3 fallback still works.
-	if v, declared := card.declaredVersion(); declared && !c.versionPinned {
+	// leaves negotiation on, so the 0.3 fallback still works. Interfaces on
+	// another host are not followed (callURL), so their versions do not count.
+	onHost := AgentCard{SupportedInterfaces: c.interfacesOnBaseHost(card)}
+	if v, declared := onHost.declaredVersion(); declared && !c.versionPinned {
 		c.version = v
 		c.versionPinned = true
 	}
@@ -509,8 +511,9 @@ func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterfa
 		return c.baseURL + "/a2a", nil, nil
 	}
 	var fallback *AgentInterface
-	for i := range card.SupportedInterfaces {
-		candidate := &card.SupportedInterfaces[i]
+	onHost := c.interfacesOnBaseHost(card)
+	for i := range onHost {
+		candidate := &onHost[i]
 		if !IsJSONRPCBinding(candidate.ProtocolBinding) {
 			continue
 		}
@@ -521,10 +524,34 @@ func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterfa
 			return c.callURL(candidate.URL), candidate, nil
 		}
 	}
-	if fallback == nil {
-		return "", nil, errNoJSONRPCInterface
+	if fallback != nil {
+		return c.callURL(fallback.URL), fallback, nil
 	}
-	return c.callURL(fallback.URL), fallback, nil
+	for i := range card.SupportedInterfaces {
+		if other := &card.SupportedInterfaces[i]; IsJSONRPCBinding(other.ProtocolBinding) {
+			// Only on another host: not followed, and its tenant and
+			// version belong to that server, so none are sent.
+			return c.callURL(other.URL), nil, nil
+		}
+	}
+	return "", nil, errNoJSONRPCInterface
+}
+
+// interfacesOnBaseHost returns the card's interfaces on the host the client
+// was configured with — the only ones it calls (see callURL).
+func (c *Client) interfacesOnBaseHost(card *AgentCard) []AgentInterface {
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil
+	}
+	var out []AgentInterface
+	for _, iface := range card.SupportedInterfaces {
+		if u, perr := url.Parse(iface.URL); perr == nil && u.Host != "" &&
+			strings.EqualFold(u.Hostname(), base.Hostname()) {
+			out = append(out, iface)
+		}
+	}
+	return out
 }
 
 // defaultRPCPath is where PromptKit servers, and the client by default, put

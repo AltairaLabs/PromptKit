@@ -82,6 +82,47 @@ func TestCallURL(t *testing.T) {
 	}
 }
 
+// An interface that is not followed lends nothing: its tenant and declared
+// version belong to the other server.
+func TestEndpoint_TenantAndVersionComeOnlyFromTheCallersHost(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, iface   string
+		wantURL, wantTenant string
+		wantVersion         ProtocolVersion
+	}{
+		{"same host lends its tenant and version", "https://agent.example",
+			"https://agent.example/rpc", "https://agent.example/rpc", "acme", ProtocolVersion03},
+		{"another host lends neither", "https://agent.example",
+			"https://other.example/rpc", "https://agent.example/a2a", "", ProtocolVersion10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(tc.base)
+			c.useCard(&AgentCard{Name: "a", SupportedInterfaces: []AgentInterface{
+				{URL: tc.iface, ProtocolBinding: ProtocolBindingJSONRPC, ProtocolVersion: "0.3", Tenant: "acme"},
+			}})
+			assert.Equal(t, tc.wantVersion, c.ProtocolVersion())
+
+			url, iface, err := c.endpoint(c.ProtocolVersion())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantURL, url)
+			tenant := ""
+			if iface != nil {
+				tenant = iface.Tenant
+			}
+			assert.Equal(t, tc.wantTenant, tenant)
+			params, err := json.Marshal(GetTaskRequest{ID: "t"})
+			require.NoError(t, err)
+			if iface != nil && c.ProtocolVersion() != ProtocolVersion03 {
+				params, err = withTenant(params, iface.Tenant)
+				require.NoError(t, err)
+			}
+			if tc.wantTenant == "" {
+				assert.NotContains(t, string(params), "tenant")
+			}
+		})
+	}
+}
+
 func TestClient_AcceptsJSONRPCBindingAliases(t *testing.T) {
 	agent := &cardAgent{card: func(base string) AgentCard {
 		// A pre-1.0 PromptKit server's spelling of the binding.
