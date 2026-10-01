@@ -65,6 +65,7 @@ iterate the modules for you.
 | `make lint-diff` | golangci-lint on changed code only (`--new-from-rev=HEAD`) |
 | `make modules-standalone-check` | Build each module with `GOWORK=off`, as a consumer resolves it — catches dep skew the workspace hides (#1920) |
 | `make api-compat-check VERSION=vX.Y.Z` | Check the API changes fit the claimed version |
+| `make mcp-conformance` / `make mcp-interop` | MCP client against the official conformance suite / against real SDK-built servers (need Node; interop also Python) |
 
 For a single package, use `go -C <module>` rather than a root-relative path:
 
