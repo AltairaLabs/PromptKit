@@ -3,6 +3,8 @@
 # Checks reader-facing prose in docs/src/content/docs against the mechanical
 # rules of docs/STYLE.md. The rule list is scripts/docs-voice-banned.txt; findings
 # in directories listed in scripts/docs-voice-enforced.txt fail, others warn.
+# scripts/docs-voice-exempt.txt drops given rules for given pages (a page whose
+# purpose a rule contradicts, such as upgrade notes and the history rule).
 #
 # Usage: bash scripts/check-docs-voice.sh [--root <repo-root>]
 set -uo pipefail
@@ -19,6 +21,7 @@ DOCS_REL="docs/src/content/docs"
 DOCS="$ROOT/$DOCS_REL"
 BANNED="$ROOT/scripts/docs-voice-banned.txt"
 ENFORCED="$ROOT/scripts/docs-voice-enforced.txt"
+EXEMPT="$ROOT/scripts/docs-voice-exempt.txt"
 
 [ -d "$DOCS" ] || { echo "no docs tree at $DOCS" >&2; exit 2; }
 
@@ -73,9 +76,26 @@ if [ -f "$ENFORCED" ]; then
 	done < "$ENFORCED"
 fi
 
+# Exemptions: "<page under the docs root><TAB><rule>[,<rule>...]" or "*" for all rules.
+exempt=()
+if [ -f "$EXEMPT" ]; then
+	while IFS=$'\t' read -r page rules; do
+		case "$page" in ''|'#'*) continue ;; esac
+		IFS=, read -ra rs <<<"$rules"
+		for r in "${rs[@]}"; do exempt+=("$DOCS_REL/$page:*: $r:*"); done
+		[ "$rules" = '*' ] && exempt+=("$DOCS_REL/$page:*")
+	done < "$EXEMPT"
+fi
+
 status=0
 while IFS= read -r line; do
 	[ -n "$line" ] || continue
+	skip=0
+	for x in "${exempt[@]+"${exempt[@]}"}"; do
+		# shellcheck disable=SC2254
+		case "$line" in $x) skip=1; break ;; esac
+	done
+	[ "$skip" = 1 ] && continue
 	level=warn
 	for e in "${enforced[@]+"${enforced[@]}"}"; do
 		case "$line" in "$e"*) level=error ;; esac
