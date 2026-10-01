@@ -235,6 +235,10 @@ type Server struct {
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
+	// cancelRegs identifies each entry in cancels by the registration that
+	// made it, so a finished turn removes only its own (see unregisterCancel).
+	cancelRegs map[string]uint64
+	cancelSeq  uint64
 
 	// events carries task updates to SubscribeToTask callers; canceler
 	// reaches the instance running a task. Both default to in-process.
@@ -271,6 +275,7 @@ func newServer(opts ...Option) *Server {
 		convLastUse:  make(map[string]time.Time),
 		convOwner:    make(map[string]string),
 		cancels:      make(map[string]context.CancelFunc),
+		cancelRegs:   make(map[string]uint64),
 		readTimeout:  defaultReadTimeout,
 		writeTimeout: defaultWriteTimeout,
 		idleTimeout:  defaultIdleTimeout,
@@ -390,6 +395,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		cancel()
 	}
 	s.cancels = make(map[string]context.CancelFunc)
+	s.cancelRegs = make(map[string]uint64)
 	s.cancelsMu.Unlock()
 
 	// Close all conversations.
@@ -841,13 +847,13 @@ func (s *Server) runTurn(
 	parent context.Context, taskID, contextID string, produce func(context.Context) (SendResult, error),
 ) <-chan struct{} {
 	ctx, cancel := context.WithCancel(parent)
-	s.registerCancel(taskID, cancel)
+	reg := s.registerCancel(taskID, cancel)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer cancel()
-		defer s.unregisterCancel(taskID)
+		defer s.unregisterCancel(taskID, reg)
 
 		resp, err := produce(ctx)
 		if err != nil {
@@ -868,17 +874,35 @@ func (s *Server) runTurn(
 	return done
 }
 
-// registerCancel records the cancel func of a turn running in this process.
-func (s *Server) registerCancel(taskID string, cancel context.CancelFunc) {
+// registerCancel records the cancel func of a turn running in this process,
+// and returns the registration that turn later unregisters with.
+func (s *Server) registerCancel(taskID string, cancel context.CancelFunc) uint64 {
 	s.cancelsMu.Lock()
+	defer s.cancelsMu.Unlock()
+	s.cancelSeq++
 	s.cancels[taskID] = cancel
-	s.cancelsMu.Unlock()
+	s.cancelRegs[taskID] = s.cancelSeq
+	return s.cancelSeq
 }
 
-// unregisterCancel forgets a finished turn's cancel func.
-func (s *Server) unregisterCancel(taskID string) {
+// unregisterCancel forgets a finished turn's cancel func — only if it is
+// still that turn's registration. A continuation may have claimed the task
+// and registered its own turn before this one's cleanup ran.
+func (s *Server) unregisterCancel(taskID string, reg uint64) {
+	s.cancelsMu.Lock()
+	defer s.cancelsMu.Unlock()
+	if s.cancelRegs[taskID] != reg {
+		return
+	}
+	delete(s.cancels, taskID)
+	delete(s.cancelRegs, taskID)
+}
+
+// forgetCancel drops whatever cancel func is registered for taskID.
+func (s *Server) forgetCancel(taskID string) {
 	s.cancelsMu.Lock()
 	delete(s.cancels, taskID)
+	delete(s.cancelRegs, taskID)
 	s.cancelsMu.Unlock()
 }
 
@@ -887,6 +911,7 @@ func (s *Server) cancelLocal(taskID string) {
 	s.cancelsMu.Lock()
 	cancel, ok := s.cancels[taskID]
 	delete(s.cancels, taskID)
+	delete(s.cancelRegs, taskID)
 	s.cancelsMu.Unlock()
 	if ok {
 		cancel()
@@ -1299,7 +1324,7 @@ func (s *Server) evictTerminalTasks(now time.Time) {
 	}
 	evicted := s.taskStore.EvictTerminal(now.Add(-s.taskTTL))
 	for _, taskID := range evicted {
-		s.unregisterCancel(taskID)
+		s.forgetCancel(taskID)
 	}
 }
 

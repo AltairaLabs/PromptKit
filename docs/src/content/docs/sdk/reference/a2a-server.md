@@ -650,7 +650,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L201-L252>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L201-L256>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -661,7 +661,7 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L261>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L265>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
@@ -683,7 +683,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations — because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L309>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L314>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -692,7 +692,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L340>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L345>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -703,7 +703,7 @@ ListenAndServe starts the HTTP server on the configured port.
 WriteTimeout is set to 0 \(disabled\) because SSE streaming endpoints \(message/stream, tasks/subscribe\) hold the connection open indefinitely. A non\-zero WriteTimeout would kill long\-lived SSE connections. Non\-streaming endpoints rely on the request context deadline for timeout enforcement.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L411>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L417>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -712,7 +712,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener. See ListenAndServe for the rationale behind WriteTimeout: 0.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L362>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L367>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error

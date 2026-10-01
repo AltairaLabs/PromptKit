@@ -215,6 +215,26 @@ func TestContinuation_AnotherCallersTaskIsNotFound(t *testing.T) {
 	requireCode(t, resp, a2a.ErrCodeTaskNotFound, "continuing another caller's task")
 }
 
+// A turn that ends must not unregister the cancel func of the turn that
+// continues its task: a continuation can claim the task, and register, before
+// the ending turn's deferred unregister runs.
+func TestCancelRegistration_EndingTurnLeavesTheNextTurnsCancel(t *testing.T) {
+	srv, ts := newTestServer(nopOpener)
+	defer ts.Close()
+
+	first := srv.registerCancel("t", func() {})
+	reached := false
+	second := srv.registerCancel("t", func() { reached = true })
+	srv.unregisterCancel("t", first) // turn N's deferred cleanup, running late
+	srv.cancelLocal("t")
+	assert.True(t, reached, "CancelTask must still reach the continued turn")
+
+	srv.unregisterCancel("t", second)
+	srv.cancelsMu.Lock()
+	defer srv.cancelsMu.Unlock()
+	assert.Empty(t, srv.cancels, "a turn's own registration is removed")
+}
+
 // --- Advertised capabilities match what is served (A2A 1.0 §3.3.4) ---
 
 func TestCapabilities_ServedCardMatchesTheServer(t *testing.T) {

@@ -347,7 +347,7 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	// its task (A2A 1.0 §3.5.2). It keeps the request's values, as SendMessage
 	// does, and CancelTask still reaches it.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(call.r.Context()))
-	s.registerCancel(taskID, cancel)
+	reg := s.registerCancel(taskID, cancel)
 	events := startTurn(ctx, taskID)
 
 	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID}
@@ -355,7 +355,7 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	go func() {
 		defer close(done)
 		defer cancel()
-		defer s.unregisterCancel(taskID)
+		defer s.unregisterCancel(taskID, reg)
 		st.process(ctx, events)
 	}()
 
