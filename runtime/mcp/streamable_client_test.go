@@ -114,6 +114,35 @@ func TestStreamableClient_CallTool(t *testing.T) {
 	require.NoError(t, c.Close())
 }
 
+func TestStreamableClient_CallTool_StructuredContent(t *testing.T) {
+	url, cleanup := streamableClientTestServer(t, func(req JSONRPCMessage) JSONRPCMessage {
+		switch req.Method {
+		case "initialize":
+			return JSONRPCMessage{Result: json.RawMessage(`{
+                "protocolVersion": "2025-06-18","capabilities": {"tools": {}},
+                "serverInfo": {"name": "fake","version": "0.1"}}`)}
+		case "tools/call":
+			return JSONRPCMessage{Result: json.RawMessage(
+				`{"content":[],"structuredContent":{"id":"checkout_abc123","status":"incomplete"}}`,
+			)}
+		}
+		return JSONRPCMessage{Error: &JSONRPCError{Code: -32601, Message: "not found"}}
+	})
+	defer cleanup()
+
+	c := NewStreamableClient(ServerConfig{Name: "x", URL: url, TransportName: TransportStreamableHTTP})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := c.Initialize(ctx)
+	require.NoError(t, err)
+
+	resp, err := c.CallTool(ctx, "create_checkout", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.True(t, resp.HasStructuredContent())
+	assert.JSONEq(t, `{"id":"checkout_abc123","status":"incomplete"}`, string(resp.StructuredContent))
+	require.NoError(t, c.Close())
+}
+
 func TestStreamableClient_NotInitialized(t *testing.T) {
 	c := NewStreamableClient(ServerConfig{Name: "x", URL: "http://localhost:0", TransportName: TransportStreamableHTTP})
 	_, err := c.ListTools(context.Background())

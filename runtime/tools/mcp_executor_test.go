@@ -520,3 +520,103 @@ func TestMCPExecutor_ExtractTextContent_NonTextTypes(t *testing.T) {
 		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
 	}
 }
+
+func newStructuredContentExecutor(resp *mcp.ToolCallResponse) *MCPExecutor {
+	return NewMCPExecutor(&mockMCPRegistry{
+		getClientFunc: func(ctx context.Context, toolName string) (mcp.Client, error) {
+			return &mockMCPClient{
+				callToolFunc: func(ctx context.Context, name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
+					return resp, nil
+				},
+			}, nil
+		},
+	})
+}
+
+func TestMCPExecutor_Execute_StructuredContent(t *testing.T) {
+	descriptor := &ToolDescriptor{Name: "structured_tool", Mode: modeMCP}
+
+	tests := []struct {
+		name string
+		resp *mcp.ToolCallResponse
+		want string
+	}{
+		{
+			name: "structuredContent only",
+			resp: &mcp.ToolCallResponse{
+				StructuredContent: json.RawMessage(`{"id":"checkout_abc123","status":"incomplete"}`),
+			},
+			want: `{"id":"checkout_abc123","status":"incomplete"}`,
+		},
+		{
+			name: "structuredContent preferred over serialized text fallback",
+			resp: &mcp.ToolCallResponse{
+				Content:           []mcp.Content{{Type: "text", Text: `{"id":"checkout_abc123"}`}},
+				StructuredContent: json.RawMessage(`{"id":"checkout_abc123"}`),
+			},
+			want: `{"id":"checkout_abc123"}`,
+		},
+		{
+			name: "null structuredContent falls back to content",
+			resp: &mcp.ToolCallResponse{
+				Content:           []mcp.Content{{Type: "text", Text: "plain"}},
+				StructuredContent: json.RawMessage(`null`),
+			},
+			want: `"plain"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := newStructuredContentExecutor(tt.resp).Execute(
+				context.Background(), descriptor, json.RawMessage(`{}`))
+			if err != nil {
+				t.Fatalf("Execute() failed: %v", err)
+			}
+			if string(result) != tt.want {
+				t.Errorf("Execute() result = %s, want %s", result, tt.want)
+			}
+		})
+	}
+}
+
+func TestMCPExecutor_Execute_ErrorStructuredContent(t *testing.T) {
+	descriptor := &ToolDescriptor{Name: "structured_tool", Mode: modeMCP}
+
+	tests := []struct {
+		name    string
+		resp    *mcp.ToolCallResponse
+		wantErr string
+	}{
+		{
+			name: "structuredContent used when no text content",
+			resp: &mcp.ToolCallResponse{
+				IsError:           true,
+				StructuredContent: json.RawMessage(`{"code":"out_of_stock"}`),
+			},
+			wantErr: `{"code":"out_of_stock"}`,
+		},
+		{
+			name: "text content still wins",
+			resp: &mcp.ToolCallResponse{
+				IsError:           true,
+				Content:           []mcp.Content{{Type: "text", Text: "Item out of stock"}},
+				StructuredContent: json.RawMessage(`{"code":"out_of_stock"}`),
+			},
+			wantErr: "Item out of stock",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newStructuredContentExecutor(tt.resp).Execute(
+				context.Background(), descriptor, json.RawMessage(`{}`))
+			if err == nil {
+				t.Fatal("Execute() with error response should return error")
+			}
+			if err.Error() != tt.wantErr {
+				t.Errorf("Execute() error = %q, want %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}

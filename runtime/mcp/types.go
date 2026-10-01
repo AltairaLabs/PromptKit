@@ -117,7 +117,17 @@ type ToolCallRequest struct {
 // ToolCallResponse represents the response from a tool execution
 type ToolCallResponse struct {
 	Content []Content `json:"content"`
-	IsError bool      `json:"isError,omitempty"`
+	// StructuredContent is the tool's structured result (MCP 2025-06-18).
+	// Servers SHOULD mirror it as serialized JSON in Content, but are not
+	// required to, so it is the authoritative result when present.
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	IsError           bool            `json:"isError,omitempty"`
+}
+
+// HasStructuredContent reports whether the response carries a non-null
+// structuredContent payload.
+func (r *ToolCallResponse) HasStructuredContent() bool {
+	return len(r.StructuredContent) > 0 && string(r.StructuredContent) != "null"
 }
 
 // Content represents a content item in MCP responses

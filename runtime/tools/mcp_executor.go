@@ -143,6 +143,9 @@ func mcpRawToolName(qualifiedName string) string {
 
 func (e *MCPExecutor) handleErrorResponse(toolName string, response *mcp.ToolCallResponse) error {
 	errorMsg := e.extractErrorMessage(response.Content)
+	if errorMsg == mcpToolReturnedErr && response.HasStructuredContent() {
+		errorMsg = string(response.StructuredContent)
+	}
 	logger.Error("MCP tool returned error", "tool", toolName, "error", errorMsg)
 	return fmt.Errorf("%s", errorMsg)
 }
@@ -166,6 +169,11 @@ func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
 }
 
 func (e *MCPExecutor) formatSuccessResponse(toolName string, response *mcp.ToolCallResponse) (json.RawMessage, error) {
+	if response.HasStructuredContent() {
+		logger.Info(mcpToolSuccess, "tool", toolName, "result_type", "structuredContent")
+		return response.StructuredContent, nil
+	}
+
 	if len(response.Content) == 0 {
 		logger.Info(mcpToolSuccess, "tool", toolName, "result", "empty (success)")
 		return json.Marshal("Operation completed successfully")

@@ -78,6 +78,7 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 - [type Tool](<#Tool>)
 - [type ToolCallRequest](<#ToolCallRequest>)
 - [type ToolCallResponse](<#ToolCallResponse>)
+  - [func \(r \*ToolCallResponse\) HasStructuredContent\(\) bool](<#ToolCallResponse.HasStructuredContent>)
 - [type ToolFilter](<#ToolFilter>)
   - [func \(f ToolFilter\) Includes\(name string\) bool](<#ToolFilter.Includes>)
 - [type ToolsCapability](<#ToolsCapability>)
@@ -127,7 +128,7 @@ var (
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L133-L148>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L143-L158>)
 
 Client interface defines the MCP client operations
 
@@ -196,7 +197,7 @@ func DefaultClientOptions() ClientOptions
 DefaultClientOptions returns sensible defaults
 
 <a name="Content"></a>
-## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L124-L130>)
+## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L134-L140>)
 
 Content represents a content item in MCP responses
 
@@ -307,7 +308,7 @@ type PromptsCapability struct {
 ```
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L256-L281>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L266-L291>)
 
 Registry interface defines the MCP server registry operations
 
@@ -602,7 +603,7 @@ type ServerCapabilities struct {
 ```
 
 <a name="ServerConfig"></a>
-## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L198-L221>)
+## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L208-L231>)
 
 ServerConfig represents configuration for an MCP server.
 
@@ -641,7 +642,7 @@ type ServerConfig struct {
 ```
 
 <a name="ServerConfig.Transport"></a>
-### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L242>)
+### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L252>)
 
 ```go
 func (c *ServerConfig) Transport() Transport
@@ -843,19 +844,32 @@ type ToolCallRequest struct {
 ```
 
 <a name="ToolCallResponse"></a>
-## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L118-L121>)
+## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L118-L125>)
 
 ToolCallResponse represents the response from a tool execution
 
 ```go
 type ToolCallResponse struct {
     Content []Content `json:"content"`
-    IsError bool      `json:"isError,omitempty"`
+    // StructuredContent is the tool's structured result (MCP 2025-06-18).
+    // Servers SHOULD mirror it as serialized JSON in Content, but are not
+    // required to, so it is the authoritative result when present.
+    StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+    IsError           bool            `json:"isError,omitempty"`
 }
 ```
 
+<a name="ToolCallResponse.HasStructuredContent"></a>
+### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L129>)
+
+```go
+func (r *ToolCallResponse) HasStructuredContent() bool
+```
+
+HasStructuredContent reports whether the response carries a non\-null structuredContent payload.
+
 <a name="ToolFilter"></a>
-## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L154-L157>)
+## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L164-L167>)
 
 ToolFilter controls which tools from an MCP server are exposed to the LLM. If Allowlist is non\-empty, only those tools are included. If Blocklist is non\-empty, those tools are excluded. Allowlist takes precedence over Blocklist.
 
@@ -867,7 +881,7 @@ type ToolFilter struct {
 ```
 
 <a name="ToolFilter.Includes"></a>
-### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L171>)
+### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L181>)
 
 ```go
 func (f ToolFilter) Includes(name string) bool
@@ -908,7 +922,7 @@ type ToolsListResponse struct {
 ```
 
 <a name="Transport"></a>
-## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L224>)
+## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L234>)
 
 Transport identifies which transport adapter should serve a config.
 
