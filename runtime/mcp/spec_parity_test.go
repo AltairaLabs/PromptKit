@@ -75,6 +75,7 @@ const (
 	reasonTasks          = "tasks are experimental in this revision; the client does not implement or advertise them"
 	reasonSampling       = "sampling is not implemented or advertised (deprecated in 2026-07-28)"
 	reasonRequestMeta    = "the client sends no request _meta (progress tokens are not requested)"
+	reasonModernOnly     = "2026-07-28 MRTR field, sent only to modern servers and only in answer to input_required"
 )
 
 func mcpSpecPins() []specPin {
@@ -98,7 +99,6 @@ func mcpSpecPins() []specPin {
 			refs:  []string{"InitializeResult"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
-				{"instructions", "server instructions are not passed to the model"},
 			},
 		},
 		{value: Implementation{}, refs: []string{"Implementation"}},
@@ -175,6 +175,10 @@ func mcpSpecPins() []specPin {
 				{"_meta", reasonRequestMeta},
 				{"task", reasonTasks},
 			},
+			nonSpec: []nonSpecField{
+				{"inputResponses", reasonModernOnly},
+				{"requestState", reasonModernOnly},
+			},
 		},
 		{
 			value: ToolCallResponse{},
@@ -208,29 +212,37 @@ func mcpSpecPins() []specPin {
 // why. A struct that is neither pinned nor listed here fails
 // TestMCPSpecCoverage.
 var notWire = map[string]string{
-	"ClientOptions":       "client configuration, never serialized to a server",
-	"StdioClient":         "transport implementation",
-	"SSEClient":           "transport implementation",
-	"StreamableClient":    "transport implementation",
-	"RegistryOptions":     "registry configuration",
-	"RegistryImpl":        "registry implementation",
-	"ServerConfigData":    "PromptKit's server config file shape, not MCP",
-	"ServerConfig":        "PromptKit's server configuration, not MCP",
-	"ToolFilter":          "PromptKit's tool allow/deny configuration, not MCP",
-	"LoggingCapability":   "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
-	"RPCError":            "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
-	"callOpts":            "per-call retry policy",
-	"streamCursor":        "resume position of an SSE stream, below the MCP message layer",
-	"ElicitRequest":       "the handler-facing form of elicitation/create params; pinned with the 2025-11-25 mirror",
-	"ElicitResult":        "the handler-facing form of the elicitation result; pinned with the 2025-11-25 mirror",
-	"httpStatusError":     "an HTTP status without a JSON-RPC body, below the MCP message layer",
-	"request":             "an outgoing message before it is framed; the wire shape is JSONRPCMessage",
-	"session":             "the protocol state machine",
-	"stdioConn":           "transport implementation",
-	"pendingRequests":     "transport bookkeeping",
-	"sseEvent":            "an SSE frame, below the MCP message layer",
-	"sseTransport":        "transport implementation",
-	"streamableTransport": "transport implementation",
+	"ClientOptions":          "client configuration, never serialized to a server",
+	"StdioClient":            "transport implementation",
+	"SSEClient":              "transport implementation",
+	"StreamableClient":       "transport implementation",
+	"httpAutoClient":         "transport selection: Streamable HTTP with the HTTP+SSE fallback",
+	"RegistryOptions":        "registry configuration",
+	"RegistryImpl":           "registry implementation",
+	"ServerConfigData":       "PromptKit's server config file shape, not MCP",
+	"ServerConfig":           "PromptKit's server configuration, not MCP",
+	"ToolFilter":             "PromptKit's tool allow/deny configuration, not MCP",
+	"LoggingCapability":      "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
+	"RPCError":               "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
+	"callOpts":               "per-call retry policy",
+	"callState":              "per-call recovery bookkeeping",
+	"paramHeader":            "an x-mcp-header designation parsed from a tool's inputSchema",
+	"inputRequiredError":     "carries an input_required result to the caller that retries",
+	"unsupportedVersionData": "the data of an UnsupportedProtocolVersionError; pinned with the 2026-07-28 mirror",
+	"DiscoverResult":         "a 2026-07-28 type; pinned with the 2026-07-28 mirror",
+	"InputRequiredResult":    "a 2026-07-28 type; pinned with the 2026-07-28 mirror",
+	"InputRequest":           "a 2026-07-28 type; pinned with the 2026-07-28 mirror",
+	"streamCursor":           "resume position of an SSE stream, below the MCP message layer",
+	"ElicitRequest":          "the handler-facing form of elicitation/create params; pinned with the 2025-11-25 mirror",
+	"ElicitResult":           "the handler-facing form of the elicitation result; pinned with the 2025-11-25 mirror",
+	"httpStatusError":        "an HTTP status without a JSON-RPC body, below the MCP message layer",
+	"request":                "an outgoing message before it is framed; the wire shape is JSONRPCMessage",
+	"session":                "the protocol state machine",
+	"stdioConn":              "transport implementation",
+	"pendingRequests":        "transport bookkeeping",
+	"sseEvent":               "an SSE frame, below the MCP message layer",
+	"sseTransport":           "transport implementation",
+	"streamableTransport":    "transport implementation",
 }
 
 func loadMCPSpec(t *testing.T) map[string]any {

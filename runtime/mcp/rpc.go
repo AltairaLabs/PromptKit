@@ -15,6 +15,9 @@ const (
 	methodToolsList           = "tools/list"
 	methodToolsCall           = "tools/call"
 	methodNotificationsCancel = "notifications/cancelled" //nolint:misspell // the spec's method name
+	methodPromptsGet          = "prompts/get"
+	methodResourcesRead       = "resources/read"
+	paramName                 = "name"
 )
 
 // Standard JSON-RPC error codes the client emits when answering a server.
@@ -56,6 +59,11 @@ const jsonNull = "null"
 // errNoResponse is returned by a conn when the server answered a request
 // without a JSON-RPC response (for example a Streamable HTTP 202).
 var errNoResponse = errors.New("mcp: server returned no response to the request")
+
+// errStreamBroken is returned by a conn when a modern request's response
+// stream ended before the response. The server treats the closed stream as
+// cancellation, and the client re-issues the request.
+var errStreamBroken = errors.New("mcp: response stream ended before the response")
 
 // errSessionExpired is returned by a conn when the server has discarded the
 // transport session the request was sent on (Streamable HTTP 404 with a

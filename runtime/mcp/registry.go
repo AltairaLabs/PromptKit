@@ -78,6 +78,11 @@ func newClientAdapter(config *ServerConfig) Client {
 	if config.TimeoutMs > 0 {
 		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
 	}
+	if config.TransportName == "" && config.URL != "" {
+		// A URL with no transport named: Streamable HTTP, falling back to
+		// HTTP+SSE if the server only hosts that.
+		return newHTTPAutoClient(config, &opts)
+	}
 	switch config.Transport() {
 	case TransportStreamableHTTP:
 		return NewStreamableClientWithOptions(*config, opts)

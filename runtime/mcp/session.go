@@ -29,15 +29,15 @@ const cancelNotifyTimeout = 2 * time.Second
 // legacyProtocolVersions are the handshake-era revisions the client can
 // speak, newest first. initialize offers the first; a server may answer with
 // any of them.
-var legacyProtocolVersions = []string{ProtocolVersion, "2025-06-18", "2025-03-26", "2024-11-05"}
+var legacyProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
 // errRequestTimeout is the context cause set when a request outlives
 // ClientOptions.RequestTimeout, so it can be told apart from the caller's own
 // deadline or cancellation.
 var errRequestTimeout = errors.New("mcp: request timeout")
 
-// session is the MCP protocol spoken over one conn: the handshake, the
-// negotiated version, request ids, timeouts and cancellation, retries, and
+// session is the MCP protocol spoken over one conn: which era and version
+// the server speaks, request ids, timeouts and cancellation, retries, and
 // answering requests the server makes of the client. Every transport's
 // client delegates to one, so the protocol is implemented once.
 type session struct {
@@ -51,15 +51,19 @@ type session struct {
 	handshake sync.Mutex
 
 	mu         sync.RWMutex
-	version    string // negotiated protocol version; "" before the handshake
+	era        era
+	version    string // the protocol version in use; "" before it is agreed
 	serverInfo *InitializeResponse
+	// toolHeaders caches each tool's x-mcp-header designations from the
+	// last tools/list (modern era), for mirroring into Mcp-Param headers.
+	toolHeaders map[string][]paramHeader
 }
 
 func newSession(name string, opts ClientOptions) *session {
 	return &session{name: name, opts: opts}
 }
 
-// negotiatedVersion returns the protocol version agreed in the handshake.
+// negotiatedVersion returns the protocol version in use.
 func (s *session) negotiatedVersion() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -92,6 +96,13 @@ func clientInfo() Implementation {
 func (s *session) initialize(ctx context.Context) (*InitializeResponse, error) {
 	s.handshake.Lock()
 	defer s.handshake.Unlock()
+
+	s.mu.Lock()
+	s.era, s.version = eraLegacy, ""
+	s.mu.Unlock()
+	if ea, ok := s.conn.(eraAware); ok {
+		ea.setModern(false)
+	}
 
 	initCtx, cancel := context.WithTimeout(ctx, s.opts.InitTimeout)
 	defer cancel()
@@ -137,7 +148,10 @@ type handshakeAware interface {
 	handshakeDone()
 }
 
-// listTools returns every tool the server offers, following pagination.
+// listTools returns every tool the server offers, following pagination. On
+// a modern server it also caches each tool's x-mcp-header designations, and
+// excludes tools whose designations are invalid (2026-07-28: a client on
+// Streamable HTTP MUST).
 func (s *session) listTools(ctx context.Context) ([]Tool, error) {
 	var tools []Tool
 	seen := map[string]bool{}
@@ -153,7 +167,7 @@ func (s *session) listTools(ctx context.Context) ([]Tool, error) {
 		}
 		tools = append(tools, resp.Tools...)
 		if resp.NextCursor == "" {
-			return tools, nil
+			return s.indexToolHeaders(tools), nil
 		}
 		if seen[resp.NextCursor] {
 			return nil, fmt.Errorf("mcp: server %s repeated tools/list cursor %q", s.name, resp.NextCursor)
@@ -162,6 +176,30 @@ func (s *session) listTools(ctx context.Context) ([]Tool, error) {
 		cursor = resp.NextCursor
 	}
 	return nil, fmt.Errorf("mcp: server %s returned more than %d pages of tools", s.name, maxToolPages)
+}
+
+// indexToolHeaders records the tools' x-mcp-header designations and drops
+// tools whose designations are invalid. It applies to modern servers only:
+// the annotation does not exist in earlier revisions.
+func (s *session) indexToolHeaders(tools []Tool) []Tool {
+	if !s.isModern() {
+		return tools
+	}
+	index := make(map[string][]paramHeader, len(tools))
+	kept := tools[:0]
+	for _, t := range tools {
+		headers, err := toolParamHeaders(t.InputSchema)
+		if err != nil {
+			logger.Warn("MCP excluding tool with an invalid x-mcp-header", "server", s.name, "tool", t.Name, "reason", err)
+			continue
+		}
+		index[t.Name] = headers
+		kept = append(kept, t)
+	}
+	s.mu.Lock()
+	s.toolHeaders = index
+	s.mu.Unlock()
+	return kept
 }
 
 // listToolsDegrading is listTools with the client's graceful-degradation
@@ -178,17 +216,6 @@ func (s *session) listToolsDegrading(ctx context.Context) ([]Tool, error) {
 	return nil, fmt.Errorf("tools/list request failed: %w", err)
 }
 
-// callTool invokes a tool. It is never retried: a tool may have side effects,
-// and a JSON-RPC error or a timeout does not mean it did not run.
-func (s *session) callTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error) {
-	var resp ToolCallResponse
-	req := ToolCallRequest{Name: name, Arguments: arguments}
-	if err := s.call(ctx, methodToolsCall, req, &resp, callOpts{}); err != nil {
-		return nil, fmt.Errorf("tools/call request failed: %w", err)
-	}
-	return &resp, nil
-}
-
 // callOpts tunes one call.
 type callOpts struct {
 	// idempotent requests are retried on transport failures.
@@ -198,30 +225,41 @@ type callOpts struct {
 	noReinit bool
 }
 
+// callState tracks the one-shot recoveries a call may make.
+type callState struct {
+	reinitialized    bool
+	versionRetried   bool
+	headersRefreshed bool
+	reissued         bool
+}
+
 // call sends one request and decodes its result into out.
 //
 // Retries: only idempotent requests, and only on transport failures. A
 // JSON-RPC error is the server's answer, and a timeout may have been
-// processed; neither is retried.
+// processed; neither is retried. The exceptions are failures that say the
+// request was not processed — an expired session, a protocol version or
+// header the server rejected — and, on a modern server, a broken response
+// stream, which the spec requires the client to re-issue.
 func (s *session) call(ctx context.Context, method string, params, out any, o callOpts) error {
 	raw, err := marshalParams(params)
 	if err != nil {
 		return err
 	}
-	reinitialized := false
+	var st callState
 	for attempt := 0; ; attempt++ {
 		resp, err := s.roundTrip(ctx, method, raw)
+		if err == nil {
+			err = s.decode(method, resp, out)
+		}
+		if err == nil {
+			return nil
+		}
+		retry, rerr := s.recover(ctx, method, err, o, &st)
 		switch {
-		case err == nil:
-			return decodeResult(resp, out)
-		case errors.Is(err, errSessionExpired) && !o.noReinit && !reinitialized:
-			// The request was not processed: the server discarded the session
-			// it was sent on. Start a new one and send it again.
-			reinitialized = true
-			logger.Info("MCP session expired, re-initializing", "server", s.name)
-			if _, ierr := s.initialize(ctx); ierr != nil {
-				return fmt.Errorf("mcp: re-initialize after session expiry: %w", ierr)
-			}
+		case rerr != nil:
+			return rerr
+		case retry:
 			continue
 		case o.idempotent && attempt < s.opts.MaxRetries && isTransportFailure(err):
 			logger.Warn("MCP request failed, retrying",
@@ -237,11 +275,95 @@ func (s *session) call(ctx context.Context, method string, params, out any, o ca
 	}
 }
 
+// recover handles a failure that means the request was not processed and
+// can be sent again once the cause is fixed. It reports whether to retry.
+func (s *session) recover(ctx context.Context, method string, err error, o callOpts, st *callState) (bool, error) {
+	var rpcErr *RPCError
+	switch {
+	case errors.Is(err, errSessionExpired) && !o.noReinit && !st.reinitialized:
+		// The server discarded the session the request was sent on.
+		st.reinitialized = true
+		logger.Info("MCP session expired, re-initializing", "server", s.name)
+		if _, ierr := s.initialize(ctx); ierr != nil {
+			return false, fmt.Errorf("mcp: re-initialize after session expiry: %w", ierr)
+		}
+		return true, nil
+	case errors.As(err, &rpcErr) && rpcErr.Code == codeUnsupportedProtocolVersion && s.isModern() && !st.versionRetried:
+		st.versionRetried = true
+		return s.renegotiate(ctx, rpcErr)
+	case errors.As(err, &rpcErr) && rpcErr.Code == codeHeaderMismatch && method == methodToolsCall &&
+		!st.headersRefreshed:
+		// The tool's x-mcp-header designations changed; re-list and resend.
+		st.headersRefreshed = true
+		if _, lerr := s.listTools(ctx); lerr != nil {
+			return false, err
+		}
+		return true, nil
+	case errors.Is(err, errStreamBroken) && !st.reissued:
+		// 2026-07-28: a broken response stream loses the request, and the
+		// server treats it as canceled; the client MUST re-issue it.
+		st.reissued = true
+		return true, nil
+	}
+	return false, nil
+}
+
+// renegotiate switches to a version the server says it supports, after an
+// UnsupportedProtocolVersionError.
+func (s *session) renegotiate(ctx context.Context, rpcErr *RPCError) (bool, error) {
+	next, legacy, ok := s.pickVersion(rpcErr)
+	switch {
+	case !ok:
+		return false, rpcErr
+	case legacy:
+		if _, err := s.initialize(ctx); err != nil {
+			return false, fmt.Errorf("mcp: fall back to a handshake-era version: %w", err)
+		}
+	default:
+		s.mu.Lock()
+		s.version = next
+		s.mu.Unlock()
+	}
+	return true, nil
+}
+
+// decode checks a response's resultType and decodes its result into out.
+// An absent resultType means "complete" (earlier revisions omit it); an
+// input_required result, valid only for some methods, is returned as an
+// *inputRequiredError for the caller to fulfill.
+func (s *session) decode(method string, resp *JSONRPCMessage, out any) error {
+	if resp.Error != nil {
+		return rpcErrorFrom(resp.Error)
+	}
+	var shape struct {
+		ResultType *string `json:"resultType"`
+	}
+	if len(resp.Result) > 0 {
+		_ = json.Unmarshal(resp.Result, &shape)
+	}
+	if shape.ResultType != nil {
+		switch *shape.ResultType {
+		case resultTypeComplete:
+		case resultTypeInputRequired:
+			if !mrtrMethods[method] {
+				return fmt.Errorf("mcp: server returned input_required for %s, which does not allow it", method)
+			}
+			return &inputRequiredError{result: resp.Result}
+		default:
+			return fmt.Errorf("mcp: server returned unrecognized resultType %q", *shape.ResultType)
+		}
+	}
+	return decodeResult(resp, out)
+}
+
 // roundTrip sends one request with a fresh id, applying the request timeout.
 // If the client stops waiting — timeout or the caller's cancellation — the
 // server is told the request is abandoned.
 func (s *session) roundTrip(ctx context.Context, method string, params json.RawMessage) (*JSONRPCMessage, error) {
-	req := &request{id: s.nextID.Add(1), method: method, params: params, header: s.requestHeader(method)}
+	req, err := s.buildRequest(method, params)
+	if err != nil {
+		return nil, err
+	}
 
 	reqCtx, cancel := ctx, context.CancelFunc(func() {})
 	if s.opts.RequestTimeout > 0 {
@@ -265,6 +387,45 @@ func (s *session) roundTrip(ctx context.Context, method string, params json.RawM
 	return nil, ctx.Err()
 }
 
+// buildRequest shapes a request for the era in use. Every request carries
+// Mcp-Method (and Mcp-Name where defined) on HTTP; after the version is
+// agreed, MCP-Protocol-Version. A modern request also carries the protocol
+// metadata in _meta, and a tools/call mirrors the tool's x-mcp-header
+// parameters into Mcp-Param headers.
+func (s *session) buildRequest(method string, params json.RawMessage) (*request, error) {
+	modern, ver := s.isModern(), s.negotiatedVersion()
+	if modern {
+		var err error
+		if params, err = withMeta(params, s.requestMeta(ver)); err != nil {
+			return nil, err
+		}
+	}
+	req := &request{id: s.nextID.Add(1), method: method, params: params, header: http.Header{}}
+	if ver != "" && method != methodInitialize {
+		req.header.Set(headerProtocolVersion, ver)
+	}
+	setStandardHeaders(req.header, method, params)
+	if modern && method == methodToolsCall {
+		if err := s.setToolParamHeaders(req.header, params); err != nil {
+			return nil, err
+		}
+	}
+	return req, nil
+}
+
+// setToolParamHeaders mirrors a tool call's designated arguments into
+// Mcp-Param headers.
+func (s *session) setToolParamHeaders(h http.Header, params json.RawMessage) error {
+	var call ToolCallRequest
+	if json.Unmarshal(params, &call) != nil {
+		return nil
+	}
+	s.mu.RLock()
+	headers := s.toolHeaders[call.Name]
+	s.mu.RUnlock()
+	return setParamHeaders(h, headers, call.Arguments)
+}
+
 // cancel sends a best-effort cancellation notification for a request the
 // client has stopped waiting for.
 func (s *session) cancel(id int64, header http.Header) {
@@ -273,29 +434,25 @@ func (s *session) cancel(id int64, header http.Header) {
 	s.conn.cancelRequest(ctx, id, "client stopped waiting for the response", header)
 }
 
-// requestHeader returns the per-request transport headers. After the
-// handshake, HTTP requests carry the negotiated protocol version.
-func (s *session) requestHeader(method string) http.Header {
-	h := http.Header{}
-	if v := s.negotiatedVersion(); v != "" && method != methodInitialize {
-		h.Set(headerProtocolVersion, v)
-	}
-	return h
-}
-
 // notify sends a notification.
 func (s *session) notify(ctx context.Context, method string, params any) error {
 	raw, err := marshalParams(params)
 	if err != nil {
 		return err
 	}
-	return s.conn.notify(ctx, &request{method: method, params: raw, header: s.requestHeader(method)})
+	h := http.Header{}
+	if v := s.negotiatedVersion(); v != "" {
+		h.Set(headerProtocolVersion, v)
+	}
+	h.Set(headerMcpMethod, method)
+	return s.conn.notify(ctx, &request{method: method, params: raw, header: h})
 }
 
-// serverRequest answers a request the server makes of the client. The client
-// answers ping, and refuses every method it has not advertised a capability
-// for with Method not found, so a server never waits on a request nobody
-// will answer.
+// serverRequest answers a request the server makes of the client (legacy
+// servers only; modern servers ask through input_required results). The
+// client answers ping, and refuses every method it has not advertised a
+// capability for with Method not found, so a server never waits on a
+// request nobody will answer.
 func (s *session) serverRequest(ctx context.Context, msg *JSONRPCMessage) *JSONRPCMessage {
 	switch msg.Method {
 	case methodPing:
@@ -334,8 +491,10 @@ func decodeResult(resp *JSONRPCMessage, out any) error {
 // at all — not the server's answer, and not the client giving up.
 func isTransportFailure(err error) bool {
 	var rpcErr *RPCError
+	var ir *inputRequiredError
 	switch {
 	case errors.As(err, &rpcErr),
+		errors.As(err, &ir),
 		errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, ErrServerUnresponsive),

@@ -53,7 +53,7 @@ func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse,
 	sess, tr := c.sess, c.tr
 	c.mu.Unlock()
 
-	resp, err := sess.initialize(ctx)
+	resp, err := sess.connect(ctx)
 	if err != nil {
 		_ = tr.close()
 		return nil, err

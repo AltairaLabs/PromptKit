@@ -257,7 +257,10 @@ func TestStreamableTransport_CustomHeadersAndProtocolVersion(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t, got, 3)
+	require.Len(t, got, 4)
+	assert.Equal(t, seen{"server/discover", "Bearer tok", "2026-07-28", "application/json, text/event-stream"}, got[0],
+		"the dual-era client probes with the modern version first")
+	got = got[1:]
 	assert.Equal(t, seen{"initialize", "Bearer tok", "", "application/json, text/event-stream"}, got[0])
 	assert.Equal(t, "2025-03-26", got[1].version, "notifications/initialized carries the negotiated version")
 	assert.Equal(t, seen{"tools/list", "Bearer tok", "2025-03-26", "application/json, text/event-stream"}, got[2])

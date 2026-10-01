@@ -84,9 +84,18 @@ type streamableTransport struct {
 	listenCancel context.CancelFunc
 	wg           sync.WaitGroup
 
+	// modern is set once the server is known to speak a stateless revision
+	// (2026-07-28): no sessions, no standalone stream, no resumption, and
+	// closing a response stream is the cancellation.
+	modern atomic.Bool
+
 	closed atomic.Bool
 	alive  atomic.Bool
 }
+
+func (t *streamableTransport) supportsModern() bool { return true }
+
+func (t *streamableTransport) setModern(modern bool) { t.modern.Store(modern) }
 
 // newStreamableTransport constructs a Streamable HTTP transport. The transport
 // is considered "alive" once the first successful request has completed.
@@ -272,7 +281,7 @@ func (t *streamableTransport) send(ctx context.Context, req *request) (*JSONRPCM
 	defer func() { _ = resp.Body.Close() }()
 
 	switch {
-	case resp.StatusCode == http.StatusNotFound && sentSession != "":
+	case resp.StatusCode == http.StatusNotFound && sentSession != "" && !t.modern.Load():
 		// The server no longer knows the session (2025-03-26+): the client MUST
 		// start a new one with a fresh initialize.
 		t.dropSession(sentSession)
@@ -354,6 +363,9 @@ func (t *streamableTransport) notify(ctx context.Context, req *request) error {
 // The abandoned POST has already been closed, which a server may also take
 // as cancellation.
 func (t *streamableTransport) cancelRequest(ctx context.Context, id int64, reason string, header http.Header) {
+	if t.modern.Load() {
+		return // closing the response stream was the cancellation
+	}
 	if err := t.notify(ctx, cancelNotification(id, reason, header)); err != nil {
 		logger.Debug("MCP/Streamable failed to send cancellation", "server", t.config.Name, "error", err)
 	}
@@ -417,8 +429,8 @@ func (t *streamableTransport) applySessionHeaders(req *http.Request, sid string)
 
 func (t *streamableTransport) captureSession(resp *http.Response) {
 	sid := resp.Header.Get(headerSessionID)
-	if sid == "" {
-		return
+	if sid == "" || t.modern.Load() {
+		return // stateless revisions have no sessions
 	}
 	t.mu.Lock()
 	t.sessionID = sid
@@ -456,6 +468,11 @@ func (t *streamableTransport) readStream(ctx context.Context, body io.Reader, wa
 		resp, err := t.readStreamOnce(ctx, body, wantID, &cur)
 		if resp != nil || err != nil {
 			return resp, err
+		}
+		if t.modern.Load() {
+			// Streams are not resumable in stateless revisions; the request is
+			// lost and must be re-issued.
+			return nil, errStreamBroken
 		}
 		if cur.lastEventID == "" || resumes >= maxStreamResumes {
 			return nil, errStreamEnded

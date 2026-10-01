@@ -188,10 +188,13 @@ func TestStreamableClient_Initialize_SendsInitializedNotification(t *testing.T) 
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"always", "gated"}, toolNames(tools))
+	// The dual-era client probes with server/discover first; this server
+	// predates it, so the client falls back to the handshake.
 	recs := state.snapshot()
-	require.Len(t, recs, 3)
-	assert.Equal(t, []string{methodInitialize, methodInitializedNt, methodToolsList},
-		[]string{recs[0].method, recs[1].method, recs[2].method})
+	require.Len(t, recs, 4)
+	assert.Equal(t, []string{methodServerDiscover, methodInitialize, methodInitializedNt, methodToolsList},
+		[]string{recs[0].method, recs[1].method, recs[2].method, recs[3].method})
+	recs = recs[1:]
 	assert.False(t, recs[1].hasID, "a notification must not carry an id")
 	assert.Equal(t, gatedTestSessionID, recs[1].sessionID, "notification must carry the session id")
 	assert.Equal(t, gatedTestHeaderVal, recs[1].header, "notification must carry the configured headers")
@@ -236,8 +239,8 @@ func TestStreamableClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T
 	assert.Equal(t, "gated", resp.ServerInfo.Name)
 	assert.True(t, c.IsAlive())
 	recs := state.snapshot()
-	require.Len(t, recs, 2)
-	assert.Equal(t, methodInitializedNt, recs[1].method)
+	require.Len(t, recs, 3, "probe, initialize, initialized")
+	assert.Equal(t, methodInitializedNt, recs[2].method)
 }
 
 // The SSE client treats a rejected notification the same way: logged, and

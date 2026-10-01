@@ -15,10 +15,18 @@ MCP servers can be reached over three transports, selected by which `ServerConfi
 
 - **stdio** (default when `Command` is set) — PromptKit spawns the MCP server as a local
   subprocess. Set `Command` and optional `Args` / `Env`.
-- **HTTP+SSE** (default when `URL` is set) — the legacy two-endpoint transport from the MCP
-  2024-11-05 spec.
-- **Streamable HTTP** — the single-endpoint POST transport from the MCP 2025-03-26 spec. Explicit
-  opt-in: set `URL` together with `TransportName: mcp.TransportStreamableHTTP`.
+- **Streamable HTTP** (default when `URL` is set) — the single-endpoint POST transport,
+  introduced in MCP 2025-03-26. If the server does not host a Streamable HTTP endpoint at the
+  URL (it refuses the POST with 400, 404 or 405), the client falls back to HTTP+SSE.
+- **HTTP+SSE** — the deprecated two-endpoint transport from MCP 2024-11-05. Set
+  `TransportName: mcp.TransportSSE` to use it without trying Streamable HTTP first.
+
+Over stdio and Streamable HTTP the client speaks both generations of the protocol. It
+first asks the server which revisions it supports (`server/discover`). A 2026-07-28 server is
+then used statelessly: every request carries the protocol version and client capabilities, and
+there is no handshake or session. A server that predates discovery gets the `initialize`
+handshake of revisions up to 2025-11-25. Set `ClientOptions.DisableModernProtocol` to skip the
+discovery probe for a server that misbehaves when it receives one.
 
 ## Spec support
 
@@ -34,7 +42,6 @@ Spec fields PromptKit does not carry:
 |---|---|---|
 | InitializeRequest params | `_meta` | the client sends no request _meta (progress tokens are not requested) |
 | InitializeResult | `_meta` | _meta is not surfaced to callers |
-| InitializeResult | `instructions` | server instructions are not passed to the model |
 | ClientCapabilities | `experimental` | the client does not implement this feature, so it does not advertise it |
 | ClientCapabilities | `roots` | the client does not implement this feature, so it does not advertise it |
 | ClientCapabilities | `tasks` | tasks are experimental in this revision; the client does not implement or advertise them |
@@ -68,6 +75,8 @@ Spec fields PromptKit does not carry:
 Fields PromptKit declares that the spec does not define:
 
 - ClientCapabilities `logging`: logging is a server capability, not a client one; the client never sets this field, so it is never sent. Exported, so it stays until the next major (see LoggingCapability)
+- CallToolRequest params `inputResponses`: 2026-07-28 MRTR field, sent only to modern servers and only in answer to input_required
+- CallToolRequest params `requestState`: 2026-07-28 MRTR field, sent only to modern servers and only in answer to input_required
 
 <!-- END GENERATED: mcp-spec-support -->
 

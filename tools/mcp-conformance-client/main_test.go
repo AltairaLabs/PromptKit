@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 )
 
 func TestSampleArgs(t *testing.T) {
@@ -70,13 +72,19 @@ func fakeServer(t *testing.T, failCall bool) (url string, calls *[]string) {
 			received = append(received, string(req.Params))
 			if failCall {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32602,"message":"bad"}}`, req.ID)
+				_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32602,"message":"bad"}}`, mustJSONID(req.ID))
 				return
 			}
 			result = `{"content":[{"type":"text","text":"ok"}]}`
+		default:
+			// A handshake-era server: unknown methods, server/discover among
+			// them, get Method not found.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32601,"message":"Method not found"}}`, mustJSONID(req.ID))
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":%s}`, req.ID, result)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":%s}`, mustJSONID(req.ID), result)
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL, &received
@@ -85,7 +93,7 @@ func fakeServer(t *testing.T, failCall bool) (url string, calls *[]string) {
 func TestRealMain_CallsEveryListedTool(t *testing.T) {
 	url, calls := fakeServer(t, false)
 	var stderr bytes.Buffer
-	if code := realMain([]string{"bin", url}, "tools_call", &stderr); code != 0 {
+	if code := realMain([]string{"bin", url}, "tools_call", "", &stderr); code != 0 {
 		t.Fatalf("realMain = %d, stderr: %s", code, stderr.String())
 	}
 	if len(*calls) != 1 || !strings.Contains((*calls)[0], `"a":1`) {
@@ -93,20 +101,60 @@ func TestRealMain_CallsEveryListedTool(t *testing.T) {
 	}
 }
 
-func TestRealMain_ReportsFailures(t *testing.T) {
+func TestRealMain_ToolCallRejectionIsReportedNotFatal(t *testing.T) {
 	url, _ := fakeServer(t, true)
 	var stderr bytes.Buffer
-	if code := realMain([]string{"bin", url}, "tools_call", &stderr); code != 1 {
-		t.Errorf("realMain = %d, want 1", code)
+	if code := realMain([]string{"bin", url}, "tools_call", "", &stderr); code != 0 {
+		t.Errorf("realMain = %d, want 0: the scenario's checks judge a rejected call", code)
 	}
-	if !strings.Contains(stderr.String(), "scenario tools_call: tools/call add") {
-		t.Errorf("stderr = %q, want the failing scenario and tool named", stderr.String())
+	if !strings.Contains(stderr.String(), "tools/call add") {
+		t.Errorf("stderr = %q, want the rejected tool named", stderr.String())
+	}
+}
+
+func TestRealMain_UsesTheScenarioToolCalls(t *testing.T) {
+	url, calls := fakeServer(t, false)
+	var stderr bytes.Buffer
+	ctx := `{"toolCalls":[{"name":"add","arguments":{"a":7,"b":null}}]}`
+	if code := realMain([]string{"bin", url}, "http-custom-headers", ctx, &stderr); code != 0 {
+		t.Fatalf("realMain = %d, stderr: %s", code, stderr.String())
+	}
+	if len(*calls) != 1 || !strings.Contains((*calls)[0], `"a":7`) || !strings.Contains((*calls)[0], `"b":null`) {
+		t.Errorf("tool calls = %v, want the scenario's arguments verbatim", *calls)
+	}
+}
+
+func TestRealMain_UnreachableServerFails(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := realMain([]string{"bin", "http://127.0.0.1:1/mcp"}, "tools_call", "", &stderr); code != 1 {
+		t.Errorf("realMain = %d, want 1", code)
 	}
 }
 
 func TestRealMain_Usage(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := realMain([]string{"bin"}, "", &stderr); code != exitUsage {
+	if code := realMain([]string{"bin"}, "", "", &stderr); code != exitUsage {
 		t.Errorf("realMain = %d, want %d", code, exitUsage)
+	}
+}
+
+func mustJSONID(id any) string {
+	b, _ := json.Marshal(id)
+	return string(b)
+}
+
+func TestDefaultCalls_EchoesTheFocalSchemaVerbatim(t *testing.T) {
+	focal := json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",` +
+		`"prefixItems":[{"type":"string"}],"unevaluatedProperties":false}`)
+	calls := defaultCalls([]mcp.Tool{
+		{Name: schemaFocalTool, InputSchema: focal},
+		{Name: schemaEchoTool, InputSchema: json.RawMessage(`{"type":"object","properties":{"schema":{"type":"object"}}}`)},
+	})
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	want, _ := json.Marshal(map[string]json.RawMessage{"schema": focal})
+	if string(calls[1].Arguments) != string(want) {
+		t.Errorf("echo arguments = %s, want %s", calls[1].Arguments, want)
 	}
 }

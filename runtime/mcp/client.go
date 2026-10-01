@@ -42,6 +42,13 @@ type ClientOptions struct {
 	// Without it the client does not advertise elicitation, and refuses
 	// elicitation requests.
 	ElicitationHandler ElicitationHandler
+	// DisableModernProtocol skips stateless (2026-07-28) detection and always
+	// uses the initialize handshake. For servers that misbehave when probed.
+	DisableModernProtocol bool
+	// EraProbeTimeout bounds how long the client waits for a stdio server to
+	// answer the server/discover probe before treating it as a handshake-era
+	// server. Defaults to 3s.
+	EraProbeTimeout time.Duration
 }
 
 // DefaultClientOptions returns sensible defaults
@@ -163,7 +170,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 	c.started = true
 	c.mu.Unlock()
 
-	resp, err := c.sess.initialize(ctx)
+	resp, err := c.sess.connect(ctx)
 	if err != nil {
 		_ = c.Close()
 		return nil, err
@@ -481,8 +488,8 @@ func (c *StdioClient) attemptReconnect(ctx context.Context, attemptNum int) erro
 	c.startReadLoop()
 	c.mu.Unlock()
 
-	// A new process is a new connection: repeat the handshake.
-	if _, err = c.sess.initialize(ctx); err != nil {
+	// A new process is a new connection: establish the protocol again.
+	if _, err = c.sess.connect(ctx); err != nil {
 		logger.Warn("MCP reconnection attempt failed handshake",
 			"server", c.config.Name, "attempt", attemptNum, "error", err)
 		return err
@@ -735,3 +742,5 @@ func (s *stdioConn) cancelRequest(ctx context.Context, id int64, reason string, 
 }
 
 func (s *stdioConn) close() error { return s.c.Close() }
+
+func (s *stdioConn) supportsModern() bool { return true }

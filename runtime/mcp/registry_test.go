@@ -825,9 +825,15 @@ func TestRegistry_Close_WithMockClients(t *testing.T) {
 func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
 	reg := NewRegistry()
 
-	// SSE config yields an *SSEClient.
-	c := reg.newClientFunc(ServerConfig{Name: "sse", URL: "https://x"})
-	_, ok := c.(*SSEClient)
+	// A URL alone yields the auto client: Streamable HTTP, with the HTTP+SSE
+	// fallback.
+	c := reg.newClientFunc(ServerConfig{Name: "url", URL: "https://x"})
+	_, ok := c.(*httpAutoClient)
+	assert.True(t, ok, "expected *httpAutoClient, got %T", c)
+
+	// An explicit sse transport yields an *SSEClient.
+	c = reg.newClientFunc(ServerConfig{Name: "sse", URL: "https://x", TransportName: TransportSSE})
+	_, ok = c.(*SSEClient)
 	assert.True(t, ok, "expected *SSEClient, got %T", c)
 
 	// Stdio config yields a *StdioClient.

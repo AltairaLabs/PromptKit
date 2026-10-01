@@ -42,11 +42,15 @@ type InitializeRequest struct {
 	ClientInfo      Implementation     `json:"clientInfo"`
 }
 
-// InitializeResponse represents the initialization response
+// InitializeResponse represents the initialization response. For a modern
+// (2026-07-28) server, which has no handshake, the client builds it from the
+// server/discover result.
 type InitializeResponse struct {
 	ProtocolVersion string             `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
 	ServerInfo      Implementation     `json:"serverInfo"`
+	// Instructions is the server's guidance on how to use it.
+	Instructions string `json:"instructions,omitempty"`
 }
 
 // Implementation describes client or server implementation details
@@ -146,6 +150,12 @@ type Tool struct {
 type ToolCallRequest struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+	// InputResponses answers a modern server's input_required result, keyed
+	// as the server keyed its inputRequests (2026-07-28 MRTR).
+	InputResponses map[string]json.RawMessage `json:"inputResponses,omitempty"`
+	// RequestState echoes, unchanged, the requestState of the input_required
+	// result being answered.
+	RequestState json.RawMessage `json:"requestState,omitempty"`
 }
 
 // ToolCallResponse represents the response from a tool execution
@@ -233,9 +243,9 @@ func (f ToolFilter) Includes(name string) bool {
 //
 // Exactly one transport should be specified:
 //   - Command: stdio transport — PromptKit spawns a local subprocess.
-//   - URL:     HTTP transport — by default the legacy SSE adapter is used.
-//     Set TransportName to TransportStreamableHTTP to opt into the
-//     modern Streamable HTTP transport (MCP 2025-03-26).
+//   - URL:     HTTP transport — Streamable HTTP, falling back to the
+//     deprecated HTTP+SSE transport when the server does not host a
+//     Streamable HTTP endpoint. Set TransportName to pin one.
 //
 // The registry selects the adapter via Transport(). Headers applies to all
 // HTTP transports (SSE and Streamable HTTP).
@@ -246,17 +256,15 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// WorkingDir sets the working directory for the server process (stdio only).
 	WorkingDir string `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
-	// URL is the base URL for an HTTP MCP server. When set without an
-	// explicit TransportName, the registry uses the legacy SSE adapter for
-	// back-compat. Set TransportName to TransportStreamableHTTP to opt into
-	// the modern transport.
+	// URL is the URL of an HTTP MCP server. Without a TransportName the
+	// registry uses Streamable HTTP, falling back to HTTP+SSE if the server
+	// does not host a Streamable HTTP endpoint at it.
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 	// Headers are sent on HTTP transports (both SSE and Streamable HTTP).
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	// TransportName selects the transport adapter explicitly. When empty, the
-	// legacy inference applies (URL → SSE, Command → Stdio) for back-compat.
-	// Set to TransportStreamableHTTP to opt into the modern Streamable HTTP
-	// transport against a URL.
+	// TransportName selects the transport adapter explicitly. When empty it
+	// is inferred: URL → Streamable HTTP (with the HTTP+SSE fallback),
+	// Command → stdio.
 	TransportName Transport `json:"transport,omitempty" yaml:"transport,omitempty"`
 	// TimeoutMs sets the per-request timeout in milliseconds.
 	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
@@ -281,14 +289,16 @@ const (
 )
 
 // Transport returns the resolved transport. An explicit TransportName field
-// wins; otherwise URL → TransportSSE (back-compat), Command → TransportStdio.
+// wins; otherwise URL → TransportStreamableHTTP, Command → TransportStdio.
+// For a URL with no TransportName the registry also falls back to HTTP+SSE
+// when the server does not host a Streamable HTTP endpoint.
 // Pointer receiver to avoid copying the (~120-byte) struct.
 func (c *ServerConfig) Transport() Transport {
 	if c.TransportName != "" {
 		return c.TransportName
 	}
 	if c.URL != "" {
-		return TransportSSE
+		return TransportStreamableHTTP
 	}
 	if c.Command != "" {
 		return TransportStdio

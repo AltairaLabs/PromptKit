@@ -262,6 +262,9 @@ type streamableFake struct {
 	headers  []http.Header
 	deletes  []string
 	handle   func(w http.ResponseWriter, r *http.Request, msg JSONRPCMessage)
+	// modern, when set, makes the fake a 2026-07-28 server: discovery goes
+	// to handle like any other request.
+	modern *struct{}
 }
 
 func (f *streamableFake) serve(t *testing.T) string {
@@ -284,6 +287,14 @@ func (f *streamableFake) serve(t *testing.T) string {
 		f.received = append(f.received, msg)
 		f.headers = append(f.headers, r.Header.Clone())
 		f.mu.Unlock()
+		if msg.Method == methodServerDiscover && f.modern == nil {
+			// A handshake-era server, as the TypeScript SDK answers a request
+			// before initialize.
+			w.Header().Set(headerContentType, contentTypeJSON)
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Bad Request: Server not initialized"}}`)
+			return
+		}
 		if msg.ID == nil && msg.Method != "" || isResponse(&msg) {
 			w.WriteHeader(http.StatusAccepted)
 			return
@@ -349,7 +360,7 @@ func TestStreamable_ServerRequestOnTheResponseStreamIsAnsweredNotTakenAsTheRespo
 	require.Len(t, resp.Content, 1)
 	assert.Equal(t, "real", resp.Content[0].Text)
 	f.mu.Lock()
-	callID := f.received[2].ID
+	callID := f.received[3].ID // after the discovery probe and the handshake
 	f.mu.Unlock()
 	assert.Contains(t, f.methods(), fmt.Sprintf("result:%v", callID),
 		"the ping, sent with the call's own id, was answered with a POST of its result")
@@ -391,7 +402,7 @@ func TestStreamable_ReinitializesWhenTheSessionExpires(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	assert.Equal(t, []string{
-		"initialize", "notifications/initialized", "tools/list",
+		"server/discover", "initialize", "notifications/initialized", "tools/list",
 		"initialize", "notifications/initialized", "tools/list",
 	}, f.methods())
 	f.mu.Lock()

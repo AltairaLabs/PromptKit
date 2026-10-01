@@ -16,6 +16,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -32,26 +33,48 @@ const (
 )
 
 func main() {
-	os.Exit(realMain(os.Args, os.Getenv("MCP_CONFORMANCE_SCENARIO"), os.Stderr))
+	os.Exit(realMain(os.Args, os.Getenv("MCP_CONFORMANCE_SCENARIO"), os.Getenv("MCP_CONFORMANCE_CONTEXT"), os.Stderr))
 }
 
 // realMain runs one scenario and returns the process exit code.
-func realMain(args []string, scenario string, stderr io.Writer) int {
+func realMain(args []string, scenario, scenarioContext string, stderr io.Writer) int {
 	if len(args) < minArgs {
 		_, _ = fmt.Fprintln(stderr, "usage: MCP_CONFORMANCE_SCENARIO=<scenario> mcp-conformance-client <server-url>")
 		return exitUsage
 	}
-	if err := run(args[len(args)-1]); err != nil {
+	if err := run(args[len(args)-1], parseContext(scenarioContext), stderr); err != nil {
 		_, _ = fmt.Fprintf(stderr, "scenario %s: %v\n", scenario, err)
 		return 1
 	}
 	return 0
 }
 
-// run is the generic client flow every scenario at the claimed revision
-// expects: initialize, list tools, call each tool with arguments built from
-// its input schema.
-func run(url string) error {
+// scenarioContext is the data a scenario passes in MCP_CONFORMANCE_CONTEXT.
+// Some scenarios name the tool calls to make, with exact arguments, so the
+// values exercise particular encodings.
+type scenarioContext struct {
+	ToolCalls []toolCall `json:"toolCalls"`
+}
+
+type toolCall struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+func parseContext(raw string) scenarioContext {
+	var c scenarioContext
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &c)
+	}
+	return c
+}
+
+// run is the generic client flow the scenarios expect: connect, list tools,
+// and call them — with the scenario's arguments when it supplies them,
+// otherwise with arguments built from each tool's input schema. A tool call
+// the server rejects is reported, not fatal: the scenario's checks decide
+// what was correct.
+func run(url string, sc scenarioContext, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
@@ -71,12 +94,48 @@ func run(url string) error {
 	if err != nil {
 		return fmt.Errorf("tools/list: %w", err)
 	}
-	for _, tool := range tools {
-		if _, err := client.CallTool(ctx, tool.Name, sampleArgs(tool.InputSchema)); err != nil {
-			return fmt.Errorf("tools/call %s: %w", tool.Name, err)
+	calls := sc.ToolCalls
+	if len(calls) == 0 {
+		calls = defaultCalls(tools)
+	}
+	for _, call := range calls {
+		if _, err := client.CallTool(ctx, call.Name, call.Arguments); err != nil {
+			var rpcErr *mcp.RPCError
+			if !errors.As(err, &rpcErr) {
+				return fmt.Errorf("tools/call %s: %w", call.Name, err)
+			}
+			_, _ = fmt.Fprintf(stderr, "tools/call %s: %v\n", call.Name, err)
 		}
 	}
 	return nil
+}
+
+// Tools of the json-schema-2020-12-preservation scenario: the client echoes
+// the focal tool's inputSchema back exactly as listed, proving it did not
+// rewrite the schema.
+const (
+	schemaFocalTool = "json_schema_2020_12_tool"
+	schemaEchoTool  = "json_schema_echo"
+)
+
+// defaultCalls calls every tool with arguments built from its schema, except
+// that a schema-echo tool is called with the focal tool's schema verbatim.
+func defaultCalls(tools []mcp.Tool) []toolCall {
+	var focal json.RawMessage
+	for _, t := range tools {
+		if t.Name == schemaFocalTool {
+			focal = t.InputSchema
+		}
+	}
+	var calls []toolCall
+	for _, t := range tools {
+		args := sampleArgs(t.InputSchema)
+		if t.Name == schemaEchoTool && focal != nil {
+			args, _ = json.Marshal(map[string]json.RawMessage{"schema": focal})
+		}
+		calls = append(calls, toolCall{Name: t.Name, Arguments: args})
+	}
+	return calls
 }
 
 // acceptDefaults plays a user who submits a form without changing it: the
