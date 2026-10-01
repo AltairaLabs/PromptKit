@@ -107,13 +107,13 @@ Skills can override the agent's default input/output modes with their own `input
 
 A card should also say how to authenticate. Set `SecuritySchemes` (for example an `HTTPAuth` Bearer scheme) and `SecurityRequirements` on the `a2a.AgentCard`; the server publishes them in each version's shape.
 
-The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`. The served card also declares `streaming` (the server answers `SendStreamingMessage` and `SubscribeToTask`) and never `pushNotifications` (every push method fails with `-32003`), whatever the configured card says. `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
 ---
 
 ## Task Lifecycle
 
-Every message creates a **Task** that progresses through a state machine:
+Every message without a `taskId` creates a **Task** that progresses through a state machine:
 
 ```mermaid
 stateDiagram-v2
@@ -142,7 +142,9 @@ stateDiagram-v2
 | `auth_required` | Agent requires authentication |
 | `rejected` | Agent declined the task |
 
-Terminal states (`completed`, `failed`, `canceled`, `rejected`) cannot transition further. The `input_required` and `auth_required` states allow the caller to provide additional input and resume processing.
+Terminal states (`completed`, `failed`, `canceled`, `rejected`) cannot transition further. The `input_required` and `auth_required` states allow the caller to provide additional input and resume processing: the caller sends its next message with the task's `taskId`, and the same task goes back to `working`. A message whose `taskId` names no task the caller can see fails with `TaskNotFoundError` (`-32001`); one naming a finished task, or a task that is not waiting for input, fails with `UnsupportedOperationError` (`-32004`); and a `contextId` that differs from the task's fails with `-32602`. The context is taken from the task when the message names only the `taskId`. A message without a `taskId` always starts a new task.
+
+A streaming caller that disconnects closes only its own stream. The task runs on, its result is recorded, and subscribers keep receiving its updates; `CancelTask` is how to stop it.
 
 These are PromptKit's Go names (`a2a.TaskStateInputRequired`). On the wire each state takes its version's spelling: `TASK_STATE_INPUT_REQUIRED` in 1.0, `input-required` in 0.3.
 
@@ -160,6 +162,7 @@ type Part struct {
     Raw       []byte         `json:"raw,omitempty"`
     URL       *string        `json:"url,omitempty"`
     Data      map[string]any `json:"data,omitempty"`
+    DataValue any            `json:"-"` // a data value that is not an object
     Metadata  map[string]any `json:"metadata,omitempty"`
     Filename  string         `json:"filename,omitempty"`
     MediaType string         `json:"mediaType,omitempty"`

@@ -8,19 +8,32 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // streamWriter writes events to one SSE caller, in that caller's protocol
-// version and under its JSON-RPC id.
+// version and under its JSON-RPC id. Once the caller has gone (detach), writes
+// are dropped: the turn behind the stream runs on without it.
 type streamWriter struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	id      any
 	v       a2a.ProtocolVersion
-	started bool
+
+	mu       sync.Mutex
+	started  bool
+	detached bool
+}
+
+// detach stops all further writes. After it returns, the response writer is
+// never touched again, so the HTTP handler may return.
+func (sw *streamWriter) detach() {
+	sw.mu.Lock()
+	sw.detached = true
+	sw.mu.Unlock()
 }
 
 // newStreamWriter prepares an SSE response for call, answering with an error
@@ -37,6 +50,11 @@ func newStreamWriter(call *rpcCall) *streamWriter {
 // write sends one event: a *Task, *Message, *TaskStatusUpdateEvent or
 // *TaskArtifactUpdateEvent.
 func (sw *streamWriter) write(event any) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if sw.detached {
+		return
+	}
 	if !sw.started {
 		h := sw.w.Header()
 		h.Set("Content-Type", "text/event-stream")
@@ -190,17 +208,6 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 	}})
 }
 
-// abandon marks the task canceled after its caller went away mid-stream and
-// tells its subscribers. A task CancelTask already finished is left alone.
-func (st *streamTurn) abandon() {
-	if err := st.srv.taskStore.Cancel(st.taskID); err != nil {
-		return
-	}
-	if task, err := st.srv.taskStore.Get(st.taskID); err == nil {
-		st.srv.publishStatus(task.ID, task.ContextID, task.Status)
-	}
-}
-
 // reportActualState tells the caller the task's stored status.
 func (st *streamTurn) reportActualState() {
 	task, err := st.srv.taskStore.Get(st.taskID)
@@ -211,23 +218,18 @@ func (st *streamTurn) reportActualState() {
 }
 
 // process consumes the conversation's events until the turn ends. It watches
-// ctx so a client disconnect or a CancelTask ends the loop promptly instead of
-// blocking on a channel read (and leaking the goroutine).
-func (st *streamTurn) process(ctx, reqCtx context.Context, events <-chan StreamEvent) {
+// ctx so a CancelTask (or Shutdown) ends the loop promptly instead of blocking
+// on a channel read (and leaking the goroutine). The caller disconnecting does
+// not end it: the task's lifecycle is independent of any one stream's (A2A
+// 1.0 §3.5.2).
+func (st *streamTurn) process(ctx context.Context, events <-chan StreamEvent) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Still connected means CancelTask stopped the turn: tell the
-			// caller how its task ended.
-			if reqCtx.Err() == nil {
-				st.flushText()
-				st.reportActualState()
-				return
-			}
-			// The caller disconnected, which ended the turn. Record that,
-			// so the task does not sit "working" forever and subscribers
-			// get the final event that ends their streams.
-			st.abandon()
+			// CancelTask stopped the turn: tell the caller, if still
+			// there, how its task ended.
+			st.flushText()
+			st.reportActualState()
 			return
 
 		case evt, ok := <-events:
@@ -311,10 +313,11 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 		return
 	}
 
-	contextID := params.Message.ContextID
-	if contextID == "" {
-		contextID = generateID()
+	target, ok := s.resolveTarget(call, &params.Message)
+	if !ok {
+		return
 	}
+	contextID := target.contextID
 
 	out := newStreamWriter(call)
 	if out == nil {
@@ -322,18 +325,16 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	}
 
 	// Which half of the server owns conversations decides where the events come
-	// from. Resolved before the task exists, so a refusal costs nothing.
+	// from. Resolved before the task is claimed, so a refusal costs nothing.
 	startTurn, ok := s.resolveStreamTurn(call, contextID, params)
 	if !ok {
 		return
 	}
 
-	taskID := generateID()
-	if err := s.createTask(call, taskID, contextID); err != nil {
-		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
+	if !s.beginTask(call, &target) {
 		return
 	}
-	s.setState(taskID, contextID, a2a.TaskStateWorking, nil)
+	taskID := target.taskID
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
 		call.internalError(fmt.Sprintf("failed to read task %s", taskID), err)
@@ -341,14 +342,29 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	}
 	out.write(task)
 
-	// Use request context so client disconnect cancels the stream.
-	ctx, cancel := context.WithCancel(call.r.Context())
-	defer cancel()
+	// The turn is detached from the request: closing a stream must not affect
+	// its task (A2A 1.0 §3.5.2). It keeps the request's values, as SendMessage
+	// does, and CancelTask still reaches it.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(call.r.Context()))
 	s.registerCancel(taskID, cancel)
-	defer s.unregisterCancel(taskID)
+	events := startTurn(ctx, taskID)
 
 	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID}
-	st.process(ctx, call.r.Context(), startTurn(ctx, taskID))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cancel()
+		defer s.unregisterCancel(taskID)
+		st.process(ctx, events)
+	}()
+
+	select {
+	case <-done:
+	case <-call.r.Context().Done():
+		// The caller left. Its stream ends here; the turn runs on, and its
+		// result still reaches the task and its subscribers.
+		out.detach()
+	}
 }
 
 // handleTaskSubscribe processes SubscribeToTask (0.3: tasks/resubscribe).

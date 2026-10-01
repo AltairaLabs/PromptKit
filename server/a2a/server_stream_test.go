@@ -276,7 +276,7 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
@@ -302,17 +302,29 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 		t.Fatalf("POST /a2a: %v", err)
 	}
 
-	// Wait for stream to start, then cancel.
+	// Wait for stream to start, then disconnect. The turn runs on (A2A 1.0
+	// §3.5.2); CancelTask is what stops it.
 	<-streamStarted
 	cancel()
 	resp.Body.Close()
 
-	// The stream context should have been canceled.
+	var taskID string
+	require.Eventually(t, func() bool {
+		srv.cancelsMu.Lock()
+		defer srv.cancelsMu.Unlock()
+		for id := range srv.cancels {
+			taskID = id
+		}
+		return taskID != ""
+	}, time.Second, time.Millisecond)
+	resp2 := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID})
+	require.Nil(t, resp2.Error, "the task is still running after its caller left")
+
 	select {
 	case <-ctxCanceled:
 		// ok
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for stream context cancellation")
+		t.Fatal("timed out waiting for CancelTask to reach the turn")
 	}
 }
 
@@ -377,14 +389,22 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 		t.Fatal("timed out: processEvents did not exit after client disconnect (goroutine leak)")
 	}
 
-	// Wait briefly for async cleanup, then verify the turn was unregistered.
-	time.Sleep(50 * time.Millisecond)
+	// The turn is not the caller's to end: it stays registered, so
+	// CancelTask can still reach it, and canceling it unregisters it.
+	var taskID string
 	srv.cancelsMu.Lock()
-	remaining := len(srv.cancels)
-	srv.cancelsMu.Unlock()
-	if remaining != 0 {
-		t.Errorf("expected 0 in-flight turns after disconnect, got %d", remaining)
+	for id := range srv.cancels {
+		taskID = id
 	}
+	srv.cancelsMu.Unlock()
+	require.NotEmpty(t, taskID, "the turn outlives the caller's stream")
+	resp := a2aRPCRequest(t, ts, a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID})
+	require.Nil(t, resp.Error)
+	require.Eventually(t, func() bool {
+		srv.cancelsMu.Lock()
+		defer srv.cancelsMu.Unlock()
+		return len(srv.cancels) == 0
+	}, time.Second, time.Millisecond)
 }
 
 func TestServer_StreamMessage_NotStreamable(t *testing.T) {

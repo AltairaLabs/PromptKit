@@ -252,10 +252,11 @@ func TestStream_MediaAndToolCallEvents(t *testing.T) {
 	assert.Equal(t, "c1", part["metadata"].(map[string]any)["tool_call_id"])
 }
 
-// A streaming caller that disconnects ends its turn. The task must say so —
-// not sit "working" forever — and a subscriber must get the event that ends
-// its stream.
-func TestStream_DisconnectCancelsTheTaskAndReleasesSubscribers(t *testing.T) {
+// A streaming caller that disconnects closes only its own stream (A2A 1.0
+// §3.5.2): the task keeps running and a subscriber keeps its stream. When the
+// task does end — here by CancelTask — the subscriber gets the event that
+// ends its stream.
+func TestStream_DisconnectLeavesTheTaskAndSubscribersAlone(t *testing.T) {
 	streaming := make(chan struct{})
 	mock := &mockStreamConv{streamFunc: func(ctx context.Context, _ any) <-chan StreamEvent {
 		ch := make(chan StreamEvent)
@@ -294,23 +295,33 @@ func TestStream_DisconnectCancelsTheTaskAndReleasesSubscribers(t *testing.T) {
 		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: taskID}))
 		subscribed <- events
 	}()
-	require.Eventually(t, func() bool {
+	subscribers := func() int {
 		local := srv.events.(*localTaskEvents)
 		local.mu.Lock()
 		defer local.mu.Unlock()
-		return len(local.subs[taskID]) == 1
-	}, time.Second, 5*time.Millisecond)
+		return len(local.subs[taskID])
+	}
+	require.Eventually(t, func() bool { return subscribers() == 1 }, time.Second, 5*time.Millisecond)
 
 	cancel()
 
+	// The turn is still registered, so CancelTask can reach it, and the task
+	// is still working.
+	srv.cancelsMu.Lock()
+	_, running := srv.cancels[taskID]
+	srv.cancelsMu.Unlock()
+	assert.True(t, running, "the turn outlives the caller's stream")
+	task, err := srv.taskStore.Get(taskID)
+	require.NoError(t, err)
+	assert.Equal(t, a2a.TaskStateWorking, task.Status.State)
+	assert.Equal(t, 1, subscribers(), "another stream is unaffected")
+
+	_ = rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: taskID}))
 	select {
 	case events := <-subscribed:
 		last := events[len(events)-1]["statusUpdate"].(map[string]any)
 		assert.Equal(t, "TASK_STATE_CANCELED", last["status"].(map[string]any)["state"])
 	case <-time.After(3 * time.Second):
-		t.Fatal("the subscriber was left waiting after the streaming caller left")
+		t.Fatal("the subscriber was left waiting after the task was canceled")
 	}
-	task, err := srv.taskStore.Get(taskID)
-	require.NoError(t, err)
-	assert.Equal(t, a2a.TaskStateCanceled, task.Status.State)
 }

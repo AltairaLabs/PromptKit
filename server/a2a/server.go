@@ -487,15 +487,11 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // carries supportedInterfaces so a 1.0 client that sent no header still finds
 // its interface.
 func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
-	card := &a2a.AgentCard{}
-	if s.cardProvider != nil {
-		provided, err := s.cardProvider.AgentCard(r)
-		if err != nil {
-			log.Printf("a2a: failed to get agent card: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		card = provided
+	card, err := s.card(r)
+	if err != nil {
+		log.Printf("a2a: failed to get agent card: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 	v, err := requestVersion(r, a2a.ProtocolVersion03)
 	if err != nil {
@@ -503,7 +499,38 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v.WireAgentCard(servedCard(card, r)))
+	_ = json.NewEncoder(w).Encode(v.WireAgentCard(card))
+}
+
+// card returns the agent card this server publishes for r.
+func (s *Server) card(r *http.Request) (*a2a.AgentCard, error) {
+	card := &a2a.AgentCard{}
+	if s.cardProvider != nil {
+		provided, err := s.cardProvider.AgentCard(r)
+		if err != nil {
+			return nil, err
+		}
+		card = provided
+	}
+	return servedCard(card, r), nil
+}
+
+// handleGetExtendedAgentCard processes GetExtendedAgentCard (0.3:
+// agent/getAuthenticatedExtendedCard). The server holds no extended card, so
+// the answer depends only on whether the card declares one (A2A 1.0 §3.3.4):
+// UnsupportedOperation when it does not, ExtendedAgentCardNotConfigured when it
+// does.
+func (s *Server) handleGetExtendedAgentCard(call *rpcCall) {
+	card, err := s.card(call.r)
+	if err != nil {
+		call.internalError("failed to get agent card", err)
+		return
+	}
+	if !card.Capabilities.ExtendedAgentCard {
+		call.fail(a2a.ErrCodeUnsupportedOperation, "This agent does not declare an extended agent card")
+		return
+	}
+	call.fail(a2a.ErrCodeExtendedAgentCardNotConfigured, "No extended agent card is configured")
 }
 
 // handleRPC dispatches a JSON-RPC 2.0 request to the appropriate handler.
@@ -558,13 +585,82 @@ func (s *Server) rpcHandlers() map[a2a.Operation]func(*rpcCall) {
 		a2a.OpPushNotificationConfig: func(call *rpcCall) {
 			call.fail(a2a.ErrCodePushNotificationNotSupported, "Push notifications are not supported")
 		},
-		a2a.OpGetExtendedAgentCard: func(call *rpcCall) {
-			call.fail(a2a.ErrCodeExtendedAgentCardNotConfigured, "No extended agent card is configured")
-		},
+		a2a.OpGetExtendedAgentCard: s.handleGetExtendedAgentCard,
 		a2a.OpUnknown: func(call *rpcCall) {
 			call.fail(a2a.ErrCodeMethodNotFound, "Method not found")
 		},
 	}
+}
+
+// turnTarget is the task a message runs on: a new task, or the existing one
+// the message's taskId continues (A2A 1.0 §3.4).
+type turnTarget struct {
+	taskID    string
+	contextID string
+	// existing is true when the message continues taskID.
+	existing bool
+}
+
+// resolveTarget works out which task a message runs on. A message without a
+// taskId starts a new task in its context (a new context when it names
+// none). One with a taskId continues that task, which must exist and be
+// visible to the caller (else TaskNotFound), must not have finished (else
+// UnsupportedOperation, §3.1.1), and supplies the context — a contextId that
+// differs from the task's is refused (§3.4.3). ok is false when the call has
+// been answered with an error.
+func (s *Server) resolveTarget(call *rpcCall, msg *a2a.Message) (target turnTarget, ok bool) {
+	if msg.TaskID == "" {
+		target.contextID = msg.ContextID
+		if target.contextID == "" {
+			target.contextID = generateID()
+		}
+		return target, true
+	}
+	task := s.getTaskFor(call, msg.TaskID)
+	if task == nil {
+		return target, false
+	}
+	if task.Status.State.IsTerminal() {
+		call.fail(a2a.ErrCodeUnsupportedOperation,
+			fmt.Sprintf("Task is %s; a finished task takes no further messages", task.Status.State.V03Name()))
+		return target, false
+	}
+	if msg.ContextID != "" && msg.ContextID != task.ContextID {
+		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId does not match the task's context")
+		return target, false
+	}
+	return turnTarget{taskID: task.ID, contextID: task.ContextID, existing: true}, true
+}
+
+// beginTask readies the target's task for a turn and marks it working: it
+// creates a new task, or claims the existing one. Only a task waiting for the
+// caller (input-required or auth-required) can be claimed; one already
+// running a turn is refused, so two messages never drive one task at once.
+// It answers the call itself and returns false when it cannot.
+func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
+	if !target.existing {
+		target.taskID = generateID()
+		if err := s.createTask(call, target.taskID, target.contextID); err != nil {
+			call.internalError(fmt.Sprintf("failed to create task for context %s", target.contextID), err)
+			return false
+		}
+		s.setState(target.taskID, target.contextID, a2a.TaskStateWorking, nil)
+		return true
+	}
+
+	switch err := s.taskStore.SetState(target.taskID, a2a.TaskStateWorking, nil); {
+	case err == nil:
+		s.publishStatus(target.taskID, target.contextID, a2a.TaskStatus{State: a2a.TaskStateWorking})
+		return true
+	case errors.Is(err, ErrTaskNotFound):
+		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+	case errors.Is(err, ErrTaskTerminal), errors.Is(err, ErrInvalidTransition):
+		call.fail(a2a.ErrCodeUnsupportedOperation,
+			"Task is not waiting for input; it cannot take a message now")
+	default:
+		call.internalError(fmt.Sprintf("failed to resume task %s", target.taskID), err)
+	}
+	return false
 }
 
 // handleSendMessage processes SendMessage (0.3: message/send).
@@ -574,27 +670,27 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
-	contextID := params.Message.ContextID
-	if contextID == "" {
-		contextID = generateID()
+	target, ok := s.resolveTarget(call, &params.Message)
+	if !ok {
+		return
 	}
 
 	// Stateless mode short-circuits everything about conversation ownership:
 	// there is nothing to open, nothing to cache, and the handler sees the
 	// request it arrived on.
 	if s.handler != nil {
-		s.handleSendViaHandler(call, contextID, params)
+		s.handleSendViaHandler(call, &target, params)
 		return
 	}
 
-	conv := s.openConversation(call, contextID)
+	conv := s.openConversation(call, target.contextID)
 	if conv == nil {
 		return
 	}
 
 	// Check if this is a tool-result message for a resumable conversation.
 	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-		s.handleToolResultMessage(call, conv, contextID, toolResults, params.Configuration)
+		s.handleToolResultMessage(call, conv, &target, toolResults, params.Configuration)
 		return
 	}
 
@@ -604,9 +700,7 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
-	taskID := generateID()
-	if createErr := s.createTask(call, taskID, contextID); createErr != nil {
-		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), createErr)
+	if !s.beginTask(call, &target) {
 		return
 	}
 
@@ -616,8 +710,8 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 	// context both ride along, so downstream spans still nest under the inbound
 	// trace and SendMessage behaves like SendStreamingMessage.
 	bgCtx := context.WithoutCancel(call.r.Context())
-	done := s.runConversation(bgCtx, taskID, contextID, conv, pkMsg)
-	s.awaitTurn(call, taskID, done, params.Configuration)
+	done := s.runConversation(bgCtx, target.taskID, target.contextID, conv, pkMsg)
+	s.awaitTurn(call, target.taskID, done, params.Configuration)
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
@@ -630,6 +724,7 @@ type toolResultEntry struct {
 
 // extractToolResults inspects message parts for client tool results.
 // Parts with metadata containing "tool_call_id" are treated as tool results.
+// The result is the metadata's "tool_result", or else the part's own data.
 func extractToolResults(parts []a2a.Part) []toolResultEntry {
 	var results []toolResultEntry
 	for _, p := range parts {
@@ -641,8 +736,12 @@ func extractToolResults(parts []a2a.Part) []toolResultEntry {
 		if reason, rejected := p.Metadata["rejected"].(string); rejected {
 			entry.Rejected = true
 			entry.Reason = reason
+		} else if result, given := p.Metadata["tool_result"]; given {
+			entry.Result = result
+		} else if p.Data != nil {
+			entry.Result = p.Data
 		} else {
-			entry.Result = p.Metadata["tool_result"]
+			entry.Result = p.DataValue
 		}
 		results = append(results, entry)
 	}
@@ -673,26 +772,26 @@ func submitToolResults(call *rpcCall, conv Conversation, results []toolResultEnt
 
 // handleToolResultMessage processes a SendMessage that carries client tool
 // results: it submits each result to the ResumableConversation and resumes.
+//
+// With the message's taskId, the input-required task continues; without one
+// (as older clients send them), the resumed turn gets a task of its own.
 func (s *Server) handleToolResultMessage(
-	call *rpcCall, conv Conversation, contextID string,
+	call *rpcCall, conv Conversation, target *turnTarget,
 	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
 ) {
 	resumable := submitToolResults(call, conv, results)
 	if resumable == nil {
 		return
 	}
-
-	taskID := generateID()
-	if err := s.createTask(call, taskID, contextID); err != nil {
-		call.internalError(fmt.Sprintf("failed to create task for context %s", contextID), err)
+	if !s.beginTask(call, target) {
 		return
 	}
 
 	// Detach from the request's cancellation but keep its values; see
 	// handleSendMessage for why.
 	bgCtx := context.WithoutCancel(call.r.Context())
-	done := s.runTurn(bgCtx, taskID, contextID, resumable.Resume)
-	s.awaitTurn(call, taskID, done, cfg)
+	done := s.runTurn(bgCtx, target.taskID, target.contextID, resumable.Resume)
+	s.awaitTurn(call, target.taskID, done, cfg)
 }
 
 // runConversation spawns a goroutine that drives the conversation for a task.
@@ -706,13 +805,13 @@ func (s *Server) runConversation(
 }
 
 // runTurn drives one turn in the background and closes the returned channel
-// when it is done.
+// when it is done. The task is already working (see beginTask).
 //
 // Every way a turn can be produced — a conversation's Send, its Resume, a
 // stateless handler's stream — needs the same surrounding care: register the
-// cancel func so CancelTask can reach it, mark the task working, and on
-// failure avoid overwriting a state the cancel handler already set. Three
-// copies of that is how the copies drift.
+// cancel func so CancelTask can reach it, and on failure avoid overwriting a
+// state the cancel handler already set. Three copies of that is how the
+// copies drift.
 func (s *Server) runTurn(
 	parent context.Context, taskID, contextID string, produce func(context.Context) (SendResult, error),
 ) <-chan struct{} {
@@ -724,8 +823,6 @@ func (s *Server) runTurn(
 		defer close(done)
 		defer cancel()
 		defer s.unregisterCancel(taskID)
-
-		s.setState(taskID, contextID, a2a.TaskStateWorking, nil)
 
 		resp, err := produce(ctx)
 		if err != nil {
