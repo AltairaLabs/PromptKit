@@ -161,9 +161,9 @@ func toV03Part(p *Part) v03Part {
 	case p.URL != nil:
 		out.Kind = kindFile
 		out.File = &v03File{URI: *p.URL, MimeType: p.MediaType, Name: p.Filename}
-	case p.Data != nil:
+	case p.dataValue() != nil:
 		out.Kind = kindData
-		out.Data = p.Data
+		out.Data = p.dataValue()
 	default:
 		out.Kind = kindText
 		text := ""

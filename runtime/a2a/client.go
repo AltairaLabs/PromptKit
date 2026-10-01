@@ -50,10 +50,18 @@ const (
 type RPCError struct {
 	Code    int
 	Message string
+	// Data is the error object's optional data member (A2A 1.0 §9.5: an
+	// array of detail objects, each with an "@type").
+	Data any
 }
 
 func (e *RPCError) Error() string {
 	return fmt.Sprintf("a2a: rpc error %d: %s", e.Code, e.Message)
+}
+
+// newRPCError converts a JSON-RPC error object into an *RPCError.
+func newRPCError(e *JSONRPCError) *RPCError {
+	return &RPCError{Code: e.Code, Message: e.Message, Data: e.Data}
 }
 
 // HTTPStatusError is returned when an A2A HTTP request receives a non-200 status code.
@@ -74,6 +82,9 @@ type StreamEvent struct {
 	Message        *Message
 	StatusUpdate   *TaskStatusUpdateEvent
 	ArtifactUpdate *TaskArtifactUpdateEvent
+	// Error is set when the agent ends the stream with a JSON-RPC error
+	// (an *RPCError). It is the last event on the channel.
+	Error error
 }
 
 // ClientOption configures a [Client].
@@ -325,6 +336,9 @@ func (c *Client) fetchCard(ctx context.Context, path string) (*AgentCard, int, e
 	if err != nil {
 		return nil, 0, fmt.Errorf("a2a: discover: %w", err)
 	}
+	// A2A 1.0 §3.6.1: every request names the version the client speaks, so
+	// the agent answers with that version's card.
+	httpReq.Header.Set(HeaderVersion, string(c.ProtocolVersion()))
 	c.setAuth(httpReq)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 
@@ -345,13 +359,81 @@ func (c *Client) fetchCard(ctx context.Context, path string) (*AgentCard, int, e
 	return &card, resp.StatusCode, nil
 }
 
+// errNoJSONRPCInterface is returned when the agent's card declares interfaces
+// but none of them uses the JSON-RPC binding, the only one the client speaks.
+var errNoJSONRPCInterface = errors.New("a2a: the agent card declares no JSON-RPC interface")
+
+// endpoint selects the interface to call in version v (A2A 1.0 §8.3.2): the
+// first JSON-RPC interface in the discovered card that serves v, or else the
+// first JSON-RPC interface at all. Without a discovered card that declares
+// interfaces, calls go to {base}/a2a and iface is nil.
+func (c *Client) endpoint(v ProtocolVersion) (url string, iface *AgentInterface, err error) {
+	c.mu.RLock()
+	card := c.agentCard
+	c.mu.RUnlock()
+	if card == nil || len(card.SupportedInterfaces) == 0 {
+		return c.baseURL + "/a2a", nil, nil
+	}
+	var fallback *AgentInterface
+	for i := range card.SupportedInterfaces {
+		candidate := &card.SupportedInterfaces[i]
+		if !strings.EqualFold(candidate.ProtocolBinding, ProtocolBindingJSONRPC) {
+			continue
+		}
+		if fallback == nil {
+			fallback = candidate
+		}
+		if served, perr := ParseProtocolVersion(candidate.ProtocolVersion); perr == nil && (served == "" || served == v) {
+			return candidate.URL, candidate, nil
+		}
+	}
+	if fallback == nil {
+		return "", nil, errNoJSONRPCInterface
+	}
+	return fallback.URL, fallback, nil
+}
+
+// withTenant sets the params' tenant to exactly the selected interface's, and
+// omits it when the interface declares none (A2A 1.0 §8.3.2). Params that are
+// not a JSON object are returned as they are.
+func withTenant(params json.RawMessage, tenant string) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(params, &fields); err != nil {
+		return params, nil
+	}
+	if fields == nil {
+		fields = map[string]json.RawMessage{}
+	}
+	if tenant == "" {
+		delete(fields, "tenant")
+	} else {
+		quoted, err := json.Marshal(tenant)
+		if err != nil {
+			return nil, err
+		}
+		fields["tenant"] = quoted
+	}
+	return json.Marshal(fields)
+}
+
 // newRPCRequest builds the HTTP request for one JSON-RPC call in version v.
 func (c *Client) newRPCRequest(
 	ctx context.Context, v ProtocolVersion, method string, params any,
 ) (*http.Request, error) {
+	url, iface, err := c.endpoint(v)
+	if err != nil {
+		return nil, fmt.Errorf("a2a: %s: %w", method, err)
+	}
+
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("a2a: marshal params: %w", err)
+	}
+	// 0.3 has no tenant; 1.0 carries the selected interface's.
+	if iface != nil && v != ProtocolVersion03 {
+		if paramsJSON, err = withTenant(paramsJSON, iface.Tenant); err != nil {
+			return nil, fmt.Errorf("a2a: marshal params: %w", err)
+		}
 	}
 
 	body, err := json.Marshal(JSONRPCRequest{
@@ -364,8 +446,7 @@ func (c *Client) newRPCRequest(
 		return nil, fmt.Errorf("a2a: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/a2a", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("a2a: %s: %w", method, err)
 	}
@@ -417,7 +498,7 @@ func (c *Client) rpcCallVersion(
 	}
 
 	if rpcResp.Error != nil {
-		return nil, &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
+		return nil, newRPCError(rpcResp.Error)
 	}
 	return rpcResp.Result, nil
 }
@@ -548,7 +629,7 @@ func (c *Client) openStream(ctx context.Context, v ProtocolVersion, method strin
 			return nil, fmt.Errorf("a2a: %s: decode response: %w", method, err)
 		}
 		if rpcResp.Error != nil {
-			return nil, &RPCError{Code: rpcResp.Error.Code, Message: rpcResp.Error.Message}
+			return nil, newRPCError(rpcResp.Error)
 		}
 		return nil, fmt.Errorf("a2a: %s: expected an event stream, got a JSON result", method)
 	}
@@ -805,7 +886,8 @@ func appendDataLine(buf *strings.Builder, line string) {
 }
 
 // emitEvent parses data as a stream event and sends it to ch.
-// Returns false if the context is canceled and the caller should stop.
+// Returns false if the caller should stop: the context is canceled, or the
+// event was an error, which ends the stream.
 func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 	evt, ok := parseStreamEvent(data)
 	if !ok {
@@ -813,7 +895,7 @@ func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 	}
 	select {
 	case ch <- evt:
-		return true
+		return evt.Error == nil
 	case <-ctx.Done():
 		return false
 	}
@@ -827,12 +909,19 @@ func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 func parseStreamEvent(data string) (StreamEvent, bool) {
 	raw := json.RawMessage(data)
 
-	// Unwrap JSON-RPC envelope if present.
+	// Unwrap JSON-RPC envelope if present. An error response ends the
+	// stream (A2A 1.0 §9.4.2, §9.5) and is handed to the caller.
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
+		Error  *JSONRPCError   `json:"error"`
 	}
-	if json.Unmarshal(raw, &envelope) == nil && len(envelope.Result) > 0 {
-		raw = envelope.Result
+	if json.Unmarshal(raw, &envelope) == nil {
+		if envelope.Error != nil {
+			return StreamEvent{Error: newRPCError(envelope.Error)}, true
+		}
+		if len(envelope.Result) > 0 {
+			raw = envelope.Result
+		}
 	}
 
 	var fields map[string]json.RawMessage

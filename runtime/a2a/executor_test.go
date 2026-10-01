@@ -332,7 +332,9 @@ func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"base64data","audio_data":"audiodata"}`
+	// Base64 of bytes no sniffer recognizes, so each part falls back to its
+	// family's range.
+	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"AAEC","audio_data":"AwQF"}`
 	_, err := e.Execute(context.Background(), desc, json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
