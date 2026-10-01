@@ -67,10 +67,14 @@ func TestCallURL(t *testing.T) {
 			"https://agent.example.com/rpc", "http://agent.internal:8080/a2a"},
 		{"a distinct path on the same host is followed", "http://agent.example",
 			"http://agent.example/", "http://agent.example/"},
-		{"plain http on the same host keeps the caller's scheme", "https://agent.example",
-			"http://agent.example/rpc", "https://agent.example/rpc"},
-		{"another port on the same host keeps the caller's port", "https://agent.example:8443",
-			"https://agent.example:9000/rpc", "https://agent.example:8443/rpc"},
+		// Host means host and port, with the scheme's default port filled in:
+		// another port is another service, treated like another host.
+		{"plain http on the same name is another port", "https://agent.example",
+			"http://agent.example/rpc", "https://agent.example/a2a"},
+		{"another port is not followed", "http://agent:8080",
+			"http://agent:8081/", "http://agent:8080/a2a"},
+		{"the same port, explicit or default, is followed", "https://agent.example",
+			"https://agent.example:443/rpc", "https://agent.example/rpc"},
 		{"plain http on another host falls back", "https://agent.example",
 			"http://elsewhere.example/rpc", "https://agent.example/a2a"},
 		{"an unparseable interface falls back", "https://agent.example",
@@ -94,6 +98,8 @@ func TestEndpoint_TenantAndVersionComeOnlyFromTheCallersHost(t *testing.T) {
 			"https://agent.example/rpc", "https://agent.example/rpc", "acme", ProtocolVersion03},
 		{"another host lends neither", "https://agent.example",
 			"https://other.example/rpc", "https://agent.example/a2a", "", ProtocolVersion10},
+		{"another port lends neither", "http://agent:8080",
+			"http://agent:8081/", "http://agent:8080/a2a", "", ProtocolVersion10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := NewClient(tc.base)
@@ -280,4 +286,18 @@ func TestExecutor_BlackholedCardStillLeavesTimeForTheCall(t *testing.T) {
 	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
 	require.NoError(t, err, "the discovery wait must not use up the call's deadline")
 	assert.Equal(t, 1, agent.count())
+}
+
+func TestClient_IgnoresAnInterfaceOnAnotherPort(t *testing.T) {
+	// The card lists this service (0.3, at the default path) and a 1.0
+	// service on another port: only this one counts.
+	c := NewClient("http://agent:8080")
+	c.useCard(&AgentCard{Name: "a", SupportedInterfaces: []AgentInterface{
+		{URL: "http://agent:8080/a2a", ProtocolBinding: ProtocolBindingJSONRPC, ProtocolVersion: "0.3"},
+		{URL: "http://agent:8081/", ProtocolBinding: ProtocolBindingJSONRPC, ProtocolVersion: "1.0"},
+	}})
+	assert.Equal(t, ProtocolVersion03, c.ProtocolVersion())
+	url, _, err := c.endpoint(c.ProtocolVersion())
+	require.NoError(t, err)
+	assert.Equal(t, "http://agent:8080/a2a", url)
 }

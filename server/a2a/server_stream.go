@@ -356,6 +356,9 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	taskID := target.taskID
 	task, err := s.taskStore.Get(taskID)
 	if err != nil {
+		// The task is claimed (and may hold submitted tool results) but no
+		// turn will run: give it back, as claimAndSubmit does.
+		s.releaseTask(&target, err)
 		call.internalError(fmt.Sprintf("failed to read task %s", taskID), err)
 		return
 	}

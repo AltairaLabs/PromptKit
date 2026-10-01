@@ -546,12 +546,30 @@ func (c *Client) interfacesOnBaseHost(card *AgentCard) []AgentInterface {
 	}
 	var out []AgentInterface
 	for _, iface := range card.SupportedInterfaces {
-		if u, perr := url.Parse(iface.URL); perr == nil && u.Host != "" &&
-			strings.EqualFold(u.Hostname(), base.Hostname()) {
+		if u, perr := url.Parse(iface.URL); perr == nil && sameHostPort(u, base) {
 			out = append(out, iface)
 		}
 	}
 	return out
+}
+
+// sameHostPort reports whether a and b name the same host and port, each
+// port defaulting to its scheme's (80 for http, 443 for https). Another port
+// is another service, so it does not match.
+func sameHostPort(a, b *url.URL) bool {
+	return a.Host != "" && b.Host != "" &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) && effectivePort(a) == effectivePort(b)
+}
+
+// effectivePort is u's port, or its scheme's default.
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }
 
 // defaultRPCPath is where PromptKit servers, and the client by default, put
@@ -560,10 +578,12 @@ const defaultRPCPath = "/a2a"
 
 // callURL decides where calls go given the interface URL a card declares.
 // The scheme, host and port the caller configured are authoritative and are
-// never changed: a card's URL is what the agent believes about itself, and
-// behind proxies and ingresses that is often an address the caller cannot
-// or must not use. From the card the client takes only what adds information
-// on that same host:
+// never changed (an interface matches the base only on the same host AND
+// port, defaults filled in, so another port counts as another host): a
+// card's URL is what the agent believes about itself, and behind proxies and
+// ingresses that is often an address the caller cannot or must not use.
+// From the card the client takes only what adds information on that same
+// host:
 //
 //   - an interface on the base's host contributes its path (a2a-python's "/",
 //     say), over the base's scheme, host and port; the default /a2a path keeps
@@ -581,7 +601,7 @@ func (c *Client) callURL(declared string) string {
 	if err != nil || base.Host == "" {
 		return fallback
 	}
-	if !strings.EqualFold(card.Hostname(), base.Hostname()) {
+	if !sameHostPort(card, base) {
 		c.otherHostWarning.Do(func() {
 			logger.Warn("a2a: agent card names another host, which is not followed; "+
 				"calling the configured agent URL (configure the client with that host to use it)",

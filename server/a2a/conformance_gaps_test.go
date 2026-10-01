@@ -201,6 +201,45 @@ func TestContinuation_SubmitFailureRestoresTheWaitingTask(t *testing.T) {
 	}
 }
 
+// getFailsWhileWorking is a store whose Get fails once a task is working —
+// after the stream handler has claimed it.
+type getFailsWhileWorking struct{ *InMemoryTaskStore }
+
+func (g getFailsWhileWorking) Get(taskID string) (*a2a.Task, error) {
+	task, err := g.InMemoryTaskStore.Get(taskID)
+	if err == nil && task.Status.State == a2a.TaskStateWorking {
+		return nil, errors.New("store unavailable")
+	}
+	return task, err
+}
+
+// A stream that cannot start after claiming its task gives the task back,
+// rather than leaving it working with no turn behind it.
+func TestContinuation_StreamReleasesTheTaskWhenItCannotStart(t *testing.T) {
+	inner := NewInMemoryTaskStore()
+	_, err := inner.Create("waiting", "ctx-release")
+	require.NoError(t, err)
+	require.NoError(t, inner.SetState("waiting", a2a.TaskStateWorking, nil))
+	asked := &a2a.Message{MessageID: "q", Role: a2a.RoleAgent, Parts: []a2a.Part{{Text: serverTextPtr("which city?")}}}
+	require.NoError(t, inner.SetState("waiting", a2a.TaskStateInputRequired, asked))
+
+	conv := streamConv(StreamEvent{Kind: EventText, Text: "ok"})
+	_, ts := newTestServer(func(string) (Conversation, error) { return conv, nil },
+		WithTaskStore(getFailsWhileWorking{inner}))
+	defer ts.Close()
+
+	msg := userMessage("")
+	msg.TaskID = "waiting"
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{Message: msg}))
+	assert.Equal(t, a2a.ErrCodeInternal, e.Code)
+
+	task, err := inner.Get("waiting")
+	require.NoError(t, err)
+	assert.Equal(t, a2a.TaskStateInputRequired, task.Status.State, "the claim is undone")
+	require.NotNil(t, task.Status.Message)
+	assert.Equal(t, "q", task.Status.Message.MessageID, "with the request it was waiting on")
+}
+
 func TestContinuation_AnotherCallersTaskIsNotFound(t *testing.T) {
 	conv := clientToolConv()
 	_, ts := newTestServer(func(string) (Conversation, error) { return conv, nil },
