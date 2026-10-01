@@ -15,10 +15,11 @@ An HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI e
 
 ## What You'll Learn
 
-- Convert between AG-UI and PromptKit message formats
-- Use the `EventAdapter` to emit AG-UI events from a conversation
+- Keep one PromptKit conversation per AG-UI thread
+- Use the `EventAdapter` to run a turn and emit its AG-UI events
+- Let the model call frontend tools, and continue once the application answers them
+- Continue a turn held for tool approval
 - Write SSE events using the AG-UI SDK's encoder
-- Manage conversation sessions across requests
 
 ## Prerequisites
 
@@ -31,7 +32,7 @@ An HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI e
 
 ## Step 1: Add the AG-UI Dependency
 
-The `sdk/agui` package depends on the AG-UI Go community SDK. Add it to your module:
+The `sdk/agui` package targets AG-UI 1.0 through the AG-UI Go community SDK. Add it to your module:
 
 ```bash
 go get github.com/ag-ui-protocol/ag-ui/sdks/community/go
@@ -39,117 +40,122 @@ go get github.com/ag-ui-protocol/ag-ui/sdks/community/go
 
 ---
 
-## Step 2: Set Up the HTTP Server
+## Step 2: Keep a Conversation per Thread
 
-Start with a basic HTTP server that exposes a single endpoint:
+An AG-UI thread spans many runs: a run that calls a frontend tool ends with the call unanswered, and the next run carries the answer. A PromptKit conversation holds the turn that is waiting for it, so every run on a thread must reach the same conversation:
 
 ```go
-package main
-
-import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-
-	aguiTypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
-	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
-
-	"github.com/AltairaLabs/PromptKit/sdk/v2"
-	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
+var (
+	sessions   = make(map[string]*sdk.Conversation)
+	sessionsMu sync.Mutex
 )
 
-func main() {
-	http.HandleFunc("/ag-ui", handleAGUI)
+func conversationFor(threadID string) (*sdk.Conversation, error) {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
 
-	fmt.Println("AG-UI server listening on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	if conv, ok := sessions[threadID]; ok {
+		return conv, nil
+	}
+	conv, err := sdk.Open("./support.pack.json", "chat")
+	if err != nil {
+		return nil, err
+	}
+	sessions[threadID] = conv
+	return conv, nil
 }
 ```
 
-The `/ag-ui` endpoint will accept POST requests with a `RunAgentInput` body and respond with an SSE stream.
+The conversation keeps the thread's history itself. Add cleanup (timeouts, an explicit close endpoint) that suits your application, and see [What the Input's Fields Do](#what-the-inputs-fields-do) for what that means for `messages`.
 
 ---
 
-## Step 3: Decode the Request
+## Step 3: Offer the Frontend Tools
 
-Parse the incoming `RunAgentInput` and convert the last message to PromptKit format:
+`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `ToolsFromAGUI` returns descriptors marked as client tools; copy that onto the conversation's tools of the same name:
 
 ```go
-func handleAGUI(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
+	for _, tool := range agui.ToolsFromAGUI(tools) {
+		if desc, err := conv.ToolRegistry().GetTool(tool.Name); err == nil {
+			desc.Mode = tool.Mode
+		}
 	}
-
-	var input aguiTypes.RunAgentInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(input.Messages) == 0 {
-		http.Error(w, "no messages provided", http.StatusBadRequest)
-		return
-	}
-
-	// Convert the latest AG-UI message to PromptKit format.
-	lastMsg := input.Messages[len(input.Messages)-1]
-	msg := agui.MessageFromAGUI(&lastMsg)
+}
 ```
 
-The `MessageFromAGUI` converter handles role mapping and content format translation.
+The model is offered only the tools your pack's prompt declares, so declare each frontend tool there too (its name, description and parameters). A frontend tool the pack does not declare is never offered to the model.
 
 ---
 
-## Step 4: Open a Conversation
+## Step 4: Choose the Run
 
-Create a PromptKit conversation from your pack file:
+Each request starts one of three kinds of run:
+
+- **The input ends with tool messages.** They answer the frontend tool calls the previous run left pending. `ToolResultsFromAGUI` extracts them and `RunResume` hands them to the conversation and continues the turn.
+- **The input carries `resume` entries.** The previous run was held for tool approval (see [Approval Holds](#approval-holds)). Approve or reject each held call, then `RunContinue` continues the turn.
+- **Otherwise** the last message is the user's new message, and `RunSend` sends it.
 
 ```go
-	conv, err := sdk.Open("./support.pack.json", "chat")
-	if err != nil {
-		http.Error(w, "failed to open conversation", http.StatusInternalServerError)
-		return
+func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiTypes.ResumeEntry) error {
+	for _, entry := range entries {
+		var err error
+		if entry.Status == aguiTypes.ResumeStatusResolved {
+			_, err = conv.ResolveTool(ctx, entry.InterruptID)
+		} else {
+			_, err = conv.RejectTool(ctx, entry.InterruptID, "declined by the user")
+		}
+		if err != nil {
+			return err
+		}
 	}
-	defer conv.Close()
+	return nil
+}
+
+func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(context.Context) error {
+	if results := agui.ToolResultsFromAGUI(input.Messages); len(results) > 0 {
+		return func(ctx context.Context) error {
+			return adapter.RunResume(ctx, results)
+		}
+	}
+
+	if len(input.Resume) > 0 {
+		return adapter.RunContinue
+	}
+
+	msg := agui.MessageFromAGUI(&input.Messages[len(input.Messages)-1])
+	return func(ctx context.Context) error {
+		return adapter.RunSend(ctx, &msg)
+	}
+}
 ```
 
-In a production application, you would maintain a map of conversations keyed by `input.ThreadID` so that multiple requests in the same thread share conversation history. See [Session Management](#session-management) below for that pattern.
+What a resolved entry means is your application's decision; here a `resolved` entry approves the call and a `cancelled` one rejects it. `applyResume` runs before the response starts, so a failure can still be reported as an HTTP error.
 
 ---
 
-## Step 5: Create the EventAdapter
+## Step 5: Stream SSE Events
 
-The `EventAdapter` bridges the PromptKit conversation to AG-UI events:
+Create the adapter with the input's thread and run IDs, start the run in a goroutine, and write events as they arrive:
 
 ```go
 	adapter := agui.NewEventAdapter(conv,
 		agui.WithThreadID(input.ThreadID),
 		agui.WithRunID(input.RunID),
 	)
-```
+	run := runFor(adapter, &input)
 
-The adapter options set the thread and run IDs that appear in lifecycle events (`RUN_STARTED`, `RUN_FINISHED`).
-
----
-
-## Step 6: Stream SSE Events
-
-Set the SSE headers, start the conversation turn in a goroutine, and write events as they arrive:
-
-```go
-	// Set SSE headers.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-
 	encoder := sse.NewSSEWriter()
 
-	// Run the conversation turn in the background.
-	go adapter.RunSend(r.Context(), &msg)
+	go func() {
+		if err := run(r.Context()); err != nil {
+			log.Printf("run failed: %v", err)
+		}
+	}()
 
-	// Stream events to the client.
 	for event := range adapter.Events() {
 		if err := encoder.WriteEvent(r.Context(), w, event); err != nil {
 			log.Printf("SSE write error: %v", err)
@@ -159,10 +165,9 @@ Set the SSE headers, start the conversation turn in a goroutine, and write event
 			f.Flush()
 		}
 	}
-}
 ```
 
-The `Events()` channel closes automatically when the run completes or encounters an error, so the `range` loop exits cleanly.
+The `Events()` channel closes when the run ends, so the `range` loop exits cleanly. The adapter never drops an event: while the client is slow to read, the run waits. If the client disconnects, the request context is canceled, which releases the run.
 
 ---
 
@@ -174,16 +179,23 @@ Here is the full server in one file:
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
 	aguiTypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/agui"
+)
+
+var (
+	sessions   = make(map[string]*sdk.Conversation)
+	sessionsMu sync.Mutex
 )
 
 func main() {
@@ -204,41 +216,39 @@ func handleAGUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-
 	if len(input.Messages) == 0 {
 		http.Error(w, "no messages provided", http.StatusBadRequest)
 		return
 	}
 
-	// Convert the latest AG-UI message to PromptKit format.
-	lastMsg := input.Messages[len(input.Messages)-1]
-	msg := agui.MessageFromAGUI(&lastMsg)
-
-	// Open a PromptKit conversation.
-	conv, err := sdk.Open("./support.pack.json", "chat")
+	conv, err := conversationFor(input.ThreadID)
 	if err != nil {
 		http.Error(w, "failed to open conversation", http.StatusInternalServerError)
 		return
 	}
-	defer conv.Close()
+	bindFrontendTools(conv, input.Tools)
+	if err := applyResume(r.Context(), conv, input.Resume); err != nil {
+		http.Error(w, "cannot resume: "+err.Error(), http.StatusConflict)
+		return
+	}
 
-	// Create the AG-UI event adapter.
 	adapter := agui.NewEventAdapter(conv,
 		agui.WithThreadID(input.ThreadID),
 		agui.WithRunID(input.RunID),
 	)
+	run := runFor(adapter, &input)
 
-	// Set SSE headers.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-
 	encoder := sse.NewSSEWriter()
 
-	// Run the conversation turn in the background.
-	go adapter.RunSend(r.Context(), &msg)
+	go func() {
+		if err := run(r.Context()); err != nil {
+			log.Printf("run failed: %v", err)
+		}
+	}()
 
-	// Stream events to the client.
 	for event := range adapter.Events() {
 		if err := encoder.WriteEvent(r.Context(), w, event); err != nil {
 			log.Printf("SSE write error: %v", err)
@@ -247,6 +257,61 @@ func handleAGUI(w http.ResponseWriter, r *http.Request) {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
+	}
+}
+
+func conversationFor(threadID string) (*sdk.Conversation, error) {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	if conv, ok := sessions[threadID]; ok {
+		return conv, nil
+	}
+	conv, err := sdk.Open("./support.pack.json", "chat")
+	if err != nil {
+		return nil, err
+	}
+	sessions[threadID] = conv
+	return conv, nil
+}
+
+func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
+	for _, tool := range agui.ToolsFromAGUI(tools) {
+		if desc, err := conv.ToolRegistry().GetTool(tool.Name); err == nil {
+			desc.Mode = tool.Mode
+		}
+	}
+}
+
+func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiTypes.ResumeEntry) error {
+	for _, entry := range entries {
+		var err error
+		if entry.Status == aguiTypes.ResumeStatusResolved {
+			_, err = conv.ResolveTool(ctx, entry.InterruptID)
+		} else {
+			_, err = conv.RejectTool(ctx, entry.InterruptID, "declined by the user")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(context.Context) error {
+	if results := agui.ToolResultsFromAGUI(input.Messages); len(results) > 0 {
+		return func(ctx context.Context) error {
+			return adapter.RunResume(ctx, results)
+		}
+	}
+
+	if len(input.Resume) > 0 {
+		return adapter.RunContinue
+	}
+
+	msg := agui.MessageFromAGUI(&input.Messages[len(input.Messages)-1])
+	return func(ctx context.Context) error {
+		return adapter.RunSend(ctx, &msg)
 	}
 }
 ```
@@ -265,7 +330,7 @@ curl -X POST http://localhost:8080/ag-ui \
   -d '{
     "threadId": "thread-1",
     "runId": "run-1",
-    "messages": [{"id": "msg-1", "role": "human", "content": "Hello!"}],
+    "messages": [{"id": "msg-1", "role": "user", "content": "Hello!"}],
     "tools": [],
     "context": []
   }'
@@ -273,71 +338,82 @@ curl -X POST http://localhost:8080/ag-ui \
 
 ---
 
-## Session Management
+## What a Run Emits
 
-The basic example creates a new conversation per request. For multi-turn conversations, maintain a session map:
+A turn can take several model calls: a model that calls a tool and then answers produces two assistant messages. The run carries every message the turn produced, in order:
 
-```go
-import "sync"
-
-var (
-	sessions   = make(map[string]*sdk.Conversation)
-	sessionsMu sync.RWMutex
-)
-
-func getOrCreateConversation(threadID string) (*sdk.Conversation, error) {
-	sessionsMu.RLock()
-	conv, ok := sessions[threadID]
-	sessionsMu.RUnlock()
-	if ok {
-		return conv, nil
-	}
-
-	sessionsMu.Lock()
-	defer sessionsMu.Unlock()
-
-	// Double-check after acquiring write lock.
-	if conv, ok = sessions[threadID]; ok {
-		return conv, nil
-	}
-
-	conv, err := sdk.Open("./support.pack.json", "chat")
-	if err != nil {
-		return nil, err
-	}
-	sessions[threadID] = conv
-	return conv, nil
-}
+```
+RUN_STARTED
+TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Let me look that up."
+TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END                lookup_order
+TOOL_CALL_RESULT                                                what lookup_order returned
+TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Your order shipped yesterday."
+RUN_FINISHED
 ```
 
-Then in the handler, replace `sdk.Open(...)` with:
+The events are emitted once the turn has run. Each message's text arrives in one `TEXT_MESSAGE_CONTENT`; it is not streamed token by token.
 
-```go
-conv, err := getOrCreateConversation(input.ThreadID)
-if err != nil {
-    http.Error(w, "failed to open conversation", http.StatusInternalServerError)
-    return
-}
-// Note: don't defer conv.Close() here — the session owns the lifetime.
+### Frontend Tool Calls
+
+When the model calls a frontend tool, the run emits the call (`TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`) and finishes with it unanswered: AG-UI forbids the server from answering a frontend tool. The application executes it, then starts the next run with a tool message per call appended to `messages`:
+
+```json
+{"id": "msg-4", "role": "tool", "toolCallId": "call-1", "content": "{\"city\":\"Paris\"}"}
 ```
 
-Add cleanup logic (timeouts, explicit close endpoint) appropriate to your application.
+A tool that failed is still answered, with `error` set. `RunResume` hands the answers to the conversation; the run that follows carries the model's reply, without echoing the answers back.
+
+### Approval Holds
+
+A tool registered with `conv.OnToolAsync` can hold a call until someone approves it. The run then ends with `RUN_FINISHED` carrying an `interrupt` outcome, with one interrupt per held call:
+
+```json
+{"type": "RUN_FINISHED", "threadId": "thread-1", "runId": "run-2",
+ "outcome": {"type": "interrupt", "interrupts": [
+   {"id": "call-2", "reason": "requires_approval", "message": "Approve the refund?", "toolCallId": "call-2"}]}}
+```
+
+The next run's input answers each interrupt in `resume`:
+
+```json
+"resume": [{"interruptId": "call-2", "status": "resolved"}]
+```
+
+`conv.ResolveTool` runs the approved tool (`conv.RejectTool` declines it), and `RunContinue` continues the turn: it reports the tool's result as a `TOOL_CALL_RESULT` and carries the model's reply.
+
+---
+
+## What the Input's Fields Do
+
+| Field | What this integration does with it |
+|-------|------------------------------------|
+| `threadId`, `runId` | Select the conversation, and label `RUN_STARTED` / `RUN_FINISHED` |
+| `messages` | Only the new input is read: the user's new message, or the tool messages answering pending calls. The conversation keeps the rest of the history itself, so history a client edits or replaces is not reflected |
+| `tools` | Marked as client tools when the pack's prompt declares a tool of the same name |
+| `resume` | Approves or rejects the held calls before `RunContinue` |
+| `context` | Not passed to the model. If your prompt template declares a variable for it, set it with `conv.SetVar` before the run |
+| `state` | Not read. A `StateProvider` (below) sends the server's state at the start of each run |
+| `forwardedProps` | Yours: read it in the handler |
 
 ---
 
 ## Adding Workflow Steps
 
-If your pack uses workflows, pass the step names to the adapter to emit `STEP_STARTED` and `STEP_FINISHED` events:
+For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`:
 
 ```go
-adapter := agui.NewEventAdapter(conv,
+wc, err := sdk.OpenWorkflow("./support.pack.json")
+if err != nil {
+    return err
+}
+
+adapter := agui.NewWorkflowEventAdapter(wc,
     agui.WithThreadID(input.ThreadID),
     agui.WithRunID(input.RunID),
-    agui.WithWorkflowSteps(true),
 )
 ```
 
-The adapter subscribes to the PromptKit event bus and emits step events automatically as the workflow engine transitions between steps.
+Each run opens a step named after the workflow state it starts in, and closes it before `RUN_FINISHED`. When the turn moves the workflow to another state, the run finishes that step and starts one for the new state. Pass `agui.WithWorkflowSteps(false)` to leave the steps out.
 
 ---
 
@@ -371,7 +447,7 @@ const agent = new HttpAgent({
 const run = agent.runAgent({
   threadId: "thread-1",
   runId: crypto.randomUUID(),
-  messages: [{ id: "msg-1", role: "human", content: "Hello!" }],
+  messages: [{ id: "msg-1", role: "user", content: "Hello!" }],
   tools: [],
   context: [],
 });
@@ -391,10 +467,10 @@ The `@ag-ui/client` package handles SSE parsing, reconnection, and event typing.
 
 ## What You've Learned
 
-- How to decode AG-UI requests and convert messages with `MessageFromAGUI`
-- How to use `EventAdapter` to bridge PromptKit conversations to AG-UI events
+- How to keep one conversation per AG-UI thread
+- How to run a turn with `RunSend`, and continue it with `RunResume` or `RunContinue`
+- How frontend tool calls and approval holds cross the run boundary
 - How to stream SSE events using the AG-UI SDK's writer
-- How to manage conversation sessions across requests
 - How to enable workflow steps and state synchronization
 
 ## Next Steps

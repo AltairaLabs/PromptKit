@@ -46,6 +46,38 @@ type Response struct {
 
 	// Client tools awaiting caller fulfillment (deferred mode)
 	clientTools []PendingClientTool
+
+	// Every message this turn produced, in order (see TurnMessages)
+	turnMessages []types.Message
+}
+
+// TurnMessages returns every message this turn produced, in order: the user
+// input that started it (absent on a resumed turn), each assistant round with
+// the tool calls it made, and each tool result the turn fed back to the model.
+//
+// [Response.Text] and [Response.ToolCalls] describe only the final assistant
+// round. A turn that called a tool and then answered holds two assistant
+// messages, and only this method sees the first one and its calls. Messages
+// loaded from earlier turns are not included. The slice is nil when the
+// pipeline reported no messages.
+func (r *Response) TurnMessages() []types.Message {
+	return r.turnMessages
+}
+
+// turnMessagesOf returns the messages a pipeline execution produced, leaving
+// out the history, summaries and retrieved context it loaded to run the turn.
+// The sources it skips are the ones the runtime's save stage treats as already
+// persisted.
+func turnMessagesOf(msgs []types.Message) []types.Message {
+	var out []types.Message
+	for i := range msgs {
+		switch msgs[i].Source {
+		case "statestore", "summary", "retrieved":
+			continue
+		}
+		out = append(out, msgs[i])
+	}
+	return out
 }
 
 // CompositionOutput returns the composition's structured output for a turn that

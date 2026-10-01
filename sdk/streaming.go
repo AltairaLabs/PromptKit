@@ -536,6 +536,7 @@ func (c *Conversation) buildStreamingResponse(
 	// leave the other silently returning nil.
 	if state.finalResult != nil {
 		resp.message.Reasoning = lastAssistantReasoning(state.finalResult.Messages)
+		resp.turnMessages = turnMessagesOf(state.finalResult.Messages)
 	}
 
 	// Populate pending client tools from stream state

@@ -893,8 +893,9 @@ func (c *Conversation) buildResponse(
 	}
 
 	resp := &Response{
-		message:  assistantMsg,
-		duration: time.Since(startTime),
+		message:      assistantMsg,
+		duration:     time.Since(startTime),
+		turnMessages: turnMessagesOf(result.Messages),
 	}
 
 	// Extract tool calls from response if present
