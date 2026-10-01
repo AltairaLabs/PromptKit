@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -43,7 +44,8 @@ func TestStreamPump_BargeFiresSignalAndDropsQueuedAudio(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	p.Barge() // drops queued audio, keeps text/control, fires BargeIn()
+	p.Barge()           // fires BargeIn(), starts Dropping()
+	in <- BargeMarker() // drops the queued audio, keeps text/control
 
 	select {
 	case <-p.BargeIn():
@@ -76,6 +78,60 @@ func TestStreamPump_BargeFiresSignalAndDropsQueuedAudio(t *testing.T) {
 	p.ClearDrop()
 	if p.Dropping() {
 		t.Error("ClearDrop() should clear the dropping state")
+	}
+}
+
+// The barge-in purge is ordered with the stream: audio queued before the
+// marker is dropped, audio after it — the next response's opening chunks — is
+// kept, however the pump's reads interleave. An out-of-band purge request could
+// arrive after the next response's first chunk had been queued and drop it.
+func TestStreamPump_BargeMarkerDropsOnlyAudioBeforeIt(t *testing.T) {
+	in := make(chan StreamChunk, 8)
+	audio := func(b byte) StreamChunk { return StreamChunk{MediaData: &StreamMediaData{Data: []byte{b}}} }
+
+	// Everything is already buffered before the pump starts, so it reads the
+	// pre-barge audio, the marker and the next response's audio back to back.
+	in <- audio(1)
+	in <- audio(2)
+	in <- StreamChunk{Content: "partial transcript"}
+	in <- BargeMarker()
+	in <- audio(100)
+	in <- audio(101)
+	close(in)
+
+	p := NewStreamPump(context.Background(), in, 1) // one slot: at most audio(1) can already be out
+	p.Start()
+	// Hold the consumer back until the pump has read every input, so the
+	// pre-barge audio is in its queue (or the one-slot output) at the marker.
+	deadline := time.Now().Add(time.Second)
+	for len(in) > 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	var got []byte
+	var texts int
+	for c := range p.Response() {
+		switch {
+		case c.MediaData != nil:
+			got = append(got, c.MediaData.Data...)
+		case c.Content != "":
+			texts++
+		default:
+			t.Errorf("the marker must not be forwarded: %+v", c)
+		}
+	}
+	p.Wait()
+
+	// Audio already handed to Response() cannot be recalled, so audio(1) may
+	// have got out first; audio(2) was still queued at the marker and must be
+	// dropped, and the next response's audio must all arrive, in order.
+	if bytes.IndexByte(got, 2) >= 0 {
+		t.Errorf("audio queued before the marker was delivered: %v", got)
+	}
+	if !bytes.HasSuffix(got, []byte{100, 101}) {
+		t.Errorf("audio after the marker = %v, want it to end with [100 101]", got)
+	}
+	if texts != 1 {
+		t.Errorf("text queued before the marker should survive, got %d text chunks", texts)
 	}
 }
 
