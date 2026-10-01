@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // SSEClient is the HTTP+SSE transport implementation of the Client interface.
-// Wire-level details (endpoint discovery, request correlation) live in
-// sse_transport.go; this file owns the public lifecycle.
+// The protocol lives in session; wire-level details (endpoint discovery,
+// request correlation) in sse_transport.go; this file owns the public
+// lifecycle.
 type SSEClient struct {
 	config  ServerConfig
 	options ClientOptions
 
-	tr         *sseTransport
-	serverInfo *InitializeResponse
+	tr   *sseTransport
+	sess *session
 
 	mu      sync.Mutex
 	started bool
@@ -42,79 +41,54 @@ func NewSSEClientWithOptions(config ServerConfig, options ClientOptions) *SSECli
 func (c *SSEClient) Initialize(ctx context.Context) (*InitializeResponse, error) {
 	c.mu.Lock()
 	if c.started {
-		resp := c.serverInfo
+		info := c.sess.info()
 		c.mu.Unlock()
-		return resp, nil
+		return info, nil
 	}
 	if c.closed {
 		c.mu.Unlock()
 		return nil, ErrClientClosed
 	}
-	c.tr = newSSETransport(c.config, c.options)
+	c.sess = newSession(c.config.Name, c.options)
+	c.tr = newSSETransport(c.config, c.options, c.sess)
+	c.sess.conn = c.tr
+	sess, tr := c.sess, c.tr
 	c.mu.Unlock()
 
 	connectCtx, cancel := context.WithTimeout(ctx, c.options.InitTimeout)
 	defer cancel()
-	if err := c.tr.connect(connectCtx); err != nil {
+	if err := tr.connect(connectCtx); err != nil {
 		return nil, fmt.Errorf("mcp/sse: connect: %w", err)
 	}
-	c.tr.startReadLoop()
 
-	req := InitializeRequest{
-		ProtocolVersion: ProtocolVersion,
-		Capabilities: ClientCapabilities{
-			Elicitation: &ElicitationCapability{},
-		},
-		ClientInfo: Implementation{Name: "promptkit", Version: "0.1.0"},
-	}
-	var resp InitializeResponse
-	if err := c.tr.sendRequest(connectCtx, "initialize", req, &resp); err != nil {
-		c.tr.close()
-		return nil, fmt.Errorf("mcp/sse: initialize: %w", err)
-	}
-
-	// The lifecycle requires this notification before any other request;
-	// servers may withhold capability-conditional tools until it arrives.
-	// Matches StdioClient: a failed send is logged, not fatal.
-	if err := c.tr.sendNotification(connectCtx, methodNotificationsInitialized, nil); err != nil {
-		logger.Warn(msgInitializedNotifyFailed, "server", c.config.Name, "error", err)
+	resp, err := sess.initialize(ctx)
+	if err != nil {
+		_ = tr.close()
+		return nil, err
 	}
 
 	c.mu.Lock()
-	c.serverInfo = &resp
 	c.started = true
 	c.mu.Unlock()
-	return &resp, nil
+	return resp, nil
 }
 
 // ListTools retrieves all available tools from the server.
 func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error) {
-	if err := c.checkAlive(); err != nil {
+	sess, err := c.ready()
+	if err != nil {
 		return nil, err
 	}
-	var resp ToolsListResponse
-	if err := c.tr.sendRequest(ctx, "tools/list", nil, &resp); err != nil {
-		if c.options.EnableGracefulDegradation {
-			logger.Warn("MCP/SSE tools/list failed, using graceful degradation",
-				"server", c.config.Name, "error", err)
-			return []Tool{}, nil
-		}
-		return nil, fmt.Errorf("mcp/sse: tools/list: %w", err)
-	}
-	return resp.Tools, nil
+	return sess.listToolsDegrading(ctx)
 }
 
 // CallTool executes a tool with the given arguments.
 func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error) {
-	if err := c.checkAlive(); err != nil {
+	sess, err := c.ready()
+	if err != nil {
 		return nil, err
 	}
-	req := ToolCallRequest{Name: name, Arguments: arguments}
-	var resp ToolCallResponse
-	if err := c.tr.sendRequest(ctx, "tools/call", req, &resp); err != nil {
-		return nil, fmt.Errorf("mcp/sse: tools/call: %w", err)
-	}
-	return &resp, nil
+	return sess.callTool(ctx, name, arguments)
 }
 
 // Close terminates the SSE connection. Idempotent.
@@ -128,7 +102,7 @@ func (c *SSEClient) Close() error {
 	tr := c.tr
 	c.mu.Unlock()
 	if tr != nil {
-		tr.close()
+		return tr.close()
 	}
 	return nil
 }
@@ -143,17 +117,18 @@ func (c *SSEClient) IsAlive() bool {
 	return c.tr.alive.Load()
 }
 
-func (c *SSEClient) checkAlive() error {
+// ready returns the session once the client is initialized and its stream open.
+func (c *SSEClient) ready() (*session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return ErrClientClosed
+		return nil, ErrClientClosed
 	}
 	if !c.started {
-		return ErrClientNotInitialized
+		return nil, ErrClientNotInitialized
 	}
 	if !c.tr.alive.Load() {
-		return ErrServerUnresponsive
+		return nil, ErrServerUnresponsive
 	}
-	return nil
+	return c.sess, nil
 }

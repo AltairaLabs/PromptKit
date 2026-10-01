@@ -58,7 +58,7 @@ func TestStreamableTransport_SendRequest_JSONResponse(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: url, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 
@@ -109,7 +109,7 @@ func TestStreamableTransport_SendRequest_SSEResponse(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: url, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 
@@ -147,7 +147,7 @@ func TestStreamableTransport_SendRequest_SSESkipsUnrelatedMessages(t *testing.T)
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL + "/mcp", TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 
@@ -192,7 +192,7 @@ func TestStreamableTransport_SessionIDRoundTrip(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL + "/mcp", TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 	ctx := context.Background()
@@ -206,38 +206,53 @@ func TestStreamableTransport_SessionIDRoundTrip(t *testing.T) {
 }
 
 func TestStreamableTransport_CustomHeadersAndProtocolVersion(t *testing.T) {
-	var seenAuth, seenVersion, seenAccept string
+	// The server negotiates an older revision than the client offered. Every
+	// request after initialize carries the NEGOTIATED version (2025-06-18
+	// basic/transports: MCP-Protocol-Version), and initialize carries none.
+	type seen struct{ method, auth, version, accept string }
+	var mu sync.Mutex
+	var got []seen
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		seenAuth = r.Header.Get("Authorization")
-		seenVersion = r.Header.Get("MCP-Protocol-Version")
-		seenAccept = r.Header.Get("Accept")
 		body, _ := io.ReadAll(r.Body)
 		var req JSONRPCMessage
 		_ = json.Unmarshal(body, &req)
+		mu.Lock()
+		got = append(got, seen{req.Method, r.Header.Get("Authorization"),
+			r.Header.Get("MCP-Protocol-Version"), r.Header.Get("Accept")})
+		mu.Unlock()
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		result := `{"tools":[]}`
+		if req.Method == "initialize" {
+			result = `{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"s","version":"1"}}`
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(JSONRPCMessage{
-			JSONRPC: "2.0", ID: req.ID, Result: json.RawMessage(`{}`),
-		})
+		_ = json.NewEncoder(w).Encode(JSONRPCMessage{JSONRPC: "2.0", ID: req.ID, Result: json.RawMessage(result)})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	cfg := ServerConfig{
+	c := NewStreamableClient(ServerConfig{
 		Name:          "x",
 		URL:           srv.URL + "/mcp",
 		TransportName: TransportStreamableHTTP,
 		Headers:       map[string]string{"Authorization": "Bearer tok"},
-	}
-	tr := newStreamableTransport(cfg, DefaultClientOptions())
-	defer tr.close()
+	})
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	_, err = c.ListTools(context.Background())
+	require.NoError(t, err)
 
-	require.NoError(t, tr.sendRequest(context.Background(), "initialize", nil, nil))
-	assert.Equal(t, "Bearer tok", seenAuth)
-	assert.Equal(t, ProtocolVersion, seenVersion)
-	assert.Contains(t, seenAccept, "application/json")
-	assert.Contains(t, seenAccept, "text/event-stream")
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, got, 3)
+	assert.Equal(t, seen{"initialize", "Bearer tok", "", "application/json, text/event-stream"}, got[0])
+	assert.Equal(t, "2025-03-26", got[1].version, "notifications/initialized carries the negotiated version")
+	assert.Equal(t, seen{"tools/list", "Bearer tok", "2025-03-26", "application/json, text/event-stream"}, got[2])
 }
 
 func TestStreamableTransport_NonOKStatus(t *testing.T) {
@@ -248,7 +263,7 @@ func TestStreamableTransport_NonOKStatus(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 	err := tr.sendRequest(context.Background(), "initialize", nil, nil)
@@ -266,7 +281,7 @@ func TestStreamableTransport_UnexpectedContentType(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 	err := tr.sendRequest(context.Background(), "initialize", nil, nil)
@@ -290,7 +305,7 @@ func TestStreamableTransport_JSONRPCError(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
 	err := tr.sendRequest(context.Background(), "tools/list", nil, nil)
@@ -306,17 +321,20 @@ func TestStreamableTransport_AcceptedStatus(t *testing.T) {
 
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: srv.URL, TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	defer tr.close()
-	err := tr.sendRequest(context.Background(), "notifications/initialized", nil, nil)
-	require.NoError(t, err)
+	// A notification is acknowledged with 202 and no body.
+	require.NoError(t, tr.sendNotification(context.Background(), "notifications/initialized", nil))
+	// A request must get a response; a 202 leaves it unanswered.
+	err := tr.sendRequest(context.Background(), "tools/list", nil, nil)
+	require.ErrorIs(t, err, errNoResponse)
 }
 
 func TestStreamableTransport_Close_Idempotent(t *testing.T) {
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: "http://x", TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	tr.close()
 	tr.close() // must not panic
@@ -326,7 +344,7 @@ func TestStreamableTransport_Close_Idempotent(t *testing.T) {
 func TestStreamableTransport_SendAfterClose(t *testing.T) {
 	tr := newStreamableTransport(
 		ServerConfig{Name: "x", URL: "http://x", TransportName: TransportStreamableHTTP},
-		DefaultClientOptions(),
+		DefaultClientOptions(), nil,
 	)
 	tr.close()
 	err := tr.sendRequest(context.Background(), "x", nil, nil)

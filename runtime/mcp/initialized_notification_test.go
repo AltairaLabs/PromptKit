@@ -26,9 +26,7 @@ const (
 	gatedTestHeader     = "X-Test-Auth"
 	gatedTestHeaderVal  = "secret"
 	gatedTestSessionID  = "sess-gated-1"
-	methodInitialize    = "initialize"
 	methodInitializedNt = "notifications/initialized"
-	methodToolsList     = "tools/list"
 )
 
 // gatedRecord is one message the gated fake received.
@@ -263,17 +261,17 @@ func TestSSEClient_Initialize_NotificationRejectedIsNonFatal(t *testing.T) {
 func TestStreamableTransport_SendNotification_RequestErrors(t *testing.T) {
 	ctx := context.Background()
 
-	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions())
+	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions(), nil)
 	err := tr.sendNotification(ctx, methodInitializedNt, make(chan int))
 	require.Error(t, err, "params that cannot be encoded must fail before sending")
 
-	tr = newStreamableTransport(ServerConfig{URL: "http://[::1"}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: "http://[::1"}, DefaultClientOptions(), nil)
 	require.Error(t, tr.sendNotification(ctx, methodInitializedNt, nil), "an invalid URL must fail to build a request")
 
 	down := httptest.NewServer(http.NotFoundHandler())
 	downURL := down.URL
 	down.Close()
-	tr = newStreamableTransport(ServerConfig{URL: downURL}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: downURL}, DefaultClientOptions(), nil)
 	err = tr.sendNotification(ctx, methodInitializedNt, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mcp/streamable: POST:", "a transport failure must be reported as such")
@@ -291,10 +289,10 @@ func statusServer(t *testing.T, status int) string {
 
 func TestStreamableTransport_SendNotification_StatusHandling(t *testing.T) {
 	ctx := context.Background()
-	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions())
+	tr := newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusAccepted)}, DefaultClientOptions(), nil)
 	require.NoError(t, tr.sendNotification(ctx, methodInitializedNt, nil), "202 with no body is success")
 
-	tr = newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusBadRequest)}, DefaultClientOptions())
+	tr = newStreamableTransport(ServerConfig{URL: statusServer(t, http.StatusBadRequest)}, DefaultClientOptions(), nil)
 	err := tr.sendNotification(ctx, methodInitializedNt, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 400")
@@ -305,7 +303,7 @@ func TestStreamableTransport_SendNotification_StatusHandling(t *testing.T) {
 
 func TestSSETransport_SendNotification_StatusHandling(t *testing.T) {
 	ctx := context.Background()
-	tr := newSSETransport(ServerConfig{}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{}, DefaultClientOptions(), nil)
 	require.Error(t, tr.sendNotification(ctx, methodInitializedNt, nil), "unconnected transport must refuse")
 
 	tr.messageURL = statusServer(t, http.StatusAccepted)

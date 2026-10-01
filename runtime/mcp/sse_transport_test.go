@@ -17,8 +17,9 @@ import (
 
 func TestPendingRequests_RegisterAndDeliver(t *testing.T) {
 	pr := newPendingRequests()
-	ch, id := pr.register()
-	require.NotZero(t, id)
+	id := int64(7)
+	ch := pr.register(id)
+	require.NotNil(t, ch)
 
 	go pr.deliver(id, &JSONRPCMessage{ID: id, Result: json.RawMessage(`"ok"`)})
 
@@ -41,20 +42,21 @@ func TestPendingRequests_DeliverUnknownIDDrops(t *testing.T) {
 
 func TestPendingRequests_Cancel(t *testing.T) {
 	pr := newPendingRequests()
-	_, id := pr.register()
+	id := int64(3)
+	pr.register(id)
 	pr.cancel(id)
 	// Delivery after cancel is a no-op.
 	pr.deliver(id, &JSONRPCMessage{ID: id, Result: json.RawMessage(`"late"`)})
 }
 
-func TestPendingRequests_UniqueIDs(t *testing.T) {
+func TestPendingRequests_FailAllClosesWaitersAndRefusesNew(t *testing.T) {
 	pr := newPendingRequests()
-	_, a := pr.register()
-	_, b := pr.register()
-	_, c := pr.register()
-	assert.NotEqual(t, a, b)
-	assert.NotEqual(t, b, c)
-	assert.NotEqual(t, a, c)
+	ch := pr.register(1)
+	pr.failAll()
+
+	_, open := <-ch
+	assert.False(t, open, "a waiter must see its channel closed when the stream ends")
+	assert.Nil(t, pr.register(2), "no request can wait on a stream that has ended")
 }
 
 func TestReadSSEEvent_EndpointFrame(t *testing.T) {
@@ -91,7 +93,7 @@ func TestSSETransport_Connect_NonOKStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions(), nil)
 	defer tr.close()
 	err := tr.connect(context.Background())
 	require.Error(t, err)
@@ -108,7 +110,7 @@ func TestSSETransport_Connect_WrongFirstEvent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: srv.URL}, DefaultClientOptions(), nil)
 	defer tr.close()
 	err := tr.connect(context.Background())
 	require.Error(t, err)
@@ -116,7 +118,7 @@ func TestSSETransport_Connect_WrongFirstEvent(t *testing.T) {
 }
 
 func TestSSETransport_ResolveMessageURL_Absolute(t *testing.T) {
-	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080"}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080"}, DefaultClientOptions(), nil)
 	defer tr.close()
 	got, err := tr.resolveMessageURL("https://other.host/xyz")
 	require.NoError(t, err)
@@ -124,7 +126,7 @@ func TestSSETransport_ResolveMessageURL_Absolute(t *testing.T) {
 }
 
 func TestSSETransport_ResolveMessageURL_Relative(t *testing.T) {
-	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080"}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:8080"}, DefaultClientOptions(), nil)
 	defer tr.close()
 	got, err := tr.resolveMessageURL("/message?sessionID=abc")
 	require.NoError(t, err)
@@ -132,7 +134,7 @@ func TestSSETransport_ResolveMessageURL_Relative(t *testing.T) {
 }
 
 func TestSSETransport_SendRequest_NotConnected(t *testing.T) {
-	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:0"}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://localhost:0"}, DefaultClientOptions(), nil)
 	defer tr.close()
 	err := tr.sendRequest(context.Background(), "tools/list", nil, nil)
 	require.Error(t, err)
@@ -164,7 +166,7 @@ func TestCoerceID(t *testing.T) {
 }
 
 func TestSSETransport_Close_Idempotent(t *testing.T) {
-	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://x"}, DefaultClientOptions())
+	tr := newSSETransport(ServerConfig{Name: "x", URL: "http://x"}, DefaultClientOptions(), nil)
 	tr.close()
 	tr.close() // must not panic
 	assert.False(t, tr.alive.Load())

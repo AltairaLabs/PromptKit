@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // jsonRPCVersion is the JSON-RPC envelope version used by all MCP messages.
@@ -20,23 +23,43 @@ const jsonRPCVersion = "2.0"
 // sseEventMessage is the SSE event name carrying JSON-RPC payloads.
 const sseEventMessage = "message"
 
-// streamableTransport implements the MCP 2025-03-26 Streamable HTTP transport.
+// HTTP headers the transports set.
+const (
+	headerProtocolVersion = "MCP-Protocol-Version"
+	headerSessionID       = "Mcp-Session-Id"
+	headerContentType     = "Content-Type"
+	headerAccept          = "Accept"
+	contentTypeJSON       = "application/json"
+	contentTypeSSE        = "text/event-stream"
+)
+
+// maxErrorBodyBytes bounds how much of a non-2xx body is read for a
+// JSON-RPC error or a diagnostic.
+const maxErrorBodyBytes = 64 << 10
+
+// sessionDeleteTimeout bounds the best-effort DELETE that ends a session.
+const sessionDeleteTimeout = 5 * time.Second
+
+// streamableTransport implements the Streamable HTTP transport.
 //
-// One POST per JSON-RPC request; the response is delivered inline on the same
-// POST as either application/json (one-shot) or text/event-stream (SSE-framed
-// JSON-RPC messages). The transport is request-scoped — no persistent stream
-// is held between calls.
+// One POST per JSON-RPC message; a request's response comes back on the same
+// POST as either application/json or an SSE stream scoped to that request.
+// On the stream the server may send notifications and (before 2026-07-28)
+// requests of its own before the response; those go to the session, and the
+// session's answers are POSTed back.
 type streamableTransport struct {
 	config  ServerConfig
 	options ClientOptions
+	in      inbound
 
 	httpClient *http.Client
 	url        string
 
-	nextID atomic.Int64
-
 	mu        sync.Mutex
-	sessionID string // populated from Mcp-Session-Id on Initialize response
+	sessionID string // from Mcp-Session-Id on the initialize response
+	// protocolVersion is the MCP-Protocol-Version the session last sent,
+	// repeated on messages the transport originates (replies, DELETE).
+	protocolVersion string
 
 	closed atomic.Bool
 	alive  atomic.Bool
@@ -46,156 +69,207 @@ type streamableTransport struct {
 // is considered "alive" once the first successful request has completed.
 //
 //nolint:gocritic // config matches existing Client constructor signatures
-func newStreamableTransport(config ServerConfig, options ClientOptions) *streamableTransport {
+func newStreamableTransport(config ServerConfig, options ClientOptions, in inbound) *streamableTransport {
 	return &streamableTransport{
 		config:     config,
 		options:    options,
-		httpClient: &http.Client{}, //nolint:exhaustruct // stdlib defaults are fine
+		in:         in,
+		httpClient: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
 		url:        config.URL,
 	}
 }
 
-// close marks the transport closed. Idempotent. The Streamable HTTP transport
-// holds no persistent connection, so there is nothing to tear down beyond
-// flipping the flag.
-func (t *streamableTransport) close() {
+// close ends the transport. If the server assigned a session, it is told the
+// session is over with an HTTP DELETE, so it can release it. Idempotent.
+func (t *streamableTransport) close() error {
 	if t.closed.Swap(true) {
-		return
-	}
-	t.alive.Store(false)
-}
-
-// sendRequest issues a single JSON-RPC request and unmarshals the response
-// into out. It dispatches on the response Content-Type:
-//   - application/json: one-shot JSON-RPC response.
-//   - text/event-stream: SSE stream; the first JSON-RPC message with a
-//     matching id is the response.
-func (t *streamableTransport) sendRequest(ctx context.Context, method string, params, out any) error {
-	if t.closed.Load() {
-		return ErrClientClosed
-	}
-	id := t.nextID.Add(1)
-
-	body, err := t.buildRequestBody(id, method, params)
-	if err != nil {
-		return err
-	}
-
-	req, err := t.buildHTTPRequest(ctx, body)
-	if err != nil {
-		return err
-	}
-
-	resp, err := t.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("mcp/streamable: POST: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusAccepted {
-		// 202 with no body: notification/empty response. No correlation needed.
-		t.captureSession(resp)
-		t.alive.Store(true)
 		return nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("mcp/streamable: POST status %d", resp.StatusCode)
+	t.alive.Store(false)
+	t.mu.Lock()
+	sid := t.sessionID
+	t.sessionID = ""
+	t.mu.Unlock()
+	if sid != "" {
+		t.deleteSession(sid)
 	}
+	return nil
+}
 
+func (t *streamableTransport) deleteSession(sid string) {
+	ctx, cancel := context.WithTimeout(context.Background(), sessionDeleteTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, http.NoBody)
+	if err != nil {
+		return
+	}
+	t.applyConfigHeaders(req)
+	t.applySessionHeaders(req, sid)
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		logger.Debug("MCP/Streamable session DELETE failed", "server", t.config.Name, "error", err)
+		return
+	}
+	_ = resp.Body.Close()
+}
+
+// send POSTs a request and returns its response.
+func (t *streamableTransport) send(ctx context.Context, req *request) (*JSONRPCMessage, error) {
+	if t.closed.Load() {
+		return nil, ErrClientClosed
+	}
+	resp, sentSession, err := t.post(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch {
+	case resp.StatusCode == http.StatusNotFound && sentSession != "":
+		// The server no longer knows the session (2025-03-26+): the client MUST
+		// start a new one with a fresh initialize.
+		t.dropSession(sentSession)
+		return nil, errSessionExpired
+	case resp.StatusCode == http.StatusAccepted:
+		return nil, fmt.Errorf("mcp/streamable: %s: %w", req.method, errNoResponse)
+	case resp.StatusCode != http.StatusOK:
+		return nil, t.statusError(resp)
+	}
 	t.captureSession(resp)
 
-	contentType := resp.Header.Get("Content-Type")
+	contentType := resp.Header.Get(headerContentType)
 	switch {
-	case strings.HasPrefix(contentType, "application/json"):
+	case strings.HasPrefix(contentType, contentTypeJSON):
 		var msg JSONRPCMessage
 		if derr := json.NewDecoder(resp.Body).Decode(&msg); derr != nil {
-			return fmt.Errorf("mcp/streamable: decode json response: %w", derr)
+			return nil, fmt.Errorf("mcp/streamable: decode json response: %w", derr)
+		}
+		if !isResponse(&msg) {
+			return nil, fmt.Errorf("mcp/streamable: %s: JSON body is not a response", req.method)
 		}
 		t.alive.Store(true)
-		return unmarshalStreamableReply(&msg, out)
-	case strings.HasPrefix(contentType, "text/event-stream"):
-		msg, rerr := readSSEUntilResponse(resp.Body, id)
+		return &msg, nil
+	case strings.HasPrefix(contentType, contentTypeSSE):
+		msg, rerr := t.readStream(ctx, resp.Body, req.id)
 		if rerr != nil {
-			return rerr
+			return nil, rerr
 		}
 		t.alive.Store(true)
-		return unmarshalStreamableReply(msg, out)
+		return msg, nil
 	default:
-		return fmt.Errorf("mcp/streamable: unexpected content type %q", contentType)
+		return nil, fmt.Errorf("mcp/streamable: unexpected content type %q", contentType)
 	}
 }
 
-// sendNotification POSTs a JSON-RPC notification (no id). The spec has the
-// server answer 202 Accepted with no body; a 200 is tolerated and its body
-// ignored, since a notification has no response to correlate.
-func (t *streamableTransport) sendNotification(ctx context.Context, method string, params any) error {
+// statusError turns a non-2xx response into an error. A JSON-RPC error in
+// the body is the server's answer and is returned as an *RPCError.
+func (t *streamableTransport) statusError(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+	var msg JSONRPCMessage
+	if json.Unmarshal(body, &msg) == nil && msg.Error != nil {
+		return rpcErrorFrom(msg.Error)
+	}
+	return &httpStatusError{status: resp.StatusCode, body: strings.TrimSpace(string(body))}
+}
+
+// httpStatusError is a non-2xx response without a JSON-RPC error body.
+type httpStatusError struct {
+	status int
+	body   string
+}
+
+func (e *httpStatusError) Error() string {
+	if e.body == "" {
+		return fmt.Sprintf("mcp/streamable: POST status %d", e.status)
+	}
+	return fmt.Sprintf("mcp/streamable: POST status %d: %s", e.status, e.body)
+}
+
+// notify POSTs a notification. The server answers 202 Accepted; a 200 is
+// tolerated and its body ignored.
+func (t *streamableTransport) notify(ctx context.Context, req *request) error {
 	if t.closed.Load() {
 		return ErrClientClosed
 	}
-	body, err := t.buildRequestBody(nil, method, params)
+	resp, _, err := t.post(ctx, req)
 	if err != nil {
 		return err
-	}
-	req, err := t.buildHTTPRequest(ctx, body)
-	if err != nil {
-		return err
-	}
-	resp, err := t.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("mcp/streamable: POST: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBodyBytes))
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("mcp/streamable: POST status %d", resp.StatusCode)
 	}
 	return nil
 }
 
-// buildRequestBody marshals one JSON-RPC message. A nil id omits the field,
-// which makes the message a notification.
-func (t *streamableTransport) buildRequestBody(id any, method string, params any) ([]byte, error) {
-	var paramBytes json.RawMessage
-	if params != nil {
-		b, err := json.Marshal(params)
-		if err != nil {
-			return nil, fmt.Errorf("mcp/streamable: marshal params: %w", err)
-		}
-		paramBytes = b
+// cancelRequest POSTs the cancellation notification for an abandoned request.
+// The abandoned POST has already been closed, which a server may also take
+// as cancellation.
+func (t *streamableTransport) cancelRequest(ctx context.Context, id int64, reason string, header http.Header) {
+	if err := t.notify(ctx, cancelNotification(id, reason, header)); err != nil {
+		logger.Debug("MCP/Streamable failed to send cancellation", "server", t.config.Name, "error", err)
 	}
-	body, err := json.Marshal(JSONRPCMessage{
-		JSONRPC: jsonRPCVersion,
-		ID:      id,
-		Method:  method,
-		Params:  paramBytes,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("mcp/streamable: marshal request: %w", err)
-	}
-	return body, nil
 }
 
-func (t *streamableTransport) buildHTTPRequest(ctx context.Context, body []byte) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(body))
+// post sends one message and returns the HTTP response, plus the session id
+// it was sent with.
+func (t *streamableTransport) post(ctx context.Context, req *request) (*http.Response, string, error) {
+	body, err := json.Marshal(req.message())
 	if err != nil {
-		return nil, fmt.Errorf("mcp/streamable: build POST: %w", err)
+		return nil, "", fmt.Errorf("mcp/streamable: marshal request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("MCP-Protocol-Version", ProtocolVersion)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(body))
+	if err != nil {
+		return nil, "", fmt.Errorf("mcp/streamable: build POST: %w", err)
+	}
+	httpReq.Header.Set(headerContentType, contentTypeJSON)
+	httpReq.Header.Set(headerAccept, contentTypeJSON+", "+contentTypeSSE)
+	t.applyConfigHeaders(httpReq)
+	for k, vs := range req.header {
+		httpReq.Header[k] = vs
+	}
+	t.mu.Lock()
+	sid := t.sessionID
+	if v := req.header.Get(headerProtocolVersion); v != "" {
+		t.protocolVersion = v
+	}
+	t.mu.Unlock()
+	if sid != "" {
+		httpReq.Header.Set(headerSessionID, sid)
+	}
+	resp, err := t.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, "", fmt.Errorf("mcp/streamable: POST: %w", err)
+	}
+	return resp, sid, nil
+}
+
+func (t *streamableTransport) applyConfigHeaders(req *http.Request) {
 	for k, v := range t.config.Headers {
 		req.Header.Set(k, v)
 	}
+}
+
+// applySessionHeaders sets the session id and protocol version on a message
+// the transport originates itself.
+func (t *streamableTransport) applySessionHeaders(req *http.Request, sid string) {
 	t.mu.Lock()
-	if t.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", t.sessionID)
+	v := t.protocolVersion
+	if sid == "" {
+		sid = t.sessionID
 	}
 	t.mu.Unlock()
-	return req, nil
+	if v != "" {
+		req.Header.Set(headerProtocolVersion, v)
+	}
+	if sid != "" {
+		req.Header.Set(headerSessionID, sid)
+	}
 }
 
 func (t *streamableTransport) captureSession(resp *http.Response) {
-	sid := resp.Header.Get("Mcp-Session-Id")
+	sid := resp.Header.Get(headerSessionID)
 	if sid == "" {
 		return
 	}
@@ -204,11 +278,21 @@ func (t *streamableTransport) captureSession(resp *http.Response) {
 	t.mu.Unlock()
 }
 
-// readSSEUntilResponse reads SSE frames from body until it finds a JSON-RPC
-// message with the given id, then returns it. Frames whose data does not
-// parse as a JSON-RPC message, or whose id does not match, are skipped
-// (they may be server-initiated notifications or unrelated responses).
-func readSSEUntilResponse(body io.Reader, wantID int64) (*JSONRPCMessage, error) {
+// dropSession forgets an expired session id, unless another request has
+// already replaced it.
+func (t *streamableTransport) dropSession(sid string) {
+	t.mu.Lock()
+	if t.sessionID == sid {
+		t.sessionID = ""
+	}
+	t.mu.Unlock()
+}
+
+// readStream reads a request's SSE response stream until the response with
+// the request's id. Other messages on the stream — notifications, and
+// requests from the server — are handed to the session, and the session's
+// answers are POSTed back.
+func (t *streamableTransport) readStream(ctx context.Context, body io.Reader, wantID int64) (*JSONRPCMessage, error) {
 	reader := bufio.NewReader(body)
 	for {
 		ev, err := readSSEEvent(reader)
@@ -225,23 +309,31 @@ func readSSEUntilResponse(body io.Reader, wantID int64) (*JSONRPCMessage, error)
 		if jerr := json.Unmarshal([]byte(ev.data), &msg); jerr != nil {
 			continue
 		}
-		gotID, ok := coerceID(msg.ID)
-		if !ok || gotID != wantID {
-			continue
+		reply := func(r *JSONRPCMessage) { t.postReply(ctx, r) }
+		if resp, ok := routeStreamMessage(ctx, t.in, &msg, wantID, reply); ok {
+			return resp, nil
 		}
-		return &msg, nil
 	}
 }
 
-func unmarshalStreamableReply(reply *JSONRPCMessage, out any) error {
-	if reply.Error != nil {
-		return fmt.Errorf("mcp/streamable: rpc error %d: %s", reply.Error.Code, reply.Error.Message)
+// postReply POSTs the client's response to a server request.
+func (t *streamableTransport) postReply(ctx context.Context, reply *JSONRPCMessage) {
+	body, err := json.Marshal(reply)
+	if err != nil {
+		return
 	}
-	if out == nil {
-		return nil
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(body))
+	if err != nil {
+		return
 	}
-	if err := json.Unmarshal(reply.Result, out); err != nil {
-		return fmt.Errorf("mcp/streamable: unmarshal result: %w", err)
+	httpReq.Header.Set(headerContentType, contentTypeJSON)
+	httpReq.Header.Set(headerAccept, contentTypeJSON+", "+contentTypeSSE)
+	t.applyConfigHeaders(httpReq)
+	t.applySessionHeaders(httpReq, "")
+	resp, err := t.httpClient.Do(httpReq)
+	if err != nil {
+		logger.Warn("MCP/Streamable failed to answer server request", "server", t.config.Name, "error", err)
+		return
 	}
-	return nil
+	_ = resp.Body.Close()
 }

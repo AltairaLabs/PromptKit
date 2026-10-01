@@ -3,28 +3,18 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
-// streamableClientImplName / streamableClientImplVersion identify this
-// implementation in the MCP initialize handshake's ClientInfo.
-const (
-	streamableClientImplName    = "promptkit"
-	streamableClientImplVersion = "0.1.0"
-)
-
-// StreamableClient is the MCP 2025-03-26 Streamable HTTP transport
-// implementation of the Client interface. Wire-level details live in
+// StreamableClient is the Streamable HTTP transport implementation of the
+// Client interface. The protocol lives in session; wire-level details in
 // streamable_transport.go; this file owns the public lifecycle.
 type StreamableClient struct {
 	config  ServerConfig
 	options ClientOptions
 
-	tr         *streamableTransport
-	serverInfo *InitializeResponse
+	tr   *streamableTransport
+	sess *session
 
 	mu      sync.Mutex
 	started bool
@@ -49,79 +39,53 @@ func NewStreamableClientWithOptions(config ServerConfig, options ClientOptions) 
 func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse, error) {
 	c.mu.Lock()
 	if c.started {
-		resp := c.serverInfo
+		info := c.sess.info()
 		c.mu.Unlock()
-		return resp, nil
+		return info, nil
 	}
 	if c.closed {
 		c.mu.Unlock()
 		return nil, ErrClientClosed
 	}
-	c.tr = newStreamableTransport(c.config, c.options)
+	c.sess = newSession(c.config.Name, c.options)
+	c.tr = newStreamableTransport(c.config, c.options, c.sess)
+	c.sess.conn = c.tr
+	sess, tr := c.sess, c.tr
 	c.mu.Unlock()
 
-	initCtx, cancel := context.WithTimeout(ctx, c.options.InitTimeout)
-	defer cancel()
-	req := InitializeRequest{
-		ProtocolVersion: ProtocolVersion,
-		Capabilities: ClientCapabilities{
-			Elicitation: &ElicitationCapability{},
-		},
-		ClientInfo: Implementation{Name: streamableClientImplName, Version: streamableClientImplVersion},
-	}
-	var resp InitializeResponse
-	if err := c.tr.sendRequest(initCtx, "initialize", req, &resp); err != nil {
-		c.tr.close()
-		return nil, fmt.Errorf("mcp/streamable: initialize: %w", err)
-	}
-
-	// The lifecycle requires this notification before any other request;
-	// servers may withhold capability-conditional tools until it arrives.
-	// Matches StdioClient: a failed send is logged, not fatal.
-	if err := c.tr.sendNotification(initCtx, methodNotificationsInitialized, nil); err != nil {
-		logger.Warn(msgInitializedNotifyFailed, "server", c.config.Name, "error", err)
+	resp, err := sess.initialize(ctx)
+	if err != nil {
+		_ = tr.close()
+		return nil, err
 	}
 
 	c.mu.Lock()
-	c.serverInfo = &resp
 	c.started = true
 	c.mu.Unlock()
-	return &resp, nil
+	return resp, nil
 }
 
 // ListTools retrieves all available tools from the server.
 func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error) {
-	if err := c.checkAlive(); err != nil {
+	sess, err := c.ready()
+	if err != nil {
 		return nil, err
 	}
-	var resp ToolsListResponse
-	if err := c.tr.sendRequest(ctx, "tools/list", nil, &resp); err != nil {
-		if c.options.EnableGracefulDegradation {
-			logger.Warn("MCP/Streamable tools/list failed, using graceful degradation",
-				"server", c.config.Name, "error", err)
-			return []Tool{}, nil
-		}
-		return nil, fmt.Errorf("mcp/streamable: tools/list: %w", err)
-	}
-	return resp.Tools, nil
+	return sess.listToolsDegrading(ctx)
 }
 
 // CallTool executes a tool with the given arguments.
 func (c *StreamableClient) CallTool(
 	ctx context.Context, name string, arguments json.RawMessage,
 ) (*ToolCallResponse, error) {
-	if err := c.checkAlive(); err != nil {
+	sess, err := c.ready()
+	if err != nil {
 		return nil, err
 	}
-	req := ToolCallRequest{Name: name, Arguments: arguments}
-	var resp ToolCallResponse
-	if err := c.tr.sendRequest(ctx, "tools/call", req, &resp); err != nil {
-		return nil, fmt.Errorf("mcp/streamable: tools/call: %w", err)
-	}
-	return &resp, nil
+	return sess.callTool(ctx, name, arguments)
 }
 
-// Close marks the client closed. Idempotent.
+// Close ends the client and, if the server assigned one, its session. Idempotent.
 func (c *StreamableClient) Close() error {
 	c.mu.Lock()
 	if c.closed {
@@ -132,7 +96,7 @@ func (c *StreamableClient) Close() error {
 	tr := c.tr
 	c.mu.Unlock()
 	if tr != nil {
-		tr.close()
+		return tr.close()
 	}
 	return nil
 }
@@ -148,17 +112,15 @@ func (c *StreamableClient) IsAlive() bool {
 	return c.tr.alive.Load()
 }
 
-func (c *StreamableClient) checkAlive() error {
+// ready returns the session once the client is initialized and open.
+func (c *StreamableClient) ready() (*session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return ErrClientClosed
+		return nil, ErrClientClosed
 	}
 	if !c.started {
-		return ErrClientNotInitialized
+		return nil, ErrClientNotInitialized
 	}
-	if !c.tr.alive.Load() {
-		return ErrServerUnresponsive
-	}
-	return nil
+	return c.sess, nil
 }

@@ -41,9 +41,7 @@ Spec fields PromptKit does not carry:
 | ServerCapabilities | `experimental` | experimental server capabilities are ignored |
 | ServerCapabilities | `logging` | server log messages are not consumed |
 | ServerCapabilities resources | `subscribe` | the client does not use resources |
-| ListToolsRequest params | `cursor` | pagination is not implemented: tools/list is read as a single page (#2100) |
 | ListToolsResult | `_meta` | _meta is not surfaced to callers |
-| ListToolsResult | `nextCursor` | pagination is not implemented: tools/list is read as a single page (#2100) |
 | Tool | `_meta` | _meta is not surfaced to callers |
 | Tool | `annotations` | tool behaviour hints (readOnlyHint, destructiveHint, ...) are not carried to tool descriptors |
 | Tool | `outputSchema` | the declared output schema is not carried to tool descriptors, so results are not validated (#2100) |

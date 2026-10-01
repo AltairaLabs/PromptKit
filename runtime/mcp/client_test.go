@@ -1,14 +1,15 @@
 package mcp
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -153,17 +154,17 @@ func TestHandleNotification(t *testing.T) {
 	// Test various notification types - these just log, so we're testing they don't panic
 	t.Run("tools list changed", func(t *testing.T) {
 		msg := &JSONRPCMessage{Method: "notifications/tools/list_changed"}
-		client.handleNotification(msg) // Should not panic
+		client.sess.notification(msg) // Should not panic
 	})
 
 	t.Run("resources list changed", func(t *testing.T) {
 		msg := &JSONRPCMessage{Method: "notifications/resources/list_changed"}
-		client.handleNotification(msg) // Should not panic
+		client.sess.notification(msg) // Should not panic
 	})
 
 	t.Run("unknown notification", func(t *testing.T) {
 		msg := &JSONRPCMessage{Method: "some/unknown/notification"}
-		client.handleNotification(msg) // Should not panic
+		client.sess.notification(msg) // Should not panic
 	})
 }
 
@@ -344,7 +345,7 @@ func TestInitialize_AlreadyStarted(t *testing.T) {
 		ProtocolVersion: "2025-03-26",
 	}
 	client.started = true
-	client.serverInfo = expectedResp
+	client.sess.serverInfo = expectedResp
 
 	resp, err := client.Initialize(context.Background())
 	assert.NoError(t, err)
@@ -552,7 +553,7 @@ func TestSendRequest_Success(t *testing.T) {
 
 	// Start the read loop so responses get routed
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Simulate server: read request, send response
 	go func() {
@@ -591,7 +592,7 @@ func TestSendRequest_JSONRPCError(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -629,7 +630,7 @@ func TestSendRequest_Timeout(t *testing.T) {
 
 	// Read loop but server never responds
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Drain stdin so writeMessage doesn't block
 	go func() {
@@ -656,7 +657,7 @@ func TestSendRequest_ContextCancelled(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -687,7 +688,7 @@ func TestSendRequest_WithParams(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -729,7 +730,7 @@ func TestSendRequestWithRetry_Success(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Server responds successfully on first try
 	go func() {
@@ -762,37 +763,48 @@ func TestSendRequestWithRetry_Success(t *testing.T) {
 	client.wg.Wait()
 }
 
-func TestSendRequestWithRetry_ContextCancelled(t *testing.T) {
+func TestSendRequestWithRetry_TimeoutIsCancelledNotRetried(t *testing.T) {
+	// A request that times out may still have been processed, so it is not
+	// sent again; the server is told it is cancelled instead (MCP
+	// basic/utilities/cancellation: on timeout the sender SHOULD cancel).
 	opts := DefaultClientOptions()
 	opts.RequestTimeout = 100 * time.Millisecond
 	opts.MaxRetries = 3
-	opts.RetryDelay = 5 * time.Second // Long delay
+	opts.RetryDelay = time.Millisecond
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
-	// Drain stdin but never respond — first attempt times out, then retry delay starts
+	received := make(chan JSONRPCMessage, 10)
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
+		scanner := bufio.NewScanner(serverReader)
+		for scanner.Scan() {
+			var msg JSONRPCMessage
+			if json.Unmarshal(scanner.Bytes(), &msg) == nil {
+				received <- msg
 			}
 		}
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(300 * time.Millisecond) // After first timeout
-		cancel()
-	}()
+	err := client.sendRequestWithRetry(context.Background(), "test/method", nil, nil)
+	require.ErrorIs(t, err, ErrServerUnresponsive)
 
-	err := client.sendRequestWithRetry(ctx, "test/method", nil, nil)
-	assert.Error(t, err)
-	// Should get context.Canceled either from sendRequest or from retry delay select
-	assert.True(t, err == context.Canceled || err == context.DeadlineExceeded ||
-		assert.ObjectsAreEqual(context.Canceled, err))
+	first := <-received
+	assert.Equal(t, "test/method", first.Method)
+	select {
+	case second := <-received:
+		assert.Equal(t, methodNotificationsCancel, second.Method, "the only follow-up is the cancellation")
+		assert.Nil(t, second.ID, "a cancellation is a notification")
+		assert.JSONEq(t, `{"requestId":1,"reason":"client stopped waiting for the response"}`, string(second.Params))
+	case <-time.After(time.Second):
+		t.Fatal("no notifications/cancelled after the timeout")
+	}
+	select {
+	case extra := <-received:
+		t.Fatalf("timed-out request was followed by %q; it must not be retried", extra.Method)
+	case <-time.After(150 * time.Millisecond):
+	}
 
 	serverReader.Close()
 	serverWriter.Close()
@@ -808,7 +820,7 @@ func TestReadLoop(t *testing.T) {
 	client.pendingReqs.Store(int64(42), respChan)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Send a response from the server
 	resp := JSONRPCMessage{
@@ -839,7 +851,7 @@ func TestReadLoop_InvalidJSON(t *testing.T) {
 	client, _, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Send invalid JSON — readLoop should log error but continue
 	_, err := serverWriter.Write([]byte("not valid json\n"))
@@ -875,7 +887,7 @@ func TestClose_WithPipes(t *testing.T) {
 	client, _, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Closing should clean up everything
 	err := client.Close()
@@ -900,29 +912,37 @@ func TestSendRequest_WriteFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to write request")
 }
 
-func TestSendRequestWithRetry_AllAttemptsFail(t *testing.T) {
+func TestSendRequestWithRetry_JSONRPCErrorIsNotRetried(t *testing.T) {
+	// A JSON-RPC error is the server's answer, not a transport failure:
+	// sending the request again would only repeat it.
 	opts := DefaultClientOptions()
-	opts.RequestTimeout = 50 * time.Millisecond
-	opts.MaxRetries = 1
-	opts.RetryDelay = 10 * time.Millisecond
+	opts.MaxRetries = 3
+	opts.RetryDelay = time.Millisecond
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
-	// Drain stdin but never respond — all attempts timeout
+	var requests atomic.Int32
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
+		scanner := bufio.NewScanner(serverReader)
+		for scanner.Scan() {
+			var msg JSONRPCMessage
+			if json.Unmarshal(scanner.Bytes(), &msg) != nil || msg.ID == nil {
+				continue
 			}
+			requests.Add(1)
+			reply, _ := json.Marshal(JSONRPCMessage{JSONRPC: "2.0", ID: msg.ID,
+				Error: &JSONRPCError{Code: -32602, Message: "Unknown tool"}})
+			_, _ = serverWriter.Write(append(reply, '\n'))
 		}
 	}()
 
-	err := client.sendRequestWithRetry(context.Background(), "test/method", nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), fmt.Sprintf("request failed after %d attempts", opts.MaxRetries+1))
+	err := client.sendRequestWithRetry(context.Background(), "tools/list", nil, nil)
+	var rpcErr *RPCError
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, -32602, rpcErr.Code)
+	assert.Equal(t, int32(1), requests.Load(), "a request the server answered with an error is sent once")
 
 	serverReader.Close()
 	serverWriter.Close()
@@ -936,7 +956,7 @@ func TestListTools_WithPipe(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	t.Run("success", func(t *testing.T) {
 		go func() {
@@ -979,7 +999,7 @@ func TestListTools_GracefulDegradation(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	// Drain stdin but never respond — triggers timeout
 	go func() {
@@ -1008,7 +1028,7 @@ func TestListTools_NoGracefulDegradation(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -1036,7 +1056,7 @@ func TestCallTool_WithPipe(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -1076,7 +1096,7 @@ func TestCallTool_Error(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -1149,9 +1169,12 @@ func TestInitialize_ProcessStartsButHandshakeFails(t *testing.T) {
 
 func TestInitialize_InitTimeout(t *testing.T) {
 	// Test the DeadlineExceeded path in Initialize where InitTimeout is shorter than RequestTimeout
+	// A server that never answers. (cat would echo the client's own
+	// initialize back as a server request, which the client answers.)
 	config := ServerConfig{
 		Name:    "test-server",
-		Command: "cat",
+		Command: "sleep",
+		Args:    []string{"10"},
 	}
 
 	opts := DefaultClientOptions()
@@ -1187,7 +1210,7 @@ func TestInitialize_ProcessStartsHandshakeSucceeds(t *testing.T) {
 	require.NoError(t, err)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 	client.started = true
 	client.mu.Unlock()
 
@@ -1216,7 +1239,7 @@ func TestInitialize_ProcessStartsHandshakeSucceeds(t *testing.T) {
 	client2.stdout = stdoutReader
 
 	client2.wg.Add(1)
-	go client2.readLoop()
+	go client2.readLoop(client2.stdout)
 	client2.started = true
 	client2.cmd = exec.Command("sleep", "60")
 	require.NoError(t, client2.cmd.Start())
@@ -1562,7 +1585,7 @@ func TestSendRequest_UnmarshalResultError(t *testing.T) {
 	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
 
 	client.wg.Add(1)
-	go client.readLoop()
+	go client.readLoop(client.stdout)
 
 	go func() {
 		buf := make([]byte, 4096)

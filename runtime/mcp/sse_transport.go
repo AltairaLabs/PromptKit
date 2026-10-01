@@ -13,32 +13,39 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
+// errStreamClosed fails requests still waiting when the SSE stream ends.
+var errStreamClosed = errors.New("mcp/sse: event stream closed")
+
 // pendingRequests is an id→channel map for JSON-RPC request/response
-// correlation over SSE. Callers register() to get a channel + id, then
-// either wait on the channel or cancel() to free the slot.
+// correlation over SSE. Callers register an id, then either wait on the
+// channel or cancel() to free the slot.
 //
 // All channels are buffered (1) so deliver never blocks on a slow consumer.
 type pendingRequests struct {
 	mu     sync.Mutex
-	nextID atomic.Int64
 	chans  map[int64]chan *JSONRPCMessage
+	closed bool
 }
 
 func newPendingRequests() *pendingRequests {
 	return &pendingRequests{chans: make(map[int64]chan *JSONRPCMessage)}
 }
 
-// register allocates a new id and returns a receive-only channel that will
-// receive the response for that id (or nothing, if cancel is called first).
-func (p *pendingRequests) register() (reply <-chan *JSONRPCMessage, id int64) {
-	id = p.nextID.Add(1)
-	ch := make(chan *JSONRPCMessage, 1)
+// register returns the channel the response for id will be delivered on.
+// After failAll it returns nil: the stream is gone.
+func (p *pendingRequests) register(id int64) <-chan *JSONRPCMessage {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
+	ch := make(chan *JSONRPCMessage, 1)
 	p.chans[id] = ch
-	p.mu.Unlock()
-	return ch, id
+	return ch
 }
 
 // deliver routes a response to the waiting channel. Unknown ids are dropped.
@@ -63,10 +70,23 @@ func (p *pendingRequests) cancel(id int64) {
 	p.mu.Unlock()
 }
 
+// failAll closes every waiting channel and refuses new registrations: the
+// stream responses arrive on has ended.
+func (p *pendingRequests) failAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closed = true
+	for id, ch := range p.chans {
+		close(ch)
+		delete(p.chans, id)
+	}
+}
+
 // sseEvent is a minimal SSE frame — only the fields we care about.
 type sseEvent struct {
 	event string
 	data  string
+	id    string
 }
 
 // readSSEEvent reads a single SSE frame (terminated by a blank line) from r.
@@ -97,6 +117,8 @@ func readSSEEvent(r *bufio.Reader) (sseEvent, error) {
 			ev.event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		case strings.HasPrefix(line, "data:"):
 			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		case strings.HasPrefix(line, "id:"):
+			ev.id = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
 		}
 		// Unrecognized field lines (including SSE ":" comments) are ignored.
 	}
@@ -104,11 +126,13 @@ func readSSEEvent(r *bufio.Reader) (sseEvent, error) {
 	return ev, nil
 }
 
-// sseTransport owns the HTTP connection to the server's /sse endpoint,
-// the background reader loop, and the pending-request map.
+// sseTransport implements the deprecated HTTP+SSE transport (2024-11-05): a
+// long-lived GET stream carries every server message, and the client POSTs
+// its messages to the endpoint the stream announces.
 type sseTransport struct {
 	config  ServerConfig
 	options ClientOptions
+	in      inbound
 
 	httpClient *http.Client
 	baseURL    string
@@ -121,6 +145,9 @@ type sseTransport struct {
 
 	stream io.ReadCloser // the SSE stream body; nil until connect() succeeds
 
+	versionMu       sync.Mutex
+	protocolVersion string // last MCP-Protocol-Version sent; repeated on replies
+
 	wg     sync.WaitGroup
 	closed atomic.Bool
 	alive  atomic.Bool
@@ -130,12 +157,13 @@ type sseTransport struct {
 // lifecycle context.
 //
 //nolint:gocritic // config matches existing Client constructor signatures
-func newSSETransport(config ServerConfig, options ClientOptions) *sseTransport {
+func newSSETransport(config ServerConfig, options ClientOptions, in inbound) *sseTransport {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &sseTransport{
 		config:     config,
 		options:    options,
-		httpClient: &http.Client{}, //nolint:exhaustruct // stdlib defaults are fine
+		in:         in,
+		httpClient: &http.Client{}, //nolint:exhaustruct // per-request timeouts come from the session's context
 		baseURL:    strings.TrimRight(config.URL, "/"),
 		pending:    newPendingRequests(),
 		ctx:        ctx,
@@ -156,7 +184,7 @@ func (t *sseTransport) connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("mcp/sse: build GET /sse: %w", err)
 	}
-	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(headerAccept, contentTypeSSE)
 	for k, v := range t.config.Headers {
 		req.Header.Set(k, v)
 	}
@@ -203,6 +231,8 @@ func (t *sseTransport) connect(ctx context.Context) error {
 	t.messageURL = messageURL
 	t.stream = resp.Body
 	t.alive.Store(true)
+	t.wg.Add(1)
+	go t.readLoop(reader)
 	return nil
 }
 
@@ -224,9 +254,9 @@ func (t *sseTransport) resolveMessageURL(data string) (string, error) {
 }
 
 // close tears down the transport. Safe to call multiple times.
-func (t *sseTransport) close() {
+func (t *sseTransport) close() error {
 	if t.closed.Swap(true) {
-		return
+		return nil
 	}
 	t.alive.Store(false)
 	t.cancel()
@@ -234,68 +264,73 @@ func (t *sseTransport) close() {
 		_ = t.stream.Close()
 	}
 	t.wg.Wait()
+	return nil
 }
 
-// sendRequest marshals a JSON-RPC request, POSTs it to messageURL, and waits
-// for the matching response on the pending-request channel. The ctx bounds
-// how long we wait for the response; cancellation does not tear down the
-// transport.
-func (t *sseTransport) sendRequest(ctx context.Context, method string, params, out any) error {
+// send POSTs a request and waits for its response on the stream.
+func (t *sseTransport) send(ctx context.Context, req *request) (*JSONRPCMessage, error) {
 	if t.messageURL == "" {
-		return errors.New("mcp/sse: transport not connected")
+		return nil, errors.New("mcp/sse: transport not connected")
 	}
-	ch, id := t.pending.register()
+	ch := t.pending.register(req.id)
+	if ch == nil {
+		return nil, errStreamClosed
+	}
 
-	if err := t.postJSONRPC(ctx, id, method, params); err != nil {
-		t.pending.cancel(id)
-		return err
+	if err := t.post(ctx, req.message(), req.header); err != nil {
+		t.pending.cancel(req.id)
+		return nil, err
 	}
 
 	select {
-	case reply := <-ch:
-		return unmarshalReply(reply, out)
-	case <-ctx.Done():
-		t.pending.cancel(id)
-		return ctx.Err()
-	}
-}
-
-// sendNotification POSTs a JSON-RPC notification (no id) to messageURL.
-// Notifications get no response, so there is nothing to wait for on the
-// stream; the POST's 2xx status is the only acknowledgment.
-func (t *sseTransport) sendNotification(ctx context.Context, method string, params any) error {
-	return t.postJSONRPC(ctx, nil, method, params)
-}
-
-// postJSONRPC POSTs one JSON-RPC message. A nil id omits the field, which
-// makes the message a notification.
-func (t *sseTransport) postJSONRPC(ctx context.Context, id any, method string, params any) error {
-	var paramBytes json.RawMessage
-	if params != nil {
-		b, err := json.Marshal(params)
-		if err != nil {
-			return fmt.Errorf("mcp/sse: marshal params: %w", err)
+	case reply, ok := <-ch:
+		if !ok {
+			return nil, errStreamClosed
 		}
-		paramBytes = b
+		return reply, nil
+	case <-ctx.Done():
+		t.pending.cancel(req.id)
+		return nil, ctx.Err()
 	}
-	body, err := json.Marshal(JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      id,
-		Method:  method,
-		Params:  paramBytes,
-	})
+}
+
+// notify POSTs a notification. Notifications get no response, so the POST's
+// 2xx status is the only acknowledgment.
+func (t *sseTransport) notify(ctx context.Context, req *request) error {
+	return t.post(ctx, req.message(), req.header)
+}
+
+// cancelRequest sends the cancellation notification: the response would arrive on
+// the shared stream, so there is no per-request stream to close.
+func (t *sseTransport) cancelRequest(ctx context.Context, id int64, reason string, header http.Header) {
+	if err := t.notify(ctx, cancelNotification(id, reason, header)); err != nil {
+		logger.Debug("MCP/SSE failed to send cancellation", "server", t.config.Name, "error", err)
+	}
+}
+
+// post POSTs one JSON-RPC message to the message endpoint.
+func (t *sseTransport) post(ctx context.Context, msg *JSONRPCMessage, header http.Header) error {
+	body, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("mcp/sse: marshal request: %w", err)
+		return fmt.Errorf("mcp/sse: marshal message: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.messageURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("mcp/sse: build POST: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	for k, v := range t.config.Headers {
 		req.Header.Set(k, v)
 	}
+	t.versionMu.Lock()
+	if v := header.Get(headerProtocolVersion); v != "" {
+		t.protocolVersion = v
+	}
+	if t.protocolVersion != "" {
+		req.Header.Set(headerProtocolVersion, t.protocolVersion)
+	}
+	t.versionMu.Unlock()
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
@@ -308,63 +343,47 @@ func (t *sseTransport) postJSONRPC(ctx context.Context, id any, method string, p
 	return nil
 }
 
-func unmarshalReply(reply *JSONRPCMessage, out any) error {
-	if reply.Error != nil {
-		return fmt.Errorf("mcp/sse: rpc error %d: %s", reply.Error.Code, reply.Error.Message)
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(reply.Result, out); err != nil {
-		return fmt.Errorf("mcp/sse: unmarshal result: %w", err)
-	}
-	return nil
-}
-
-// startReadLoop runs the SSE read goroutine. Must be called after connect().
-func (t *sseTransport) startReadLoop() {
-	t.wg.Add(1)
-	go t.readLoop()
-}
-
-func (t *sseTransport) readLoop() {
+// readLoop reads the stream until it ends. Responses go to the request
+// waiting for them; server requests and notifications go to the session,
+// and the session's answers are POSTed back.
+func (t *sseTransport) readLoop(reader *bufio.Reader) {
 	defer t.wg.Done()
-	reader := bufio.NewReader(t.stream)
+	defer func() {
+		t.alive.Store(false)
+		t.pending.failAll()
+	}()
 	for {
 		ev, err := readSSEEvent(reader)
 		if err != nil {
-			t.alive.Store(false)
 			return
 		}
-		if ev.event != "message" {
+		if ev.event != sseEventMessage {
 			continue
 		}
 		var msg JSONRPCMessage
 		if jerr := json.Unmarshal([]byte(ev.data), &msg); jerr != nil {
 			continue
 		}
-		if msg.ID == nil {
-			// notification — no response handler in v1
-			continue
-		}
-		id, ok := coerceID(msg.ID)
-		if !ok {
-			continue
-		}
-		t.pending.deliver(id, &msg)
+		t.route(&msg)
 	}
 }
 
-// coerceID turns a JSON-decoded id (float64 / int / int64) back into int64.
-// We only ever send int64 ids, so ignore non-numeric ids.
-func coerceID(v interface{}) (int64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return int64(n), true
-	case int64:
-		return n, true
-	case int:
-		return int64(n), true
+// route delivers a response to the request waiting for it, and answers
+// anything else off the read loop.
+func (t *sseTransport) route(msg *JSONRPCMessage) {
+	if isResponse(msg) {
+		if id, ok := coerceID(msg.ID); ok {
+			t.pending.deliver(id, msg)
+		}
+		return
 	}
-	return 0, false
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		dispatchInbound(t.ctx, t.in, msg, func(reply *JSONRPCMessage) {
+			if perr := t.post(t.ctx, reply, nil); perr != nil {
+				logger.Warn("MCP/SSE failed to answer server request", "server", t.config.Name, "error", perr)
+			}
+		})
+	}()
 }

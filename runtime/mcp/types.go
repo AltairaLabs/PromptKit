@@ -99,12 +99,16 @@ type LoggingCapability struct{}
 
 // ToolsListRequest represents a request to list available tools
 type ToolsListRequest struct {
-	// No parameters needed
+	// Cursor requests the page after the one that returned it as NextCursor.
+	Cursor string `json:"cursor,omitempty"`
 }
 
 // ToolsListResponse represents the response to a tools/list request
 type ToolsListResponse struct {
 	Tools []Tool `json:"tools"`
+	// NextCursor is set when more tools follow; the client requests the next
+	// page with it.
+	NextCursor string `json:"nextCursor,omitempty"`
 }
 
 // Tool represents an MCP tool definition

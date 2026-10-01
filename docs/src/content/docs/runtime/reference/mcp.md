@@ -28,6 +28,8 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 - [type JSONRPCMessage](<#JSONRPCMessage>)
 - [type LoggingCapability](<#LoggingCapability>)
 - [type PromptsCapability](<#PromptsCapability>)
+- [type RPCError](<#RPCError>)
+  - [func \(e \*RPCError\) Error\(\) string](<#RPCError.Error>)
 - [type Registry](<#Registry>)
 - [type RegistryImpl](<#RegistryImpl>)
   - [func NewRegistry\(\) \*RegistryImpl](<#NewRegistry>)
@@ -128,7 +130,7 @@ var (
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L149-L164>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L153-L168>)
 
 Client interface defines the MCP client operations
 
@@ -167,17 +169,20 @@ type ClientCapabilities struct {
 ```
 
 <a name="ClientOptions"></a>
-## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L21-L35>)
+## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L23-L40>)
 
 ClientOptions configures MCP client behavior
 
 ```go
 type ClientOptions struct {
-    // RequestTimeout is the default timeout for RPC requests
+    // RequestTimeout is the default timeout for RPC requests, on every
+    // transport. A request that outlives it is abandoned and the server told so.
     RequestTimeout time.Duration
     // InitTimeout is the timeout for the initialization handshake
     InitTimeout time.Duration
-    // MaxRetries is the number of times to retry failed requests
+    // MaxRetries is the number of times an idempotent request (initialize,
+    // tools/list) is retried after a transport failure. tools/call is never
+    // retried, and neither is a request the server answered with an error.
     MaxRetries int
     // RetryDelay is the initial delay between retries (exponential backoff)
     RetryDelay time.Duration
@@ -190,7 +195,7 @@ type ClientOptions struct {
 ```
 
 <a name="DefaultClientOptions"></a>
-### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L38>)
+### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L43>)
 
 ```go
 func DefaultClientOptions() ClientOptions
@@ -199,7 +204,7 @@ func DefaultClientOptions() ClientOptions
 DefaultClientOptions returns sensible defaults
 
 <a name="Content"></a>
-## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L140-L146>)
+## type [Content](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L144-L150>)
 
 Content represents a content item in MCP responses
 
@@ -311,8 +316,30 @@ type PromptsCapability struct {
 }
 ```
 
+<a name="RPCError"></a>
+## type [RPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/rpc.go#L28-L32>)
+
+RPCError is a JSON\-RPC error returned by an MCP server. Callers can errors.As a request error into it to read the code and data.
+
+```go
+type RPCError struct {
+    Code    int
+    Message string
+    Data    json.RawMessage
+}
+```
+
+<a name="RPCError.Error"></a>
+### func \(\*RPCError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/rpc.go#L34>)
+
+```go
+func (e *RPCError) Error() string
+```
+
+
+
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L272-L297>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L276-L301>)
 
 Registry interface defines the MCP server registry operations
 
@@ -511,9 +538,9 @@ type ResourcesCapability struct {
 ```
 
 <a name="SSEClient"></a>
-## type [SSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L15-L25>)
+## type [SSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L14-L24>)
 
-SSEClient is the HTTP\+SSE transport implementation of the Client interface. Wire\-level details \(endpoint discovery, request correlation\) live in sse\_transport.go; this file owns the public lifecycle.
+SSEClient is the HTTP\+SSE transport implementation of the Client interface. The protocol lives in session; wire\-level details \(endpoint discovery, request correlation\) in sse\_transport.go; this file owns the public lifecycle.
 
 ```go
 type SSEClient struct {
@@ -522,7 +549,7 @@ type SSEClient struct {
 ```
 
 <a name="NewSSEClient"></a>
-### func [NewSSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L30>)
+### func [NewSSEClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L29>)
 
 ```go
 func NewSSEClient(config ServerConfig) *SSEClient
@@ -531,7 +558,7 @@ func NewSSEClient(config ServerConfig) *SSEClient
 NewSSEClient creates a new MCP client using HTTP\+SSE transport.
 
 <a name="NewSSEClientWithOptions"></a>
-### func [NewSSEClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L37>)
+### func [NewSSEClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L36>)
 
 ```go
 func NewSSEClientWithOptions(config ServerConfig, options ClientOptions) *SSEClient
@@ -540,7 +567,7 @@ func NewSSEClientWithOptions(config ServerConfig, options ClientOptions) *SSECli
 NewSSEClientWithOptions creates an SSE client with custom options.
 
 <a name="SSEClient.CallTool"></a>
-### func \(\*SSEClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L108>)
+### func \(\*SSEClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L86>)
 
 ```go
 func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -549,7 +576,7 @@ func (c *SSEClient) CallTool(ctx context.Context, name string, arguments json.Ra
 CallTool executes a tool with the given arguments.
 
 <a name="SSEClient.Close"></a>
-### func \(\*SSEClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L121>)
+### func \(\*SSEClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L95>)
 
 ```go
 func (c *SSEClient) Close() error
@@ -558,7 +585,7 @@ func (c *SSEClient) Close() error
 Close terminates the SSE connection. Idempotent.
 
 <a name="SSEClient.Initialize"></a>
-### func \(\*SSEClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L42>)
+### func \(\*SSEClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L41>)
 
 ```go
 func (c *SSEClient) Initialize(ctx context.Context) (*InitializeResponse, error)
@@ -567,7 +594,7 @@ func (c *SSEClient) Initialize(ctx context.Context) (*InitializeResponse, error)
 Initialize establishes the SSE connection and negotiates capabilities.
 
 <a name="SSEClient.IsAlive"></a>
-### func \(\*SSEClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L137>)
+### func \(\*SSEClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L111>)
 
 ```go
 func (c *SSEClient) IsAlive() bool
@@ -576,7 +603,7 @@ func (c *SSEClient) IsAlive() bool
 IsAlive reports whether the SSE stream is currently open.
 
 <a name="SSEClient.ListTools"></a>
-### func \(\*SSEClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L91>)
+### func \(\*SSEClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/sse_client.go#L77>)
 
 ```go
 func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -607,7 +634,7 @@ type ServerCapabilities struct {
 ```
 
 <a name="ServerConfig"></a>
-## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L214-L237>)
+## type [ServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L218-L241>)
 
 ServerConfig represents configuration for an MCP server.
 
@@ -646,7 +673,7 @@ type ServerConfig struct {
 ```
 
 <a name="ServerConfig.Transport"></a>
-### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L258>)
+### func \(\*ServerConfig\) [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L262>)
 
 ```go
 func (c *ServerConfig) Transport() Transport
@@ -675,7 +702,7 @@ type ServerConfigData struct {
 ```
 
 <a name="StdioClient"></a>
-## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L70-L99>)
+## type [StdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L84-L117>)
 
 StdioClient implements the MCP Client interface using stdio transport
 
@@ -686,7 +713,7 @@ type StdioClient struct {
 ```
 
 <a name="NewStdioClient"></a>
-### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L102>)
+### func [NewStdioClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L120>)
 
 ```go
 func NewStdioClient(config ServerConfig) *StdioClient
@@ -695,7 +722,7 @@ func NewStdioClient(config ServerConfig) *StdioClient
 NewStdioClient creates a new MCP client using stdio transport
 
 <a name="NewStdioClientWithOptions"></a>
-### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L107>)
+### func [NewStdioClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L125>)
 
 ```go
 func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *StdioClient
@@ -704,7 +731,7 @@ func NewStdioClientWithOptions(config ServerConfig, options ClientOptions) *Stdi
 NewStdioClientWithOptions creates a client with custom options
 
 <a name="StdioClient.CallTool"></a>
-### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L203>)
+### func \(\*StdioClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L183>)
 
 ```go
 func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -713,7 +740,7 @@ func (c *StdioClient) CallTool(ctx context.Context, name string, arguments json.
 CallTool executes a tool with the given arguments
 
 <a name="StdioClient.Close"></a>
-### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L223>)
+### func \(\*StdioClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L196>)
 
 ```go
 func (c *StdioClient) Close() error
@@ -722,7 +749,7 @@ func (c *StdioClient) Close() error
 Close terminates the connection to the MCP server
 
 <a name="StdioClient.Initialize"></a>
-### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L118>)
+### func \(\*StdioClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L139>)
 
 ```go
 func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, error)
@@ -731,7 +758,7 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 Initialize establishes the MCP connection and negotiates capabilities
 
 <a name="StdioClient.IsAlive"></a>
-### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L268>)
+### func \(\*StdioClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L241>)
 
 ```go
 func (c *StdioClient) IsAlive() bool
@@ -740,7 +767,7 @@ func (c *StdioClient) IsAlive() bool
 IsAlive checks if the connection is still active
 
 <a name="StdioClient.ListTools"></a>
-### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L184>)
+### func \(\*StdioClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/client.go#L171>)
 
 ```go
 func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -749,9 +776,9 @@ func (c *StdioClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server
 
 <a name="StreamableClient"></a>
-## type [StreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L22-L32>)
+## type [StreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L12-L22>)
 
-StreamableClient is the MCP 2025\-03\-26 Streamable HTTP transport implementation of the Client interface. Wire\-level details live in streamable\_transport.go; this file owns the public lifecycle.
+StreamableClient is the Streamable HTTP transport implementation of the Client interface. The protocol lives in session; wire\-level details in streamable\_transport.go; this file owns the public lifecycle.
 
 ```go
 type StreamableClient struct {
@@ -760,7 +787,7 @@ type StreamableClient struct {
 ```
 
 <a name="NewStreamableClient"></a>
-### func [NewStreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L37>)
+### func [NewStreamableClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L27>)
 
 ```go
 func NewStreamableClient(config ServerConfig) *StreamableClient
@@ -769,7 +796,7 @@ func NewStreamableClient(config ServerConfig) *StreamableClient
 NewStreamableClient creates an MCP client using the Streamable HTTP transport.
 
 <a name="NewStreamableClientWithOptions"></a>
-### func [NewStreamableClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L44>)
+### func [NewStreamableClientWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L34>)
 
 ```go
 func NewStreamableClientWithOptions(config ServerConfig, options ClientOptions) *StreamableClient
@@ -778,7 +805,7 @@ func NewStreamableClientWithOptions(config ServerConfig, options ClientOptions) 
 NewStreamableClientWithOptions creates a Streamable HTTP client with custom options.
 
 <a name="StreamableClient.CallTool"></a>
-### func \(\*StreamableClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L110-L112>)
+### func \(\*StreamableClient\) [CallTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L78-L80>)
 
 ```go
 func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error)
@@ -787,16 +814,16 @@ func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments 
 CallTool executes a tool with the given arguments.
 
 <a name="StreamableClient.Close"></a>
-### func \(\*StreamableClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L125>)
+### func \(\*StreamableClient\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L89>)
 
 ```go
 func (c *StreamableClient) Close() error
 ```
 
-Close marks the client closed. Idempotent.
+Close ends the client and, if the server assigned one, its session. Idempotent.
 
 <a name="StreamableClient.Initialize"></a>
-### func \(\*StreamableClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L49>)
+### func \(\*StreamableClient\) [Initialize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L39>)
 
 ```go
 func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse, error)
@@ -805,7 +832,7 @@ func (c *StreamableClient) Initialize(ctx context.Context) (*InitializeResponse,
 Initialize sends the initialize request and negotiates capabilities.
 
 <a name="StreamableClient.IsAlive"></a>
-### func \(\*StreamableClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L142>)
+### func \(\*StreamableClient\) [IsAlive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L106>)
 
 ```go
 func (c *StreamableClient) IsAlive() bool
@@ -814,7 +841,7 @@ func (c *StreamableClient) IsAlive() bool
 IsAlive reports whether the transport has completed at least one successful request since the last close.
 
 <a name="StreamableClient.ListTools"></a>
-### func \(\*StreamableClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L93>)
+### func \(\*StreamableClient\) [ListTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/streamable_client.go#L69>)
 
 ```go
 func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
@@ -823,7 +850,7 @@ func (c *StreamableClient) ListTools(ctx context.Context) ([]Tool, error)
 ListTools retrieves all available tools from the server.
 
 <a name="Tool"></a>
-## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L111-L115>)
+## type [Tool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L115-L119>)
 
 Tool represents an MCP tool definition
 
@@ -836,7 +863,7 @@ type Tool struct {
 ```
 
 <a name="ToolCallRequest"></a>
-## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L118-L121>)
+## type [ToolCallRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L122-L125>)
 
 ToolCallRequest represents a request to execute a tool
 
@@ -848,7 +875,7 @@ type ToolCallRequest struct {
 ```
 
 <a name="ToolCallResponse"></a>
-## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L124-L131>)
+## type [ToolCallResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L128-L135>)
 
 ToolCallResponse represents the response from a tool execution
 
@@ -864,7 +891,7 @@ type ToolCallResponse struct {
 ```
 
 <a name="ToolCallResponse.HasStructuredContent"></a>
-### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L135>)
+### func \(\*ToolCallResponse\) [HasStructuredContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L139>)
 
 ```go
 func (r *ToolCallResponse) HasStructuredContent() bool
@@ -873,7 +900,7 @@ func (r *ToolCallResponse) HasStructuredContent() bool
 HasStructuredContent reports whether the response carries a non\-null structuredContent payload.
 
 <a name="ToolFilter"></a>
-## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L170-L173>)
+## type [ToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L174-L177>)
 
 ToolFilter controls which tools from an MCP server are exposed to the LLM. If Allowlist is non\-empty, only those tools are included. If Blocklist is non\-empty, those tools are excluded. Allowlist takes precedence over Blocklist.
 
@@ -885,7 +912,7 @@ type ToolFilter struct {
 ```
 
 <a name="ToolFilter.Includes"></a>
-### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L187>)
+### func \(ToolFilter\) [Includes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L191>)
 
 ```go
 func (f ToolFilter) Includes(name string) bool
@@ -905,28 +932,33 @@ type ToolsCapability struct {
 ```
 
 <a name="ToolsListRequest"></a>
-## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L101-L103>)
+## type [ToolsListRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L101-L104>)
 
 ToolsListRequest represents a request to list available tools
 
 ```go
 type ToolsListRequest struct {
+    // Cursor requests the page after the one that returned it as NextCursor.
+    Cursor string `json:"cursor,omitempty"`
 }
 ```
 
 <a name="ToolsListResponse"></a>
-## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L106-L108>)
+## type [ToolsListResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L107-L112>)
 
 ToolsListResponse represents the response to a tools/list request
 
 ```go
 type ToolsListResponse struct {
     Tools []Tool `json:"tools"`
+    // NextCursor is set when more tools follow; the client requests the next
+    // page with it.
+    NextCursor string `json:"nextCursor,omitempty"`
 }
 ```
 
 <a name="Transport"></a>
-## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L240>)
+## type [Transport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/types.go#L244>)
 
 Transport identifies which transport adapter should serve a config.
 

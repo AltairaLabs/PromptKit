@@ -69,7 +69,6 @@ type specPin struct {
 }
 
 const (
-	reasonNoPagination   = "pagination is not implemented: tools/list is read as a single page (#2100)"
 	reasonMetaDropped    = "_meta is not surfaced to callers"
 	reasonAnnotations    = "content annotations (audience, priority) are not surfaced to the model"
 	reasonNotImplemented = "the client does not implement this feature, so it does not advertise it"
@@ -137,19 +136,12 @@ func mcpSpecPins() []specPin {
 		{value: PromptsCapability{}, refs: []string{"definitions/ServerCapabilities/properties/prompts"}},
 		{value: ElicitationCapability{}, refs: []string{"definitions/ClientCapabilities/properties/elicitation"}},
 		{value: SamplingCapability{}, refs: []string{"definitions/ClientCapabilities/properties/sampling"}},
-		{
-			value: ToolsListRequest{},
-			refs:  []string{"definitions/ListToolsRequest/properties/params"},
-			omissions: []specOmission{
-				{"cursor", reasonNoPagination},
-			},
-		},
+		{value: ToolsListRequest{}, refs: []string{"definitions/ListToolsRequest/properties/params"}},
 		{
 			value: ToolsListResponse{},
 			refs:  []string{"definitions/ListToolsResult"},
 			omissions: []specOmission{
 				{"_meta", reasonMetaDropped},
-				{"nextCursor", reasonNoPagination},
 			},
 		},
 		{
@@ -204,6 +196,12 @@ var notWire = map[string]string{
 	"ServerConfig":        "PromptKit's server configuration, not MCP",
 	"ToolFilter":          "PromptKit's tool allow/deny configuration, not MCP",
 	"LoggingCapability":   "not an MCP client capability; see the nonSpec entry on ClientCapabilities",
+	"RPCError":            "the Go error a JSON-RPC error response becomes; the wire shape is JSONRPCError",
+	"callOpts":            "per-call retry policy",
+	"httpStatusError":     "an HTTP status without a JSON-RPC body, below the MCP message layer",
+	"request":             "an outgoing message before it is framed; the wire shape is JSONRPCMessage",
+	"session":             "the protocol state machine",
+	"stdioConn":           "transport implementation",
 	"pendingRequests":     "transport bookkeeping",
 	"sseEvent":            "an SSE frame, below the MCP message layer",
 	"sseTransport":        "transport implementation",
