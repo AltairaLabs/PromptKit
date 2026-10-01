@@ -142,7 +142,16 @@ for m in "${MODULES[@]}"; do
   # Key on the VERDICT, not the exit code: gorelease exits non-zero for
   # diagnostics too, and a diagnostic is not a breaking change.
   if echo "$out" | grep -q "is not a valid semantic version"; then
-    failed+=("$m")
+    # gorelease also calls two changes incompatible that cannot stop a
+    # consumer compiling (a struct losing ==, a constant's value moving).
+    # api-compat-allowlist.sh accepts exactly those and nothing else.
+    if verdict=$(echo "$out" | "$REPO/scripts/api-compat-allowlist.sh"); then
+      echo "$verdict" | sed 's/^/   /'
+      echo "   ✓ ${m}: ${VERSION} carries these changes (only allowlisted incompatibilities)"
+    else
+      echo "$verdict" | sed 's/^/   /'
+      failed+=("$m")
+    fi
   elif echo "$out" | grep -q "is a valid semantic version"; then
     echo "   ✓ ${m}: ${VERSION} carries these changes"
   else
