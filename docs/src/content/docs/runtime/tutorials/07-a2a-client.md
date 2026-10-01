@@ -75,6 +75,8 @@ Fetch the agent card to learn what the agent can do:
 
 The card is cached after the first call, so subsequent `Discover` calls are free.
 
+After `Discover`, calls go to the card's first JSON-RPC interface for the version the client speaks, with that interface's `tenant`. The scheme, host and port you gave `NewClient` always win: from the card the client takes only the interface's path on that same host (an agent serving JSON-RPC at `/`, for example), and an interface at the default `/a2a` keeps your URL as given. A card that names a different host is not followed. Calls go to `{base}/a2a` and a warning is logged once; to call that host, configure the client with it. Without a card, calls go to `{base}/a2a`. A2A tool executors discover the card themselves on first use.
+
 ---
 
 ## Step 3: Send a Message

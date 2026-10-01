@@ -55,18 +55,26 @@ func TestCallURL(t *testing.T) {
 	for _, tc := range []struct {
 		name, base, declared, want string
 	}{
-		{"default path on plain http keeps the base", "https://gw.example/agents/x",
+		// The caller's scheme, host and port are authoritative; the card
+		// contributes only a path on that same host.
+		{"default path on another host keeps the base", "https://gw.example/agents/x",
 			"http://internal.invalid:8080/a2a", "https://gw.example/agents/x/a2a"},
 		{"default path on the same host keeps the base", "https://gw.example/agents/x",
 			"https://gw.example/a2a", "https://gw.example/agents/x/a2a"},
-		{"another host over https is followed", "https://agents.example.com/x",
-			"https://rpc.example.com/a2a", "https://rpc.example.com/a2a"},
-		{"a distinct path is followed", "http://agent.example",
+		{"another host over https is not followed", "https://agents.example.com/x",
+			"https://rpc.example.com/rpc", "https://agents.example.com/x/a2a"},
+		{"a public https host is not followed from an internal base", "http://agent.internal:8080",
+			"https://agent.example.com/rpc", "http://agent.internal:8080/a2a"},
+		{"a distinct path on the same host is followed", "http://agent.example",
 			"http://agent.example/", "http://agent.example/"},
-		{"plain http on the same host is upgraded", "https://agent.example",
+		{"plain http on the same host keeps the caller's scheme", "https://agent.example",
 			"http://agent.example/rpc", "https://agent.example/rpc"},
+		{"another port on the same host keeps the caller's port", "https://agent.example:8443",
+			"https://agent.example:9000/rpc", "https://agent.example:8443/rpc"},
 		{"plain http on another host falls back", "https://agent.example",
 			"http://elsewhere.example/rpc", "https://agent.example/a2a"},
+		{"an unparseable interface falls back", "https://agent.example",
+			"://nope", "https://agent.example/a2a"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, NewClient(tc.base).callURL(tc.declared))
@@ -155,11 +163,9 @@ func TestExecutor_HangingCardDoesNotOutlastTheCallTimeout(t *testing.T) {
 	defer e.Close()
 	desc := &tools.ToolDescriptor{Name: "t", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL, TimeoutMs: 20}}
 
-	var err error
 	assert.True(t, returnsWithin(time.Second, func() {
-		_, err = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
-	}), "the call must end at its own timeout, not the discovery's")
-	assert.Error(t, err)
+		_, _ = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
+	}), "the call must end within its own timeout, not the discovery's")
 }
 
 func TestDiscoverForCalls_CancellationReleasesAWaiter(t *testing.T) {
@@ -222,4 +228,15 @@ func TestClient_DistinctPathIsFollowed(t *testing.T) {
 	})
 	require.NoError(t, sendHi(t, c))
 	assert.Equal(t, []string{"/"}, agent.posted())
+}
+
+func TestExecutor_BlackholedCardStillLeavesTimeForTheCall(t *testing.T) {
+	agent, srv := hangingCard(t)
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "t", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL, TimeoutMs: 200}}
+
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"q"}`))
+	require.NoError(t, err, "the discovery wait must not use up the call's deadline")
+	assert.Equal(t, 1, agent.count())
 }

@@ -181,6 +181,11 @@ type Client struct {
 	// call tries again; discoverTimeout bounds one attempt.
 	discoverBackoff time.Duration
 	discoverTimeout time.Duration
+	// discoverWaitMax caps how long a call waits on a discovery in flight.
+	discoverWaitMax time.Duration
+
+	// otherHostWarning logs, once, a card that names another host.
+	otherHostWarning sync.Once
 }
 
 // newDefaultTransport creates an HTTP transport with connection pooling,
@@ -231,6 +236,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 
 		discoverBackoff: defaultDiscoverBackoff,
 		discoverTimeout: defaultDiscoverTimeout,
+		discoverWaitMax: defaultDiscoverWaitMax,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -324,16 +330,21 @@ const (
 	defaultDiscoverBackoff = 30 * time.Second
 	// defaultDiscoverTimeout bounds one discovery attempt.
 	defaultDiscoverTimeout = 10 * time.Second
+	// defaultDiscoverWaitMax caps how long a call waits on a discovery; a
+	// call with a deadline waits at most a quarter of the time it has left.
+	defaultDiscoverWaitMax      = time.Second
+	discoverWaitShareOfDeadline = 4
 )
 
 // discoverForCalls fetches the agent card, so calls reach the interface it
-// declares. It is best effort: while the card cannot be had, calls keep going
+// declares (as callURL allows). It is best effort: while the card cannot be had, calls keep going
 // to {base}/a2a, as they always did. A successful discovery is kept; a failed
 // one is tried again by a call made after discoverBackoff.
 //
 // One fetch is in flight at a time, and every caller waits on it — but only
-// until its own ctx ends; a caller that stops waiting makes its call against
-// whatever endpoint is known by then. The fetch itself keeps ctx's values but
+// until its own ctx ends or its wait budget (discoveryWait) runs out; a
+// caller that stops waiting makes its call against whatever endpoint is
+// known by then. The fetch itself keeps ctx's values but
 // runs on its own timeout, so it can outlive the caller that started it and
 // a short per-call timeout does not decide where every later call goes.
 func (c *Client) discoverForCalls(ctx context.Context) {
@@ -356,10 +367,26 @@ func (c *Client) discoverForCalls(ctx context.Context) {
 	inFlight := c.discovering
 	c.discoverMu.Unlock()
 
+	timer := time.NewTimer(c.discoveryWait(ctx))
+	defer timer.Stop()
 	select {
 	case <-inFlight:
 	case <-ctx.Done():
+	case <-timer.C:
+		// The fetch carries on in the background; this call uses the
+		// endpoint known now.
 	}
+}
+
+// discoveryWait is how long a call may wait on a discovery in flight:
+// discoverWaitMax, and no more than a share of the time left before ctx's
+// deadline, so the call itself still has time to run.
+func (c *Client) discoveryWait(ctx context.Context) time.Duration {
+	wait := c.discoverWaitMax
+	if deadline, ok := ctx.Deadline(); ok {
+		wait = min(wait, time.Until(deadline)/discoverWaitShareOfDeadline)
+	}
+	return wait
 }
 
 // fetchCardForCalls runs one discovery for discoverForCalls and closes done
@@ -505,19 +532,18 @@ func (c *Client) endpoint(v ProtocolVersion) (target string, iface *AgentInterfa
 const defaultRPCPath = "/a2a"
 
 // callURL decides where calls go given the interface URL a card declares.
-// The card is followed only where it adds information, and never so as to
-// weaken the caller's choice of transport:
+// The scheme, host and port the caller configured are authoritative and are
+// never changed: a card's URL is what the agent believes about itself, and
+// behind proxies and ingresses that is often an address the caller cannot
+// or must not use. From the card the client takes only what adds information
+// on that same host:
 //
-//   - an interface at the default /a2a path, on plain http or on the base's
-//     own host, keeps the caller's base URL: a server behind a
-//     TLS-terminating proxy that derives the URL from the request describes
-//     itself by its internal, plain-http address;
-//   - a plain-http interface is never used from an https base: on the same
-//     host the card's path is used over the base's scheme and host, and on
-//     another host calls fall back to {base}/a2a, so credentials never go out
-//     unencrypted;
-//   - anything else (a different path, as a2a-python's "/", or a different
-//     host over https) is followed as declared.
+//   - an interface on the base's host contributes its path (a2a-python's "/",
+//     say), over the base's scheme, host and port; the default /a2a path keeps
+//     the base URL as configured, path prefix included;
+//   - an interface on another host is not followed: calls go to {base}/a2a,
+//     and the client logs it once. To call that host, configure the client
+//     with it.
 func (c *Client) callURL(declared string) string {
 	fallback := c.baseURL + defaultRPCPath
 	card, err := url.Parse(declared)
@@ -526,24 +552,22 @@ func (c *Client) callURL(declared string) string {
 	}
 	base, err := url.Parse(c.baseURL)
 	if err != nil || base.Host == "" {
-		return declared
-	}
-	sameHost := strings.EqualFold(card.Hostname(), base.Hostname())
-	plainHTTP := !strings.EqualFold(card.Scheme, "https")
-	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath && (plainHTTP || sameHost) {
 		return fallback
 	}
-	if strings.EqualFold(base.Scheme, "https") && plainHTTP {
-		if !sameHost {
-			logger.Warn("a2a: agent card declares a non-https interface on another host; calling the agent URL instead",
+	if !strings.EqualFold(card.Hostname(), base.Hostname()) {
+		c.otherHostWarning.Do(func() {
+			logger.Warn("a2a: agent card names another host, which is not followed; "+
+				"calling the configured agent URL (configure the client with that host to use it)",
 				"agent_url", c.baseURL, "interface_url", declared)
-			return fallback
-		}
-		upgraded := *card
-		upgraded.Scheme, upgraded.Host = base.Scheme, base.Host
-		return upgraded.String()
+		})
+		return fallback
 	}
-	return declared
+	if strings.TrimSuffix(card.Path, "/") == defaultRPCPath {
+		return fallback
+	}
+	onBase := *base
+	onBase.Path, onBase.RawPath = card.Path, card.RawPath
+	return onBase.String()
 }
 
 // withTenant sets the params' tenant to exactly the selected interface's, and
