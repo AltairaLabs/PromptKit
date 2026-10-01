@@ -43,13 +43,13 @@ func main() {
 
 ## Supported Formats
 
-Currently, the SDK supports **PDF documents only**.
+The SDK supports **PDF documents only**.
 
 | Format | MIME Type | Status |
 |--------|-----------|--------|
 | PDF | `application/pdf` | ✅ Supported |
-| Word (.docx) | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | ❌ Not yet |
-| Text (.txt) | `text/plain` | ❌ Not yet |
+| Word (.docx) | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | ❌ Not supported |
+| Text (.txt) | `text/plain` | ❌ Not supported |
 
 ## Provider Support
 
@@ -347,7 +347,7 @@ See the [Document Analysis Example](https://promptarena.altairalabs.ai/arena/exa
 
 ## Limitations
 
-- **Format**: Only PDF documents are currently supported
+- **Format**: Only PDF documents are supported
 - **Size**: 32MB max for Claude, 20MB for Gemini
 - **Text Extraction**: OCR quality depends on PDF structure
 - **Images in PDFs**: Embedded images are processed by the model

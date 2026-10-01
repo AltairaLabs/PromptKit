@@ -11,8 +11,8 @@ changes that need you to do something, with what to change and why.
 ### The A2A server and client speak A2A 1.0 and 0.3, not a mix of both
 
 The A2A server used to answer in a shape of its own: 0.3's method names, 1.0's
-parts, and state names from neither. Standard A2A clients could not parse it
-(#2088). It now answers each request in the version the request asks for. That
+parts, and state names from neither. Standard A2A clients could not parse it.
+It now answers each request in the version the request asks for. That
 is the `A2A-Version` header, or else the version of the method name used; a
 request with no version is 0.3, as the spec says. The runtime client sends
 `A2A-Version: 1.0` and falls back to 0.3 on its own.
@@ -36,8 +36,8 @@ JSON form still decode.
 
 ### A2A tasks can be scoped to their caller, and cancel/subscribe can span replicas
 
-`a2aserver.WithTaskOwner` scopes every task to the caller that created it
-(#2089); see [Callers and replicas](/sdk/how-to/interop/choose-a2a-server-mode/#callers-and-replicas).
+`a2aserver.WithTaskOwner` scopes every task to the caller that created it;
+see [Callers and replicas](/sdk/how-to/interop/choose-a2a-server-mode/#callers-and-replicas).
 
 | If you | You will see | Change |
 |---|---|---|
@@ -71,10 +71,10 @@ probability.
 ### Guardrail checks are bounded, and a timed-out guardrail returns its message
 
 A guardrail's check is now bounded by a timeout (default 30s,
-`evals.DefaultEvalTimeout`). A check that exceeds it — or whose classifier
-errors — is enforced with the validator's `message`, where previously an
+`evals.DefaultEvalTimeout`). A check that exceeds it (or whose classifier
+errors) is enforced with the validator's `message`, where previously an
 output guardrail could release the unchecked response and a timed-out input
-guardrail returned empty text (#2064).
+guardrail returned empty text.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -89,7 +89,7 @@ Inference calls also emit `inference_requests_total`,
 `inference_request_duration_seconds`, `inference_input_tokens_total` and
 `inference_cost_total` (labels `provider`, `model`, `source`, plus `status`).
 
-Provider HTTP retries — every LLM and inference provider — are counted in
+Provider HTTP retries (every LLM and inference provider) are counted in
 `provider_retries_total{provider, outcome}` (under the metrics collector's namespace): `retry` per retried
 attempt, `success` when a call recovers after retrying, `exhausted` when
 every attempt fails. A backend that only answers on its second try is now
@@ -117,8 +117,8 @@ API, and every response is checked against the reported size.
 
 ### Checks name the provider they need, and the host binds it
 
-Checks that need a model they do not own — a judge for `toxicity`, a classifier
-for `text_sentiment` — now name it by a **logical key the pack declares in
+Checks that need a model they do not own (a judge for `toxicity`, a classifier
+for `text_sentiment`) now name it by a **logical key the pack declares in
 `requires`**. The host binds that name to a concrete provider and can rebind it
 whenever it likes, without the pack changing.
 
@@ -204,8 +204,8 @@ effect, not a regression. Before upgrading, check what your pack's
 there.
 
 This covers VAD mode (`OpenVoice` and the VAD topology). Native realtime and
-duplex sessions are a separate stage with no hook support at all, tracked in
-#1682; guardrails still do not run there.
+duplex sessions are a separate stage with no hook support at all;
+guardrails still do not run there.
 
 ### Provider adapters now rewrite your JSON Schema for the vendor
 
@@ -268,7 +268,7 @@ raised `IdleTimeout` to work around this, you can put it back.
 
 ### A2A `message/send` keeps caller context values
 
-No action needed. Values your HTTP middleware puts on the request context —
-identity, tenant, request-scoped config — now reach the conversation on
+No action needed. Values your HTTP middleware puts on the request context
+(identity, tenant, request-scoped config) now reach the conversation on
 `message/send` as they always did on `message/stream`. If you worked around this
 by keying state on `contextID`, that workaround can go.

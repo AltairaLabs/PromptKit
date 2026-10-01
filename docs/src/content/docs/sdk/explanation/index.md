@@ -65,49 +65,28 @@ Three lines to a working conversation.
 
 Tools are registered with handlers:
 
-```
-LLM Request
-    │
-    ▼
-Tool Call Decision
-    │
-    ▼
-Handler Lookup
-    │
-    ├─► OnTool handler → Execute immediately
-    │
-    └─► OnToolAsync handler
-            │
-            ├─► Auto-approve → Execute
-            │
-            └─► Pending → Wait for ResolveTool/RejectTool
+```mermaid
+flowchart TD
+  LR["LLM Request"] --> TCD["Tool Call Decision"] --> HL["Handler Lookup"]
+  HL --> OT["OnTool handler"] --> EX1["Execute immediately"]
+  HL --> OTA["OnToolAsync handler"]
+  OTA --> AA["Auto-approve"] --> EX2["Execute"]
+  OTA --> PD["Pending"] --> W["Wait for ResolveTool/RejectTool"]
 ```
 
 ### Event System
 
 Events flow through the hooks package:
 
-```
-Send() ─────► EventPipelineStarted
-    │
-    ▼
-Provider Call ► EventProviderCallStarted
-    │
-    ▼
-Response ───► EventProviderCallCompleted
-    │
-    ├─► Tool Call ───► EventToolCallStarted
-    │       │
-    │       ▼
-    │   Handler
-    │       │
-    │       ▼
-    │   EventToolCallCompleted
-    │
-    └─► Error ───► EventProviderCallFailed
-    │
-    ▼
-EventPipelineCompleted
+```mermaid
+flowchart TD
+  SD["Send()"] --> E1["EventPipelineStarted"]
+  SD --> PC["Provider Call"] --> E2["EventProviderCallStarted"]
+  PC --> RS["Response"] --> E3["EventProviderCallCompleted"]
+  RS --> TC["Tool Call"] --> E4["EventToolCallStarted"]
+  TC --> H["Handler"] --> E5["EventToolCallCompleted"]
+  RS --> ER["Error"] --> E6["EventProviderCallFailed"]
+  RS --> E7["EventPipelineCompleted"]
 ```
 
 ## See Also

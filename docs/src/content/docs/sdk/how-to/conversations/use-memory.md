@@ -87,7 +87,7 @@ sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
 
 ## Memory tools
 
-`WithMemory` gives the model four tools — `memory__remember`, `memory__recall`, `memory__list` and `memory__forget` — backed by a store you supply:
+`WithMemory` gives the model four tools (`memory__remember`, `memory__recall`, `memory__list` and `memory__forget`), backed by a store you supply:
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
@@ -104,13 +104,13 @@ The model calls them on its own initiative. It already knows they exist and what
 
 When the defaults are not right for your deployment, edit the descriptor rather than the prompt — [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/) patches the description the model sees. Keep the system prompt for policy a tool description cannot carry: when *not* to store something, or which of several sources to trust first.
 
-Configured like the above — a store and a scope, no retriever — nothing reaches the prompt unless the model calls a tool. That is the default of this configuration, not a property of the capability: `WithMemory` also accepts a retriever, and a capability carrying one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
+Configured like the above (a store and a scope, no retriever), nothing reaches the prompt unless the model calls a tool. That is the default of this configuration, not a property of the capability: `WithMemory` also accepts a retriever, and a capability carrying one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
 
 ### Scope
 
 The scope map is the isolation boundary. Every store operation takes it, so `memory__recall` sees only what was saved under the same scope. Keys are yours to choose — `{"user_id": "u-1234", "workspace_id": "acme"}` is typical.
 
-Scope also gates the tools. The capability looks for a subject key — `user_id` by default — and registers nothing when it is absent, so an anonymous conversation cannot write into a shared bucket:
+Scope also gates the tools. The capability looks for a subject key (`user_id` by default) and registers nothing when it is absent, so an anonymous conversation cannot write into a shared bucket:
 
 ```
 WARN memory tools skipped: scope has no subject key  expected_key=user_id scope_keys=[]
@@ -149,7 +149,7 @@ The two options are independent. `WithMemoryRetriever` on its own adds ambient i
 
 ### Backend-specific arguments
 
-A store with capabilities the four tools do not model — graph expansion, point-in-time reads, a namespace — can accept extra arguments without forking PromptKit. Extend the tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride), and the executor forwards anything it does not type itself:
+A store with capabilities the four tools do not model (graph expansion, point-in-time reads, a namespace) can accept extra arguments without forking PromptKit. Extend the tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride), and the executor forwards anything it does not type itself:
 
 ```go
 conv, _ := sdk.Open("./assistant.pack.json", "assistant",
@@ -184,7 +184,7 @@ func (s *GraphStore) DeleteWithOptions(
 ) error
 ```
 
-A store that ignores `Extras`, or does not implement `ExtrasDeleter`, behaves exactly as it did before — the extras are simply dropped. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the same matrix for workflow, A2A and skills.
+A store that ignores `Extras`, or does not implement `ExtrasDeleter`, behaves exactly as it did before: the extras are dropped. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the same matrix for workflow, A2A and skills.
 
 Backend-specific fields in the **result** need nothing special: return them in each `Memory.Metadata` and they serialize into the tool result the model sees.
 
@@ -199,11 +199,11 @@ conv, _ := sdk.Open("./support.pack.json", "support",
 )
 ```
 
-Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice — once by asking, once without — and a filter you apply inside your `Retriever` does not run on the tool path, since the tool reaches the store directly. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
+Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice (once by asking, once without), and a filter you apply inside your `Retriever` does not run on the tool path, since the tool reaches the store directly. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
 
 ## Duplex is not supported
 
-Ambient grounding is a per-turn operation: the retrieval stage reads the turn's messages once the input closes, then writes the context the template renders. A duplex session has no such boundary — its input stays open until the session ends — so the stage would never forward and the provider session would never start.
+Ambient grounding is a per-turn operation: the retrieval stage reads the turn's messages once the input closes, then writes the context the template renders. A duplex session has no such boundary: its input stays open until the session ends, so the stage would never forward and the provider session would never start.
 
 `OpenDuplex` and `OpenVoice` therefore refuse a configured retriever rather than returning a session that cannot reply:
 
@@ -217,7 +217,7 @@ Use the memory tools for retrieval in a voice or realtime session, or do the ret
 
 **The variable has to be in the prompt.** Retrieval runs and produces nothing visible if `{{memory_context}}` does not appear in `system_template`. Check the rendered prompt, not the retrieval log.
 
-**An unresolved placeholder fails the turn.** If `{{memory_context}}` cannot be resolved — no retriever configured, for instance — `Send` returns an error rather than sending the model a prompt it cannot use:
+**An unresolved placeholder fails the turn.** If `{{memory_context}}` cannot be resolved (no retriever configured, for instance), `Send` returns an error rather than sending the model a prompt it cannot use:
 
 ```
 system prompt has unresolved variables: support: unresolved template

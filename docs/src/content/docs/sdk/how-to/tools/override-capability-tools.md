@@ -4,7 +4,7 @@ sidebar:
   order: 4
 ---
 
-Capabilities like memory, workflow, and A2A register their tools with hard-coded descriptors (description, input/output schema). When you need to customize those — for example, to add a domain-specific parameter that downstream consumers rely on — you don't need to fork PromptKit. Use `WithToolDescriptorOverride` to patch the descriptor after the capability registers it.
+Capabilities like memory, workflow, and A2A register their tools with hard-coded descriptors (description, input/output schema). When you need to customize those (for example, to add a domain-specific parameter that downstream consumers rely on), you don't need to fork PromptKit. Use `WithToolDescriptorOverride` to patch the descriptor after the capability registers it.
 
 ## When to use this
 
@@ -70,7 +70,7 @@ sdk.WithToolDescriptorOverride("memory__remember",
 
 ## Tolerance to version skew
 
-If you reference a tool name that doesn't exist in the registry (for example, a tool that was renamed or removed in a newer PromptKit release), the override is logged at WARN level and skipped. Other overrides still apply. This means override lists survive PromptKit upgrades without breaking the consumer build.
+If you reference a tool name that doesn't exist in the registry (for example, a tool that a newer PromptKit release renames or removes), the override is logged at WARN level and skipped. Other overrides still apply. This means override lists survive PromptKit upgrades without breaking the consumer build.
 
 ```
 WARN tool descriptor override skipped: tool not registered  name=memory__remember

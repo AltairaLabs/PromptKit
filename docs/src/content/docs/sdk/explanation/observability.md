@@ -159,7 +159,7 @@ type BlobStore interface {
 }
 ```
 
-**MessageBroadcastStage** publishes `message.created` on the EventBus as each complete message arrives. It is added whenever an event bus is configured — no `EventStore`, no `WithRecording()`, no state store — so subscribing to `message.created` is the supported way to watch a conversation unfold.
+**MessageBroadcastStage** publishes `message.created` on the EventBus as each complete message arrives. It is added whenever an event bus is configured (no `EventStore`, no `WithRecording()`, no state store), so subscribing to `message.created` is the supported way to watch a conversation unfold.
 
 **RecordingStage** writes the same event type **directly to the EventStore, bypassing the EventBus**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
 
@@ -283,7 +283,7 @@ sdk.WithEventRedactor(func(field, value string) string {
 
 The redactor is handed a field name, so a policy can be as coarse or as narrow
 as it needs: `FieldMessageContent`, `FieldToolCallArgs`, `FieldToolResult`,
-`FieldContentPart`, and — for eval events — `FieldEvalValue`,
+`FieldContentPart`, and, for eval events, `FieldEvalValue`,
 `FieldEvalExplanation`, `FieldEvalDetails` and `FieldEvalEvidence`. An eval's
 output quotes what it judged (a judge restates the answer, a violation's
 evidence *is* the offending span), so it is redacted like any other content.
@@ -296,8 +296,8 @@ audit unable to tell a blocked guardrail from a passing one.
 
 `Redacting` wraps each subscriber and hands it its own **copy**, so redacting
 for the tracer does not strip a store that should keep the original. Redaction
-is applied per consumer rather than at emit time deliberately: consumers have
-different entitlements — recording is meant to hold content, a trace exported to
+is applied per consumer rather than at emit time, because consumers have
+different entitlements: recording is meant to hold content, a trace exported to
 a third-party APM is not.
 
 `WithRecording()` is unaffected by both, since `RecordingStage` never touches the
@@ -308,40 +308,31 @@ See the runnable
 
 ## Event Flow
 
-```
-conv.Send(ctx, "Hello")
-        │
-        ▼
-   PipelineStarted ──────────► EventBus ──► Listeners
-        │
-        ▼
-   MiddlewareStarted ────────► EventBus
-        │
-        ▼
-   ProviderCallStarted ─────► EventBus
-        │
-        ▼
-   ProviderCallCompleted ───► EventBus
-        │
-        │ (if tool call)
-        ├────────────────┐
-        │                ▼
-        │     ToolCallStarted ──► EventBus
-        │                │
-        │         Handler executes
-        │                │
-        │     ToolCallCompleted ─► EventBus
-        │                │
-        └────────────────┘
-        │
-        ▼
-   MessageCreated ───────────► EventBus ──► EventStore (persist)
-        │                                ──► EvalListener (trigger evals)
-        ▼
-   PipelineCompleted ────────► EventBus
-        │
-        ▼
-   Return Response
+The diagram traces the events one `Send` emits, and where each one goes.
+
+```mermaid
+flowchart TD
+  SEND["conv.Send(ctx, #quot;Hello#quot;)"] --> PS["PipelineStarted"]
+  PS --> BUS1["EventBus"] --> L["Listeners"]
+  PS --> MS["MiddlewareStarted"]
+  MS --> BUS2["EventBus"]
+  MS --> PCS["ProviderCallStarted"]
+  PCS --> BUS3["EventBus"]
+  PCS --> PCC["ProviderCallCompleted"]
+  PCC --> BUS4["EventBus"]
+  PCC -->|"if tool call"| TCS["ToolCallStarted"]
+  TCS --> BUS5["EventBus"]
+  TCS --> HX["Handler executes"]
+  HX --> TCC["ToolCallCompleted"]
+  TCC --> BUS6["EventBus"]
+  TCC --> MC["MessageCreated"]
+  PCC --> MC
+  MC --> BUS7["EventBus"]
+  BUS7 --> ES["EventStore (persist)"]
+  BUS7 --> EL["EvalListener (trigger evals)"]
+  MC --> PCO["PipelineCompleted"]
+  PCO --> BUS8["EventBus"]
+  PCO --> RR["Return Response"]
 ```
 
 ## Subscribing to Events

@@ -300,7 +300,7 @@ mode := wf.OrchestrationMode() // "internal", "external", or "hybrid"
 
 ### Resuming Workflows
 
-Restore a previously saved workflow:
+Restore a saved workflow:
 
 ```go
 wf, err := sdk.ResumeWorkflow("workflow-id", "./support.pack.json")
