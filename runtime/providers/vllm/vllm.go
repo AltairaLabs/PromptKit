@@ -229,7 +229,9 @@ func newVLLMMessage(msg types.Message, content any) vllmMessage {
 				Function: vllmFunctionCall{
 					Name: call.Name,
 					// vLLM takes arguments as a JSON string, not an object.
-					Arguments: string(call.Args),
+					// Never replay arguments that are not valid JSON: one
+					// malformed call would fail every later request (#2103).
+					Arguments: string(types.NormalizeRawMessage(call.Args)),
 				},
 			})
 		}

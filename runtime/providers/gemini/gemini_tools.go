@@ -316,10 +316,11 @@ func (p *Provider) mediaContentParts(ctx context.Context, msgParts []types.Conte
 func toolCallParts(toolCalls []types.MessageToolCall) []any {
 	parts := make([]any, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
+		// Gemini takes args as an object. Arguments that are not valid JSON
+		// replay as {} rather than as a string, which Gemini rejects and which
+		// would fail every later request in the conversation (#2103).
 		var args any
-		if err := json.Unmarshal(toolCall.Args, &args); err != nil {
-			args = string(toolCall.Args)
-		}
+		_ = json.Unmarshal(types.NormalizeRawMessage(toolCall.Args), &args)
 		partMap := map[string]any{
 			"functionCall": map[string]any{
 				"name": toolCall.Name,

@@ -214,11 +214,14 @@ func (p *ToolProvider) convertSingleMessageForTools(
 	// Handle tool result messages
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		ollamaMsg["tool_call_id"] = msg.ToolResult.ID
-		ollamaMsg["name"] = msg.ToolResult.Name
+		ollamaMsg[keyName] = msg.ToolResult.Name
 	}
 
 	return ollamaMsg
 }
+
+// keyName is the "name" field of an Ollama tool call, tool result or tool choice.
+const keyName = "name"
 
 // convertToolCallsToOllama converts ToolCalls to Ollama format
 func (p *ToolProvider) convertToolCallsToOllama(toolCalls []types.MessageToolCall) []map[string]any {
@@ -228,8 +231,10 @@ func (p *ToolProvider) convertToolCallsToOllama(toolCalls []types.MessageToolCal
 			"id":   tc.ID,
 			"type": "function",
 			"function": map[string]any{
-				"name":      tc.Name,
-				"arguments": string(tc.Args),
+				keyName: tc.Name,
+				// Never replay arguments that are not valid JSON: one malformed
+				// call would fail every later request (#2103).
+				"arguments": string(types.NormalizeRawMessage(tc.Args)),
 			},
 		}
 	}
@@ -252,7 +257,7 @@ func (p *ToolProvider) addToolChoiceToRequest(ollamaReq map[string]any, toolChoi
 		ollamaReq["tool_choice"] = map[string]any{
 			"type": "function",
 			"function": map[string]string{
-				"name": toolChoice,
+				keyName: toolChoice,
 			},
 		}
 	}
