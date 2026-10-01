@@ -424,8 +424,8 @@ func TestServer_StreamMessage_NotStreamableIsStreamedFromSend(t *testing.T) {
 		}}, wantState: a2a.TaskStateCompleted, wantText: "Hello"},
 		{name: "text fallback", result: &mockSendResult{text: "just text"},
 			wantState: a2a.TaskStateCompleted, wantText: "just text"},
-		{name: "client tool", result: &mockSendResult{hasPending: true, hasPendingClient: true,
-			pendingClientTools: []PendingClientToolInfo{{CallID: "c1", ToolName: "loc"}}},
+		{name: "client tools", result: &mockSendResult{hasPending: true, hasPendingClient: true,
+			pendingClientTools: []PendingClientToolInfo{{CallID: "c1", ToolName: "loc"}, {CallID: "c2", ToolName: "time"}}},
 			wantState: a2a.TaskStateInputRequired},
 		{name: "approval pending", result: &mockSendResult{hasPending: true},
 			wantState: a2a.TaskStateInputRequired},
@@ -456,8 +456,14 @@ func TestServer_StreamMessage_NotStreamableIsStreamedFromSend(t *testing.T) {
 				require.Len(t, task.Artifacts, 2)
 				assert.Equal(t, "image/png", task.Artifacts[1].Parts[0].MediaType)
 			}
-			if tc.name == "client tool" {
-				assert.Equal(t, "c1", last.StatusUpdate.Status.Message.Parts[0].Metadata["tool_call_id"])
+			if tc.name == "client tools" {
+				// Every pending tool, as SendMessage reports them.
+				parts := last.StatusUpdate.Status.Message.Parts
+				require.Len(t, parts, 2)
+				assert.Equal(t, "c1", parts[0].Metadata["tool_call_id"])
+				assert.Equal(t, "c2", parts[1].Metadata["tool_call_id"])
+				require.NotNil(t, task.Status.Message)
+				assert.Len(t, task.Status.Message.Parts, 2)
 			}
 		})
 	}

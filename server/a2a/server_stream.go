@@ -103,6 +103,12 @@ type streamTurn struct {
 	// pending records an EventPending: the turn ends waiting on something the
 	// server cannot see, which is input-required, not completed.
 	pending bool
+	// batchClientTools is set for a turn whose events come from a finished
+	// Send (sendAsStream): its client tools all arrive before EventDone, and
+	// are reported together in one input-required status, as SendMessage
+	// reports them. A live stream ends at its first client tool.
+	batchClientTools bool
+	clientTools      []PendingClientToolInfo
 }
 
 // textRun is one text artifact being streamed.
@@ -246,6 +252,14 @@ func (st *streamTurn) process(ctx context.Context, events <-chan StreamEvent) {
 
 // finishDone ends a turn whose producer finished normally.
 func (st *streamTurn) finishDone() {
+	if len(st.clientTools) > 0 {
+		parts := make([]a2a.Part, len(st.clientTools))
+		for i, tool := range st.clientTools {
+			parts[i] = clientToolPart(tool)
+		}
+		st.finish(a2a.TaskStateInputRequired, &a2a.Message{Parts: parts})
+		return
+	}
 	if st.pending {
 		st.finish(a2a.TaskStateInputRequired, nil)
 		return
@@ -282,6 +296,10 @@ func (st *streamTurn) handle(evt StreamEvent) (done bool) {
 		// Suppressed — agent opacity. Task stays working.
 
 	case EventClientTool:
+		if st.batchClientTools && evt.ClientTool != nil {
+			st.clientTools = append(st.clientTools, *evt.ClientTool)
+			return false
+		}
 		var msg *a2a.Message
 		if evt.ClientTool != nil {
 			msg = &a2a.Message{Parts: []a2a.Part{clientToolPart(*evt.ClientTool)}}
@@ -327,7 +345,7 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	// Which half of the server owns conversations decides where the events come
 	// from. Resolved before the task is claimed, so a refusal costs nothing —
 	// except for tool results, which are submitted only once it is.
-	startTurn, ok := s.resolveStreamTurn(call, &target, params)
+	startTurn, batch, ok := s.resolveStreamTurn(call, &target, params)
 	if !ok {
 		return
 	}
@@ -350,7 +368,7 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 	reg := s.registerCancel(taskID, cancel)
 	events := startTurn(ctx, taskID)
 
-	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID}
+	st := &streamTurn{srv: s, out: out, taskID: taskID, contextID: contextID, batchClientTools: batch}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -437,40 +455,42 @@ func relayEvents(ctx context.Context, out *streamWriter, events <-chan TaskEvent
 }
 
 // resolveStreamTurn produces the function that starts this request's event
-// stream, for either server mode. ok is false when the request has already
-// been answered with an error.
+// stream, for either server mode, and whether that stream batches its client
+// tools (see streamTurn.batchClientTools). ok is false when the request has
+// already been answered with an error.
 //
 // Tool results are submitted here, after the target's task is claimed, so
 // the task is already claimed when it returns with them.
 func (s *Server) resolveStreamTurn(
 	call *rpcCall, target *turnTarget, params a2a.SendMessageRequest,
-) (start func(ctx context.Context, taskID string) <-chan StreamEvent, ok bool) {
+) (start func(ctx context.Context, taskID string) <-chan StreamEvent, batch, ok bool) {
 	toolResults := extractToolResults(params.Message.Parts)
 	contextID := target.contextID
 
 	if s.handler != nil {
-		return s.statelessStreamTurn(call, contextID, params, toolResults)
+		start, ok = s.statelessStreamTurn(call, contextID, params, toolResults)
+		return start, false, ok
 	}
 
 	conv := s.openConversation(call, contextID)
 	if conv == nil {
-		return nil, false
+		return nil, false, false
 	}
 
 	if len(toolResults) > 0 {
 		resumable := s.claimAndSubmit(call, target, conv, toolResults)
 		if resumable == nil {
-			return nil, false
+			return nil, false, false
 		}
 		return func(ctx context.Context, _ string) <-chan StreamEvent {
 			return resumable.ResumeStream(ctx)
-		}, true
+		}, false, true
 	}
 
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
-		return nil, false
+		return nil, false, false
 	}
 
 	// A conversation that cannot stream is streamed from its Send result, so
@@ -478,11 +498,11 @@ func (s *Server) resolveStreamTurn(
 	if streamConv, isStreaming := conv.(StreamingConversation); isStreaming {
 		return func(ctx context.Context, _ string) <-chan StreamEvent {
 			return streamConv.Stream(ctx, pkMsg)
-		}, true
+		}, false, true
 	}
 	return func(ctx context.Context, _ string) <-chan StreamEvent {
 		return sendAsStream(ctx, conv, pkMsg)
-	}, true
+	}, true, true
 }
 
 // sendAsStream runs a non-streaming conversation's Send and delivers its
