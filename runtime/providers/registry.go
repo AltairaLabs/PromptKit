@@ -413,10 +413,7 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	// original transport when no overrides are set, with the added
 	// conn-tracking layer.
 	if htc, ok := provider.(httpTransportConfigurable); ok {
-		pooledTransport := NewPooledTransportWithOptions(spec.HTTPTransport)
-		rt := NewInstrumentedTransport(pooledTransport)
-		rt = newConnTrackingTransport(rt, DefaultStreamMetrics())
-		htc.SetHTTPTransport(rt)
+		htc.SetHTTPTransport(NewProviderTransport(spec.HTTPTransport))
 	}
 
 	// Apply custom HTTP headers for gateway compatibility (OpenRouter,

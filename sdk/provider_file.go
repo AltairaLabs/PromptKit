@@ -9,16 +9,25 @@ import (
 )
 
 // providerSpecFromConfig maps a loaded *pkgconfig.Provider onto the SDK's
-// uniform ProviderSpec, including any platform-auth configuration.
+// uniform ProviderSpec, including any platform-auth configuration and the
+// request-tuning fields (headers, request_timeout, stream_*, http_transport,
+// defaults.prompt_caching). toPkgProvider is its inverse on those fields.
 func providerSpecFromConfig(p *pkgconfig.Provider) ProviderSpec {
 	return ProviderSpec{
-		ID:               p.ID,
-		Type:             p.Type,
-		Model:            p.Model,
-		BaseURL:          p.BaseURL,
-		Credential:       p.Credential,
-		AdditionalConfig: p.AdditionalConfig,
-		Platform:         p.Platform,
+		ID:                  p.ID,
+		Type:                p.Type,
+		Model:               p.Model,
+		BaseURL:             p.BaseURL,
+		Credential:          p.Credential,
+		AdditionalConfig:    p.AdditionalConfig,
+		Platform:            p.Platform,
+		Headers:             p.Headers,
+		RequestTimeout:      p.RequestTimeout,
+		StreamIdleTimeout:   p.StreamIdleTimeout,
+		StreamRetry:         p.StreamRetry,
+		StreamMaxConcurrent: p.StreamMaxConcurrent,
+		HTTPTransport:       p.HTTPTransport,
+		PromptCaching:       p.Defaults.PromptCaching,
 	}
 }
 

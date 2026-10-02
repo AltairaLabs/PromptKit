@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // RerankProviderSpec is the transport-agnostic description the factory turns
@@ -33,6 +34,10 @@ type RerankProviderSpec struct {
 	// PlatformConfig holds platform-specific settings. Only set when
 	// Platform != "".
 	PlatformConfig *PlatformConfig
+	// Tuning carries the provider file's headers, request_timeout and
+	// http_transport. CreateRerankProviderFromSpec applies it after
+	// construction and rejects it for a provider that is not HTTPTunable.
+	Tuning base.HTTPTuning
 }
 
 // RerankProviderFactory builds a RerankProvider from a spec. Per-provider
@@ -90,7 +95,14 @@ func CreateRerankProviderFromSpec(spec RerankProviderSpec) (RerankProvider, erro
 		return nil, fmt.Errorf("unsupported rerank provider type %q (registered: %v)",
 			spec.Type, registered)
 	}
-	return factory(spec)
+	p, err := factory(spec)
+	if err != nil {
+		return p, err
+	}
+	if err := base.ApplyHTTPTuning(p, spec.Type, spec.Tuning); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // ResolveRerankCredential resolves a rerank provider's credential block into a

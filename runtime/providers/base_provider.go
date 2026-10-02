@@ -139,6 +139,18 @@ func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
 	)
 }
 
+// NewProviderTransport builds the transport every completion provider runs
+// on: a pooled transport configured from opts, wrapped with OpenTelemetry
+// instrumentation and connection tracking (the http_conns_in_use gauge).
+// Zero-valued options fall back to package defaults.
+//
+// Capability providers (tts, stt, embedding, inference, rerank) get this
+// transport only when their provider file sets http_transport.
+func NewProviderTransport(opts HTTPTransportOptions) http.RoundTripper {
+	rt := NewInstrumentedTransport(NewPooledTransportWithOptions(opts))
+	return newConnTrackingTransport(rt, DefaultStreamMetrics())
+}
+
 // BaseProvider provides common functionality shared across all provider implementations.
 // It should be embedded in concrete provider structs to avoid code duplication.
 //

@@ -30,6 +30,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -580,6 +581,7 @@ func envKeyAllowedFor(providerType, baseURL string) bool {
 // spec's type, and wraps it so every call reports inference metrics.
 func buildInferenceProvider(
 	id, providerType, model, baseURL string, cred *pkgconfig.CredentialConfig, additional map[string]any,
+	tuning base.HTTPTuning,
 ) (inference.Provider, error) {
 	var resolved credentials.Credential
 	if cred != nil || envKeyAllowedFor(providerType, baseURL) {
@@ -596,6 +598,7 @@ func buildInferenceProvider(
 		BaseURL:          baseURL,
 		Credential:       resolved,
 		AdditionalConfig: additional,
+		Tuning:           tuning,
 	})
 	if err != nil {
 		return nil, err
@@ -2510,6 +2513,39 @@ type ProviderSpec struct {
 	// passes it to ResolveEmbeddingCredential and CreateEmbeddingProviderFromSpec.
 	// nil means direct API-key auth.
 	Platform *pkgconfig.PlatformConfig
+
+	// The fields below mirror a provider file's request-tuning fields of the
+	// same name. Completion providers (WithLLMProvider, WithImageProvider,
+	// WithNamedProvider) honor all of them. Capability providers
+	// (WithTTSProvider, WithSTTProvider, WithEmbeddingProvider,
+	// WithInferenceProvider, WithRerankProvider) honor Headers, RequestTimeout
+	// and HTTPTransport, and fail to build when a streaming field or
+	// PromptCaching is set. Durations are Go duration strings ("30s").
+
+	// Headers mirrors headers: custom HTTP headers added to every request. A
+	// header the provider sets itself (its credential, for one) is not
+	// overridden; the request fails instead. All roles.
+	Headers map[string]string
+	// RequestTimeout mirrors request_timeout: the wall-clock cap on a
+	// request/response HTTP call. Empty keeps the provider's default. All
+	// roles.
+	RequestTimeout string
+	// StreamIdleTimeout mirrors stream_idle_timeout: how long a streaming
+	// response may go without a byte. Completion roles only.
+	StreamIdleTimeout string
+	// StreamRetry mirrors stream_retry: bounded retry for streaming requests
+	// that fail before or during the stream. Completion roles only.
+	StreamRetry *pkgconfig.StreamRetryConfig
+	// StreamMaxConcurrent mirrors stream_max_concurrent: the cap on
+	// concurrent streaming requests. Zero is unlimited. Completion roles only.
+	StreamMaxConcurrent int
+	// HTTPTransport mirrors http_transport: the HTTP connection-pool
+	// settings. For a capability role, setting it also replaces the
+	// provider's own transport with the pooled, instrumented one. All roles.
+	HTTPTransport *pkgconfig.HTTPTransportConfig
+	// PromptCaching mirrors defaults.prompt_caching: false disables
+	// Anthropic prompt caching. Completion roles only.
+	PromptCaching *bool
 }
 
 // idOrType returns the spec ID, falling back to Type.
@@ -2532,7 +2568,12 @@ func (s ProviderSpec) idOrType() string {
 func WithInferenceProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		id := spec.idOrType()
-		p, err := buildInferenceProvider(id, spec.Type, spec.Model, spec.BaseURL, spec.Credential, spec.AdditionalConfig)
+		tuning, err := spec.capabilityTuning(pkgconfig.RoleInference)
+		if err != nil {
+			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
+		}
+		p, err := buildInferenceProvider(
+			id, spec.Type, spec.Model, spec.BaseURL, spec.Credential, spec.AdditionalConfig, tuning)
 		if err != nil {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
@@ -2572,14 +2613,29 @@ func WithClassifier(id string, provider any) Option {
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 	return &pkgconfig.Provider{
-		ID:               s.idOrType(),
-		Type:             s.Type,
-		Model:            s.Model,
-		BaseURL:          s.BaseURL,
-		Credential:       s.Credential,
-		AdditionalConfig: s.AdditionalConfig,
-		Platform:         s.Platform,
+		ID:                  s.idOrType(),
+		Type:                s.Type,
+		Model:               s.Model,
+		BaseURL:             s.BaseURL,
+		Credential:          s.Credential,
+		AdditionalConfig:    s.AdditionalConfig,
+		Platform:            s.Platform,
+		Headers:             s.Headers,
+		RequestTimeout:      s.RequestTimeout,
+		StreamIdleTimeout:   s.StreamIdleTimeout,
+		StreamRetry:         s.StreamRetry,
+		StreamMaxConcurrent: s.StreamMaxConcurrent,
+		HTTPTransport:       s.HTTPTransport,
+		Defaults:            pkgconfig.ProviderDefaults{PromptCaching: s.PromptCaching},
 	}
+}
+
+// capabilityTuning converts the spec's request-tuning fields for a capability
+// role, rejecting the completion-only ones with an error naming the role.
+func (s ProviderSpec) capabilityTuning(role string) (base.HTTPTuning, error) {
+	p := s.toPkgProvider()
+	p.Role = role
+	return pkgconfig.CapabilityHTTPTuning(p)
 }
 
 // WithNamedProvider registers a completion provider under its ID for a pack to
@@ -2653,6 +2709,10 @@ func WithTTSProvider(spec ProviderSpec) Option {
 		if _, exists := c.ttsProviders[spec.idOrType()]; exists {
 			return fmt.Errorf("WithTTSProvider %q: duplicate ID", spec.idOrType())
 		}
+		tuning, err := spec.capabilityTuning(pkgconfig.RoleTTS)
+		if err != nil {
+			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
+		}
 		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2660,6 +2720,7 @@ func WithTTSProvider(spec ProviderSpec) Option {
 		svc, err := tts.CreateFromSpec(tts.ProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
 			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+			Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
@@ -2686,6 +2747,10 @@ func WithSTTProvider(spec ProviderSpec) Option {
 		if _, exists := c.sttProviders[spec.idOrType()]; exists {
 			return fmt.Errorf("WithSTTProvider %q: duplicate ID", spec.idOrType())
 		}
+		tuning, err := spec.capabilityTuning(pkgconfig.RoleSTT)
+		if err != nil {
+			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)
+		}
 		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
@@ -2693,6 +2758,7 @@ func WithSTTProvider(spec ProviderSpec) Option {
 		svc, err := stt.CreateFromSpec(stt.ProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
 			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+			Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)
@@ -2723,6 +2789,10 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 		if _, exists := c.embeddingProviders[spec.idOrType()]; exists {
 			return fmt.Errorf("WithEmbeddingProvider %q: duplicate ID", spec.idOrType())
 		}
+		tuning, err := spec.capabilityTuning(pkgconfig.RoleEmbedding)
+		if err != nil {
+			return fmt.Errorf("WithEmbeddingProvider %q: %w", spec.idOrType(), err)
+		}
 		var platform string
 		if spec.Platform != nil {
 			platform = spec.Platform.Type
@@ -2734,7 +2804,7 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 		ep, err := providers.CreateEmbeddingProviderFromSpec(providers.EmbeddingProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
 			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
-			Platform: platform, PlatformConfig: spec.Platform,
+			Platform: platform, PlatformConfig: spec.Platform, Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithEmbeddingProvider %q: %w", spec.idOrType(), err)
@@ -2776,6 +2846,10 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 //	})
 func WithRerankProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
+		tuning, err := spec.capabilityTuning(pkgconfig.RoleRerank)
+		if err != nil {
+			return fmt.Errorf("WithRerankProvider %q: %w", spec.idOrType(), err)
+		}
 		cred, err := providers.ResolveRerankCredential(
 			context.Background(), spec.Type, "", spec.Credential, spec.Platform)
 		if err != nil {
@@ -2788,7 +2862,7 @@ func WithRerankProvider(spec ProviderSpec) Option {
 		rp, err := providers.CreateRerankProviderFromSpec(providers.RerankProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
 			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
-			Platform: platform, PlatformConfig: spec.Platform,
+			Platform: platform, PlatformConfig: spec.Platform, Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithRerankProvider %q: %w", spec.idOrType(), err)

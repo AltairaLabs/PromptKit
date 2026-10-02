@@ -46,6 +46,13 @@ func NewBaseRerankProvider(
 	}
 }
 
+// ApplyHTTPTuning replaces HTTPClient with a tuned copy, implementing
+// base.HTTPTunable for every reranker that embeds this struct.
+func (b *BaseRerankProvider) ApplyHTTPTuning(t base.HTTPTuning) error {
+	b.HTTPClient = t.Client(b.HTTPClient)
+	return nil
+}
+
 // ID returns the configured provider identifier.
 func (b *BaseRerankProvider) ID() string { return b.ProviderID }
 

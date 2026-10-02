@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "1966bab11ff592bd1e6441ba6adf78c2b8e796bf",
+ "commit": "fd966db8c393d5338bb3556904f0d2e806f0d43a",
  "claims": [
   {
    "id": 1,
@@ -34,7 +34,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/role.go:57",
-    "sdk/provider_file.go:36"
+    "sdk/provider_file.go:46"
    ]
   },
   {
@@ -53,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:419",
-    "sdk/provider_file.go:22"
+    "sdk/provider_file.go:42-45"
    ]
   },
   {
@@ -63,7 +63,7 @@
    "evidence": [
     "runtime/providers/all/all.go:30",
     "runtime/providers/mock/mock.go:64",
-    "sdk/runtime_config.go:25"
+    "sdk/runtime_config.go:26"
    ]
   },
   {
@@ -72,7 +72,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/imagen/factory.go:11",
-    "sdk/runtime_config.go:30"
+    "sdk/runtime_config.go:31"
    ]
   },
   {
@@ -87,7 +87,7 @@
     "runtime/providers/openai/embedding_register.go:7",
     "runtime/providers/vertex/embedding_register.go:9",
     "runtime/providers/voyageai/embedding_register.go:7",
-    "sdk/runtime_config.go:26"
+    "sdk/runtime_config.go:27"
    ]
   },
   {
@@ -98,7 +98,7 @@
     "runtime/providers/cohere/rerank_register.go:7",
     "runtime/providers/rerank_mock.go:131",
     "runtime/providers/voyageai/rerank_register.go:7",
-    "sdk/runtime_config.go:27"
+    "sdk/runtime_config.go:28"
    ]
   },
   {
@@ -109,7 +109,7 @@
     "runtime/inference/all/all.go:8",
     "runtime/inference/huggingface/register.go:15",
     "runtime/inference/openai/register.go:33",
-    "runtime/inference/openai/register.go:45",
+    "runtime/inference/openai/register.go:48",
     "runtime/inference/systemone/register.go:18",
     "sdk/runtime_config.go:25"
    ]
@@ -146,7 +146,7 @@
     "runtime/credentials/resolver.go:102",
     "runtime/credentials/resolver.go:113",
     "runtime/credentials/resolver.go:95",
-    "sdk/runtime_config.go:579"
+    "sdk/runtime_config.go:581"
    ]
   },
   {
@@ -154,10 +154,9 @@
    "claim": "stream_retry retry_window default is pre_first_chunk",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:44",
+    "pkg/config/provider_tuning.go:46",
     "pkg/config/types.go:317",
-    "runtime/providers/stream_retry.go:44",
-    "sdk/runtime_config.go:608"
+    "runtime/providers/stream_retry.go:44"
    ]
   },
   {
@@ -165,10 +164,8 @@
    "claim": "stream_retry retry_window values: pre_first_chunk (default) or always",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:46",
-    "pkg/config/provider_tuning.go:49",
-    "pkg/config/types.go:317",
-    "runtime/providers/base_provider.go:619"
+    "pkg/config/provider_tuning.go:49-51",
+    "pkg/config/types.go:317"
    ]
   },
   {
@@ -195,9 +192,8 @@
    "claim": "stream_retry max_delay default: 2s (Go duration string)",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:42",
+    "pkg/config/provider_tuning.go:45",
     "pkg/config/types.go:314",
-    "runtime/providers/stream_retry.go:114",
     "runtime/providers/stream_retry.go:30"
    ]
   },
@@ -267,7 +263,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/types.go:381",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -277,7 +273,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -287,7 +283,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -297,7 +293,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -307,7 +303,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -318,7 +314,7 @@
     "runtime/hooks/execconfig/execconfig.go:44",
     "sdk/exec_tools.go:20",
     "sdk/exec_tools.go:47",
-    "sdk/runtime_config.go:475"
+    "sdk/runtime_config.go:477"
    ]
   },
   {
@@ -329,7 +325,7 @@
     "pkg/config/runtime_config.go:813",
     "runtime/hooks/exec_build.go:11",
     "runtime/hooks/execconfig/execconfig.go:69",
-    "sdk/runtime_config.go:58"
+    "sdk/runtime_config.go:59"
    ]
   },
   {
@@ -405,7 +401,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:442",
-    "sdk/runtime_config.go:615"
+    "sdk/runtime_config.go:617"
    ]
   },
   {
@@ -414,7 +410,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/types.go:96",
-    "sdk/runtime_config.go:624"
+    "sdk/runtime_config.go:626"
    ]
   },
   {
@@ -424,7 +420,7 @@
    "evidence": [
     "runtime/statestore/redis.go:80",
     "runtime/statestore/types.go:16",
-    "sdk/runtime_config.go:628"
+    "sdk/runtime_config.go:630"
    ]
   },
   {
@@ -433,7 +429,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/statestore/redis.go:81",
-    "sdk/runtime_config.go:635"
+    "sdk/runtime_config.go:637"
    ]
   },
   {
@@ -442,7 +438,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:80",
-    "sdk/runtime_config.go:654"
+    "sdk/runtime_config.go:656"
    ]
   },
   {
@@ -452,7 +448,7 @@
    "evidence": [
     "pkg/config/types.go:84",
     "runtime/statestore/file/store.go:86",
-    "sdk/runtime_config.go:666"
+    "sdk/runtime_config.go:668"
    ]
   },
   {
@@ -461,7 +457,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:535"
+    "sdk/runtime_config.go:537"
    ]
   },
   {
@@ -470,7 +466,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:93",
-    "sdk/runtime_config.go:512"
+    "sdk/runtime_config.go:514"
    ]
   },
   {
@@ -480,7 +476,7 @@
    "evidence": [
     "runtime/logger/config.go:104",
     "runtime/logger/config.go:52",
-    "sdk/runtime_config.go:506"
+    "sdk/runtime_config.go:508"
    ]
   },
   {
@@ -507,7 +503,7 @@
    "evidence": [
     "runtime/providers/registry.go:48",
     "runtime/providers/voyageai/embedding_register.go:7",
-    "sdk/provider_file.go:36"
+    "sdk/provider_file.go:66"
    ]
   },
   {
@@ -517,7 +513,7 @@
    "evidence": [
     "runtime/tools/types.go:265",
     "sdk/exec_tools.go:20",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -526,7 +522,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:381",
-    "sdk/runtime_config.go:465"
+    "sdk/runtime_config.go:467"
    ]
   },
   {
@@ -552,8 +548,8 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:634",
-    "sdk/runtime_config.go:154",
-    "sdk/runtime_config.go:164"
+    "sdk/runtime_config.go:155",
+    "sdk/runtime_config.go:165"
    ]
   },
   {
@@ -570,8 +566,8 @@
    "claim": "Example state_store type `redis` with database `1`",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:617",
-    "sdk/runtime_config.go:624"
+    "sdk/runtime_config.go:619",
+    "sdk/runtime_config.go:626"
    ]
   },
   {
@@ -580,7 +576,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:506"
+    "sdk/runtime_config.go:508"
    ]
   },
   {
@@ -626,6 +622,60 @@
    "evidence": [
     "pkg/config/types.go:201",
     "runtime/providers/registry.go:378"
+   ]
+  },
+  {
+   "id": 66,
+   "claim": "Provider `headers` are sent on every request; a header the provider sets itself fails the request with an error naming it",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:181",
+    "runtime/providers/base/http_tuning.go:117-131"
+   ]
+  },
+  {
+   "id": 67,
+   "claim": "request_timeout on capability roles keeps the provider's own default when unset",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/provider_tuning.go:106",
+    "runtime/providers/base/http_tuning.go:48"
+   ]
+  },
+  {
+   "id": 68,
+   "claim": "Roles llm, image and video honor all tuning fields; tts, stt, embedding, inference and rerank honor headers, request_timeout and http_transport and reject stream_idle_timeout, stream_retry, stream_max_concurrent and defaults.prompt_caching with an error naming field and role",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/provider_tuning.go:106",
+    "pkg/config/provider_tuning.go:129",
+    "sdk/provider_file.go:47"
+   ]
+  },
+  {
+   "id": 69,
+   "claim": "On a capability role, http_transport replaces the provider's transport with a pooled, instrumented one",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/provider_tuning.go:121-122",
+    "runtime/providers/base_provider.go:149"
+   ]
+  },
+  {
+   "id": 70,
+   "claim": "A provider type that cannot take tuning for its role (mock reranker) fails to load when any is set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/http_tuning.go:88",
+    "runtime/providers/rerank_factory.go:102"
+   ]
+  },
+  {
+   "id": 71,
+   "claim": "openai and nvidia-topic-control inference types reject request_timeout alongside additional_config.timeout_seconds",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/openai/register.go:76-80"
    ]
   }
  ]

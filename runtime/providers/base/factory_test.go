@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -106,4 +107,53 @@ func TestResolveCredential_NilConfigPassesThrough(t *testing.T) {
 	got, err := base.ResolveCredential(context.Background(), "openai", "", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, got)
+}
+
+// tunableService records the tuning applied to it.
+type tunableService struct {
+	got     base.HTTPTuning
+	applied bool
+	err     error
+}
+
+func (s *tunableService) ApplyHTTPTuning(t base.HTTPTuning) error {
+	s.got, s.applied = t, true
+	return s.err
+}
+
+func TestFactoryRegistry_TuningRejectedForNonTunable(t *testing.T) {
+	r := base.NewFactoryRegistry[*fakeService]()
+	r.Register("plain", func(base.CapabilitySpec) (*fakeService, error) { return &fakeService{}, nil })
+	_, err := r.Create(base.CapabilitySpec{
+		Type: "plain", Tuning: base.HTTPTuning{Headers: map[string]string{"X": "y"}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(),
+		`provider type "plain" does not support headers, request_timeout or http_transport for this role`)
+}
+
+func TestFactoryRegistry_ZeroTuningOnNonTunableSucceeds(t *testing.T) {
+	r := base.NewFactoryRegistry[*fakeService]()
+	r.Register("plain", func(base.CapabilitySpec) (*fakeService, error) { return &fakeService{id: "p"}, nil })
+	got, err := r.Create(base.CapabilitySpec{Type: "plain"})
+	require.NoError(t, err)
+	assert.Equal(t, "p", got.id)
+}
+
+func TestFactoryRegistry_TuningAppliedToTunable(t *testing.T) {
+	r := base.NewFactoryRegistry[*tunableService]()
+	r.Register("tun", func(base.CapabilitySpec) (*tunableService, error) { return &tunableService{}, nil })
+	tuning := base.HTTPTuning{RequestTimeout: 5 * time.Second}
+	got, err := r.Create(base.CapabilitySpec{Type: "tun", Tuning: tuning})
+	require.NoError(t, err)
+	assert.True(t, got.applied)
+	assert.Equal(t, 5*time.Second, got.got.RequestTimeout)
+}
+
+func TestFactoryRegistry_TuningErrorPropagates(t *testing.T) {
+	r := base.NewFactoryRegistry[*tunableService]()
+	boom := errors.New("boom")
+	r.Register("tun", func(base.CapabilitySpec) (*tunableService, error) { return &tunableService{err: boom}, nil })
+	_, err := r.Create(base.CapabilitySpec{Type: "tun", Tuning: base.HTTPTuning{RequestTimeout: time.Second}})
+	require.ErrorIs(t, err, boom)
 }

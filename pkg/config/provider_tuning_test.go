@@ -1,10 +1,12 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 func TestApplyProviderTuning_CopiesEveryTuningField(t *testing.T) {
@@ -94,5 +96,94 @@ func TestApplyProviderTuning_NilIsNoOp(t *testing.T) {
 	ApplyProviderTuning(nil, &Provider{})
 	if spec.RequestTimeout != time.Second {
 		t.Errorf("nil provider changed the spec: %v", spec.RequestTimeout)
+	}
+}
+
+func TestCapabilityHTTPTuning(t *testing.T) {
+	caching := true
+	cases := []struct {
+		name    string
+		p       *Provider
+		wantErr string
+		check   func(t *testing.T, got base.HTTPTuning)
+	}{
+		{
+			name: "nil provider is zero tuning",
+			p:    nil,
+			check: func(t *testing.T, got base.HTTPTuning) {
+				if !got.IsZero() {
+					t.Errorf("got %+v, want zero", got)
+				}
+			},
+		},
+		{
+			name: "empty provider is zero tuning",
+			p:    &Provider{ID: "e", Role: RoleTTS},
+			check: func(t *testing.T, got base.HTTPTuning) {
+				if !got.IsZero() {
+					t.Errorf("got %+v, want zero", got)
+				}
+			},
+		},
+		{
+			name: "headers and request_timeout map",
+			p: &Provider{ID: "h", Role: RoleEmbedding, Headers: map[string]string{"X-Gateway": "v"},
+				RequestTimeout: "1500ms"},
+			check: func(t *testing.T, got base.HTTPTuning) {
+				if got.Headers["X-Gateway"] != "v" {
+					t.Errorf("headers = %v", got.Headers)
+				}
+				if got.RequestTimeout != 1500*time.Millisecond {
+					t.Errorf("request timeout = %v", got.RequestTimeout)
+				}
+				if got.Transport != nil {
+					t.Error("no transport unless http_transport is set")
+				}
+			},
+		},
+		{
+			name: "http_transport builds a transport",
+			p:    &Provider{ID: "x", Role: RoleRerank, HTTPTransport: &HTTPTransportConfig{MaxConnsPerHost: 4}},
+			check: func(t *testing.T, got base.HTTPTuning) {
+				if got.Transport == nil {
+					t.Error("want a transport")
+				}
+			},
+		},
+		{
+			name:    "stream_retry rejected",
+			p:       &Provider{ID: "s", Role: RoleSTT, StreamRetry: &StreamRetryConfig{Enabled: true}},
+			wantErr: `provider "s": stream_retry is not supported for role "stt"`,
+		},
+		{
+			name:    "stream_max_concurrent rejected",
+			p:       &Provider{ID: "s", Role: RoleTTS, StreamMaxConcurrent: 3},
+			wantErr: `stream_max_concurrent is not supported for role "tts"`,
+		},
+		{
+			name:    "stream_idle_timeout rejected",
+			p:       &Provider{ID: "s", Role: RoleInference, StreamIdleTimeout: "30s"},
+			wantErr: `stream_idle_timeout is not supported for role "inference"`,
+		},
+		{
+			name:    "defaults.prompt_caching rejected",
+			p:       &Provider{ID: "s", Role: RoleEmbedding, Defaults: ProviderDefaults{PromptCaching: &caching}},
+			wantErr: `defaults.prompt_caching is not supported for role "embedding"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := CapabilityHTTPTuning(tc.p)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tc.check(t, got)
+		})
 	}
 }

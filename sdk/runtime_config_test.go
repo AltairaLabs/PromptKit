@@ -1341,3 +1341,36 @@ func TestApplyRuntimeConfig_MCPSourceRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "not supported by the SDK")
 	assert.Empty(t, c.mcpServers)
 }
+
+// TestWithRuntimeConfig_EmbeddingProviderHonorsHeaders declares the embedding
+// provider under spec.providers rather than in its own provider file: both
+// routes share applyProviderConfig, and both must carry headers through.
+func TestWithRuntimeConfig_EmbeddingProviderHonorsHeaders(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	srv := newGatewayServer(t, tunedEmbeddingBody, 0)
+	path := writeRuntimeConfig(t, `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: test
+spec:
+  providers:
+    - id: emb
+      type: openai
+      role: embedding
+      base_url: `+srv.URL+`
+      credential:
+        api_key: tok
+      headers:
+        X-Gateway: v
+      request_timeout: 2s
+      additional_config:
+        dimensions: 3
+`)
+	c := &config{}
+	require.NoError(t, WithRuntimeConfig(path)(c))
+	ep, ok := c.embeddingProviders["emb"]
+	require.True(t, ok, "embedding provider not registered")
+	_, err := ep.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"a"}})
+	require.NoError(t, err)
+	assert.Equal(t, "v", srv.header())
+}
