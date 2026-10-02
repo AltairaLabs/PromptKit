@@ -908,7 +908,7 @@ func applyStrictToolsConfig(tp *ToolProvider, spec providers.ProviderSpec) {
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
-	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
+	factory := providers.CredentialFactory(
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
 			tp := NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
@@ -931,5 +931,11 @@ func init() {
 			applyStrictToolsConfig(tp, spec)
 			return tp, nil
 		},
-	))
+	)
+	providers.RegisterProviderFactory("claude", func(spec providers.ProviderSpec) (providers.Provider, error) {
+		if err := validateDefaults(spec.Defaults); err != nil {
+			return nil, err
+		}
+		return factory(spec)
+	})
 }

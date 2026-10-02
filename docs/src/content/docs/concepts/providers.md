@@ -256,9 +256,9 @@ For cloud platforms, credentials are handled automatically via SDK credential ch
 type PredictionRequest struct {
     System         string                 // System prompt
     Messages       []types.Message        // Conversation history
-    Temperature    float32                // Randomness 0-2 (default: 1.0)
-    TopP           float32                // Nucleus sampling 0-1 (default: 1.0)
-    MaxTokens      int                    // Output limit (default: 4096)
+    Temperature    float32                // Randomness 0-2 (0: provider default)
+    TopP           float32                // Nucleus sampling 0-1 (0: provider default)
+    MaxTokens      int                    // Output limit (0: provider default)
     Seed           *int                   // Reproducibility (optional)
     ResponseFormat *ResponseFormat        // Optional response format (JSON mode)
     Metadata       map[string]any         // Provider-specific extras
@@ -293,6 +293,11 @@ config := &providers.PredictionRequest{MaxTokens: 100}
 // Long responses
 config := &providers.PredictionRequest{MaxTokens: 4096}
 ```
+
+A request with `MaxTokens` at zero uses the provider's `Defaults.MaxTokens`.
+When that is zero or `providers.MaxTokensUnlimited`, the provider sends no
+limit and the model's own maximum applies. Claude requires a limit, so it sends
+4096 instead and rejects `MaxTokensUnlimited` when the provider is created.
 
 ## Multi-Provider Strategies
 

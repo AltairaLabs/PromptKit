@@ -81,7 +81,7 @@ type vllmRequest struct {
 	Messages    []vllmMessage `json:"messages"`
 	Temperature float32       `json:"temperature"`
 	TopP        float32       `json:"top_p"`
-	MaxTokens   int           `json:"max_tokens"`
+	MaxTokens   int           `json:"max_tokens,omitempty"` // 0 = no limit
 	Seed        *int          `json:"seed,omitempty"`
 	Stream      bool          `json:"stream"`
 	// StreamOptions carries streaming-only parameters. Set only when Stream is
@@ -261,10 +261,7 @@ func (p *Provider) applyRequestDefaults(
 		topP = p.defaults.TopP
 	}
 
-	maxTokens = req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(req.MaxTokens, p.defaults)
 
 	return temperature, topP, maxTokens
 }

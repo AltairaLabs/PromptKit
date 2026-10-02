@@ -158,6 +158,18 @@ defaults := providers.ProviderDefaults{
 }
 ```
 
+A default applies when the request leaves the field at zero. The provider
+resolves each value in this order:
+
+1. The request's value. In the SDK, that is the prompt's `parameters`.
+2. The provider's `ProviderDefaults`.
+3. No output-token limit, so the model's own maximum applies.
+
+`MaxTokens: providers.MaxTokensUnlimited` (`-1`) states the third step
+explicitly. Claude's Messages API requires `max_tokens` on every request, so a
+Claude provider sends 4096 at step 3 and rejects `MaxTokensUnlimited` at
+construction.
+
 ## Implementation Details
 
 ### OpenAI Provider

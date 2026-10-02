@@ -78,7 +78,7 @@ type ollamaRequest struct {
 	Messages    []ollamaMessage `json:"messages"`
 	Temperature float32         `json:"temperature"`
 	TopP        float32         `json:"top_p"`
-	MaxTokens   int             `json:"max_tokens"`
+	MaxTokens   int             `json:"max_tokens,omitempty"` // 0 = no limit
 	Seed        *int            `json:"seed,omitempty"`
 	Stream      bool            `json:"stream"`
 	KeepAlive   string          `json:"keep_alive,omitempty"`
@@ -169,10 +169,7 @@ func (p *Provider) applyRequestDefaults(
 		topP = p.defaults.TopP
 	}
 
-	maxTokens = req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(req.MaxTokens, p.defaults)
 
 	return temperature, topP, maxTokens
 }
@@ -670,9 +667,11 @@ func (p *Provider) predictStreamWithMessages(
 		"messages":       messages,
 		"temperature":    temperature,
 		"top_p":          topP,
-		"max_tokens":     maxTokens,
 		"stream":         true,
 		"stream_options": map[string]any{"include_usage": true},
+	}
+	if maxTokens > 0 {
+		ollamaReq["max_tokens"] = maxTokens
 	}
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed

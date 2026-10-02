@@ -248,7 +248,6 @@ func TestCreateProvider(t *testing.T) {
 func TestDefaultConstants(t *testing.T) {
 	assert.Equal(t, 0.7, defaultTemperature)
 	assert.Equal(t, 1.0, defaultTopP)
-	assert.Equal(t, 4096, defaultMaxTokens)
 }
 
 func TestInferProviderFromModel(t *testing.T) {

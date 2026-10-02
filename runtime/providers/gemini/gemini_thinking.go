@@ -77,8 +77,8 @@ func normalizeThinkingLevel(v any) (string, bool) {
 // nil when nothing is configured — in which case the model applies its own
 // default thinking. We deliberately do NOT auto-disable thinking based on model
 // name: that's a maintenance trap (every new model/tier would need a rule) and
-// unnecessary, since at the default maxOutputTokens (4096) thinking has ample
-// room and doesn't truncate. Callers who consider thinking unnecessary opt out
+// unnecessary, since with no maxOutputTokens set (the default) the model's own
+// output maximum applies and thinking doesn't truncate. Callers who consider thinking unnecessary opt out
 // per provider with additional_config.thinking_budget: 0 (valid on flash;
 // pro/thinking-only models reject 0 with a clear API error).
 //

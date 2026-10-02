@@ -304,7 +304,9 @@ func (p *Provider) buildToolRequest(
 	reqMap["messages"] = vllmReq.Messages
 	reqMap["temperature"] = vllmReq.Temperature
 	reqMap["top_p"] = vllmReq.TopP
-	reqMap["max_tokens"] = vllmReq.MaxTokens
+	if vllmReq.MaxTokens > 0 {
+		reqMap["max_tokens"] = vllmReq.MaxTokens
+	}
 	reqMap["stream"] = vllmReq.Stream
 	if vllmReq.StreamOptions != nil {
 		reqMap["stream_options"] = vllmReq.StreamOptions

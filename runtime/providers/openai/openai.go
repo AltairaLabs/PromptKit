@@ -88,8 +88,12 @@ func hasUnsupportedParam(unsupported []string, param string) bool {
 // require it and every current model accepts it, so it is the default rather
 // than something gated on a hardcoded model-family check. Legacy or
 // OpenAI-compatible backends that only accept the deprecated "max_tokens" opt
-// out via unsupported_params: ["max_completion_tokens"].
+// out via unsupported_params: ["max_completion_tokens"]. A maxTokens of zero
+// means no limit, so neither field is sent and the model's own maximum applies.
 func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []string, maxTokens int) {
+	if maxTokens <= 0 {
+		return
+	}
 	if hasUnsupportedParam(unsupportedParams, "max_completion_tokens") {
 		req["max_tokens"] = maxTokens
 	} else {
@@ -693,10 +697,7 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 		topP = p.defaults.TopP
 	}
 
-	maxTokens = req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(req.MaxTokens, p.defaults)
 
 	return temperature, topP, maxTokens
 }

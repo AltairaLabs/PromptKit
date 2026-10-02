@@ -274,7 +274,7 @@ type geminiInlineData struct {
 type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`  // 0 = no limit
 	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
 	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
@@ -422,10 +422,7 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 		topP = p.defaults.TopP
 	}
 
-	maxTokens = req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(req.MaxTokens, p.defaults)
 
 	return temperature, topP, maxTokens
 }
