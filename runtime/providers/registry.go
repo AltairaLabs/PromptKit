@@ -223,6 +223,11 @@ type ProviderSpec struct {
 	// the upstream's SETTINGS_MAX_CONCURRENT_STREAMS) is the primary
 	// lever on realistic single-process concurrent-stream capacity.
 	HTTPTransport HTTPTransportOptions
+
+	// RateLimit throttles the requests the provider sends. Zero
+	// RequestsPerSecond disables it. Applied via SetRateLimit on providers
+	// that implement the rateLimitConfigurable interface.
+	RateLimit RateLimitOptions
 }
 
 // Credential applies authentication to HTTP requests.
@@ -264,6 +269,34 @@ type streamRetryConfigurable interface {
 // neither.
 type streamConcurrencyConfigurable interface {
 	SetStreamSemaphore(*StreamSemaphore)
+}
+
+// RateLimitOptions configures client-side request throttling for one
+// provider instance. RequestsPerSecond is the sustained rate; Burst is how
+// many requests may start at once before throttling applies. A Burst of
+// zero or less is raised to the per-second rate (at least 1), so a positive
+// rate never blocks every request.
+type RateLimitOptions struct {
+	RequestsPerSecond float64
+	Burst             int
+}
+
+// burstOrDefault returns Burst, or the per-second rate (at least 1) when
+// Burst is not positive.
+func (o RateLimitOptions) burstOrDefault() int {
+	if o.Burst > 0 {
+		return o.Burst
+	}
+	if o.RequestsPerSecond >= 1 {
+		return int(o.RequestsPerSecond)
+	}
+	return 1
+}
+
+// rateLimitConfigurable is implemented by any provider that embeds
+// BaseProvider. CreateProviderFromSpec uses it to apply spec.RateLimit.
+type rateLimitConfigurable interface {
+	SetRateLimit(requestsPerSecond float64, burst int)
 }
 
 // httpTransportConfigurable is implemented by any provider that embeds
@@ -417,6 +450,12 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		rt := NewInstrumentedTransport(pooledTransport)
 		rt = newConnTrackingTransport(rt, DefaultStreamMetrics())
 		htc.SetHTTPTransport(rt)
+	}
+
+	// Apply client-side rate limiting. Both request/response and streaming
+	// calls wait on the limiter before sending.
+	if rlc, ok := provider.(rateLimitConfigurable); ok && spec.RateLimit.RequestsPerSecond > 0 {
+		rlc.SetRateLimit(spec.RateLimit.RequestsPerSecond, spec.RateLimit.burstOrDefault())
 	}
 
 	// Apply custom HTTP headers for gateway compatibility (OpenRouter,

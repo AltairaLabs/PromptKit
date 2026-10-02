@@ -598,6 +598,7 @@ func createProviderFromConfig(
 		},
 		StorageService: store,
 	}
+	pkgconfig.ApplyProviderTuning(&spec, p)
 	return providers.CreateProviderFromSpec(spec)
 }
 

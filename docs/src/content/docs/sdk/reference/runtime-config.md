@@ -175,6 +175,12 @@ the same ID in both spellings is rejected.
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. |
+| `request_timeout` | string | no | Wall-clock timeout for request/response calls (Predict, embeddings). Go duration string, e.g. `"2m"`. Does not apply to streaming. Default: `"60s"`. |
+| `stream_idle_timeout` | string | no | Longest silence allowed on a streaming body before the stream is aborted. The timer resets on every byte. Default: `"30s"`. |
+| `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
+| `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
+| `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
+| `rate_limit` | object | no | Client-side request throttling. See [rate_limit](#rate_limit). |
 
 #### provider types
 
@@ -231,6 +237,7 @@ Default generation parameters applied to every request unless overridden per-cal
 | `temperature` | float | Sampling temperature (e.g., `0.7`). |
 | `top_p` | float | Top-p (nucleus) sampling parameter. |
 | `max_tokens` | int | Maximum number of output tokens. |
+| `prompt_caching` | bool | Anthropic prompt caching on Claude providers. Default: `true`; `false` disables it. |
 
 #### pricing
 
@@ -252,6 +259,38 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 | `project` | string | Cloud project ID. Required for Vertex. |
 | `endpoint` | string | Custom endpoint URL override. |
 | `additional_config` | map[string]any | Platform-specific settings. |
+
+#### stream_retry
+
+Retries a streaming request that fails before any content reaches the caller (the default `pre_first_chunk` window). With `retry_window: always`, a failure after content was forwarded emits a `Reset` signal so consumers discard what they received, then retries the whole request; the retry is billed as a new response.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Turns retry on. Default: `false`. |
+| `max_attempts` | int | Total attempts including the first. `2` means one retry. Default: `2`. |
+| `initial_delay` | string | Base backoff before the first retry. Go duration string. Default: `"250ms"`. |
+| `max_delay` | string | Maximum backoff per attempt. Go duration string. Default: `"2s"`. A `429` or `503` with `Retry-After` waits the longer of the two; a `Retry-After` over 60 seconds is not retried. |
+| `retry_window` | string | `pre_first_chunk` (default) or `always`. |
+| `budget` | object | Token bucket shared by all in-flight requests on this provider that limits retry attempts: `rate_per_sec` (float, refill rate) and `burst` (int, maximum tokens). Without it, only `max_attempts` limits retries. |
+
+#### http_transport
+
+Per-provider HTTP connection pool. The concurrent-stream ceiling per upstream is `max_conns_per_host` multiplied by the upstream's HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_conns_per_host` | int | Maximum TCP connections to one host (in use and idle). Default: `0` (unlimited). |
+| `max_idle_conns_per_host` | int | Maximum idle keep-alive connections kept per host. Default: `100`. |
+| `idle_conn_timeout` | string | How long an idle connection is kept. Go duration string. Default: `"90s"`. |
+
+#### rate_limit
+
+Throttles the requests this provider sends, streaming and request/response alike. A request waits for capacity on the caller's context.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rps` | int | Sustained requests per second. `0` (the default) disables throttling. |
+| `burst` | int | Requests that may start at once before throttling applies. Default: `rps`. |
 
 ---
 
