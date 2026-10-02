@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "2ef08f78584f7630204ee1c8b34026381f38201a",
+ "commit": "1966bab11ff592bd1e6441ba6adf78c2b8e796bf",
  "claims": [
   {
    "id": 1,
@@ -155,7 +155,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:44",
-    "pkg/config/types.go:319",
+    "pkg/config/types.go:317",
     "runtime/providers/stream_retry.go:44",
     "sdk/runtime_config.go:608"
    ]
@@ -167,7 +167,7 @@
    "evidence": [
     "pkg/config/provider_tuning.go:46",
     "pkg/config/provider_tuning.go:49",
-    "pkg/config/types.go:319",
+    "pkg/config/types.go:317",
     "runtime/providers/base_provider.go:619"
    ]
   },
@@ -176,7 +176,7 @@
    "claim": "stream_retry max_attempts default: 2",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:309",
+    "pkg/config/types.go:307",
     "runtime/providers/stream_retry.go:28",
     "runtime/providers/stream_retry.go:96"
    ]
@@ -186,7 +186,7 @@
    "claim": "stream_retry initial_delay default: `250ms` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:313",
+    "pkg/config/types.go:311",
     "runtime/providers/stream_retry.go:29"
    ]
   },
@@ -196,7 +196,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:42",
-    "pkg/config/types.go:316",
+    "pkg/config/types.go:314",
     "runtime/providers/stream_retry.go:114",
     "runtime/providers/stream_retry.go:30"
    ]
@@ -217,7 +217,7 @@
    "claim": "stream_idle_timeout default: `30s` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:208",
+    "pkg/config/types.go:206",
     "runtime/providers/registry.go:381",
     "runtime/providers/streaming.go:44"
    ]
@@ -227,7 +227,7 @@
    "claim": "stream_max_concurrent default: 0 (unlimited)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:222",
+    "pkg/config/types.go:220",
     "runtime/providers/registry.go:402"
    ]
   },
@@ -236,7 +236,7 @@
    "claim": "http_transport max_conns_per_host default: 100",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:288",
+    "pkg/config/types.go:286",
     "runtime/providers/base_provider.go:104",
     "runtime/providers/base_provider.go:36"
    ]
@@ -246,7 +246,7 @@
    "claim": "http_transport max_idle_conns_per_host default: 100",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:291",
+    "pkg/config/types.go:289",
     "runtime/providers/base_provider.go:108",
     "runtime/providers/base_provider.go:30"
    ]
@@ -256,7 +256,7 @@
    "claim": "http_transport idle_conn_timeout default: `90s` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:296",
+    "pkg/config/types.go:294",
     "runtime/providers/base_provider.go:112",
     "runtime/providers/base_provider.go:37"
    ]
@@ -266,7 +266,7 @@
    "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:386",
+    "pkg/config/types.go:381",
     "sdk/runtime_config.go:465"
    ]
   },
@@ -525,7 +525,7 @@
    "claim": "Example tool mode `live` with HTTP method GET",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:386",
+    "pkg/config/types.go:381",
     "sdk/runtime_config.go:465"
    ]
   },
@@ -624,7 +624,7 @@
    "claim": "request_timeout is a Go duration string (e.g., `60s`, `2m`), does not apply to streaming",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:203",
+    "pkg/config/types.go:201",
     "runtime/providers/registry.go:378"
    ]
   }
