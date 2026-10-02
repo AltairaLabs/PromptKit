@@ -182,6 +182,14 @@ func cloneMediaContent(media *MediaContent) *MediaContent {
 		fps := *media.FPS
 		clone.FPS = &fps
 	}
+	if media.StorageReference != nil {
+		ref := *media.StorageReference
+		clone.StorageReference = &ref
+	}
+	if media.PolicyName != nil {
+		policy := *media.PolicyName
+		clone.PolicyName = &policy
+	}
 
 	return clone
 }

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
@@ -296,6 +297,45 @@ func TestCloneMessage_MediaOptionalFieldsAreDeepCopied(t *testing.T) {
 	*got.URL, *got.SizeKB, *got.FPS = "https://example.com/other.mp4", 1, 60
 	if *media.URL != "https://example.com/clip.mp4" || *media.SizeKB != 512 || *media.FPS != 30 {
 		t.Error("modifying the clone changed the original media")
+	}
+}
+
+// TestCloneMessage_EveryMediaFieldIsCopied populates every MediaContent field
+// by reflection, so a field added to the struct later fails this test until
+// cloneMediaContent copies it.
+func TestCloneMessage_EveryMediaFieldIsCopied(t *testing.T) {
+	media := &MediaContent{}
+	v := reflect.ValueOf(media).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		switch {
+		case f.Kind() == reflect.String:
+			f.SetString("x-" + v.Type().Field(i).Name)
+		case f.Kind() == reflect.Ptr && f.Type().Elem().Kind() == reflect.String:
+			s := "x-" + v.Type().Field(i).Name
+			f.Set(reflect.ValueOf(&s))
+		case f.Kind() == reflect.Ptr && f.Type().Elem().Kind() == reflect.Int:
+			n := i + 1
+			f.Set(reflect.ValueOf(&n))
+		case f.Kind() == reflect.Ptr && f.Type().Elem().Kind() == reflect.Int64:
+			n := int64(i + 1)
+			f.Set(reflect.ValueOf(&n))
+		default:
+			t.Fatalf("MediaContent.%s has kind %s: extend this test to populate it", v.Type().Field(i).Name, f.Type())
+		}
+	}
+	original := Message{Role: "user", Parts: []ContentPart{{Type: ContentTypeImage, Media: media}}}
+
+	got := CloneMessage(original).Parts[0].Media
+
+	if !reflect.DeepEqual(got, media) {
+		t.Fatalf("clone differs from original:\n got  %+v\n want %+v", *got, *media)
+	}
+	gv := reflect.ValueOf(got).Elem()
+	for i := 0; i < gv.NumField(); i++ {
+		if gv.Field(i).Kind() == reflect.Ptr && gv.Field(i).Pointer() == v.Field(i).Pointer() {
+			t.Errorf("MediaContent.%s shares its pointer with the original", gv.Type().Field(i).Name)
+		}
 	}
 }
 

@@ -182,7 +182,7 @@ const MetaToolsOffered = "_tools_offered"
 ```
 
 <a name="CountMediaParts"></a>
-## func [CountMediaParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L248>)
+## func [CountMediaParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L256>)
 
 ```go
 func CountMediaParts(msg Message) int
@@ -191,7 +191,7 @@ func CountMediaParts(msg Message) int
 CountMediaParts returns the number of media parts \(image, audio, video\) in a message
 
 <a name="CountPartsByType"></a>
-## func [CountPartsByType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L263>)
+## func [CountPartsByType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L271>)
 
 ```go
 func CountPartsByType(msg Message, contentType string) int
@@ -200,7 +200,7 @@ func CountPartsByType(msg Message, contentType string) int
 CountPartsByType returns the number of parts of a specific type in a message
 
 <a name="ExtractTextContent"></a>
-## func [ExtractTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L200>)
+## func [ExtractTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L208>)
 
 ```go
 func ExtractTextContent(msg Message) string
@@ -209,7 +209,7 @@ func ExtractTextContent(msg Message) string
 ExtractTextContent extracts all text content from a message, regardless of format. This is useful for backward compatibility when you need only the text.
 
 <a name="HasOnlyTextContent"></a>
-## func [HasOnlyTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L205>)
+## func [HasOnlyTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L213>)
 
 ```go
 func HasOnlyTextContent(msg Message) bool
@@ -552,7 +552,7 @@ func NewVideoPartFromStorageRef(ref, mimeType string) ContentPart
 NewVideoPartFromStorageRef creates a video ContentPart backed by a storage reference.
 
 <a name="SplitMultimodalMessage"></a>
-### func [SplitMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L214>)
+### func [SplitMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L222>)
 
 ```go
 func SplitMultimodalMessage(msg Message) (text string, mediaParts []ContentPart)
@@ -838,7 +838,7 @@ func CloneMessage(msg Message) Message
 CloneMessage creates a deep copy of a message
 
 <a name="CombineTextAndMedia"></a>
-### func [CombineTextAndMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L233>)
+### func [CombineTextAndMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L241>)
 
 ```go
 func CombineTextAndMedia(role, text string, mediaParts []ContentPart) Message
@@ -847,7 +847,7 @@ func CombineTextAndMedia(role, text string, mediaParts []ContentPart) Message
 CombineTextAndMedia creates a multimodal message from separate text and media parts. This is the inverse of SplitMultimodalMessage.
 
 <a name="ConvertTextToMultimodal"></a>
-### func [ConvertTextToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L191>)
+### func [ConvertTextToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L199>)
 
 ```go
 func ConvertTextToMultimodal(role, content string) Message
