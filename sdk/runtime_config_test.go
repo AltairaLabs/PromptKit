@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
@@ -296,6 +297,31 @@ func TestCreateProviderFromConfig_WithPlatform(t *testing.T) {
 	assert.NotNil(t, prov)
 }
 
+// TestCreateProviderFromConfig_AppliesTuning verifies that a provider loaded
+// from a RuntimeConfig gets its tuning fields, which the SDK used to drop.
+func TestCreateProviderFromConfig_AppliesTuning(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	p := &pkgconfig.Provider{
+		ID:                "tuned",
+		Type:              "openai",
+		Model:             "gpt-4o-mini",
+		StreamIdleTimeout: "45s",
+		StreamRetry:       &pkgconfig.StreamRetryConfig{Enabled: true, MaxAttempts: 3},
+	}
+
+	prov, err := createProviderFromConfig(p, nil)
+	require.NoError(t, err)
+
+	tuned, ok := prov.(interface {
+		StreamIdleTimeout() time.Duration
+		StreamRetryPolicy() providers.StreamRetryPolicy
+	})
+	require.True(t, ok, "provider %T does not expose its tuning", prov)
+	assert.Equal(t, 45*time.Second, tuned.StreamIdleTimeout())
+	assert.True(t, tuned.StreamRetryPolicy().Enabled)
+	assert.Equal(t, 3, tuned.StreamRetryPolicy().MaxAttempts)
+}
+
 func TestCreateStateStoreFromConfig_Redis(t *testing.T) {
 	cfg := &pkgconfig.StateStoreConfig{
 		Type: "redis",
@@ -484,6 +510,40 @@ func TestRegisterExecExecutor_WithConfigs(t *testing.T) {
 	require.NotNil(t, td.ExecConfig)
 	assert.Equal(t, "/usr/bin/my-tool", td.ExecConfig.Command)
 	assert.Equal(t, []string{"--flag"}, td.ExecConfig.Args)
+}
+
+// TestRegisterExecExecutor_BindingTimeoutBoundsCalls verifies that an exec
+// binding's timeout_ms cuts off a tool that runs longer, instead of the
+// descriptor's 30s default applying.
+func TestRegisterExecExecutor_BindingTimeoutBoundsCalls(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "slow-tool.sh")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nsleep 5\necho '{\"result\":\"late\"}'\n"), 0o755))
+
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "slow_tool",
+		Description: "Sleeps longer than its binding allows",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "local",
+	}))
+	conv := &Conversation{
+		toolRegistry: registry,
+		config: &config{execToolConfigs: map[string]*tools.ExecConfig{
+			"slow_tool": {Command: script, TimeoutMs: 200},
+		}},
+	}
+
+	conv.registerExecExecutor()
+
+	td := registry.Get("slow_tool")
+	require.NotNil(t, td)
+	assert.Equal(t, 200, td.TimeoutMs)
+
+	start := time.Now()
+	result, err := registry.Execute(context.Background(), "slow_tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Less(t, time.Since(start), 3*time.Second, "the call ran past the binding's timeout")
+	assert.Contains(t, result.Error, "timed out")
 }
 
 func TestRegisterExecExecutor_ServerMode(t *testing.T) {
@@ -1261,4 +1321,23 @@ func TestRerankSelector_ConfigFailsWhenNoRerankProviderConfigured(t *testing.T) 
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no rerank provider configured")
+}
+
+// TestApplyRuntimeConfig_MCPSourceRejected verifies that a source-backed MCP
+// server fails at load with an error naming it, instead of being registered
+// with neither a command nor a URL.
+func TestApplyRuntimeConfig_MCPSourceRejected(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		MCPServers: []pkgconfig.MCPServerConfig{
+			{Name: "sandboxed", Source: "docker", Scope: "session"},
+		},
+	}
+	c := &config{}
+
+	err := applyRuntimeConfig(c, spec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcp server "sandboxed"`)
+	assert.Contains(t, err.Error(), "not supported by the SDK")
+	assert.Empty(t, c.mcpServers)
 }

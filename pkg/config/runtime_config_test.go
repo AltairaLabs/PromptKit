@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -984,5 +985,53 @@ func TestValidateProviders_SameIDDifferentRolesAllowed(t *testing.T) {
 	}}
 	if err := s.Validate(); err != nil {
 		t.Fatalf("same id under different roles should be allowed: %v", err)
+	}
+}
+
+// TestRuntimeConfigSpec_Validate_ServerRuntimeOnlyForTools verifies that a
+// hook or eval binding asking for runtime: server is rejected at load, since
+// only tools have a server-mode executor, while exec and unset still load.
+func TestRuntimeConfigSpec_Validate_ServerRuntimeOnlyForTools(t *testing.T) {
+	tests := []struct {
+		name      string
+		spec      RuntimeConfigSpec
+		wantField string
+	}{
+		{
+			name: "server eval",
+			spec: RuntimeConfigSpec{Evals: map[string]*ExecBinding{
+				"tone": {Command: "./evals/tone", Runtime: "server"},
+			}},
+			wantField: "evals[tone].runtime",
+		},
+		{
+			name: "server hook",
+			spec: RuntimeConfigSpec{Hooks: map[string]*ExecHook{
+				"audit": {ExecBinding: ExecBinding{Command: "./hooks/audit", Runtime: "server"}, Hook: "tool"},
+			}},
+			wantField: "hooks[audit].runtime",
+		},
+		{
+			name: "exec and unset load",
+			spec: RuntimeConfigSpec{
+				Evals: map[string]*ExecBinding{"tone": {Command: "./evals/tone", Runtime: "exec"}},
+				Hooks: map[string]*ExecHook{"audit": {ExecBinding: ExecBinding{Command: "./hooks/audit"}, Hook: "tool"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.spec.Validate()
+			if tt.wantField == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			var vErr *ValidationError
+			if !errors.As(err, &vErr) || vErr.Field != tt.wantField {
+				t.Fatalf("Validate() = %v, want a ValidationError on %s", err, tt.wantField)
+			}
+		})
 	}
 }

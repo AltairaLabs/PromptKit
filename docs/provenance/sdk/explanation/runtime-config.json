@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
- "commit": "a87b70f25076b0e5c6898a4450cdd1dc0793041a",
+ "commit": "aa093b4445895c558869f5372ca5777f036ddebd",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "pkg/config/types.go:373"
+    "pkg/config/types.go:374"
    ]
   },
   {
@@ -75,10 +75,10 @@
     "runtime/evals/registry.go:124",
     "sdk/options.go:2089",
     "sdk/provider_file.go:46",
-    "sdk/runtime_config.go:172",
-    "sdk/runtime_config.go:176",
-    "sdk/runtime_config.go:185",
-    "sdk/runtime_config.go:491"
+    "sdk/runtime_config.go:179",
+    "sdk/runtime_config.go:183",
+    "sdk/runtime_config.go:192",
+    "sdk/runtime_config.go:498"
    ]
   },
   {
@@ -90,7 +90,7 @@
     "pkg/config/runtime_config.go:93",
     "pkg/config/runtime_config.go:97",
     "runtime/tools/exec_executor.go:57",
-    "sdk/runtime_config.go:190"
+    "sdk/runtime_config.go:197"
    ]
   },
   {
@@ -98,8 +98,8 @@
    "claim": "One-shot (exec) mode spawns a new process for each invocation",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/exec_executor.go:97",
-    "sdk/exec_tools.go:52"
+    "runtime/tools/exec_executor.go:100",
+    "sdk/exec_tools.go:28"
    ]
   },
   {
@@ -113,12 +113,14 @@
   },
   {
    "id": 12,
-   "claim": "Server mode maintains a long-running process that communicates over JSON-RPC",
+   "claim": "Server mode keeps a long-running process, talks JSON-RPC 2.0 one object per line with method `execute`, matches replies to calls by id, drops a canceled call's late reply, and starts a new process if it exited",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/server_executor.go:137",
-    "runtime/tools/server_executor.go:191",
-    "sdk/exec_tools.go:19"
+    "runtime/tools/server_executor.go:131",
+    "runtime/tools/server_executor.go:167",
+    "runtime/tools/server_executor.go:216",
+    "runtime/tools/server_executor.go:307",
+    "sdk/exec_tools.go:31"
    ]
   },
   {
@@ -126,19 +128,19 @@
    "claim": "Server mode amortizes startup cost and allows subprocess to maintain state between invocations",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/server_executor.go:100",
-    "runtime/tools/server_executor.go:36"
+    "runtime/tools/server_executor.go:125",
+    "runtime/tools/server_executor.go:40"
    ]
   },
   {
    "id": 14,
-   "claim": "Tool bindings (command, arguments, working directory, environment variables) are configured entirely in RuntimeConfig",
-   "verdict": "false",
+   "claim": "Tool exec bindings (command, runtime, args, env) are configured entirely in RuntimeConfig; command is passed to the OS unchanged, not resolved against the config file",
+   "verdict": "true",
    "evidence": [
-    "runtime/hooks/execconfig/execconfig.go:37",
-    "runtime/tools/exec_executor.go:97",
-    "runtime/tools/types.go:265",
-    "sdk/runtime_config.go:466"
+    "runtime/hooks/execconfig/execconfig.go:41",
+    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/server_executor.go:167",
+    "sdk/runtime_config.go:474"
    ]
   },
   {
@@ -156,33 +158,31 @@
    "claim": "`env` field in RuntimeConfig passes variable names, not values; actual values come from process environment at runtime",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/execconfig/execconfig.go:45",
+    "runtime/hooks/execconfig/execconfig.go:47",
     "runtime/tools/exec_executor.go:115",
-    "runtime/tools/server_executor.go:155"
+    "runtime/tools/server_executor.go:190"
    ]
   },
   {
    "id": 17,
-   "claim": "Every exec binding can specify a timeout",
-   "verdict": "dead",
+   "claim": "An exec tool binding's timeout_ms, when set, overrides the tool descriptor's timeout, which the registry defaults to 30 seconds",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/exec_handler.go:156",
-    "runtime/hooks/exec_hooks.go:91",
+    "runtime/tools/registry.go:431",
     "runtime/tools/registry.go:785",
-    "sdk/exec_tools.go:52",
-    "sdk/runtime_config.go:471"
+    "sdk/exec_tools.go:56",
+    "sdk/runtime_config.go:478"
    ]
   },
   {
    "id": 18,
-   "claim": "Runtime kills processes that exceed their timeout and returns an error to the LLM",
-   "verdict": "false",
+   "claim": "Registry wraps each call in a deadline, kills a one-shot process past it, returns a 'tool execution timed out' error to the LLM; in server mode the deadline abandons the call and the process keeps running",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/exec_hook.go:97",
-    "runtime/hooks/exec_hooks.go:91",
-    "runtime/tools/exec_executor.go:97",
-    "runtime/tools/registry.go:428",
-    "runtime/tools/registry.go:504",
+    "runtime/tools/errors.go:38",
+    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/registry.go:483",
+    "runtime/tools/registry.go:507",
     "runtime/tools/server_executor.go:216"
    ]
   },

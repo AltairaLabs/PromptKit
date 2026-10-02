@@ -50,5 +50,10 @@ func (c *Conversation) registerExecExecutor() {
 			td.Mode = "exec"
 		}
 		td.ExecConfig = execCfg
+		// The binding's timeout overrides the descriptor's: the registry
+		// derives each call's deadline from the descriptor.
+		if execCfg.TimeoutMs > 0 {
+			td.TimeoutMs = execCfg.TimeoutMs
+		}
 	}
 }

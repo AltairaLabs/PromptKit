@@ -4,9 +4,10 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  commit: 1966bab11ff592bd1e6441ba6adf78c2b8e796bf
   sources:
     - pkg/config/logging.go
+    - pkg/config/provider_tuning.go
     - pkg/config/role.go
     - pkg/config/runtime_config.go
     - pkg/config/types.go
@@ -175,6 +176,13 @@ the same ID in both spellings is rejected.
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. |
+| `request_timeout` | string | no | Wall-clock timeout for request/response calls (Predict, embeddings). Go duration string, e.g. `"2m"`. Does not apply to streaming. Default: `"60s"`. |
+| `stream_idle_timeout` | string | no | Longest silence allowed on a streaming body before the stream is aborted. The timer resets on every byte. Default: `"30s"`. |
+| `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
+| `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
+| `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
+
+The tuning fields (`request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport` and `defaults.prompt_caching`) take effect for every provider entry loaded through `WithRuntimeConfig`. A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
 
 #### provider types
 
@@ -231,6 +239,7 @@ Default generation parameters applied to every request unless overridden per-cal
 | `temperature` | float | Sampling temperature (e.g., `0.7`). |
 | `top_p` | float | Top-p (nucleus) sampling parameter. |
 | `max_tokens` | int | Maximum number of output tokens. |
+| `prompt_caching` | bool | Anthropic prompt caching on Claude providers. Default: `true`; `false` disables it. |
 
 #### pricing
 
@@ -253,6 +262,29 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 | `endpoint` | string | Custom endpoint URL override. |
 | `additional_config` | map[string]any | Platform-specific settings. |
 
+#### stream_retry
+
+Retries a streaming request that fails before any content reaches the caller (the default `pre_first_chunk` window). With `retry_window: always`, a failure after content was forwarded emits a `Reset` signal so consumers discard what they received, then retries the whole request; the retry is billed as a new response.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Turns retry on. Default: `false`. |
+| `max_attempts` | int | Total attempts including the first. `2` means one retry. Default: `2`. |
+| `initial_delay` | string | Base backoff before the first retry. Go duration string. Default: `"250ms"`. |
+| `max_delay` | string | Maximum backoff per attempt. Go duration string. Default: `"2s"`. A `429` or `503` with `Retry-After` waits the longer of the two; a `Retry-After` over 60 seconds is not retried. |
+| `retry_window` | string | `pre_first_chunk` (default) or `always`. |
+| `budget` | object | Token bucket shared by all in-flight requests on this provider that limits retry attempts: `rate_per_sec` (float, refill rate) and `burst` (int, maximum tokens). Without it, only `max_attempts` limits retries. |
+
+#### http_transport
+
+Per-provider HTTP connection pool. The concurrent-stream ceiling per upstream is `max_conns_per_host` multiplied by the upstream's HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_conns_per_host` | int | Maximum TCP connections to one host (in use and idle). Default: `0` (unlimited). |
+| `max_idle_conns_per_host` | int | Maximum idle keep-alive connections kept per host. Default: `100`. |
+| `idle_conn_timeout` | string | How long an idle connection is kept. Go duration string. Default: `"90s"`. |
+
 ---
 
 ### spec.tools
@@ -273,12 +305,13 @@ Subprocess binding for tools. A relative `command` is resolved against the proce
 | `args` | string[] | Additional command arguments. |
 | `runtime` | string | Execution mode: `exec` (one-shot, default) or `server` (long-running JSON-RPC). |
 | `env` | string[] | Environment variable names to pass through from the host. |
+| `timeout_ms` | int | Timeout for each call in milliseconds. Overrides the tool descriptor's timeout (30 seconds when the pack sets none). |
 
 ---
 
 ### spec.evals
 
-Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation.
+Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation; `runtime: server` on an eval binding fails validation.
 
 Each value is an `ExecBinding`:
 
@@ -293,7 +326,7 @@ Each value is an `ExecBinding`:
 
 ### spec.hooks
 
-Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation.
+Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation; `runtime: server` on a hook fails validation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -362,7 +395,7 @@ Name of a selector under [`spec.selectors`](#specselectors). Each turn, the sele
 
 Array of MCP (Model Context Protocol) server configurations. Each entry configures one MCP server, reached over stdio, `sse` or `streamable_http`.
 
-Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP).
+Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP). An entry with `source` (a PromptArena MCPSource) fails to load in the SDK.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -469,6 +502,7 @@ spec:
         args: ["--format", "json"]
         runtime: server
         env: [DATABASE_URL]
+        timeout_ms: 10000
 
   evals:
     custom_accuracy:

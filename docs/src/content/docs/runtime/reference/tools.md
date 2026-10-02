@@ -1624,11 +1624,11 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 ValidateResult validates tool result against the output schema
 
 <a name="ServerExecutor"></a>
-## type [ServerExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L44-L47>)
+## type [ServerExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L48-L51>)
 
 ServerExecutor runs tool invocations against a long\-running subprocess. The subprocess stays alive across multiple calls and communicates via JSON\-RPC 2.0 over stdin/stdout \(one JSON object per line\).
 
-Each tool gets its own subprocess, started lazily on first invocation. Requests are serialized per\-process to maintain request\-response ordering.
+Each tool gets its own subprocess, started lazily on first invocation and restarted if it has exited. Requests to one process may be in flight concurrently; responses are matched to requests by JSON\-RPC id.
 
 ### Security: Trust Boundary
 
@@ -1643,7 +1643,7 @@ type ServerExecutor struct {
 ```
 
 <a name="ServerExecutor.Close"></a>
-### func \(\*ServerExecutor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L122>)
+### func \(\*ServerExecutor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L151>)
 
 ```go
 func (e *ServerExecutor) Close() error
@@ -1652,7 +1652,7 @@ func (e *ServerExecutor) Close() error
 Close terminates all managed server processes.
 
 <a name="ServerExecutor.Execute"></a>
-### func \(\*ServerExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L84-L86>)
+### func \(\*ServerExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L109-L111>)
 
 ```go
 func (e *ServerExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -1661,7 +1661,7 @@ func (e *ServerExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor
 Execute sends a JSON\-RPC request to the tool's server process and returns the result.
 
 <a name="ServerExecutor.Name"></a>
-### func \(\*ServerExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L50>)
+### func \(\*ServerExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L54>)
 
 ```go
 func (e *ServerExecutor) Name() string
