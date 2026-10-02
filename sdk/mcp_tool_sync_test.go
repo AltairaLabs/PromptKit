@@ -2,9 +2,11 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,4 +91,93 @@ func TestConversation_MCPToolListChangeReachesTheToolRegistry(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return assert.ObjectsAreEqual([]string{"mcp__s__second"}, mcpNames(conv.toolRegistry))
 	}, 5*time.Second, 10*time.Millisecond, "a removed tool is unregistered")
+}
+
+func TestConversation_MCPServerThatFailsToListIsRetried(t *testing.T) {
+	// Two servers: "up" lists its tools at once; "late" connects but fails
+	// tools/list until the test lets it through. The conversation opens with
+	// up's tools, names late in its warning, and registers late's tools once
+	// a background retry reaches it. Had the failed listing been degraded to
+	// an empty list, late would count as listed and never be retried.
+	buf := captureWarnLogs(t)
+	noop := func(context.Context, *gosdk.CallToolRequest, struct{}) (*gosdk.CallToolResult, any, error) {
+		return &gosdk.CallToolResult{}, nil, nil
+	}
+	var ready atomic.Bool
+	newServer := func(tool string, gated bool) *httptest.Server {
+		s := gosdk.NewServer(&gosdk.Implementation{Name: tool, Version: "1"}, nil)
+		gosdk.AddTool(s, &gosdk.Tool{Name: tool}, noop)
+		if gated {
+			s.AddReceivingMiddleware(func(next gosdk.MethodHandler) gosdk.MethodHandler {
+				return func(ctx context.Context, method string, req gosdk.Request) (gosdk.Result, error) {
+					if method == "tools/list" && !ready.Load() {
+						return nil, errors.New("tools not loaded yet")
+					}
+					return next(ctx, method, req)
+				}
+			})
+		}
+		return httptest.NewServer(gosdk.NewStreamableHTTPHandler(func(*http.Request) *gosdk.Server { return s }, nil))
+	}
+	up := newServer("a", false)
+	defer up.Close()
+	late := newServer("b", true)
+	defer late.Close()
+
+	conv := newTestConversation()
+	cfg := &config{mcpServers: []mcp.ServerConfig{
+		{Name: "up", URL: up.URL, TransportName: mcp.TransportStreamableHTTP},
+		{Name: "late", URL: late.URL, TransportName: mcp.TransportStreamableHTTP},
+	}}
+	require.NoError(t, initMCPRegistry(conv, cfg))
+	conv.mcpTools.retryBase = 10 * time.Millisecond
+	conv.mcpTools.retryMax = 50 * time.Millisecond
+	defer func() { _ = conv.Close() }()
+
+	conv.registerMCPExecutors()
+	assert.Equal(t, []string{"mcp__up__a"}, mcpNames(conv.toolRegistry))
+	assert.Contains(t, buf.String(), `"servers":["late"]`, "the warning names the server whose tools are missing")
+
+	ready.Store(true)
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{"mcp__late__b", "mcp__up__a"}, mcpNames(conv.toolRegistry))
+	}, 10*time.Second, 20*time.Millisecond, "the late server's tools are registered once it answers")
+	_, err := conv.mcpRegistry.GetClientForTool(context.Background(), "b")
+	assert.NoError(t, err, "and routed to it")
+}
+
+// unreachableMCPRegistry is a registry whose servers can never be reached.
+type unreachableMCPRegistry struct {
+	*mockMCPRegistry
+	attempts atomic.Int32
+}
+
+func (r *unreachableMCPRegistry) GetClient(context.Context, string) (mcp.Client, error) {
+	r.attempts.Add(1)
+	return nil, errors.New("connection refused")
+}
+
+func TestMCPToolSync_CloseStopsRetries(t *testing.T) {
+	servers := &unreachableMCPRegistry{mockMCPRegistry: newMockMCPRegistry()}
+	sync := newMCPToolSync(servers)
+	sync.retryBase, sync.retryMax = time.Millisecond, 5*time.Millisecond
+
+	sync.retry("down")
+	sync.retry("down")
+	require.Eventually(t, func() bool { return servers.attempts.Load() >= 3 }, 5*time.Second, time.Millisecond,
+		"an unreachable server keeps being retried")
+	sync.mu.Lock()
+	assert.Len(t, sync.retrying, 1, "a server is retried by one loop, however often it is asked")
+	sync.mu.Unlock()
+
+	sync.close()
+	require.Eventually(t, func() bool {
+		sync.mu.Lock()
+		defer sync.mu.Unlock()
+		return len(sync.retrying) == 0
+	}, 5*time.Second, time.Millisecond, "closing stops the retry loop")
+	sync.retry("down")
+	sync.mu.Lock()
+	assert.Empty(t, sync.retrying, "no retry starts after close")
+	sync.mu.Unlock()
 }

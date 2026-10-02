@@ -1,27 +1,115 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
+// Retry schedule for a server whose tools could not be listed: the delay
+// starts at mcpRetryBase and grows by mcpRetryBackoff up to mcpRetryMax.
+// Each attempt is bounded by mcpRetryAttemptTimeout.
+const (
+	mcpRetryBase           = time.Second
+	mcpRetryBackoff        = 2
+	mcpRetryMax            = time.Minute
+	mcpRetryAttemptTimeout = 30 * time.Second
+)
+
 // mcpToolSync keeps the mcp__ tool descriptors in step with the servers'
-// tool lists when a server reports a change. A conversation and its forks
-// share one MCP registry but each has its own tool registry, so every one
-// that has registered MCP tools is updated.
+// tool lists: when a server reports a change, and when a server whose tools
+// could not be listed answers a retry. A conversation and its forks share
+// one MCP registry but each has its own tool registry, so every one that
+// has registered MCP tools is updated.
 type mcpToolSync struct {
-	servers mcp.Registry
+	servers   mcp.Registry
+	retryBase time.Duration
+	retryMax  time.Duration
 
 	mu         sync.Mutex
 	registries map[*tools.Registry]struct{}
+	retrying   map[string]bool
+	stop       chan struct{}
+	stopped    bool
 }
 
 func newMCPToolSync(servers mcp.Registry) *mcpToolSync {
-	return &mcpToolSync{servers: servers, registries: make(map[*tools.Registry]struct{})}
+	return &mcpToolSync{
+		servers:    servers,
+		retryBase:  mcpRetryBase,
+		retryMax:   mcpRetryMax,
+		registries: make(map[*tools.Registry]struct{}),
+		retrying:   make(map[string]bool),
+		stop:       make(chan struct{}),
+	}
+}
+
+// retry lists serverName's tools again in the background until the server
+// answers, then registers them in every tracked registry. The pipeline is
+// built once, so without this a server that could not be listed when the
+// conversation opened would have no tools for the conversation's life.
+func (s *mcpToolSync) retry(serverName string) {
+	s.mu.Lock()
+	if s.stopped || s.retrying[serverName] {
+		s.mu.Unlock()
+		return
+	}
+	s.retrying[serverName] = true
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.retrying, serverName)
+			s.mu.Unlock()
+		}()
+		delay := s.retryBase
+		for attempt := 1; ; attempt++ {
+			timer := time.NewTimer(delay)
+			select {
+			case <-s.stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			serverTools, err := s.list(serverName)
+			if err == nil {
+				logger.Info("mcp tools registered after an earlier failure to list them",
+					"server", serverName, "attempt", attempt, "tools", len(serverTools))
+				s.toolsChanged(serverName, serverTools)
+				return
+			}
+			logger.Debug("mcp tools still cannot be listed; retrying", "server", serverName, "attempt", attempt, "error", err)
+			delay = min(delay*mcpRetryBackoff, s.retryMax)
+		}
+	}()
+}
+
+// list asks one server for its tools.
+func (s *mcpToolSync) list(serverName string) ([]mcp.Tool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), mcpRetryAttemptTimeout)
+	defer cancel()
+	client, err := s.servers.GetClient(ctx, serverName)
+	if err != nil {
+		return nil, err
+	}
+	return client.ListTools(ctx)
+}
+
+// close stops retries, when the MCP registry is closed.
+func (s *mcpToolSync) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.stopped {
+		s.stopped = true
+		close(s.stop)
+	}
 }
 
 // track adds a tool registry whose MCP tools have been registered.

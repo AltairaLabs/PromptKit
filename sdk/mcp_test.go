@@ -286,7 +286,14 @@ func (stubMCPAuthorizer) Authorize(context.Context, *http.Request) error      { 
 func (stubMCPAuthorizer) Challenge(context.Context, *mcp.AuthChallenge) error { return nil }
 
 func TestMCPClientConfigurer(t *testing.T) {
-	assert.Nil(t, mcpClientConfigurer(&config{}), "nothing to configure without an authorizer or elicitation handler")
+	plain := mcpClientConfigurer(&config{})
+	require.NotNil(t, plain)
+	opts := mcp.DefaultClientOptions()
+	plain(mcp.ServerConfig{Name: "s"}, &opts)
+	assert.False(t, opts.EnableGracefulDegradation,
+		"a failed tools/list must reach the conversation as a failure, not as a server with no tools")
+	assert.Nil(t, opts.Authorizer)
+	assert.Nil(t, opts.ElicitationHandler)
 
 	handler := func(context.Context, string, mcp.ElicitRequest) (mcp.ElicitResult, error) {
 		return mcp.ElicitResult{Action: mcp.ElicitActionDecline}, nil

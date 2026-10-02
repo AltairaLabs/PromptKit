@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -480,30 +482,55 @@ func (c *Conversation) registerMCPExecutors() {
 		return
 	}
 
-	ctx := context.Background()
-	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
-	if err != nil {
-		// Every mcp__ tool is absent from here on. Say so: the symptom
-		// otherwise surfaces layers away as "tool not registered", with
-		// nothing connecting it to the server that could not be reached.
-		logger.Warn("mcp tools not registered: listing tools failed",
-			"servers", c.mcpRegistry.ListServers(),
-			"error", err)
-		return
-	}
-	c.mcpExecutorsRegistered = true
-
 	// Register a single runtime MCP executor that dispatches every
 	// Mode="mcp" tool to the underlying MCP client. This is the canonical
 	// wiring used by PromptArena's engine —
 	// the runtime's tools.Registry.getExecutorForTool resolves Mode="mcp"
 	// to executor name "mcp", which only the runtime executor satisfies.
+	// It and the tracking come before the listing: tools that a retry
+	// lists later land in this registry and need the executor behind them.
 	c.toolRegistry.RegisterExecutor(tools.NewMCPExecutor(c.mcpRegistry))
+	if c.mcpTools != nil {
+		c.mcpTools.track(c.toolRegistry)
+	}
+
+	ctx := context.Background()
+	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)
+	if err != nil {
+		// Every mcp__ tool is absent until a retry lists it. Say so: the
+		// symptom otherwise surfaces layers away as "tool not registered",
+		// with nothing connecting it to the server that could not be reached.
+		logger.Warn("mcp tools not registered: listing tools failed; retrying in the background",
+			"servers", c.mcpRegistry.ListServers(),
+			"error", err)
+		c.retryUnlistedMCPServers(nil)
+		return
+	}
+	c.mcpExecutorsRegistered = true
 
 	for serverName, serverTools := range mcpTools {
 		registerMCPServerTools(c.toolRegistry, c.mcpRegistry, serverName, serverTools)
 	}
-	if c.mcpTools != nil {
-		c.mcpTools.track(c.toolRegistry)
+	if unlisted := c.retryUnlistedMCPServers(mcpTools); len(unlisted) > 0 {
+		logger.Warn("mcp tools not registered for some servers: listing their tools failed; retrying in the background",
+			"servers", unlisted)
 	}
+}
+
+// retryUnlistedMCPServers has every server missing from listed retried in
+// the background, and returns their names.
+func (c *Conversation) retryUnlistedMCPServers(listed map[string][]mcp.Tool) []string {
+	var unlisted []string
+	for _, name := range c.mcpRegistry.ListServers() {
+		if _, ok := listed[name]; !ok {
+			unlisted = append(unlisted, name)
+		}
+	}
+	sort.Strings(unlisted)
+	if c.mcpTools != nil {
+		for _, name := range unlisted {
+			c.mcpTools.retry(name)
+		}
+	}
+	return unlisted
 }

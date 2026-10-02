@@ -1043,12 +1043,12 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 }
 
 // mcpClientConfigurer applies the host's MCP authorizer and elicitation
-// handler to each server's client, or returns nil when neither is set.
+// handler to each server's client. It also turns off graceful degradation:
+// a failed tools/list must reach the conversation as a failure, which it
+// retries, not as a server with no tools.
 func mcpClientConfigurer(cfg *config) func(mcp.ServerConfig, *mcp.ClientOptions) {
-	if cfg.mcpAuthorizer == nil && cfg.mcpElicitation == nil {
-		return nil
-	}
 	return func(server mcp.ServerConfig, opts *mcp.ClientOptions) {
+		opts.EnableGracefulDegradation = false
 		if cfg.mcpAuthorizer != nil {
 			opts.Authorizer = cfg.mcpAuthorizer(server.Name)
 		}

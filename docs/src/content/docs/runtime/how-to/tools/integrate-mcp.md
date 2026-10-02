@@ -422,6 +422,19 @@ The SDK sets it for you: from the next turn, a conversation and its forks stop
 offering removed tools and offer new ones that the prompt allows, for example
 through an `mcp__<server>__*` entry in its tools.
 
+### Servers Whose Tools Cannot Be Listed
+
+By default (`ClientOptions.EnableGracefulDegradation`), a failed `tools/list`
+returns no tools rather than an error, and `ListAllTools` leaves out a server it
+could not list while still returning the others. Each such failure is logged as
+a warning.
+
+The SDK turns degradation off for its clients, so a failure counts as one. A
+server whose tools cannot be listed when the conversation opens is named in a
+warning and retried in the background, from one second apart up to one minute
+apart, until it answers or the conversation closes. Its tools then reach the
+conversation and its forks the same way as a tool list change.
+
 ### Get Tool Schema
 
 ```go
