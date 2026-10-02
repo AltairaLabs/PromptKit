@@ -704,8 +704,26 @@ func (s *RuntimeConfigSpec) validateEvals() error {
 				Message: "eval command is required",
 			}
 		}
+		if err := validateOneShotRuntime(fmt.Sprintf("evals[%s].runtime", name), b.Runtime); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validateOneShotRuntime rejects a runtime other than one-shot "exec" on a
+// binding kind that has no server-mode implementation (hooks and evals), so
+// a config asking for a long-running process fails at load instead of
+// silently starting a new process per call.
+func validateOneShotRuntime(field, runtime string) error {
+	if runtime == "" || runtime == "exec" {
+		return nil
+	}
+	return &ValidationError{
+		Field:   field,
+		Message: "hook and eval bindings run one-shot; runtime \"server\" is supported only for tool bindings",
+		Value:   runtime,
+	}
 }
 
 var validHookTypes = map[string]bool{"provider": true, "tool": true, "session": true, "eval": true}
@@ -811,6 +829,9 @@ func (s *RuntimeConfigSpec) validateHooks() error {
 				Message: "must be one of: provider, tool, session, eval",
 				Value:   h.Hook,
 			}
+		}
+		if err := validateOneShotRuntime(fmt.Sprintf("hooks[%s].runtime", name), h.Runtime); err != nil {
+			return err
 		}
 		if h.Sandbox != "" {
 			if _, ok := s.Sandboxes[h.Sandbox]; !ok {

@@ -318,7 +318,7 @@ Subprocess binding for tools. A relative `command` is resolved against the proce
 
 ### spec.evals
 
-Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation.
+Map of external eval process bindings. Keys are eval type names matching those used in the pack. Eval types not bound here resolve to built-in Go handlers. Eval bindings run one-shot, once per invocation; `runtime: server` on an eval binding fails validation.
 
 Each value is an `ExecBinding`:
 
@@ -333,7 +333,7 @@ Each value is an `ExecBinding`:
 
 ### spec.hooks
 
-Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation.
+Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each hook binds an external process to pipeline lifecycle events. Hook processes run one-shot, once per invocation; `runtime: server` on a hook fails validation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
