@@ -4,7 +4,7 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: 1966bab11ff592bd1e6441ba6adf78c2b8e796bf
+  commit: fd966db8c393d5338bb3556904f0d2e806f0d43a
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
@@ -24,6 +24,7 @@ verified:
     - runtime/logger/config.go
     - runtime/mcp/types.go
     - runtime/providers/all/all.go
+    - runtime/providers/base/http_tuning.go
     - runtime/providers/base_provider.go
     - runtime/providers/bedrock/embedding_register.go
     - runtime/providers/claude/claude_multimodal.go
@@ -38,6 +39,7 @@ verified:
     - runtime/providers/openai/embedding_register.go
     - runtime/providers/registry.go
     - runtime/providers/replay/factory.go
+    - runtime/providers/rerank_factory.go
     - runtime/providers/rerank_mock.go
     - runtime/providers/stream_retry.go
     - runtime/providers/stream_retry_driver.go

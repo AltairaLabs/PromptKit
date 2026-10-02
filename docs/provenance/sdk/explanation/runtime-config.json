@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
- "commit": "aa093b4445895c558869f5372ca5777f036ddebd",
+ "commit": "fd966db8c393d5338bb3556904f0d2e806f0d43a",
  "claims": [
   {
    "id": 1,
@@ -53,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:18",
-    "sdk/runtime_config.go:96"
+    "sdk/runtime_config.go:97"
    ]
   },
   {
@@ -61,8 +61,8 @@
    "claim": "Options applied after WithRuntimeConfig() take precedence over YAML-declared settings",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:901",
-    "sdk/runtime_config.go:83",
+    "sdk/options.go:904",
+    "sdk/runtime_config.go:84",
     "sdk/sdk.go:356",
     "sdk/sdk.go:506"
    ]
@@ -73,12 +73,12 @@
    "verdict": "false",
    "evidence": [
     "runtime/evals/registry.go:124",
-    "sdk/options.go:2089",
-    "sdk/provider_file.go:46",
-    "sdk/runtime_config.go:179",
-    "sdk/runtime_config.go:183",
-    "sdk/runtime_config.go:192",
-    "sdk/runtime_config.go:498"
+    "sdk/options.go:2092",
+    "sdk/provider_file.go:55",
+    "sdk/runtime_config.go:180",
+    "sdk/runtime_config.go:184",
+    "sdk/runtime_config.go:193",
+    "sdk/runtime_config.go:500"
    ]
   },
   {
@@ -90,7 +90,7 @@
     "pkg/config/runtime_config.go:93",
     "pkg/config/runtime_config.go:97",
     "runtime/tools/exec_executor.go:57",
-    "sdk/runtime_config.go:197"
+    "sdk/runtime_config.go:198"
    ]
   },
   {
@@ -140,7 +140,7 @@
     "runtime/hooks/execconfig/execconfig.go:41",
     "runtime/tools/exec_executor.go:100",
     "runtime/tools/server_executor.go:167",
-    "sdk/runtime_config.go:474"
+    "sdk/runtime_config.go:476"
    ]
   },
   {
@@ -171,7 +171,7 @@
     "runtime/tools/registry.go:431",
     "runtime/tools/registry.go:785",
     "sdk/exec_tools.go:56",
-    "sdk/runtime_config.go:478"
+    "sdk/runtime_config.go:480"
    ]
   },
   {
