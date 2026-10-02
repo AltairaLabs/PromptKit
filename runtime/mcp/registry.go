@@ -442,9 +442,12 @@ func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, err
 	wg.Wait()
 	close(errChan)
 
-	// Collect first error if any
+	// Collect first error if any. Each is logged: when other servers
+	// answered, the error is not returned, and the failed server's tools are
+	// simply missing from the result.
 	var firstErr error
 	for err := range errChan {
+		logger.Warn("MCP server's tools could not be listed", "error", err)
 		if firstErr == nil {
 			firstErr = err
 		}

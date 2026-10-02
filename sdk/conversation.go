@@ -1486,6 +1486,7 @@ func (c *Conversation) Close() error {
 
 	if c.mcpTools != nil {
 		c.mcpTools.untrack(c.toolRegistry)
+		c.mcpTools.close()
 	}
 
 	// Close MCP registry if present

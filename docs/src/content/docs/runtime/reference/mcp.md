@@ -696,7 +696,7 @@ func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl
 NewRegistryWithOptions creates a new MCP server registry with custom options.
 
 <a name="NewRegistryWithServers"></a>
-### func [NewRegistryWithServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L625>)
+### func [NewRegistryWithServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L628>)
 
 ```go
 func NewRegistryWithServers(serverConfigs []ServerConfigData) (*RegistryImpl, error)
@@ -714,7 +714,7 @@ func (r *RegistryImpl) ActiveProcessCount() int
 ActiveProcessCount returns the number of active MCP processes. Returns \-1 if no process limit is configured.
 
 <a name="RegistryImpl.Close"></a>
-### func \(\*RegistryImpl\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L510>)
+### func \(\*RegistryImpl\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L513>)
 
 ```go
 func (r *RegistryImpl) Close() error
@@ -763,7 +763,7 @@ func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool)
 GetServerConfig returns the configuration for a registered server. Child registries fall through to the parent when the name is not registered locally.
 
 <a name="RegistryImpl.GetToolSchema"></a>
-### func \(\*RegistryImpl\) [GetToolSchema](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L586>)
+### func \(\*RegistryImpl\) [GetToolSchema](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L589>)
 
 ```go
 func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Tool, error)
@@ -958,7 +958,7 @@ func (c *ServerConfig) Transport() Transport
 Transport returns the resolved transport. An explicit TransportName field wins; otherwise URL → TransportStreamableHTTP, Command → TransportStdio. For a URL with no TransportName the registry also falls back to HTTP\+SSE when the server does not host a Streamable HTTP endpoint. Pointer receiver to avoid copying the \(\~120\-byte\) struct.
 
 <a name="ServerConfigData"></a>
-## type [ServerConfigData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L610-L621>)
+## type [ServerConfigData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L613-L624>)
 
 ServerConfigData holds MCP server configuration matching config.MCPServerConfig. Kept in field\-for\-field sync with ServerConfig; adding a field here that isn't on ServerConfig \(or vice versa\) breaks the direct conversion used in NewRegistryWithServers.
 
