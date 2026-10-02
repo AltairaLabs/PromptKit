@@ -9,7 +9,9 @@ import (
 type ClientOptions struct {
 	// RequestTimeout bounds each request (tools/list, tools/call). It does
 	// not run out while the client is answering the server's own request
-	// for user input: that time is the user's, not the server's.
+	// for user input: that time is the user's, not the server's. A
+	// tools/call's timeout restarts each time the server reports progress on
+	// it; the caller's context still bounds the call.
 	RequestTimeout time.Duration
 	// InitTimeout bounds connecting: starting a stdio server or reaching an
 	// HTTP one, and agreeing the protocol.

@@ -61,7 +61,7 @@ Spec fields PromptKit does not carry:
 | ClientCapabilities sampling | `context` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ClientCapabilities sampling | `tools` | sampling is not implemented or advertised (deprecated in 2026-07-28) |
 | ListToolsRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
-| CallToolRequest params | `_meta` | set by the session, not the caller: a 2026-07-28 request carries the protocol metadata (version, client info, capabilities); a handshake-era request carries none |
+| CallToolRequest params | `_meta` | set by the client, not the caller: every call carries a progress token, and a 2026-07-28 call also the protocol metadata (version, client info, capabilities) |
 | CallToolRequest params | `task` (2025-11-25 only) | tasks are experimental in this revision; the client does not implement or advertise them |
 | InputRequest | `id` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
 | InputRequest | `jsonrpc` (2025-11-25 only) | in 2025-11-25 these are standalone JSON-RPC requests from the server, answered by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope |
@@ -286,6 +286,11 @@ A request that outlives `RequestTimeout` is canceled and fails with
 the server's own request for user input (see Elicitation): that time is the
 user's, not the server's.
 
+Every `tools/call` asks the server for progress notifications, and each one
+restarts that call's timeout, so a long tool that reports progress is not cut
+off. The context passed to `CallTool` still bounds the call, however much
+progress the server reports.
+
 Retries apply only to connecting, and only to failures that are not the server's
 answer: an error response, or an authorization the host's `Authorizer` refused,
 is returned at once. `tools/call` is never retried: a tool may have side effects,
@@ -395,6 +400,27 @@ for serverName, tools := range serverTools {
     }
 }
 ```
+
+### Tool List Changes
+
+A server can change its tools while connected and send
+`notifications/tools/list_changed`. The registry then lists the server's tools
+again and updates which server owns each tool name. To update your own tool
+registry as well, set `RegistryOptions.OnToolsChanged`:
+
+```go
+registry := mcp.NewRegistryWithOptions(mcp.RegistryOptions{
+    OnToolsChanged: func(server string, tools []mcp.Tool) {
+        // Replace this server's descriptors in your tools.Registry.
+    },
+})
+```
+
+It runs on its own goroutine with the server's complete new list. If the list
+cannot be read, the registry keeps the previous tools and does not call it.
+The SDK sets it for you: from the next turn, a conversation and its forks stop
+offering removed tools and offer new ones that the prompt allows, for example
+through an `mcp__<server>__*` entry in its tools.
 
 ### Get Tool Schema
 

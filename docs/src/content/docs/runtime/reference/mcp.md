@@ -317,7 +317,7 @@ type ClientCapabilities struct {
 ```
 
 <a name="ClientOptions"></a>
-## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/options.go#L9-L49>)
+## type [ClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/options.go#L9-L51>)
 
 ClientOptions configures MCP client behavior.
 
@@ -325,7 +325,9 @@ ClientOptions configures MCP client behavior.
 type ClientOptions struct {
     // RequestTimeout bounds each request (tools/list, tools/call). It does
     // not run out while the client is answering the server's own request
-    // for user input: that time is the user's, not the server's.
+    // for user input: that time is the user's, not the server's. A
+    // tools/call's timeout restarts each time the server reports progress on
+    // it; the caller's context still bounds the call.
     RequestTimeout time.Duration
     // InitTimeout bounds connecting: starting a stdio server or reaching an
     // HTTP one, and agreeing the protocol.
@@ -366,7 +368,7 @@ type ClientOptions struct {
 ```
 
 <a name="DefaultClientOptions"></a>
-### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/options.go#L52>)
+### func [DefaultClientOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/options.go#L54>)
 
 ```go
 func DefaultClientOptions() ClientOptions
@@ -665,7 +667,7 @@ type Registry interface {
 ```
 
 <a name="RegistryImpl"></a>
-## type [RegistryImpl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L35-L67>)
+## type [RegistryImpl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L47-L79>)
 
 RegistryImpl implements the Registry interface
 
@@ -676,7 +678,7 @@ type RegistryImpl struct {
 ```
 
 <a name="NewRegistry"></a>
-### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L70>)
+### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L82>)
 
 ```go
 func NewRegistry() *RegistryImpl
@@ -685,7 +687,7 @@ func NewRegistry() *RegistryImpl
 NewRegistry creates a new MCP server registry with default options \(unlimited processes\).
 
 <a name="NewRegistryWithOptions"></a>
-### func [NewRegistryWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L99>)
+### func [NewRegistryWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L111>)
 
 ```go
 func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl
@@ -694,7 +696,7 @@ func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl
 NewRegistryWithOptions creates a new MCP server registry with custom options.
 
 <a name="NewRegistryWithServers"></a>
-### func [NewRegistryWithServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L592>)
+### func [NewRegistryWithServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L625>)
 
 ```go
 func NewRegistryWithServers(serverConfigs []ServerConfigData) (*RegistryImpl, error)
@@ -703,7 +705,7 @@ func NewRegistryWithServers(serverConfigs []ServerConfigData) (*RegistryImpl, er
 NewRegistryWithServers creates a registry and registers multiple servers. Returns error if any server registration fails.
 
 <a name="RegistryImpl.ActiveProcessCount"></a>
-### func \(\*RegistryImpl\) [ActiveProcessCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L327>)
+### func \(\*RegistryImpl\) [ActiveProcessCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L342>)
 
 ```go
 func (r *RegistryImpl) ActiveProcessCount() int
@@ -712,7 +714,7 @@ func (r *RegistryImpl) ActiveProcessCount() int
 ActiveProcessCount returns the number of active MCP processes. Returns \-1 if no process limit is configured.
 
 <a name="RegistryImpl.Close"></a>
-### func \(\*RegistryImpl\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L495>)
+### func \(\*RegistryImpl\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L510>)
 
 ```go
 func (r *RegistryImpl) Close() error
@@ -721,7 +723,7 @@ func (r *RegistryImpl) Close() error
 Close shuts down all MCP servers and connections
 
 <a name="RegistryImpl.Fork"></a>
-### func \(\*RegistryImpl\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L129>)
+### func \(\*RegistryImpl\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L141>)
 
 ```go
 func (r *RegistryImpl) Fork() *RegistryImpl
@@ -734,7 +736,7 @@ Registration on the child is local\-only: the parent never sees the child's entr
 Cycle safety is the caller's responsibility; in practice forks only chain one level deep \(engine → run\).
 
 <a name="RegistryImpl.GetClient"></a>
-### func \(\*RegistryImpl\) [GetClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L196>)
+### func \(\*RegistryImpl\) [GetClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L208>)
 
 ```go
 func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client, error)
@@ -743,7 +745,7 @@ func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client
 GetClient returns an active client for the given server name. For child registries \(Fork\), if the name resolves only to the parent, the parent's client is returned — preserving connection sharing for static servers across all per\-run forks.
 
 <a name="RegistryImpl.GetClientForTool"></a>
-### func \(\*RegistryImpl\) [GetClientForTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L341>)
+### func \(\*RegistryImpl\) [GetClientForTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L356>)
 
 ```go
 func (r *RegistryImpl) GetClientForTool(ctx context.Context, toolName string) (Client, error)
@@ -752,7 +754,7 @@ func (r *RegistryImpl) GetClientForTool(ctx context.Context, toolName string) (C
 GetClientForTool returns the client that provides the specified tool. Child registries \(Fork\) check their own tool index first; if the tool is not owned by a locally\-registered server, the lookup falls through to the parent's tool index.
 
 <a name="RegistryImpl.GetServerConfig"></a>
-### func \(\*RegistryImpl\) [GetServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L396>)
+### func \(\*RegistryImpl\) [GetServerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L411>)
 
 ```go
 func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool)
@@ -761,7 +763,7 @@ func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool)
 GetServerConfig returns the configuration for a registered server. Child registries fall through to the parent when the name is not registered locally.
 
 <a name="RegistryImpl.GetToolSchema"></a>
-### func \(\*RegistryImpl\) [GetToolSchema](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L553>)
+### func \(\*RegistryImpl\) [GetToolSchema](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L586>)
 
 ```go
 func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Tool, error)
@@ -770,7 +772,7 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 GetToolSchema returns the schema for a specific tool
 
 <a name="RegistryImpl.ListAllTools"></a>
-### func \(\*RegistryImpl\) [ListAllTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L410>)
+### func \(\*RegistryImpl\) [ListAllTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L425>)
 
 ```go
 func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, error)
@@ -779,7 +781,7 @@ func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, err
 ListAllTools returns all tools from all connected servers
 
 <a name="RegistryImpl.ListServers"></a>
-### func \(\*RegistryImpl\) [ListServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L372>)
+### func \(\*RegistryImpl\) [ListServers](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L387>)
 
 ```go
 func (r *RegistryImpl) ListServers() []string
@@ -788,7 +790,7 @@ func (r *RegistryImpl) ListServers() []string
 ListServers returns all registered server names. For child registries \(produced by Fork\), this is the union of local and parent entries — child names override parent names with the same key.
 
 <a name="RegistryImpl.RegisterServer"></a>
-### func \(\*RegistryImpl\) [RegisterServer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L147>)
+### func \(\*RegistryImpl\) [RegisterServer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L159>)
 
 ```go
 func (r *RegistryImpl) RegisterServer(config ServerConfig) error
@@ -797,7 +799,7 @@ func (r *RegistryImpl) RegisterServer(config ServerConfig) error
 RegisterServer adds a new MCP server configuration. Child registries \(produced by Fork\) accept names that exist in the parent — registration is local\-only.
 
 <a name="RegistryImpl.UnregisterServer"></a>
-### func \(\*RegistryImpl\) [UnregisterServer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L170>)
+### func \(\*RegistryImpl\) [UnregisterServer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L182>)
 
 ```go
 func (r *RegistryImpl) UnregisterServer(name string) error
@@ -806,7 +808,7 @@ func (r *RegistryImpl) UnregisterServer(name string) error
 UnregisterServer closes the client if one exists, removes the server from the registry, and prunes its tool\-index entries. Unknown names are no\-ops; already\-closed clients are not an error.
 
 <a name="RegistryOptions"></a>
-## type [RegistryOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L23-L32>)
+## type [RegistryOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L23-L38>)
 
 RegistryOptions configures the MCP registry behavior.
 
@@ -820,6 +822,12 @@ type RegistryOptions struct {
     // ElicitationHandler per server. The options arrive with the defaults
     // and the server's TimeoutMs applied.
     ConfigureClient func(config ServerConfig, options *ClientOptions)
+    // OnToolsChanged, when set, is called after a server reports that its
+    // tool list changed (notifications/tools/list_changed) and the registry
+    // has re-read it. tools is the server's new list. It is called on its own
+    // goroutine. A list that cannot be re-read leaves the previous tools in
+    // place and is not reported.
+    OnToolsChanged func(serverName string, tools []Tool)
 }
 ```
 
@@ -950,7 +958,7 @@ func (c *ServerConfig) Transport() Transport
 Transport returns the resolved transport. An explicit TransportName field wins; otherwise URL → TransportStreamableHTTP, Command → TransportStdio. For a URL with no TransportName the registry also falls back to HTTP\+SSE when the server does not host a Streamable HTTP endpoint. Pointer receiver to avoid copying the \(\~120\-byte\) struct.
 
 <a name="ServerConfigData"></a>
-## type [ServerConfigData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L577-L588>)
+## type [ServerConfigData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/mcp/registry.go#L610-L621>)
 
 ServerConfigData holds MCP server configuration matching config.MCPServerConfig. Kept in field\-for\-field sync with ServerConfig; adding a field here that isn't on ServerConfig \(or vice versa\) breaks the direct conversion used in NewRegistryWithServers.
 

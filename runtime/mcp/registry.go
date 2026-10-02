@@ -29,6 +29,18 @@ type RegistryOptions struct {
 	// ElicitationHandler per server. The options arrive with the defaults
 	// and the server's TimeoutMs applied.
 	ConfigureClient func(config ServerConfig, options *ClientOptions)
+	// OnToolsChanged, when set, is called after a server reports that its
+	// tool list changed (notifications/tools/list_changed) and the registry
+	// has re-read it. tools is the server's new list. It is called on its own
+	// goroutine. A list that cannot be re-read leaves the previous tools in
+	// place and is not reported.
+	OnToolsChanged func(serverName string, tools []Tool)
+}
+
+// toolListNotifier is implemented by the clients the registry creates. fn
+// receives the server's tool list each time the server reports a change.
+type toolListNotifier interface {
+	onToolsChanged(fn func([]Tool))
 }
 
 // RegistryImpl implements the Registry interface
@@ -267,6 +279,9 @@ func (r *RegistryImpl) createNewClient(ctx context.Context, serverName string) (
 
 	// Create and initialize new client (outside the lock to avoid holding it during I/O)
 	newClient := r.newClientFunc(config)
+	if n, ok := newClient.(toolListNotifier); ok {
+		n.onToolsChanged(func(tools []Tool) { r.toolsChanged(serverName, newClient, tools) })
+	}
 	if _, err := newClient.Initialize(ctx); err != nil {
 		r.releaseProcessSlot()
 		return nil, fmt.Errorf("failed to initialize MCP server %s: %w", serverName, err)
@@ -527,20 +542,38 @@ func (r *RegistryImpl) refreshToolIndexForServer(ctx context.Context, serverName
 	if err != nil {
 		return err
 	}
+	r.indexServerTools(serverName, tools)
+	return nil
+}
 
-	// Remove old entries for this server
+// indexServerTools replaces the server's entries in the tool index. The
+// caller holds r.mu.
+func (r *RegistryImpl) indexServerTools(serverName string, tools []Tool) {
 	for toolName, srvName := range r.toolIndex {
 		if srvName == serverName {
 			delete(r.toolIndex, toolName)
 		}
 	}
-
-	// Add new entries
 	for _, tool := range tools {
 		r.toolIndex[tool.Name] = serverName
 	}
+}
 
-	return nil
+// toolsChanged takes a server's new tool list after the server reported a
+// change, and passes it to OnToolsChanged. A list from a client the registry
+// no longer holds is stale and dropped.
+func (r *RegistryImpl) toolsChanged(serverName string, client Client, tools []Tool) {
+	r.mu.Lock()
+	if r.closed || r.clients[serverName] != client {
+		r.mu.Unlock()
+		return
+	}
+	r.indexServerTools(serverName, tools)
+	r.mu.Unlock()
+	logger.Info("MCP server tool list changed", "server", serverName, "tools", len(tools))
+	if fn := r.options.OnToolsChanged; fn != nil {
+		fn(serverName, tools)
+	}
 }
 
 // refreshAllToolIndices updates the tool index for all servers
