@@ -138,8 +138,8 @@ const MaxTokensUnlimited = -1
 
 // ProviderDefaults holds default parameters for providers.
 //
-// Each applies only when the request leaves the field at zero; a request
-// value always wins. A MaxTokens of zero or MaxTokensUnlimited sends no
+// Each applies only when the request leaves the field at zero; a positive
+// request value always wins. A MaxTokens of zero or MaxTokensUnlimited sends no
 // output-token limit, except on Claude, where zero falls back to 4096.
 type ProviderDefaults struct {
 	Temperature float32
@@ -152,8 +152,10 @@ type ProviderDefaults struct {
 }
 
 // ResolveMaxTokens returns the output-token limit for a request: the
-// request's own positive value, else the provider default. Zero means send no
-// limit, so the model's own maximum applies.
+// request's own positive value, else the provider default. A zero or negative
+// request value counts as unset, so MaxTokensUnlimited only takes effect as a
+// provider default. A zero result means send no limit, so the model's own
+// maximum applies.
 func ResolveMaxTokens(requested int, defaults ProviderDefaults) int {
 	if requested > 0 {
 		return requested

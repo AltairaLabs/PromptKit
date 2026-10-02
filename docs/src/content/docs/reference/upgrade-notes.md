@@ -20,9 +20,9 @@ applies. Claude requires a limit, so it falls back to 4096. Providers that
 | If you | You will see | Change |
 |---|---|---|
 | Pass a provider with `Defaults.MaxTokens` or `Defaults.Temperature` to `sdk.WithProvider` | those values on the wire | nothing; remove any workaround that rewrote 4096 / 0.7 |
-| Pass a provider with no `Defaults` | no output-token limit (Claude: 4096); temperature `0` on OpenAI-compatible providers, and the API's own default on Claude | set `Defaults`, or set `parameters` on the prompt |
+| Pass a provider with no `Defaults` | no output-token limit (Claude: 4096); temperature `0` on OpenAI, Gemini, Ollama and vLLM, and the API's own default on Claude | set `Defaults`, or set `parameters` on the prompt |
 | Rely on the SDK capping replies at 4096 tokens | longer replies, and output cost up to the model's maximum | set `max_tokens` in the prompt's `parameters` or in the provider's defaults |
-| Want no limit and set a large number to get it | nothing breaks | set `max_tokens: -1` (`providers.MaxTokensUnlimited`), or leave it unset |
+| Want no limit and set a large number to get it | nothing breaks | set the provider's `max_tokens` to `-1` (`providers.MaxTokensUnlimited`), or leave it unset; a prompt's `max_tokens` must be at least 1 |
 | Set `max_tokens: -1` on a Claude provider | `CreateProviderFromSpec` fails: Claude requires a limit | set a positive limit, or leave it unset for 4096 |
 
 ### The A2A server and client speak A2A 1.0 and 0.3, not a mix of both
