@@ -458,9 +458,11 @@ func (p *ToolProvider) buildToolRequest(
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
 	genConfig := map[string]any{
-		"temperature":     temperature,
-		"topP":            topP,
-		"maxOutputTokens": maxTokens,
+		"temperature": temperature,
+		"topP":        topP,
+	}
+	if maxTokens > 0 {
+		genConfig["maxOutputTokens"] = maxTokens
 	}
 	if tc := p.geminiThinkingConfigFor(maxTokens); tc != nil {
 		genConfig["thinkingConfig"] = tc

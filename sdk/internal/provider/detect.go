@@ -18,7 +18,6 @@ import (
 const (
 	defaultTemperature = 0.7
 	defaultTopP        = 1.0
-	defaultMaxTokens   = 4096
 )
 
 // Provider name constants
@@ -201,7 +200,8 @@ func createProvider(info *Info) (providers.Provider, error) {
 	defaults := providers.ProviderDefaults{
 		Temperature: defaultTemperature,
 		TopP:        defaultTopP,
-		MaxTokens:   defaultMaxTokens,
+		// MaxTokens is left at zero: no output-token limit, so the model's own
+		// maximum applies (Claude, which requires one, falls back to 4096).
 		// DisablePromptCaching is false (caching on by default).
 		// SDK callers that need to disable caching should use a provider file
 		// or WithLLMProvider option with prompt_caching: false in the config.

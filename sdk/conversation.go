@@ -33,7 +33,9 @@ import (
 
 // Default parameter values for LLM calls.
 const (
-	defaultMaxTokens        = 4096
+	// defaultTemperature is the temperature the SDK gives providers it builds
+	// itself. Conversations send no temperature or max tokens unless the prompt
+	// sets them, so a caller's provider defaults apply (#2144).
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
 
@@ -642,8 +644,6 @@ func (c *Conversation) buildPipelineConfig(
 		// read through a provider because the pipeline is built once, at
 		// Open(), and SetVar is called after (#1959).
 		VariableProviders:     appendSendScopedProvider(c.withSessionVars(c.config.variableProviders)),
-		MaxTokens:             defaultMaxTokens,
-		Temperature:           defaultTemperature,
 		StateStore:            store,
 		ConversationID:        conversationID,
 		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily

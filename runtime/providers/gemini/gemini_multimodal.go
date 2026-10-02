@@ -200,9 +200,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 		topP = p.defaults.TopP
 	}
 
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(maxTokens, p.defaults)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
@@ -344,9 +342,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 		topP = p.defaults.TopP
 	}
 
-	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
-	}
+	maxTokens = providers.ResolveMaxTokens(maxTokens, p.defaults)
 
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)

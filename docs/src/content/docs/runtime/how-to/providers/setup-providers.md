@@ -224,6 +224,11 @@ defaults := providers.ProviderDefaults{
 }
 ```
 
+A request's own `MaxTokens` overrides the default. Leave `MaxTokens` at zero,
+or set it to `providers.MaxTokensUnlimited`, to send no limit and let the
+model's own maximum apply. Claude requires a limit: it sends 4096 when none is
+set, and `CreateProviderFromSpec` rejects `MaxTokensUnlimited` for it.
+
 ## Testing with Mock Provider
 
 ```go

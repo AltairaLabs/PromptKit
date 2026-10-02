@@ -587,7 +587,8 @@ func resolvePlatformProvider(cfg *config) (providers.Provider, error) {
 		Defaults: providers.ProviderDefaults{
 			Temperature: defaultTemperature,
 			TopP:        1.0,
-			MaxTokens:   defaultMaxTokens,
+			// MaxTokens is left at zero: no output-token limit, so the model's
+			// own maximum applies (Claude, which requires one, falls back to 4096).
 		},
 		StorageService: cfg.mediaStorage,
 	}

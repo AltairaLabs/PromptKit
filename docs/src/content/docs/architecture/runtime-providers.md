@@ -611,34 +611,27 @@ graph TD
 
 ### ProviderDefaults
 
-Each provider has sensible defaults:
+Each provider carries the defaults from its spec:
 
 ```go
 type ProviderDefaults struct {
-    Temperature float32
-    TopP        float32
-    MaxTokens   int
-    Pricing     Pricing
-}
-```
-
-**OpenAI Defaults**:
-```go
-{
-    Temperature: 0.7,
-    TopP:        1.0,
-    MaxTokens:   2048,
-    Pricing: {
-        InputCostPer1K:  0.01,
-        OutputCostPer1K: 0.03,
-    },
+    Temperature          float32
+    TopP                 float32
+    MaxTokens            int
+    Pricing              Pricing
+    DisablePromptCaching bool
 }
 ```
 
 **Override Hierarchy**:
-1. Request-level parameters (highest priority)
-2. Provider defaults (from spec)
-3. Global defaults (lowest priority)
+1. Request-level parameters (highest priority). The SDK fills these from the prompt's `parameters` only.
+2. Provider defaults (from spec), applied to request fields left at zero.
+3. No output-token limit (lowest priority): the field is left off the request and the model's own maximum applies.
+
+`providers.ResolveMaxTokens` implements steps 1 to 3 for every provider.
+`MaxTokens: providers.MaxTokensUnlimited` (`-1`) selects step 3 explicitly.
+Claude's API requires `max_tokens`, so the Claude provider sends 4096 at step 3
+and its factory rejects `MaxTokensUnlimited`.
 
 ## Tool Calling Integration
 

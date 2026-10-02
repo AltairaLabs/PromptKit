@@ -131,7 +131,16 @@ type Pricing struct {
 	OutputCostPer1K float64
 }
 
-// ProviderDefaults holds default parameters for providers
+// MaxTokensUnlimited is the ProviderDefaults.MaxTokens value that asks the
+// provider to send no output-token limit, so the model's own maximum applies.
+// Claude requires a limit on every request and rejects it at construction.
+const MaxTokensUnlimited = -1
+
+// ProviderDefaults holds default parameters for providers.
+//
+// Each applies only when the request leaves the field at zero; a positive
+// request value always wins. A MaxTokens of zero or MaxTokensUnlimited sends no
+// output-token limit, except on Claude, where zero falls back to 4096.
 type ProviderDefaults struct {
 	Temperature float32
 	TopP        float32
@@ -140,6 +149,21 @@ type ProviderDefaults struct {
 	// DisablePromptCaching, when true, disables Anthropic prompt caching.
 	// Default (false) means caching is on for all models that support it.
 	DisablePromptCaching bool
+}
+
+// ResolveMaxTokens returns the output-token limit for a request: the
+// request's own positive value, else the provider default. A zero or negative
+// request value counts as unset, so MaxTokensUnlimited only takes effect as a
+// provider default. A zero result means send no limit, so the model's own
+// maximum applies.
+func ResolveMaxTokens(requested int, defaults ProviderDefaults) int {
+	if requested > 0 {
+		return requested
+	}
+	if defaults.MaxTokens > 0 {
+		return defaults.MaxTokens
+	}
+	return 0
 }
 
 // Provider interface defines the contract for predict providers.

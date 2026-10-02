@@ -244,13 +244,14 @@ Credentials are resolved in order of precedence: `api_key` > `credential_file` >
 
 #### defaults
 
-Default generation parameters applied to every request unless overridden per-call.
+Default generation parameters, applied to a request that does not set its own. A
+prompt's `parameters` override them.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `temperature` | float | Sampling temperature (e.g., `0.7`). |
 | `top_p` | float | Top-p (nucleus) sampling parameter. |
-| `max_tokens` | int | Maximum number of output tokens. |
+| `max_tokens` | int | Maximum number of output tokens. `0` or `-1` sends no limit, so the model's own maximum applies. Claude requires a limit: `0` sends 4096 and `-1` is rejected. |
 | `prompt_caching` | bool | Anthropic prompt caching on Claude providers. Default: `true`; `false` disables it. |
 
 #### pricing

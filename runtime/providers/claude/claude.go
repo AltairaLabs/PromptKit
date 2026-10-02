@@ -702,6 +702,12 @@ func (p *Provider) createSystemBlocks(systemPrompt string) []claudeContentBlock 
 	return []claudeContentBlock{systemBlock}
 }
 
+// defaultMaxTokens is the output-token limit sent when neither the request nor
+// the provider defaults set one. The Messages API requires max_tokens on every
+// request and rejects a value above the model's own output limit, so this is
+// the smallest such limit across Claude models rather than "no limit".
+const defaultMaxTokens = 4096
+
 // applyDefaults applies provider defaults to zero values in the request
 func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (finalTemp, finalTopP float32, finalMaxTokens int) {
 	if temperature == 0 {
@@ -710,10 +716,22 @@ func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (fina
 	if topP == 0 {
 		topP = p.defaults.TopP
 	}
+	maxTokens = providers.ResolveMaxTokens(maxTokens, p.defaults)
 	if maxTokens == 0 {
-		maxTokens = p.defaults.MaxTokens
+		maxTokens = defaultMaxTokens
 	}
 	return temperature, topP, maxTokens
+}
+
+// validateDefaults rejects provider defaults Claude cannot honor.
+func validateDefaults(defaults providers.ProviderDefaults) error {
+	if defaults.MaxTokens < 0 {
+		return fmt.Errorf("claude: defaults.max_tokens %d is invalid: the Messages API requires an "+
+			"output-token limit on every request, so unlimited (%d) is not supported; "+
+			"set a positive limit or leave it unset for %d",
+			defaults.MaxTokens, providers.MaxTokensUnlimited, defaultMaxTokens)
+	}
+	return nil
 }
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API

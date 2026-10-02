@@ -143,7 +143,9 @@ func (p *ToolProvider) buildToolRequest(
 		"messages":    messages,
 		"temperature": temperature,
 		"top_p":       topP,
-		"max_tokens":  maxTokens,
+	}
+	if maxTokens > 0 {
+		ollamaReq["max_tokens"] = maxTokens
 	}
 
 	if req.Seed != nil {

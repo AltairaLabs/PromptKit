@@ -76,6 +76,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func RegisteredRerankProviderTypes\(\) \[\]string](<#RegisteredRerankProviderTypes>)
 - [func ResetDefaultStreamMetrics\(\)](<#ResetDefaultStreamMetrics>)
 - [func ResolveEmbeddingCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveEmbeddingCredential>)
+- [func ResolveMaxTokens\(requested int, defaults ProviderDefaults\) int](<#ResolveMaxTokens>)
 - [func ResolveRerankCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveRerankCredential>)
 - [func RunProviderContractTests\(t \*testing.T, config ProviderContractTests\)](<#RunProviderContractTests>)
 - [func SetErrorResponse\(predictResp \*PredictionResponse, respBody \[\]byte, start time.Time\)](<#SetErrorResponse>)
@@ -481,6 +482,12 @@ const DefaultStreamIdleTimeout = 30 * time.Second
 
 ```go
 const MaxErrorResponseSize int64 = 1 << 20
+```
+
+<a name="MaxTokensUnlimited"></a>MaxTokensUnlimited is the ProviderDefaults.MaxTokens value that asks the provider to send no output\-token limit, so the model's own maximum applies. Claude requires a limit on every request and rejects it at construction.
+
+```go
+const MaxTokensUnlimited = -1
 ```
 
 ## Variables
@@ -912,6 +919,15 @@ func ResolveEmbeddingCredential(ctx context.Context, providerType string, cfgDir
 ```
 
 ResolveEmbeddingCredential resolves an embedding provider's credential block into a concrete Credential, applying the same fallback chain as chat providers \(api\_key → file → env → default env vars\). When platform is non\-empty, the platform branch produces a platform credential \(e.g. AzureCredential\) instead of an API key. Exposed as a helper for the SDK runtime\-config layer.
+
+<a name="ResolveMaxTokens"></a>
+## func [ResolveMaxTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L159>)
+
+```go
+func ResolveMaxTokens(requested int, defaults ProviderDefaults) int
+```
+
+ResolveMaxTokens returns the output\-token limit for a request: the request's own positive value, else the provider default. A zero or negative request value counts as unset, so MaxTokensUnlimited only takes effect as a provider default. A zero result means send no limit, so the model's own maximum applies.
 
 <a name="ResolveRerankCredential"></a>
 ## func [ResolveRerankCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rerank_factory.go#L111-L113>)
@@ -1780,7 +1796,7 @@ func (BedrockEventStreamFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, erro
 PeekFirstFrame reads one complete event\-stream message from r and returns the raw bytes. The reader must be positioned at the start of a message boundary.
 
 <a name="ContextWindowProvider"></a>
-## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L186-L188>)
+## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L210-L212>)
 
 ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it.
 
@@ -2158,7 +2174,7 @@ const (
 ```
 
 <a name="InferenceProvider"></a>
-## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L172>)
+## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L196>)
 
 InferenceProvider is the unified name for predict\-based LLM providers. Provider remains as a deprecated alias for back\-compat with existing call sites.
 
@@ -2167,7 +2183,7 @@ type InferenceProvider = Provider
 ```
 
 <a name="AssertInferenceProvider"></a>
-### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L176>)
+### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L200>)
 
 ```go
 func AssertInferenceProvider(p base.Provider) (InferenceProvider, error)
@@ -2618,7 +2634,7 @@ type Pricing struct {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L148-L168>)
+## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L172-L192>)
 
 Provider interface defines the contract for predict providers. It embeds base.Provider for cross\-cutting concerns \(identity, lifecycle, pricing\) and adds inference\-specific operations.
 
@@ -2683,9 +2699,11 @@ type ProviderContractTests struct {
 ```
 
 <a name="ProviderDefaults"></a>
-## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L135-L143>)
+## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L144-L152>)
 
-ProviderDefaults holds default parameters for providers
+ProviderDefaults holds default parameters for providers.
+
+Each applies only when the request leaves the field at zero; a positive request value always wins. A MaxTokens of zero or MaxTokensUnlimited sends no output\-token limit, except on Claude, where zero falls back to 4096.
 
 ```go
 type ProviderDefaults struct {
@@ -2903,7 +2921,7 @@ func (s *ProviderSpec) HasCredential() bool
 HasCredential returns true if the spec has a real \(non\-empty, non\-"none"\) credential. Use this in factory functions to decide between credential\-based and env\-var\-based constructors.
 
 <a name="ProviderTools"></a>
-## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L212>)
+## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L236>)
 
 ProviderTools represents provider\-specific tool configuration. Each provider returns its own native format:
 
@@ -4448,7 +4466,7 @@ type StreamingToolDefinition struct {
 ```
 
 <a name="ToolDescriptor"></a>
-## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L191-L196>)
+## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L215-L220>)
 
 ToolDescriptor represents a tool that can be used by providers
 
@@ -4503,7 +4521,7 @@ type ToolResponseSupport interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L200>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L224>)
 
 ToolResult represents the result of a tool execution This is an alias to types.MessageToolResult for provider\-specific context
 
@@ -4512,7 +4530,7 @@ type ToolResult = types.MessageToolResult
 ```
 
 <a name="ToolSupport"></a>
-## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L215-L239>)
+## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L239-L263>)
 
 ToolSupport interface for providers that support tool/function calling
 
