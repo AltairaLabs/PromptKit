@@ -35,7 +35,9 @@ type SandboxConfig struct {
 
 // ExecBinding defines how to invoke an external process for tool or eval execution.
 type ExecBinding struct {
-	// Command is the path to the executable, resolved relative to the config file.
+	// Command is the executable to run. It is passed to the OS unchanged: a
+	// relative path resolves against the host process's working directory,
+	// and a bare name is looked up on PATH.
 	Command string `yaml:"command" json:"command" jsonschema:"title=Command,description=Path to the executable"`
 	// Runtime selects the execution mode: "exec" (one-shot, default) or "server" (long-running JSON-RPC).
 	//nolint:lll // jsonschema tags require single line

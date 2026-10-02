@@ -136,8 +136,9 @@ type RuntimeConfigSpec struct {
 // SelectorConfig declares an external selector process. Command, Args,
 // Env, TimeoutMs, and Sandbox mirror the exec hook shape.
 type SelectorConfig struct {
-	// Command is the path to the selector executable, resolved relative
-	// to the config file by the loader.
+	// Command is the selector executable. It is passed to the OS unchanged:
+	// a relative path resolves against the host process's working
+	// directory, and a bare name is looked up on PATH.
 	Command string `yaml:"command" json:"command" jsonschema:"title=Command,description=Path to the selector executable"`
 	// Args are additional arguments passed to the command.
 	//nolint:lll // jsonschema tags require single line

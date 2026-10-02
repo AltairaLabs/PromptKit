@@ -45,7 +45,7 @@ type MCPServerConfig struct {
 	URL        string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Headers    map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 	//nolint:lll // jsonschema tags require single line
-	Transport string `yaml:"transport,omitempty" json:"transport,omitempty" jsonschema:"title=MCP Transport,description=Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport.,enum=,enum=stdio,enum=sse,enum=streamable_http"`
+	Transport string `yaml:"transport,omitempty" json:"transport,omitempty" jsonschema:"title=MCP Transport,description=Explicit transport adapter. When unset: command uses stdio; url uses Streamable HTTP and falls back to HTTP+SSE if the server only hosts that.,enum=,enum=stdio,enum=sse,enum=streamable_http"`
 	//nolint:lll // jsonschema tags require single line
 	Source string `yaml:"source,omitempty" json:"source,omitempty" jsonschema:"title=MCPSource Name,description=Name of a host-registered MCPSource that provisions the endpoint per scope (e.g. 'docker'). Mutually exclusive with command and url."`
 	//nolint:lll // jsonschema tags require single line
@@ -314,9 +314,10 @@ type StreamRetryConfig struct {
 	// Empty falls back to "2s".
 	MaxDelay string `json:"max_delay,omitempty" yaml:"max_delay,omitempty"`
 	// RetryWindow controls which point in the stream lifecycle is still
-	// eligible for retry. "pre_first_chunk" (the only currently supported
-	// value) retries only if no content chunk has been forwarded yet.
-	// Future values may be gated on deduplication support.
+	// eligible for retry. "pre_first_chunk" (the default) retries only if
+	// no content chunk has been forwarded yet. "always" also retries after
+	// content was forwarded: consumers receive a Reset signal to discard
+	// what they got, and the whole request is sent again.
 	RetryWindow string `json:"retry_window,omitempty" yaml:"retry_window,omitempty"`
 	// Budget configures a token bucket that rate-limits retry attempts
 	// across all in-flight requests on this provider. Protects against
