@@ -111,7 +111,7 @@ Exec bindings live in RuntimeConfig, which the operator controls. They do not li
 
 The `env` field in RuntimeConfig lists variable _names_, not values. The runtime reads the values from the process environment when it spawns the subprocess, so you can check RuntimeConfig files into version control without leaking secrets. Names that are unset in the host are dropped. A one-shot exec tool with a non-empty `env` list receives only those variables; the other executors start from the host environment plus the named ones.
 
-Tool calls run under a timeout, which limits runaway subprocesses. The timeout is the tool descriptor's `timeout_ms`, and the registry defaults it to 30 seconds. The registry wraps each call in a context deadline and kills a one-shot process that exceeds it. The tool result then carries a "tool execution timed out" error that the LLM sees. In server mode the deadline abandons the call but the long-running process keeps running.
+Tool calls run under a timeout, which limits runaway subprocesses. The timeout is the exec binding's `timeout_ms` when it sets one, otherwise the tool descriptor's, which the registry defaults to 30 seconds. The registry wraps each call in a context deadline and kills a one-shot process that exceeds it. The tool result then carries a "tool execution timed out" error that the LLM sees. In server mode the deadline abandons the call but the long-running process keeps running.
 
 ## See Also
 

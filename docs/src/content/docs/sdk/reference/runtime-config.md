@@ -312,6 +312,7 @@ Subprocess binding for tools. A relative `command` is resolved against the proce
 | `args` | string[] | Additional command arguments. |
 | `runtime` | string | Execution mode: `exec` (one-shot, default) or `server` (long-running JSON-RPC). |
 | `env` | string[] | Environment variable names to pass through from the host. |
+| `timeout_ms` | int | Timeout for each call in milliseconds. Overrides the tool descriptor's timeout (30 seconds when the pack sets none). |
 
 ---
 
@@ -508,6 +509,7 @@ spec:
         args: ["--format", "json"]
         runtime: server
         env: [DATABASE_URL]
+        timeout_ms: 10000
 
   evals:
     custom_accuracy:

@@ -520,6 +520,40 @@ func TestRegisterExecExecutor_WithConfigs(t *testing.T) {
 	assert.Equal(t, []string{"--flag"}, td.ExecConfig.Args)
 }
 
+// TestRegisterExecExecutor_BindingTimeoutBoundsCalls verifies that an exec
+// binding's timeout_ms cuts off a tool that runs longer, instead of the
+// descriptor's 30s default applying.
+func TestRegisterExecExecutor_BindingTimeoutBoundsCalls(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "slow-tool.sh")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nsleep 5\necho '{\"result\":\"late\"}'\n"), 0o755))
+
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "slow_tool",
+		Description: "Sleeps longer than its binding allows",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "local",
+	}))
+	conv := &Conversation{
+		toolRegistry: registry,
+		config: &config{execToolConfigs: map[string]*tools.ExecConfig{
+			"slow_tool": {Command: script, TimeoutMs: 200},
+		}},
+	}
+
+	conv.registerExecExecutor()
+
+	td := registry.Get("slow_tool")
+	require.NotNil(t, td)
+	assert.Equal(t, 200, td.TimeoutMs)
+
+	start := time.Now()
+	result, err := registry.Execute(context.Background(), "slow_tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Less(t, time.Since(start), 3*time.Second, "the call ran past the binding's timeout")
+	assert.Contains(t, result.Error, "timed out")
+}
+
 func TestRegisterExecExecutor_ServerMode(t *testing.T) {
 	registry := tools.NewRegistry()
 	_ = registry.Register(&tools.ToolDescriptor{
