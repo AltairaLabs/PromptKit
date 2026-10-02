@@ -158,6 +158,9 @@ type Conversation struct {
 	// MCP registry for managing MCP servers
 	mcpRegistry            mcp.Registry
 	mcpExecutorsRegistered bool // guards against re-registering MCP executors on every pipeline build
+	// mcpTools updates the mcp__ descriptors when a server's tool list
+	// changes. Shared with forks, which share mcpRegistry.
+	mcpTools *mcpToolSync
 
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities           []Capability
@@ -1349,7 +1352,8 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		pendingStore:     forkPendingStore,
 		ownsPendingStore: forkOwnsPending,
 		resolvedStore:    sdktools.NewResolvedStore(),
-		mcpRegistry:      c.mcpRegistry,  // Share MCP registry
+		mcpRegistry:      c.mcpRegistry, // Share MCP registry
+		mcpTools:         c.mcpTools,
 		hookRegistry:     c.hookRegistry, // Share hook registry
 		// Capabilities are shared -- their executors hold no conversation
 		// state -- but the fork must carry them, or nothing registers an
@@ -1478,6 +1482,10 @@ func (c *Conversation) Close() error {
 		if err := cap.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close capability %q: %w", cap.Name(), err))
 		}
+	}
+
+	if c.mcpTools != nil {
+		c.mcpTools.untrack(c.toolRegistry)
 	}
 
 	// Close MCP registry if present

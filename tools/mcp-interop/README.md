@@ -8,7 +8,7 @@ each tool call delivered to the model.
 make mcp-interop          # or: tools/mcp-interop/run.sh
 ```
 
-Needs Go, Python 3, Node and npm. The first run installs the pinned servers into
+Needs Go, Python 3.10 or later (as `python3`), Node and npm. The first run installs the pinned servers into
 `tools/mcp-interop/.cache/` (gitignored); later runs take about 15 seconds. Local
 ports start at `MCP_INTEROP_PORT_BASE` (default 18100).
 

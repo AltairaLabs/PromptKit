@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -502,37 +501,9 @@ func (c *Conversation) registerMCPExecutors() {
 	c.toolRegistry.RegisterExecutor(tools.NewMCPExecutor(c.mcpRegistry))
 
 	for serverName, serverTools := range mcpTools {
-		// Look up the server config to check for tool filters.
-		var toolFilter *mcp.ToolFilter
-		for _, srv := range c.mcpRegistry.ListServers() {
-			if srv == serverName {
-				if cfg, ok := c.mcpRegistry.GetServerConfig(serverName); ok && cfg.ToolFilter != nil {
-					toolFilter = cfg.ToolFilter
-				}
-				break
-			}
-		}
-
-		for _, tool := range serverTools {
-			// Apply tool filter if configured.
-			if toolFilter != nil && !toolFilter.Includes(tool.Name) {
-				continue
-			}
-
-			qualifiedName := fmt.Sprintf("mcp__%s__%s", serverName, tool.Name)
-
-			// Register the MCP tool in the registry with qualified name.
-			// The runtime MCPExecutor strips the namespace and looks up
-			// the owning server via mcp.Registry.toolIndex.
-			desc := &tools.ToolDescriptor{
-				Name:        qualifiedName,
-				Description: tool.Description,
-				InputSchema: tool.InputSchema,
-				// The executor checks structured results against it.
-				OutputSchema: tool.OutputSchema,
-				Mode:         "mcp",
-			}
-			_ = c.toolRegistry.Register(desc)
-		}
+		registerMCPServerTools(c.toolRegistry, c.mcpRegistry, serverName, serverTools)
+	}
+	if c.mcpTools != nil {
+		c.mcpTools.track(c.toolRegistry)
 	}
 }

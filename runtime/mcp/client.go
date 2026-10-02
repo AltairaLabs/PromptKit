@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,17 @@ type sdkClient struct {
 	// finished (UnixNano): the server then gets a full timeout to respond.
 	answering atomic.Int32
 	answered  atomic.Int64
+
+	// progress maps the progress token of each tools/call in flight to the
+	// function that restarts its request timeout.
+	progress  sync.Map
+	nextToken atomic.Int64
+
+	// toolsChanged, when set, receives the server's tool list after the
+	// server reports that it changed. refreshMu keeps re-reads in order, so
+	// an older list never replaces a newer one.
+	toolsChanged func([]Tool)
+	refreshMu    sync.Mutex
 
 	mu         sync.Mutex
 	live       *liveSession
@@ -246,7 +258,22 @@ func (c *sdkClient) connectSSE(
 }
 
 func (c *sdkClient) clientOptions() *gosdk.ClientOptions {
-	opts := &gosdk.ClientOptions{}
+	opts := &gosdk.ClientOptions{
+		ProgressNotificationHandler: func(_ context.Context, req *gosdk.ProgressNotificationClientRequest) {
+			if restart, ok := c.progress.Load(fmt.Sprint(req.Params.ProgressToken)); ok {
+				restart.(func())()
+			}
+		},
+	}
+	if c.toolsChanged != nil {
+		// Re-read on another goroutine: the handler runs as the session
+		// receives the notification, and the listing needs it to keep
+		// receiving. The re-read outlives the handler, so it keeps ctx's
+		// values but not its cancellation.
+		opts.ToolListChangedHandler = func(ctx context.Context, _ *gosdk.ToolListChangedRequest) {
+			go c.refreshTools(context.WithoutCancel(ctx))
+		}
+	}
 	if h := c.options.ElicitationHandler; h != nil {
 		opts.ElicitationHandler = func(ctx context.Context, req *gosdk.ElicitRequest) (*gosdk.ElicitResult, error) {
 			c.answering.Add(1)
@@ -340,17 +367,50 @@ func (t *authorizingTransport) RoundTrip(req *http.Request) (*http.Response, err
 // ListTools lists every tool, following pagination. A tool that can only run
 // as a task is left out: the client does not implement tasks.
 func (c *sdkClient) ListTools(ctx context.Context) ([]Tool, error) {
+	return c.listTools(ctx, c.options.EnableGracefulDegradation)
+}
+
+// onToolsChanged registers fn to receive the server's tool list each time
+// the server reports that it changed. Set before Initialize: the client
+// subscribes to the notification only when fn is set.
+func (c *sdkClient) onToolsChanged(fn func([]Tool)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.toolsChanged = fn
+}
+
+// refreshTools re-reads the tool list after the server reported a change. A
+// failed listing keeps the tools already known: unlike ListTools, it never
+// degrades to an empty list, which would withdraw every tool.
+func (c *sdkClient) refreshTools(ctx context.Context) {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	tools, err := c.listTools(ctx, false)
+	if err != nil {
+		logger.Warn("MCP tool list changed but could not be re-read; keeping the previous tools",
+			"server", c.config.Name, "error", err)
+		return
+	}
+	c.mu.Lock()
+	fn := c.toolsChanged
+	c.mu.Unlock()
+	fn(tools)
+}
+
+// listTools lists the tools. With degrade, a failed tools/list yields no
+// tools rather than an error.
+func (c *sdkClient) listTools(ctx context.Context, degrade bool) ([]Tool, error) {
 	session, err := c.ready()
 	if err != nil {
 		return nil, err
 	}
-	reqCtx, cancel := c.requestContext(ctx)
+	reqCtx, cancel, _ := c.requestContext(ctx)
 	defer cancel()
 	tools := []Tool{}
 	for tool, err := range session.Tools(reqCtx, nil) {
 		if err != nil {
 			err = c.requestError(ctx, reqCtx, err)
-			if c.options.EnableGracefulDegradation {
+			if degrade {
 				logger.Warn("MCP tools/list failed, using graceful degradation", "server", c.config.Name, "error", err)
 				return []Tool{}, nil
 			}
@@ -369,6 +429,8 @@ func (c *sdkClient) ListTools(ctx context.Context) ([]Tool, error) {
 }
 
 // CallTool calls a tool. It is never retried: a tool may have side effects.
+// The call asks for progress notifications, and each one restarts its
+// request timeout.
 func (c *sdkClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*ToolCallResponse, error) {
 	session, err := c.ready()
 	if err != nil {
@@ -378,8 +440,12 @@ func (c *sdkClient) CallTool(ctx context.Context, name string, arguments json.Ra
 	if len(arguments) > 0 {
 		params.Arguments = arguments
 	}
-	reqCtx, cancel := c.requestContext(ctx)
+	reqCtx, cancel, progressed := c.requestContext(ctx)
 	defer cancel()
+	token := strconv.FormatInt(c.nextToken.Add(1), 10)
+	params.SetProgressToken(token)
+	c.progress.Store(token, progressed)
+	defer c.progress.Delete(token)
 	res, err := session.CallTool(reqCtx, params)
 	if err != nil {
 		return nil, c.requestError(ctx, reqCtx, err)
@@ -403,12 +469,17 @@ func (c *sdkClient) requestError(ctx, reqCtx context.Context, err error) error {
 // requestContext bounds one request by RequestTimeout. The clock does not
 // run out while the client is answering the server's request for user
 // input: a handshake-era server asks mid-call, and the user's time to
-// answer is not the server's time to respond.
-func (c *sdkClient) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+// answer is not the server's time to respond. The returned progressed
+// function restarts the clock; the server reports progress on a long call.
+// ctx still bounds the request however much progress is reported.
+func (c *sdkClient) requestContext(
+	ctx context.Context,
+) (reqCtx context.Context, cancel context.CancelFunc, progressed func()) {
 	if c.options.RequestTimeout <= 0 {
-		return ctx, func() {}
+		return ctx, func() {}, func() {}
 	}
-	reqCtx, cancel := context.WithCancelCause(ctx)
+	var lastProgress atomic.Int64
+	reqCtx, cancelCause := context.WithCancelCause(ctx)
 	go func() {
 		timer := time.NewTimer(c.options.RequestTimeout)
 		defer timer.Stop()
@@ -417,26 +488,28 @@ func (c *sdkClient) requestContext(ctx context.Context) (context.Context, contex
 			case <-reqCtx.Done():
 				return
 			case <-timer.C:
-				if wait := c.timeoutRemaining(); wait > 0 {
+				if wait := c.timeoutRemaining(lastProgress.Load()); wait > 0 {
 					timer.Reset(wait)
 					continue
 				}
-				cancel(errRequestTimeout)
+				cancelCause(errRequestTimeout)
 				return
 			}
 		}
 	}()
-	return reqCtx, func() { cancel(context.Canceled) }
+	return reqCtx, func() { cancelCause(context.Canceled) },
+		func() { lastProgress.Store(time.Now().UnixNano()) }
 }
 
 // timeoutRemaining is how much longer a request whose timer has fired may
-// run: a full timeout while the user is answering, and the rest of a full
-// timeout counted from when the last answer was sent.
-func (c *sdkClient) timeoutRemaining() time.Duration {
+// run: a full timeout while the user is answering, and otherwise the rest of
+// a full timeout counted from the later of the last answer sent and the
+// request's last progress (UnixNano, 0 for none).
+func (c *sdkClient) timeoutRemaining(lastProgress int64) time.Duration {
 	if c.answering.Load() > 0 {
 		return c.options.RequestTimeout
 	}
-	since := time.Since(time.Unix(0, c.answered.Load()))
+	since := time.Since(time.Unix(0, max(c.answered.Load(), lastProgress)))
 	return c.options.RequestTimeout - since
 }
 

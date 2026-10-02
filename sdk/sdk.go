@@ -1017,11 +1017,17 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 		return nil
 	}
 
+	var toolSync *mcpToolSync
 	registry := mcp.NewRegistryWithOptions(mcp.RegistryOptions{
 		MaxProcesses:    mcp.DefaultMaxProcesses,
 		ConfigureClient: mcpClientConfigurer(cfg),
+		OnToolsChanged: func(server string, tools []mcp.Tool) {
+			toolSync.toolsChanged(server, tools)
+		},
 	})
+	toolSync = newMCPToolSync(registry)
 	conv.mcpRegistry = registry
+	conv.mcpTools = toolSync
 
 	for _, serverCfg := range cfg.mcpServers {
 		if err := resolveMCPEndpoint(&serverCfg, cfg.mcpEndpointResolver); err != nil {

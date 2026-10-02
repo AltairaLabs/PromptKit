@@ -79,6 +79,8 @@ const (
 		"by the session; as 2026-07-28 input requests inside an input_required result they carry no envelope"
 	reasonRequestMeta = "set by the session, not the caller: a 2026-07-28 request carries the protocol metadata " +
 		"(version, client info, capabilities); a handshake-era request carries none"
+	reasonCallToolMeta = "set by the client, not the caller: every call carries a progress token, and a " +
+		"2026-07-28 call also the protocol metadata (version, client info, capabilities)"
 )
 
 func mcpSpecPins() []specPin {
@@ -162,7 +164,7 @@ func mcpSpecPins() []specPin {
 			value: ToolCallRequest{},
 			refs:  []string{"CallToolRequest/properties/params"},
 			omissions: []specOmission{
-				{"_meta", reasonRequestMeta},
+				{"_meta", reasonCallToolMeta},
 				{"task", reasonTasks},
 			},
 		},
