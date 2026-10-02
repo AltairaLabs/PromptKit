@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "a87b70f25076b0e5c6898a4450cdd1dc0793041a",
+ "commit": "aa093b4445895c558869f5372ca5777f036ddebd",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:18",
-    "pkg/config/runtime_config.go:319"
+    "pkg/config/runtime_config.go:320"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "kind must be `RuntimeConfig`",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:326"
+    "pkg/config/runtime_config.go:327"
    ]
   },
   {
@@ -52,7 +52,7 @@
    "claim": "Provider id defaults to type value",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:418",
+    "pkg/config/runtime_config.go:419",
     "sdk/provider_file.go:22"
    ]
   },
@@ -146,28 +146,29 @@
     "runtime/credentials/resolver.go:102",
     "runtime/credentials/resolver.go:113",
     "runtime/credentials/resolver.go:95",
-    "sdk/runtime_config.go:572"
+    "sdk/runtime_config.go:579"
    ]
   },
   {
    "id": 16,
-   "claim": "stream_retry retry_window default is `pre_first_chunk` (safe, invisible retry before first chunk)",
-   "verdict": "dead",
+   "claim": "stream_retry retry_window default is pre_first_chunk",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:320",
-    "runtime/providers/registry.go:392",
-    "runtime/providers/stream_retry.go:44"
+    "pkg/config/provider_tuning.go:48",
+    "pkg/config/types.go:317",
+    "runtime/providers/stream_retry.go:44",
+    "sdk/runtime_config.go:608"
    ]
   },
   {
    "id": 17,
-   "claim": "stream_retry retry_window values: `pre_first_chunk` (default) or `always` (mid-stream reset retry, costs tokens)",
-   "verdict": "dead",
+   "claim": "stream_retry retry_window values: pre_first_chunk (default) or always",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:316",
-    "runtime/providers/base_provider.go:619",
-    "runtime/providers/stream_retry.go:44",
-    "runtime/providers/stream_retry.go:51"
+    "pkg/config/provider_tuning.go:50",
+    "pkg/config/provider_tuning.go:53",
+    "pkg/config/types.go:317",
+    "runtime/providers/base_provider.go:622"
    ]
   },
   {
@@ -191,10 +192,12 @@
   },
   {
    "id": 20,
-   "claim": "stream_retry max_delay default: `2s` (Go duration string)",
-   "verdict": "dead",
+   "claim": "stream_retry max_delay default: 2s (Go duration string)",
+   "verdict": "true",
    "evidence": [
+    "pkg/config/provider_tuning.go:46",
     "pkg/config/types.go:314",
+    "runtime/providers/stream_retry.go:114",
     "runtime/providers/stream_retry.go:30"
    ]
   },
@@ -215,7 +218,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:206",
-    "runtime/providers/registry.go:381",
+    "runtime/providers/registry.go:414",
     "runtime/providers/streaming.go:44"
    ]
   },
@@ -225,7 +228,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:220",
-    "runtime/providers/registry.go:402"
+    "runtime/providers/registry.go:435"
    ]
   },
   {
@@ -263,8 +266,8 @@
    "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:380",
-    "sdk/runtime_config.go:458"
+    "pkg/config/types.go:381",
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -272,9 +275,9 @@
    "claim": "Tool spec requires description field",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:342",
+    "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:458"
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -282,9 +285,9 @@
    "claim": "Tool spec requires input_schema (JSON Schema Draft-07)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:342",
+    "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:458"
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -292,9 +295,9 @@
    "claim": "Tool spec requires output_schema (JSON Schema Draft-07)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:342",
+    "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:458"
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -302,9 +305,9 @@
    "claim": "Tool spec requires mode field",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:342",
+    "pkg/config/runtime_config.go:343",
     "schemas/v1alpha1/runtime-config.json",
-    "sdk/runtime_config.go:458"
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -312,10 +315,10 @@
    "claim": "Exec tool runtime default: `exec` (one-shot), or `server` (long-running JSON-RPC)",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/execconfig/execconfig.go:42",
+    "runtime/hooks/execconfig/execconfig.go:44",
     "sdk/exec_tools.go:20",
     "sdk/exec_tools.go:47",
-    "sdk/runtime_config.go:468"
+    "sdk/runtime_config.go:475"
    ]
   },
   {
@@ -323,9 +326,9 @@
    "claim": "Hook interface types: `provider`, `tool`, or `session`",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:794",
+    "pkg/config/runtime_config.go:813",
     "runtime/hooks/exec_build.go:11",
-    "runtime/hooks/execconfig/execconfig.go:67",
+    "runtime/hooks/execconfig/execconfig.go:69",
     "sdk/runtime_config.go:58"
    ]
   },
@@ -337,7 +340,7 @@
     "runtime/hooks/exec_hooks.go:102",
     "runtime/hooks/exec_hooks.go:171",
     "runtime/hooks/exec_hooks.go:71",
-    "runtime/hooks/execconfig/execconfig.go:71"
+    "runtime/hooks/execconfig/execconfig.go:73"
    ]
   },
   {
@@ -373,7 +376,7 @@
    "claim": "MCP server config requires `name` field",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:618",
+    "pkg/config/runtime_config.go:619",
     "schemas/v1alpha1/runtime-config.json"
    ]
   },
@@ -382,7 +385,7 @@
    "claim": "MCP server config requires `command` field",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:634",
+    "pkg/config/runtime_config.go:635",
     "schemas/v1alpha1/runtime-config.json"
    ]
   },
@@ -401,8 +404,8 @@
    "claim": "state_store type values: `memory` (default), `redis`, or `file`",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:441",
-    "sdk/runtime_config.go:607"
+    "pkg/config/runtime_config.go:442",
+    "sdk/runtime_config.go:615"
    ]
   },
   {
@@ -411,7 +414,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/types.go:96",
-    "sdk/runtime_config.go:616"
+    "sdk/runtime_config.go:624"
    ]
   },
   {
@@ -421,7 +424,7 @@
    "evidence": [
     "runtime/statestore/redis.go:80",
     "runtime/statestore/types.go:16",
-    "sdk/runtime_config.go:620"
+    "sdk/runtime_config.go:628"
    ]
   },
   {
@@ -430,7 +433,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/statestore/redis.go:81",
-    "sdk/runtime_config.go:627"
+    "sdk/runtime_config.go:635"
    ]
   },
   {
@@ -439,7 +442,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:80",
-    "sdk/runtime_config.go:646"
+    "sdk/runtime_config.go:654"
    ]
   },
   {
@@ -449,7 +452,7 @@
    "evidence": [
     "pkg/config/types.go:84",
     "runtime/statestore/file/store.go:86",
-    "sdk/runtime_config.go:658"
+    "sdk/runtime_config.go:666"
    ]
   },
   {
@@ -458,7 +461,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:528"
+    "sdk/runtime_config.go:535"
    ]
   },
   {
@@ -467,7 +470,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:93",
-    "sdk/runtime_config.go:505"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -477,7 +480,7 @@
    "evidence": [
     "runtime/logger/config.go:104",
     "runtime/logger/config.go:52",
-    "sdk/runtime_config.go:499"
+    "sdk/runtime_config.go:506"
    ]
   },
   {
@@ -485,8 +488,8 @@
    "claim": "Example RuntimeConfig uses apiVersion `promptkit.altairalabs.ai/v1alpha1` and kind `RuntimeConfig`",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:319",
-    "pkg/config/runtime_config.go:326"
+    "pkg/config/runtime_config.go:320",
+    "pkg/config/runtime_config.go:327"
    ]
   },
   {
@@ -514,7 +517,7 @@
    "evidence": [
     "runtime/tools/types.go:265",
     "sdk/exec_tools.go:20",
-    "sdk/runtime_config.go:458"
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -522,8 +525,8 @@
    "claim": "Example tool mode `live` with HTTP method GET",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:380",
-    "sdk/runtime_config.go:458"
+    "pkg/config/types.go:381",
+    "sdk/runtime_config.go:465"
    ]
   },
   {
@@ -545,11 +548,12 @@
   },
   {
    "id": 57,
-   "claim": "Example MCP server uses `npx` command with `@modelcontextprotocol/server-filesystem` args",
+   "claim": "Example MCP server uses npx command with @modelcontextprotocol/server-filesystem args",
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:634",
-    "sdk/runtime_config.go:154"
+    "sdk/runtime_config.go:154",
+    "sdk/runtime_config.go:164"
    ]
   },
   {
@@ -566,8 +570,8 @@
    "claim": "Example state_store type `redis` with database `1`",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:609",
-    "sdk/runtime_config.go:616"
+    "sdk/runtime_config.go:617",
+    "sdk/runtime_config.go:624"
    ]
   },
   {
@@ -576,7 +580,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:499"
+    "sdk/runtime_config.go:506"
    ]
   },
   {
@@ -593,7 +597,7 @@
    "claim": "type field is required on every provider entry",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:404"
+    "pkg/config/runtime_config.go:405"
    ]
   },
   {
@@ -601,8 +605,8 @@
    "claim": "model field required for completion roles (llm, image, video)",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:385",
-    "pkg/config/runtime_config.go:411"
+    "pkg/config/runtime_config.go:386",
+    "pkg/config/runtime_config.go:412"
    ]
   },
   {
@@ -621,7 +625,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:201",
-    "runtime/providers/registry.go:378"
+    "runtime/providers/registry.go:411"
    ]
   }
  ]

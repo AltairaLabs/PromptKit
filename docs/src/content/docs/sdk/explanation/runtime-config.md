@@ -4,21 +4,18 @@ description: Why RuntimeConfig exists and how it separates what an agent does fr
 sidebar:
   order: 3
 verified:
-  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  commit: aa093b4445895c558869f5372ca5777f036ddebd
   sources:
     - pkg/config/logging.go
     - pkg/config/runtime_config.go
     - pkg/config/types.go
-    - runtime/evals/exec_hook.go
-    - runtime/evals/handlers/exec_handler.go
     - runtime/evals/registry.go
-    - runtime/hooks/exec_hooks.go
     - runtime/hooks/execconfig/execconfig.go
     - runtime/prompt/schema/promptpack.schema.json
+    - runtime/tools/errors.go
     - runtime/tools/exec_executor.go
     - runtime/tools/registry.go
     - runtime/tools/server_executor.go
-    - runtime/tools/types.go
     - sdk/exec_tools.go
     - sdk/options.go
     - sdk/provider_file.go
@@ -97,9 +94,9 @@ RuntimeConfig removes the Go-only restriction. Tools, evals and hooks can be imp
 Tools support two modes:
 
 - One-shot (`exec`) spawns a new process for each invocation. The runtime passes `{"args": ...}` as JSON on stdin and reads `{"result": ...}` or `{"error": ...}` from stdout. This is stateless and suits tools that do a single computation and return.
-- Server mode (`server`) keeps a long-running process and talks to it over JSON-RPC 2.0, one JSON object per line, with the method `execute`. The runtime starts the process once and sends requests over its lifetime. This amortizes startup cost and lets the subprocess keep state between invocations.
+- Server mode (`server`) keeps a long-running process and talks to it over JSON-RPC 2.0, one JSON object per line, with the method `execute`. The runtime starts the process once and sends requests over its lifetime. This amortizes startup cost and lets the subprocess keep state between invocations. Calls to one process may overlap: the runtime matches each reply to its call by JSON-RPC id and drops the late reply of a call that was canceled, so it never reaches the next caller. If the process exits, the next call starts a new one.
 
-Hook and eval bindings are always one-shot.
+Hook and eval bindings are always one-shot; a binding that sets `runtime: server` on one fails to load.
 
 Both modes are configured entirely in RuntimeConfig. The pack declares the tool name and schema; the tool's exec binding specifies the `command`, `runtime`, `args` and `env`. Nothing rewrites `command` against the config file's location: the runtime hands it to the operating system unchanged. A relative `command` therefore resolves against the host process's working directory, which the subprocess also inherits, and a bare name such as `python3` is looked up on `PATH`. The same config file can launch different executables depending on where the process starts.
 

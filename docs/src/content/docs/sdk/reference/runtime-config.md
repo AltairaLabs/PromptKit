@@ -4,9 +4,10 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  commit: aa093b4445895c558869f5372ca5777f036ddebd
   sources:
     - pkg/config/logging.go
+    - pkg/config/provider_tuning.go
     - pkg/config/role.go
     - pkg/config/runtime_config.go
     - pkg/config/types.go
@@ -181,6 +182,8 @@ the same ID in both spellings is rejected.
 | `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
 | `rate_limit` | object | no | Client-side request throttling. See [rate_limit](#rate_limit). |
+
+The tuning fields (`request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport`, `rate_limit` and `defaults.prompt_caching`) take effect for every provider entry loaded through `WithRuntimeConfig`. A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
 
 #### provider types
 

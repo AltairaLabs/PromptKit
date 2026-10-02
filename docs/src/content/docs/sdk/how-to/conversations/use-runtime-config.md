@@ -4,7 +4,7 @@ description: Load providers, tools, MCP servers, hooks, state store and logging 
 sidebar:
   order: 15
 verified:
-  commit: a87b70f25076b0e5c6898a4450cdd1dc0793041a
+  commit: aa093b4445895c558869f5372ca5777f036ddebd
   sources:
     - pkg/config/logging.go
     - pkg/config/runtime_config.go
@@ -71,7 +71,7 @@ spec:
         credential_env: ANTHROPIC_API_KEY
 ```
 
-This registers the same provider as `sdk.WithProvider(...)` with the same settings.
+This registers the same provider as `sdk.WithProvider(...)` with the same settings. Provider tuning fields such as `request_timeout`, `stream_retry` and `rate_limit` apply too; see the [reference](/sdk/reference/runtime-config/#specproviders).
 
 ---
 
