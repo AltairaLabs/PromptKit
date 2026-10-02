@@ -402,7 +402,7 @@ Name of a selector under [`spec.selectors`](#specselectors). Each turn, the sele
 
 Array of MCP (Model Context Protocol) server configurations. Each entry configures one MCP server, reached over stdio, `sse` or `streamable_http`.
 
-Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP).
+Every entry needs `name` and one transport: `command` (stdio) or `url` (HTTP). An entry with `source` (a PromptArena MCPSource) fails to load in the SDK.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

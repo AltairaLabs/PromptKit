@@ -152,6 +152,13 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 
 	// Apply MCP servers
 	for _, mcpCfg := range spec.MCPServers {
+		// MCPSource (host-registered sources opened per run, scenario or
+		// session scope) is a PromptArena feature; the SDK has no scopes to
+		// open one in, so a source-backed entry would have no transport.
+		if mcpCfg.Source != "" {
+			return fmt.Errorf("mcp server %q: source %q is not supported by the SDK; "+
+				"use command (stdio) or url instead", mcpCfg.Name, mcpCfg.Source)
+		}
 		serverCfg := mcp.ServerConfig{
 			Name:          mcpCfg.Name,
 			Command:       mcpCfg.Command,

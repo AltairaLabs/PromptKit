@@ -1330,3 +1330,22 @@ func TestRerankSelector_ConfigFailsWhenNoRerankProviderConfigured(t *testing.T) 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no rerank provider configured")
 }
+
+// TestApplyRuntimeConfig_MCPSourceRejected verifies that a source-backed MCP
+// server fails at load with an error naming it, instead of being registered
+// with neither a command nor a URL.
+func TestApplyRuntimeConfig_MCPSourceRejected(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		MCPServers: []pkgconfig.MCPServerConfig{
+			{Name: "sandboxed", Source: "docker", Scope: "session"},
+		},
+	}
+	c := &config{}
+
+	err := applyRuntimeConfig(c, spec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcp server "sandboxed"`)
+	assert.Contains(t, err.Error(), "not supported by the SDK")
+	assert.Empty(t, c.mcpServers)
+}
