@@ -4,7 +4,7 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: aa093b4445895c558869f5372ca5777f036ddebd
+  commit: 2ef08f78584f7630204ee1c8b34026381f38201a
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
