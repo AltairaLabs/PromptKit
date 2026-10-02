@@ -1,10 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // ApplyProviderTuning copies a provider's request-tuning settings from its
@@ -90,4 +92,51 @@ func parseProviderDuration(providerID, field, value string) time.Duration {
 		return 0
 	}
 	return d
+}
+
+// CapabilityHTTPTuning returns the request-tuning settings a capability
+// provider (tts, stt, embedding, inference, rerank) honors: headers,
+// request_timeout and http_transport. Durations parse exactly as
+// ApplyProviderTuning parses them for completion providers.
+//
+// The streaming fields (stream_retry, stream_max_concurrent,
+// stream_idle_timeout) and defaults.prompt_caching apply to completion
+// providers only. Setting one on a capability provider is an error naming the
+// field and the role, rather than a setting that silently does nothing.
+func CapabilityHTTPTuning(p *Provider) (base.HTTPTuning, error) {
+	if p == nil {
+		return base.HTTPTuning{}, nil
+	}
+	if field := completionOnlyField(p); field != "" {
+		return base.HTTPTuning{}, fmt.Errorf(
+			"provider %q: %s is not supported for role %q; it applies to completion providers only",
+			p.ID, field, p.GetRole())
+	}
+	var spec providers.ProviderSpec
+	ApplyProviderTuning(&spec, p)
+	tuning := base.HTTPTuning{
+		Headers:        p.Headers,
+		RequestTimeout: spec.RequestTimeout,
+	}
+	if p.HTTPTransport != nil {
+		tuning.Transport = providers.NewProviderTransport(spec.HTTPTransport)
+	}
+	return tuning, nil
+}
+
+// completionOnlyField names the first completion-only tuning field p sets, or
+// returns "" when it sets none.
+func completionOnlyField(p *Provider) string {
+	switch {
+	case p.StreamRetry != nil:
+		return "stream_retry"
+	case p.StreamMaxConcurrent > 0:
+		return "stream_max_concurrent"
+	case p.StreamIdleTimeout != "":
+		return "stream_idle_timeout"
+	case p.Defaults.PromptCaching != nil:
+		return "defaults.prompt_caching"
+	default:
+		return ""
+	}
 }

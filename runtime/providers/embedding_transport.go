@@ -187,6 +187,18 @@ type platformEmbeddingRoundTripper struct {
 	apiVersion string // non-empty only for Azure
 }
 
+// BaseTransport returns the transport the credential-applying layer delegates
+// to. With WithBaseTransport it lets base.HTTPTuning replace or wrap the
+// connection layer while the credential stays applied first.
+func (rt *platformEmbeddingRoundTripper) BaseTransport() http.RoundTripper { return rt.base }
+
+// WithBaseTransport returns a copy of rt that delegates to next.
+func (rt *platformEmbeddingRoundTripper) WithBaseTransport(next http.RoundTripper) http.RoundTripper {
+	out := *rt
+	out.base = next
+	return &out
+}
+
 // RoundTrip applies the api-version query param (Azure) and the credential
 // to a cloned request before delegating to the base transport.
 func (rt *platformEmbeddingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {

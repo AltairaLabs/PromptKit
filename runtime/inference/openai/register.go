@@ -34,6 +34,9 @@ func init() {
 		if strings.TrimSpace(spec.Model) == "" {
 			return nil, fmt.Errorf("inference: %s: model is required", providerType)
 		}
+		if err := checkTimeoutConflict(spec); err != nil {
+			return nil, err
+		}
 		return New(Config{
 			APIKey:  base.APIKeyFromCredential(spec.Credential),
 			BaseURL: spec.BaseURL,
@@ -45,6 +48,9 @@ func init() {
 	inference.RegisterFactory(nvidiaProviderType, func(spec inference.ProviderSpec) (inference.Provider, error) {
 		if strings.TrimSpace(spec.BaseURL) == "" {
 			return nil, fmt.Errorf("inference: %s: base_url is required", nvidiaProviderType)
+		}
+		if err := checkTimeoutConflict(spec); err != nil {
+			return nil, err
 		}
 		model := spec.Model
 		if strings.TrimSpace(model) == "" {
@@ -61,6 +67,18 @@ func init() {
 			Timeout: timeout,
 		})
 	})
+}
+
+// checkTimeoutConflict rejects a spec that sets the per-call timeout twice:
+// once as additional_config.timeout_seconds and once as the provider file's
+// request_timeout. Either alone is fine; with both, neither would be
+// obviously the one in force.
+func checkTimeoutConflict(spec inference.ProviderSpec) error {
+	if _, ok := spec.AdditionalConfig[timeoutConfigKey]; ok && spec.Tuning.RequestTimeout > 0 {
+		return fmt.Errorf("inference: %s: set either additional_config.%s or request_timeout, not both",
+			spec.Type, timeoutConfigKey)
+	}
+	return nil
 }
 
 // timeoutFromConfig reads a per-call timeout in seconds from a provider's

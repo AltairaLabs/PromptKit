@@ -14,6 +14,22 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
+// wsDialHeader builds the websocket handshake headers: the API key plus any
+// custom headers, which may not replace the key.
+func (s *CartesiaService) wsDialHeader() (http.Header, error) {
+	header := http.Header{}
+	if s.APIKey != "" {
+		header.Set(cartesiaAPIKeyHeader, s.APIKey)
+	}
+	for k, v := range s.wsHeaders {
+		if header.Get(k) != "" {
+			return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
+		}
+		header.Set(k, v)
+	}
+	return header, nil
+}
+
 // SynthesizeStream converts text to audio with streaming output via WebSocket.
 // This provides ultra-low latency (<100ms first-byte) for real-time applications.
 //
@@ -46,9 +62,9 @@ func (s *CartesiaService) SynthesizeStream(
 	// version left in the query where it is harmless.
 	wsURL := fmt.Sprintf("%s?cartesia_version=%s", s.wsURL, cartesiaAPIVersion)
 
-	header := http.Header{}
-	if s.APIKey != "" {
-		header.Set(cartesiaAPIKeyHeader, s.APIKey)
+	header, err := s.wsDialHeader()
+	if err != nil {
+		return nil, NewSynthesisError("cartesia", "", "invalid custom header", err, false)
 	}
 
 	dialer := websocket.DefaultDialer

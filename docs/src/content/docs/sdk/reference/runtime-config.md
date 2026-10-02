@@ -176,13 +176,23 @@ the same ID in both spellings is rejected.
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. |
-| `request_timeout` | string | no | Wall-clock timeout for request/response calls (Predict, embeddings). Go duration string, e.g. `"2m"`. Does not apply to streaming. Default: `"60s"`. |
+| `headers` | map[string]string | no | Extra HTTP headers sent on every request, e.g. for a gateway. A header the provider sets itself, such as its credential header, is not replaced: the request fails with an error naming the header. |
+| `request_timeout` | string | no | Wall-clock timeout for request/response calls (Predict, embeddings). Go duration string, e.g. `"2m"`. Does not apply to streaming. Default: `"60s"` for completion roles; capability roles keep the provider's own default. |
 | `stream_idle_timeout` | string | no | Longest silence allowed on a streaming body before the stream is aborted. The timer resets on every byte. Default: `"30s"`. |
 | `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
 | `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
 
-The tuning fields (`request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport` and `defaults.prompt_caching`) take effect for every provider entry loaded through `WithRuntimeConfig`. A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
+Which tuning fields take effect depends on the role:
+
+| Roles | Honored | Rejected |
+|-------|---------|----------|
+| `llm`, `image`, `video` | `headers`, `request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport`, `defaults.prompt_caching` | none |
+| `tts`, `stt`, `embedding`, `inference`, `rerank` | `headers`, `request_timeout`, `http_transport` | `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `defaults.prompt_caching` |
+
+The same rules apply whether the provider is declared under `spec.providers` or in its own provider file. A capability provider that sets a rejected field fails to load, with an error naming the field and the role. On a capability role, `http_transport` replaces the provider's transport with a pooled, instrumented one; without it, the provider keeps its own. A provider type that cannot take `headers`, `request_timeout` or `http_transport` for its role, such as the `mock` reranker, fails to load when any of them is set. The `openai` and `nvidia-topic-control` inference types also reject `request_timeout` alongside `additional_config.timeout_seconds`.
+
+A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
 
 #### provider types
 

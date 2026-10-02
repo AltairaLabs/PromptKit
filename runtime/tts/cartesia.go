@@ -82,6 +82,25 @@ type CartesiaService struct {
 	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
 	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
 	wsURL                   string
+	// wsHeaders are custom headers from HTTPTuning, sent on the websocket
+	// dial as well as on REST requests.
+	wsHeaders map[string]string
+}
+
+// ApplyHTTPTuning tunes the REST client and keeps the custom headers for the
+// streaming websocket dial. The websocket keeps its own read deadline; the
+// request timeout and transport apply to REST calls only.
+func (s *CartesiaService) ApplyHTTPTuning(t base.HTTPTuning) error {
+	if err := s.HTTPServiceFields.ApplyHTTPTuning(t); err != nil {
+		return err
+	}
+	if len(t.Headers) > 0 {
+		s.wsHeaders = make(map[string]string, len(t.Headers))
+		for k, v := range t.Headers {
+			s.wsHeaders[k] = v
+		}
+	}
+	return nil
 }
 
 // CartesiaOption configures the Cartesia TTS service.

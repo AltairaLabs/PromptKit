@@ -29,6 +29,10 @@ type CapabilitySpec struct {
 	// AdditionalConfig carries provider-specific extras. Unknown keys
 	// are ignored.
 	AdditionalConfig map[string]any
+	// Tuning carries the provider file's headers, request_timeout and
+	// http_transport. Create applies it after construction and rejects it
+	// for an implementation that is not HTTPTunable.
+	Tuning HTTPTuning
 }
 
 // Factory builds a typed Provider from a CapabilitySpec.
@@ -68,7 +72,8 @@ func (r *FactoryRegistry[T]) Types() []string {
 	return types
 }
 
-// Create dispatches to the registered factory for spec.Type.
+// Create dispatches to the registered factory for spec.Type, then applies
+// spec.Tuning to the result.
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func (r *FactoryRegistry[T]) Create(spec CapabilitySpec) (T, error) {
@@ -79,7 +84,14 @@ func (r *FactoryRegistry[T]) Create(spec CapabilitySpec) (T, error) {
 	if !ok {
 		return zero, fmt.Errorf("unsupported provider type: %s", spec.Type)
 	}
-	return f(spec)
+	v, err := f(spec)
+	if err != nil {
+		return v, err
+	}
+	if err := ApplyHTTPTuning(v, spec.Type, spec.Tuning); err != nil {
+		return zero, err
+	}
+	return v, nil
 }
 
 // ResolveCredential resolves a provider's credential block into a concrete

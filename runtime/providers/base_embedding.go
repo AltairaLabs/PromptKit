@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // Common HTTP constants for embedding providers.
@@ -42,6 +43,14 @@ type BaseEmbeddingProvider struct {
 	// observedDims is the vector length seen on the first response when
 	// Dimensions is 0. Atomic because Embed may run concurrently.
 	observedDims atomic.Int64
+}
+
+// ApplyHTTPTuning replaces HTTPClient with a tuned copy, implementing
+// base.HTTPTunable for every embedding provider that embeds this struct. A
+// platform-auth transport keeps applying its credential.
+func (b *BaseEmbeddingProvider) ApplyHTTPTuning(t base.HTTPTuning) error {
+	b.HTTPClient = t.Client(b.HTTPClient)
+	return nil
 }
 
 // NewBaseEmbeddingProvider creates a base embedding provider with defaults.

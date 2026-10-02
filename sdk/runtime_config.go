@@ -17,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 
 	// Side-effect imports register provider factories so CreateFromSpec
@@ -449,7 +450,8 @@ func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfi
 		if id == "" {
 			id = ip.Type
 		}
-		p, err := buildInferenceProvider(id, ip.Type, ip.Model, ip.BaseURL, ip.Credential, ip.AdditionalConfig)
+		p, err := buildInferenceProvider(
+			id, ip.Type, ip.Model, ip.BaseURL, ip.Credential, ip.AdditionalConfig, base.HTTPTuning{})
 		if err != nil {
 			return fmt.Errorf("inference provider %q: %w", id, err)
 		}

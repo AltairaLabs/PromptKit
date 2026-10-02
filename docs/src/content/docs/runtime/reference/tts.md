@@ -85,6 +85,7 @@ The package includes implementations for:
 - [type CartesiaOption](<#CartesiaOption>)
 - [type CartesiaService](<#CartesiaService>)
   - [func NewCartesia\(apiKey string, opts ...CartesiaOption\) \*CartesiaService](<#NewCartesia>)
+  - [func \(s \*CartesiaService\) ApplyHTTPTuning\(t base.HTTPTuning\) error](<#CartesiaService.ApplyHTTPTuning>)
   - [func \(s \*CartesiaService\) Close\(\) error](<#CartesiaService.Close>)
   - [func \(s \*CartesiaService\) HealthCheck\(\_ context.Context\) error](<#CartesiaService.HealthCheck>)
   - [func \(s \*CartesiaService\) ImplName\(\) string](<#CartesiaService.ImplName>)
@@ -391,7 +392,7 @@ func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config S
 SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers.
 
 <a name="WithCartesiaWSURL"></a>
-## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L94>)
+## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L113>)
 
 ```go
 func WithCartesiaWSURL(url string) func(*CartesiaService)
@@ -433,7 +434,7 @@ func (f AudioFormat) String() string
 String returns the format name.
 
 <a name="CartesiaOption"></a>
-## type [CartesiaOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L91>)
+## type [CartesiaOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L110>)
 
 CartesiaOption configures the Cartesia TTS service. It is a type alias for base.HTTPServiceOption so callers can pass base.WithBaseURL, base.WithClient, base.WithModel, etc. directly. Use WithCartesiaWSURL for Cartesia\-specific options.
 
@@ -442,7 +443,7 @@ type CartesiaOption = base.HTTPServiceOption
 ```
 
 <a name="CartesiaService"></a>
-## type [CartesiaService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L81-L85>)
+## type [CartesiaService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L81-L88>)
 
 CartesiaService implements TTS using Cartesia's ultra\-low latency API. Cartesia specializes in real\-time streaming TTS with \<100ms first\-byte latency.
 
@@ -455,13 +456,22 @@ type CartesiaService struct {
 ```
 
 <a name="NewCartesia"></a>
-### func [NewCartesia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L101>)
+### func [NewCartesia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L120>)
 
 ```go
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService
 ```
 
 NewCartesia creates a Cartesia TTS service.
+
+<a name="CartesiaService.ApplyHTTPTuning"></a>
+### func \(\*CartesiaService\) [ApplyHTTPTuning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L93>)
+
+```go
+func (s *CartesiaService) ApplyHTTPTuning(t base.HTTPTuning) error
+```
+
+ApplyHTTPTuning tunes the REST client and keeps the custom headers for the streaming websocket dial. The websocket keeps its own read deadline; the request timeout and transport apply to REST calls only.
 
 <a name="CartesiaService.Close"></a>
 ### func \(\*CartesiaService\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/base_provider.go#L98>)
@@ -482,7 +492,7 @@ func (s *CartesiaService) HealthCheck(_ context.Context) error
 HealthCheck reports liveness \(no\-op for TTS services\).
 
 <a name="CartesiaService.ImplName"></a>
-### func \(\*CartesiaService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L118>)
+### func \(\*CartesiaService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L137>)
 
 ```go
 func (s *CartesiaService) ImplName() string
@@ -500,7 +510,7 @@ func (s *CartesiaService) Init(_ context.Context) error
 Init performs asynchronous setup \(no\-op for TTS services\).
 
 <a name="CartesiaService.ModelName"></a>
-### func \(\*CartesiaService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L121>)
+### func \(\*CartesiaService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L140>)
 
 ```go
 func (s *CartesiaService) ModelName() string
@@ -509,7 +519,7 @@ func (s *CartesiaService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="CartesiaService.PersonaRubric"></a>
-### func \(\*CartesiaService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L129>)
+### func \(\*CartesiaService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L148>)
 
 ```go
 func (s *CartesiaService) PersonaRubric() string
@@ -518,7 +528,7 @@ func (s *CartesiaService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the emotion\-only rubric: Cartesia's experimental controls accept a narrow vocabulary \(positivity / sadness / anger\), so we advertise only the tags the adapter actually maps. Other tags \(e.g. whispers, pause\) would be dropped by lowerCartesiaMarkup, so we omit them from the rubric to keep persona tokens focused on directives that move audio.
 
 <a name="CartesiaService.SpokenText"></a>
-### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L235>)
+### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L254>)
 
 ```go
 func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
@@ -527,7 +537,7 @@ func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
 SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter.
 
 <a name="CartesiaService.SupportedFormats"></a>
-### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L391>)
+### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L410>)
 
 ```go
 func (s *CartesiaService) SupportedFormats() []AudioFormat
@@ -536,7 +546,7 @@ func (s *CartesiaService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by Cartesia.
 
 <a name="CartesiaService.SupportedVoices"></a>
-### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L380>)
+### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L399>)
 
 ```go
 func (s *CartesiaService) SupportedVoices() []Voice
@@ -545,7 +555,7 @@ func (s *CartesiaService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available Cartesia voices.
 
 <a name="CartesiaService.Synthesize"></a>
-### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L176-L178>)
+### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L195-L197>)
 
 ```go
 func (s *CartesiaService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -554,7 +564,7 @@ func (s *CartesiaService) Synthesize(ctx context.Context, text string, config Sy
 Synthesize converts text to audio using Cartesia's REST API. For streaming output, use SynthesizeStream instead.
 
 <a name="CartesiaService.SynthesizeStream"></a>
-### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L21-L23>)
+### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L37-L39>)
 
 ```go
 func (s *CartesiaService) SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan audio.Chunk, error)

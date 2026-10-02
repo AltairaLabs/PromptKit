@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // EmbeddingProviderSpec is the runtime form of an embedding-provider
@@ -37,6 +38,10 @@ type EmbeddingProviderSpec struct {
 	// PlatformConfig holds platform-specific settings (endpoint, region,
 	// api_version). Only set when Platform != "".
 	PlatformConfig *PlatformConfig
+	// Tuning carries the provider file's headers, request_timeout and
+	// http_transport. CreateEmbeddingProviderFromSpec applies it after
+	// construction and rejects it for a provider that is not HTTPTunable.
+	Tuning base.HTTPTuning
 }
 
 // EmbeddingProviderFactory builds an EmbeddingProvider from a spec.
@@ -78,8 +83,8 @@ func RegisteredEmbeddingProviderTypes() []string {
 // CreateEmbeddingProviderFromSpec returns an EmbeddingProvider
 // implementation for the given spec. Mirrors CreateProviderFromSpec
 // for chat providers but is intentionally slimmer: embedding providers
-// don't stream and don't need rate-limit or transport tuning today
-// (call patterns are batch + short-lived).
+// don't stream, so only spec.Tuning (headers, request timeout, transport)
+// is applied after construction.
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvider, error) {
@@ -89,7 +94,14 @@ func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvi
 	if !ok {
 		return nil, fmt.Errorf("unsupported embedding provider type: %s", spec.Type)
 	}
-	return factory(spec)
+	p, err := factory(spec)
+	if err != nil {
+		return p, err
+	}
+	if err := base.ApplyHTTPTuning(p, spec.Type, spec.Tuning); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // ResolveEmbeddingCredential resolves an embedding provider's
