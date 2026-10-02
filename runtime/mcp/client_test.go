@@ -5,1615 +5,620 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"os/exec"
-	"strings"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultClientOptions(t *testing.T) {
-	opts := DefaultClientOptions()
+// envTestServer makes the test binary, re-executed, act as a stdio MCP
+// server: "gosdk" serves goSDKTestServer, "silent" a handshake-era server
+// that never answers requests it does not know.
+const envTestServer = "PROMPTKIT_TEST_MCP_SERVER"
 
-	assert.Equal(t, 30*time.Second, opts.RequestTimeout)
-	assert.Equal(t, 10*time.Second, opts.InitTimeout)
-	assert.Equal(t, 3, opts.MaxRetries)
-	assert.Equal(t, 100*time.Millisecond, opts.RetryDelay)
-	assert.True(t, opts.EnableGracefulDegradation)
-	assert.Equal(t, 3, opts.MaxReconnectAttempts)
-}
-
-func TestClientErrors(t *testing.T) {
-	// Test that error constants are defined
-	assert.NotNil(t, ErrClientNotInitialized)
-	assert.NotNil(t, ErrClientClosed)
-	assert.NotNil(t, ErrServerUnresponsive)
-	assert.NotNil(t, ErrProcessDied)
-
-	// Test error messages are meaningful
-	assert.Contains(t, ErrClientNotInitialized.Error(), "not initialized")
-	assert.Contains(t, ErrClientClosed.Error(), "closed")
-	assert.Contains(t, ErrServerUnresponsive.Error(), "unresponsive")
-	assert.Contains(t, ErrProcessDied.Error(), "died")
-}
-
-func TestNewStdioClient(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-		Args:    []string{"hello"},
+func TestMain(m *testing.M) {
+	switch os.Getenv(envTestServer) {
+	case "gosdk":
+		_ = goSDKTestServer(nil).Run(context.Background(), &gosdk.StdioTransport{})
+		return
+	case "silent":
+		serveSilentLegacy()
+		return
 	}
-
-	client := NewStdioClient(config)
-
-	assert.NotNil(t, client)
-	assert.Equal(t, config.Name, client.config.Name)
-	assert.Equal(t, config.Command, client.config.Command)
-	assert.Equal(t, DefaultClientOptions(), client.options)
+	os.Exit(m.Run())
 }
 
-func TestNewStdioClientWithOptions(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	customOpts := ClientOptions{
-		RequestTimeout:            5 * time.Second,
-		InitTimeout:               2 * time.Second,
-		MaxRetries:                5,
-		RetryDelay:                50 * time.Millisecond,
-		EnableGracefulDegradation: false,
-	}
-
-	client := NewStdioClientWithOptions(config, customOpts)
-
-	assert.NotNil(t, client)
-	assert.Equal(t, config.Name, client.config.Name)
-	assert.Equal(t, customOpts.RequestTimeout, client.options.RequestTimeout)
-	assert.Equal(t, customOpts.InitTimeout, client.options.InitTimeout)
-	assert.Equal(t, customOpts.MaxRetries, client.options.MaxRetries)
-	assert.Equal(t, customOpts.RetryDelay, client.options.RetryDelay)
-	assert.False(t, client.options.EnableGracefulDegradation)
+type addIn struct {
+	A int `json:"a"`
+	B int `json:"b"`
 }
 
-func TestCheckHealth(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	t.Run("not initialized", func(t *testing.T) {
-		client := NewStdioClient(config)
-		err := client.checkHealth()
-		assert.Equal(t, ErrClientNotInitialized, err)
-	})
-
-	t.Run("closed client", func(t *testing.T) {
-		client := NewStdioClient(config)
-		client.closed = true
-		err := client.checkHealth()
-		assert.Equal(t, ErrClientClosed, err)
-	})
-
-	t.Run("started but no process with reconnect disabled", func(t *testing.T) {
-		opts := DefaultClientOptions()
-		opts.MaxReconnectAttempts = 0
-		client := NewStdioClientWithOptions(config, opts)
-		client.started = true
-		err := client.checkHealth()
-		assert.Equal(t, ErrProcessDied, err)
-	})
-
-	t.Run("started but no process with reconnect enabled fails", func(t *testing.T) {
-		opts := DefaultClientOptions()
-		opts.MaxReconnectAttempts = 1
-		opts.RetryDelay = 10 * time.Millisecond
-		opts.InitTimeout = 100 * time.Millisecond
-		client := NewStdioClientWithOptions(config, opts)
-		client.started = true
-		// cmd is nil and command is "echo" which won't work as MCP server
-		err := client.checkHealth()
-		assert.Error(t, err)
-		// Should attempt reconnection and fail
-		assert.Contains(t, err.Error(), "reconnection failed")
-	})
+type addOut struct {
+	Total int `json:"total"`
 }
 
-func TestIsAlive(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	t.Run("not started", func(t *testing.T) {
-		client := NewStdioClient(config)
-		assert.False(t, client.IsAlive())
+// goSDKTestServer is an official-SDK server: a structured tool, a failing
+// tool, a slow tool, a tool that elicits (mid-call on a handshake-era
+// session, by multi round-trip on a stateless one) and a tool that kills a
+// stdio server's process.
+func goSDKTestServer(opts *gosdk.ServerOptions) *gosdk.Server {
+	s := gosdk.NewServer(&gosdk.Implementation{Name: "ref", Version: "1"}, opts)
+	gosdk.AddTool(s, &gosdk.Tool{Name: "add"}, func(_ context.Context, _ *gosdk.CallToolRequest, in addIn) (*gosdk.CallToolResult, addOut, error) {
+		return nil, addOut{Total: in.A + in.B}, nil
 	})
-
-	t.Run("closed", func(t *testing.T) {
-		client := NewStdioClient(config)
-		client.started = true
-		client.closed = true
-		assert.False(t, client.IsAlive())
+	gosdk.AddTool(s, &gosdk.Tool{Name: "boom"}, func(context.Context, *gosdk.CallToolRequest, struct{}) (*gosdk.CallToolResult, any, error) {
+		return nil, nil, errors.New("kaboom")
 	})
-}
-
-func TestHandleNotification(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	// Test various notification types - these just log, so we're testing they don't panic
-	t.Run("tools list changed", func(t *testing.T) {
-		msg := &JSONRPCMessage{Method: "notifications/tools/list_changed"}
-		client.sess.notification(msg) // Should not panic
-	})
-
-	t.Run("resources list changed", func(t *testing.T) {
-		msg := &JSONRPCMessage{Method: "notifications/resources/list_changed"}
-		client.sess.notification(msg) // Should not panic
-	})
-
-	t.Run("unknown notification", func(t *testing.T) {
-		msg := &JSONRPCMessage{Method: "some/unknown/notification"}
-		client.sess.notification(msg) // Should not panic
-	})
-}
-
-func TestHandleMessage(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	t.Run("invalid ID type", func(t *testing.T) {
-		// ID is a string instead of a number - should log warning and return
-		msg := &JSONRPCMessage{ID: "not-a-number"}
-		client.handleMessage(msg) // Should not panic
-	})
-
-	t.Run("notification message", func(t *testing.T) {
-		msg := &JSONRPCMessage{Method: "some/notification"}
-		client.handleMessage(msg) // Should route to handleNotification
-	})
-
-	t.Run("response with valid ID but no pending request", func(t *testing.T) {
-		msg := &JSONRPCMessage{ID: float64(123)}
-		client.handleMessage(msg) // Should handle gracefully
-	})
-}
-
-func TestClose(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	t.Run("close without start", func(t *testing.T) {
-		client := NewStdioClient(config)
-		err := client.Close()
-		assert.NoError(t, err)
-		assert.True(t, client.closed)
-	})
-
-	t.Run("double close is idempotent", func(t *testing.T) {
-		client := NewStdioClient(config)
-		err := client.Close()
-		assert.NoError(t, err)
-		err = client.Close()
-		assert.NoError(t, err)
-	})
-}
-
-func TestUpdateActivity(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	assert.Equal(t, int64(0), client.lastActivity.Load())
-	client.updateActivity()
-	assert.NotEqual(t, int64(0), client.lastActivity.Load())
-}
-
-func TestWriteMessage(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	t.Run("nil stdin returns error", func(t *testing.T) {
-		client := NewStdioClient(config)
-		msg := &JSONRPCMessage{JSONRPC: "2.0", Method: "test"}
-		err := client.writeMessage(msg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "stdin not available")
-	})
-}
-
-func TestSendNotification_WithPipe(t *testing.T) {
-	opts := DefaultClientOptions()
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-	defer serverWriter.Close()
-
-	// Drain reads so Write doesn't block
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
+	gosdk.AddTool(s, &gosdk.Tool{Name: "slow"}, func(ctx context.Context, _ *gosdk.CallToolRequest, _ struct{}) (*gosdk.CallToolResult, any, error) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
 		}
-	}()
-
-	t.Run("nil params", func(t *testing.T) {
-		err := client.sendNotification("test/notify", nil)
-		assert.NoError(t, err)
+		return &gosdk.CallToolResult{Content: []gosdk.Content{&gosdk.TextContent{Text: "done"}}}, nil, nil
 	})
-
-	t.Run("with params", func(t *testing.T) {
-		err := client.sendNotification("test/notify", map[string]string{"key": "val"})
-		assert.NoError(t, err)
+	gosdk.AddTool(s, &gosdk.Tool{Name: "exit"}, func(context.Context, *gosdk.CallToolRequest, struct{}) (*gosdk.CallToolResult, any, error) {
+		os.Exit(3)
+		return nil, nil, nil
 	})
-
-	serverReader.Close()
+	gosdk.AddTool(s, &gosdk.Tool{Name: "ask"}, askColor)
+	return s
 }
 
-func TestSendNotification(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	t.Run("nil stdin returns error", func(t *testing.T) {
-		client := NewStdioClient(config)
-		err := client.sendNotification("test/method", nil)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "stdin not available")
-	})
-
-	t.Run("with params nil stdin returns error", func(t *testing.T) {
-		client := NewStdioClient(config)
-		err := client.sendNotification("test/method", map[string]string{"key": "value"})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "stdin not available")
-	})
+var colorSchema = map[string]any{
+	"type": "object", "required": []string{"color"},
+	"properties": map[string]any{"color": map[string]any{"type": "string", "default": "blue"}},
 }
 
-func TestListTools_Errors(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
+func askColor(ctx context.Context, r *gosdk.CallToolRequest, _ struct{}) (*gosdk.CallToolResult, any, error) {
+	text := func(action string, content map[string]any) *gosdk.CallToolResult {
+		return &gosdk.CallToolResult{Content: []gosdk.Content{&gosdk.TextContent{Text: fmt.Sprintf("%s:%v", action, content["color"])}}}
 	}
-
-	t.Run("not initialized", func(t *testing.T) {
-		client := NewStdioClient(config)
-		tools, err := client.ListTools(context.Background())
-		assert.Nil(t, tools)
-		assert.ErrorIs(t, err, ErrClientNotInitialized)
-	})
-
-	t.Run("closed", func(t *testing.T) {
-		client := NewStdioClient(config)
-		client.closed = true
-		tools, err := client.ListTools(context.Background())
-		assert.Nil(t, tools)
-		assert.ErrorIs(t, err, ErrClientClosed)
-	})
+	if resp, ok := r.Params.InputResponses["c"]; ok {
+		er := resp.(*gosdk.ElicitResult)
+		return text(er.Action+"/mrtr", er.Content), nil, nil
+	}
+	if p := r.Session.InitializeParams(); p == nil || p.ProtocolVersion >= ProtocolVersion {
+		return &gosdk.CallToolResult{
+			InputRequests: gosdk.InputRequestMap{"c": &gosdk.ElicitParams{Message: "color?", RequestedSchema: colorSchema}},
+			RequestState:  "s1",
+		}, nil, nil
+	}
+	res, err := r.Session.Elicit(ctx, &gosdk.ElicitParams{Message: "color?", RequestedSchema: colorSchema})
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(res.Action, res.Content), nil, nil
 }
 
-func TestCallTool_Errors(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
+// serveSilentLegacy is a handshake-era stdio server that ignores requests it
+// does not know, server/discover among them.
+func serveSilentLegacy() {
+	in := bufio.NewScanner(os.Stdin)
+	for in.Scan() {
+		var m JSONRPCMessage
+		if json.Unmarshal(in.Bytes(), &m) != nil || m.ID == nil {
+			continue
+		}
+		var result string
+		switch m.Method {
+		case "initialize":
+			result = `{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"silent","version":"1"}}`
+		case "tools/list":
+			result = `{"tools":[{"name":"t","inputSchema":{"type":"object"}}]}`
+		default:
+			continue
+		}
+		id, _ := json.Marshal(m.ID)
+		fmt.Printf(`{"jsonrpc":"2.0","id":%s,"result":%s}`+"\n", id, result)
 	}
-
-	t.Run("not initialized", func(t *testing.T) {
-		client := NewStdioClient(config)
-		resp, err := client.CallTool(context.Background(), "test-tool", nil)
-		assert.Nil(t, resp)
-		assert.ErrorIs(t, err, ErrClientNotInitialized)
-	})
-
-	t.Run("closed", func(t *testing.T) {
-		client := NewStdioClient(config)
-		client.closed = true
-		resp, err := client.CallTool(context.Background(), "test-tool", nil)
-		assert.Nil(t, resp)
-		assert.ErrorIs(t, err, ErrClientClosed)
-	})
 }
 
-func TestInitialize_AlreadyStarted(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	client := NewStdioClient(config)
-	expectedResp := &InitializeResponse{
-		ProtocolVersion: "2025-03-26",
-	}
-	client.started = true
-	client.sess.serverInfo = expectedResp
-
-	resp, err := client.Initialize(context.Background())
-	assert.NoError(t, err)
-	assert.Equal(t, expectedResp, resp)
+func acceptOffered(context.Context, string, ElicitRequest) (ElicitResult, error) {
+	return ElicitResult{Action: ElicitActionAccept}, nil
 }
 
-func TestInitialize_Closed(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
+func testOptions() ClientOptions {
+	opts := DefaultClientOptions()
+	opts.ElicitationHandler = acceptOffered
+	opts.EnableGracefulDegradation = false
+	return opts
+}
+
+func stdioConfig(t *testing.T, mode string) ServerConfig {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	return ServerConfig{Name: "s", Command: exe, Args: []string{"-test.run=^$"}, Env: map[string]string{envTestServer: mode}}
+}
+
+func serveStreamable(t *testing.T, stateless bool) string {
+	t.Helper()
+	srv := httptest.NewServer(gosdk.NewStreamableHTTPHandler(
+		func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) }, &gosdk.StreamableHTTPOptions{Stateless: stateless}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func serveSSE(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(gosdk.NewSSEHandler(func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) }, nil))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func firstText(t *testing.T, res *ToolCallResponse) string {
+	t.Helper()
+	require.NotEmpty(t, res.Content)
+	return res.Content[0].Text
+}
+
+func TestClient_StatelessStreamableHTTP(t *testing.T) {
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: serveStreamable(t, true)}, testOptions())
+	defer c.Close()
+
+	info, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, ProtocolVersion, info.ProtocolVersion, "a stateless server is reached with the stateless protocol")
+	assert.Equal(t, "ref", info.ServerInfo.Name)
+
+	tools, err := c.ListTools(context.Background())
+	require.NoError(t, err)
+	byName := map[string]Tool{}
+	for _, tool := range tools {
+		byName[tool.Name] = tool
 	}
+	require.Contains(t, byName, "add")
+	assert.Contains(t, string(byName["add"].OutputSchema), "total", "outputSchema is carried")
 
-	client := NewStdioClient(config)
-	client.closed = true
+	res, err := c.CallTool(context.Background(), "add", json.RawMessage(`{"a":2,"b":3}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"total":5}`, string(res.StructuredContent), "structuredContent is carried (#2099)")
 
-	resp, err := client.Initialize(context.Background())
-	assert.Nil(t, resp)
+	res, err = c.CallTool(context.Background(), "boom", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.True(t, res.IsError)
+	assert.Contains(t, firstText(t, res), "kaboom")
+
+	_, err = c.CallTool(context.Background(), "nope", nil)
+	var rpcErr *RPCError
+	require.ErrorAs(t, err, &rpcErr, "a server's JSON-RPC error surfaces as *RPCError")
+	assert.NotZero(t, rpcErr.Code)
+}
+
+func TestClient_MultiRoundTripInputIsAnswered(t *testing.T) {
+	// 2026-07-28: the server answers input_required; the client asks the
+	// host, then retries with the answers and the request state.
+	var asked ElicitRequest
+	opts := testOptions()
+	opts.ElicitationHandler = func(_ context.Context, server string, req ElicitRequest) (ElicitResult, error) {
+		asked = req
+		assert.Equal(t, "s", server)
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{"color":"green"}`)}, nil
+	}
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: serveStreamable(t, true)}, opts)
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+
+	res, err := c.CallTool(context.Background(), "ask", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, "accept/mrtr:green", firstText(t, res))
+	assert.Equal(t, "color?", asked.Message)
+	assert.Equal(t, ElicitModeForm, asked.Mode)
+}
+
+func TestClient_SSEOutlivesTheInitializeContext(t *testing.T) {
+	// go-sdk binds the SSE event stream to the context given to Connect.
+	c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: serveSSE(t)}, testOptions())
+	defer c.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := c.Initialize(ctx)
+	require.NoError(t, err)
+	cancel()
+
+	res, err := c.CallTool(context.Background(), "add", json.RawMessage(`{"a":1,"b":1}`))
+	require.NoError(t, err, "the stream survives the end of Initialize's context")
+	assert.JSONEq(t, `{"total":2}`, string(res.StructuredContent))
+}
+
+func TestClient_URLOnlyFallsBackToSSEAndElicitsWithDefaults(t *testing.T) {
+	reg := NewRegistryWithOptions(RegistryOptions{ConfigureClient: func(_ ServerConfig, o *ClientOptions) {
+		*o = testOptions()
+	}})
+	defer reg.Close()
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "s", URL: serveSSE(t)}))
+	c, err := reg.GetClient(context.Background(), "s")
+	require.NoError(t, err)
+	info, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, LegacyProtocolVersion, info.ProtocolVersion, "an SSE server is handshake-era")
+
+	// Accepting as offered takes the schema's defaults (SEP-1034); go-sdk
+	// v1.8.0 skips them for an empty answer and validates first.
+	res, err := c.CallTool(context.Background(), "ask", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, "accept:blue", firstText(t, res))
+}
+
+func TestClient_SSEBaseURLStillReachesTheStreamAtSlashSSE(t *testing.T) {
+	// Earlier releases appended /sse to the configured URL.
+	mux := http.NewServeMux()
+	mux.Handle("/sse", gosdk.NewSSEHandler(func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) }, nil))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: srv.URL}, testOptions())
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	res, err := c.CallTool(context.Background(), "add", json.RawMessage(`{"a":1,"b":2}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"total":3}`, string(res.StructuredContent))
+}
+
+func TestClient_Stdio(t *testing.T) {
+	c := NewStdioClientWithOptions(stdioConfig(t, "gosdk"), testOptions())
+	assert.False(t, c.IsAlive())
+	info, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, ProtocolVersion, info.ProtocolVersion)
+	again, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, info, again, "Initialize is idempotent")
+	assert.True(t, c.IsAlive())
+
+	res, err := c.CallTool(context.Background(), "add", json.RawMessage(`{"a":20,"b":22}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"total":42}`, string(res.StructuredContent))
+
+	require.NoError(t, c.Close())
+	require.NoError(t, c.Close(), "Close is idempotent")
+	assert.False(t, c.IsAlive())
+	_, err = c.CallTool(context.Background(), "add", nil)
+	assert.ErrorIs(t, err, ErrClientClosed)
+	_, err = c.Initialize(context.Background())
 	assert.ErrorIs(t, err, ErrClientClosed)
 }
 
-func TestInitializeRetryReleasesMutex(t *testing.T) {
-	// Use a command that will fail to start, triggering retries
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "/nonexistent/command/that/does/not/exist",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 2
-	opts.RetryDelay = 200 * time.Millisecond
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	// Start Initialize in a goroutine - it will retry and eventually fail
-	var initWg sync.WaitGroup
-	initWg.Add(1)
-	go func() {
-		defer initWg.Done()
-		_, _ = client.Initialize(context.Background())
-	}()
-
-	// Give Initialize a moment to start and hit the first failure
-	time.Sleep(50 * time.Millisecond)
-
-	// Try to acquire RLock during the retry sleep window.
-	// If the mutex is held during sleep, this would block for the full retry delay.
-	// We use a tight deadline to detect whether the lock is available.
-	lockAcquired := make(chan struct{})
-	go func() {
-		client.mu.RLock()
-		close(lockAcquired)
-		client.mu.RUnlock()
-	}()
-
-	select {
-	case <-lockAcquired:
-		// Success: the mutex was released during the retry sleep
-	case <-time.After(2 * time.Second):
-		t.Fatal("mutex was not released during retry sleep - other operations would be blocked")
-	}
-
-	// Wait for Initialize to finish
-	initWg.Wait()
+func TestClient_StdioServerSilentOnDiscoverGetsTheHandshake(t *testing.T) {
+	// go-sdk waits for a server/discover answer that never comes; the client
+	// restarts such a server with the initialize handshake.
+	opts := testOptions()
+	opts.EraProbeTimeout = 300 * time.Millisecond
+	c := NewStdioClientWithOptions(stdioConfig(t, "silent"), opts)
+	defer c.Close()
+	start := time.Now()
+	info, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, LegacyProtocolVersion, info.ProtocolVersion)
+	assert.Less(t, time.Since(start), 5*time.Second)
+	tools, err := c.ListTools(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Equal(t, "t", tools[0].Name)
 }
 
-func TestInitializeRetryCancelledByContext(t *testing.T) {
-	// Use a command that will fail to start, triggering retries
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "/nonexistent/command/that/does/not/exist",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 5
-	opts.RetryDelay = 5 * time.Second // Long delay to ensure cancellation happens during sleep
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	var result error
-	done := make(chan struct{})
-	go func() {
-		_, result = client.Initialize(ctx)
-		close(done)
-	}()
-
-	// Wait for the first attempt to fail, then cancel during the retry sleep
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-		require.Error(t, result)
-		assert.ErrorIs(t, result, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Initialize did not return promptly after context cancellation")
-	}
-}
-
-func TestInitializeRetryReturnsClosedAfterReacquire(t *testing.T) {
-	// Test that if the client is closed during the retry sleep, Initialize detects it
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "/nonexistent/command/that/does/not/exist",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 3
-	opts.RetryDelay = 200 * time.Millisecond
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	var result error
-	done := make(chan struct{})
-	go func() {
-		_, result = client.Initialize(context.Background())
-		close(done)
-	}()
-
-	// Wait for first attempt to fail, then close the client during retry sleep
-	time.Sleep(50 * time.Millisecond)
-	client.mu.Lock()
-	client.closed = true
-	client.mu.Unlock()
-
-	select {
-	case <-done:
-		require.Error(t, result)
-		assert.ErrorIs(t, result, ErrClientClosed)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Initialize did not return after client was closed during retry")
-	}
-}
-
-// newTestClientWithPipes creates a StdioClient with io.Pipe-based stdin/stdout for testing.
-// Returns the client and the server-side reader/writer to simulate the server.
-// A long-running sleep process is started so checkHealth passes; the caller should
-// call client.Close() or kill the process when done.
-func newTestClientWithPipes(t *testing.T, opts ClientOptions) (*StdioClient, io.ReadCloser, io.WriteCloser) {
-	t.Helper()
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-	}
-	client := NewStdioClientWithOptions(config, opts)
-
-	// Use pipes instead of a real process
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
-
-	client.stdin = stdinWriter
-	client.stdout = stdoutReader
-	client.started = true
-
-	// Start a real long-running process so checkHealth sees cmd.Process != nil
-	client.cmd = exec.Command("sleep", "60")
-	require.NoError(t, client.cmd.Start())
-	t.Cleanup(func() {
-		if client.cmd.Process != nil {
-			_ = client.cmd.Process.Kill()
-			_ = client.cmd.Wait()
-		}
-	})
-
-	return client, stdinReader, stdoutWriter
-}
-
-func TestWriteMessage_WithPipe(t *testing.T) {
-	opts := DefaultClientOptions()
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-	defer serverWriter.Close()
-
-	msg := &JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      int64(1),
-		Method:  "test/method",
-	}
-
-	// Write in a goroutine since pipe is synchronous
-	done := make(chan error, 1)
-	go func() {
-		done <- client.writeMessage(msg)
-	}()
-
-	// Read what was written
-	buf := make([]byte, 4096)
-	n, err := serverReader.Read(buf)
+func TestClient_StdioReconnectsAfterTheProcessDies(t *testing.T) {
+	c := NewStdioClientWithOptions(stdioConfig(t, "gosdk"), testOptions())
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
 	require.NoError(t, err)
 
-	// Verify JSON + newline was written
-	assert.Contains(t, string(buf[:n]), `"jsonrpc":"2.0"`)
-	assert.Equal(t, byte('\n'), buf[n-1])
+	_, err = c.CallTool(context.Background(), "exit", nil)
+	require.Error(t, err, "the server died mid-call")
+	require.Eventually(t, func() bool { return !c.IsAlive() }, 5*time.Second, 10*time.Millisecond)
 
-	err = <-done
-	assert.NoError(t, err)
+	res, err := c.CallTool(context.Background(), "add", json.RawMessage(`{"a":1,"b":2}`))
+	require.NoError(t, err, "the next call reconnects")
+	assert.JSONEq(t, `{"total":3}`, string(res.StructuredContent))
+	assert.True(t, c.IsAlive())
 
-	serverReader.Close()
+	opts := testOptions()
+	opts.MaxReconnectAttempts = 0
+	once := NewStdioClientWithOptions(stdioConfig(t, "gosdk"), opts)
+	defer once.Close()
+	_, err = once.Initialize(context.Background())
+	require.NoError(t, err)
+	_, _ = once.CallTool(context.Background(), "exit", nil)
+	require.Eventually(t, func() bool { return !once.IsAlive() }, 5*time.Second, 10*time.Millisecond)
+	_, err = once.CallTool(context.Background(), "add", nil)
+	assert.ErrorIs(t, err, ErrProcessDied, "without reconnection a dead server stays dead")
 }
 
-func TestSendRequest_Success(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
+func TestClient_RequestTimeoutPausesWhileTheUserAnswers(t *testing.T) {
+	// A handshake-era server asks mid-call; the user's time to answer does
+	// not count against RequestTimeout, but a slow server still times out.
+	opts := testOptions()
+	opts.RequestTimeout = 150 * time.Millisecond
+	opts.ElicitationHandler = func(context.Context, string, ElicitRequest) (ElicitResult, error) {
+		time.Sleep(450 * time.Millisecond)
+		return ElicitResult{Action: ElicitActionAccept, Content: json.RawMessage(`{"color":"red"}`)}, nil
+	}
+	c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: serveSSE(t)}, opts)
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
 
-	// Start the read loop so responses get routed
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
+	res, err := c.CallTool(context.Background(), "ask", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, "accept:red", firstText(t, res))
 
-	// Simulate server: read request, send response
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
-			return
-		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil { // -1 for newline
-			return
-		}
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Result:  json.RawMessage(`{"status":"ok"}`),
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
-
-	var result map[string]string
-	err := client.sendRequest(context.Background(), "test/method", nil, &result)
-	assert.NoError(t, err)
-	assert.Equal(t, "ok", result["status"])
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestSendRequest_JSONRPCError(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
-			return
-		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-			return
-		}
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error:   &JSONRPCError{Code: -32600, Message: "Invalid Request"},
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
-
-	err := client.sendRequest(context.Background(), "test/method", nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Invalid Request")
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestSendRequest_Timeout(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 50 * time.Millisecond
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	// Read loop but server never responds
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Drain stdin so writeMessage doesn't block
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	err := client.sendRequest(context.Background(), "test/method", nil, nil)
-	assert.Error(t, err)
+	_, err = c.CallTool(context.Background(), "slow", json.RawMessage(`{}`))
 	assert.ErrorIs(t, err, ErrServerUnresponsive)
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
 }
 
-func TestSendRequest_ContextCancelled(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 5 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
+func TestClient_NotInitializedAndInitTimeout(t *testing.T) {
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: "http://127.0.0.1:1"}, testOptions())
+	_, err := c.ListTools(context.Background())
+	assert.ErrorIs(t, err, ErrClientNotInitialized)
 
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
+	// go-sdk leaves the abandoned request running; the handler gives up.
+	hang := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
 		}
-	}()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-	}()
-
-	err := client.sendRequest(ctx, "test/method", nil, nil)
-	assert.ErrorIs(t, err, context.Canceled)
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestSendRequest_WithParams(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
-			return
-		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-			return
-		}
-		// Verify params were sent
-		assert.NotNil(t, req.Params)
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Result:  json.RawMessage(`{}`),
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
-
-	params := map[string]string{"key": "value"}
-	var result map[string]interface{}
-	err := client.sendRequest(context.Background(), "test/method", params, &result)
-	assert.NoError(t, err)
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestSendRequestWithRetry_Success(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	opts.MaxRetries = 2
-	opts.RetryDelay = 10 * time.Millisecond
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Server responds successfully on first try
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
-			return
-		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-			return
-		}
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Result:  json.RawMessage(`{"ok":true}`),
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
-
-	var result map[string]bool
-	err := client.sendRequestWithRetry(context.Background(), "test/method", nil, &result)
-	assert.NoError(t, err)
-	assert.True(t, result["ok"])
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestSendRequestWithRetry_TimeoutIsCancelledNotRetried(t *testing.T) {
-	// A request that times out may still have been processed, so it is not
-	// sent again; the server is told it is cancelled instead (MCP
-	// basic/utilities/cancellation: on timeout the sender SHOULD cancel).
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 100 * time.Millisecond
-	opts.MaxRetries = 3
-	opts.RetryDelay = time.Millisecond
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	received := make(chan JSONRPCMessage, 10)
-	go func() {
-		scanner := bufio.NewScanner(serverReader)
-		for scanner.Scan() {
-			var msg JSONRPCMessage
-			if json.Unmarshal(scanner.Bytes(), &msg) == nil {
-				received <- msg
-			}
-		}
-	}()
-
-	err := client.sendRequestWithRetry(context.Background(), "test/method", nil, nil)
-	require.ErrorIs(t, err, ErrServerUnresponsive)
-
-	first := <-received
-	assert.Equal(t, "test/method", first.Method)
-	select {
-	case second := <-received:
-		assert.Equal(t, methodNotificationsCancel, second.Method, "the only follow-up is the cancellation")
-		assert.Nil(t, second.ID, "a cancellation is a notification")
-		assert.JSONEq(t, `{"requestId":1,"reason":"client stopped waiting for the response"}`, string(second.Params))
-	case <-time.After(time.Second):
-		t.Fatal("no notifications/cancelled after the timeout")
-	}
-	select {
-	case extra := <-received:
-		t.Fatalf("timed-out request was followed by %q; it must not be retried", extra.Method)
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestReadLoop(t *testing.T) {
-	opts := DefaultClientOptions()
-	client, _, serverWriter := newTestClientWithPipes(t, opts)
-
-	// Register a pending request
-	respChan := make(chan *JSONRPCMessage, 1)
-	client.pendingReqs.Store(int64(42), respChan)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Send a response from the server
-	resp := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      float64(42), // JSON numbers are float64
-		Result:  json.RawMessage(`{"tools":[]}`),
-	}
-	data, _ := json.Marshal(resp)
-	data = append(data, '\n')
-	_, err := serverWriter.Write(data)
-	require.NoError(t, err)
-
-	// Wait for the response to be routed
-	select {
-	case msg := <-respChan:
-		assert.NotNil(t, msg)
-		assert.Equal(t, float64(42), msg.ID)
-	case <-time.After(2 * time.Second):
-		t.Fatal("readLoop did not route response to pending request")
-	}
-
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestReadLoop_InvalidJSON(t *testing.T) {
-	opts := DefaultClientOptions()
-	client, _, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Send invalid JSON — readLoop should log error but continue
-	_, err := serverWriter.Write([]byte("not valid json\n"))
-	require.NoError(t, err)
-
-	// Send valid message after invalid one to prove loop continued
-	respChan := make(chan *JSONRPCMessage, 1)
-	client.pendingReqs.Store(int64(1), respChan)
-
-	resp := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      float64(1),
-		Result:  json.RawMessage(`{}`),
-	}
-	data, _ := json.Marshal(resp)
-	data = append(data, '\n')
-	_, err = serverWriter.Write(data)
-	require.NoError(t, err)
-
-	select {
-	case msg := <-respChan:
-		assert.NotNil(t, msg)
-	case <-time.After(2 * time.Second):
-		t.Fatal("readLoop did not continue after invalid JSON")
-	}
-
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestClose_WithPipes(t *testing.T) {
-	opts := DefaultClientOptions()
-	client, _, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Closing should clean up everything
-	err := client.Close()
-	assert.NoError(t, err)
-	assert.True(t, client.closed)
-
-	serverWriter.Close()
-}
-
-func TestSendRequest_WriteFailure(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 1 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	// Close stdin so writes fail
-	client.stdin.Close()
-	serverReader.Close()
-	serverWriter.Close()
-
-	err := client.sendRequest(context.Background(), "test/method", nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to write request")
-}
-
-func TestSendRequestWithRetry_JSONRPCErrorIsNotRetried(t *testing.T) {
-	// A JSON-RPC error is the server's answer, not a transport failure:
-	// sending the request again would only repeat it.
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 3
-	opts.RetryDelay = time.Millisecond
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	var requests atomic.Int32
-	go func() {
-		scanner := bufio.NewScanner(serverReader)
-		for scanner.Scan() {
-			var msg JSONRPCMessage
-			if json.Unmarshal(scanner.Bytes(), &msg) != nil || msg.ID == nil {
-				continue
-			}
-			requests.Add(1)
-			reply, _ := json.Marshal(JSONRPCMessage{JSONRPC: "2.0", ID: msg.ID,
-				Error: &JSONRPCError{Code: -32602, Message: "Unknown tool"}})
-			_, _ = serverWriter.Write(append(reply, '\n'))
-		}
-	}()
-
-	err := client.sendRequestWithRetry(context.Background(), "tools/list", nil, nil)
-	var rpcErr *RPCError
-	require.ErrorAs(t, err, &rpcErr)
-	assert.Equal(t, -32602, rpcErr.Code)
-	assert.Equal(t, int32(1), requests.Load(), "a request the server answered with an error is sent once")
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestListTools_WithPipe(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	opts.MaxRetries = 0
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	t.Run("success", func(t *testing.T) {
-		go func() {
-			buf := make([]byte, 4096)
-			n, err := serverReader.Read(buf)
-			if err != nil {
-				return
-			}
-			var req JSONRPCMessage
-			if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-				return
-			}
-			toolsJSON := `{"tools":[{"name":"test-tool","description":"a tool"}]}`
-			resp := JSONRPCMessage{
-				JSONRPC: "2.0",
-				ID:      req.ID,
-				Result:  json.RawMessage(toolsJSON),
-			}
-			data, _ := json.Marshal(resp)
-			data = append(data, '\n')
-			_, _ = serverWriter.Write(data)
-		}()
-
-		tools, err := client.ListTools(context.Background())
-		require.NoError(t, err)
-		assert.Len(t, tools, 1)
-		assert.Equal(t, "test-tool", tools[0].Name)
-	})
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestListTools_GracefulDegradation(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 50 * time.Millisecond
-	opts.MaxRetries = 0
-	opts.EnableGracefulDegradation = true
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	// Drain stdin but never respond — triggers timeout
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	tools, err := client.ListTools(context.Background())
-	assert.NoError(t, err) // graceful degradation returns empty, not error
-	assert.Empty(t, tools)
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestListTools_NoGracefulDegradation(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 50 * time.Millisecond
-	opts.MaxRetries = 0
-	opts.EnableGracefulDegradation = false
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	tools, err := client.ListTools(context.Background())
-	assert.Error(t, err)
-	assert.Nil(t, tools)
-	assert.Contains(t, err.Error(), "tools/list request failed")
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestCallTool_WithPipe(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	opts.MaxRetries = 0
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
-			return
-		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-			return
-		}
-		resultJSON := `{"content":[{"type":"text","text":"result"}]}`
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Result:  json.RawMessage(resultJSON),
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
-
-	args := json.RawMessage(`{"input":"test"}`)
-	result, err := client.CallTool(context.Background(), "test-tool", args)
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestCallTool_Error(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 50 * time.Millisecond
-	opts.MaxRetries = 0
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := serverReader.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	result, err := client.CallTool(context.Background(), "test-tool", nil)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "tools/call request failed")
-
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
-}
-
-func TestLogStderr(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	_, stderrWriter := io.Pipe()
-	stderrReader, stderrWriterForTest := io.Pipe()
-	client.stderr = stderrReader
-
-	client.wg.Add(1)
-	go client.logStderr()
-
-	// Write some stderr output
-	_, err := stderrWriterForTest.Write([]byte("test stderr output\n"))
-	require.NoError(t, err)
-
-	// Close to end the goroutine
-	stderrWriterForTest.Close()
-	stderrWriter.Close()
-	client.wg.Wait()
-}
-
-func TestInitialize_ProcessStartsButHandshakeFails(t *testing.T) {
-	// Use "cat" which starts successfully but won't respond with valid JSON-RPC.
-	// With equal InitTimeout and RequestTimeout, either timeout may fire first,
-	// producing either "initialization timeout" or "initialize request failed".
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "cat",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 0
-	opts.InitTimeout = 200 * time.Millisecond
-	opts.RequestTimeout = 200 * time.Millisecond
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	resp, err := client.Initialize(context.Background())
-	assert.Nil(t, resp)
-	assert.Error(t, err)
-	errMsg := err.Error()
-	assert.True(t,
-		strings.Contains(errMsg, "initialize request failed") ||
-			strings.Contains(errMsg, "initialization timeout"),
-		"expected init failure error, got: %s", errMsg)
-}
-
-func TestInitialize_InitTimeout(t *testing.T) {
-	// Test the DeadlineExceeded path in Initialize where InitTimeout is shorter than RequestTimeout
-	// A server that never answers. (cat would echo the client's own
-	// initialize back as a server request, which the client answers.)
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-		Args:    []string{"10"},
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 0
+	}))
+	defer hang.Close()
+	opts := testOptions()
 	opts.InitTimeout = 100 * time.Millisecond
-	opts.RequestTimeout = 5 * time.Second // Longer than InitTimeout
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	resp, err := client.Initialize(context.Background())
-	assert.Nil(t, resp)
-	assert.Error(t, err)
+	opts.MaxRetries = 0
+	slow := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: hang.URL}, opts)
+	_, err = slow.Initialize(context.Background())
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "initialization timeout")
 }
 
-func TestInitialize_ProcessStartsHandshakeSucceeds(t *testing.T) {
-	// Use "cat" which echoes stdin to stdout — we'll use it as a mock MCP server
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "cat",
-	}
+func TestClient_ConnectingIsRetried(t *testing.T) {
+	opts := testOptions()
+	opts.MaxRetries = 2
+	opts.RetryDelay = time.Millisecond
+	c := NewStdioClientWithOptions(ServerConfig{Name: "s", Command: "/nonexistent/mcp-server"}, opts)
+	_, err := c.Initialize(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/nonexistent/mcp-server")
+}
 
-	opts := DefaultClientOptions()
-	opts.MaxRetries = 0
-	opts.InitTimeout = 2 * time.Second
-	opts.RequestTimeout = 2 * time.Second
-
-	client := NewStdioClientWithOptions(config, opts)
-
-	// Start process manually to get stdin/stdout pipes
-	client.mu.Lock()
-	err := client.startProcess()
+func TestClient_SendsHeadersAndTheAuthorizersCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var seen []http.Header
+	inner := gosdk.NewStreamableHTTPHandler(func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) },
+		&gosdk.StreamableHTTPOptions{Stateless: true})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Clone())
+		mu.Unlock()
+		inner.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	opts := testOptions()
+	opts.Authorizer = &recordingAuthorizer{token: 1}
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: srv.URL, Headers: map[string]string{"X-Tenant": "t1"}}, opts)
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
 	require.NoError(t, err)
 
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-	client.started = true
-	client.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, seen)
+	for _, h := range seen {
+		assert.Equal(t, "t1", h.Get("X-Tenant"))
+		assert.Equal(t, "Bearer token-1", h.Get("Authorization"), "every request goes through the Authorizer")
+	}
+}
 
-	// Now simulate the server by reading from the process's stdin pipe
-	// and writing responses. But "cat" echoes stdin back to stdout, so
-	// if we send a valid JSON-RPC response after reading the request, cat
-	// would echo our input. Instead, let's use the pipe directly.
-	// Actually with "cat", whatever we write to stdin comes back on stdout.
-	// The initialize request gets written to stdin -> cat echoes it to stdout.
-	// But the echoed message is a request not a response (has Method field set),
-	// so handleMessage won't route it. We need a different approach.
-
-	// Let's test the other Initialize paths instead - close it and test
-	// that the error path through sendRequestWithRetry works
-	client.Close()
-
-	// Instead, test Initialize end-to-end with a mock that responds properly
-	// Use pipes to simulate a server that responds to the initialize request
-	client2 := NewStdioClientWithOptions(config, opts)
-
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
-
-	client2.mu.Lock()
-	client2.stdin = stdinWriter
-	client2.stdout = stdoutReader
-
-	client2.wg.Add(1)
-	go client2.readLoop(client2.stdout)
-	client2.started = true
-	client2.cmd = exec.Command("sleep", "60")
-	require.NoError(t, client2.cmd.Start())
-	client2.mu.Unlock()
-
-	// Simulate server: read requests and respond
-	go func() {
-		buf := make([]byte, 8192)
-		for {
-			n, err := stdinReader.Read(buf)
-			if err != nil {
-				return
-			}
-			var req JSONRPCMessage
-			if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-				continue
-			}
-			if req.Method == "initialize" {
-				respBody := InitializeResponse{
-					ProtocolVersion: ProtocolVersion,
-					ServerInfo:      Implementation{Name: "test", Version: "1.0"},
-				}
-				resultJSON, _ := json.Marshal(respBody)
-				resp := JSONRPCMessage{
-					JSONRPC: "2.0",
-					ID:      req.ID,
-					Result:  resultJSON,
-				}
-				data, _ := json.Marshal(resp)
-				data = append(data, '\n')
-				_, _ = stdoutWriter.Write(data)
-			}
-			// Swallow notifications silently
+// legacyJSONServer is a minimal handshake-era Streamable HTTP server whose
+// tools/list answer is given, for wire shapes go-sdk's server cannot produce.
+func legacyJSONServer(t *testing.T, toolsList string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
 		}
-	}()
-
-	// Call the second half of Initialize manually (sendRequestWithRetry + notification)
-	initCtx, cancel := context.WithTimeout(context.Background(), opts.InitTimeout)
-	defer cancel()
-
-	initReq := InitializeRequest{
-		ProtocolVersion: ProtocolVersion,
-		ClientInfo:      Implementation{Name: "promptkit", Version: "0.1.0"},
-	}
-
-	var resp InitializeResponse
-	err = client2.sendRequestWithRetry(initCtx, "initialize", initReq, &resp)
-	require.NoError(t, err)
-	assert.Equal(t, ProtocolVersion, resp.ProtocolVersion)
-	assert.Equal(t, "test", resp.ServerInfo.Name)
-
-	// Test the notification path (will fail due to stdin but that's non-fatal)
-	_ = client2.sendNotification("notifications/initialized", nil)
-
-	stdinReader.Close()
-	stdoutWriter.Close()
-	_ = client2.cmd.Process.Kill()
-	_ = client2.cmd.Wait()
-	client2.wg.Wait()
-}
-
-func TestCheckHealth_ReconnectionDisabled(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxReconnectAttempts = 0 // Disable auto-reconnection
-	client := NewStdioClientWithOptions(config, opts)
-	client.started = true
-	// cmd is nil — process is dead
-
-	err := client.checkHealth()
-	assert.Equal(t, ErrProcessDied, err)
-}
-
-func TestCheckHealth_HealthyProcess(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-	}
-	client := NewStdioClient(config)
-	client.started = true
-	client.cmd = exec.Command("sleep", "60")
-	require.NoError(t, client.cmd.Start())
-	t.Cleanup(func() {
-		if client.cmd.Process != nil {
-			_ = client.cmd.Process.Kill()
-			_ = client.cmd.Wait()
+		var m JSONRPCMessage
+		_ = json.NewDecoder(r.Body).Decode(&m)
+		if m.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
 		}
-	})
-
-	err := client.checkHealth()
-	assert.NoError(t, err)
-}
-
-func TestFailPendingRequests(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	// Add some pending requests
-	ch1 := make(chan *JSONRPCMessage, 1)
-	ch2 := make(chan *JSONRPCMessage, 1)
-	ch3 := make(chan *JSONRPCMessage, 1)
-	client.pendingReqs.Store(int64(1), ch1)
-	client.pendingReqs.Store(int64(2), ch2)
-	client.pendingReqs.Store(int64(3), ch3)
-
-	client.failPendingRequests()
-
-	// All channels should have received error messages
-	for i, ch := range []chan *JSONRPCMessage{ch1, ch2, ch3} {
-		select {
-		case msg := <-ch:
-			require.NotNil(t, msg, "channel %d should have a message", i+1)
-			assert.NotNil(t, msg.Error, "channel %d should have an error", i+1)
-			assert.Equal(t, -32000, msg.Error.Code)
-			assert.Contains(t, msg.Error.Message, "process died")
+		var result string
+		switch m.Method {
+		case "initialize":
+			result = `{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"raw","version":"1"}}`
+		case "tools/list":
+			result = toolsList
 		default:
-			t.Fatalf("channel %d should have received an error message", i+1)
-		}
-	}
-
-	// Pending requests should be cleared
-	count := 0
-	client.pendingReqs.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	assert.Equal(t, 0, count, "pending requests should be cleared")
-}
-
-func TestFailPendingRequests_FullChannel(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-
-	// Add a pending request with a channel that's already full
-	ch := make(chan *JSONRPCMessage, 1)
-	ch <- &JSONRPCMessage{} // Fill the channel
-	client.pendingReqs.Store(int64(1), ch)
-
-	// Should not panic when channel is full
-	client.failPendingRequests()
-
-	count := 0
-	client.pendingReqs.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	assert.Equal(t, 0, count, "pending requests should be cleared even if channel was full")
-}
-
-func TestCleanupDeadProcess(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-	}
-	client := NewStdioClient(config)
-
-	// Start a real process
-	client.cmd = exec.Command("sleep", "60")
-	var err error
-	client.stdin, err = client.cmd.StdinPipe()
-	require.NoError(t, err)
-	client.stdout, err = client.cmd.StdoutPipe()
-	require.NoError(t, err)
-	client.stderr, err = client.cmd.StderrPipe()
-	require.NoError(t, err)
-	require.NoError(t, client.cmd.Start())
-
-	// cleanupDeadProcess should not panic
-	client.cleanupDeadProcess()
-}
-
-func TestReconnect_ClientClosed(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-	client.started = true
-	client.closed = true
-
-	err := client.reconnect()
-	assert.ErrorIs(t, err, ErrClientClosed)
-}
-
-func TestReconnect_AlreadyAlive(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-	}
-	client := NewStdioClient(config)
-	client.started = true
-	client.cmd = exec.Command("sleep", "60")
-	require.NoError(t, client.cmd.Start())
-	t.Cleanup(func() {
-		if client.cmd.Process != nil {
-			_ = client.cmd.Process.Kill()
-			_ = client.cmd.Wait()
-		}
-	})
-
-	// reconnect should return nil since process is alive
-	err := client.reconnect()
-	assert.NoError(t, err)
-}
-
-func TestReconnect_FailsWithBadCommand(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "/nonexistent/command",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxReconnectAttempts = 2
-	opts.RetryDelay = 10 * time.Millisecond
-	opts.InitTimeout = 100 * time.Millisecond
-	client := NewStdioClientWithOptions(config, opts)
-	client.started = true
-	// cmd is nil — process is dead
-
-	err := client.reconnect()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "reconnection failed after 2 attempts")
-}
-
-func TestReconnect_ClosedDuringAttempt(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "/nonexistent/command",
-	}
-
-	opts := DefaultClientOptions()
-	opts.MaxReconnectAttempts = 5
-	opts.RetryDelay = 200 * time.Millisecond
-	opts.InitTimeout = 100 * time.Millisecond
-	client := NewStdioClientWithOptions(config, opts)
-	client.started = true
-
-	// Close the client during reconnection
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		client.mu.Lock()
-		client.closed = true
-		client.mu.Unlock()
-	}()
-
-	err := client.reconnect()
-	assert.Error(t, err)
-	// Should detect closed state
-	assert.True(t,
-		errors.Is(err, ErrClientClosed) ||
-			strings.Contains(err.Error(), "reconnection failed"),
-		"expected closed or failed error, got: %s", err.Error())
-}
-
-func TestWaitForReconnect_Success(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "sleep",
-	}
-	client := NewStdioClient(config)
-	client.started = true
-	client.reconnecting = true
-	doneCh := make(chan struct{})
-
-	// Simulate reconnection completing
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		client.mu.Lock()
-		client.reconnecting = false
-		client.cmd = exec.Command("sleep", "60")
-		_ = client.cmd.Start()
-		client.mu.Unlock()
-		close(doneCh)
-	}()
-	t.Cleanup(func() {
-		if client.cmd != nil && client.cmd.Process != nil {
-			_ = client.cmd.Process.Kill()
-			_ = client.cmd.Wait()
-		}
-	})
-
-	err := client.waitForReconnect(doneCh)
-	assert.NoError(t, err)
-}
-
-func TestWaitForReconnect_ClosedDuringWait(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-	client.reconnecting = true
-	doneCh := make(chan struct{})
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		client.mu.Lock()
-		client.closed = true
-		client.reconnecting = false
-		client.mu.Unlock()
-		close(doneCh)
-	}()
-
-	err := client.waitForReconnect(doneCh)
-	assert.ErrorIs(t, err, ErrClientClosed)
-}
-
-func TestWaitForReconnect_ReconnectFailed(t *testing.T) {
-	config := ServerConfig{
-		Name:    "test-server",
-		Command: "echo",
-	}
-	client := NewStdioClient(config)
-	client.reconnecting = true
-	doneCh := make(chan struct{})
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		client.mu.Lock()
-		client.reconnecting = false
-		// cmd stays nil — reconnect failed
-		client.mu.Unlock()
-		close(doneCh)
-	}()
-
-	err := client.waitForReconnect(doneCh)
-	assert.Equal(t, ErrProcessDied, err)
-}
-
-func TestSendRequest_UnmarshalResultError(t *testing.T) {
-	opts := DefaultClientOptions()
-	opts.RequestTimeout = 2 * time.Second
-	client, serverReader, serverWriter := newTestClientWithPipes(t, opts)
-
-	client.wg.Add(1)
-	go client.readLoop(client.stdout)
-
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := serverReader.Read(buf)
-		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			id, _ := json.Marshal(m.ID)
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"no"}}`, id)
 			return
 		}
-		var req JSONRPCMessage
-		if err := json.Unmarshal(buf[:n-1], &req); err != nil {
-			return
-		}
-		// Send result that can't be unmarshalled into target type
-		resp := JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Result:  json.RawMessage(`"not an object"`),
-		}
-		data, _ := json.Marshal(resp)
-		data = append(data, '\n')
-		_, _ = serverWriter.Write(data)
-	}()
+		w.Header().Set("Content-Type", "application/json")
+		id, _ := json.Marshal(m.ID)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":%s}`, id, result)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
-	var result struct{ Field int }
-	err := client.sendRequest(context.Background(), "test/method", nil, &result)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to unmarshal result")
+func TestClient_ToolsThatMustRunAsTasksAreLeftOut(t *testing.T) {
+	// 2025-11-25: such a tool can only be called as a task, which the
+	// client does not implement. go-sdk v1.8.0 drops the field, so this
+	// documents the gap until it carries it.
+	url := legacyJSONServer(t, `{"tools":[`+
+		`{"name":"plain","inputSchema":{"type":"object"}},`+
+		`{"name":"tasked","inputSchema":{"type":"object"},"execution":{"taskSupport":"required"}}]}`)
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: url}, testOptions())
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	tools, err := c.ListTools(context.Background())
+	require.NoError(t, err)
+	var names []string
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	assert.Contains(t, names, "plain")
+}
 
-	serverReader.Close()
-	serverWriter.Close()
-	client.wg.Wait()
+func TestClient_GracefulDegradation(t *testing.T) {
+	url := legacyJSONServer(t, `"not a list"`)
+	opts := testOptions()
+	strict := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: url}, opts)
+	defer strict.Close()
+	_, err := strict.Initialize(context.Background())
+	require.NoError(t, err)
+	_, err = strict.ListTools(context.Background())
+	require.Error(t, err)
+
+	opts.EnableGracefulDegradation = true
+	lenient := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: url}, opts)
+	defer lenient.Close()
+	_, err = lenient.Initialize(context.Background())
+	require.NoError(t, err)
+	tools, err := lenient.ListTools(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, tools)
+}
+
+func TestClient_ListToolsFollowsPagination(t *testing.T) {
+	srv := httptest.NewServer(gosdk.NewStreamableHTTPHandler(
+		func(*http.Request) *gosdk.Server { return goSDKTestServer(&gosdk.ServerOptions{PageSize: 1}) },
+		&gosdk.StreamableHTTPOptions{Stateless: true}))
+	defer srv.Close()
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: srv.URL}, testOptions())
+	defer c.Close()
+	_, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	tools, err := c.ListTools(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, tools, 5, "every page is fetched")
+}
+
+func TestAnswerElicitation(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"color":{"type":"string","default":"blue"},"n":{"type":"integer"}}}`)
+	reply := func(res ElicitResult, err error) ElicitationHandler {
+		return func(context.Context, string, ElicitRequest) (ElicitResult, error) { return res, err }
+	}
+
+	res, err := answerElicitation(context.Background(), reply(ElicitResult{Action: ElicitActionAccept,
+		Content: json.RawMessage(`{"n":3}`)}, nil), "s", ElicitRequest{Message: "x", RequestedSchema: schema})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"n":3,"color":"blue"}`, string(res.Content), "defaults fill what the answer omits")
+
+	res, err = answerElicitation(context.Background(), reply(ElicitResult{Action: ElicitActionDecline,
+		Content: json.RawMessage(`{"leak":true}`)}, nil), "s", ElicitRequest{RequestedSchema: schema})
+	require.NoError(t, err)
+	assert.Empty(t, res.Content, "only an accepted form carries content")
+
+	_, err = answerElicitation(context.Background(), reply(ElicitResult{}, nil), "s",
+		ElicitRequest{Mode: ElicitModeURL, URL: "https://x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported elicitation mode", "url mode is not advertised")
+
+	_, err = answerElicitation(context.Background(), reply(ElicitResult{Action: "maybe"}, nil), "s", ElicitRequest{})
+	assert.ErrorContains(t, err, `"maybe"`)
+
+	_, err = answerElicitation(context.Background(), reply(ElicitResult{}, errors.New("no user")), "s", ElicitRequest{})
+	assert.ErrorContains(t, err, "no user")
+}
+
+func TestClient_ElicitationIsAdvertisedOnlyWithAHandler(t *testing.T) {
+	// Advertising elicitation invites servers to ask; without a host handler
+	// nothing could answer.
+	advertised := func(opts ClientOptions) string {
+		caps := make(chan string, 1)
+		srv := httptest.NewServer(gosdk.NewSSEHandler(func(*http.Request) *gosdk.Server {
+			return goSDKTestServer(&gosdk.ServerOptions{InitializedHandler: func(_ context.Context, r *gosdk.InitializedRequest) {
+				raw, _ := json.Marshal(r.Session.InitializeParams().Capabilities)
+				caps <- string(raw)
+			}})
+		}, nil))
+		defer srv.Close()
+		c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: srv.URL}, opts)
+		defer c.Close()
+		_, err := c.Initialize(context.Background())
+		require.NoError(t, err)
+		select {
+		case got := <-caps:
+			return got
+		case <-time.After(5 * time.Second):
+			t.Fatal("the server saw no handshake")
+			return ""
+		}
+	}
+	assert.NotContains(t, advertised(DefaultClientOptions()), "elicitation")
+	assert.Contains(t, advertised(testOptions()), `"elicitation"`)
+}
+
+func TestNewClientAdapter_PicksTheTransport(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  ServerConfig
+		want Transport
+	}{
+		{ServerConfig{URL: "http://x"}, transportAuto},
+		{ServerConfig{URL: "http://x", TransportName: TransportSSE}, TransportSSE},
+		{ServerConfig{URL: "http://x", TransportName: TransportStreamableHTTP}, TransportStreamableHTTP},
+		{ServerConfig{Command: "srv"}, TransportStdio},
+		// Neither set: validation upstream prevents it; Initialize fails
+		// clearly, as for a stdio server that cannot start.
+		{ServerConfig{}, TransportUnknown},
+	} {
+		c := newClientAdapter(&tc.cfg, nil).(*sdkClient)
+		assert.Equal(t, tc.want, c.transport, "%+v", tc.cfg)
+	}
+}
+
+// countingRefuser refuses every request, counting how often it is asked.
+type countingRefuser struct{ calls atomic.Int32 }
+
+func (a *countingRefuser) Authorize(context.Context, *http.Request) error {
+	a.calls.Add(1)
+	return errors.New("consent declined")
+}
+
+func (a *countingRefuser) Challenge(context.Context, *AuthChallenge) error { return nil }
+
+func TestClient_RefusedAuthorizationIsNotRetried(t *testing.T) {
+	auth := &countingRefuser{}
+	opts := testOptions()
+	opts.MaxRetries = 3
+	opts.RetryDelay = time.Millisecond
+	opts.Authorizer = auth
+	c := NewStreamableClientWithOptions(ServerConfig{Name: "s", URL: serveStreamable(t, true)}, opts)
+	_, err := c.Initialize(context.Background())
+	var authErr *AuthError
+	require.ErrorAs(t, err, &authErr)
+	assert.Contains(t, err.Error(), "consent declined")
+	// One connect: server/discover, and the handshake it falls back to.
+	assert.LessOrEqual(t, auth.calls.Load(), int32(2), "a refusal is not retried")
+}
+
+func TestConstructors_FixTheTransportAndDefaults(t *testing.T) {
+	cfg := ServerConfig{Name: "s", URL: "http://x", Command: "srv"}
+	for _, tc := range []struct {
+		c    *sdkClient
+		want Transport
+	}{
+		{NewStdioClient(cfg).sdkClient, TransportStdio},
+		{NewStreamableClient(cfg).sdkClient, TransportStreamableHTTP},
+		{NewSSEClient(cfg).sdkClient, TransportSSE},
+	} {
+		assert.Equal(t, tc.want, tc.c.transport)
+		assert.Equal(t, DefaultClientOptions(), tc.c.options)
+	}
+}
+
+func TestRPCError_Error(t *testing.T) {
+	assert.Equal(t, "JSON-RPC error -32602: bad", (&RPCError{Code: -32602, Message: "bad"}).Error())
+	assert.Equal(t, `JSON-RPC error -32602: bad (data: {"field":"a"})`,
+		(&RPCError{Code: -32602, Message: "bad", Data: json.RawMessage(`{"field":"a"}`)}).Error())
 }

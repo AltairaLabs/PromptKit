@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -428,4 +429,49 @@ type Registry interface {
 
 	// Close shuts down all MCP servers and connections
 	Close() error
+}
+
+// DiscoverResult is a server's answer to server/discover: its supported
+// versions, capabilities and identity (2026-07-28 server/discover).
+type DiscoverResult struct {
+	SupportedVersions []string                   `json:"supportedVersions"`
+	Capabilities      ServerCapabilities         `json:"capabilities"`
+	Instructions      string                     `json:"instructions,omitempty"`
+	ResultType        string                     `json:"resultType"`
+	TTLMs             *int64                     `json:"ttlMs"`
+	CacheScope        string                     `json:"cacheScope"`
+	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// InputRequiredResult is a server's interim answer asking for input before
+// it completes a request (2026-07-28 multi round-trip requests).
+type InputRequiredResult struct {
+	ResultType    string                     `json:"resultType"`
+	InputRequests map[string]InputRequest    `json:"inputRequests,omitempty"`
+	RequestState  json.RawMessage            `json:"requestState,omitempty"`
+	Meta          map[string]json.RawMessage `json:"_meta,omitempty"`
+}
+
+// InputRequest is one request for input inside an InputRequiredResult.
+type InputRequest struct {
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params,omitempty"`
+}
+
+// jsonNull is the JSON null literal.
+const jsonNull = "null"
+
+// RPCError is a JSON-RPC error returned by an MCP server. Callers can
+// errors.As a request error into it to read the code and data.
+type RPCError struct {
+	Code    int
+	Message string
+	Data    json.RawMessage
+}
+
+func (e *RPCError) Error() string {
+	if len(e.Data) > 0 {
+		return fmt.Sprintf("JSON-RPC error %d: %s (data: %s)", e.Code, e.Message, e.Data)
+	}
+	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
 }

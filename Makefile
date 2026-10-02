@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance
+.PHONY: mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance mcp-interop
 .PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy bench-audio-memory
 
 # Route unknown targets to help
@@ -328,6 +328,9 @@ mcp-conformance: ## Run the official MCP conformance suite against the client, f
 			--command "$$bin" --requirements $$rev \
 			--expected-failures tools/mcp-conformance-client/conformance-baseline.yml || exit 1; \
 	done
+
+mcp-interop: ## Run the MCP client against real SDK-built servers over every transport (needs Python 3, Node)
+	@./tools/mcp-interop/run.sh
 
 promptpack-schema-check: ## Check the embedded PromptPack schema IS the published release (for CI)
 	@echo "Checking embedded PromptPack schema matches the published release..."

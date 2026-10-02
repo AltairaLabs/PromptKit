@@ -61,7 +61,7 @@ type RegistryImpl struct {
 	// nil when MaxProcesses is 0 (unlimited).
 	processSem chan struct{}
 
-	// newClientFunc creates a new MCP client. Defaults to newStdioClientAdapter.
+	// newClientFunc creates a new MCP client. Defaults to newClientAdapter.
 	// Can be overridden in tests to inject mock clients.
 	newClientFunc func(config ServerConfig) Client
 }
@@ -86,23 +86,13 @@ func newClientAdapter(config *ServerConfig, configure func(ServerConfig, *Client
 	if configure != nil {
 		configure(*config, &opts)
 	}
+	transport := config.Transport()
 	if config.TransportName == "" && config.URL != "" {
 		// A URL with no transport named: Streamable HTTP, falling back to
 		// HTTP+SSE if the server only hosts that.
-		return newHTTPAutoClient(config, &opts)
+		transport = transportAuto
 	}
-	switch config.Transport() {
-	case TransportStreamableHTTP:
-		return NewStreamableClientWithOptions(*config, opts)
-	case TransportSSE:
-		return NewSSEClientWithOptions(*config, opts)
-	case TransportStdio, TransportUnknown:
-		// TransportUnknown falls through to stdio so the caller will see a
-		// clear error from StdioClient.Initialize. Upstream validation should
-		// prevent the unknown case from ever reaching here.
-		return NewStdioClientWithOptions(*config, opts)
-	}
-	return NewStdioClientWithOptions(*config, opts)
+	return newSDKClient(*config, opts, transport)
 }
 
 // NewRegistryWithOptions creates a new MCP server registry with custom options.

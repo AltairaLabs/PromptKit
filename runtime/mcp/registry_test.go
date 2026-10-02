@@ -822,39 +822,6 @@ func TestRegistry_Close_WithMockClients(t *testing.T) {
 	assert.Equal(t, 0, len(registry.processSem))
 }
 
-func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
-	reg := NewRegistry()
-
-	// A URL alone yields the auto client: Streamable HTTP, with the HTTP+SSE
-	// fallback.
-	c := reg.newClientFunc(ServerConfig{Name: "url", URL: "https://x"})
-	_, ok := c.(*httpAutoClient)
-	assert.True(t, ok, "expected *httpAutoClient, got %T", c)
-
-	// An explicit sse transport yields an *SSEClient.
-	c = reg.newClientFunc(ServerConfig{Name: "sse", URL: "https://x", TransportName: TransportSSE})
-	_, ok = c.(*SSEClient)
-	assert.True(t, ok, "expected *SSEClient, got %T", c)
-
-	// Stdio config yields a *StdioClient.
-	c = reg.newClientFunc(ServerConfig{Name: "stdio", Command: "./x"})
-	_, ok = c.(*StdioClient)
-	assert.True(t, ok, "expected *StdioClient, got %T", c)
-
-	// Unknown config (neither URL nor Command) falls through to stdio; the
-	// caller will get a clear error from StdioClient.Initialize later. This
-	// is a defence-in-depth behaviour — validation upstream should prevent
-	// the state from ever reaching here.
-	c = reg.newClientFunc(ServerConfig{Name: "x"})
-	_, ok = c.(*StdioClient)
-	assert.True(t, ok, "expected *StdioClient fallback, got %T", c)
-
-	// Explicit streamable_http transport yields a *StreamableClient.
-	c = reg.newClientFunc(ServerConfig{Name: "sh", URL: "https://x", TransportName: TransportStreamableHTTP})
-	_, ok = c.(*StreamableClient)
-	assert.True(t, ok, "expected *StreamableClient, got %T", c)
-}
-
 func TestRegistry_UnregisterServer(t *testing.T) {
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "x", Command: "./foo"}))

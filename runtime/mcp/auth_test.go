@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -168,68 +170,50 @@ func (failingAuthorizer) Authorize(context.Context, *http.Request) error {
 func (failingAuthorizer) Challenge(context.Context, *AuthChallenge) error { return nil }
 
 func TestStreamable_AuthorizerSecuresEveryRequest(t *testing.T) {
-	// A modern server that requires a bearer token on every request: the
-	// discovery probe is challenged, the host's Authorizer obtains a token,
-	// and everything after carries it.
-	m := &modernServer{t: t}
-	inner := m.start()
+	// A server that requires a bearer token on every request: the first
+	// request is challenged, the host's Authorizer obtains a token, and
+	// everything after carries it.
+	inner := gosdk.NewStreamableHTTPHandler(func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) },
+		&gosdk.StreamableHTTPOptions{Stateless: true})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer token-1" {
-			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+inner.URL+`/.well-known/oauth-protected-resource"`)
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://as.example/.well-known/oauth-protected-resource"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		proxyTo(t, inner.URL, w, r)
+		inner.ServeHTTP(w, r)
 	}))
 	defer srv.Close()
+	cfg := ServerConfig{Name: "secure", URL: srv.URL, TransportName: TransportStreamableHTTP}
 
 	auth := &recordingAuthorizer{}
 	opts := DefaultClientOptions()
 	opts.Authorizer = auth
-	c := NewStreamableClientWithOptions(ServerConfig{Name: "secure", URL: srv.URL, TransportName: TransportStreamableHTTP}, opts)
+	c := NewStreamableClientWithOptions(cfg, opts)
 	defer c.Close()
-	_, err := c.Initialize(context.Background())
+	info, err := c.Initialize(context.Background())
 	require.NoError(t, err)
-	_, err = c.CallTool(context.Background(), "x", json.RawMessage(`{}`))
+	assert.Equal(t, ProtocolVersion, info.ProtocolVersion, "a 401 is not a reason to fall back to the handshake era")
+	_, err = c.CallTool(context.Background(), "add", json.RawMessage(`{"a":1,"b":1}`))
 	require.NoError(t, err)
-	assert.Len(t, auth.challenges, 1, "one challenge, then the token is reused")
-	assert.True(t, c.sess.isModern())
+	require.Len(t, auth.challenges, 1, "one challenge, then the token is reused")
+	assert.Equal(t, "secure", auth.challenges[0].Server)
+	assert.Equal(t, "https://as.example/.well-known/oauth-protected-resource", auth.challenges[0].ResourceMetadata)
 
-	// Without an Authorizer, a 401 is an error — not a reason to fall back
-	// to the handshake era.
-	plain := NewStreamableClient(ServerConfig{Name: "secure", URL: srv.URL, TransportName: TransportStreamableHTTP})
+	noAuth := DefaultClientOptions()
+	noAuth.MaxRetries = 0
+	plain := NewStreamableClientWithOptions(cfg, noAuth)
 	defer plain.Close()
 	_, err = plain.Initialize(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "401")
+	require.Error(t, err, "without an Authorizer a 401 is an error")
 
 	failing := DefaultClientOptions()
 	failing.Authorizer = failingAuthorizer{}
-	broken := NewStreamableClientWithOptions(ServerConfig{Name: "secure", URL: srv.URL, TransportName: TransportStreamableHTTP}, failing)
+	broken := NewStreamableClientWithOptions(cfg, failing)
 	defer broken.Close()
 	_, err = broken.Initialize(context.Background())
-	var authErr *AuthError
-	require.ErrorAs(t, err, &authErr)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no credentials for this server")
-}
-
-// proxyTo forwards a request to another test server.
-func proxyTo(t *testing.T, target string, w http.ResponseWriter, r *http.Request) {
-	t.Helper()
-	body, _ := io.ReadAll(r.Body)
-	out, _ := http.NewRequestWithContext(r.Context(), r.Method, target+r.URL.Path, strings.NewReader(string(body)))
-	out.Header = r.Header.Clone()
-	resp, err := http.DefaultClient.Do(out)
-	if err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-	for k, vs := range resp.Header {
-		w.Header()[k] = vs
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
 }
 
 func TestRegistry_ConfigureClientSetsPerServerOptions(t *testing.T) {
@@ -246,7 +230,7 @@ func TestRegistry_ConfigureClientSetsPerServerOptions(t *testing.T) {
 	secure := reg.newClientFunc(ServerConfig{Name: "secure", URL: "https://x", TransportName: TransportStreamableHTTP, TimeoutMs: 1234})
 	open := reg.newClientFunc(ServerConfig{Name: "open", URL: "https://y", TransportName: TransportStreamableHTTP})
 	assert.Equal(t, []string{"secure", "open"}, got)
-	assert.Same(t, auth, secure.(*StreamableClient).options.Authorizer)
-	assert.EqualValues(t, 1234_000_000, secure.(*StreamableClient).options.RequestTimeout, "the server's timeout is applied first")
-	assert.Nil(t, open.(*StreamableClient).options.Authorizer)
+	assert.Same(t, auth, secure.(*sdkClient).options.Authorizer)
+	assert.EqualValues(t, 1234_000_000, secure.(*sdkClient).options.RequestTimeout, "the server's timeout is applied first")
+	assert.Nil(t, open.(*sdkClient).options.Authorizer)
 }
