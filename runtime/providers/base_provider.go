@@ -508,9 +508,6 @@ func (b *BaseProvider) RunStreamingRequest(
 	req *StreamRetryRequest,
 	consumer StreamConsumer,
 ) (<-chan StreamChunk, error) {
-	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {
-		return nil, fmt.Errorf("rate limit wait: %w", waitErr)
-	}
 	if acqErr := b.AcquireStreamSlot(ctx); acqErr != nil {
 		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
 	}

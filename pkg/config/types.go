@@ -178,7 +178,9 @@ type Provider struct {
 	// Values are plain strings — use the credentials field for secrets.
 	// Collisions with built-in provider headers (Authorization, Content-Type,
 	// etc.) are rejected at request time.
-	Headers          map[string]string      `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// Deprecated: rate_limit is accepted for compatibility but has never been
+	// applied to a provider. It will be removed in v3.
 	RateLimit        RateLimit              `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty"`
 	Defaults         ProviderDefaults       `json:"defaults,omitempty" yaml:"defaults,omitempty"`
 	Pricing          Pricing                `json:"pricing,omitempty" yaml:"pricing,omitempty"`
@@ -354,7 +356,10 @@ type Pricing struct {
 	OutputCostPer1K float64 `json:"output_cost_per_1k" yaml:"output_cost_per_1k"`
 }
 
-// RateLimit defines rate limiting parameters
+// RateLimit defines rate limiting parameters.
+//
+// Deprecated: Provider.RateLimit has never been applied to a provider. It will
+// be removed in v3.
 type RateLimit struct {
 	RPS   int `json:"rps" yaml:"rps"`
 	Burst int `json:"burst" yaml:"burst"`

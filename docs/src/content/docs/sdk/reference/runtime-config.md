@@ -181,9 +181,8 @@ the same ID in both spellings is rejected.
 | `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
 | `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
-| `rate_limit` | object | no | Client-side request throttling. See [rate_limit](#rate_limit). |
 
-The tuning fields (`request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport`, `rate_limit` and `defaults.prompt_caching`) take effect for every provider entry loaded through `WithRuntimeConfig`. A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
+The tuning fields (`request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport` and `defaults.prompt_caching`) take effect for every provider entry loaded through `WithRuntimeConfig`. A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
 
 #### provider types
 
@@ -285,15 +284,6 @@ Per-provider HTTP connection pool. The concurrent-stream ceiling per upstream is
 | `max_conns_per_host` | int | Maximum TCP connections to one host (in use and idle). Default: `0` (unlimited). |
 | `max_idle_conns_per_host` | int | Maximum idle keep-alive connections kept per host. Default: `100`. |
 | `idle_conn_timeout` | string | How long an idle connection is kept. Go duration string. Default: `"90s"`. |
-
-#### rate_limit
-
-Throttles the requests this provider sends, streaming and request/response alike. A request waits for capacity on the caller's context.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `rps` | int | Sustained requests per second. `0` (the default) disables throttling. |
-| `burst` | int | Requests that may start at once before throttling applies. Default: `rps`. |
 
 ---
 

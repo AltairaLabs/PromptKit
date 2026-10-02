@@ -22,7 +22,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/time/rate"
 )
 
 func writeRuntimeConfig(t *testing.T, content string) string {
@@ -308,7 +307,6 @@ func TestCreateProviderFromConfig_AppliesTuning(t *testing.T) {
 		Model:             "gpt-4o-mini",
 		StreamIdleTimeout: "45s",
 		StreamRetry:       &pkgconfig.StreamRetryConfig{Enabled: true, MaxAttempts: 3},
-		RateLimit:         pkgconfig.RateLimit{RPS: 5, Burst: 2},
 	}
 
 	prov, err := createProviderFromConfig(p, nil)
@@ -322,12 +320,6 @@ func TestCreateProviderFromConfig_AppliesTuning(t *testing.T) {
 	assert.Equal(t, 45*time.Second, tuned.StreamIdleTimeout())
 	assert.True(t, tuned.StreamRetryPolicy().Enabled)
 	assert.Equal(t, 3, tuned.StreamRetryPolicy().MaxAttempts)
-
-	limited, ok := prov.(interface{ RateLimiter() *rate.Limiter })
-	require.True(t, ok, "provider %T does not expose its rate limiter", prov)
-	require.NotNil(t, limited.RateLimiter())
-	assert.Equal(t, rate.Limit(5), limited.RateLimiter().Limit())
-	assert.Equal(t, 2, limited.RateLimiter().Burst())
 }
 
 func TestCreateStateStoreFromConfig_Redis(t *testing.T) {

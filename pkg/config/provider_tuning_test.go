@@ -23,7 +23,6 @@ func TestApplyProviderTuning_CopiesEveryTuningField(t *testing.T) {
 			Budget:       &StreamRetryBudgetConfig{RatePerSec: 2, Burst: 4},
 		},
 		HTTPTransport: &HTTPTransportConfig{MaxConnsPerHost: 50, MaxIdleConnsPerHost: 25, IdleConnTimeout: "30s"},
-		RateLimit:     RateLimit{RPS: 10, Burst: 20},
 		Defaults:      ProviderDefaults{PromptCaching: &caching},
 	}
 	var spec providers.ProviderSpec
@@ -52,9 +51,6 @@ func TestApplyProviderTuning_CopiesEveryTuningField(t *testing.T) {
 	if spec.HTTPTransport != wantTransport {
 		t.Errorf("HTTPTransport = %+v, want %+v", spec.HTTPTransport, wantTransport)
 	}
-	if spec.RateLimit != (providers.RateLimitOptions{RequestsPerSecond: 10, Burst: 20}) {
-		t.Errorf("RateLimit = %+v, want {10 20}", spec.RateLimit)
-	}
 	if !spec.Defaults.DisablePromptCaching {
 		t.Error("DisablePromptCaching = false, want true for prompt_caching: false")
 	}
@@ -76,8 +72,8 @@ func TestApplyProviderTuning_UnsetAndInvalidFallBackToDefaults(t *testing.T) {
 	if spec.StreamRetry.Enabled || spec.StreamRetryBudget != nil {
 		t.Errorf("disabled stream_retry produced policy %+v, budget %v", spec.StreamRetry, spec.StreamRetryBudget)
 	}
-	if spec.RateLimit.RequestsPerSecond != 0 || spec.Defaults.DisablePromptCaching {
-		t.Errorf("unset fields not zero: rate %+v, disable caching %v", spec.RateLimit, spec.Defaults.DisablePromptCaching)
+	if spec.Defaults.DisablePromptCaching {
+		t.Error("DisablePromptCaching = true for an unset prompt_caching, want false")
 	}
 }
 

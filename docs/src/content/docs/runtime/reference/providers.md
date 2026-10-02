@@ -234,7 +234,6 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(e \*ProviderTransportError\) Error\(\) string](<#ProviderTransportError.Error>)
   - [func \(e \*ProviderTransportError\) Unwrap\(\) error](<#ProviderTransportError.Unwrap>)
 - [type RankedDocument](<#RankedDocument>)
-- [type RateLimitOptions](<#RateLimitOptions>)
 - [type Registry](<#Registry>)
   - [func NewRegistry\(\) \*Registry](<#NewRegistry>)
   - [func \(r \*Registry\) Base\(\) \*base.Registry](<#Registry.Base>)
@@ -514,7 +513,7 @@ func CapabilitySet(capabilities []string) map[string]bool
 CapabilitySet converts a declared capability list into a membership set for O\(1\) lookup. It returns nil for an empty list so callers can distinguish "not declared" \(nil → fall back to built\-in defaults\) from a non\-empty declaration that is authoritative.
 
 <a name="CheckHTTPError"></a>
-## func [CheckHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L830>)
+## func [CheckHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L827>)
 
 ```go
 func CheckHTTPError(resp *http.Response, url string) error
@@ -783,7 +782,7 @@ func ParsePlatformHTTPError(platform string, statusCode int, body []byte) error
 ParsePlatformHTTPError extracts a human\-readable error from platform\-specific HTTP error responses \(Bedrock, Vertex, Azure\). These platforms return JSON like \{"message":"..."\} on HTTP 4xx/5xx. Falls back to raw body if parsing fails. When platform is empty, returns a generic error with the raw body.
 
 <a name="ReadErrorBody"></a>
-## func [ReadErrorBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L801>)
+## func [ReadErrorBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L798>)
 
 ```go
 func ReadErrorBody(body io.Reader) []byte
@@ -792,7 +791,7 @@ func ReadErrorBody(body io.Reader) []byte
 ReadErrorBody reads and returns an error response body, limiting the size to MaxErrorResponseSize. Error responses should be small; this is a safety net.
 
 <a name="ReadResponseBody"></a>
-## func [ReadResponseBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L795>)
+## func [ReadResponseBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L792>)
 
 ```go
 func ReadResponseBody(body io.Reader) ([]byte, error)
@@ -919,7 +918,7 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests)
 RunProviderContractTests executes all contract tests against a provider. This should be called from each provider's test file.
 
 <a name="SetErrorResponse"></a>
-## func [SetErrorResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L854>)
+## func [SetErrorResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L851>)
 
 ```go
 func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start time.Time)
@@ -955,7 +954,7 @@ func SupportsMultimodal(p Provider) bool
 SupportsMultimodal checks if a provider implements multimodal support
 
 <a name="UnmarshalJSON"></a>
-## func [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L844>)
+## func [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L841>)
 
 ```go
 func UnmarshalJSON(respBody []byte, v any, predictResp *PredictionResponse, start time.Time) error
@@ -1282,7 +1281,7 @@ func (b *BaseProvider) Close() error
 Close closes the HTTP client's idle connections
 
 <a name="BaseProvider.DoAndReadResponse"></a>
-### func \(\*BaseProvider\) [DoAndReadResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L809-L811>)
+### func \(\*BaseProvider\) [DoAndReadResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L806-L808>)
 
 ```go
 func (b *BaseProvider) DoAndReadResponse(req *http.Request, predictResp *PredictionResponse, start time.Time, providerName string) (body []byte, statusCode int, err error)
@@ -1318,7 +1317,7 @@ func (b *BaseProvider) GetStreamingHTTPClient() *http.Client
 GetStreamingHTTPClient returns a dedicated HTTP client for SSE streaming calls. It shares the non\-streaming client's transport but has Timeout=0 so long\-lived streams are not killed by a wall\-clock cap. When no dedicated streaming client is configured it falls back to the regular client so callers never receive nil.
 
 <a name="BaseProvider.HTTPTimeout"></a>
-### func \(\*BaseProvider\) [HTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L746>)
+### func \(\*BaseProvider\) [HTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L743>)
 
 ```go
 func (b *BaseProvider) HTTPTimeout() time.Duration
@@ -1336,7 +1335,7 @@ func (b *BaseProvider) ID() string
 ID returns the provider ID
 
 <a name="BaseProvider.MakeJSONRequest"></a>
-### func \(\*BaseProvider\) [MakeJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L885-L891>)
+### func \(\*BaseProvider\) [MakeJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L882-L888>)
 
 ```go
 func (b *BaseProvider) MakeJSONRequest(ctx context.Context, url string, request any, headers RequestHeaders, providerName string) ([]byte, error)
@@ -1345,7 +1344,7 @@ func (b *BaseProvider) MakeJSONRequest(ctx context.Context, url string, request 
 MakeJSONRequest performs a JSON HTTP POST request with common error handling. This reduces duplication across provider implementations. providerName is used for logging purposes.
 
 <a name="BaseProvider.MakeRawRequest"></a>
-### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L910-L916>)
+### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L907-L913>)
 
 ```go
 func (b *BaseProvider) MakeRawRequest(ctx context.Context, url string, body []byte, headers RequestHeaders, providerName string) ([]byte, error)
@@ -1356,7 +1355,7 @@ MakeRawRequest performs an HTTP POST request with pre\-marshaled body. It automa
 Any provider\-level custom headers configured via SetCustomHeaders are merged into the outgoing request headers up front, with a case\-insensitive collision check against the built\-in headers the caller passed. Collisions are deterministic client\-side errors so they fail fast before the retry loop runs — a misconfigured gateway header should not burn retry budget.
 
 <a name="BaseProvider.MaxPayloadSize"></a>
-### func \(\*BaseProvider\) [MaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L772>)
+### func \(\*BaseProvider\) [MaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L769>)
 
 ```go
 func (b *BaseProvider) MaxPayloadSize() int64
@@ -1374,7 +1373,7 @@ func (b *BaseProvider) MediaLoader() *MediaLoader
 MediaLoader returns a per\-call MediaLoader configured with this provider's injected storage service \(if any\). Providers use it to resolve media parts \(ResolveURL for URL\-first providers, GetBase64Data for byte\-based ones\).
 
 <a name="BaseProvider.RateLimiter"></a>
-### func \(\*BaseProvider\) [RateLimiter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L778>)
+### func \(\*BaseProvider\) [RateLimiter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L775>)
 
 ```go
 func (b *BaseProvider) RateLimiter() *rate.Limiter
@@ -1443,7 +1442,7 @@ This is the hook CreateProviderFromSpec uses to apply per\-provider connection p
 A nil transport resets both clients to Go's http.DefaultTransport via the http.Client zero\-value behavior. Passing nil is not the typical use case; callers should build a transport via NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport so the OpenTelemetry span wiring is preserved.
 
 <a name="BaseProvider.SetMaxPayloadSize"></a>
-### func \(\*BaseProvider\) [SetMaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L767>)
+### func \(\*BaseProvider\) [SetMaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L764>)
 
 ```go
 func (b *BaseProvider) SetMaxPayloadSize(size int64)
@@ -1461,7 +1460,7 @@ func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
 SetMediaStorageService injects the media storage service that resolves MediaContent.StorageReference values at request\-build time. Nil \(the default\) disables storage\-reference resolution. See MediaStorageConfigurable in registry.go.
 
 <a name="BaseProvider.SetRateLimit"></a>
-### func \(\*BaseProvider\) [SetRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L757>)
+### func \(\*BaseProvider\) [SetRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L754>)
 
 ```go
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int)
@@ -1569,7 +1568,7 @@ func (b *BaseProvider) SupportsStreaming() bool
 SupportsStreaming returns true by default \(can be overridden by providers that don't support streaming\)
 
 <a name="BaseProvider.WaitForRateLimit"></a>
-### func \(\*BaseProvider\) [WaitForRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L786>)
+### func \(\*BaseProvider\) [WaitForRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L783>)
 
 ```go
 func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error
@@ -1760,7 +1759,7 @@ type ContextWindowProvider interface {
 ```
 
 <a name="Credential"></a>
-## type [Credential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L235-L241>)
+## type [Credential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L230-L236>)
 
 Credential applies authentication to HTTP requests. This is the interface that providers use to authenticate requests.
 
@@ -2315,7 +2314,7 @@ type MediaLoaderConfig struct {
 ```
 
 <a name="MediaStorageConfigurable"></a>
-## type [MediaStorageConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L330-L332>)
+## type [MediaStorageConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L297-L299>)
 
 MediaStorageConfigurable is implemented by any provider embedding \*BaseProvider. CreateProviderFromSpec uses it to inject the media storage service so providers can resolve MediaContent.StorageReference values at request\-build time.
 
@@ -2492,7 +2491,7 @@ func (NDJSONFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error)
 PeekFirstFrame reads until the first \`\\n\` and returns the line \(including the newline\) plus any bufio lookahead. Blank lines are skipped so leading whitespace or keepalive newlines from certain producers don't count as a "frame".
 
 <a name="PlatformConfig"></a>
-## type [PlatformConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L244>)
+## type [PlatformConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L239>)
 
 PlatformConfig is an alias for credentials.PlatformConfig.
 
@@ -2612,7 +2611,7 @@ type Provider interface {
 ```
 
 <a name="CreateProviderFromSpec"></a>
-### func [CreateProviderFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L354>)
+### func [CreateProviderFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L321>)
 
 ```go
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error)
@@ -2703,7 +2702,7 @@ type ProviderFactory func(spec ProviderSpec) (Provider, error)
 ```
 
 <a name="CredentialFactory"></a>
-### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L563>)
+### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L524>)
 
 ```go
 func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory
@@ -2725,7 +2724,7 @@ providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 ```
 
 <a name="RejectPlatforms"></a>
-### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L531>)
+### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L492>)
 
 ```go
 func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFactory
@@ -2760,7 +2759,7 @@ func (e *ProviderHTTPError) Error() string
 Error redacts credential\-bearing query parameters in the URL. Some providers authenticate via the query string, so an unredacted URL in an error message writes a live credential to every log that touches it.
 
 <a name="ProviderSpec"></a>
-## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L136-L231>)
+## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L136-L226>)
 
 ProviderSpec holds the configuration needed to create a provider instance
 
@@ -2855,16 +2854,11 @@ type ProviderSpec struct {
     // the upstream's SETTINGS_MAX_CONCURRENT_STREAMS) is the primary
     // lever on realistic single-process concurrent-stream capacity.
     HTTPTransport HTTPTransportOptions
-
-    // RateLimit throttles the requests the provider sends. Zero
-    // RequestsPerSecond disables it. Applied via SetRateLimit on providers
-    // that implement the rateLimitConfigurable interface.
-    RateLimit RateLimitOptions
 }
 ```
 
 <a name="ProviderSpec.HasCredential"></a>
-### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L545>)
+### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L506>)
 
 ```go
 func (s *ProviderSpec) HasCredential() bool
@@ -2943,18 +2937,6 @@ type RankedDocument struct {
     // Document echoes the input text when the provider returns it. It may
     // be empty even for a valid result; Index is the reliable identifier.
     Document string
-}
-```
-
-<a name="RateLimitOptions"></a>
-## type [RateLimitOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L279-L282>)
-
-RateLimitOptions configures client\-side request throttling for one provider instance. RequestsPerSecond is the sustained rate; Burst is how many requests may start at once before throttling applies. A Burst of zero or less is raised to the per\-second rate \(at least 1\), so a positive rate never blocks every request.
-
-```go
-type RateLimitOptions struct {
-    RequestsPerSecond float64
-    Burst             int
 }
 ```
 
@@ -3073,7 +3055,7 @@ func (r *Registry) Register(provider Provider)
 Register adds a provider to the registry, keyed by provider.ID\(\) for back\-compat. It also registers into the typed base.Registry \(keyed by provider.Name\(\) \+ provider.Type\(\)\); duplicate base registrations are silently accepted — the base entry is replaced to match the legacy overwrite semantics.
 
 <a name="RequestHeaders"></a>
-## type [RequestHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L880>)
+## type [RequestHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L877>)
 
 RequestHeaders is a map of HTTP header key\-value pairs
 
@@ -4547,7 +4529,7 @@ func (e *UnsupportedContentError) Error() string
 
 
 <a name="UnsupportedProviderError"></a>
-## type [UnsupportedProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L478-L480>)
+## type [UnsupportedProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L439-L441>)
 
 UnsupportedProviderError is returned when a provider type is not recognized
 
@@ -4558,7 +4540,7 @@ type UnsupportedProviderError struct {
 ```
 
 <a name="UnsupportedProviderError.Error"></a>
-### func \(\*UnsupportedProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L497>)
+### func \(\*UnsupportedProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L458>)
 
 ```go
 func (e *UnsupportedProviderError) Error() string
@@ -4567,7 +4549,7 @@ func (e *UnsupportedProviderError) Error() string
 Error returns the error message for this unsupported provider error.
 
 <a name="UnsupportedProviderPlatformError"></a>
-## type [UnsupportedProviderPlatformError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L513-L516>)
+## type [UnsupportedProviderPlatformError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L474-L477>)
 
 UnsupportedProviderPlatformError is returned when a provider type is recognized but the requested platform is not a real partner endpoint for that vendor \(e.g. openai\+vertex — Vertex does not host OpenAI models natively\). The error fires at provider construction so the failure is config\-time rather than first\-request, giving operators a fast and explicit signal that the combination is unavailable.
 
@@ -4579,7 +4561,7 @@ type UnsupportedProviderPlatformError struct {
 ```
 
 <a name="UnsupportedProviderPlatformError.Error"></a>
-### func \(\*UnsupportedProviderPlatformError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L519>)
+### func \(\*UnsupportedProviderPlatformError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L480>)
 
 ```go
 func (e *UnsupportedProviderPlatformError) Error() string

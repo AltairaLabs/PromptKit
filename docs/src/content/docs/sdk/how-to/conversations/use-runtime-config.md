@@ -71,7 +71,7 @@ spec:
         credential_env: ANTHROPIC_API_KEY
 ```
 
-This registers the same provider as `sdk.WithProvider(...)` with the same settings. Provider tuning fields such as `request_timeout`, `stream_retry` and `rate_limit` apply too; see the [reference](/sdk/reference/runtime-config/#specproviders).
+This registers the same provider as `sdk.WithProvider(...)` with the same settings. Provider tuning fields such as `request_timeout` and `stream_retry` apply too; see the [reference](/sdk/reference/runtime-config/#specproviders).
 
 ---
 
