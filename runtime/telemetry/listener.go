@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // staleEntryTimeout is the maximum age of an inflight or pendingEnd entry
@@ -477,6 +478,15 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 func (l *OTelEventListener) completeTool(evt *events.Event) {
 	data, ok := asPtr[events.ToolCallCompletedData](evt.Data)
 	if !ok {
+		return
+	}
+	// A tool that ran but failed (an HTTP error, a timeout, a circuit-breaker
+	// rejection) completes with status "failed" rather than emitting
+	// tool.call.failed, which is reserved for an executor error. Its span must
+	// still read as an error, or traces show a failing tool as healthy (#2148).
+	// "error" is treated the same, as the tool-call metric does.
+	if data.Status == string(tools.ToolStatusFailed) || data.Status == "error" {
+		l.failSpan("tool:"+data.CallID, "tool call "+data.Status)
 		return
 	}
 	l.endSpan("tool:" + data.CallID)

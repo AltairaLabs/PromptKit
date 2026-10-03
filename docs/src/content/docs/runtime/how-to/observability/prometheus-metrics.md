@@ -55,7 +55,7 @@ func main() {
 | `{ns}_provider_cached_tokens_total` | Counter | `provider`, `model` | Cached tokens in provider calls |
 | `{ns}_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
 | `{ns}_tool_call_duration_seconds` | Histogram | `tool` | Tool call execution duration |
-| `{ns}_tool_calls_total` | Counter | `tool`, `status` | Total tool call count |
+| `{ns}_tool_calls_total` | Counter | `tool`, `status` | Tool calls by outcome: `status` is `error` when the call failed (an executor error, or a tool that ran and failed, such as an HTTP error or timeout), otherwise `success` |
 | `{ns}_validation_duration_seconds` | Histogram | `validator`, `validator_type` | Validation check duration |
 | `{ns}_validations_total` | Counter | `validator`, `validator_type`, `status` | Validation results (passed/failed) |
 
