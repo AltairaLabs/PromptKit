@@ -413,3 +413,83 @@ jobs:
 
         echo "✓ Performance check passed: ${RPS} req/s, ${RSS} MB, ${CPU}% CPU"
 
+    # Same load with an event store subscribed to every conversation's event
+    # bus. The run above subscribes nothing, so its buses never dispatch and
+    # it cannot see event delivery or the bus lifecycle (#2146: closed
+    # conversations leaked their bus's ten worker goroutines once anything
+    # subscribed). The mock upstream from the previous step is still running.
+    - name: Run performance benchmark with an event store
+      run: |
+        OPENAI_BASE_URL=http://localhost:8081/v1 OPENAI_API_KEY=bench \
+          bin/bench-promptkit --pack benchmarks/frameworks/promptkit/round1/chat.pack.json \
+          --port 8091 --event-store &
+        PK_PID=$!
+        sleep 1
+        curl -sf http://localhost:8091/health > /dev/null
+
+        REQUESTS=5000
+        RESULT=$(bin/harness --round round1 --target http://localhost:8091 \
+          --framework promptkit-eventstore --concurrency 500 --requests $REQUESTS \
+          --framework-pid $PK_PID \
+          --output /tmp/bench-results-eventstore 2>&1)
+
+        echo "$RESULT"
+
+        TABLE_ROW=$(echo "$RESULT" | grep '^| promptkit-eventstore' | head -1)
+        RPS=$(echo "$TABLE_ROW" | grep -oP '[\d.]+(?= req/s)')
+        RSS=$(echo "$TABLE_ROW" | grep -oP '[\d.]+(?= MB)')
+        COST_ROW=$(echo "$RESULT" | grep '^| promptkit-eventstore.*%' | head -1)
+        CPU=$(echo "$COST_ROW" | grep -oP '[\d.]+(?=%)' | head -1)
+
+        # The server closes each conversation after its response, so the last
+        # closes can still be running when the harness exits: poll until every
+        # turn's pipeline.completed has arrived and the goroutines have drained.
+        for _ in $(seq 1 20); do
+          # A failed poll counts as "not there yet" rather than ending the step.
+          STATS=$(curl -sf http://localhost:8091/stats || echo '{}')
+          COMPLETED=$(echo "$STATS" | jq '.by_type["pipeline.completed"] // 0')
+          GOROUTINES=$(echo "$STATS" | jq '.goroutines // 999999')
+          if [ "$COMPLETED" -ge "$REQUESTS" ] && [ "$GOROUTINES" -lt 2000 ]; then
+            break
+          fi
+          sleep 0.5
+        done
+
+        echo "Measured: ${RPS} req/s, ${RSS} MB RSS, ${CPU}% CPU," \
+          "${COMPLETED}/${REQUESTS} pipeline.completed, ${GOROUTINES} goroutines after the run"
+
+        # pipeline.completed is published after the response ends; a Close that
+        # shut the bus without waiting for it dropped a few percent of them.
+        if [ "$COMPLETED" -lt "$REQUESTS" ]; then
+          echo "::error::Event loss: ${COMPLETED}/${REQUESTS} pipeline.completed reached the event store"
+          exit 1
+        fi
+
+        # A server at rest needs a few hundred goroutines. The #2146 leak left
+        # ten per conversation served: about 50,000 after this run.
+        if [ "$GOROUTINES" -ge 2000 ]; then
+          echo "::error::Goroutine leak: ${GOROUTINES} goroutines still running after the run"
+          exit 1
+        fi
+
+        # Provisional floors, pending a CI baseline: locally an event store
+        # cost ~12% of the store-less throughput and ~10-25 points of CPU.
+        FLOOR_RPS=1100
+        if [ "$(echo "$RPS < $FLOOR_RPS" | bc -l)" = "1" ]; then
+          echo "::error::Throughput regression with an event store: ${RPS} req/s < ${FLOOR_RPS} req/s"
+          exit 1
+        fi
+
+        CEIL_RSS=512
+        if [ -n "$RSS" ] && [ "$(echo "$RSS > $CEIL_RSS" | bc -l)" = "1" ]; then
+          echo "::error::Memory regression with an event store: ${RSS} MB > ${CEIL_RSS} MB ceiling"
+          exit 1
+        fi
+
+        CEIL_CPU=175
+        if [ -n "$CPU" ] && [ "$(echo "$CPU > $CEIL_CPU" | bc -l)" = "1" ]; then
+          echo "::error::CPU regression with an event store: ${CPU}% > ${CEIL_CPU}% ceiling"
+          exit 1
+        fi
+
+        echo "✓ Event store performance check passed"

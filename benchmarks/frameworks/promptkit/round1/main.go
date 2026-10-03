@@ -21,6 +21,10 @@ import (
 var (
 	packPath = flag.String("pack", "chat.pack.json", "path to the pack file")
 	port     = flag.Int("port", 8090, "HTTP listen port")
+	// eventStore subscribes a cheap in-process event store to every
+	// conversation's event bus, as a service with an event store, OTel or
+	// metrics would. Off by default, so the bus never dispatches (#2146).
+	eventStore = flag.Bool("event-store", false, "attach a counting event store to each conversation's event bus")
 )
 
 // chatMessage mirrors the OpenAI chat message structure.
@@ -85,7 +89,13 @@ func main() {
 		false,
 	)
 
+	opts := []sdk.Option{sdk.WithProvider(p)}
 	mux := http.NewServeMux()
+	if *eventStore {
+		store := &countingStore{}
+		opts = append(opts, sdk.WithEventStore(store))
+		mux.Handle("/stats", store)
+	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -115,7 +125,7 @@ func main() {
 			userMsg = req.Messages[len(req.Messages)-1].Content
 		}
 
-		conv, err := sdk.Open(*packPath, "chat", sdk.WithProvider(p))
+		conv, err := sdk.Open(*packPath, "chat", opts...)
 		if err != nil {
 			http.Error(w, "failed to open conversation: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -154,7 +164,7 @@ func main() {
 			userMsg = req.Messages[len(req.Messages)-1].Content
 		}
 
-		conv, err := sdk.Open(*packPath, "chat", sdk.WithProvider(p))
+		conv, err := sdk.Open(*packPath, "chat", opts...)
 		if err != nil {
 			http.Error(w, "failed to open conversation: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -188,6 +198,9 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("bench-promptkit-round1 listening on %s (pack=%s, upstream=%s)", addr, *packPath, baseURL)
+	if *eventStore {
+		log.Print("event store attached: GET /stats reports events delivered")
+	}
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

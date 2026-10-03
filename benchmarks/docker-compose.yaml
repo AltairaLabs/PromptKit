@@ -114,6 +114,62 @@ services:
     profiles:
       - round2
 
+  # Event bus load (#2146): a reasoning-model upstream, and the PromptKit
+  # server with and without an event store subscribed to its bus.
+  mockupstream-reasoning:
+    build:
+      context: ..
+      dockerfile: benchmarks/mockupstream/Dockerfile
+    command: ["--profile", "/profiles/reasoning.yaml"]
+    volumes:
+      - ./profiles:/profiles:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles:
+      - eventbus
+
+  promptkit-eventbus-off:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/promptkit/round1/Dockerfile
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream-reasoning:8081/v1
+    depends_on:
+      mockupstream-reasoning:
+        condition: service_healthy
+    profiles:
+      - eventbus
+
+  promptkit-eventbus-on:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/promptkit/round1/Dockerfile
+    command: ["--event-store"]
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream-reasoning:8081/v1
+    depends_on:
+      mockupstream-reasoning:
+        condition: service_healthy
+    profiles:
+      - eventbus
+
+  benchmark-eventbus:
+    build:
+      context: ..
+      dockerfile: benchmarks/harness/Dockerfile
+    volumes:
+      - ./results:/results
+    depends_on:
+      - promptkit-eventbus-off
+      - promptkit-eventbus-on
+    profiles:
+      - eventbus
+
   benchmark-round1:
     build:
       context: ..

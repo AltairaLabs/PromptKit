@@ -59,7 +59,8 @@ type chunkChoice struct {
 
 // chunkDelta carries the incremental content for a streaming chunk.
 type chunkDelta struct {
-	Content string `json:"content,omitempty"`
+	Content          string `json:"content,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 // streamChunk is one SSE payload in the OpenAI streaming format.
@@ -97,8 +98,9 @@ func strPtr(s string) *string { return &s }
 // NewOpenAIHandler returns an http.Handler that simulates the OpenAI
 // /v1/chat/completions endpoint using the provided OpenAIProfile.
 //
-// Streaming requests receive cfg.ChunkCount delta SSE chunks followed by one
-// stop chunk and the [DONE] sentinel. Non-streaming requests receive a single
+// Streaming requests receive cfg.ReasoningChunkCount reasoning chunks, then
+// cfg.ChunkCount content chunks, followed by one stop chunk and the [DONE]
+// sentinel. Non-streaming requests receive a single
 // JSON response whose content is the concatenation of all chunk contents.
 func NewOpenAIHandler(cfg OpenAIProfile) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,15 +157,23 @@ func handleStream(w http.ResponseWriter, cfg OpenAIProfile) {
 		time.Sleep(cfg.FirstChunkDelay)
 	}
 
-	// Emit delta chunks.
-	for i := 1; i <= cfg.ChunkCount; i++ {
+	// Emit reasoning chunks, then content chunks, with InterChunkDelay
+	// between consecutive chunks.
+	total := cfg.ReasoningChunkCount + cfg.ChunkCount
+	for i := 1; i <= total; i++ {
+		var delta chunkDelta
+		if i <= cfg.ReasoningChunkCount {
+			delta.ReasoningContent = fmt.Sprintf("think-%d ", i)
+		} else {
+			delta.Content = fmt.Sprintf("chunk-%d ", i-cfg.ReasoningChunkCount)
+		}
 		chunk := streamChunk{
 			ID:     "chatcmpl-bench",
 			Object: "chat.completion.chunk",
 			Choices: []chunkChoice{
 				{
 					Index:        0,
-					Delta:        chunkDelta{Content: fmt.Sprintf("chunk-%d ", i)},
+					Delta:        delta,
 					FinishReason: nil,
 				},
 			},
@@ -171,7 +181,7 @@ func handleStream(w http.ResponseWriter, cfg OpenAIProfile) {
 		writeSSEChunk(w, chunk)
 		flusher.Flush()
 
-		if i < cfg.ChunkCount && cfg.InterChunkDelay > 0 {
+		if i < total && cfg.InterChunkDelay > 0 {
 			time.Sleep(cfg.InterChunkDelay)
 		}
 	}

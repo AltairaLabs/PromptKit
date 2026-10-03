@@ -154,6 +154,16 @@ type Conversation struct {
 	// injected via WithPendingStore is owned by the caller and never closed here.
 	ownsPendingStore bool
 
+	// busRef is this conversation's reference on an SDK-created event bus,
+	// released by Close. Nil when the caller supplied the bus.
+	busRef *sharedEventBus
+
+	// pipelines are the pipelines built for this conversation. Close waits for
+	// their in-flight executions before releasing the bus, because a pipeline
+	// publishes its completion events after the turn's output has closed.
+	pipelinesMu sync.Mutex
+	pipelines   []*stage.StreamPipeline
+
 	// Resolved tool calls awaiting processing by Continue()
 	resolvedStore *sdktools.ResolvedStore
 
@@ -762,7 +772,18 @@ func (c *Conversation) buildPipelineWithParams(
 	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	pipelineCfg := c.buildPipelineConfig(store, conversationID, streamProvider, streamConfig)
-	return intpipeline.Build(pipelineCfg)
+	return c.trackPipeline(intpipeline.Build(pipelineCfg))
+}
+
+// trackPipeline records a successfully built pipeline so Close can wait for
+// its in-flight executions, and passes the Build result through.
+func (c *Conversation) trackPipeline(p *stage.StreamPipeline, err error) (*stage.StreamPipeline, error) {
+	if err == nil {
+		c.pipelinesMu.Lock()
+		c.pipelines = append(c.pipelines, p)
+		c.pipelinesMu.Unlock()
+	}
+	return p, err
 }
 
 // buildStreamPipelineWithParams builds a stage pipeline directly for duplex sessions.
@@ -822,7 +843,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		}
 	}
 
-	return intpipeline.Build(pipelineCfg)
+	return c.trackPipeline(intpipeline.Build(pipelineCfg))
 }
 
 // executePipeline builds and executes the LLM pipeline.
@@ -1282,6 +1303,12 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// A closed conversation has closed its providers and released its event
+	// bus, so a fork of it could neither run a turn nor publish an event.
+	if c.closed {
+		return nil, ErrConversationClosed
+	}
+
 	c.handlersMu.RLock()
 	// Copy handlers
 	handlers := make(map[string]ToolHandler, len(c.handlers))
@@ -1405,6 +1432,13 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		fork.duplexSession = forkSession
 	}
 
+	// The fork publishes to the parent's bus, so it holds a reference too:
+	// the bus closes when the last of them closes. Taken last, so a fork that
+	// failed to build never holds one.
+	if c.busRef != nil && c.busRef.acquire() {
+		fork.busRef = c.busRef
+	}
+
 	return fork, nil
 }
 
@@ -1431,12 +1465,85 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // asynchronously after the last chunk is queued, so calling Close immediately
 // can cancel a turn mid-pipeline and drop its response. Wait for the
 // responses you expect before closing.
+//
+// An event bus the SDK created is closed last, once this conversation and
+// any forks of it are all closed. Before closing it, Close waits up to
+// pipelineFlushTimeout for pipeline executions still in flight, so the events
+// a turn publishes after it returns (pipeline.completed among them) reach the
+// bus's subscribers. A bus supplied via [WithEventBus] is left open for the
+// caller to close.
 func (c *Conversation) Close() error {
+	busRef, first, err := c.closeLocked()
+	if !first {
+		return err
+	}
+	// Outside c.mu: both steps wait on work that may call back into the
+	// conversation (a pipeline stage, or a subscriber draining the bus).
+	c.awaitPipelines()
+	if busRef != nil {
+		busRef.release()
+	}
+	return err
+}
+
+// takeBusRef hands over this conversation's event bus reference, leaving it
+// without one. The caller releases it, outside c.mu, since closing the bus
+// drains it through subscribers. Caller must hold c.mu: Fork reads busRef
+// under it to take its own reference.
+func (c *Conversation) takeBusRef() *sharedEventBus {
+	ref := c.busRef
+	c.busRef = nil
+	return ref
+}
+
+// failOpen is how Open and its variants fail once the conversation holds an
+// event bus reference: the caller never receives the conversation, so Close
+// never runs, and without this a failed Open leaked the bus's workers (started
+// as soon as anything subscribed). No pipeline has executed yet, so there is
+// nothing to wait for.
+func (c *Conversation) failOpen(err error) (*Conversation, error) {
+	c.mu.Lock()
+	busRef := c.takeBusRef()
+	c.mu.Unlock()
+	if busRef != nil {
+		busRef.release()
+	}
+	return nil, err
+}
+
+// pipelineFlushTimeout bounds how long Close waits for in-flight pipeline
+// executions. A turn that has returned publishes its remaining events within
+// microseconds; a turn abandoned mid-flight is not waited for beyond this,
+// and the events it publishes afterwards are dropped.
+const pipelineFlushTimeout = time.Second
+
+// awaitPipelines shuts down the conversation's pipelines, waiting for their
+// in-flight executions to finish publishing events.
+func (c *Conversation) awaitPipelines() {
+	c.pipelinesMu.Lock()
+	pipelines := c.pipelines
+	c.pipelinesMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), pipelineFlushTimeout)
+	defer cancel()
+	for _, p := range pipelines {
+		if err := p.Shutdown(ctx); err != nil {
+			logger.Warn("conversation closed with a pipeline execution still running; "+
+				"events it publishes from now on are dropped", "error", err)
+		}
+	}
+}
+
+// closeLocked releases everything Close releases except the pipelines and
+// the event bus, which Close handles after releasing c.mu; it hands over the
+// bus reference for that. Reports whether this call closed the conversation
+// (false when it was already closed).
+func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return nil
+		return nil, false, nil
 	}
 	c.closed = true
 	var convID string
@@ -1444,6 +1551,21 @@ func (c *Conversation) Close() error {
 		convID = c.ID()
 	}
 
+	c.finishSession(convID)
+	// Collect all errors and always execute all cleanup steps.
+	errs := c.releaseResources()
+
+	// State is automatically persisted by the StateStore middleware in the pipeline
+	// No explicit save needed here
+
+	logger.Info("conversation closed", "id", convID)
+	return c.takeBusRef(), true, errors.Join(errs...)
+}
+
+// finishSession ends the conversation's session for its observers: it
+// deregisters from the shutdown manager, ends the OTel session span, runs
+// session-end hooks and dispatches session evals. Caller must hold c.mu.
+func (c *Conversation) finishSession(convID string) {
 	// Deregister from shutdown manager if configured
 	c.deregisterFromShutdownManager()
 
@@ -1463,8 +1585,11 @@ func (c *Conversation) Close() error {
 		c.evalMW.dispatchSessionEvals(context.Background())
 		c.evalMW.close()
 	}
+}
 
-	// Collect all errors and always execute all cleanup steps.
+// releaseResources closes everything the conversation holds except the event
+// bus, attempting every step and returning the errors. Caller must hold c.mu.
+func (c *Conversation) releaseResources() []error {
 	var errs []error
 
 	// Drain duplex session if in duplex mode (graceful shutdown with timeout)
@@ -1496,6 +1621,14 @@ func (c *Conversation) Close() error {
 		}
 	}
 
+	return append(errs, c.closeOwnedServices()...)
+}
+
+// closeOwnedServices closes the provider pool, the server executor and an
+// SDK-created pending store, returning the errors. Caller must hold c.mu.
+func (c *Conversation) closeOwnedServices() []error {
+	var errs []error
+
 	// Close the provider pool — closes every provider registered via
 	// WithProvider, WithAutoSummarize, etc. in one shot.
 	if c.config != nil && c.config.providers != nil {
@@ -1520,11 +1653,7 @@ func (c *Conversation) Close() error {
 		}
 	}
 
-	// State is automatically persisted by the StateStore middleware in the pipeline
-	// No explicit save needed here
-
-	logger.Info("conversation closed", "id", convID)
-	return errors.Join(errs...)
+	return errs
 }
 
 // deregisterFromShutdownManager removes the conversation from its shutdown
