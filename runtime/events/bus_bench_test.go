@@ -30,13 +30,14 @@ func newReasoningDelta() *Event {
 	}
 }
 
-// BenchmarkEventBusDispatch measures one dispatch of one event to every
-// listener, without the worker channel hop. allocs/op is the cost a single
-// streamed token pays inside a worker.
+// BenchmarkEventBusDispatch measures handing one event to every listener and
+// the listeners running it, without the publish channel hop. allocs/op is the
+// cost a single streamed token pays per event. Each listener's queue holds
+// every event, so none is dropped and the timer covers every delivery.
 func BenchmarkEventBusDispatch(b *testing.B) {
 	for _, n := range benchListenerCounts {
 		b.Run(fmt.Sprintf("listeners=%d", n), func(b *testing.B) {
-			bus := NewEventBus(WithWorkerPoolSize(1))
+			bus := NewEventBus(WithEventBufferSize(b.N + 1))
 			defer bus.Close()
 
 			var delivered atomic.Int64
@@ -44,15 +45,19 @@ func BenchmarkEventBusDispatch(b *testing.B) {
 				bus.SubscribeAll(func(*Event) { delivered.Add(1) })
 			}
 			event := newReasoningDelta()
+			want := int64(b.N * n)
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				bus.dispatch(event)
+				bus.deliver(event)
+			}
+			for delivered.Load() < want {
+				runtime.Gosched()
 			}
 			b.StopTimer()
 
-			if got, want := delivered.Load(), int64(b.N*n); got != want {
+			if got := delivered.Load(); got != want {
 				b.Fatalf("delivered %d deliveries, want %d", got, want)
 			}
 		})
@@ -60,18 +65,16 @@ func BenchmarkEventBusDispatch(b *testing.B) {
 }
 
 // BenchmarkEventBusPublishStream measures the end-to-end path: concurrent
-// streams publish token events and the default worker pool delivers them.
-// Each op is one token, timed until every listener has received it.
+// streams publish token events and the bus delivers them to every listener.
+// Each op is one token, timed until every listener has received it. Buffers
+// hold every event, so nothing is dropped and every delivery is timed.
 func BenchmarkEventBusPublishStream(b *testing.B) {
 	for _, n := range benchListenerCounts {
 		if n == 0 {
-			continue // nothing would start the workers, so nothing to wait for
+			continue // nothing would start delivery, so nothing to wait for
 		}
 		b.Run(fmt.Sprintf("listeners=%d", n), func(b *testing.B) {
-			bus := NewEventBus(
-				WithWorkerPoolSize(DefaultWorkerPoolSize),
-				WithEventBufferSize(DefaultEventBufferSize),
-			)
+			bus := NewEventBus(WithEventBufferSize(b.N + 1))
 			defer bus.Close()
 
 			var delivered atomic.Int64
@@ -79,21 +82,13 @@ func BenchmarkEventBusPublishStream(b *testing.B) {
 				bus.SubscribeAll(func(*Event) { delivered.Add(1) })
 			}
 
-			// RunParallel starts GOMAXPROCS publishers.
-			limit := cap(bus.eventCh) - runtime.GOMAXPROCS(0)
-
 			b.ReportAllocs()
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					// Publish drops (and logs) when the buffer is full. Leave
-					// room for one in-flight send per publisher so every op
-					// is a delivered token and the wait below terminates.
-					for len(bus.eventCh) > limit {
-						runtime.Gosched()
-					}
-					for !bus.Publish(newReasoningDelta()) {
-						runtime.Gosched()
+					if !bus.Publish(newReasoningDelta()) {
+						b.Error("publish dropped an event the buffer had room for")
+						return
 					}
 				}
 			})

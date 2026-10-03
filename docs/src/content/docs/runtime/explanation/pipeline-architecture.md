@@ -417,8 +417,8 @@ build through `events.NewMessageCreatedData`, so nothing else can drift.
 
 Replayed history (`Meta.FromHistory`) is counted for position but never
 re-published, which is what makes `Index` transcript-absolute. Read `Index`
-rather than arrival order — the bus dispatches through a worker pool and makes
-no ordering promise.
+rather than arrival order: each listener receives events in the order the bus
+accepted them, which for concurrent publishers need not be transcript order.
 
 See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for how recorded events trigger evals.
 

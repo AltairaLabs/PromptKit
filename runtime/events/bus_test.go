@@ -327,8 +327,9 @@ func TestEventBusDroppedCountIncrementsOnFullBuffer(t *testing.T) {
 	defer bus.Close()
 
 	blockCh := make(chan struct{})
+	defer close(blockCh) // runs before Close, so a failure cannot leave Close waiting
 
-	// This listener blocks the single worker until we signal it.
+	// This listener blocks until we signal it.
 	bus.Subscribe(EventPipelineStarted, func(*Event) {
 		<-blockCh
 	})
@@ -346,12 +347,11 @@ func TestEventBusDroppedCountIncrementsOnFullBuffer(t *testing.T) {
 		bus.Publish(&Event{Type: EventPipelineStarted})
 	}
 
-	if got := bus.DroppedCount(); got != 10 {
+	// A drop happens either in Publish (bus buffer full) or a moment later in
+	// the dispatcher (listener queue full), so wait for the count to settle.
+	if got := waitForDropped(bus, 10, 2*time.Second); got != 10 {
 		t.Fatalf("expected 10 dropped events, got %d", got)
 	}
-
-	// Unblock the worker so Close() can drain.
-	close(blockCh)
 }
 
 func TestEventBusDroppedCountZeroWhenNoDrops(t *testing.T) {
@@ -517,11 +517,12 @@ func TestEventBusDroppedCountRateLimitedLogging(t *testing.T) {
 	defer bus.Close()
 
 	blockCh := make(chan struct{})
+	defer close(blockCh) // runs before Close, so a failure cannot leave Close waiting
 	bus.Subscribe(EventPipelineStarted, func(*Event) {
 		<-blockCh
 	})
 
-	// First publish occupies the worker.
+	// First publish occupies the listener.
 	bus.Publish(&Event{Type: EventPipelineStarted})
 	time.Sleep(20 * time.Millisecond)
 
@@ -533,11 +534,9 @@ func TestEventBusDroppedCountRateLimitedLogging(t *testing.T) {
 		bus.Publish(&Event{Type: EventPipelineStarted})
 	}
 
-	if got := bus.DroppedCount(); got != 250 {
+	if got := waitForDropped(bus, 250, 2*time.Second); got != 250 {
 		t.Fatalf("expected 250 dropped events, got %d", got)
 	}
-
-	close(blockCh)
 }
 
 func TestEventBusLazyWorkerStartup(t *testing.T) {
@@ -774,6 +773,16 @@ func (s *failingStore) OnEvent(event *Event) {
 
 func (s *failingStore) Close() error { return nil }
 
+// waitForDropped waits until the bus has dropped want events or timeout
+// passes, and returns the count it saw last.
+func waitForDropped(bus *EventBus, want int64, timeout time.Duration) int64 {
+	deadline := time.Now().Add(timeout)
+	for bus.DroppedCount() < want && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	return bus.DroppedCount()
+}
+
 func waitForWG(wg *sync.WaitGroup, timeout time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
@@ -833,9 +842,6 @@ func TestNewEventBus_EnvVarDefaults(t *testing.T) {
 	if got := cap(bus.eventCh); got != 2500 {
 		t.Errorf("buffer size = %d, want 2500 from env", got)
 	}
-	if got := bus.workerPoolSize; got != 25 {
-		t.Errorf("worker pool size = %d, want 25 from env", got)
-	}
 	if got := bus.subscriberTimeout; got != 12*time.Second {
 		t.Errorf("subscriber timeout = %v, want 12s from env", got)
 	}
@@ -857,9 +863,6 @@ func TestNewEventBus_ExplicitOptionsOverrideEnv(t *testing.T) {
 	if got := cap(bus.eventCh); got != 50 {
 		t.Errorf("buffer size = %d, want 50 from explicit option (env was 9999)", got)
 	}
-	if got := bus.workerPoolSize; got != 3 {
-		t.Errorf("worker pool size = %d, want 3 from explicit option (env was 99)", got)
-	}
 }
 
 func TestNewEventBus_InvalidEnvVarsFallBackToDefaults(t *testing.T) {
@@ -874,9 +877,6 @@ func TestNewEventBus_InvalidEnvVarsFallBackToDefaults(t *testing.T) {
 
 	if got := cap(bus.eventCh); got != DefaultEventBufferSize {
 		t.Errorf("buffer size = %d, want default %d after invalid env", got, DefaultEventBufferSize)
-	}
-	if got := bus.workerPoolSize; got != DefaultWorkerPoolSize {
-		t.Errorf("worker pool size = %d, want default %d after invalid env", got, DefaultWorkerPoolSize)
 	}
 	if got := bus.subscriberTimeout; got != DefaultSubscriberTimeout {
 		t.Errorf("subscriber timeout = %v, want default %v after invalid env", got, DefaultSubscriberTimeout)
@@ -899,9 +899,6 @@ func TestNewEventBus_UnsetEnvVarsUseDefaults(t *testing.T) {
 
 	if got := cap(bus.eventCh); got != DefaultEventBufferSize {
 		t.Errorf("buffer size = %d, want default %d with unset env", got, DefaultEventBufferSize)
-	}
-	if got := bus.workerPoolSize; got != DefaultWorkerPoolSize {
-		t.Errorf("worker pool size = %d, want default %d with unset env", got, DefaultWorkerPoolSize)
 	}
 	if got := bus.subscriberTimeout; got != DefaultSubscriberTimeout {
 		t.Errorf("subscriber timeout = %v, want default %v with unset env", got, DefaultSubscriberTimeout)
