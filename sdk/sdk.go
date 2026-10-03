@@ -330,6 +330,7 @@ func initConversation(
 
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
+	conv.busRef = cfg.ownedEventBus
 
 	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
 	conv.hookRegistry = cfg.buildHookRegistry()
@@ -662,6 +663,7 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
+		cfg.ownedEventBus = newSharedEventBus(cfg.eventBus)
 	}
 	// redact wraps a subscriber when a policy is configured, so each consumer
 	// gets its own redacted copy. A nil policy returns the subscriber unwrapped.

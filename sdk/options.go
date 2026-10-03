@@ -112,6 +112,13 @@ type config struct {
 	// Event bus for observability
 	eventBus events.Bus
 
+	// ownedEventBus is set when initEventBus created eventBus rather than the
+	// caller supplying one via WithEventBus. The conversations sharing this
+	// config (it and its forks) hold references on it, and the last to close
+	// closes the bus. A supplied bus may be shared across conversations and is
+	// the caller's to close.
+	ownedEventBus *sharedEventBus
+
 	// Event store for session recording
 	eventStore events.EventStore
 

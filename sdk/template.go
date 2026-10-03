@@ -224,6 +224,7 @@ func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Pro
 	conv.initConversationState()
 
 	initEventBus(cfg)
+	conv.busRef = cfg.ownedEventBus
 	conv.hookRegistry = cfg.buildHookRegistry()
 	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
 	return nil
