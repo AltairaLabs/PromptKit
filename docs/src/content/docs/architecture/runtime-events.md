@@ -216,13 +216,14 @@ which one a consumer is on changes what it receives:
 
 | Producer | Delivery | Binary content parts | Requires |
 |----------|----------|----------------------|----------|
-| `MessageBroadcastStage` → EventBus | async, worker-pooled, **lossy** | stripped to metadata | an event bus |
+| `MessageBroadcastStage` → EventBus | async, **lossy** | stripped to metadata | an event bus |
 | `RecordingStage` → `EventStore.Append` | synchronous, **lossless** | retained in full | `WithRecording()` + an `EventStore` |
 
 Both build the payload with `events.NewMessageCreatedData`, so `Parts` is the
-only difference. `Index` is transcript-absolute on both. Because the bus makes
-no ordering promise (it dispatches through a worker pool), subscribers should
-order by `Index` rather than by arrival.
+only difference. `Index` is transcript-absolute on both. The bus delivers to
+each listener in the order it accepted events, which for concurrent publishers
+need not be transcript order, so subscribers should order by `Index` rather
+than by arrival.
 
 :::tip[Read `GetContent()`, not `.Content`]
 A user message carries its text in `Parts` with `Content` empty; an assistant
@@ -432,9 +433,11 @@ if err != nil {
 
 ### Asynchronous and lossy
 
-`Publish` hands the event to a buffered channel drained by a worker pool. It
-never blocks the pipeline, and it **returns `false` when the event was dropped**
-because the buffer was full:
+`Publish` hands the event to a buffered channel. One dispatcher goroutine
+drains it and offers each event to every matching listener's own bounded queue,
+and each listener runs on its own goroutine. `Publish` never blocks the
+pipeline, and it **returns `false` when the event was dropped** because the
+buffer was full:
 
 ```go
 func (eb *EventBus) Publish(event *Event) bool {
@@ -453,13 +456,16 @@ func (eb *EventBus) Publish(event *Event) bool {
 Two consequences a consumer must design around:
 
 - **Delivery is not guaranteed.** Under burst, events are dropped so
-  observability never stalls the pipeline. Anything that must be complete
-  (a transcript, an audit trail) reads the state store or a recording, not the
-  bus.
-- **Arrival order is not publish order.** A pool of workers drains the channel,
-  so listeners can receive out of order. `Event.Sequence` is a monotonic
-  per-bus counter for reassembling that; for conversation position use
-  `MessageCreatedData.Index`, which is transcript-absolute.
+  observability never stalls the pipeline. A listener whose queue is full
+  misses the event, and that miss counts toward `DroppedCount`. A listener
+  stuck in a call past the subscriber timeout misses events while it is stuck,
+  and one that exceeds the timeout three times is disabled; those misses are
+  logged, not counted. A slow listener delays only itself. Anything that must be complete (a transcript, an audit
+  trail) reads the state store or a recording, not the bus.
+- **Each listener sees events in the order the bus accepted them.** With
+  concurrent publishers that need not be the order they were emitted in.
+  `Event.Sequence` is a monotonic per-bus counter; for conversation position
+  use `MessageCreatedData.Index`, which is transcript-absolute.
 
 ### No BINARY on the bus, ever
 

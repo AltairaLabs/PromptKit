@@ -151,8 +151,9 @@ type EvaluateOpts struct {
 //
 //nolint:gocritic // hugeParam: value receiver is intentional for public API ergonomics
 func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error) {
-	// 0. Wire OTel listener if TracerProvider is set
-	ownsBus := initEvalTracing(&opts)
+	// 0. Wire OTel listener if TracerProvider is set. Releasing it on return
+	// flushes the listener's events before Evaluate returns.
+	defer initEvalTracing(&opts)()
 
 	// 1. Resolve eval defs and apply group filter
 	defs, err := resolveEvalDefs(&opts)
@@ -213,11 +214,6 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 		if err := writer.WriteResults(ctx, results); err != nil {
 			return results, fmt.Errorf("record metrics: %w", err)
 		}
-	}
-
-	// 7. Close auto-created bus to flush OTel listener
-	if ownsBus && opts.EventBus != nil {
-		opts.EventBus.Close()
 	}
 
 	return results, nil
@@ -304,12 +300,15 @@ func dispatchEvals(
 	}
 }
 
-// initEvalTracing wires an OTelEventListener to the EventBus when TracerProvider is set.
-// Creates an EventBus if one wasn't provided. Returns true if the bus was auto-created
-// (caller should close it after emitting events to flush the listener).
-func initEvalTracing(opts *EvaluateOpts) bool {
+// initEvalTracing wires an OTelEventListener to the EventBus when TracerProvider is set,
+// creating an EventBus if one wasn't provided. It returns the release to run when
+// evaluation ends: it closes a bus it created, which flushes the listener, and
+// unsubscribes the listener from a supplied bus, which delivers the events
+// already published to it. Without that, every Evaluate call on a long-lived
+// bus left a listener goroutine and queue behind.
+func initEvalTracing(opts *EvaluateOpts) (release func()) {
 	if opts.TracerProvider == nil {
-		return false
+		return func() {}
 	}
 	createdBus := opts.EventBus == nil
 	if createdBus {
@@ -317,8 +316,11 @@ func initEvalTracing(opts *EvaluateOpts) bool {
 	}
 	tracer := telemetry.Tracer(opts.TracerProvider)
 	listener := telemetry.NewOTelEventListener(tracer)
-	opts.EventBus.SubscribeAll(listener.OnEvent)
-	return createdBus
+	unsubscribe := opts.EventBus.SubscribeAll(listener.OnEvent)
+	if createdBus {
+		return opts.EventBus.Close
+	}
+	return unsubscribe
 }
 
 // registerExecEvalHandlers loads a RuntimeConfig and registers any exec eval

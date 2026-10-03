@@ -665,10 +665,24 @@ var newEventBus = func() events.Bus { return events.NewEventBus() }
 // If an event store is configured, it is subscribed to the bus for persistence.
 // If a TracerProvider is configured, an OTel event listener is wired in.
 func initEventBus(cfg *config) {
-	if cfg.eventBus == nil {
+	owned := cfg.eventBus == nil
+	if owned {
 		cfg.eventBus = newEventBus()
-		cfg.ownedEventBus = newSharedEventBus(cfg.eventBus)
 	}
+	var unsubscribes []func()
+	subscribe := func(listener func(*events.Event)) {
+		unsubscribes = append(unsubscribes, cfg.eventBus.SubscribeAll(listener))
+	}
+	bus := cfg.eventBus
+	cfg.ownedEventBus = newSharedEventBus(func() {
+		if owned {
+			bus.Close() // stops every listener on it
+			return
+		}
+		for _, unsubscribe := range unsubscribes {
+			unsubscribe()
+		}
+	})
 	// redact wraps a subscriber when a policy is configured, so each consumer
 	// gets its own redacted copy. A nil policy returns the subscriber unwrapped.
 	redact := func(next func(*events.Event)) func(*events.Event) {
@@ -690,19 +704,19 @@ func initEventBus(cfg *config) {
 			// receives messages, because then the bus is its only source.
 			onEvent = skipEventTypes(onEvent, events.EventMessageCreated)
 		}
-		cfg.eventBus.SubscribeAll(redact(onEvent))
+		subscribe(redact(onEvent))
 	}
 	// Wire OTel event listener if a TracerProvider is configured.
 	if cfg.tracerProvider != nil {
 		tracer := telemetry.Tracer(cfg.tracerProvider)
 		listener := telemetry.NewOTelEventListener(tracer, cfg.telemetryOpts...)
-		cfg.eventBus.SubscribeAll(redact(listener.OnEvent))
+		subscribe(redact(listener.OnEvent))
 		cfg.otelListener = listener
 	}
 	// Wire unified metrics if a Collector is configured.
 	if cfg.metricsCollector != nil {
 		metricCtx := cfg.metricsCollector.Bind(cfg.metricsInstanceLabels)
-		cfg.eventBus.SubscribeAll(redact(metricCtx.OnEvent))
+		subscribe(redact(metricCtx.OnEvent))
 		cfg.metricContext = metricCtx
 	}
 }

@@ -651,7 +651,7 @@ The registries are populated by package init\(\), which means the answer depends
 Intended for deploy\-time and boot\-time validation — a caller can check a configured type without constructing a provider and string\-matching the error. See ValidateOptions to check a whole option set.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L387>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L389>)
 
 ```go
 func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error)
@@ -1317,7 +1317,7 @@ The packPath can be:
 The promptName must match a prompt ID defined in the pack's "prompts" section.
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1241>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1255>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1404,7 +1404,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1140>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1154>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1431,7 +1431,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1215>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1229>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -6362,7 +6362,7 @@ func DefaultVADModeConfig() *VADModeConfig
 DefaultVADModeConfig returns sensible defaults for VAD mode.
 
 <a name="ValidateEvalTypesOpts"></a>
-## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L348-L376>)
+## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L350-L378>)
 
 ValidateEvalTypesOpts configures eval type validation.
 

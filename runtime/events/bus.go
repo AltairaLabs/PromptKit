@@ -35,6 +35,10 @@ const (
 	EnvEventBusBufferSize = "PROMPTKIT_EVENT_BUS_BUFFER_SIZE"
 	// EnvEventBusWorkerPoolSize overrides DefaultWorkerPoolSize.
 	// Invalid or non-positive values are ignored.
+	//
+	// Deprecated: the bus no longer uses a worker pool (each listener runs on
+	// its own goroutine), so this has no effect. It is still read so existing
+	// deployments that set it keep working.
 	EnvEventBusWorkerPoolSize = "PROMPTKIT_EVENT_BUS_WORKER_POOL_SIZE"
 	// EnvEventBusSubscriberTimeout overrides DefaultSubscriberTimeout.
 	// Value is a Go duration string (e.g. "10s", "2m"). Invalid or
@@ -100,6 +104,10 @@ type busConfig struct {
 
 // WithWorkerPoolSize sets the number of worker goroutines that process events.
 // Defaults to DefaultWorkerPoolSize (10).
+//
+// Deprecated: the bus no longer uses a worker pool. One dispatcher hands each
+// event to every matching listener's own queue, and each listener runs on its
+// own goroutine, so this has no effect. It is kept for compatibility.
 func WithWorkerPoolSize(size int) BusOption {
 	return func(c *busConfig) {
 		if size > 0 {
@@ -108,8 +116,8 @@ func WithWorkerPoolSize(size int) BusOption {
 	}
 }
 
-// WithEventBufferSize sets the capacity of the buffered event channel.
-// Defaults to DefaultEventBufferSize (1000).
+// WithEventBufferSize sets the capacity of the buffered event channel, and of
+// each listener's queue. Defaults to DefaultEventBufferSize (1000).
 func WithEventBufferSize(size int) BusOption {
 	return func(c *busConfig) {
 		if size > 0 {
@@ -118,8 +126,11 @@ func WithEventBufferSize(size int) BusOption {
 	}
 }
 
-// WithSubscriberTimeout sets the maximum duration a listener is allowed to run
-// before it is considered timed out and skipped. Defaults to DefaultSubscriberTimeout (5s).
+// WithSubscriberTimeout sets how long one listener call may run before it is
+// reported as timed out. A listener whose calls time out maxLeakCount times
+// is disabled: its events are dropped from then on. A slow listener only ever
+// delays itself — it runs on its own goroutine. Defaults to
+// DefaultSubscriberTimeout (5s).
 func WithSubscriberTimeout(d time.Duration) BusOption {
 	return func(c *busConfig) {
 		if d > 0 {
@@ -128,17 +139,12 @@ func WithSubscriberTimeout(d time.Duration) BusOption {
 	}
 }
 
-// listenerEntry holds a listener with a unique ID for unsubscription.
-type listenerEntry struct {
-	id       uint64
-	listener Listener
-}
-
-// maxLeakCount is the number of timeout strikes before a listener is skipped.
+// maxLeakCount is the number of timed-out calls after which a listener is
+// disabled and its events are dropped.
 const maxLeakCount = 3
 
 // Bus is the interface for publishing and subscribing to runtime events.
-// The default implementation is EventBus (in-process, goroutine-pool based).
+// The default implementation is EventBus (in-process, one goroutine per listener).
 // Implement this interface to bridge events to an external transport
 // such as NATS JetStream, Kafka, or Redis Streams.
 type Bus interface {
@@ -158,44 +164,120 @@ type Bus interface {
 	Close()
 }
 
-// EventBus manages event distribution to listeners via a fixed-size worker pool.
-// Workers are started lazily on the first Subscribe/SubscribeAll call to avoid
-// spawning goroutines when no one is listening.
-type EventBus struct {
-	mu              sync.RWMutex
-	listeners       map[EventType][]listenerEntry
-	globalListeners []listenerEntry
-	nextID          atomic.Uint64
-	seq             atomic.Int64 // monotonic sequence counter for events
+// listenerEntry is one subscribed listener and the goroutine that runs it.
+//
+// Delivery costs one non-blocking channel send per listener per event. The
+// previous design started a goroutine and a timer, and made a channel, for
+// every delivery — per streamed token, for every listener (#2146).
+type listenerEntry struct {
+	id       uint64
+	listener Listener
+	queue    chan *Event   // filled by the dispatcher, drained by run
+	stop     chan struct{} // closed on unsubscribe: run exits without draining
 
-	publishMu         sync.RWMutex // guards eventCh send (RLock) vs close (Lock)
-	eventCh           chan *Event
-	wg                sync.WaitGroup
-	closed            atomic.Bool
-	started           atomic.Bool // true once workers have been launched
-	droppedCount      atomic.Int64
-	subscriberTimeout time.Duration
-
-	// leakCount tracks how many times each listener has timed out.
-	// Protected by mu.
-	leakCount map[uint64]int
-
-	// done is closed by Close() to cancel orphaned invokeWithTimeout goroutines.
-	done chan struct{}
-
-	// Saved config for lazy worker startup.
-	workerPoolSize int
+	// Slow-call detection, read by the dispatcher on delivery: a timer per
+	// delivery is the cost being removed, so there is no timer at all.
+	callStart atomic.Int64  // bus clock (EventBus.now) when the call in progress began; 0 when idle
+	callSeq   atomic.Uint64 // number of calls started
+	reported  atomic.Uint64 // callSeq last reported as timed out
+	strikes   atomic.Int32  // timed-out calls so far
+	disabled  atomic.Bool   // set after maxLeakCount strikes; events are dropped
+	stalled   atomic.Uint64 // callSeq last reported as stuck with a full queue
 }
 
-// NewEventBus creates a new event bus with a worker pool.
+// busItem is what travels the publish channel: an event to deliver, or an
+// unsubscribe, so an unsubscribe is ordered with the events around it.
+type busItem struct {
+	event  *Event
+	remove *listenerEntry
+}
+
+// listenerSet is an immutable snapshot of the subscribed listeners. The
+// dispatcher reads it through an atomic pointer with no lock and no copy;
+// Subscribe, unsubscribe and Clear replace it (copy-on-write).
+type listenerSet struct {
+	byType map[EventType][]*listenerEntry
+	global []*listenerEntry
+}
+
+// with returns a copy of s with fn applied to the copy's fields.
+func (s *listenerSet) with(fn func(byType map[EventType][]*listenerEntry, global *[]*listenerEntry)) *listenerSet {
+	byType := make(map[EventType][]*listenerEntry, len(s.byType))
+	for t, entries := range s.byType {
+		byType[t] = append([]*listenerEntry(nil), entries...)
+	}
+	global := append([]*listenerEntry(nil), s.global...)
+	fn(byType, &global)
+	return &listenerSet{byType: byType, global: global}
+}
+
+// all returns every entry in the set.
+func (s *listenerSet) all() []*listenerEntry {
+	out := append([]*listenerEntry(nil), s.global...)
+	for _, entries := range s.byType {
+		out = append(out, entries...)
+	}
+	return out
+}
+
+// contains reports whether the set holds the entry with the given id.
+func (s *listenerSet) contains(id uint64) bool {
+	for _, e := range s.all() {
+		if e.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+// without removes the entry with the given id from entries.
+func without(entries []*listenerEntry, id uint64) []*listenerEntry {
+	for i, e := range entries {
+		if e.id == id {
+			return append(entries[:i:i], entries[i+1:]...)
+		}
+	}
+	return entries
+}
+
+// EventBus delivers events to listeners in process.
+//
+// Publish hands an event to a buffered channel and returns. One dispatcher
+// goroutine takes each event, in publish order, and offers it to every
+// matching listener's own bounded queue; each listener runs on its own
+// goroutine. So every listener sees events in publish order, a slow listener
+// delays only itself, and a listener whose queue is full has the event
+// dropped and counted (DroppedCount) rather than stalling the others.
+//
+// The dispatcher starts lazily on the first Subscribe/SubscribeAll, so a bus
+// nobody listens to runs no goroutines.
+type EventBus struct {
+	mu        sync.Mutex // serializes changes to listeners and running, and Subscribe vs shutdown
+	listeners atomic.Pointer[listenerSet]
+	running   map[uint64]*listenerEntry // listener goroutines not yet exited, unsubscribed ones included
+	nextID    atomic.Uint64
+	seq       atomic.Int64 // monotonic sequence counter for events
+
+	publishMu         sync.RWMutex // guards eventCh send (RLock) vs close (Lock)
+	eventCh           chan busItem
+	queueSize         int
+	listenerWG        sync.WaitGroup // one per listener goroutine
+	dispatched        chan struct{}  // closed when the dispatcher has exited
+	closed            atomic.Bool
+	started           atomic.Bool // true once the dispatcher has been launched
+	droppedCount      atomic.Int64
+	subscriberTimeout time.Duration
+	epoch             time.Time // origin of now; carries a monotonic reading
+}
+
+// NewEventBus creates a new event bus.
 //
 // Configuration precedence (highest first):
 //
-//  1. Explicit options passed as BusOption arguments (WithWorkerPoolSize,
-//     WithEventBufferSize, WithSubscriberTimeout). Tests and programmatic
-//     callers that want deterministic behavior should use these.
+//  1. Explicit options passed as BusOption arguments (WithEventBufferSize,
+//     WithSubscriberTimeout). Tests and programmatic callers that want
+//     deterministic behavior should use these.
 //  2. Environment variables (PROMPTKIT_EVENT_BUS_BUFFER_SIZE,
-//     PROMPTKIT_EVENT_BUS_WORKER_POOL_SIZE,
 //     PROMPTKIT_EVENT_BUS_SUBSCRIBER_TIMEOUT). Invalid values are logged
 //     and ignored. This is the operator knob for tuning without code
 //     changes — see AltairaLabs/PromptKit#853.
@@ -204,8 +286,8 @@ type EventBus struct {
 // The zero-argument form reads env vars and falls back to defaults, so
 // existing call sites pick up operator configuration automatically.
 //
-// Workers are started lazily: goroutines are only spawned when the first
-// subscriber is added via Subscribe or SubscribeAll.
+// Goroutines are started lazily: the dispatcher when the first subscriber is
+// added, and one goroutine per subscribed listener.
 func NewEventBus(opts ...BusOption) *EventBus {
 	cfg := envDefaultBusConfig()
 	for _, opt := range opts {
@@ -213,189 +295,286 @@ func NewEventBus(opts ...BusOption) *EventBus {
 	}
 
 	eb := &EventBus{
-		listeners:         make(map[EventType][]listenerEntry),
-		eventCh:           make(chan *Event, cfg.eventBufferSize),
+		eventCh:           make(chan busItem, cfg.eventBufferSize),
+		queueSize:         cfg.eventBufferSize,
+		dispatched:        make(chan struct{}),
 		subscriberTimeout: cfg.subscriberTimeout,
-		workerPoolSize:    cfg.workerPoolSize,
-		leakCount:         make(map[uint64]int),
-		done:              make(chan struct{}),
+		epoch:             time.Now(),
 	}
-
+	eb.listeners.Store(&listenerSet{})
 	return eb
 }
 
-// ensureStarted launches workers if they haven't been started yet.
-// Caller must NOT hold eb.mu (this method is lock-free via atomic CAS).
+// now returns nanoseconds since the bus was created, from the monotonic
+// clock, so a wall-clock step (NTP, a VM resume) cannot make a short call
+// look slow. It is never 0, which callStart uses for idle.
+func (eb *EventBus) now() int64 {
+	return int64(time.Since(eb.epoch)) + 1
+}
+
+// ensureStarted launches the dispatcher if it hasn't been started yet.
 func (eb *EventBus) ensureStarted() {
 	if eb.started.CompareAndSwap(false, true) {
-		eb.wg.Add(eb.workerPoolSize)
-		for range eb.workerPoolSize {
-			go eb.worker()
+		go eb.dispatch()
+	}
+}
+
+// dispatch hands each published event, in publish order, to every matching
+// listener's queue. When Close closes eventCh it closes every listener's
+// queue, so each listener drains what it was given and exits.
+func (eb *EventBus) dispatch() {
+	defer close(eb.dispatched)
+	for item := range eb.eventCh {
+		if item.remove != nil {
+			eb.detach(item.remove)
+			continue
 		}
+		eb.deliver(item.event)
+	}
+	eb.mu.Lock()
+	for _, e := range eb.listeners.Load().all() {
+		close(e.queue)
+	}
+	eb.mu.Unlock()
+}
+
+// deliver offers event to every matching listener. It never blocks and does
+// not allocate.
+func (eb *EventBus) deliver(event *Event) {
+	set := eb.listeners.Load()
+	for _, e := range set.byType[event.Type] {
+		eb.enqueue(e, event)
+	}
+	for _, e := range set.global {
+		eb.enqueue(e, event)
 	}
 }
 
-// worker processes events from the buffered channel.
-func (eb *EventBus) worker() {
-	defer eb.wg.Done()
-	for event := range eb.eventCh {
-		eb.dispatch(event)
-	}
-}
-
-// dispatch delivers an event to all matching listeners.
-// If an event store is configured, the event is persisted asynchronously here
-// (in the worker goroutine) rather than in the Publish() caller's goroutine,
-// keeping the publish path fast.
-// Each listener is invoked with a timeout; if a listener exceeds the subscriber
-// timeout it is skipped and a warning is logged.
-func (eb *EventBus) dispatch(event *Event) {
-	eb.mu.RLock()
-	typeListeners := eb.listeners[event.Type]
-
-	specificEntries := make([]listenerEntry, len(typeListeners))
-	copy(specificEntries, typeListeners)
-
-	globalEntries := make([]listenerEntry, len(eb.globalListeners))
-	copy(globalEntries, eb.globalListeners)
-	eb.mu.RUnlock()
-
-	for _, entry := range specificEntries {
-		eb.invokeWithTimeout(entry.id, entry.listener, event)
-	}
-	for _, entry := range globalEntries {
-		eb.invokeWithTimeout(entry.id, entry.listener, event)
-	}
-}
-
-// invokeWithTimeout runs a listener with the configured subscriber timeout.
-// If the listener does not complete in time, a warning is logged and the call is skipped.
-// A second warning is logged at 2x timeout if the goroutine is still running.
-// Listeners that have timed out more than maxLeakCount times are skipped entirely.
-func (eb *EventBus) invokeWithTimeout(id uint64, listener Listener, event *Event) {
-	// Check leak count and skip chronically leaking listeners.
-	eb.mu.RLock()
-	count := eb.leakCount[id]
-	eb.mu.RUnlock()
-	if count >= maxLeakCount {
-		logger.Warn("skipping chronically leaking listener",
-			"listener_id", id,
-			"event_type", string(event.Type),
-			"leak_count", count,
-		)
+// enqueue offers event to one listener's queue, dropping it if the listener
+// is disabled or its queue is full.
+func (eb *EventBus) enqueue(e *listenerEntry, event *Event) {
+	eb.checkSlowCall(e, event)
+	if e.disabled.Load() {
+		// Logged once when disabled. Not a drop: DroppedCount (and the
+		// eventbus_events_dropped_total metric) reports backpressure, and a
+		// disabled listener would otherwise add to it on every event forever.
 		return
 	}
-
-	done := make(chan struct{}, 1)
-	go func() {
-		safeInvoke(listener, event)
-		done <- struct{}{}
-	}()
-
-	// Fast path: try non-blocking receive before starting timeout machinery.
 	select {
-	case <-done:
-		return
+	case e.queue <- event:
 	default:
+		if eb.stuckPastTimeout(e) {
+			// A full queue behind a call past the timeout is a stalled
+			// listener, not backpressure: report it once per call instead of
+			// counting a drop per event. The listener is not disabled for it
+			// (one slow call is one strike) and recovers when the call returns.
+			eb.reportStall(e, event)
+			return
+		}
+		eb.recordDrop(e, event, "listener queue full")
 	}
+}
 
-	timeout := eb.subscriberTimeout
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case <-done:
+// reportStall logs, once per call, that a listener stuck past the subscriber
+// timeout is missing events because its queue is full.
+func (eb *EventBus) reportStall(e *listenerEntry, event *Event) {
+	call := e.callSeq.Load()
+	if e.stalled.Swap(call) == call {
 		return
-	case <-timer.C:
-		eb.mu.Lock()
-		eb.leakCount[id]++
-		eb.mu.Unlock()
+	}
+	logger.Warn("event subscriber stuck past the timeout with a full queue; its events are dropped until the call returns",
+		"listener_id", e.id,
+		"event_type", string(event.Type),
+		"timeout", eb.subscriberTimeout.String(),
+	)
+}
 
-		logger.Warn("event subscriber timed out",
-			"event_type", string(event.Type),
-			"timeout", timeout.String(),
-			"listener_id", id,
+// stuckPastTimeout reports whether e is in a call that has run past the
+// subscriber timeout.
+func (eb *EventBus) stuckPastTimeout(e *listenerEntry) bool {
+	start := e.callStart.Load()
+	return start != 0 && time.Duration(eb.now()-start) >= eb.subscriberTimeout
+}
+
+// disable stops delivering to e, logging once. Its remaining backlog is
+// skipped, and nothing withheld from it counts as a drop.
+func (eb *EventBus) disable(e *listenerEntry, reason string) {
+	if e.disabled.CompareAndSwap(false, true) {
+		logger.Warn("disabling event subscriber; it receives no further events",
+			"listener_id", e.id,
+			"reason", reason,
+			"strikes", e.strikes.Load(),
 		)
 	}
+}
 
-	// Monitor for goroutine leak: exit when listener completes, bus closes, or 2x timeout.
-	go func() {
-		leakTimer := time.NewTimer(timeout)
-		defer leakTimer.Stop()
-		select {
-		case <-done:
-			// Listener eventually completed.
-		case <-eb.done:
-			// Bus is closing, stop monitoring.
-		case <-leakTimer.C:
-			logger.Warn("event subscriber goroutine still running after 2x timeout",
-				"event_type", string(event.Type),
-				"elapsed", (timeout + timeout).String(),
-				"listener_id", id,
-			)
-		}
+// checkSlowCall reports a listener call that has run past the subscriber
+// timeout, once per call, and disables the listener after maxLeakCount such
+// calls. It runs on delivery, so a stuck listener is noticed when events for
+// it arrive — which is when its backlog starts to matter.
+func (eb *EventBus) checkSlowCall(e *listenerEntry, event *Event) {
+	// Read the call number on both sides of its start time: if they differ,
+	// a new call began in between and start belongs to neither reliably.
+	call := e.callSeq.Load()
+	start := e.callStart.Load()
+	if start == 0 || e.callSeq.Load() != call {
+		return
+	}
+	elapsed := time.Duration(eb.now() - start)
+	if elapsed < eb.subscriberTimeout {
+		return
+	}
+	if e.reported.Swap(call) == call {
+		return // this call was already reported
+	}
+	strikes := e.strikes.Add(1)
+	logger.Warn("event subscriber timed out",
+		"event_type", string(event.Type),
+		"timeout", eb.subscriberTimeout.String(),
+		"elapsed", elapsed.String(),
+		"listener_id", e.id,
+		"strikes", strikes,
+	)
+	if strikes >= maxLeakCount {
+		eb.disable(e, "repeatedly timed out")
+	}
+}
+
+// recordDrop counts a delivery dropped because a listener's queue was full,
+// and logs every dropLogRateLimit-th.
+func (eb *EventBus) recordDrop(e *listenerEntry, event *Event, reason string) {
+	dropped := eb.droppedCount.Add(1)
+	if dropped%dropLogRateLimit == 1 {
+		logger.Warn("event dropped",
+			"reason", reason,
+			"event_type", string(event.Type),
+			"listener_id", e.id,
+			"total_dropped", dropped,
+		)
+	}
+}
+
+// run calls the listener for each event in its queue, in order, until the
+// queue is closed (unsubscribe or bus Close: it drains first) or stop is
+// closed (Clear: it exits at once).
+func (eb *EventBus) run(e *listenerEntry) {
+	defer eb.listenerWG.Done()
+	defer func() {
+		eb.mu.Lock()
+		delete(eb.running, e.id)
+		eb.mu.Unlock()
 	}()
+	for {
+		select {
+		case event, ok := <-e.queue:
+			if !ok {
+				return
+			}
+			// select picks at random when both are ready, so check stop
+			// again: a listener Clear removed must not be called again.
+			select {
+			case <-e.stop:
+				return
+			default:
+			}
+			if e.disabled.Load() {
+				continue // disabled for timing out: its backlog is skipped too
+			}
+			e.callSeq.Add(1)
+			e.callStart.Store(eb.now())
+			safeInvoke(e.listener, event)
+			e.callStart.Store(0)
+		case <-e.stop:
+			return
+		}
+	}
+}
+
+// add subscribes listener to eventType, or to every type when global, and
+// returns its unsubscribe function. A bus that is already closed accepts the
+// subscription and never calls the listener.
+func (eb *EventBus) add(eventType EventType, global bool, listener Listener) func() {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	if eb.closed.Load() {
+		return func() {}
+	}
+	e := &listenerEntry{
+		id:       eb.nextID.Add(1),
+		listener: listener,
+		queue:    make(chan *Event, eb.queueSize),
+		stop:     make(chan struct{}),
+	}
+	eb.listeners.Store(eb.listeners.Load().with(func(byType map[EventType][]*listenerEntry, all *[]*listenerEntry) {
+		if global {
+			*all = append(*all, e)
+		} else {
+			byType[eventType] = append(byType[eventType], e)
+		}
+	}))
+	if eb.running == nil {
+		eb.running = make(map[uint64]*listenerEntry)
+	}
+	eb.running[e.id] = e
+	eb.listenerWG.Add(1)
+	go eb.run(e)
+	eb.ensureStarted()
+
+	var once sync.Once
+	return func() { once.Do(func() { eb.remove(e) }) }
+}
+
+// remove unsubscribes e. The unsubscribe travels the publish channel, so the
+// listener still receives every event published before it and none after;
+// it may be called for those after remove returns. On a closed bus there is
+// nothing to do: shutdown already stops every listener.
+func (eb *EventBus) remove(e *listenerEntry) {
+	eb.publishMu.RLock()
+	defer eb.publishMu.RUnlock()
+	if eb.closed.Load() {
+		return
+	}
+	// Blocking send: the dispatcher never blocks, so room comes promptly.
+	eb.eventCh <- busItem{remove: e}
+}
+
+// detach removes e from the set, in publish order, and closes its queue so it
+// drains what it was given and exits. A listener Clear already removed is
+// left alone.
+func (eb *EventBus) detach(e *listenerEntry) {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	if !eb.listeners.Load().contains(e.id) {
+		return
+	}
+	eb.listeners.Store(eb.listeners.Load().with(func(byType map[EventType][]*listenerEntry, all *[]*listenerEntry) {
+		*all = without(*all, e.id)
+		for t, entries := range byType {
+			byType[t] = without(entries, e.id)
+		}
+	}))
+	close(e.queue)
 }
 
 // Subscribe registers a listener for a specific event type and returns
-// an unsubscribe function that removes the listener when called.
-// On the first call, workers are started lazily.
+// an unsubscribe function. The listener runs on its own goroutine and sees
+// events in publish order. After unsubscribe it receives the events published
+// before the call and none after.
 func (eb *EventBus) Subscribe(eventType EventType, listener Listener) func() {
-	eb.ensureStarted()
-
-	eb.mu.Lock()
-	defer eb.mu.Unlock()
-
-	id := eb.nextID.Add(1)
-	eb.listeners[eventType] = append(eb.listeners[eventType], listenerEntry{
-		id:       id,
-		listener: listener,
-	})
-
-	return func() {
-		eb.mu.Lock()
-		defer eb.mu.Unlock()
-		entries := eb.listeners[eventType]
-		for i, entry := range entries {
-			if entry.id == id {
-				eb.listeners[eventType] = append(entries[:i], entries[i+1:]...)
-				return
-			}
-		}
-	}
+	return eb.add(eventType, false, listener)
 }
 
-// SubscribeAll registers a listener for all event types and returns
-// an unsubscribe function that removes the listener when called.
-// On the first call, workers are started lazily.
+// SubscribeAll registers a listener for all event types and returns an
+// unsubscribe function. The listener runs on its own goroutine and sees
+// events in publish order. After unsubscribe it receives the events published
+// before the call and none after.
 func (eb *EventBus) SubscribeAll(listener Listener) func() {
-	eb.ensureStarted()
-
-	eb.mu.Lock()
-	defer eb.mu.Unlock()
-
-	id := eb.nextID.Add(1)
-	eb.globalListeners = append(eb.globalListeners, listenerEntry{
-		id:       id,
-		listener: listener,
-	})
-
-	return func() {
-		eb.mu.Lock()
-		defer eb.mu.Unlock()
-		for i, entry := range eb.globalListeners {
-			if entry.id == id {
-				eb.globalListeners = append(eb.globalListeners[:i], eb.globalListeners[i+1:]...)
-				return
-			}
-		}
-	}
+	return eb.add("", true, listener)
 }
 
-// Publish sends an event to the worker pool for asynchronous delivery to all
-// registered listeners. If a store is configured, the event is persisted
-// asynchronously in the dispatch worker (not in the caller's goroutine).
-// Returns false if the bus has been closed.
+// Publish sends an event for asynchronous delivery to all registered
+// listeners. It never blocks: if the bus's buffer is full the event is
+// dropped. Returns false if the bus has been closed or the event was dropped.
 func (eb *EventBus) Publish(event *Event) bool {
 	// RLock allows concurrent publishes but blocks during Close.
 	eb.publishMu.RLock()
@@ -411,7 +590,7 @@ func (eb *EventBus) Publish(event *Event) bool {
 	// Non-blocking send: if the buffer is full, drop the event rather than blocking
 	// the caller indefinitely. In practice, the buffer should be sized to handle bursts.
 	select {
-	case eb.eventCh <- event:
+	case eb.eventCh <- busItem{event: event}:
 		return true
 	default:
 		dropped := eb.droppedCount.Add(1)
@@ -425,53 +604,97 @@ func (eb *EventBus) Publish(event *Event) bool {
 	}
 }
 
-// DroppedCount returns the total number of events dropped due to a full buffer.
+// DroppedCount returns the number of drops caused by backpressure: events
+// Publish dropped because the bus's buffer was full, plus deliveries a
+// listener missed because its own queue was full (one per listener per
+// event). Not counted, but logged: events a listener misses while stuck in a
+// call past the subscriber timeout, or after being disabled for timing out.
 func (eb *EventBus) DroppedCount() int64 {
 	return eb.droppedCount.Load()
 }
 
-// Close shuts down the event bus gracefully. It closes the event channel and
-// waits for all workers to finish processing remaining events.
-// After Close returns, Publish calls will return false.
-// If no workers were ever started (no subscribers), Close simply marks the bus
-// as closed and drains any buffered events.
+// Close shuts down the event bus gracefully: Publish returns false from then
+// on, and Close waits for every listener to finish the events it was given,
+// up to closeTimeout. If no subscriber was ever added, Close just discards the
+// buffered events.
 func (eb *EventBus) Close() {
-	if eb.closed.CompareAndSwap(false, true) {
-		// Lock publishMu to ensure no Publish is mid-send before closing channels.
-		eb.publishMu.Lock()
-		close(eb.done)    // cancel orphaned invokeWithTimeout goroutines
-		close(eb.eventCh) // signal workers to drain and exit
-		eb.publishMu.Unlock()
-		if eb.started.Load() {
-			// Wait for workers with a hard deadline. Workers may be blocked
-			// on slow listener timeouts — don't let that hang the process.
-			done := make(chan struct{})
-			go func() {
-				eb.wg.Wait()
-				close(done)
-			}()
-			select {
-			case <-done:
-				// Workers drained cleanly.
-			case <-time.After(closeTimeout):
-				logger.Warn("event bus close timed out, abandoning remaining events",
-					"timeout", closeTimeout.String())
+	if !eb.closed.CompareAndSwap(false, true) {
+		return
+	}
+	// Lock publishMu so no Publish is mid-send when eventCh closes, and mu
+	// so no Subscribe is between its closed check and starting the dispatcher.
+	eb.publishMu.Lock()
+	close(eb.eventCh)
+	eb.publishMu.Unlock()
+	eb.mu.Lock()
+	started := eb.started.Load()
+	eb.mu.Unlock()
+
+	if !started {
+		for range eb.eventCh { //nolint:revive // intentional drain
+		}
+		return
+	}
+	// Wait for the dispatcher to hand over every event, then for every
+	// listener to finish its queue. Stop waiting once every listener still
+	// running is stuck in a call past the subscriber timeout — it may never
+	// return — and in any case after closeTimeout.
+	drained := make(chan struct{})
+	go func() {
+		<-eb.dispatched
+		eb.listenerWG.Wait()
+		close(drained)
+	}()
+	deadline := time.After(closeTimeout)
+	poll := time.NewTicker(closeStuckPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-drained:
+			return
+		case <-poll.C:
+			if eb.onlyStuckListenersRemain() {
+				logger.Warn("event bus closed with a listener stuck past the subscriber timeout; abandoning its events",
+					"timeout", eb.subscriberTimeout.String())
+				return
 			}
-		} else {
-			// Drain any buffered events that were published before Close
-			// when no workers were started.
-			for range eb.eventCh { //nolint:revive // intentional drain
-			}
+		case <-deadline:
+			logger.Warn("event bus close timed out, abandoning remaining events",
+				"timeout", closeTimeout.String())
+			return
 		}
 	}
 }
 
-// Clear removes all listeners (primarily for tests).
+// closeStuckPoll is how often Close checks whether only stuck listeners remain.
+const closeStuckPoll = 10 * time.Millisecond
+
+// onlyStuckListenersRemain reports whether every listener goroutine still
+// running is in a call that has run past the subscriber timeout. That
+// includes unsubscribed listeners still draining their queues, which are no
+// longer in the listener set.
+func (eb *EventBus) onlyStuckListenersRemain() bool {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	now := eb.now()
+	for _, e := range eb.running {
+		start := e.callStart.Load()
+		if start == 0 || time.Duration(now-start) < eb.subscriberTimeout {
+			return false // idle with events to drain, or in a call still within the timeout
+		}
+	}
+	return true
+}
+
+// Clear removes all listeners at once (primarily for tests). Unlike
+// unsubscribe, events already in their queues are not delivered.
 func (eb *EventBus) Clear() {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	eb.listeners = make(map[EventType][]listenerEntry)
-	eb.globalListeners = nil
+	for _, e := range eb.listeners.Load().all() {
+		close(e.stop)
+	}
+	eb.listeners.Store(&listenerSet{})
 }
 
 func safeInvoke(listener Listener, event *Event) {

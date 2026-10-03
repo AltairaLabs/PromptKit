@@ -71,7 +71,7 @@ For duplex/voice pipelines, PromptKit emits **direct-update** health metrics —
 | `{ns}_audio_frame_underrun_samples_total` | Counter | `direction` | Magnitude of starvation (silence samples) |
 | `{ns}_audio_frame_drops_total` | Counter | `direction`, `reason` | Audio samples dropped (`reason=overflow`) |
 | `{ns}_audio_pacing_behind_deadline_total` | Counter | `direction` | Pacing fell behind real time |
-| `{ns}_eventbus_events_dropped_total` | Counter | — | Event-bus buffer saturation |
+| `{ns}_eventbus_events_dropped_total` | Counter | — | Event-bus backpressure: events published while its buffer was full, or offered to a listener whose own queue was full (once per listener) |
 
 ```go
 // Audio counters register automatically with NewCollector.
@@ -93,7 +93,7 @@ is being read.
 
 So these four counters are incremented inline at the point of failure, with no
 event in between. They stay accurate while the bus is shedding load. The
-event-bus saturation counter (`{ns}_eventbus_events_dropped_total`) is the
+event-bus backpressure counter (`{ns}_eventbus_events_dropped_total`) is the
 companion signal: pull-based, read from `DroppedCount()` at scrape time, no
 goroutine and no per-event work. A rise there tells you how much to distrust
 every *other* metric on this page — which is why it is worth registering even
