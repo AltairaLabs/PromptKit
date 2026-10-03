@@ -128,37 +128,48 @@ func TestEventBusUnsubscribeAfterClearDoesNotPanic(t *testing.T) {
 	unsubscribe()
 }
 
-// Unsubscribing stops delivery: the listener may finish the call it is in,
-// but is never called again, even with events still in its queue. Its
-// goroutine sees both the queue and the stop signal ready, and select picks
-// between them at random, so this repeats to catch a missing check.
-func TestEventBusUnsubscribedListenerIsNotCalledAgain(t *testing.T) {
+// Unsubscribing is ordered with publishing: the listener receives every event
+// published before the unsubscribe and none published after, even though the
+// earlier ones are still queued behind a call in progress when it returns.
+func TestEventBusUnsubscribeDeliversEarlierEventsOnly(t *testing.T) {
 	t.Parallel()
 
-	for range 20 {
-		bus := NewEventBus()
-		inCall := make(chan struct{})
-		release := make(chan struct{})
-		var calls atomic.Int32
-		unsubscribe := bus.SubscribeAll(func(*Event) {
-			if calls.Add(1) == 1 {
-				close(inCall)
-				<-release
-			}
-		})
-
-		for range 50 {
-			bus.Publish(&Event{Type: EventPipelineStarted})
+	bus := NewEventBus()
+	defer bus.Close()
+	inCall := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	unsubscribe := bus.SubscribeAll(func(*Event) {
+		if calls.Add(1) == 1 {
+			close(inCall)
+			<-release
 		}
-		<-inCall
-		unsubscribe()
-		close(release)
-		time.Sleep(20 * time.Millisecond)
-		bus.Close()
+	})
 
-		if got := calls.Load(); got != 1 {
-			t.Fatalf("listener was called %d times; want only the call in progress at unsubscribe", got)
-		}
+	const before = 50
+	for range before {
+		bus.Publish(&Event{Type: EventPipelineStarted})
+	}
+	<-inCall
+	unsubscribe()
+	for range 50 {
+		bus.Publish(&Event{Type: EventPipelineStarted})
+	}
+	// Release only once the unsubscribe has taken effect, so the queued
+	// events are delivered after the listener left the set, not before.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(bus.listeners.Load().all()) > 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for calls.Load() < before && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond) // room for any wrongly delivered later event
+	if got := calls.Load(); got != before {
+		t.Fatalf("listener was called %d times; want exactly the %d events published before unsubscribe", got, before)
 	}
 }
 
@@ -187,37 +198,56 @@ func TestEventBusCloseDoesNotWaitOnStuckListener(t *testing.T) {
 	}
 }
 
-// A listener hung in one call fills its queue. That is one timed-out call, so
-// one strike, but it must still be disabled once its queue is full past the
-// timeout; otherwise every later event counts as a drop forever and the
-// backpressure metric climbs on a bus that is not saturated.
-func TestEventBusDisablesHungListenerWithFullQueue(t *testing.T) {
+// A listener stuck in one call past the timeout fills its queue. The events it
+// misses meanwhile are reported once, not counted as drops (that would climb
+// forever on a bus that is not saturated), and one slow call does not
+// disable it: when the call returns it receives events again.
+func TestEventBusStalledListenerMissesAreNotCountedAndItRecovers(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus(WithEventBufferSize(4), WithSubscriberTimeout(20*time.Millisecond))
-	hung := make(chan struct{})
 	defer bus.Close()
-	defer close(hung) // runs before Close
+	hung := make(chan struct{})
 	inCall := make(chan struct{})
 	var once sync.Once
-	bus.SubscribeAll(func(*Event) {
+	var calls atomic.Int32
+	bus.SubscribeAll(func(e *Event) {
+		calls.Add(1)
 		once.Do(func() { close(inCall) })
-		<-hung
+		if e.Type == EventPipelineStarted {
+			<-hung
+		}
 	})
 
 	bus.Publish(&Event{Type: EventPipelineStarted})
 	<-inCall
 	time.Sleep(40 * time.Millisecond) // the call is now past the timeout
 
-	// Paced so the bus buffer never overflows: these reach the listener's
-	// queue, fill it, and then find it full behind a hung call.
+	// Paced so the bus buffer never overflows: these fill the listener's
+	// queue and then find it full behind the stalled call.
 	for range 100 {
-		bus.Publish(&Event{Type: EventPipelineStarted})
+		bus.Publish(&Event{Type: EventPipelineCompleted})
 		time.Sleep(200 * time.Microsecond)
 	}
 	time.Sleep(20 * time.Millisecond)
-
 	if got := bus.DroppedCount(); got > 1 {
-		t.Fatalf("a hung listener's withheld events were counted as %d drops; it should have been disabled", got)
+		t.Fatalf("a stalled listener's missed events were counted as %d drops", got)
+	}
+
+	// Release it and let it work through the backlog its queue held.
+	close(hung)
+	waitForCalls := func(want int32) int32 {
+		deadline := time.Now().Add(2 * time.Second)
+		for calls.Load() < want && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		return calls.Load()
+	}
+	drained := waitForCalls(5) // the stalled call plus a full queue of 4
+	time.Sleep(10 * time.Millisecond)
+
+	bus.Publish(&Event{Type: EventPipelineCompleted})
+	if got := waitForCalls(drained + 1); got <= drained {
+		t.Fatalf("listener did not receive events after its slow call returned (calls %d)", got)
 	}
 }

@@ -457,9 +457,10 @@ Two consequences a consumer must design around:
 
 - **Delivery is not guaranteed.** Under burst, events are dropped so
   observability never stalls the pipeline. A listener whose queue is full
-  misses the event, and a listener whose calls exceed the subscriber timeout
-  three times is disabled; both count toward `DroppedCount`. A slow listener
-  delays only itself. Anything that must be complete (a transcript, an audit
+  misses the event, and that miss counts toward `DroppedCount`. A listener
+  stuck in a call past the subscriber timeout misses events while it is stuck,
+  and one that exceeds the timeout three times is disabled; those misses are
+  logged, not counted. A slow listener delays only itself. Anything that must be complete (a transcript, an audit
   trail) reads the state store or a recording, not the bus.
 - **Each listener sees events in the order the bus accepted them.** With
   concurrent publishers that need not be the order they were emitted in.

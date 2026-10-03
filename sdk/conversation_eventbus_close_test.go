@@ -240,7 +240,8 @@ func TestClose_ConcurrentForkKeepsItsBusOpen(t *testing.T) {
 }
 
 // On a bus the caller supplied, Close leaves the bus open but removes the
-// listeners Open added for this conversation. Otherwise each conversation
+// listeners Open added for this conversation, after they have received the
+// conversation's events. Otherwise each conversation
 // left its store (and OTel and metrics) listeners on the caller's bus, each
 // with its own goroutine and queue, for as long as that bus lived.
 func TestClose_UnsubscribesFromSuppliedEventBus(t *testing.T) {
@@ -249,7 +250,19 @@ func TestClose_UnsubscribesFromSuppliedEventBus(t *testing.T) {
 	store := newCountingEventStore()
 
 	conv := openForBusClose(t, WithEventBus(bus), WithEventStore(store))
+	_, err := conv.Send(context.Background(), "hi")
+	require.NoError(t, err)
 	require.NoError(t, conv.Close())
+
+	// Unsubscribing delivers what was published before it: the turn's events,
+	// pipeline.completed included, reach the store by the time Close returns
+	// and the listener drains.
+	deadline := time.Now().Add(2 * time.Second)
+	for store.count(events.EventPipelineCompleted) < 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	assert.Equal(t, 1, store.count(events.EventPipelineCompleted),
+		"the last turn's events must reach the store before its listener is removed")
 	before := store.count(events.EventPipelineStarted)
 
 	probe := busCloseProbeEvent()

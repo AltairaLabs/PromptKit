@@ -183,6 +183,14 @@ type listenerEntry struct {
 	strikes   atomic.Int32  // timed-out calls so far
 	disabled  atomic.Bool   // set after maxLeakCount strikes; events are dropped
 	exited    atomic.Bool   // set when run returns
+	stalled   atomic.Uint64 // callSeq last reported as stuck with a full queue
+}
+
+// busItem is what travels the publish channel: an event to deliver, or an
+// unsubscribe, so an unsubscribe is ordered with the events around it.
+type busItem struct {
+	event  *Event
+	remove *listenerEntry
 }
 
 // listenerSet is an immutable snapshot of the subscribed listeners. The
@@ -251,7 +259,7 @@ type EventBus struct {
 	seq       atomic.Int64 // monotonic sequence counter for events
 
 	publishMu         sync.RWMutex // guards eventCh send (RLock) vs close (Lock)
-	eventCh           chan *Event
+	eventCh           chan busItem
 	queueSize         int
 	listenerWG        sync.WaitGroup // one per listener goroutine
 	dispatched        chan struct{}  // closed when the dispatcher has exited
@@ -286,7 +294,7 @@ func NewEventBus(opts ...BusOption) *EventBus {
 	}
 
 	eb := &EventBus{
-		eventCh:           make(chan *Event, cfg.eventBufferSize),
+		eventCh:           make(chan busItem, cfg.eventBufferSize),
 		queueSize:         cfg.eventBufferSize,
 		dispatched:        make(chan struct{}),
 		subscriberTimeout: cfg.subscriberTimeout,
@@ -307,8 +315,12 @@ func (eb *EventBus) ensureStarted() {
 // queue, so each listener drains what it was given and exits.
 func (eb *EventBus) dispatch() {
 	defer close(eb.dispatched)
-	for event := range eb.eventCh {
-		eb.deliver(event)
+	for item := range eb.eventCh {
+		if item.remove != nil {
+			eb.detach(item.remove)
+			continue
+		}
+		eb.deliver(item.event)
 	}
 	eb.mu.Lock()
 	for _, e := range eb.listeners.Load().all() {
@@ -343,15 +355,29 @@ func (eb *EventBus) enqueue(e *listenerEntry, event *Event) {
 	case e.queue <- event:
 	default:
 		if eb.stuckPastTimeout(e) {
-			// A full queue behind a call that has run past the timeout is a
-			// hung listener, not backpressure. One call is only one strike,
-			// so without this it would never reach maxLeakCount and every
-			// later event would count as a drop, forever.
-			eb.disable(e, "stuck in a call with a full queue")
+			// A full queue behind a call past the timeout is a stalled
+			// listener, not backpressure: report it once per call instead of
+			// counting a drop per event. The listener is not disabled for it
+			// (one slow call is one strike) and recovers when the call returns.
+			eb.reportStall(e, event)
 			return
 		}
 		eb.recordDrop(e, event, "listener queue full")
 	}
+}
+
+// reportStall logs, once per call, that a listener stuck past the subscriber
+// timeout is missing events because its queue is full.
+func (eb *EventBus) reportStall(e *listenerEntry, event *Event) {
+	call := e.callSeq.Load()
+	if e.stalled.Swap(call) == call {
+		return
+	}
+	logger.Warn("event subscriber stuck past the timeout with a full queue; its events are dropped until the call returns",
+		"listener_id", e.id,
+		"event_type", string(event.Type),
+		"timeout", eb.subscriberTimeout.String(),
+	)
 }
 
 // stuckPastTimeout reports whether e is in a call that has run past the
@@ -420,7 +446,8 @@ func (eb *EventBus) recordDrop(e *listenerEntry, event *Event, reason string) {
 }
 
 // run calls the listener for each event in its queue, in order, until the
-// queue is closed (bus Close) or the listener is unsubscribed.
+// queue is closed (unsubscribe or bus Close: it drains first) or stop is
+// closed (Clear: it exits at once).
 func (eb *EventBus) run(e *listenerEntry) {
 	defer eb.listenerWG.Done()
 	defer e.exited.Store(true)
@@ -431,7 +458,7 @@ func (eb *EventBus) run(e *listenerEntry) {
 				return
 			}
 			// select picks at random when both are ready, so check stop
-			// again: an unsubscribed listener must not be called again.
+			// again: a listener Clear removed must not be called again.
 			select {
 			case <-e.stop:
 				return
@@ -480,10 +507,24 @@ func (eb *EventBus) add(eventType EventType, global bool, listener Listener) fun
 	return func() { once.Do(func() { eb.remove(e) }) }
 }
 
-// remove unsubscribes e and stops its goroutine. Events already in its queue
-// are not delivered. A listener Clear already removed is left alone: Clear
-// stopped it, and stopping it twice would panic.
+// remove unsubscribes e. The unsubscribe travels the publish channel, so the
+// listener still receives every event published before it and none after;
+// it may be called for those after remove returns. On a closed bus there is
+// nothing to do: shutdown already stops every listener.
 func (eb *EventBus) remove(e *listenerEntry) {
+	eb.publishMu.RLock()
+	defer eb.publishMu.RUnlock()
+	if eb.closed.Load() {
+		return
+	}
+	// Blocking send: the dispatcher never blocks, so room comes promptly.
+	eb.eventCh <- busItem{remove: e}
+}
+
+// detach removes e from the set, in publish order, and closes its queue so it
+// drains what it was given and exits. A listener Clear already removed is
+// left alone.
+func (eb *EventBus) detach(e *listenerEntry) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 	if !eb.listeners.Load().contains(e.id) {
@@ -495,19 +536,21 @@ func (eb *EventBus) remove(e *listenerEntry) {
 			byType[t] = without(entries, e.id)
 		}
 	}))
-	close(e.stop)
+	close(e.queue)
 }
 
 // Subscribe registers a listener for a specific event type and returns
-// an unsubscribe function that removes the listener when called.
-// The listener runs on its own goroutine and sees events in publish order.
+// an unsubscribe function. The listener runs on its own goroutine and sees
+// events in publish order. After unsubscribe it receives the events published
+// before the call and none after.
 func (eb *EventBus) Subscribe(eventType EventType, listener Listener) func() {
 	return eb.add(eventType, false, listener)
 }
 
-// SubscribeAll registers a listener for all event types and returns
-// an unsubscribe function that removes the listener when called.
-// The listener runs on its own goroutine and sees events in publish order.
+// SubscribeAll registers a listener for all event types and returns an
+// unsubscribe function. The listener runs on its own goroutine and sees
+// events in publish order. After unsubscribe it receives the events published
+// before the call and none after.
 func (eb *EventBus) SubscribeAll(listener Listener) func() {
 	return eb.add("", true, listener)
 }
@@ -530,7 +573,7 @@ func (eb *EventBus) Publish(event *Event) bool {
 	// Non-blocking send: if the buffer is full, drop the event rather than blocking
 	// the caller indefinitely. In practice, the buffer should be sized to handle bursts.
 	select {
-	case eb.eventCh <- event:
+	case eb.eventCh <- busItem{event: event}:
 		return true
 	default:
 		dropped := eb.droppedCount.Add(1)
@@ -547,8 +590,8 @@ func (eb *EventBus) Publish(event *Event) bool {
 // DroppedCount returns the number of drops caused by backpressure: events
 // Publish dropped because the bus's buffer was full, plus deliveries a
 // listener missed because its own queue was full (one per listener per
-// event). A listener disabled for timing out receives nothing further, and
-// that is not counted here.
+// event). Not counted, but logged: events a listener misses while stuck in a
+// call past the subscriber timeout, or after being disabled for timing out.
 func (eb *EventBus) DroppedCount() int64 {
 	return eb.droppedCount.Load()
 }
@@ -626,7 +669,8 @@ func (eb *EventBus) onlyStuckListenersRemain() bool {
 	return true
 }
 
-// Clear removes all listeners (primarily for tests).
+// Clear removes all listeners at once (primarily for tests). Unlike
+// unsubscribe, events already in their queues are not delivered.
 func (eb *EventBus) Clear() {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
