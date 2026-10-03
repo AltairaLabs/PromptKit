@@ -1,0 +1,20 @@
+# Reasoning-model streaming, for exercising the PromptKit event bus (#2146).
+# Each reasoning chunk becomes a reasoning.delta event on the bus, so pair
+# this with the round1 server's --event-store flag; without a subscriber the
+# bus never dispatches. Shape follows #2146: 150 reasoning + 60 answer tokens
+# at ~120 tokens/s.
+openai:
+  reasoning_chunk_count: 150
+  chunk_count: 60
+  inter_chunk_delay: 8ms
+  first_chunk_delay: 100ms
+stt:
+  transcription_delay: 10ms
+  interim_interval: 10ms
+  final_delay: 10ms
+tts:
+  first_byte_delay: 10ms
+  chunk_size: 4096
+  inter_chunk_delay: 10ms
+tool:
+  execution_delay: 10ms

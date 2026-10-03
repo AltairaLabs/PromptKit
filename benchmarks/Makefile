@@ -1,4 +1,4 @@
-.PHONY: round1 round1-tools round2 all build clean help
+.PHONY: round1 round1-tools round2 eventbus all build clean help
 
 TIERS := 10 50 100 250 500 1000
 
@@ -70,6 +70,24 @@ round1-tools: ## Run Round 1 with tool-calling: cost comparison
 			--requests $$(( $$tier * 10 )) --output /results; \
 	done
 	docker compose --profile round1 down
+
+EVENTBUS_TIERS := 50 100 200 500
+
+eventbus: ## Run PromptKit with and without an event store on a reasoning-model upstream (#2146)
+	@echo "=== Event bus: reasoning stream, event store off vs on ==="
+	docker compose --profile eventbus up --build -d mockupstream-reasoning promptkit-eventbus-off promptkit-eventbus-on
+	@echo "Waiting for services..."
+	@sleep 3
+	@for tier in $(EVENTBUS_TIERS); do \
+		for mode in off on; do \
+			echo "--- PromptKit event store $$mode @ $$tier concurrent ---"; \
+			docker compose --profile eventbus run --rm benchmark-eventbus \
+				--round round1 --target http://promptkit-eventbus-$$mode:8090 \
+				--framework promptkit-eventstore-$$mode --profile reasoning \
+				--concurrency $$tier --requests $$(( $$tier * 10 )) --output /results; \
+		done; \
+	done
+	docker compose --profile eventbus down
 
 round2: ## Run Round 2: Voice pipeline (PromptKit vs Pipecat)
 	@echo "=== Round 2: Voice Pipeline ==="
