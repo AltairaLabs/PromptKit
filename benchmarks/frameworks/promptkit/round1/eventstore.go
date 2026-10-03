@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -59,7 +60,10 @@ func (s *countingStore) Close() error { return nil }
 
 // ServeHTTP reports how many events reached the store, so a run can confirm
 // the bus actually delivered (a zero reasoning count means the upstream
-// streamed no reasoning, or nothing was subscribed).
+// streamed no reasoning, or nothing was subscribed). It also reports the
+// process's goroutine count: once a run has finished it should fall back to
+// the server's baseline, and a count that tracks the number of conversations
+// served means something per-conversation leaked (#2146 leaked ten each).
 func (s *countingStore) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	byType := map[string]int64{}
@@ -72,5 +76,6 @@ func (s *countingStore) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 		"reasoning_delta": s.reasoning.Load(),
 		"reasoning_bytes": s.bytes.Load(),
 		"by_type":         byType,
+		"goroutines":      runtime.NumGoroutine(),
 	})
 }
