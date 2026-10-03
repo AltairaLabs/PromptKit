@@ -34,6 +34,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // Status constants for metric labels.
@@ -648,7 +649,7 @@ func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
 	exemplar := traceExemplar(event.SpanContext)
 
 	status := statusSuccess
-	if data.Status == statusError {
+	if toolCallFailed(data.Status) {
 		status = statusError
 	}
 	observeWithExemplar(
@@ -665,6 +666,15 @@ func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
 		),
 		exemplar,
 	)
+}
+
+// toolCallFailed reports whether a tool.call.completed status means the call
+// failed. The tool executor reports a failed call (an HTTP error, a timeout, a
+// circuit-breaker rejection) as tools.ToolStatusFailed, "failed"; "error" is
+// still accepted for any emitter that uses it. Comparing against "error" alone
+// counted every failed call as a success (#2148).
+func toolCallFailed(status string) bool {
+	return status == string(tools.ToolStatusFailed) || status == statusError
 }
 
 func (mc *MetricContext) handleToolCallFailed(event *events.Event) {
