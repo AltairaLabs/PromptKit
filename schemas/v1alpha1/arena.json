@@ -283,6 +283,32 @@
         "members"
       ]
     },
+    "ArtifactDef": {
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this artifact contains and how it's used."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "replace",
+            "append"
+          ],
+          "description": "How the artifact is updated across visits. 'replace' overwrites the previous value on each visit. 'append' accumulates content across visits (e.g., a log). Defaults to 'replace'."
+        },
+        "type": {
+          "type": "string",
+          "description": "MIME type indicating the artifact's content type. Used by runtimes to determine serialization and presentation."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "description": "Declares a named artifact slot for carrying lightweight, structured metadata across workflow state visits. Artifacts are typically pointers (commit SHAs, file paths, URIs), compact representations (schemas, summaries, diffs), or small structured results — not bulk data. Values are captured at each state transition, forming an observable trace that enables time-travel debugging and workflow audit. They persist across loop iterations and are accessible to prompts as template variables."
+    },
     "AssertionConfig": {
       "properties": {
         "type": {
@@ -517,6 +543,48 @@
       ],
       "description": "ChaosToolFailure defines a failure injection rule for a specific tool."
     },
+    "Composition": {
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this composition does."
+        },
+        "engine": {
+          "type": "object",
+          "description": "Runtime-specific configuration (e.g. budgets, telemetry, scheduling hints). Opaque escape hatch with no schema enforcement."
+        },
+        "input_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema declaring the structured input shape. Path or fragment reference."
+        },
+        "output": {
+          "type": "string",
+          "description": "Step ID whose output is the composition's output. If omitted, runtimes should treat the last step's output as the composition output."
+        },
+        "output_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema declaring the structured output shape."
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array",
+          "description": "Ordered array of step definitions. Order is logical; control flow is determined by the steps themselves (sequential by default; branches and parallels alter flow)."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Composition format version. Currently 1."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "steps",
+        "version"
+      ],
+      "description": "A named step graph defining a procedural composition over the pack's prompts, tools, and evals (RFC 0010). Reached through a workflow state whose orchestration is 'composition'."
+    },
     "Config": {
       "properties": {
         "prompt_configs": {
@@ -588,10 +656,15 @@
           "description": "Runtime carries a runtime configuration spec passed straight through to the\nruntime layer (hooks, sandboxes, …). Arena wraps the runtime, so anything\nthe runtime config supports is available here under `runtime:` without\nArena needing a bespoke field for each."
         },
         "workflow": {
-          "description": "Workflow configures a workflow state machine (auto-registers the workflow tool)."
+          "$ref": "#/$defs/WorkflowConfig",
+          "description": "Workflow configures a workflow state machine (auto-registers the workflow\ntool): the entry state, each state's prompt or composition, its event\ntransitions, turn control, visit limits and artifacts."
         },
         "compositions": {
-          "description": "Compositions configures composed multi-agent pipelines."
+          "additionalProperties": {
+            "$ref": "#/$defs/Composition"
+          },
+          "type": "object",
+          "description": "Compositions declares named composition step graphs (RFC 0010), keyed by\nname, that a workflow state with `orchestration: composition` runs."
         },
         "memory": {
           "description": "Memory configures the memory capability (auto-registers the memory tools)."
@@ -2489,6 +2562,56 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Predicate": {
+      "properties": {
+        "all_of": {
+          "items": {
+            "$ref": "#/$defs/Predicate"
+          },
+          "type": "array",
+          "description": "Composite predicate: true when every listed predicate is true."
+        },
+        "any_of": {
+          "items": {
+            "$ref": "#/$defs/Predicate"
+          },
+          "type": "array",
+          "description": "Composite predicate: true when at least one listed predicate is true."
+        },
+        "exists": {
+          "type": "boolean",
+          "description": "For an exists predicate: true if path must resolve to a value, false if it must not."
+        },
+        "not": {
+          "$ref": "#/$defs/Predicate",
+          "description": "Composite predicate: true when the nested predicate is false."
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "equals",
+            "not_equals",
+            "in",
+            "not_in",
+            "less_than",
+            "less_than_or_equals",
+            "greater_than",
+            "greater_than_or_equals"
+          ],
+          "description": "Comparison operator for a compare predicate (path, op, value)."
+        },
+        "path": {
+          "type": "string",
+          "description": "Reference to a value via dot-notation against the composition's input and step outputs. Example: '${classify.output.intent}'."
+        },
+        "value": {
+          "description": "Literal comparison value (string, number, boolean, or array for in/not_in)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "A constrained, declarative branch predicate (RFC 0010). Not an expression language."
+    },
     "Pricing": {
       "properties": {
         "input_cost_per_1k": {
@@ -2770,6 +2893,36 @@
       "required": [
         "address"
       ]
+    },
+    "Reducer": {
+      "properties": {
+        "into": {
+          "type": "string",
+          "description": "Field name under which the merged result is placed on the parallel step's output. Subsequent steps reference it as ${\u003cparallelStepId\u003e.output.\u003cinto\u003e}."
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "enum": [
+                "append",
+                "replace",
+                "barrier"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "How branch outputs merge: 'append' extends lists, 'replace' keeps the last write, 'barrier' collects every output into a named map."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "into",
+        "strategy"
+      ],
+      "description": "Names how a parallel block's branch outputs are merged into a single value (RFC 0010)."
     },
     "RelevanceConfig": {
       "properties": {
@@ -3405,6 +3558,149 @@
         "type"
       ]
     },
+    "Step": {
+      "properties": {
+        "args": {
+          "type": "object",
+          "description": "Argument bindings. Variables resolved against the composition's input and prior steps' outputs."
+        },
+        "branches": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array",
+          "description": "Parallel steps only: the steps to run concurrently (at least two)."
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Optional explicit predecessor step IDs. If omitted, the step sequentially follows the prior step in steps[]. Required when steps run after a branch or parallel and need to declare a join point."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this step does."
+        },
+        "else": {
+          "type": "string",
+          "description": "Step ID to execute when the predicate evaluates false."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable identifier for this step. Must be unique within the composition. Used for output references, eval attachment, and trace records."
+        },
+        "input": {
+          "$ref": "#/$defs/StepInput",
+          "description": "Optional input binding. Variables resolved against the composition's input and prior steps' outputs."
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "prompt",
+                "agent",
+                "tool",
+                "branch",
+                "parallel"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Step kind. The v1 kinds are suggested; a runtime may support additional vendor-namespaced kinds."
+        },
+        "modifiers": {
+          "$ref": "#/$defs/StepModifiers",
+          "description": "Optional declarative modifiers (retry, eval attachment). Modifier semantics are runtime-defined."
+        },
+        "output_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema for the expected output shape. Runtimes parse the LLM response against this schema."
+        },
+        "predicate": {
+          "$ref": "#/$defs/Predicate",
+          "description": "Branch steps only: the condition that selects then or else."
+        },
+        "prompt_task": {
+          "type": "string",
+          "description": "Reference to a prompt key defined in the pack's prompts object."
+        },
+        "reduce": {
+          "$ref": "#/$defs/Reducer",
+          "description": "Parallel steps only: how the branch outputs are merged."
+        },
+        "termination": {
+          "$ref": "#/$defs/TerminationPredicate",
+          "description": "REQUIRED. The condition under which the bounded loop exits. Without an explicit termination predicate, an agent step is invalid."
+        },
+        "then": {
+          "type": "string",
+          "description": "Step ID to execute when the predicate evaluates true."
+        },
+        "tool": {
+          "type": "string",
+          "description": "Reference to a tool key defined in the pack's tools object."
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Subset of the pack's tools available to this agent step. Acts as a per-step scoped tool registry."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind"
+      ],
+      "description": "A single step in a composition's step graph. The 'kind' discriminator selects the step shape (RFC 0010)."
+    },
+    "StepInput": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Reference of the form '${path.to.value}'."
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      ],
+      "description": "Input binding for a step (RFC 0010). May be a reference of the form '${path.to.value}' against the composition input ('${input.X}') or a prior step output ('${stepId.output.X}'), or an object combining literals and references."
+    },
+    "StepModifiers": {
+      "properties": {
+        "eval": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "References to eval keys defined in the pack's evals object (RFC 0006). Runtimes may execute these inline or post-Send."
+        },
+        "retry": {
+          "$ref": "#/$defs/StepModifiersRetry",
+          "description": "Re-runs the step on error, up to max_attempts."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Declarative annotations on a step. Semantics are runtime-defined."
+    },
+    "StepModifiersRetry": {
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Maximum number of attempts, including the first, before the step's error is returned."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Re-runs the step on error, up to max_attempts."
+    },
     "StreamRetryBudgetConfig": {
       "properties": {
         "rate_per_sec": {
@@ -3485,6 +3781,33 @@
         "type"
       ]
     },
+    "TerminationPredicate": {
+      "anyOf": [
+        {
+          "required": [
+            "max_steps"
+          ]
+        },
+        {
+          "required": [
+            "tool_called"
+          ]
+        }
+      ],
+      "properties": {
+        "max_steps": {
+          "type": "integer",
+          "description": "Maximum number of LLM rounds the agent step's tool loop may run before it exits."
+        },
+        "tool_called": {
+          "type": "string",
+          "description": "Tool name; agent terminates when the LLM successfully invokes this tool."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Termination condition for an agent step's bounded loop (RFC 0010)."
+    },
     "TestedModel": {
       "properties": {
         "avg_cost": {
@@ -3563,13 +3886,11 @@
       "properties": {
         "tool_choice": {
           "type": "string",
-          "description": "\"auto\" | \"required\" | \"none\""
+          "description": "ToolChoice is \"auto\", \"required\", \"none\" or a tool name. Unset means the\nprompt's tool_choice, or \"auto\"."
         },
         "max_tool_calls_per_turn": {
-          "type": "integer"
-        },
-        "max_total_tool_calls": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxToolCallsPerTurn caps tool calls across all of a turn's rounds.\n0/unset means the prompt's tool_policy.max_tool_calls_per_turn, if any.\nThere is no scenario-wide total: per-turn is the only call cap."
         },
         "blocklist": {
           "items": {
@@ -3579,7 +3900,7 @@
         },
         "max_rounds": {
           "type": "integer",
-          "description": "MaxRounds is the maximum number of tool-call rounds per turn.\n0/unset means use the Arena default (50). Never unlimited."
+          "description": "MaxRounds is the maximum number of tool-call rounds per turn.\n0/unset means the prompt's tool_policy.max_rounds, or 50 when it sets\nnone. Never unlimited."
         },
         "max_cost_usd": {
           "type": "number",
@@ -3592,12 +3913,7 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "tool_choice",
-        "max_tool_calls_per_turn",
-        "max_total_tool_calls"
-      ],
-      "description": "ToolPolicy defines constraints for tool usage in scenarios"
+      "description": "ToolPolicy defines constraints for tool usage in scenarios."
     },
     "ToolRef": {
       "properties": {
@@ -4042,6 +4358,142 @@
         "id",
         "provider"
       ]
+    },
+    "WorkflowBudget": {
+      "properties": {
+        "max_tool_calls": {
+          "type": "integer",
+          "description": "Maximum total tool calls across all states in the workflow."
+        },
+        "max_total_visits": {
+          "type": "integer",
+          "description": "Maximum total state visits across all states in the workflow. This is a global safety net independent of per-state max_visits."
+        },
+        "max_wall_time_sec": {
+          "type": "integer",
+          "description": "Maximum wall-clock time in seconds for the entire workflow execution."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Resource budget for workflow execution. Provides a safety net to prevent unbounded loops. When any budget limit is reached, the workflow terminates with a budget-exhausted status. All fields are optional — omitting a field means no limit for that resource."
+    },
+    "WorkflowConfig": {
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/WorkflowConfigEngine",
+          "description": "Optional runtime engine configuration for workflow execution. Hosts standardized fields like 'budget' for resource limits, alongside runtime-specific hints (timeout, concurrency, etc.)."
+        },
+        "entry": {
+          "type": "string",
+          "description": "Name of the initial state. Must match a key in the states object."
+        },
+        "states": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkflowState"
+          },
+          "type": "object",
+          "description": "Map of state name to state definition. Each state references a prompt and declares transitions."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Workflow schema version. Use 1 for the current stable format."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "entry",
+        "states",
+        "version"
+      ],
+      "description": "State-machine workflow over the pack's prompts. Defines an entry state and event-driven transitions between states, where each state references a prompt key."
+    },
+    "WorkflowConfigEngine": {
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/WorkflowBudget",
+          "description": "Resource budget for workflow execution. Provides safety limits to prevent unbounded loops."
+        }
+      },
+      "additionalProperties": true,
+      "type": "object",
+      "description": "Optional runtime engine configuration for workflow execution. Hosts standardized fields like 'budget' for resource limits, alongside runtime-specific hints (timeout, concurrency, etc.)."
+    },
+    "WorkflowState": {
+      "properties": {
+        "artifacts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactDef"
+          },
+          "type": "object",
+          "description": "Named artifact slots for lightweight, structured metadata that flows across state visits. Artifacts should be pointers (commit SHAs, URIs), compact representations (schemas, summaries, diffs), or small structured results — not bulk data. Artifact values are available to the prompt as template variables under the 'artifacts' namespace (e.g., {{artifacts.commit_sha}})."
+        },
+        "composition": {
+          "type": "string",
+          "description": "Reference to a composition key defined in the pack's compositions object (RFC 0010). Required when orchestration is 'composition'; absent otherwise."
+        },
+        "control": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent"
+          ],
+          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (default, and the behavior of every state before v1.7.0). 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this state's purpose."
+        },
+        "max_visits": {
+          "type": "integer",
+          "description": "Maximum number of times this state can be entered during a single workflow execution. When the limit is reached, the workflow transitions to the state named in on_max_visits. If on_max_visits is not set, the workflow terminates."
+        },
+        "on_event": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Map of event name to target state name. When the named event fires, the workflow transitions to the target state."
+        },
+        "on_max_visits": {
+          "type": "string",
+          "description": "Target state to transition to when max_visits is reached. Must reference a key in the states object. If omitted and max_visits is reached, the workflow terminates with a budget-exhausted status."
+        },
+        "orchestration": {
+          "type": "string",
+          "enum": [
+            "internal",
+            "external",
+            "hybrid",
+            "composition"
+          ],
+          "description": "How the state is orchestrated. 'internal' = agent controls transitions (default). 'external' = system controls transitions. 'hybrid' = both. 'composition' = the referenced composition fully handles the state's orchestration (work + transitions): the composition runs end-to-end, and on completion its output may map to on_event transitions or terminate the state. The composition mode is exclusive; it is not mixed with internal/external/hybrid on the same state."
+        },
+        "persistence": {
+          "type": "string",
+          "enum": [
+            "transient",
+            "persistent"
+          ],
+          "description": "Whether conversation context is kept (persistent) or reset (transient) on entry."
+        },
+        "prompt_task": {
+          "type": "string",
+          "description": "Reference to a prompt key defined in the pack's prompts object. Required for orchestration modes 'internal', 'external', 'hybrid' (or when orchestration is omitted, default 'internal'); not used in 'composition' mode."
+        },
+        "skills": {
+          "type": "string",
+          "description": "Skill filter for this workflow state. A path to a skill directory/file that scopes which skills are available in this state, or the literal 'none' to disable skills."
+        },
+        "terminal": {
+          "type": "boolean",
+          "description": "If true, this state is a terminal state. The workflow completes after this state's prompt executes. Terminal states should not declare on_event transitions."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "A single state in the workflow state machine. The orchestration mode determines how the state's work is driven: 'internal'/'external'/'hybrid' reference a prompt task and declare event-driven transitions; 'composition' (RFC 0010) runs a declarative step graph in place of a prompt. May be marked as terminal to indicate workflow completion, or guarded with max_visits to bound loop iterations."
     }
   },
   "properties": {

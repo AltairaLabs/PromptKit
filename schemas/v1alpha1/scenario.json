@@ -510,13 +510,11 @@
       "properties": {
         "tool_choice": {
           "type": "string",
-          "description": "\"auto\" | \"required\" | \"none\""
+          "description": "ToolChoice is \"auto\", \"required\", \"none\" or a tool name. Unset means the\nprompt's tool_choice, or \"auto\"."
         },
         "max_tool_calls_per_turn": {
-          "type": "integer"
-        },
-        "max_total_tool_calls": {
-          "type": "integer"
+          "type": "integer",
+          "description": "MaxToolCallsPerTurn caps tool calls across all of a turn's rounds.\n0/unset means the prompt's tool_policy.max_tool_calls_per_turn, if any.\nThere is no scenario-wide total: per-turn is the only call cap."
         },
         "blocklist": {
           "items": {
@@ -526,7 +524,7 @@
         },
         "max_rounds": {
           "type": "integer",
-          "description": "MaxRounds is the maximum number of tool-call rounds per turn.\n0/unset means use the Arena default (50). Never unlimited."
+          "description": "MaxRounds is the maximum number of tool-call rounds per turn.\n0/unset means the prompt's tool_policy.max_rounds, or 50 when it sets\nnone. Never unlimited."
         },
         "max_cost_usd": {
           "type": "number",
@@ -539,12 +537,7 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "tool_choice",
-        "max_tool_calls_per_turn",
-        "max_total_tool_calls"
-      ],
-      "description": "ToolPolicy defines constraints for tool usage in scenarios"
+      "description": "ToolPolicy defines constraints for tool usage in scenarios."
     },
     "TurnContentPart": {
       "properties": {
