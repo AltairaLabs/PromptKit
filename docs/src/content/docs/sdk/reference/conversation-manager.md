@@ -1317,7 +1317,7 @@ The packPath can be:
 The promptName must match a prompt ID defined in the pack's "prompts" section.
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1237>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1241>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1404,7 +1404,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1136>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1140>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1431,7 +1431,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1211>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1215>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1538,7 +1538,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1653>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1670>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1616,7 +1616,7 @@ Nothing in PromptKit acts on the result. RFC 0013 is explicit that a governance 
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1639>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1656>)
 
 ```go
 func (c *Conversation) ID() string

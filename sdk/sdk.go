@@ -93,13 +93,13 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// point the conversation ends up with zero MCP tools regardless of how
 	// servers were declared.
 	if err := initMCPRegistry(conv, conv.config); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	// Initialize internal memory store for conversation history
 	// This is used by StateStoreLoad/Save middleware in the pipeline
 	if err := initInternalStateStore(conv, conv.config); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	// Finalize conversation (eval middleware, session start hooks)
@@ -162,7 +162,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// a misconfigured MCP entry surfaces with the same error in either
 	// flavor, regardless of which provider was wired. (See note in Open().)
 	if err := initMCPRegistry(conv, conv.config); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	// Verify provider supports streaming input. Only ASM mode — where audio
@@ -180,15 +180,15 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// itself for ASM mode, so the gate here is purely a fail-fast check.
 	if _, ok := prov.(providers.StreamInputSupport); !ok &&
 		conv.config.ingestion == nil && conv.config.vadModeConfig == nil {
-		return nil, fmt.Errorf(
+		return conv.failOpen(fmt.Errorf(
 			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
 			prov,
-		)
+		))
 	}
 
 	// Initialize duplex session
 	if err := initDuplexSession(conv, conv.config); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	// Finalize conversation (eval middleware, session start hooks)
@@ -657,12 +657,16 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 	}
 }
 
+// newEventBus creates the event bus for a conversation that was not given one
+// via WithEventBus. A variable so tests can observe the buses Open creates.
+var newEventBus = func() events.Bus { return events.NewEventBus() }
+
 // initEventBus initializes the conversation's event bus.
 // If an event store is configured, it is subscribed to the bus for persistence.
 // If a TracerProvider is configured, an OTel event listener is wired in.
 func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
-		cfg.eventBus = events.NewEventBus()
+		cfg.eventBus = newEventBus()
 		cfg.ownedEventBus = newSharedEventBus(cfg.eventBus)
 	}
 	// redact wraps a subscriber when a policy is configured, so each consumer

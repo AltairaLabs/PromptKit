@@ -1474,10 +1474,27 @@ func (c *Conversation) Close() error {
 	// Outside c.mu: both steps wait on work that may call back into the
 	// conversation (a pipeline stage, or a subscriber draining the bus).
 	c.awaitPipelines()
+	c.releaseEventBus()
+	return err
+}
+
+// releaseEventBus drops this conversation's reference on an SDK-created event
+// bus, closing the bus if no fork still holds one.
+func (c *Conversation) releaseEventBus() {
 	if c.busRef != nil {
 		c.busRef.release()
+		c.busRef = nil
 	}
-	return err
+}
+
+// failOpen is how Open and its variants fail once the conversation holds an
+// event bus reference: the caller never receives the conversation, so Close
+// never runs, and without this a failed Open leaked the bus's workers (started
+// as soon as anything subscribed). No pipeline has executed yet, so there is
+// nothing to wait for.
+func (c *Conversation) failOpen(err error) (*Conversation, error) {
+	c.releaseEventBus()
+	return nil, err
 }
 
 // pipelineFlushTimeout bounds how long Close waits for in-flight pipeline

@@ -20,10 +20,17 @@ import (
 // worker goroutines blocked on the event channel forever: ten leaked per
 // conversation, found by the round1 load test with --event-store (#2146).
 
-func openForBusClose(t *testing.T, opts ...Option) *Conversation {
+// writeBusClosePack writes a minimal one-prompt pack and returns its path.
+func writeBusClosePack(t *testing.T) string {
 	t.Helper()
 	packPath := filepath.Join(t.TempDir(), "bus-close.pack.json")
 	require.NoError(t, os.WriteFile(packPath, []byte(inertProbePackJSON), 0o600))
+	return packPath
+}
+
+func openForBusClose(t *testing.T, opts ...Option) *Conversation {
+	t.Helper()
+	packPath := writeBusClosePack(t)
 
 	opts = append([]Option{WithProvider(mock.NewProvider("mock-bus", "mock-model", false))}, opts...)
 	conv, err := Open(packPath, "chat", opts...)
@@ -78,8 +85,7 @@ func TestClose_DeliversPendingEventsBeforeReturning(t *testing.T) {
 // Close must wait for them before closing the bus, or a store loses the
 // completion of a turn closed straight after it finished.
 func TestClose_KeepsEventsEmittedAfterTheTurnReturns(t *testing.T) {
-	packPath := filepath.Join(t.TempDir(), "bus-close.pack.json")
-	require.NoError(t, os.WriteFile(packPath, []byte(inertProbePackJSON), 0o600))
+	packPath := writeBusClosePack(t)
 	store := newCountingEventStore()
 
 	// The loss is a race (a few percent of turns), so take enough samples to
@@ -133,6 +139,61 @@ func TestClose_SharedBusClosesWithTheLastOfParentAndFork(t *testing.T) {
 			require.NoError(t, last.Close())
 			assert.False(t, bus.Publish(busCloseProbeEvent()),
 				"the bus must close when the last conversation using it closes")
+		})
+	}
+}
+
+// captureEventBuses records every bus Open creates for the rest of the test.
+// Not for parallel tests: it swaps a package variable.
+func captureEventBuses(t *testing.T) *[]events.Bus {
+	t.Helper()
+	var buses []events.Bus
+	orig := newEventBus
+	newEventBus = func() events.Bus {
+		b := orig()
+		buses = append(buses, b)
+		return b
+	}
+	t.Cleanup(func() { newEventBus = orig })
+	return &buses
+}
+
+// An Open that fails after creating the conversation's bus returns no
+// conversation, so Close never runs: the failed Open itself must close the bus,
+// or every failed attempt leaks its workers (the #2146 leak, by another door).
+// An MCP server named without an endpoint resolver fails Open after the bus
+// exists, on every Open variant.
+func TestOpen_FailureAfterBusCreationClosesTheBus(t *testing.T) {
+	packPath := writeBusClosePack(t)
+	unresolvableMCP := WithMCPServer(NewMCPServerByName("codegen"))
+	provider := WithProvider(mock.NewProvider("mock-bus", "mock-model", false))
+
+	opens := map[string]func() (*Conversation, error){
+		"Open": func() (*Conversation, error) {
+			return Open(packPath, "chat", provider, WithEventStore(&inertStubEventStore{}), unresolvableMCP)
+		},
+		"OpenDuplex": func() (*Conversation, error) {
+			return OpenDuplex(packPath, "chat", provider, WithEventStore(&inertStubEventStore{}), unresolvableMCP)
+		},
+		"PackTemplate.Open": func() (*Conversation, error) {
+			tmpl, err := LoadTemplate(packPath)
+			if err != nil {
+				return nil, err
+			}
+			return tmpl.Open("chat", provider, WithEventStore(&inertStubEventStore{}), unresolvableMCP)
+		},
+	}
+	for name, open := range opens {
+		t.Run(name, func(t *testing.T) {
+			buses := captureEventBuses(t)
+
+			conv, err := open()
+			require.Error(t, err)
+			require.Nil(t, conv)
+			require.Len(t, *buses, 1, "the failure must come after the bus was created, or this proves nothing")
+
+			assert.False(t, (*buses)[0].Publish(busCloseProbeEvent()),
+				"a failed Open must close the bus it created")
 		})
 	}
 }

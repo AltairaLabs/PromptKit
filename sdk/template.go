@@ -151,11 +151,11 @@ func (t *PackTemplate) openConversation(
 	// pipeline build can surface MCP tool descriptors. See sdk.go:Open for
 	// the same ordering invariant.
 	if err := initMCPRegistry(conv, cfg); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	if err := t.initSession(conv, cfg, prov, duplex); err != nil {
-		return nil, err
+		return conv.failOpen(err)
 	}
 
 	conv.evalMW = newEvalMiddleware(conv)
