@@ -52,8 +52,8 @@ type StreamPipeline struct {
 // Returns an output channel that will receive all elements from terminal stages.
 // The pipeline executes in background goroutines and closes the output channel when complete.
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
-	// Check if shutting down
-	if p.isShuttingDown() {
+	// Register for graceful shutdown, or refuse if shutting down.
+	if !p.beginExecution() {
 		return nil, ErrPipelineShuttingDown
 	}
 
@@ -96,9 +96,6 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	if p.config.ProviderBinding != nil {
 		execCtx = evals.WithProviderBinding(execCtx, p.config.ProviderBinding)
 	}
-
-	// Track execution for graceful shutdown
-	p.wg.Add(1)
 
 	// Create output channel
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
@@ -670,9 +667,18 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	}
 }
 
-// isShuttingDown checks if the pipeline is shutting down.
-func (p *StreamPipeline) isShuttingDown() bool {
+// beginExecution registers an execution with the graceful-shutdown WaitGroup,
+// or reports false when the pipeline is shutting down. The check and the Add
+// share one read lock: Shutdown sets isShutdown under the write lock before it
+// Waits, so an Add can never run concurrently with that Wait, which
+// sync.WaitGroup forbids. Checking and adding separately left a window where an
+// Execute that passed the check added after Shutdown had started waiting.
+func (p *StreamPipeline) beginExecution() bool {
 	p.shutdownMu.RLock()
 	defer p.shutdownMu.RUnlock()
-	return p.isShutdown
+	if p.isShutdown {
+		return false
+	}
+	p.wg.Add(1)
+	return true
 }
