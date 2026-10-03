@@ -1303,6 +1303,12 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// A closed conversation has closed its providers and released its event
+	// bus, so a fork of it could neither run a turn nor publish an event.
+	if c.closed {
+		return nil, ErrConversationClosed
+	}
+
 	c.handlersMu.RLock()
 	// Copy handlers
 	handlers := make(map[string]ToolHandler, len(c.handlers))
@@ -1467,24 +1473,27 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // bus's subscribers. A bus supplied via [WithEventBus] is left open for the
 // caller to close.
 func (c *Conversation) Close() error {
-	first, err := c.closeLocked()
+	busRef, first, err := c.closeLocked()
 	if !first {
 		return err
 	}
 	// Outside c.mu: both steps wait on work that may call back into the
 	// conversation (a pipeline stage, or a subscriber draining the bus).
 	c.awaitPipelines()
-	c.releaseEventBus()
+	if busRef != nil {
+		busRef.release()
+	}
 	return err
 }
 
-// releaseEventBus drops this conversation's reference on an SDK-created event
-// bus, closing the bus if no fork still holds one.
-func (c *Conversation) releaseEventBus() {
-	if c.busRef != nil {
-		c.busRef.release()
-		c.busRef = nil
-	}
+// takeBusRef hands over this conversation's event bus reference, leaving it
+// without one. The caller releases it, outside c.mu, since closing the bus
+// drains it through subscribers. Caller must hold c.mu: Fork reads busRef
+// under it to take its own reference.
+func (c *Conversation) takeBusRef() *sharedEventBus {
+	ref := c.busRef
+	c.busRef = nil
+	return ref
 }
 
 // failOpen is how Open and its variants fail once the conversation holds an
@@ -1493,7 +1502,12 @@ func (c *Conversation) releaseEventBus() {
 // as soon as anything subscribed). No pipeline has executed yet, so there is
 // nothing to wait for.
 func (c *Conversation) failOpen(err error) (*Conversation, error) {
-	c.releaseEventBus()
+	c.mu.Lock()
+	busRef := c.takeBusRef()
+	c.mu.Unlock()
+	if busRef != nil {
+		busRef.release()
+	}
 	return nil, err
 }
 
@@ -1521,14 +1535,15 @@ func (c *Conversation) awaitPipelines() {
 }
 
 // closeLocked releases everything Close releases except the pipelines and
-// the event bus, which Close handles after releasing c.mu. Reports whether
-// this call closed the conversation (false when it was already closed).
-func (c *Conversation) closeLocked() (bool, error) {
+// the event bus, which Close handles after releasing c.mu; it hands over the
+// bus reference for that. Reports whether this call closed the conversation
+// (false when it was already closed).
+func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return false, nil
+		return nil, false, nil
 	}
 	c.closed = true
 	var convID string
@@ -1544,7 +1559,7 @@ func (c *Conversation) closeLocked() (bool, error) {
 	// No explicit save needed here
 
 	logger.Info("conversation closed", "id", convID)
-	return true, errors.Join(errs...)
+	return c.takeBusRef(), true, errors.Join(errs...)
 }
 
 // finishSession ends the conversation's session for its observers: it

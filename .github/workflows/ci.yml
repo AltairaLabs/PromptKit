@@ -445,9 +445,10 @@ jobs:
         # closes can still be running when the harness exits: poll until every
         # turn's pipeline.completed has arrived and the goroutines have drained.
         for _ in $(seq 1 20); do
-          STATS=$(curl -sf http://localhost:8091/stats)
+          # A failed poll counts as "not there yet" rather than ending the step.
+          STATS=$(curl -sf http://localhost:8091/stats || echo '{}')
           COMPLETED=$(echo "$STATS" | jq '.by_type["pipeline.completed"] // 0')
-          GOROUTINES=$(echo "$STATS" | jq '.goroutines')
+          GOROUTINES=$(echo "$STATS" | jq '.goroutines // 999999')
           if [ "$COMPLETED" -ge "$REQUESTS" ] && [ "$GOROUTINES" -lt 2000 ]; then
             break
           fi

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -195,5 +196,45 @@ func TestOpen_FailureAfterBusCreationClosesTheBus(t *testing.T) {
 			assert.False(t, (*buses)[0].Publish(busCloseProbeEvent()),
 				"a failed Open must close the bus it created")
 		})
+	}
+}
+
+// Forking a closed conversation must fail like Send does: its providers are
+// closed and its bus released, so a fork would publish into a closed bus.
+func TestFork_ClosedConversationIsRejected(t *testing.T) {
+	conv := openForBusClose(t, WithEventStore(&inertStubEventStore{}))
+	require.NoError(t, conv.Close())
+
+	fork, err := conv.Fork()
+	assert.ErrorIs(t, err, ErrConversationClosed)
+	assert.Nil(t, fork)
+}
+
+// Fork racing Close either loses (ErrConversationClosed) or wins and holds its
+// own reference, so the shared bus stays open until the fork closes too. Under
+// -race this also covers the busRef hand-off between Close and Fork.
+func TestClose_ConcurrentForkKeepsItsBusOpen(t *testing.T) {
+	for i := range 100 {
+		parent := openForBusClose(t, WithEventStore(&inertStubEventStore{}))
+		bus := parent.EventBus()
+
+		closed := make(chan error, 1)
+		go func() { closed <- parent.Close() }()
+		if i%2 == 1 {
+			// Let Close get ahead on half the runs, so both orders occur.
+			time.Sleep(time.Duration(i%7) * 100 * time.Microsecond)
+		}
+		fork, err := parent.Fork()
+		require.NoError(t, <-closed)
+
+		if err != nil {
+			require.ErrorIs(t, err, ErrConversationClosed)
+			continue
+		}
+		require.True(t, bus.Publish(busCloseProbeEvent()),
+			"a fork that won the race holds a reference, so the bus must stay open")
+		require.NoError(t, fork.Close())
+		require.False(t, bus.Publish(busCloseProbeEvent()),
+			"the bus must close with the last of parent and fork")
 	}
 }
