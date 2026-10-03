@@ -182,7 +182,6 @@ type listenerEntry struct {
 	reported  atomic.Uint64 // callSeq last reported as timed out
 	strikes   atomic.Int32  // timed-out calls so far
 	disabled  atomic.Bool   // set after maxLeakCount strikes; events are dropped
-	exited    atomic.Bool   // set when run returns
 	stalled   atomic.Uint64 // callSeq last reported as stuck with a full queue
 }
 
@@ -253,8 +252,9 @@ func without(entries []*listenerEntry, id uint64) []*listenerEntry {
 // The dispatcher starts lazily on the first Subscribe/SubscribeAll, so a bus
 // nobody listens to runs no goroutines.
 type EventBus struct {
-	mu        sync.Mutex // serializes changes to listeners, and Subscribe vs shutdown
+	mu        sync.Mutex // serializes changes to listeners and running, and Subscribe vs shutdown
 	listeners atomic.Pointer[listenerSet]
+	running   map[uint64]*listenerEntry // listener goroutines not yet exited, unsubscribed ones included
 	nextID    atomic.Uint64
 	seq       atomic.Int64 // monotonic sequence counter for events
 
@@ -450,7 +450,11 @@ func (eb *EventBus) recordDrop(e *listenerEntry, event *Event, reason string) {
 // closed (Clear: it exits at once).
 func (eb *EventBus) run(e *listenerEntry) {
 	defer eb.listenerWG.Done()
-	defer e.exited.Store(true)
+	defer func() {
+		eb.mu.Lock()
+		delete(eb.running, e.id)
+		eb.mu.Unlock()
+	}()
 	for {
 		select {
 		case event, ok := <-e.queue:
@@ -499,6 +503,10 @@ func (eb *EventBus) add(eventType EventType, global bool, listener Listener) fun
 			byType[eventType] = append(byType[eventType], e)
 		}
 	}))
+	if eb.running == nil {
+		eb.running = make(map[uint64]*listenerEntry)
+	}
+	eb.running[e.id] = e
 	eb.listenerWG.Add(1)
 	go eb.run(e)
 	eb.ensureStarted()
@@ -652,15 +660,15 @@ func (eb *EventBus) Close() {
 // closeStuckPoll is how often Close checks whether only stuck listeners remain.
 const closeStuckPoll = 10 * time.Millisecond
 
-// onlyStuckListenersRemain reports whether every listener that has not exited
-// is in a call that has run past the subscriber timeout. Unsubscribed
-// listeners are not in the set, and exit on their own.
+// onlyStuckListenersRemain reports whether every listener goroutine still
+// running is in a call that has run past the subscriber timeout. That
+// includes unsubscribed listeners still draining their queues, which are no
+// longer in the listener set.
 func (eb *EventBus) onlyStuckListenersRemain() bool {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
 	now := time.Now().UnixNano()
-	for _, e := range eb.listeners.Load().all() {
-		if e.exited.Load() {
-			continue
-		}
+	for _, e := range eb.running {
 		start := e.callStart.Load()
 		if start == 0 || time.Duration(now-start) < eb.subscriberTimeout {
 			return false // idle with events to drain, or in a call still within the timeout

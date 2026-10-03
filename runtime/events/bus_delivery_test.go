@@ -198,6 +198,32 @@ func TestEventBusCloseDoesNotWaitOnStuckListener(t *testing.T) {
 	}
 }
 
+// An unsubscribed listener leaves the set but still drains what it was
+// given, so Close must wait for it like any other listener rather than
+// treating an empty set as "only stuck listeners remain".
+func TestEventBusCloseWaitsForUnsubscribedListenerBacklog(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithSubscriberTimeout(time.Second))
+	var calls atomic.Int32
+	unsubscribe := bus.SubscribeAll(func(*Event) {
+		time.Sleep(2 * time.Millisecond)
+		calls.Add(1)
+	})
+	const published = 100
+	for range published {
+		if !bus.Publish(&Event{Type: EventPipelineStarted}) {
+			t.Fatal("publish dropped an event the buffer had room for")
+		}
+	}
+	unsubscribe()
+	bus.Close()
+
+	if got := calls.Load(); got != published {
+		t.Fatalf("Close returned after %d of %d events reached the unsubscribed listener", got, published)
+	}
+}
+
 // A listener stuck in one call past the timeout fills its queue. The events it
 // misses meanwhile are reported once, not counted as drops (that would climb
 // forever on a bus that is not saturated), and one slow call does not
