@@ -18,9 +18,14 @@ type Profile struct {
 
 // OpenAIProfile configures the mock OpenAI SSE chat completion server.
 type OpenAIProfile struct {
-	ChunkCount      int           `yaml:"chunk_count"`
-	InterChunkDelay time.Duration `yaml:"inter_chunk_delay"`
-	FirstChunkDelay time.Duration `yaml:"first_chunk_delay"`
+	ChunkCount int `yaml:"chunk_count"`
+	// ReasoningChunkCount streams this many reasoning_content chunks before
+	// the content chunks, as a reasoning model does. Each one becomes a
+	// reasoning.delta event on the PromptKit event bus. Zero (the default)
+	// streams content only.
+	ReasoningChunkCount int           `yaml:"reasoning_chunk_count"`
+	InterChunkDelay     time.Duration `yaml:"inter_chunk_delay"`
+	FirstChunkDelay     time.Duration `yaml:"first_chunk_delay"`
 }
 
 // STTProfile configures the mock speech-to-text WebSocket server.

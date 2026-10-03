@@ -18,7 +18,8 @@ type openAIChunk struct {
 		Index        int     `json:"index"`
 		FinishReason *string `json:"finish_reason"`
 		Delta        struct {
-			Content string `json:"content"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
@@ -299,5 +300,46 @@ func TestOpenAISSE_ToolResultStreams(t *testing.T) {
 	// 5 content chunks + 1 stop chunk = 6
 	if chunks != 6 {
 		t.Errorf("chunks = %d, want 6 (5 content + 1 stop)", chunks)
+	}
+}
+
+// TestOpenAISSE_StreamsReasoningBeforeContent verifies that reasoning chunks
+// are streamed as reasoning_content, all before the first content chunk.
+func TestOpenAISSE_StreamsReasoningBeforeContent(t *testing.T) {
+	cfg := OpenAIProfile{ChunkCount: 2, ReasoningChunkCount: 3}
+	srv := httptest.NewServer(NewOpenAIHandler(cfg))
+	defer srv.Close()
+
+	resp := postJSON(t, srv, `{"model":"gpt-4","stream":true,"messages":[]}`)
+	defer resp.Body.Close()
+
+	var got []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		payload, ok := strings.CutPrefix(scanner.Text(), "data: ")
+		if !ok || payload == "[DONE]" {
+			continue
+		}
+		var chunk openAIChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			t.Fatalf("failed to parse chunk JSON: %v — raw: %s", err, payload)
+		}
+		d := chunk.Choices[0].Delta
+		switch {
+		case d.ReasoningContent != "" && d.Content != "":
+			t.Fatalf("chunk carries both reasoning and content: %s", payload)
+		case d.ReasoningContent != "":
+			got = append(got, "R:"+d.ReasoningContent)
+		case d.Content != "":
+			got = append(got, "C:"+d.Content)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+
+	want := []string{"R:think-1 ", "R:think-2 ", "R:think-3 ", "C:chunk-1 ", "C:chunk-2 "}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("stream = %q, want %q", got, want)
 	}
 }
