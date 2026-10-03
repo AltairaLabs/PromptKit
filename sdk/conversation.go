@@ -1431,12 +1431,29 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // asynchronously after the last chunk is queued, so calling Close immediately
 // can cancel a turn mid-pipeline and drop its response. Wait for the
 // responses you expect before closing.
+//
+// An event bus the SDK created for this conversation is closed last, after
+// the events published during Close have been delivered to its subscribers.
+// A bus supplied via [WithEventBus] is left open for the caller to close.
 func (c *Conversation) Close() error {
+	bus, err := c.closeLocked()
+	// Closed outside c.mu: closing drains pending events through the
+	// subscribers, and a subscriber may call back into the conversation.
+	if bus != nil {
+		bus.Close()
+	}
+	return err
+}
+
+// closeLocked releases everything Close releases except the event bus, which
+// it returns when this conversation owns it and the caller must close it.
+// Returns a nil bus when the conversation was already closed.
+func (c *Conversation) closeLocked() (events.Bus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return nil
+		return nil, nil
 	}
 	c.closed = true
 	var convID string
@@ -1444,6 +1461,21 @@ func (c *Conversation) Close() error {
 		convID = c.ID()
 	}
 
+	c.finishSession(convID)
+	// Collect all errors and always execute all cleanup steps.
+	errs := c.releaseResources()
+
+	// State is automatically persisted by the StateStore middleware in the pipeline
+	// No explicit save needed here
+
+	logger.Info("conversation closed", "id", convID)
+	return c.ownedEventBus(), errors.Join(errs...)
+}
+
+// finishSession ends the conversation's session for its observers: it
+// deregisters from the shutdown manager, ends the OTel session span, runs
+// session-end hooks and dispatches session evals. Caller must hold c.mu.
+func (c *Conversation) finishSession(convID string) {
 	// Deregister from shutdown manager if configured
 	c.deregisterFromShutdownManager()
 
@@ -1463,8 +1495,11 @@ func (c *Conversation) Close() error {
 		c.evalMW.dispatchSessionEvals(context.Background())
 		c.evalMW.close()
 	}
+}
 
-	// Collect all errors and always execute all cleanup steps.
+// releaseResources closes everything the conversation holds except the event
+// bus, attempting every step and returning the errors. Caller must hold c.mu.
+func (c *Conversation) releaseResources() []error {
 	var errs []error
 
 	// Drain duplex session if in duplex mode (graceful shutdown with timeout)
@@ -1496,6 +1531,14 @@ func (c *Conversation) Close() error {
 		}
 	}
 
+	return append(errs, c.closeOwnedServices()...)
+}
+
+// closeOwnedServices closes the provider pool, the server executor and an
+// SDK-created pending store, returning the errors. Caller must hold c.mu.
+func (c *Conversation) closeOwnedServices() []error {
+	var errs []error
+
 	// Close the provider pool — closes every provider registered via
 	// WithProvider, WithAutoSummarize, etc. in one shot.
 	if c.config != nil && c.config.providers != nil {
@@ -1520,11 +1563,21 @@ func (c *Conversation) Close() error {
 		}
 	}
 
-	// State is automatically persisted by the StateStore middleware in the pipeline
-	// No explicit save needed here
+	return errs
+}
 
-	logger.Info("conversation closed", "id", convID)
-	return errors.Join(errs...)
+// ownedEventBus returns the event bus when the SDK created it for this
+// conversation, and nil when the caller supplied it via WithEventBus.
+//
+// Without closing it, an SDK-created bus outlived the conversation: once
+// anything subscribed, its worker goroutines blocked on the event channel
+// forever, leaking them for every conversation opened with an event store,
+// OTel or metrics (#2146).
+func (c *Conversation) ownedEventBus() events.Bus {
+	if c.config == nil || !c.config.ownsEventBus {
+		return nil
+	}
+	return c.config.eventBus
 }
 
 // deregisterFromShutdownManager removes the conversation from its shutdown

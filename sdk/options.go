@@ -112,6 +112,12 @@ type config struct {
 	// Event bus for observability
 	eventBus events.Bus
 
+	// ownsEventBus is true when initEventBus created eventBus rather than the
+	// caller supplying one via WithEventBus. Conversation.Close closes an owned
+	// bus; a supplied one may be shared across conversations and is the
+	// caller's to close.
+	ownsEventBus bool
+
 	// Event store for session recording
 	eventStore events.EventStore
 
