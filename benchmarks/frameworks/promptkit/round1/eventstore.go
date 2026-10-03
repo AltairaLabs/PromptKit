@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -20,6 +21,7 @@ type countingStore struct {
 	total     atomic.Int64
 	reasoning atomic.Int64
 	bytes     atomic.Int64
+	byType    sync.Map // events.EventType -> *atomic.Int64
 }
 
 var _ events.EventStore = (*countingStore)(nil)
@@ -31,6 +33,8 @@ func (s *countingStore) Append(_ context.Context, e *events.Event) error {
 
 func (s *countingStore) OnEvent(e *events.Event) {
 	s.total.Add(1)
+	n, _ := s.byType.LoadOrStore(e.Type, new(atomic.Int64))
+	n.(*atomic.Int64).Add(1)
 	if d, ok := e.Data.(*events.ReasoningDeltaData); ok {
 		s.reasoning.Add(1)
 		s.bytes.Add(int64(len(d.Text)))
@@ -58,9 +62,15 @@ func (s *countingStore) Close() error { return nil }
 // streamed no reasoning, or nothing was subscribed).
 func (s *countingStore) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]int64{
+	byType := map[string]int64{}
+	s.byType.Range(func(k, v any) bool {
+		byType[string(k.(events.EventType))] = v.(*atomic.Int64).Load()
+		return true
+	})
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"events":          s.total.Load(),
 		"reasoning_delta": s.reasoning.Load(),
 		"reasoning_bytes": s.bytes.Load(),
+		"by_type":         byType,
 	})
 }
