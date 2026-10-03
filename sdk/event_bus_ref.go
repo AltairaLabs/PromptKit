@@ -2,27 +2,27 @@ package sdk
 
 import (
 	"sync/atomic"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
-// sharedEventBus reference-counts an event bus the SDK created, so the bus is
-// closed when the last conversation using it closes. A conversation and its
-// forks share one config, and so one bus; closing it with the first of them
-// would cut the others off.
+// sharedEventBus reference-counts a conversation's hold on its event bus, so
+// the bus is let go when the last conversation using it closes. A
+// conversation and its forks share one config, and so one bus; letting go
+// with the first of them would cut the others off.
 //
-// Closing it at all is what stops the leak in #2146: once anything subscribed,
-// a bus's worker goroutines blocked on its event channel until it was closed,
-// and nothing closed it.
+// Letting go means closing the bus when the SDK created it — what stops the
+// leak in #2146, where nothing closed it and its goroutines waited forever —
+// or, for a bus the caller supplied via WithEventBus, unsubscribing the
+// listeners the SDK added for this conversation, which would otherwise hold
+// their goroutines on the caller's bus for as long as it lives.
 type sharedEventBus struct {
-	bus  events.Bus
-	refs atomic.Int32
+	letGo func()
+	refs  atomic.Int32
 }
 
-// newSharedEventBus wraps bus with one reference, held by the conversation
-// it was created for.
-func newSharedEventBus(bus events.Bus) *sharedEventBus {
-	s := &sharedEventBus{bus: bus}
+// newSharedEventBus returns a reference count of one, held by the
+// conversation it was created for; letGo runs when the last is released.
+func newSharedEventBus(letGo func()) *sharedEventBus {
+	s := &sharedEventBus{letGo: letGo}
 	s.refs.Store(1)
 	return s
 }
@@ -41,10 +41,10 @@ func (s *sharedEventBus) acquire() bool {
 	}
 }
 
-// release drops a reference and closes the bus when it was the last one.
-// Closing drains pending events through the subscribers before returning.
+// release drops a reference and lets the bus go when it was the last one.
+// Closing a bus drains pending events through its subscribers first.
 func (s *sharedEventBus) release() {
 	if s.refs.Add(-1) == 0 {
-		s.bus.Close()
+		s.letGo()
 	}
 }

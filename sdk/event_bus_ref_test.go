@@ -11,7 +11,7 @@ import (
 
 func TestSharedEventBus_ClosesOnLastRelease(t *testing.T) {
 	bus := events.NewEventBus()
-	ref := newSharedEventBus(bus)
+	ref := newSharedEventBus(bus.Close)
 	require.True(t, ref.acquire())
 
 	ref.release()
@@ -22,7 +22,7 @@ func TestSharedEventBus_ClosesOnLastRelease(t *testing.T) {
 }
 
 func TestSharedEventBus_AcquireFailsOnceReleased(t *testing.T) {
-	ref := newSharedEventBus(events.NewEventBus())
+	ref := newSharedEventBus(events.NewEventBus().Close)
 	ref.release()
 
 	assert.False(t, ref.acquire(),

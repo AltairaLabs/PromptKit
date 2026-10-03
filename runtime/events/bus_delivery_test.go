@@ -186,3 +186,38 @@ func TestEventBusCloseDoesNotWaitOnStuckListener(t *testing.T) {
 		t.Fatalf("Close waited %s for a listener stuck past the 50ms subscriber timeout", elapsed)
 	}
 }
+
+// A listener hung in one call fills its queue. That is one timed-out call, so
+// one strike, but it must still be disabled once its queue is full past the
+// timeout; otherwise every later event counts as a drop forever and the
+// backpressure metric climbs on a bus that is not saturated.
+func TestEventBusDisablesHungListenerWithFullQueue(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithEventBufferSize(4), WithSubscriberTimeout(20*time.Millisecond))
+	hung := make(chan struct{})
+	defer bus.Close()
+	defer close(hung) // runs before Close
+	inCall := make(chan struct{})
+	var once sync.Once
+	bus.SubscribeAll(func(*Event) {
+		once.Do(func() { close(inCall) })
+		<-hung
+	})
+
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	<-inCall
+	time.Sleep(40 * time.Millisecond) // the call is now past the timeout
+
+	// Paced so the bus buffer never overflows: these reach the listener's
+	// queue, fill it, and then find it full behind a hung call.
+	for range 100 {
+		bus.Publish(&Event{Type: EventPipelineStarted})
+		time.Sleep(200 * time.Microsecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	if got := bus.DroppedCount(); got > 1 {
+		t.Fatalf("a hung listener's withheld events were counted as %d drops; it should have been disabled", got)
+	}
+}

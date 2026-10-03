@@ -342,7 +342,34 @@ func (eb *EventBus) enqueue(e *listenerEntry, event *Event) {
 	select {
 	case e.queue <- event:
 	default:
+		if eb.stuckPastTimeout(e) {
+			// A full queue behind a call that has run past the timeout is a
+			// hung listener, not backpressure. One call is only one strike,
+			// so without this it would never reach maxLeakCount and every
+			// later event would count as a drop, forever.
+			eb.disable(e, "stuck in a call with a full queue")
+			return
+		}
 		eb.recordDrop(e, event, "listener queue full")
+	}
+}
+
+// stuckPastTimeout reports whether e is in a call that has run past the
+// subscriber timeout.
+func (eb *EventBus) stuckPastTimeout(e *listenerEntry) bool {
+	start := e.callStart.Load()
+	return start != 0 && time.Duration(time.Now().UnixNano()-start) >= eb.subscriberTimeout
+}
+
+// disable stops delivering to e, logging once. Its remaining backlog is
+// skipped, and nothing withheld from it counts as a drop.
+func (eb *EventBus) disable(e *listenerEntry, reason string) {
+	if e.disabled.CompareAndSwap(false, true) {
+		logger.Warn("disabling event subscriber; it receives no further events",
+			"listener_id", e.id,
+			"reason", reason,
+			"strikes", e.strikes.Load(),
+		)
 	}
 }
 
@@ -351,15 +378,17 @@ func (eb *EventBus) enqueue(e *listenerEntry, event *Event) {
 // calls. It runs on delivery, so a stuck listener is noticed when events for
 // it arrive — which is when its backlog starts to matter.
 func (eb *EventBus) checkSlowCall(e *listenerEntry, event *Event) {
+	// Read the call number on both sides of its start time: if they differ,
+	// a new call began in between and start belongs to neither reliably.
+	call := e.callSeq.Load()
 	start := e.callStart.Load()
-	if start == 0 {
+	if start == 0 || e.callSeq.Load() != call {
 		return
 	}
 	elapsed := time.Duration(time.Now().UnixNano() - start)
 	if elapsed < eb.subscriberTimeout {
 		return
 	}
-	call := e.callSeq.Load()
 	if e.reported.Swap(call) == call {
 		return // this call was already reported
 	}
@@ -371,11 +400,8 @@ func (eb *EventBus) checkSlowCall(e *listenerEntry, event *Event) {
 		"listener_id", e.id,
 		"strikes", strikes,
 	)
-	if strikes >= maxLeakCount && e.disabled.CompareAndSwap(false, true) {
-		logger.Warn("disabling chronically slow event subscriber; it receives no further events",
-			"listener_id", e.id,
-			"strikes", strikes,
-		)
+	if strikes >= maxLeakCount {
+		eb.disable(e, "repeatedly timed out")
 	}
 }
 

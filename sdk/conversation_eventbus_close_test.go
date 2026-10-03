@@ -238,3 +238,38 @@ func TestClose_ConcurrentForkKeepsItsBusOpen(t *testing.T) {
 			"the bus must close with the last of parent and fork")
 	}
 }
+
+// On a bus the caller supplied, Close leaves the bus open but removes the
+// listeners Open added for this conversation. Otherwise each conversation
+// left its store (and OTel and metrics) listeners on the caller's bus, each
+// with its own goroutine and queue, for as long as that bus lived.
+func TestClose_UnsubscribesFromSuppliedEventBus(t *testing.T) {
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+	store := newCountingEventStore()
+
+	conv := openForBusClose(t, WithEventBus(bus), WithEventStore(store))
+	require.NoError(t, conv.Close())
+	before := store.count(events.EventPipelineStarted)
+
+	probe := busCloseProbeEvent()
+	probe.SessionID = "after-close"
+	require.True(t, bus.Publish(probe), "a supplied bus must stay open")
+
+	// A sentinel published after the probe arrives once the bus has dispatched
+	// the probe. Listeners run on their own goroutines, so allow a moment for
+	// a still-subscribed store to have run it too.
+	seen := make(chan struct{})
+	unsubscribe := bus.Subscribe(events.EventPipelineCompleted, func(*events.Event) { close(seen) })
+	defer unsubscribe()
+	require.True(t, bus.Publish(&events.Event{Type: events.EventPipelineCompleted}))
+	select {
+	case <-seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sentinel event never arrived")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, before, store.count(events.EventPipelineStarted),
+		"the closed conversation's store listener must no longer be on the supplied bus")
+}
