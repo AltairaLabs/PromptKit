@@ -651,7 +651,7 @@ The registries are populated by package init\(\), which means the answer depends
 Intended for deploy\-time and boot\-time validation — a caller can check a configured type without constructing a provider and string\-matching the error. See ValidateOptions to check a whole option set.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L387>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L389>)
 
 ```go
 func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error)
@@ -6362,7 +6362,7 @@ func DefaultVADModeConfig() *VADModeConfig
 DefaultVADModeConfig returns sensible defaults for VAD mode.
 
 <a name="ValidateEvalTypesOpts"></a>
-## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L348-L376>)
+## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L350-L378>)
 
 ValidateEvalTypesOpts configures eval type validation.
 

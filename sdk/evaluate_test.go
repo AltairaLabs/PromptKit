@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -300,6 +301,56 @@ func TestEvaluate_TracerProvider_CreatesEventBus(t *testing.T) {
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Score)
 	assert.Equal(t, 1.0, *results[0].Score)
+}
+
+// On a bus the caller supplied, Evaluate must remove the tracing listener it
+// added. Otherwise every call leaves a listener (its own goroutine and queue)
+// on the bus, and each one turns every later eval event into another span.
+func TestEvaluate_TracerProvider_UnsubscribesFromSuppliedBus(t *testing.T) {
+	exp, tp := newTestTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	_, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:       containsDef("greeting", "hello"),
+		Messages:       []types.Message{types.NewAssistantMessage("hello world")},
+		TracerProvider: tp,
+		EventBus:       bus,
+	})
+	require.NoError(t, err)
+
+	countSpans := func() int {
+		n := 0
+		for _, s := range exp.GetSpans() {
+			if s.Name == "promptkit.eval.greeting" {
+				n++
+			}
+		}
+		return n
+	}
+	require.Eventually(t, func() bool { return countSpans() == 1 }, 2*time.Second, time.Millisecond,
+		"the evaluation's own eval event must still become a span")
+
+	// An eval event published after Evaluate returned, then a sentinel: once
+	// the sentinel arrives the bus has dispatched the event, and a moment more
+	// lets a still-subscribed listener finish the span.
+	require.True(t, bus.Publish(&events.Event{
+		Type: events.EventEvalCompleted,
+		Data: &events.EvalCompletedData{EvalID: "greeting"},
+	}))
+	seen := make(chan struct{})
+	unsubscribe := bus.Subscribe(events.EventEvalCompleted, func(*events.Event) { close(seen) })
+	defer unsubscribe()
+	require.True(t, bus.Publish(&events.Event{Type: events.EventEvalCompleted}))
+	select {
+	case <-seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sentinel event never arrived")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, 1, countSpans(), "Evaluate's tracing listener must not stay on the supplied bus")
 }
 
 func TestEvaluate_JudgeMetadata(t *testing.T) {

@@ -177,7 +177,7 @@ type listenerEntry struct {
 
 	// Slow-call detection, read by the dispatcher on delivery: a timer per
 	// delivery is the cost being removed, so there is no timer at all.
-	callStart atomic.Int64  // UnixNano when the call in progress began; 0 when idle
+	callStart atomic.Int64  // bus clock (EventBus.now) when the call in progress began; 0 when idle
 	callSeq   atomic.Uint64 // number of calls started
 	reported  atomic.Uint64 // callSeq last reported as timed out
 	strikes   atomic.Int32  // timed-out calls so far
@@ -267,6 +267,7 @@ type EventBus struct {
 	started           atomic.Bool // true once the dispatcher has been launched
 	droppedCount      atomic.Int64
 	subscriberTimeout time.Duration
+	epoch             time.Time // origin of now; carries a monotonic reading
 }
 
 // NewEventBus creates a new event bus.
@@ -298,9 +299,17 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		queueSize:         cfg.eventBufferSize,
 		dispatched:        make(chan struct{}),
 		subscriberTimeout: cfg.subscriberTimeout,
+		epoch:             time.Now(),
 	}
 	eb.listeners.Store(&listenerSet{})
 	return eb
+}
+
+// now returns nanoseconds since the bus was created, from the monotonic
+// clock, so a wall-clock step (NTP, a VM resume) cannot make a short call
+// look slow. It is never 0, which callStart uses for idle.
+func (eb *EventBus) now() int64 {
+	return int64(time.Since(eb.epoch)) + 1
 }
 
 // ensureStarted launches the dispatcher if it hasn't been started yet.
@@ -384,7 +393,7 @@ func (eb *EventBus) reportStall(e *listenerEntry, event *Event) {
 // subscriber timeout.
 func (eb *EventBus) stuckPastTimeout(e *listenerEntry) bool {
 	start := e.callStart.Load()
-	return start != 0 && time.Duration(time.Now().UnixNano()-start) >= eb.subscriberTimeout
+	return start != 0 && time.Duration(eb.now()-start) >= eb.subscriberTimeout
 }
 
 // disable stops delivering to e, logging once. Its remaining backlog is
@@ -411,7 +420,7 @@ func (eb *EventBus) checkSlowCall(e *listenerEntry, event *Event) {
 	if start == 0 || e.callSeq.Load() != call {
 		return
 	}
-	elapsed := time.Duration(time.Now().UnixNano() - start)
+	elapsed := time.Duration(eb.now() - start)
 	if elapsed < eb.subscriberTimeout {
 		return
 	}
@@ -472,7 +481,7 @@ func (eb *EventBus) run(e *listenerEntry) {
 				continue // disabled for timing out: its backlog is skipped too
 			}
 			e.callSeq.Add(1)
-			e.callStart.Store(time.Now().UnixNano())
+			e.callStart.Store(eb.now())
 			safeInvoke(e.listener, event)
 			e.callStart.Store(0)
 		case <-e.stop:
@@ -667,7 +676,7 @@ const closeStuckPoll = 10 * time.Millisecond
 func (eb *EventBus) onlyStuckListenersRemain() bool {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	now := time.Now().UnixNano()
+	now := eb.now()
 	for _, e := range eb.running {
 		start := e.callStart.Load()
 		if start == 0 || time.Duration(now-start) < eb.subscriberTimeout {
