@@ -182,6 +182,7 @@ type listenerEntry struct {
 	reported  atomic.Uint64 // callSeq last reported as timed out
 	strikes   atomic.Int32  // timed-out calls so far
 	disabled  atomic.Bool   // set after maxLeakCount strikes; events are dropped
+	exited    atomic.Bool   // set when run returns
 }
 
 // listenerSet is an immutable snapshot of the subscribed listeners. The
@@ -333,7 +334,9 @@ func (eb *EventBus) deliver(event *Event) {
 func (eb *EventBus) enqueue(e *listenerEntry, event *Event) {
 	eb.checkSlowCall(e, event)
 	if e.disabled.Load() {
-		eb.recordDrop(e, event, "listener disabled after repeated timeouts")
+		// Logged once when disabled. Not a drop: DroppedCount (and the
+		// eventbus_events_dropped_total metric) reports backpressure, and a
+		// disabled listener would otherwise add to it on every event forever.
 		return
 	}
 	select {
@@ -369,14 +372,15 @@ func (eb *EventBus) checkSlowCall(e *listenerEntry, event *Event) {
 		"strikes", strikes,
 	)
 	if strikes >= maxLeakCount && e.disabled.CompareAndSwap(false, true) {
-		logger.Warn("disabling chronically slow event subscriber; its events are dropped from now on",
+		logger.Warn("disabling chronically slow event subscriber; it receives no further events",
 			"listener_id", e.id,
 			"strikes", strikes,
 		)
 	}
 }
 
-// recordDrop counts a dropped delivery and logs every dropLogRateLimit-th.
+// recordDrop counts a delivery dropped because a listener's queue was full,
+// and logs every dropLogRateLimit-th.
 func (eb *EventBus) recordDrop(e *listenerEntry, event *Event, reason string) {
 	dropped := eb.droppedCount.Add(1)
 	if dropped%dropLogRateLimit == 1 {
@@ -393,11 +397,22 @@ func (eb *EventBus) recordDrop(e *listenerEntry, event *Event, reason string) {
 // queue is closed (bus Close) or the listener is unsubscribed.
 func (eb *EventBus) run(e *listenerEntry) {
 	defer eb.listenerWG.Done()
+	defer e.exited.Store(true)
 	for {
 		select {
 		case event, ok := <-e.queue:
 			if !ok {
 				return
+			}
+			// select picks at random when both are ready, so check stop
+			// again: an unsubscribed listener must not be called again.
+			select {
+			case <-e.stop:
+				return
+			default:
+			}
+			if e.disabled.Load() {
+				continue // disabled for timing out: its backlog is skipped too
 			}
 			e.callSeq.Add(1)
 			e.callStart.Store(time.Now().UnixNano())
@@ -503,9 +518,11 @@ func (eb *EventBus) Publish(event *Event) bool {
 	}
 }
 
-// DroppedCount returns the total number of deliveries dropped: events Publish
-// dropped because the bus's buffer was full, plus events a listener missed
-// because its own queue was full or it had been disabled for timing out.
+// DroppedCount returns the number of drops caused by backpressure: events
+// Publish dropped because the bus's buffer was full, plus deliveries a
+// listener missed because its own queue was full (one per listener per
+// event). A listener disabled for timing out receives nothing further, and
+// that is not counted here.
 func (eb *EventBus) DroppedCount() int64 {
 	return eb.droppedCount.Load()
 }
@@ -533,20 +550,54 @@ func (eb *EventBus) Close() {
 		return
 	}
 	// Wait for the dispatcher to hand over every event, then for every
-	// listener to finish its queue — with a hard deadline, so a stuck
-	// listener cannot hang the process.
+	// listener to finish its queue. Stop waiting once every listener still
+	// running is stuck in a call past the subscriber timeout — it may never
+	// return — and in any case after closeTimeout.
 	drained := make(chan struct{})
 	go func() {
 		<-eb.dispatched
 		eb.listenerWG.Wait()
 		close(drained)
 	}()
-	select {
-	case <-drained:
-	case <-time.After(closeTimeout):
-		logger.Warn("event bus close timed out, abandoning remaining events",
-			"timeout", closeTimeout.String())
+	deadline := time.After(closeTimeout)
+	poll := time.NewTicker(closeStuckPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-drained:
+			return
+		case <-poll.C:
+			if eb.onlyStuckListenersRemain() {
+				logger.Warn("event bus closed with a listener stuck past the subscriber timeout; abandoning its events",
+					"timeout", eb.subscriberTimeout.String())
+				return
+			}
+		case <-deadline:
+			logger.Warn("event bus close timed out, abandoning remaining events",
+				"timeout", closeTimeout.String())
+			return
+		}
 	}
+}
+
+// closeStuckPoll is how often Close checks whether only stuck listeners remain.
+const closeStuckPoll = 10 * time.Millisecond
+
+// onlyStuckListenersRemain reports whether every listener that has not exited
+// is in a call that has run past the subscriber timeout. Unsubscribed
+// listeners are not in the set, and exit on their own.
+func (eb *EventBus) onlyStuckListenersRemain() bool {
+	now := time.Now().UnixNano()
+	for _, e := range eb.listeners.Load().all() {
+		if e.exited.Load() {
+			continue
+		}
+		start := e.callStart.Load()
+		if start == 0 || time.Duration(now-start) < eb.subscriberTimeout {
+			return false // idle with events to drain, or in a call still within the timeout
+		}
+	}
+	return true
 }
 
 // Clear removes all listeners (primarily for tests).

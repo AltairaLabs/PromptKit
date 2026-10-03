@@ -30,10 +30,12 @@ func NewEventBusHealthCollector(
 		bus: bus,
 		dropped: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "eventbus_events_dropped_total"),
-			"Total events dropped by the event bus because its buffer was full. "+
-				"Read at scrape time from EventBus.DroppedCount(). A rising value is "+
-				"the early-warning signal that the bus is saturated under burst load; "+
-				"tune PROMPTKIT_EVENT_BUS_* before it starves autoscaling signals.",
+			"Total events dropped by the event bus under backpressure: published "+
+				"while its buffer was full, or offered to a listener whose own queue was "+
+				"full (counted once per listener). Read at scrape time from "+
+				"EventBus.DroppedCount(). A rising value means the bus or one of its "+
+				"listeners cannot keep up under load; tune PROMPTKIT_EVENT_BUS_* or fix "+
+				"the slow listener before it starves autoscaling signals.",
 			nil, constLabels,
 		),
 	}

@@ -73,8 +73,9 @@ func TestEventBusSlowListenerDoesNotDelayOthers(t *testing.T) {
 }
 
 // A listener whose calls keep exceeding the subscriber timeout is disabled
-// after maxLeakCount of them, and its later events are dropped and counted,
-// so it cannot accumulate an ever-growing backlog.
+// after maxLeakCount of them and receives no further events, so it cannot
+// accumulate an ever-growing backlog. (The old bus did this too; the test
+// keeps the behaviour through the rewrite.)
 func TestEventBusDisablesChronicallySlowListener(t *testing.T) {
 	t.Parallel()
 
@@ -95,11 +96,15 @@ func TestEventBusDisablesChronicallySlowListener(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	if got := waitForDropped(bus, 1, 2*time.Second); got == 0 {
-		t.Fatal("a listener over the timeout on every call was never disabled")
+	// Let it work through whatever it was given before being disabled.
+	time.Sleep(500 * time.Millisecond)
+	if got := calls.Load(); got > maxLeakCount+2 {
+		t.Fatalf("listener over the timeout on every call was called %d times; want it disabled after about %d",
+			got, maxLeakCount)
 	}
-	if got := calls.Load(); got >= n {
-		t.Fatalf("disabled listener was still called for every event (%d of %d)", got, n)
+	if got := bus.DroppedCount(); got != 0 {
+		t.Fatalf("events withheld from a disabled listener were counted as %d drops; "+
+			"DroppedCount reports backpressure only", got)
 	}
 }
 
@@ -121,4 +126,63 @@ func TestEventBusUnsubscribeAfterClearDoesNotPanic(t *testing.T) {
 	}()
 	unsubscribe()
 	unsubscribe()
+}
+
+// Unsubscribing stops delivery: the listener may finish the call it is in,
+// but is never called again, even with events still in its queue. Its
+// goroutine sees both the queue and the stop signal ready, and select picks
+// between them at random, so this repeats to catch a missing check.
+func TestEventBusUnsubscribedListenerIsNotCalledAgain(t *testing.T) {
+	t.Parallel()
+
+	for range 20 {
+		bus := NewEventBus()
+		inCall := make(chan struct{})
+		release := make(chan struct{})
+		var calls atomic.Int32
+		unsubscribe := bus.SubscribeAll(func(*Event) {
+			if calls.Add(1) == 1 {
+				close(inCall)
+				<-release
+			}
+		})
+
+		for range 50 {
+			bus.Publish(&Event{Type: EventPipelineStarted})
+		}
+		<-inCall
+		unsubscribe()
+		close(release)
+		time.Sleep(20 * time.Millisecond)
+		bus.Close()
+
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("listener was called %d times; want only the call in progress at unsubscribe", got)
+		}
+	}
+}
+
+// Close must not wait out closeTimeout for a listener stuck in a call: once
+// every listener still running has been in its call past the subscriber
+// timeout, Close gives up on it.
+func TestEventBusCloseDoesNotWaitOnStuckListener(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithSubscriberTimeout(50 * time.Millisecond))
+	stuck := make(chan struct{})
+	defer close(stuck)
+	inCall := make(chan struct{})
+	var once sync.Once
+	bus.SubscribeAll(func(*Event) {
+		once.Do(func() { close(inCall) })
+		<-stuck
+	})
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	<-inCall
+
+	start := time.Now()
+	bus.Close()
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Close waited %s for a listener stuck past the 50ms subscriber timeout", elapsed)
+	}
 }
