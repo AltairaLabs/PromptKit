@@ -14,12 +14,14 @@ import (
 // violations) are returned as an error from ValidatePack, not as
 // PackIssues.
 type PackIssue struct {
-	// Severity is "error" for all current issues — each one would cause
-	// the corresponding validator or eval to be warn-and-skipped by
-	// sdk.Open() or fail-fast by Arena.
+	// Severity is "error" for a validator or eval issue — each one would
+	// cause the corresponding validator or eval to be warn-and-skipped by
+	// sdk.Open() or fail-fast by Arena — and "warning" for a governance
+	// issue, which Open() logs and does not act on.
 	Severity string
 
-	// Kind identifies the subsystem: "validator" or "eval".
+	// Kind identifies the subsystem: "validator", "eval" or "governance".
+	// A governance issue's Reason carries its own location.
 	Kind string
 
 	// PromptID is the prompt name this issue came from. Empty for
@@ -49,6 +51,9 @@ func (p PackIssue) String() string {
 	if p.ID != "" {
 		tag = fmt.Sprintf("%s id=%s", p.Type, p.ID)
 	}
+	if tag == "" {
+		return fmt.Sprintf("%s %s: %s", p.Severity, loc, p.Reason)
+	}
 	return fmt.Sprintf("%s %s: %s (%s)", p.Severity, loc, p.Reason, tag)
 }
 
@@ -70,7 +75,9 @@ func (p PackIssue) String() string {
 // considered fatal and distinct from semantic issues.
 // Returns (issues, nil) if the pack loads cleanly but has semantic
 // problems (unknown validator/eval types, missing required params)
-// the caller should address.
+// the caller should address, or governance warnings (an undeclared CURIE
+// prefix, RFC 0016 rule 10). A governance reference that does not resolve
+// fails the load, so it is returned as an error.
 //
 // This is a pre-flight check for CI gates and operator tools. It runs
 // the same handler-level validation the SDK runs internally during
@@ -130,6 +137,12 @@ func ValidatePackWithRegistry(
 			continue
 		}
 		issues = append(issues, validateEvalDefs(promptID, evals.Values(promptDef.Evals), reg)...)
+	}
+
+	// Governance warnings (RFC 0016 rule 10). Governance errors fail the
+	// load above, so only warnings reach here.
+	for _, w := range loaded.ValidateGovernance().Warnings {
+		issues = append(issues, PackIssue{Severity: "warning", Kind: "governance", Reason: w})
 	}
 
 	return issues, nil

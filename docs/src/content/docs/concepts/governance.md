@@ -160,6 +160,21 @@ Most fields cannot tell "declared as empty" from "not declared", and it rarely m
 
 An agent under a pack that requires disclosure can therefore state `requires_ai_disclosure: false` and have it stick. That is an explicit exemption someone wrote down, and it reads differently in a review from an agent that never mentioned it.
 
+### References must resolve
+
+An obligation cannot be discharged by naming something that does not exist, so `sdk.Open` rejects a pack whose governance references dangle:
+
+- `obligations[].id` and `reviews[].id` are unique within the governance object that declares them.
+- A `validator` control names the `id` of a validator on one of the pack's prompts, and validator ids are unique across the pack.
+- An `eval` control, and a review's `eval`, name an eval in the pack's `evals` or a prompt's `evals`.
+- A `field` control names a governance property that is declared in the effective governance object.
+- Each entry in a review's `satisfies` names an obligation in the effective governance object.
+- `cadence` is a non-empty ISO 8601 duration. The schema checks this too, but a pack opened with schema validation skipped is still checked.
+
+For an agent, the effective object is its declaration resolved against the pack's, so a control may rely on a field the agent inherits.
+
+A term in `obligation`, `applies_to` or a review's `type` that uses a CURIE prefix neither declared in `vocabularies` nor well-known (such as `dpv`, `eu-aiact`, `pp` or `hipaa`) is only a warning. `sdk.Open` logs it, and `sdk.ValidatePack` reports it as an issue with severity `warning`.
+
 ---
 
 ## Tool action scope

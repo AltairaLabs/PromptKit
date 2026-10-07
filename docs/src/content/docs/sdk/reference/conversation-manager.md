@@ -4936,18 +4936,20 @@ func (e *PackError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="PackIssue"></a>
-## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L16-L40>)
+## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L16-L42>)
 
 PackIssue describes a single semantic problem with a loaded pack. Structural issues \(malformed JSON, missing required fields, schema violations\) are returned as an error from ValidatePack, not as PackIssues.
 
 ```go
 type PackIssue struct {
-    // Severity is "error" for all current issues — each one would cause
-    // the corresponding validator or eval to be warn-and-skipped by
-    // sdk.Open() or fail-fast by Arena.
+    // Severity is "error" for a validator or eval issue — each one would
+    // cause the corresponding validator or eval to be warn-and-skipped by
+    // sdk.Open() or fail-fast by Arena — and "warning" for a governance
+    // issue, which Open() logs and does not act on.
     Severity string
 
-    // Kind identifies the subsystem: "validator" or "eval".
+    // Kind identifies the subsystem: "validator", "eval" or "governance".
+    // A governance issue's Reason carries its own location.
     Kind string
 
     // PromptID is the prompt name this issue came from. Empty for
@@ -4969,7 +4971,7 @@ type PackIssue struct {
 ```
 
 <a name="ValidatePack"></a>
-### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L83>)
+### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L90>)
 
 ```go
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error)
@@ -4979,14 +4981,14 @@ ValidatePack loads the pack at path and reports any semantic issues \(unknown va
 
 When skipSchemaValidation is false \(the default for callers who pass the zero value\), ValidatePack runs strict promptpack JSON schema validation against the embedded schema. A pack that fails schema validation \(for example, a validator declaring a forbidden field like "monitor"\) is returned as a non\-nil error, not as PackIssues, because the file itself is non\-spec. Pass true to bypass this and check only handler\-level issues.
 
-Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pack file is missing, unreadable, fails JSON parse, or fails schema validation \(when strict\). These are considered fatal and distinct from semantic issues. Returns \(issues, nil\) if the pack loads cleanly but has semantic problems \(unknown validator/eval types, missing required params\) the caller should address.
+Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pack file is missing, unreadable, fails JSON parse, or fails schema validation \(when strict\). These are considered fatal and distinct from semantic issues. Returns \(issues, nil\) if the pack loads cleanly but has semantic problems \(unknown validator/eval types, missing required params\) the caller should address, or governance warnings \(an undeclared CURIE prefix, RFC 0016 rule 10\). A governance reference that does not resolve fails the load, so it is returned as an error.
 
 This is a pre\-flight check for CI gates and operator tools. It runs the same handler\-level validation the SDK runs internally during Open\(\), exposed as a standalone function.
 
 Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown.
 
 <a name="ValidatePackWithRegistry"></a>
-### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L101-L103>)
+### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L108-L110>)
 
 ```go
 func ValidatePackWithRegistry(path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry) ([]PackIssue, error)
@@ -4999,7 +5001,7 @@ Without this a pack validator or eval naming a custom eval type is reported as a
 Everything else \(the error/issue split, strict schema validation, the \(nil, nil\) fully\-valid result\) is exactly as documented on ValidatePack.
 
 <a name="PackIssue.String"></a>
-### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L43>)
+### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L45>)
 
 ```go
 func (p PackIssue) String() string

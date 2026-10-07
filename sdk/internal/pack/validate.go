@@ -4,6 +4,8 @@ package pack
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt/schema"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
@@ -245,4 +247,33 @@ func isValidMIMEFormat(s string) bool {
 		return false
 	}
 	return true
+}
+
+// GovernanceValidationError reports RFC 0016 governance references that do
+// not resolve. Warnings found alongside the errors are carried too.
+type GovernanceValidationError struct {
+	Errors   []string
+	Warnings []string
+}
+
+func (e *GovernanceValidationError) Error() string {
+	if len(e.Errors) == 1 {
+		return fmt.Sprintf("governance validation failed: %s", e.Errors[0])
+	}
+	return fmt.Sprintf("governance validation failed with %d errors: %s",
+		len(e.Errors), e.Errors[0])
+}
+
+// validateGovernanceSection runs the RFC 0016 reference checks. Errors fail
+// the load; warnings are logged, because the spec says an undeclared prefix
+// must never make a pack invalid.
+func validateGovernanceSection(p *Pack) error {
+	res := p.ValidateGovernance()
+	for _, w := range res.Warnings {
+		logger.Warn("pack governance", "warning", w)
+	}
+	if len(res.Errors) > 0 {
+		return &GovernanceValidationError{Errors: res.Errors, Warnings: res.Warnings}
+	}
+	return nil
 }

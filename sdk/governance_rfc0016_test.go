@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // rfc0016PackJSON carries every field RFC 0016 adds: the three governance
@@ -118,4 +119,58 @@ func TestRFC0016CadenceIsSchemaChecked(t *testing.T) {
 	_, err := Open(path, "billing", WithProvider(prov))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cadence")
+}
+
+// TestUnresolvedGovernanceReferenceFailsOpen — RFC 0016 rules 4 to 7 make a
+// pack with a dangling reference invalid, so it fails at Open the same way an
+// unresolved workflow or agent reference does.
+func TestUnresolvedGovernanceReferenceFailsOpen(t *testing.T) {
+	require.Equal(t, 1, strings.Count(rfc0016PackJSON, `{"validator": "no-card-numbers"}`))
+	bad := strings.Replace(rfc0016PackJSON, `{"validator": "no-card-numbers"}`, `{"validator": "missing"}`, 1)
+	path := createTestPackFile(t, bad)
+	prov := mock.NewProviderWithRepository("m", "m", false, mock.NewInMemoryMockRepository("ok"))
+
+	_, err := Open(path, "billing", WithProvider(prov))
+
+	var govErr *pack.GovernanceValidationError
+	require.ErrorAs(t, err, &govErr)
+	require.Equal(t, []string{
+		`metadata.governance.obligations[0].controls[0]: validator "missing" does not resolve ` +
+			`to a validator id on any prompt`,
+	}, govErr.Errors)
+}
+
+// TestGovernanceCadenceIsCheckedWithSchemaValidationSkipped — rule 8 is in the
+// schema, but a pack opened with WithSkipSchemaValidation must not slip past it.
+func TestGovernanceCadenceIsCheckedWithSchemaValidationSkipped(t *testing.T) {
+	bad := strings.Replace(rfc0016PackJSON, `"cadence": "P3M"`, `"cadence": "P"`, 1)
+	path := createTestPackFile(t, bad)
+	prov := mock.NewProviderWithRepository("m", "m", false, mock.NewInMemoryMockRepository("ok"))
+
+	_, err := Open(path, "billing", WithProvider(prov), WithSkipSchemaValidation())
+
+	require.ErrorContains(t, err, `metadata.governance.reviews[0]: cadence "P" is not a non-empty ISO 8601 duration`)
+}
+
+// TestValidatePackReportsGovernanceWarnings — an undeclared CURIE prefix is a
+// warning: the pack still loads, and preflight reports it as an issue.
+func TestValidatePackReportsGovernanceWarnings(t *testing.T) {
+	path := createTestPackFile(t, rfc0016PackJSON)
+
+	issues, err := ValidatePack(path, false)
+
+	require.NoError(t, err)
+	var gov []string
+	for _, is := range issues {
+		if is.Kind == "governance" {
+			gov = append(gov, is.String())
+		}
+	}
+	// The fixture uses acme: without declaring it, in obligation and review type.
+	require.Equal(t, []string{
+		`warning governance: metadata.governance.obligations[0].obligation: term "acme:PCI-DSS" uses ` +
+			`prefix "acme", which is neither well-known nor declared in vocabularies`,
+		`warning governance: metadata.governance.reviews[0].type: term "acme:PCIReview" uses ` +
+			`prefix "acme", which is neither well-known nor declared in vocabularies`,
+	}, gov)
 }
