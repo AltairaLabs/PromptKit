@@ -611,6 +611,22 @@ func TestPackCompiler_Compile(t *testing.T) {
 		assert.Equal(t, "v1", pack.Compilation.Schema)
 	})
 
+	t.Run("pack id from an underscored task type matches the pack id pattern", func(t *testing.T) {
+		// #2084: a prompt id may contain '_', a pack id may not.
+		cfg := *testConfig
+		cfg.Spec.TaskType = "technical_support"
+		repo.prompts["technical_support"] = &cfg
+		_ = registry.RegisterConfig("technical_support", &cfg)
+
+		pack, err := compiler.Compile("technical_support", "packc v1.0.0")
+
+		require.NoError(t, err)
+		assert.Equal(t, "technical-support", pack.ID)
+		assert.Regexp(t, packIDPatternFromSchema(t), pack.ID)
+		require.Contains(t, pack.Prompts, "technical_support")
+		assert.Equal(t, "technical_support", pack.Prompts["technical_support"].ID)
+	})
+
 	t.Run("returns error for non-existent task", func(t *testing.T) {
 		pack, err := compiler.Compile("non-existent", "packc v1.0.0")
 

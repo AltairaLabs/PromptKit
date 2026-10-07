@@ -248,7 +248,16 @@ func (pc *PackCompiler) MarshalPack(pack *Pack) ([]byte, error) {
 	return json.MarshalIndent(pack, "", "  ")
 }
 
-// Compile compiles a single prompt config to Pack format (for backward compatibility)
+// packIDFromTaskType derives a pack id from a task type. The two follow
+// different patterns in the PromptPack schema: a prompt id allows underscores
+// and a pack id does not, so `technical_support` becomes `technical-support`.
+// The prompt itself keeps the task type as its id and key.
+func packIDFromTaskType(taskType string) string {
+	return strings.ReplaceAll(taskType, "_", "-")
+}
+
+// Compile compiles a single prompt config to Pack format (for backward compatibility).
+// The pack id is the task type with underscores replaced by hyphens.
 func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error) {
 	// Load the config (this will auto-populate defaults)
 	config, err := pc.loader.LoadConfig(taskType)
@@ -258,7 +267,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 
 	// Create a pack with a single prompt
 	pack := &Pack{Pack: packspec.Pack{
-		ID:             config.Spec.TaskType,
+		ID:             packIDFromTaskType(config.Spec.TaskType),
 		Name:           config.Metadata.Name,
 		Version:        config.Spec.Version,
 		Description:    config.Spec.Description,
