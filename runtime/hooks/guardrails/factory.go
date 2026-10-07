@@ -294,8 +294,8 @@ func compileValidators(
 		}
 
 		opts := append([]GuardrailOption{}, shared...)
-		if v.Declaration != nil {
-			opts = append(opts, WithDeclaration(v.Declaration))
+		if decl := validatorDeclaration(v); decl != nil {
+			opts = append(opts, WithDeclaration(decl))
 		}
 		if v.Message != "" {
 			opts = append(opts, WithMessage(v.Message))
@@ -376,5 +376,26 @@ func directionFrom(params map[string]any, typeName string) (string, bool) {
 			"type", typeName, "direction", d,
 			"want", fmt.Sprintf("%q, %q or %q", DirectionInput, DirectionOutput, DirectionBoth))
 		return "", false
+	}
+}
+
+// validatorDeclaration returns the declaration a validator's events report: the
+// pack's, when the validator came from a pack, or one built from the prompt
+// config's authored id and extensions, so a config-sourced validator is just
+// as identifiable. Nil when neither declares anything.
+func validatorDeclaration(v prompt.ValidatorConfig) *packspec.Validator {
+	if v.Declaration != nil {
+		return v.Declaration
+	}
+	if v.ID == "" && len(v.Extensions) == 0 {
+		return nil
+	}
+	return &packspec.Validator{
+		ID:         v.ID,
+		Type:       v.Type,
+		Message:    v.Message,
+		Enabled:    v.Enabled,
+		Params:     v.Params,
+		Extensions: v.Extensions,
 	}
 }

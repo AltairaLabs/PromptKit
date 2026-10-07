@@ -112,6 +112,10 @@ type Spec struct {
 	Evals          []evals.EvalDef          `yaml:"evals,omitempty" json:"evals,omitempty"`
 	Metadata       *Metadata                `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`
+
+	// Extensions are opaque policy annotations about this prompt (RFC 0016),
+	// carried into the compiled pack unchanged and never interpreted.
+	Extensions map[string]any `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
 // ModelTestResultRef is a simplified reference to model test results
@@ -193,6 +197,13 @@ type ValidatorConfig struct {
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
+	// ID names the validator so a governance obligation control can refer to
+	// it (RFC 0016). It does not change how the validator runs.
+	ID string `yaml:"id,omitempty" json:"id,omitempty"`
+	// Extensions are opaque policy annotations about this validator (RFC
+	// 0016), carried into the compiled pack unchanged. They are never merged
+	// into Params and never reach the validator's handler.
+	Extensions map[string]any `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 	// Declaration is the pack's definition of this validator (RFC 0016),
 	// carried to the guardrail so validation events can report it. Nil when
 	// the validator does not come from a pack. Never passed to the handler.

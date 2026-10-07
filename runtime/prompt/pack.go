@@ -3,6 +3,7 @@ package prompt
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -276,35 +277,11 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 		Fragments:      make(map[string]string),
 	}}
 
-	// Add the prompt to the pack
-	packPrompt := &PackPrompt{
-		ID:             config.Spec.TaskType,
-		Name:           config.Metadata.Name,
-		Description:    config.Spec.Description,
-		Version:        config.Spec.Version,
-		SystemTemplate: config.Spec.SystemTemplate,
-		Variables:      ptrSlice(compileVariables(config.Spec.Variables)),
-		Tools:          config.Spec.AllowedTools,
-		ToolPolicy:     config.Spec.ToolPolicy,
-		Validators:     ptrSlice(foldValidatorMessages(config.Spec.Validators)),
-		Media:          config.Spec.MediaConfig,
-		TestedModels:   ptrSlice(config.Spec.TestedModels),
-		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
-		Pipeline:       GetDefaultPipelineConfig(),
-	}
-
-	pack.Prompts[config.Spec.TaskType] = packPrompt
-
-	// Resolve fragments into the pack
-	if len(config.Spec.Fragments) > 0 {
-		// Note: This is a simplified version. Full fragment resolution would need
-		// to handle variables and paths properly
-		for _, fragRef := range config.Spec.Fragments {
-			// For now, just record the fragment names
-			// Full implementation would load and resolve the fragment content
-			pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)
-		}
-	}
+	// Add the prompt to the pack. The single-prompt path builds it exactly as
+	// CompileFromRegistry does, so a field the compiler learns to carry
+	// (Parameters, Evals, RFC 0016 extensions) reaches both outputs.
+	pack.Prompts[config.Spec.TaskType] = pc.createPackPrompt(config)
+	pc.collectFragments(pack, config)
 
 	// Generate compilation info
 	builder := NewMetadataBuilder(&config.Spec)
@@ -582,6 +559,7 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		TestedModels:   ptrSlice(config.Spec.TestedModels),
 		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
+		Extensions:     config.Spec.Extensions,
 	}
 }
 
@@ -598,10 +576,14 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 	for i, vc := range validators {
 		params := vc.Params
 		if vc.Message != "" {
-			if params == nil {
-				params = make(map[string]interface{})
-			}
 			if _, exists := params["message"]; !exists {
+				// Copy before folding: Params is the authoring config's map,
+				// shared with the registry, and must not gain a key from
+				// compiling it.
+				params = maps.Clone(params)
+				if params == nil {
+					params = make(map[string]interface{})
+				}
 				params["message"] = vc.Message
 			}
 		}
@@ -620,6 +602,8 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 			Enabled:         packspec.Ptr(vc.Enabled == nil || *vc.Enabled),
 			FailOnViolation: vc.FailOnViolation,
 			Params:          params,
+			ID:              vc.ID,
+			Extensions:      vc.Extensions,
 		}
 	}
 	return out
