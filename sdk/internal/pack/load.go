@@ -85,6 +85,12 @@ func Parse(data []byte) (*Pack, error) {
 		return nil, err
 	}
 
+	// RFC 0016 governance references. An unresolved reference is an error;
+	// an undeclared CURIE prefix only warns.
+	if err := validateGovernanceSection(&pack); err != nil {
+		return nil, err
+	}
+
 	return &pack, nil
 }
 

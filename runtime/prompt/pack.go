@@ -671,6 +671,9 @@ func (p *Pack) Validate() []string {
 		warnings = append(warnings, errs...)
 		warnings = append(warnings, agentWarnings...)
 	}
+	gov := p.ValidateGovernance()
+	warnings = append(warnings, gov.Errors...)
+	warnings = append(warnings, gov.Warnings...)
 	return warnings
 }
 
