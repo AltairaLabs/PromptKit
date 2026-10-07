@@ -6,12 +6,19 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
 
 // transitionInternal handles explicit (caller-initiated) transitions.
 // Calls ProcessEvent directly, then applies the transition.
 // Caller must hold wc.mu.
 func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
+	// The host's policy applies to transitions the host fires, too.
+	if err := workflow.CheckTransition(
+		context.Background(), wc.transitionAuthorizer(), wc.machine, wc.workflowSpec, event,
+	); err != nil {
+		return "", fmt.Errorf("transition %q refused: %w", event, err)
+	}
 	result, err := wc.machine.ProcessEvent(event)
 	if err != nil {
 		wc.emitWorkflowError(event, err)

@@ -40,6 +40,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
@@ -186,6 +187,10 @@ type config struct {
 	providerHooks []hooks.ProviderHook
 	toolHooks     []hooks.ToolHook
 	sessionHooks  []hooks.SessionHook
+
+	// transitionAuthorizer decides workflow transitions (RFC 0016). Nil
+	// allows every transition.
+	transitionAuthorizer workflow.TransitionAuthorizer
 
 	// Guardrail specs declared via WithGuardrail, not yet built. Building is
 	// deferred to resolveGuardrails so an eval-backed guardrail sees the eval
@@ -1914,6 +1919,31 @@ func WithSelector(name string, impl selection.Selector) Option {
 func WithToolHook(h hooks.ToolHook) Option {
 	return func(c *config) error {
 		c.toolHooks = append(c.toolHooks, h)
+		return nil
+	}
+}
+
+// WithTransitionAuthorizer installs the host's policy for workflow
+// transitions. PromptKit calls it before every transition it would make: one
+// the model requests through workflow__transition, and one the host fires with
+// WorkflowConversation.Transition. The request carries both states'
+// declarations, so a policy can read their extensions (RFC 0016).
+//
+// A refusal of a model-requested transition reaches the model as the tool
+// result, with the authorizer's error text as the reason, and the workflow
+// stays where it is. A refusal of a host-fired transition is returned to the
+// caller. Without this option every transition is allowed; PromptKit ships
+// no policy.
+//
+//	conv, _ := sdk.OpenWorkflow("./support.pack.json",
+//	    sdk.WithTransitionAuthorizer(myPolicy),
+//	)
+func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
+	return func(c *config) error {
+		if a == nil {
+			return errors.New("WithTransitionAuthorizer: authorizer must not be nil")
+		}
+		c.transitionAuthorizer = a
 		return nil
 	}
 }

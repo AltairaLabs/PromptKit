@@ -600,6 +600,7 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	// OnCommitError covers deferred ProcessEvent failures so
 	// max_visits_exceeded / budget_exhausted observability events fire.
 	wc.transExec.SetOnCommitError(wc.emitWorkflowError)
+	wc.transExec.SetAuthorizer(wc.transitionAuthorizer())
 
 	// Create and register artifact executor if spec declares artifacts
 	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)
@@ -940,3 +941,11 @@ func loadWorkflowList[T any](
 }
 
 // emitTransitionEvents and maxVisitsForState live in sdk/workflow_events.go.
+
+// transitionAuthorizer returns the host's TransitionAuthorizer, or nil.
+func (wc *WorkflowConversation) transitionAuthorizer() workflow.TransitionAuthorizer {
+	if wc.activeConv == nil || wc.activeConv.config == nil {
+		return nil
+	}
+	return wc.activeConv.config.transitionAuthorizer
+}
