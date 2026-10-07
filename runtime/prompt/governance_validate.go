@@ -83,7 +83,9 @@ const packGovernanceLoc = "metadata.governance"
 // legitimately rely on a field or obligation the agent inherits. Rule 10's
 // undeclared-prefix check is a warning, never an error.
 //
-// A pack declaring no governance produces an empty result.
+// A pack declaring no governance produces an empty result unless two of its
+// validators share an id, which rule 5 forbids whether or not anything
+// references them.
 func (p *Pack) ValidateGovernance() *GovernanceValidationResult {
 	res := &GovernanceValidationResult{}
 	if p == nil {
@@ -99,7 +101,7 @@ func (p *Pack) ValidateGovernance() *GovernanceValidationResult {
 	}
 	if packGov != nil {
 		validateDeclaredGovernance(res, packGovernanceLoc, packGov, validatorIDs, evalIDs)
-		validateEffectiveGovernance(res, packGovernanceLoc, packGov)
+		validateEffectiveGovernance(res, packGovernanceLoc, packGov, true)
 		warnUndeclaredPrefixes(res, packGovernanceLoc, packGov, packGov.Vocabularies)
 	}
 
@@ -117,7 +119,14 @@ func (p *Pack) ValidateGovernance() *GovernanceValidationResult {
 		if err != nil {
 			continue
 		}
-		validateEffectiveGovernance(res, loc+" (effective)", effective)
+		// Rules 6 and 7 only re-read what the agent changes. Obligations and
+		// reviews it inherits are the pack's, already checked against a
+		// declared-field set the agent can only grow, so re-checking them
+		// would repeat the pack's errors once per agent.
+		own := def.Governance
+		if len(own.Obligations) > 0 || len(own.Reviews) > 0 {
+			validateEffectiveGovernance(res, loc+" (effective)", effective, len(own.Obligations) > 0)
+		}
 		warnUndeclaredPrefixes(res, loc, def.Governance, effective.Vocabularies)
 	}
 
@@ -233,8 +242,9 @@ func validateControlRefs(
 
 // validateEffectiveGovernance applies the rules that read the effective
 // object: a field control names a declared governance property (6), and a
-// review's satisfies names an obligation in it (7).
-func validateEffectiveGovernance(res *GovernanceValidationResult, loc string, g *Governance) {
+// review's satisfies names an obligation in it (7). checkFields false skips
+// rule 6, for obligations already checked where they were declared.
+func validateEffectiveGovernance(res *GovernanceValidationResult, loc string, g *Governance, checkFields bool) {
 	declared := declaredGovernanceFields(g)
 	obligationIDs := map[string]bool{}
 	for i, o := range g.Obligations {
@@ -242,6 +252,9 @@ func validateEffectiveGovernance(res *GovernanceValidationResult, loc string, g 
 			continue
 		}
 		obligationIDs[o.ID] = true
+		if !checkFields {
+			continue
+		}
 		validateFieldControls(res, fmt.Sprintf("%s.obligations[%d]", loc, i), o.Controls, declared)
 	}
 
@@ -309,8 +322,8 @@ func warnUndeclaredPrefixes(res *GovernanceValidationResult, loc string, g *Gove
 		if _, declared := vocab[prefix]; declared {
 			return
 		}
-		res.warnf("%s: %s %q uses prefix %q, which is neither well-known nor declared in vocabularies",
-			loc+"."+slot, "term", value, prefix)
+		res.warnf("%s.%s: term %q uses prefix %q, which is neither well-known nor declared in vocabularies",
+			loc, slot, value, prefix)
 	}
 
 	for i, o := range g.Obligations {
@@ -332,11 +345,16 @@ func warnUndeclaredPrefixes(res *GovernanceValidationResult, loc string, g *Gove
 	}
 }
 
+// curiePrefixRe is a CURIE prefix: an NCName without the Unicode ranges. A
+// colon after anything else ("Annual review: bias") is prose, not a CURIE.
+var curiePrefixRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+
 // curiePrefix returns the prefix of a CURIE value. ok is false for a free
-// string (no colon) and for an absolute IRI ("https://…", "urn:…").
+// string (no colon, or a colon not preceded by a valid prefix) and for an
+// absolute IRI ("https://…", "urn:…").
 func curiePrefix(value string) (prefix string, ok bool) {
 	prefix, rest, found := strings.Cut(value, ":")
-	if !found || prefix == "" {
+	if !found || !curiePrefixRe.MatchString(prefix) {
 		return "", false
 	}
 	if strings.HasPrefix(rest, "//") || strings.EqualFold(prefix, "urn") {

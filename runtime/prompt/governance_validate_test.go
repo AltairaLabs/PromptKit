@@ -180,6 +180,21 @@ func TestGovernanceReferenceRules(t *testing.T) {
 			wantErrors: 1, wantText: `agents.members["billing"].governance (effective).reviews[0]: satisfies "a"`,
 		},
 
+		{
+			// The agent inherits the pack's reviews unchanged, so the pack's
+			// error is reported once, not again under the agent.
+			name:       "inherited error is not repeated per agent",
+			packGov:    `{"reviews":[` + review("r", `"satisfies":["nope"]`) + `]}`,
+			agentGov:   `{"accountable_owner":"risk"}`,
+			wantErrors: 1, wantText: `metadata.governance.reviews[0]: satisfies "nope"`,
+		},
+		{
+			name:       "inherited field error is not repeated when the agent replaces reviews",
+			packGov:    `{"obligations":[` + obligation("a", `{"field":"accountable_owner"}`) + `]}`,
+			agentGov:   `{"reviews":[` + review("r", `"satisfies":["a"]`) + `]}`,
+			wantErrors: 1, wantText: `metadata.governance.obligations[0].controls[0]: field "accountable_owner"`,
+		},
+
 		// Rule 8: cadence is a non-empty ISO 8601 duration.
 		{name: "cadence P3M", packGov: `{"reviews":[` + review("r", "") + `]}`, wantErrors: 0},
 		{
@@ -268,6 +283,10 @@ func TestUndeclaredPrefixWarnsAndNeverErrors(t *testing.T) {
 			name: "well-known prefixes and free strings",
 			packGov: `{"reviews":[{"id":"r","type":"pp:BiasTesting","cadence":"P1Y","owner":"o"},` +
 				`{"id":"s","type":"Annual bias review","cadence":"P1Y","owner":"o"}]}`,
+		},
+		{
+			name:    "a colon in prose is not a CURIE",
+			packGov: `{"reviews":[{"id":"r","type":"Annual review: bias","cadence":"P1Y","owner":"o"}]}`,
 		},
 		{
 			name: "absolute IRIs are not CURIEs",
