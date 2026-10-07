@@ -29,6 +29,29 @@ func Deref[T any](p *T, fallback T) T {
 // one: `Parameters{MaxTokens: packspec.Ptr(512)}`.
 func Ptr[T any](v T) *T { return &v }
 
+// Clone returns a deep copy of a generated declaration, or nil for nil.
+//
+// A host handed a declaration (a tool, a prompt, a validator) must not be able
+// to change the loaded pack through it, and the generated types nest maps,
+// slices and pointers several levels deep, so a struct copy is not enough. The
+// copy goes through the type's own JSON codec, which every generated type
+// round-trips; it returns nil only if that codec fails, which no generated
+// type does.
+func Clone[T any](v *T) *T {
+	if v == nil {
+		return nil
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	out := new(T)
+	if err := json.Unmarshal(data, out); err != nil {
+		return nil
+	}
+	return out
+}
+
 // DecodeYAMLViaJSON and EncodeYAMLViaJSON route YAML through a type's JSON
 // codec.
 //

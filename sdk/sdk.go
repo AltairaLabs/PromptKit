@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -1438,6 +1439,9 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 			Message: v.Message,
 			Params:  v.Params,
 			Enabled: v.Enabled,
+			// The whole declaration rides along for validation events
+			// (RFC 0016); the handler still gets only Params.
+			Declaration: packspec.Clone(v),
 		})
 	}
 	// The host's default judge, for checks whose pack names no provider. A

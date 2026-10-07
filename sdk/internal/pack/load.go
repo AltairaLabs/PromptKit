@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -130,6 +131,7 @@ func ToToolRepository(p *Pack) *memory.ToolRepository {
 			Description: tool.Description,
 			InputSchema: paramsJSON,
 			Mode:        "local",
+			Declaration: packspec.Clone(tool),
 		}
 		_ = repo.SaveTool(desc)
 	}

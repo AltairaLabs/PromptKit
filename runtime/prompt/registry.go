@@ -193,6 +193,10 @@ type ValidatorConfig struct {
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
+	// Declaration is the pack's definition of this validator (RFC 0016),
+	// carried to the guardrail so validation events can report it. Nil when
+	// the validator does not come from a pack. Never passed to the handler.
+	Declaration *packspec.Validator `yaml:"-" json:"-"`
 }
 
 // Validator is a compiled pack validator.

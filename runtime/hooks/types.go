@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -67,6 +68,13 @@ type ProviderRequest struct {
 	// within one turn and restarts in each composition sub-pipeline.
 	TurnIndex int
 
+	// Prompt is the pack's definition of the prompt the model is being
+	// invoked for (RFC 0016), a read-only copy taken when the conversation
+	// was built.
+	// After a workflow handoff it is the destination state's prompt. Nil means
+	// undeclared. PromptKit never reads it.
+	Prompt *packspec.Prompt
+
 	// Replacement is written by a BeforeCall hook that returns Enforced, to
 	// supply the assistant text returned in place of the blocked provider
 	// call. Mirrors how output guardrails mutate resp.Message in AfterCall.
@@ -109,11 +117,23 @@ type OutputRequest struct {
 	Round int
 }
 
+// MetadataKeyValidatorDeclaration is the Decision.Metadata key under which a
+// pack-declared guardrail reports its *packspec.Validator, so the stage can put
+// it on the validation event. The stage removes it before recording the
+// decision on the message.
+const MetadataKeyValidatorDeclaration = "validator_declaration"
+
 // ToolRequest describes a tool call about to be executed.
 type ToolRequest struct {
 	Name   string
 	Args   json.RawMessage
 	CallID string
+
+	// Declaration is the pack's definition of the tool, the same value its
+	// executor receives on tools.ToolDescriptor.Declaration, so a host that
+	// only allows or denies needs one hook covering every tool. Nil means the
+	// pack does not declare the tool. PromptKit never reads it.
+	Declaration *packspec.Tool
 }
 
 // ToolResponse describes a completed tool execution.

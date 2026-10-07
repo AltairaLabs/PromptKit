@@ -128,3 +128,31 @@ func TestEncodeYAMLViaJSONPropagatesErrors(t *testing.T) {
 		t.Errorf("a valid marshaler must yield the decoded value, got %#v", out)
 	}
 }
+
+// TestCloneIsDeep — a clone shares nothing with its source, at any depth, so a
+// host holding one cannot reach the loaded pack through it.
+func TestCloneIsDeep(t *testing.T) {
+	src := &packspec.Tool{
+		Name:        "lookup",
+		Description: "d",
+		ActionScope: &packspec.ActionScope{DataClasses: []string{"dpv:FinancialData"}},
+		Extensions:  map[string]any{"acme:nested": map[string]any{"k": "v"}},
+	}
+
+	got := packspec.Clone(src)
+	got.ActionScope.DataClasses[0] = "changed"
+	got.Extensions["acme:nested"].(map[string]any)["k"] = "changed"
+
+	if src.ActionScope.DataClasses[0] != "dpv:FinancialData" {
+		t.Fatalf("slice shared with source: %v", src.ActionScope.DataClasses)
+	}
+	if src.Extensions["acme:nested"].(map[string]any)["k"] != "v" {
+		t.Fatalf("nested map shared with source: %v", src.Extensions)
+	}
+	if got.Name != "lookup" || got.Description != "d" {
+		t.Fatalf("clone lost fields: %+v", got)
+	}
+	if packspec.Clone[packspec.Tool](nil) != nil {
+		t.Fatal("Clone(nil) must be nil")
+	}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -126,6 +127,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			Name:        packTool.Name,
 			Description: packTool.Description,
 			InputSchema: paramsJSON,
+			Declaration: c.toolDeclaration(name, packTool),
 		}
 
 		// Execute with pipeline context for tracing and cancellation
@@ -533,4 +535,18 @@ func (c *Conversation) retryUnlistedMCPServers(listed map[string][]mcp.Tool) []s
 		}
 	}
 	return unlisted
+}
+
+// toolDeclaration returns the declaration an executor registered with
+// OnToolExecutor receives: the copy the conversation's registry holds, which
+// is the same value tool hooks see on hooks.ToolRequest.Declaration (RFC 0016),
+// so it is not re-copied on every call. A fresh copy of the pack entry covers a
+// conversation whose registry does not hold the tool.
+func (c *Conversation) toolDeclaration(name string, packTool *packspec.Tool) *packspec.Tool {
+	if c.toolRegistry != nil {
+		if desc := c.toolRegistry.Get(name); desc != nil && desc.Declaration != nil {
+			return desc.Declaration
+		}
+	}
+	return packspec.Clone(packTool)
 }

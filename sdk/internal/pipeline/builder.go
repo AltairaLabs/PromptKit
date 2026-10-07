@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -55,6 +56,10 @@ type Config struct {
 
 	// TaskType is the prompt ID/task type to load from the registry
 	TaskType string
+
+	// PromptDeclarations maps prompt tasks to copies of their pack
+	// declarations, handed to provider hooks (RFC 0016).
+	PromptDeclarations map[string]*packspec.Prompt
 
 	// Variables for template substitution
 	Variables map[string]string
@@ -617,13 +622,14 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		// Composition mode (RFC 0010): replace the LLM ProviderStage with a
 		// CompositionStage that executes the composition graph.
 		deps := stage.CompositionExecutorDeps{
-			PromptRegistry: cfg.PromptRegistry,
-			Provider:       cfg.Provider,
-			ToolRegistry:   cfg.ToolRegistry,
-			Emitter:        cfg.EventEmitter,
-			HookRegistry:   cfg.HookRegistry,
-			BaseVariables:  cfg.Variables,
-			SchemaResolver: cfg.SchemaResolver,
+			PromptRegistry:     cfg.PromptRegistry,
+			Provider:           cfg.Provider,
+			ToolRegistry:       cfg.ToolRegistry,
+			Emitter:            cfg.EventEmitter,
+			HookRegistry:       cfg.HookRegistry,
+			BaseVariables:      cfg.Variables,
+			SchemaResolver:     cfg.SchemaResolver,
+			PromptDeclarations: cfg.PromptDeclarations,
 			// Steps build their own TurnState; this carries the turn number
 			// into them so guardrails inside a composition report the same
 			// turn as everything outside it.
@@ -669,6 +675,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			Streaming:        cfg.Ingestion != nil,
 
 			StructuredOutputMode: cfg.StructuredOutputMode,
+			PromptDeclarations:   cfg.PromptDeclarations,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

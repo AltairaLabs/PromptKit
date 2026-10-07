@@ -66,6 +66,9 @@ type CompositionExecutorDeps struct {
 	Emitter        *events.Emitter
 	HookRegistry   *hooks.Registry
 	BaseVariables  map[string]string
+	// PromptDeclarations maps prompt tasks to their pack declarations, for
+	// provider hooks inside each step (see ProviderConfig.PromptDeclarations).
+	PromptDeclarations map[string]*packspec.Prompt
 	// SchemaResolver maps a step's output_schema path to JSON-schema bytes for
 	// structured output. nil (or a nil return) means no ResponseFormat is set.
 	// Plan 3 supplies the real resolver from the pack/config dir.
@@ -144,7 +147,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	promptStage := NewPromptAssemblyStageWithTurnState(deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState)
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 
-	cfg := &ProviderConfig{Source: "agent"}
+	cfg := &ProviderConfig{Source: "agent", PromptDeclarations: deps.PromptDeclarations}
 	rf, err := deps.responseFormat(step)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)

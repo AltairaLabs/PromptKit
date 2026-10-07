@@ -692,7 +692,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L89>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L92>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1314,7 +1314,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L62-L85>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L62-L88>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1326,6 +1326,9 @@ type CompositionExecutorDeps struct {
     Emitter        *events.Emitter
     HookRegistry   *hooks.Registry
     BaseVariables  map[string]string
+    // PromptDeclarations maps prompt tasks to their pack declarations, for
+    // provider hooks inside each step (see ProviderConfig.PromptDeclarations).
+    PromptDeclarations map[string]*packspec.Prompt
     // SchemaResolver maps a step's output_schema path to JSON-schema bytes for
     // structured output. nil (or a nil return) means no ResponseFormat is set.
     // Plan 3 supplies the real resolver from the pack/config dir.
@@ -2388,7 +2391,7 @@ func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamE
 Process implements the Stage interface. Collects frames and composes them into messages.
 
 <a name="Handoff"></a>
-## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L14-L28>)
+## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L14-L32>)
 
 Handoff describes the prompt and tool set the workflow's current state needs.
 
@@ -2409,6 +2412,10 @@ type Handoff struct {
     // AllowedTools is the current state's allowed-tool list, used to rebuild
     // the provider tool set from the registry.
     AllowedTools []string
+    // PromptTask is the current state's prompt task, so provider hooks see
+    // the declaration of the prompt actually running after a handoff. Empty
+    // leaves the task the turn started on.
+    PromptTask string
 }
 ```
 
@@ -3891,7 +3898,7 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 Process loads the prompt template and populates TurnState. It does NOT render the template \(that is TemplateStage's job\) and does NOT set variables \(that is VariableProviderStage's job\). All input elements are forwarded unchanged.
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L104-L172>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L110-L185>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -3964,11 +3971,18 @@ type ProviderConfig struct {
     // normally. This is what makes HITL approval work on the standard
     // ProviderStage, not only the ASM duplex session.
     ApprovalChecker tools.ApprovalChecker
+
+    // PromptDeclarations maps each prompt task to the pack's definition of
+    // that prompt (RFC 0016), copies taken when the conversation was built.
+    // Hook requests carry the one for the prompt the model is being invoked
+    // for (hooks.ProviderRequest.Prompt). Nil or a missing task means
+    // undeclared. PromptKit never reads them.
+    PromptDeclarations map[string]*packspec.Prompt
 }
 ```
 
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L50-L77>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L52-L83>)
 
 ProviderStage executes LLM calls and handles tool execution. This is the request/response mode implementation.
 
@@ -3980,7 +3994,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L207-L212>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L220-L225>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -3989,7 +4003,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L219-L225>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L232-L238>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -3998,7 +4012,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L232-L239>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L245-L252>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4007,7 +4021,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L246-L254>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L259-L267>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4016,7 +4030,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L297-L301>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L346-L350>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4025,7 +4039,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L99>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L105>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -5152,7 +5166,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2150>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2207>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -5576,7 +5590,7 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
 
 <a name="ToolCallRecorder"></a>
-## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L72-L78>)
+## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L76-L82>)
 
 ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
 
@@ -6082,7 +6096,7 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 RegisterOutput registers an output channel with a name.
 
 <a name="WorkflowStateResolver"></a>
-## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L44-L58>)
+## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L48-L62>)
 
 WorkflowStateResolver lets a workflow consumer keep a turn aligned with the workflow's current state.
 

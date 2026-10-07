@@ -202,6 +202,7 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 		Valid:        true,
 		SystemPrompt: systemPrompt,
 		AllowedTools: allowedTools,
+		PromptTask:   current.PromptTask,
 	}, nil
 }
 
