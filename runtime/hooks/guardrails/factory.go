@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
@@ -87,6 +88,13 @@ func WithEvalTimeout(d time.Duration) GuardrailOption {
 // Optional: a guardrail built without an emitter is silent, as before.
 func WithEmitter(emitter *events.Emitter) GuardrailOption {
 	return func(a *GuardrailHookAdapter) { a.emitter = emitter }
+}
+
+// WithDeclaration attaches the pack's definition of the validator, reported on
+// its validation events (RFC 0016). It never reaches the handler: the spec
+// forbids passing a validator's extensions to a scorer as configuration.
+func WithDeclaration(v *packspec.Validator) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.declaration = v }
 }
 
 // NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
@@ -286,6 +294,9 @@ func compileValidators(
 		}
 
 		opts := append([]GuardrailOption{}, shared...)
+		if v.Declaration != nil {
+			opts = append(opts, WithDeclaration(v.Declaration))
+		}
 		if v.Message != "" {
 			opts = append(opts, WithMessage(v.Message))
 		} else if msg, ok := v.Params["message"].(string); ok && msg != "" {

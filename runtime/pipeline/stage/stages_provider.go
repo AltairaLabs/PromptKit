@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -59,6 +61,10 @@ type ProviderStage struct {
 	// and ProviderRequestMetadata are sourced from it. Nil-safe (the
 	// stage emits an empty system prompt and no allowed tools).
 	turnState *TurnState
+	// promptTask is the prompt task the model is currently invoked for: the
+	// task the turn started on, updated when a workflow handoff switches
+	// state mid-turn. Read by provider hooks to find the prompt declaration.
+	promptTask atomic.Value // string
 	// stateResolver advances workflow state between tool-loop rounds, so a
 	// transition's destination state generates the next round instead of the
 	// turn ending with the origin state still in control. Nil for
@@ -169,6 +175,13 @@ type ProviderConfig struct {
 	// normally. This is what makes HITL approval work on the standard
 	// ProviderStage, not only the ASM duplex session.
 	ApprovalChecker tools.ApprovalChecker
+
+	// PromptDeclarations maps each prompt task to the pack's definition of
+	// that prompt (RFC 0016), copies taken when the conversation was built.
+	// Hook requests carry the one for the prompt the model is being invoked
+	// for (hooks.ProviderRequest.Prompt). Nil or a missing task means
+	// undeclared. PromptKit never reads them.
+	PromptDeclarations map[string]*packspec.Prompt
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -285,6 +298,38 @@ func (s *ProviderStage) toolLabels(name string) map[string]string {
 	return desc.Labels
 }
 
+// toolDeclaration returns the pack declaration the registry holds for a tool,
+// or nil when the tool is undeclared or unknown.
+func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
+	if s.toolRegistry == nil {
+		return nil
+	}
+	if desc := s.toolRegistry.Get(name); desc != nil {
+		return desc.Declaration
+	}
+	return nil
+}
+
+// setPromptTask records the prompt task the model is invoked for next.
+func (s *ProviderStage) setPromptTask(task string) { s.promptTask.Store(task) }
+
+// promptTaskFromTurnState records the task the turn's template was loaded for.
+func (s *ProviderStage) promptTaskFromTurnState() {
+	if s.turnState != nil && s.turnState.Template != nil {
+		s.setPromptTask(s.turnState.Template.TaskType)
+	}
+}
+
+// promptDeclaration returns the pack declaration of the prompt the model is
+// currently invoked for, or nil when there is none.
+func (s *ProviderStage) promptDeclaration() *packspec.Prompt {
+	if s.config == nil || s.config.PromptDeclarations == nil {
+		return nil
+	}
+	task, _ := s.promptTask.Load().(string)
+	return s.config.PromptDeclarations[task]
+}
+
 // providerInput holds accumulated input data for provider execution.
 type providerInput struct {
 	messages     []types.Message
@@ -355,6 +400,7 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 			acc.metadata[k] = v
 		}
 	}
+	s.promptTaskFromTurnState()
 
 	return acc
 }
@@ -376,6 +422,7 @@ func (s *ProviderStage) streamingTurnState() streamingConfig {
 	}
 	cfg.systemPrompt = s.turnState.SystemPrompt
 	cfg.allowedTools = s.turnState.AllowedTools
+	s.promptTaskFromTurnState()
 	cfg.baseMeta = make(map[string]interface{}, len(s.turnState.ProviderRequestMetadata))
 	for k, v := range s.turnState.ProviderRequestMetadata {
 		cfg.baseMeta[k] = v
@@ -762,6 +809,12 @@ func (s *ProviderStage) applyStateHandoff(
 	}
 	if handoff.Stop {
 		return true, nil
+	}
+	// Recorded before the prompt comparison below: two states may render the
+	// same system prompt from different prompt tasks, and the hooks must
+	// still see the state actually running.
+	if handoff.Valid && handoff.PromptTask != "" {
+		s.setPromptTask(handoff.PromptTask)
 	}
 	// Compare rather than trust a change flag. PromptAssemblyStage re-runs on
 	// every pipeline execution and resets the prompt to the one the pipeline
@@ -2292,6 +2345,7 @@ func (s *ProviderStage) preExecCheck(
 	if s.hookRegistry != nil {
 		toolReq := hooks.ToolRequest{
 			Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
+			Declaration: s.toolDeclaration(toolCall.Name),
 		}
 		hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
 		if !hookDecision.Allow {
@@ -2461,6 +2515,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Round:        p.round,
 		Metadata:     p.metadata,
 		TurnIndex:    s.currentTurn(),
+		Prompt:       s.promptDeclaration(),
 	}
 	hookResp := &hooks.ProviderResponse{
 		ProviderID: s.provider.ID(),
@@ -2533,6 +2588,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 		Round:        round,
 		Metadata:     metadata,
 		TurnIndex:    s.currentTurn(),
+		Prompt:       s.promptDeclaration(),
 	}
 	hookStart := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq)
@@ -2652,6 +2708,7 @@ func (s *ProviderStage) recordGuardrailFiring(
 		Score:         metadataScore(d.Metadata),
 		TurnIndex:     s.currentTurn(),
 	}
+	data.Validator, _ = d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
 	if !d.Allow {
 		data.Violations = []string{d.Reason}
 	}
@@ -2692,6 +2749,9 @@ func guardrailValidation(d hooks.Decision, direction string) (types.ValidationRe
 		details["score"] = metadataScore(d.Metadata)
 	}
 	details["direction"] = direction
+	// The declaration rides on the decision only to reach the validation
+	// event. Details is public and persisted with the message, so it stays out.
+	delete(details, hooks.MetadataKeyValidatorDeclaration)
 
 	return types.ValidationResult{
 		ValidatorType: vType,
@@ -2822,6 +2882,7 @@ func (s *ProviderStage) runAfterToolHooks(
 	}
 	toolReq := hooks.ToolRequest{
 		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
+		Declaration: s.toolDeclaration(toolCall.Name),
 	}
 	toolResp := hooks.ToolResponse{
 		Name:      toolCall.Name,

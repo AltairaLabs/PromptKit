@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -126,6 +127,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			Name:        packTool.Name,
 			Description: packTool.Description,
 			InputSchema: paramsJSON,
+			Declaration: packspec.Clone(packTool),
 		}
 
 		// Execute with pipeline context for tracing and cancellation

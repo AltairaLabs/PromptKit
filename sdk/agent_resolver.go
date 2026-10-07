@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt/agentcard"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -160,6 +161,7 @@ func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolD
 					AgentURL: agentURL,
 					SkillID:  card.Skills[i].ID,
 				},
+				Agent: packspec.Clone(r.memberDef(name)),
 			}
 			descriptors = append(descriptors, desc)
 		}
@@ -210,4 +212,12 @@ func agentOutputSchema() json.RawMessage {
 	}
 	data, _ := json.Marshal(schema)
 	return data
+}
+
+// memberDef returns the pack's definition of an agent member, or nil.
+func (r *AgentToolResolver) memberDef(name string) *packspec.AgentDef {
+	if r.pack == nil || r.pack.Agents == nil {
+		return nil
+	}
+	return r.pack.Agents.Members[name]
 }

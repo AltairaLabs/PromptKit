@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -407,6 +408,12 @@ type ValidationEventData struct {
 	// Each is internally consistent. Correlating a validation with an eval
 	// requires the message they both hang off, not these numbers.
 	TurnIndex int
+
+	// Validator is the pack's definition of the validator (RFC 0016), a copy
+	// taken when the conversation was built, so a host can apply its own
+	// policy to its id and extensions. Nil for a guardrail not declared in
+	// the pack. PromptKit never reads it.
+	Validator *packspec.Validator
 }
 
 type (

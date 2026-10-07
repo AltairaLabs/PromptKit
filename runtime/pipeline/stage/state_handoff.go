@@ -25,6 +25,10 @@ type Handoff struct {
 	// AllowedTools is the current state's allowed-tool list, used to rebuild
 	// the provider tool set from the registry.
 	AllowedTools []string
+	// PromptTask is the current state's prompt task, so provider hooks see
+	// the declaration of the prompt actually running after a handoff. Empty
+	// leaves the task the turn started on.
+	PromptTask string
 }
 
 // WorkflowStateResolver lets a workflow consumer keep a turn aligned with the

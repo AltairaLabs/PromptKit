@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
 // funcValidatorType is the reported validator type for guardrails declared from
@@ -29,6 +30,7 @@ type lifecycle struct {
 	valType   string
 	direction string
 	turnIndex int
+	validator *packspec.Validator
 }
 
 // start emits validation.started and returns the instant to measure from.
@@ -44,6 +46,7 @@ func (l lifecycle) start() time.Time {
 			ValidatorType: l.valType,
 			Direction:     l.direction,
 			TurnIndex:     l.turnIndex,
+			Validator:     l.validator,
 		})
 	}
 	return time.Now()
@@ -61,6 +64,7 @@ func (l lifecycle) pass(since time.Time, score *float64) {
 		Direction:     l.direction,
 		Duration:      time.Since(since),
 		TurnIndex:     l.turnIndex,
+		Validator:     l.validator,
 	}
 	if score != nil {
 		data.Score = *score

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -96,6 +97,10 @@ type GuardrailHookAdapter struct {
 	// WithEvalTimeout (construction) or SetEvalTimeout (post-construction, for
 	// a hook the SDK built before the host's timeout preference was known).
 	evalTimeout time.Duration
+
+	// declaration is the pack's definition of this validator, reported on
+	// validation events. Nil for a guardrail not declared in a pack.
+	declaration *packspec.Validator
 }
 
 // SetEvalTimeout overrides the bound on handler.Eval calls, for a host that
@@ -331,7 +336,7 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 
 	lc := lifecycle{
 		emitter: a.emitter, name: a.evalType, valType: a.evalType, direction: a.direction,
-		turnIndex: turnIndexOf(evalCtx),
+		turnIndex: turnIndexOf(evalCtx), validator: a.declaration,
 	}
 	start := lc.start()
 
@@ -477,11 +482,20 @@ func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string
 
 // enforced builds an Enforced decision from an EvalResult.
 func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision {
-	return hooks.Enforced(result.Explanation, map[string]any{
+	return a.withDeclaration(hooks.Enforced(result.Explanation, map[string]any{
 		"validator_type": a.evalType,
 		"score":          result.Score,
 		"value":          result.Value,
-	})
+	}))
+}
+
+// withDeclaration adds the validator's pack declaration to a firing's
+// metadata, for the validation event the stage emits from it.
+func (a *GuardrailHookAdapter) withDeclaration(d hooks.Decision) hooks.Decision {
+	if a.declaration != nil && d.Metadata != nil {
+		d.Metadata[hooks.MetadataKeyValidatorDeclaration] = a.declaration
+	}
+	return d
 }
 
 // enforcedFailure builds an Enforced decision for a handler.Eval call that
@@ -491,7 +505,7 @@ func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision
 // from an ordinary classifier fault — see the timeout wrapped around
 // a.handler.Eval above.
 func (a *GuardrailHookAdapter) enforcedFailure(err error) hooks.Decision {
-	return failureDecision(a.evalType, err)
+	return a.withDeclaration(failureDecision(a.evalType, err))
 }
 
 // failureDecision is the fail-closed decision for a check that produced no

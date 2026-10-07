@@ -101,6 +101,12 @@ const (
 )
 ```
 
+<a name="MetadataKeyValidatorDeclaration"></a>MetadataKeyValidatorDeclaration is the Decision.Metadata key under which a pack\-declared guardrail reports its \*packspec.Validator, so the stage can put it on the validation event. The stage removes it before recording the decision on the message.
+
+```go
+const MetadataKeyValidatorDeclaration = "validator_declaration"
+```
+
 ## Variables
 
 <a name="Allow"></a>Allow is the zero\-cost approval decision.
@@ -139,7 +145,7 @@ type ChunkInterceptor interface {
 ```
 
 <a name="Decision"></a>
-## type [Decision](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L10-L19>)
+## type [Decision](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L11-L20>)
 
 Decision is the result of a hook evaluation.
 
@@ -157,7 +163,7 @@ type Decision struct {
 ```
 
 <a name="Deny"></a>
-### func [Deny](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L25>)
+### func [Deny](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L26>)
 
 ```go
 func Deny(reason string) Decision
@@ -166,7 +172,7 @@ func Deny(reason string) Decision
 Deny creates a denial decision with a reason.
 
 <a name="DenyWithMetadata"></a>
-### func [DenyWithMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L30>)
+### func [DenyWithMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L31>)
 
 ```go
 func DenyWithMetadata(reason string, metadata map[string]any) Decision
@@ -175,7 +181,7 @@ func DenyWithMetadata(reason string, metadata map[string]any) Decision
 DenyWithMetadata creates a denial decision with a reason and metadata.
 
 <a name="Enforced"></a>
-### func [Enforced](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L36>)
+### func [Enforced](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L37>)
 
 ```go
 func Enforced(reason string, metadata map[string]any) Decision
@@ -390,7 +396,7 @@ func (e *HookDeniedError) Error() string
 
 
 <a name="InputRequest"></a>
-## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L89-L99>)
+## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L96-L106>)
 
 InputRequest is the narrow view of an about\-to\-be\-sent call handed to a func\-based input guardrail. Use guardrails.InputFunc to build one.
 
@@ -445,7 +451,7 @@ func WithToolHook(h ToolHook) Option
 WithToolHook registers a tool hook.
 
 <a name="OutputRequest"></a>
-## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L103-L110>)
+## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L110-L117>)
 
 OutputRequest is the narrow view of a completed call handed to a func\-based output guardrail. Use guardrails.OutputFunc to build one.
 
@@ -474,7 +480,7 @@ type ProviderHook interface {
 ```
 
 <a name="ProviderRequest"></a>
-## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L57-L76>)
+## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L58-L83>)
 
 ProviderRequest describes an LLM call about to be made.
 
@@ -492,6 +498,12 @@ type ProviderRequest struct {
     // within one turn and restarts in each composition sub-pipeline.
     TurnIndex int
 
+    // Prompt is the pack's definition of the prompt the model is being
+    // invoked for (RFC 0016), a copy taken when the conversation was built.
+    // After a workflow handoff it is the destination state's prompt. Nil means
+    // undeclared. PromptKit never reads it.
+    Prompt *packspec.Prompt
+
     // Replacement is written by a BeforeCall hook that returns Enforced, to
     // supply the assistant text returned in place of the blocked provider
     // call. Mirrors how output guardrails mutate resp.Message in AfterCall.
@@ -502,7 +514,7 @@ type ProviderRequest struct {
 ```
 
 <a name="ProviderResponse"></a>
-## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L79-L85>)
+## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L86-L92>)
 
 ProviderResponse describes a completed LLM call.
 
@@ -692,7 +704,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L129-L135>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L148-L154>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -734,7 +746,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L113-L117>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L126-L136>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -743,11 +755,17 @@ type ToolRequest struct {
     Name   string
     Args   json.RawMessage
     CallID string
+
+    // Declaration is the pack's definition of the tool, the same value its
+    // executor receives on tools.ToolDescriptor.Declaration, so a host that
+    // only allows or denies needs one hook covering every tool. Nil means the
+    // pack does not declare the tool. PromptKit never reads it.
+    Declaration *packspec.Tool
 }
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L120-L126>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L139-L145>)
 
 ToolResponse describes a completed tool execution.
 

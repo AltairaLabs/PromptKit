@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -648,6 +649,7 @@ func (c *Conversation) buildPipelineConfig(
 		WorkflowStateResolver: c.workflowResolver,
 		TurnState:             c.turnState,
 		TaskType:              c.promptName,
+		PromptDeclarations:    promptDeclarations(c.pack),
 		Variables:             vars,
 		// Dynamic providers, then the conversation's live SetVar map, then
 		// per-send bindings — least to most specific. The live map has to be
@@ -1358,6 +1360,8 @@ func (c *Conversation) Fork() (*Conversation, error) {
 			InputSchema: desc.InputSchema,
 			Mode:        desc.Mode,
 			Namespace:   desc.Namespace,
+			Declaration: desc.Declaration,
+			Agent:       desc.Agent,
 		})
 	}
 
@@ -1746,4 +1750,18 @@ func (c *Conversation) buildRelevanceConfig() *stage.RelevanceConfig {
 	}
 
 	return stageConfig
+}
+
+// promptDeclarations copies each of the pack's prompt declarations, keyed by
+// prompt task, for provider hooks (RFC 0016). Copies, so a hook cannot change
+// the loaded pack through them.
+func promptDeclarations(p *pack.Pack) map[string]*packspec.Prompt {
+	if p == nil || len(p.Prompts) == 0 {
+		return nil
+	}
+	out := make(map[string]*packspec.Prompt, len(p.Prompts))
+	for task, pr := range p.Prompts {
+		out[task] = packspec.Clone(pr)
+	}
+	return out
 }
