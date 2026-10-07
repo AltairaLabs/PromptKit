@@ -10,6 +10,27 @@ type EventSource interface {
 	EventBus() events.Bus
 }
 
+// SubscriptionOwner is an [EventSource] that removes subscriptions when it
+// closes. [sdk.Conversation] implements it, so a handler registered through
+// this package stops with the conversation, including on a bus supplied with
+// sdk.WithEventBus that outlives it.
+type SubscriptionOwner interface {
+	OwnSubscription(unsubscribe func())
+}
+
+// subscribe registers on the source's bus and, when the source can own the
+// subscription, hands it the unsubscribe so the handler doesn't outlive it.
+func subscribe(source EventSource, register func(events.Bus) func()) {
+	bus := source.EventBus()
+	if bus == nil {
+		return
+	}
+	unsubscribe := register(bus)
+	if owner, ok := source.(SubscriptionOwner); ok {
+		owner.OwnSubscription(unsubscribe)
+	}
+}
+
 // OnEvent subscribes to all events from the source.
 //
 // This is useful for logging, debugging, or building custom dashboards:
@@ -18,9 +39,7 @@ type EventSource interface {
 //	    log.Printf("[%s] %s: %+v", e.Type, e.Timestamp, e.Data)
 //	})
 func OnEvent(source EventSource, handler func(*events.Event)) {
-	if bus := source.EventBus(); bus != nil {
-		bus.SubscribeAll(handler)
-	}
+	subscribe(source, func(bus events.Bus) func() { return bus.SubscribeAll(handler) })
 }
 
 // On subscribes to a specific event type from the source.
@@ -32,9 +51,7 @@ func OnEvent(source EventSource, handler func(*events.Event)) {
 //	    log.Printf("Tool: %s", data.ToolName)
 //	})
 func On(source EventSource, eventType events.EventType, handler func(*events.Event)) {
-	if bus := source.EventBus(); bus != nil {
-		bus.Subscribe(eventType, handler)
-	}
+	subscribe(source, func(bus events.Bus) func() { return bus.Subscribe(eventType, handler) })
 }
 
 // ToolCallHandler is called when a tool is invoked.

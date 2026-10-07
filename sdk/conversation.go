@@ -154,8 +154,8 @@ type Conversation struct {
 	// injected via WithPendingStore is owned by the caller and never closed here.
 	ownsPendingStore bool
 
-	// busRef is this conversation's reference on an SDK-created event bus,
-	// released by Close. Nil when the caller supplied the bus.
+	// busRef is this conversation's reference on its event bus, released by
+	// Close. Nil once released, and on a conversation built without Open.
 	busRef *sharedEventBus
 
 	// pipelines are the pipelines built for this conversation. Close waits for
@@ -1684,6 +1684,23 @@ func (c *Conversation) ID() string {
 // For convenience methods, see the [hooks] package.
 func (c *Conversation) EventBus() events.Bus {
 	return c.config.eventBus
+}
+
+// OwnSubscription ties a subscription on [Conversation.EventBus] to this
+// conversation: unsubscribe runs when the conversation, and every fork sharing
+// its bus, has closed. On a closed conversation it runs at once.
+//
+// The [hooks] helpers call it, so their handlers stop with the conversation
+// even on a bus supplied with [WithEventBus], which outlives it.
+func (c *Conversation) OwnSubscription(unsubscribe func()) {
+	c.mu.RLock()
+	ref := c.busRef
+	c.mu.RUnlock()
+	if ref == nil {
+		unsubscribe()
+		return
+	}
+	ref.own(unsubscribe)
 }
 
 // sessionInfo returns the dynamic session state needed by the sessionHookDispatcher
