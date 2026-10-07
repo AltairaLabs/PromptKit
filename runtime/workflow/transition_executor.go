@@ -9,6 +9,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
+// Keys of the tool result workflow__transition returns to the model.
+const (
+	responseKeyStatus = "status"
+	responseKeyEvent  = "event"
+	responseKeyReason = "reason"
+)
+
 // TransitionExecutorMode is the executor name used for Mode-based routing.
 const TransitionExecutorMode = "workflow-transition"
 
@@ -33,6 +40,7 @@ type TransitionExecutor struct {
 	pending       *PendingTransition
 	onCommit      func(*TransitionResult)
 	onCommitError func(event string, err error)
+	authorizer    TransitionAuthorizer
 }
 
 // NewTransitionExecutor creates a TransitionExecutor for the given state machine.
@@ -64,6 +72,15 @@ func (e *TransitionExecutor) SetOnCommitError(fn func(event string, err error)) 
 	e.mu.Unlock()
 }
 
+// SetAuthorizer installs the host's TransitionAuthorizer, consulted before
+// a requested transition is recorded. Nil (the default) allows every
+// transition.
+func (e *TransitionExecutor) SetAuthorizer(a TransitionAuthorizer) {
+	e.mu.Lock()
+	e.authorizer = a
+	e.mu.Unlock()
+}
+
 // Name implements tools.Executor. Returns the mode name for registry routing.
 func (e *TransitionExecutor) Name() string { return TransitionExecutorMode }
 
@@ -75,8 +92,12 @@ func (e *TransitionExecutor) Name() string { return TransitionExecutorMode }
 // The LLM's `context` argument is stored on the PendingTransition and
 // surfaced to the new conversation as the `workflow_context` template
 // variable when the consumer opens it.
+//
+// With an authorizer installed, the transition is authorized first. A refusal
+// records nothing and returns a tool result saying so, with the authorizer's
+// reason, so the model stays in the current state and can answer from it.
 func (e *TransitionExecutor) Execute(
-	_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
+	ctx context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
 	var a struct {
 		Event   string `json:"event"`
@@ -94,6 +115,18 @@ func (e *TransitionExecutor) Execute(
 	var extras tools.HostExtras
 	if len(rawExtras) > 0 {
 		extras = tools.HostExtras(rawExtras)
+	}
+
+	e.mu.Lock()
+	authorizer := e.authorizer
+	e.mu.Unlock()
+	// Called without the lock: the authorizer is host code.
+	if err := CheckTransition(ctx, authorizer, e.sm, e.spec, a.Event); err != nil {
+		return json.Marshal(map[string]string{
+			responseKeyStatus: "transition_refused",
+			responseKeyEvent:  a.Event,
+			responseKeyReason: err.Error(),
+		})
 	}
 
 	e.mu.Lock()
@@ -184,8 +217,8 @@ func (e *TransitionExecutor) RegisterForState(registry *tools.Registry, state *S
 // buildTransitionResponse creates the LLM-facing response for a scheduled transition.
 func buildTransitionResponse(event string, spec *Spec) map[string]string {
 	result := map[string]string{
-		"status": "transition_scheduled",
-		"event":  event,
+		responseKeyStatus: "transition_scheduled",
+		responseKeyEvent:  event,
 	}
 	// Look up target state for informative response
 	for _, state := range spec.States {
