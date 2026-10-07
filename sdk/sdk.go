@@ -1439,6 +1439,10 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 			Message: v.Message,
 			Params:  v.Params,
 			Enabled: v.Enabled,
+			ID:      v.ID,
+			// Extensions are carried for the declaration only; the handler
+			// is built from Params alone.
+			Extensions: v.Extensions,
 			// The whole declaration rides along for validation events
 			// (RFC 0016); the handler still gets only Params.
 			Declaration: packspec.Clone(v),

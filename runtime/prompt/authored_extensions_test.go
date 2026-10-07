@@ -101,3 +101,30 @@ spec:
 	require.NotContains(t, validator, "id")
 	require.NotContains(t, validator, "extensions")
 }
+
+// TestCompileCarriesAuthoredRFC0016Fields — the single-prompt Compile path
+// (CompileToFile) carries the same fields as CompileFromRegistry, and
+// compiling never writes a folded message into the authoring config's params.
+func TestCompileCarriesAuthoredRFC0016Fields(t *testing.T) {
+	var cfg Config
+	require.NoError(t, yaml.Unmarshal([]byte(authoredExtensionsPromptYAML), &cfg))
+	cfg.Spec.Validators[0].Message = "Card numbers are not allowed."
+
+	repo := newMockRepository()
+	repo.prompts["billing"] = &cfg
+	registry := NewRegistryWithRepository(repo)
+	require.NoError(t, registry.RegisterConfig("billing", &cfg))
+
+	pack, err := NewPackCompiler(registry).Compile("billing", "test")
+	require.NoError(t, err)
+
+	pr := pack.Prompts["billing"]
+	require.NotNil(t, pr)
+	require.Equal(t, map[string]any{"acme:tier": "gold"}, pr.Extensions)
+	require.Equal(t, "no-cards", pr.Validators[0].ID)
+	require.Contains(t, pr.Validators[0].Extensions, "acme:control")
+	require.Equal(t, "Card numbers are not allowed.", pr.Validators[0].Params["message"])
+
+	require.NotContains(t, cfg.Spec.Validators[0].Params, "message",
+		"compiling must not mutate the authoring config's params")
+}

@@ -70,3 +70,23 @@ func TestValidatorWithoutDeclarationReportsNil(t *testing.T) {
 	require.False(t, d.Allow)
 	require.NotContains(t, d.Metadata, hooks.MetadataKeyValidatorDeclaration)
 }
+
+// TestConfigSourcedValidatorReportsItsAuthoredDeclaration — a validator from
+// a prompt config, with no pack declaration, still reports its authored id
+// and extensions on a firing; one that authors neither reports nothing.
+func TestConfigSourcedValidatorReportsItsAuthoredDeclaration(t *testing.T) {
+	hooksOut, err := CompileValidatorsWithOptions([]prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]any{"words": []any{"4111"}},
+			ID: "no-cards", Extensions: map[string]any{"acme:control": "PCI"}},
+	}, evals.NewEvalTypeRegistry())
+	require.NoError(t, err)
+
+	resp := &hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "card 4111"}}
+	d := hooksOut[0].AfterCall(context.Background(), &hooks.ProviderRequest{}, resp)
+
+	require.False(t, d.Allow)
+	decl, ok := d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
+	require.True(t, ok)
+	require.Equal(t, "no-cards", decl.ID)
+	require.Equal(t, map[string]any{"acme:control": "PCI"}, decl.Extensions)
+}
