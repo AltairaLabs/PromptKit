@@ -8,6 +8,22 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Packs carry RFC 0016 governance, and dangling governance references fail `Open`
+
+PromptKit implements PromptPack v1.8.1. A pack may declare `obligations`,
+`reviews` and `independent_of` in its governance, an `id` on a validator, and
+`extensions` on prompts, validators, evals, agents, workflow states and
+compositions. Each host-facing seam hands you the matching declaration; see
+[Apply Governance Policy in Your Host](/sdk/how-to/hooks/apply-governance-policy/).
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a pack whose obligation or review names an eval, validator id or obligation id that does not exist, or a governance field its governance does not declare, or whose review `cadence` is not an ISO 8601 duration | `sdk.Open` fails with a `governance validation failed` error | fix the reference; `sdk.ValidatePack` returns the same error before you open |
+| Use a CURIE prefix in `obligation`, `applies_to` or a review `type` that is neither well-known nor in `vocabularies` | a logged warning, and a `warning` issue from `sdk.ValidatePack`; the pack still opens | declare the prefix in `vocabularies`, or ignore it |
+| Give two validators the same `id`, or two obligations or two reviews in one governance object the same `id` | `sdk.Open` fails | make validator ids unique across the pack, and obligation and review ids unique within each governance object |
+| Build `tools.ToolDescriptor`, `hooks.ToolRequest`, `hooks.ProviderRequest` or `events.ValidationEventData` literals | nothing: the new `Declaration`, `Agent`, `Prompt` and `Validator` fields are optional, and nil means undeclared | nothing |
+| Want to decide workflow transitions | every transition is allowed unless you install a policy | implement `workflow.TransitionAuthorizer` and pass it to `sdk.WithTransitionAuthorizer` |
+
 ### Conversations use your provider's `max_tokens` and `temperature`, and send no output-token limit by default
 
 A conversation sent `max_tokens: 4096` and `temperature: 0.7` on every turn
