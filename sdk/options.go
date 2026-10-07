@@ -1935,6 +1935,10 @@ func WithToolHook(h hooks.ToolHook) Option {
 // caller. Without this option every transition is allowed; PromptKit ships
 // no policy.
 //
+// The authorizer must not call back into the WorkflowConversation: a
+// host-fired transition is authorized while the conversation holds its lock,
+// so a call such as CurrentState from inside the policy deadlocks.
+//
 //	conv, _ := sdk.OpenWorkflow("./support.pack.json",
 //	    sdk.WithTransitionAuthorizer(myPolicy),
 //	)

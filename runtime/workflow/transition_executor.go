@@ -13,6 +13,7 @@ import (
 const (
 	responseKeyStatus = "status"
 	responseKeyEvent  = "event"
+	responseKeyReason = "reason"
 )
 
 // TransitionExecutorMode is the executor name used for Mode-based routing.
@@ -124,7 +125,7 @@ func (e *TransitionExecutor) Execute(
 		return json.Marshal(map[string]string{
 			responseKeyStatus: "transition_refused",
 			responseKeyEvent:  a.Event,
-			"reason":          err.Error(),
+			responseKeyReason: err.Error(),
 		})
 	}
 

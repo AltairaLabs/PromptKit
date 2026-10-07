@@ -14,6 +14,11 @@ import (
 // declarations and their extensions (RFC 0016). A non-nil error refuses the
 // transition and its text is the reason; PromptKit ships no policy and, with
 // no authorizer configured, allows every transition.
+//
+// A host-fired transition is authorized while the workflow conversation holds
+// its lock, so an authorizer must not call back into the conversation (its
+// CurrentState, Context, Transition, ...): that deadlocks. Everything it needs
+// about the transition is in the TransitionRequest.
 type TransitionAuthorizer interface {
 	AuthorizeTransition(ctx context.Context, req TransitionRequest) error
 }
