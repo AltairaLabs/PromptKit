@@ -582,6 +582,7 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		TestedModels:   ptrSlice(config.Spec.TestedModels),
 		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
 		Pipeline:       GetDefaultPipelineConfig(),
+		Extensions:     config.Spec.Extensions,
 	}
 }
 
@@ -620,6 +621,8 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 			Enabled:         packspec.Ptr(vc.Enabled == nil || *vc.Enabled),
 			FailOnViolation: vc.FailOnViolation,
 			Params:          params,
+			ID:              vc.ID,
+			Extensions:      vc.Extensions,
 		}
 	}
 	return out
