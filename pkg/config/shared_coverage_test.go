@@ -47,6 +47,37 @@ spec:
 	}
 }
 
+// TestLoadProvider_IDSource pins which field supplies the provider ID:
+// spec.id when present, metadata.name only when it is absent (#2083).
+func TestLoadProvider_IDSource(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tests := []struct {
+		name   string
+		specID string
+		wantID string
+	}{
+		{name: "explicit spec.id wins over metadata.name", specID: "  id: gpt4\n", wantID: "gpt4"},
+		{name: "absent spec.id falls back to metadata.name", specID: "", wantID: "openai-gpt4"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "p.provider.yaml")
+			content := "apiVersion: promptkit.altairalabs.ai/v1alpha1\nkind: Provider\n" +
+				"metadata:\n  name: openai-gpt4\nspec:\n" + tt.specID + "  type: openai\n  model: gpt-4\n"
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write provider: %v", err)
+			}
+			provider, err := LoadProvider(path)
+			if err != nil {
+				t.Fatalf("LoadProvider failed: %v", err)
+			}
+			if provider.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", provider.ID, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestLoadProviderReadError(t *testing.T) {
 	if _, err := LoadProvider(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
 		t.Error("expected error for missing file")
