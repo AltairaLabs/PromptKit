@@ -291,3 +291,166 @@ func TestResolveAgainstAPackWithNoAgents(t *testing.T) {
 	_, err = prompt.ResolveGovernance(nil, "billing")
 	require.Error(t, err)
 }
+
+// RFC 0016 adds three governance fields, and they follow RFC 0013's
+// per-field replacement like everything else in the block. Each case here
+// covers one field on its own: the agent's value replaces the pack's whole, an
+// absent one inherits, and neither is merged with the other.
+func TestRFC0016FieldsFollowPerFieldReplacement(t *testing.T) {
+	const packGov = `{
+	  "independent_of":{"axes":["model","provider"],"enforcement":"strict"},
+	  "obligations":[
+	    {"id":"art50","obligation":"eu-aiact:Article50","controls":[{"field":"requires_ai_disclosure"}]},
+	    {"id":"gdpr22","obligation":"legal-eu-gdpr:Article22","controls":[{"external":"DPO sign-off"}]}],
+	  "reviews":[{"id":"bias","type":"pp:BiasTesting","cadence":"P3M","owner":"ml-risk"}]}`
+
+	strict := packspec.Ptr("strict")
+	cases := []struct {
+		name            string
+		agentGov        string
+		wantAxes        []any
+		wantEnforcement *string
+		wantObligations []string
+		wantReviews     []string
+	}{
+		{
+			// The pack's strict enforcement must not leak into the agent's
+			// object: a half-inherited requirement is one nobody wrote.
+			name:            "independent_of replaces whole",
+			agentGov:        `{"independent_of":{"axes":["accountable_owner"]}}`,
+			wantAxes:        []any{"accountable_owner"},
+			wantEnforcement: nil,
+			wantObligations: []string{"art50", "gdpr22"},
+			wantReviews:     []string{"bias"},
+		},
+		{
+			name: "obligations replace whole",
+			agentGov: `{"obligations":[
+			  {"id":"own","obligation":"acme:Own","controls":[{"external":"agent-only"}]}]}`,
+			wantAxes:        []any{"model", "provider"},
+			wantEnforcement: strict,
+			wantObligations: []string{"own"},
+			wantReviews:     []string{"bias"},
+		},
+		{
+			name:            "reviews replace whole",
+			agentGov:        `{"reviews":[{"id":"acc","type":"pp:AccuracyReview","cadence":"P1Y","owner":"qa"}]}`,
+			wantAxes:        []any{"model", "provider"},
+			wantEnforcement: strict,
+			wantObligations: []string{"art50", "gdpr22"},
+			wantReviews:     []string{"acc"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := packWithGovernance(t, packGov, tc.agentGov)
+			got, err := prompt.ResolveGovernance(p, "billing")
+			require.NoError(t, err)
+
+			require.Equal(t, tc.wantAxes, got.IndependentOf.Axes)
+			require.Equal(t, tc.wantEnforcement, got.IndependentOf.Enforcement)
+			require.Equal(t, tc.wantObligations, obligationIDs(got.Obligations))
+			require.Equal(t, tc.wantReviews, reviewIDs(got.Reviews))
+		})
+	}
+}
+
+func obligationIDs(in []*packspec.Obligation) []string {
+	ids := make([]string, 0, len(in))
+	for _, o := range in {
+		ids = append(ids, o.ID)
+	}
+	return ids
+}
+
+func reviewIDs(in []*packspec.Review) []string {
+	ids := make([]string, 0, len(in))
+	for _, r := range in {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// TestRFC0016FieldsAreDeepCopies — the new fields are the first in the block
+// with nested structs and nested extensions, so a top-level copy would still
+// hand a caller pointers into the loaded pack. Every level is mutated here.
+func TestRFC0016FieldsAreDeepCopies(t *testing.T) {
+	p := packWithGovernance(t, `{
+	  "independent_of":{"axes":["model"],"enforcement":"strict"},
+	  "obligations":[{"id":"art50","obligation":"eu-aiact:Article50",
+	    "applies_to":{"capability":"eu-aiact:DeepFake"},
+	    "controls":[{"validator":"no-deepfake"}],
+	    "extensions":{"acme:controls":{"set":["CC7"]}}}],
+	  "reviews":[{"id":"bias","type":"pp:BiasTesting","cadence":"P3M","owner":"ml-risk",
+	    "satisfies":["art50"],"extensions":{"acme:evidence":{"path":"s3://x"}}}],
+	  "extensions":{"acme:nested":{"k":"v"}}}`, "")
+
+	for _, name := range []string{"", "billing"} {
+		got, err := prompt.ResolveGovernance(p, name)
+		require.NoError(t, err)
+
+		got.IndependentOf.Axes[0] = "tools"
+		*got.IndependentOf.Enforcement = "advisory"
+		got.Obligations[0].ID = "changed"
+		got.Obligations[0].AppliesTo.Capability = "changed"
+		got.Obligations[0].Controls[0].Validator = "changed"
+		got.Obligations[0].Extensions["acme:controls"].(map[string]any)["set"].([]any)[0] = "changed"
+		got.Reviews[0].Satisfies[0] = "changed"
+		got.Reviews[0].Extensions["acme:evidence"].(map[string]any)["path"] = "changed"
+		got.Extensions["acme:nested"].(map[string]any)["k"] = "changed"
+	}
+
+	g := p.Metadata.Governance
+	require.Equal(t, []any{"model"}, g.IndependentOf.Axes)
+	require.Equal(t, "strict", *g.IndependentOf.Enforcement)
+	require.Equal(t, "art50", g.Obligations[0].ID)
+	require.Equal(t, "eu-aiact:DeepFake", g.Obligations[0].AppliesTo.Capability)
+	require.Equal(t, "no-deepfake", g.Obligations[0].Controls[0].Validator)
+	require.Equal(t, "CC7", g.Obligations[0].Extensions["acme:controls"].(map[string]any)["set"].([]any)[0])
+	require.Equal(t, []string{"art50"}, g.Reviews[0].Satisfies)
+	require.Equal(t, "s3://x", g.Reviews[0].Extensions["acme:evidence"].(map[string]any)["path"])
+	require.Equal(t, "v", g.Extensions["acme:nested"].(map[string]any)["k"],
+		"nested extensions values must be copied too, not shared")
+}
+
+// TestRFC0016AgentOverlayIsADeepCopy — the overlay path copies from the
+// agent's declaration rather than the pack's, so it needs its own check.
+func TestRFC0016AgentOverlayIsADeepCopy(t *testing.T) {
+	p := packWithGovernance(t, `{"autonomy_level":"suggests"}`, `{
+	  "independent_of":{"axes":["prompts"]},
+	  "obligations":[{"id":"o","obligation":"x","controls":[{"eval":"e"}]}],
+	  "reviews":[{"id":"r","type":"t","cadence":"P1Y","owner":"o","satisfies":["o"]}]}`)
+
+	got, err := prompt.ResolveGovernance(p, "billing")
+	require.NoError(t, err)
+	got.IndependentOf.Axes[0] = "tools"
+	got.Obligations[0].Controls[0].Eval = "changed"
+	got.Reviews[0].Satisfies[0] = "changed"
+
+	agent := p.Agents.Members["billing"].Governance
+	require.Equal(t, []any{"prompts"}, agent.IndependentOf.Axes)
+	require.Equal(t, "e", agent.Obligations[0].Controls[0].Eval)
+	require.Equal(t, []string{"o"}, agent.Reviews[0].Satisfies)
+}
+
+func TestDescribeGovernanceListsRFC0016Fields(t *testing.T) {
+	got := prompt.DescribeGovernance(&packspec.Governance{
+		IndependentOf: &packspec.GovernanceIndependentOf{
+			Axes: []any{"accountable_owner", "model"}, Enforcement: packspec.Ptr("strict"),
+		},
+		Obligations: []*packspec.Obligation{{ID: "art50"}, {ID: "gdpr22"}},
+		Reviews:     []*packspec.Review{{ID: "bias", Cadence: "P3M"}},
+	})
+
+	require.Contains(t, got, "independent of: accountable_owner/model (strict)")
+	require.Contains(t, got, "obligations: art50/gdpr22")
+	require.Contains(t, got, "reviews: bias every P3M")
+
+	// Without a declared enforcement, the schema's "advisory" default is not
+	// printed: it was not declared.
+	got = prompt.DescribeGovernance(&packspec.Governance{
+		IndependentOf: &packspec.GovernanceIndependentOf{Axes: []any{"tools"}},
+	})
+	require.Equal(t, "independent of: tools", got)
+}

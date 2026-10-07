@@ -161,6 +161,21 @@ func overlayGovernance(base, overlay *Governance) *Governance {
 		base.Extensions = copyAnyMap(overlay.Extensions)
 	}
 
+	// RFC 0016 fields follow RFC 0013's rule. obligations and reviews are
+	// arrays, so they replace whole: an agent declaring one obligation carries
+	// that one, not the pack's list plus its own. independent_of is an object
+	// the spec leaves out of the vocabularies-style merge, so it replaces whole
+	// too — a half-inherited axes list would be a requirement nobody wrote.
+	if overlay.IndependentOf != nil {
+		base.IndependentOf = copyIndependentOf(overlay.IndependentOf)
+	}
+	if len(overlay.Obligations) > 0 {
+		base.Obligations = copyObligations(overlay.Obligations)
+	}
+	if len(overlay.Reviews) > 0 {
+		base.Reviews = copyReviews(overlay.Reviews)
+	}
+
 	// vocabularies MERGES, and is the one field here that does.
 	//
 	// The spec's rule enumerates what replaces whole — "arrays and extensions" —
@@ -241,8 +256,48 @@ func DescribeGovernance(g *Governance) string {
 	add("contexts", strings.Join(g.IntendedDeploymentContexts, "/"))
 	add("environments", strings.Join(g.ApprovedEnvironments, "/"))
 	add("capabilities", strings.Join(g.Capabilities, "/"))
+	add("independent of", describeIndependentOf(g.IndependentOf))
+	add("obligations", describeObligations(g.Obligations))
+	add("reviews", describeReviews(g.Reviews))
 
 	return strings.Join(parts, "; ")
+}
+
+// describeIndependentOf renders the axes, and the enforcement only when the
+// pack declares one: the schema's "advisory" default is not a declaration.
+func describeIndependentOf(in *packspec.GovernanceIndependentOf) string {
+	if in == nil || len(in.Axes) == 0 {
+		return ""
+	}
+	axes := make([]string, 0, len(in.Axes))
+	for _, a := range in.Axes {
+		axes = append(axes, fmt.Sprint(a))
+	}
+	out := strings.Join(axes, "/")
+	if in.Enforcement != nil {
+		out += " (" + *in.Enforcement + ")"
+	}
+	return out
+}
+
+func describeObligations(in []*packspec.Obligation) string {
+	ids := make([]string, 0, len(in))
+	for _, o := range in {
+		if o != nil {
+			ids = append(ids, o.ID)
+		}
+	}
+	return strings.Join(ids, "/")
+}
+
+func describeReviews(in []*packspec.Review) string {
+	items := make([]string, 0, len(in))
+	for _, r := range in {
+		if r != nil {
+			items = append(items, r.ID+" every "+r.Cadence)
+		}
+	}
+	return strings.Join(items, "/")
 }
 
 // mergeVocabularies layers an agent's prefix map over the pack's. Prefixes the
@@ -275,7 +330,68 @@ func copyGovernance(g *Governance) *Governance {
 	if g.RequiresAIDisclosure != nil {
 		out.RequiresAIDisclosure = packspec.Ptr(*g.RequiresAIDisclosure)
 	}
+	out.IndependentOf = copyIndependentOf(g.IndependentOf)
+	out.Obligations = copyObligations(g.Obligations)
+	out.Reviews = copyReviews(g.Reviews)
 	return &out
+}
+
+func copyIndependentOf(in *packspec.GovernanceIndependentOf) *packspec.GovernanceIndependentOf {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Axes = copyAnySlice(in.Axes)
+	if in.Enforcement != nil {
+		out.Enforcement = packspec.Ptr(*in.Enforcement)
+	}
+	return &out
+}
+
+func copyObligations(in []*packspec.Obligation) []*packspec.Obligation {
+	if in == nil {
+		return nil
+	}
+	out := make([]*packspec.Obligation, len(in))
+	for i, o := range in {
+		if o == nil {
+			continue
+		}
+		c := *o
+		if o.AppliesTo != nil {
+			appliesTo := *o.AppliesTo
+			c.AppliesTo = &appliesTo
+		}
+		if o.Controls != nil {
+			c.Controls = make([]*packspec.ObligationControl, len(o.Controls))
+			for j, ctl := range o.Controls {
+				if ctl != nil {
+					ctlCopy := *ctl
+					c.Controls[j] = &ctlCopy
+				}
+			}
+		}
+		c.Extensions = copyAnyMap(o.Extensions)
+		out[i] = &c
+	}
+	return out
+}
+
+func copyReviews(in []*packspec.Review) []*packspec.Review {
+	if in == nil {
+		return nil
+	}
+	out := make([]*packspec.Review, len(in))
+	for i, r := range in {
+		if r == nil {
+			continue
+		}
+		c := *r
+		c.Satisfies = copyStrings(r.Satisfies)
+		c.Extensions = copyAnyMap(r.Extensions)
+		out[i] = &c
+	}
+	return out
 }
 
 func copyStrings(in []string) []string {
@@ -298,13 +414,38 @@ func copyStringMap(in map[string]string) map[string]string {
 	return out
 }
 
+// copyAnyMap deep-copies a decoded JSON object. extensions values are
+// arbitrary JSON, so a shallow copy would share every nested object and array
+// with the loaded pack.
 func copyAnyMap(in map[string]any) map[string]any {
 	if in == nil {
 		return nil
 	}
 	out := make(map[string]any, len(in))
 	for k, v := range in {
-		out[k] = v
+		out[k] = copyAnyValue(v)
 	}
 	return out
+}
+
+func copyAnySlice(in []any) []any {
+	if in == nil {
+		return nil
+	}
+	out := make([]any, len(in))
+	for i, v := range in {
+		out[i] = copyAnyValue(v)
+	}
+	return out
+}
+
+func copyAnyValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		return copyAnyMap(t)
+	case []any:
+		return copyAnySlice(t)
+	default:
+		return v
+	}
 }
