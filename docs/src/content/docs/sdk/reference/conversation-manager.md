@@ -115,7 +115,7 @@ Key runtime types: \[types.Message\], \[types.ContentPart\], \[types.MediaConten
 
 ### Schema Reference
 
-All pack examples conform to the PromptPack Specification v1.7.0: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
+All pack examples conform to the PromptPack Specification v1.8.1: https://github.com/AltairaLabs/promptpack-spec/blob/main/schema/promptpack.schema.json
 
 ## Index
 
@@ -1565,7 +1565,7 @@ func (c *Conversation) FailClientTool(_ context.Context, callID string, partial 
 
 FailClientTool reports that a deferred client tool failed.
 
-callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
+callID must match one of the \[PendingClientTool.CallID\] values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
 ### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1301>)
@@ -1850,7 +1850,7 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 
 RejectClientTool rejects a deferred client tool with a human\-readable reason.
 
-callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). The rejection reason is sent to the LLM as the tool result.
+callID must match one of the \[PendingClientTool.CallID\] values returned in the [Response](<#Response>). The rejection reason is sent to the LLM as the tool result.
 
 <a name="Conversation.RejectTool"></a>
 ### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L303>)
@@ -2072,7 +2072,7 @@ func (c *Conversation) SendToolResult(_ context.Context, callID string, result a
 
 SendToolResult provides the result for a deferred client tool.
 
-callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). result should be JSON\-serializable.
+callID must match one of the \[PendingClientTool.CallID\] values returned in the [Response](<#Response>). result should be JSON\-serializable.
 
 After all pending tools have been resolved \(via SendToolResult or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
@@ -2085,7 +2085,7 @@ func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string
 
 SendToolResultMultimodal provides a multimodal result for a deferred client tool.
 
-callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). parts should contain one or more \[types.ContentPart\] values \(text, images, audio, etc.\) that will be sent directly to the LLM.
+callID must match one of the \[PendingClientTool.CallID\] values returned in the [Response](<#Response>). parts should contain one or more \[types.ContentPart\] values \(text, images, audio, etc.\) that will be sent directly to the LLM.
 
 After all pending tools have been resolved \(via SendToolResult, SendToolResultMultimodal, or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
@@ -6437,30 +6437,22 @@ if err != nil {
 ExampleAsValidationError shows unwrapping a validation failure returned by [sdk.Conversation.Send](<#Conversation.Send>) when a pack\-defined validator rejects a response. AsValidationError works on any error chain, so it is demonstrated here against a manually constructed error rather than a live Send call.
 
 ```go
-package main
+err := fmt.Errorf("turn failed: %w", &sdk.ValidationError{
+	ValidatorType: "banned_words",
+	Message:       "response contained a banned word",
+})
 
-import (
-	"errors"
-	"fmt"
-
-	"github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-func main() {
-	err := fmt.Errorf("turn failed: %w", &sdk.ValidationError{
-		ValidatorType: "banned_words",
-		Message:       "response contained a banned word",
-	})
-
-	if vErr, ok := sdk.AsValidationError(err); ok {
-		fmt.Println(vErr.ValidatorType, "-", vErr.Message)
-	}
-
-	var other error = errors.New("not a validation error")
-	_, ok := sdk.AsValidationError(other)
-	fmt.Println("matched:", ok)
-
+if vErr, ok := sdk.AsValidationError(err); ok {
+	fmt.Println(vErr.ValidatorType, "-", vErr.Message)
 }
+
+var other error = errors.New("not a validation error")
+_, ok := sdk.AsValidationError(other)
+fmt.Println("matched:", ok)
+
+// Output:
+// banned_words - response contained a banned word
+// matched: false
 ```
 
 #### Output

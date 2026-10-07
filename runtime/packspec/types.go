@@ -41,6 +41,11 @@ type AgentDef struct {
 	// set.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
 	// Governance governance facts for this agent, overriding metadata.governance by per-field replacement:
 	// a field present here replaces the pack value for that field, a field absent inherits.
 	// Arrays and extensions replace whole (RFC 0013).
@@ -572,6 +577,11 @@ type Composition struct {
 	// hatch with no schema enforcement.
 	Engine map[string]any `json:"engine,omitempty" yaml:"engine,omitempty"`
 
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
 	// InputSchema reference to a JSON Schema declaring the structured input shape. Path or fragment
 	// reference.
 	InputSchema string `json:"input_schema,omitempty" yaml:"input_schema,omitempty"`
@@ -633,6 +643,11 @@ type Eval struct {
 
 	// Enabled whether this eval is active. Allows temporarily disabling evals without removing them.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 
 	// Groups eval group tags for organizing and filtering evals.
 	Groups []string `json:"groups,omitempty" yaml:"groups,omitempty"`
@@ -750,6 +765,92 @@ func (v *ExistsPredicate) UnmarshalYAML(unmarshal func(any) error) error {
 
 // MarshalYAML encodes through the JSON codec above, for the same reason.
 func (v ExistsPredicate) MarshalYAML() (any, error) {
+	return EncodeYAMLViaJSON(v)
+}
+
+// ExtensionStep a vendor-namespaced step kind, written 'vendor.kind' (e.g. 'omnia.judge'). The namespace
+// dot keeps extension kinds disjoint from the v1 kinds and from any future unnamespaced
+// kind the specification defines. Fields beyond the common step fields are defined by the
+// runtime that supports the kind, and a composition using one is portable only to runtimes
+// that support it (RFC 0010 Level 3).
+type ExtensionStep struct {
+	Kind string `json:"kind" yaml:"kind"`
+
+	// Extra carries properties the schema allows but does not name.
+	// This def is additionalProperties:true — an envelope the spec expects
+	// runtimes to extend — so unknown keys are preserved here rather than
+	// dropped. Marshaled back as top-level properties, not nested.
+	Extra map[string]any `json:"-" yaml:"-"`
+}
+
+// ExtensionStepKnownFields are the properties the schema names. Anything else in the
+// document belongs in Extra.
+var ExtensionStepKnownFields = map[string]bool{
+	"kind": true,
+}
+
+// MarshalJSON writes the named properties plus everything in Extra, flattened
+// to top level. A key in Extra that collides with a named property is dropped:
+// the typed field is authoritative.
+func (v ExtensionStep) MarshalJSON() ([]byte, error) {
+	type plain ExtensionStep
+	data, err := json.Marshal(plain(v))
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Extra) == 0 {
+		return data, nil
+	}
+	merged := map[string]any{}
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return nil, err
+	}
+	for k, val := range v.Extra {
+		if !ExtensionStepKnownFields[k] {
+			merged[k] = val
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the named properties and captures every other key into
+// Extra, so a runtime extension survives a load/save round trip instead of
+// being silently discarded.
+func (v *ExtensionStep) UnmarshalJSON(data []byte) error {
+	type plain ExtensionStep
+	var named plain
+	if err := json.Unmarshal(data, &named); err != nil {
+		return err
+	}
+	*v = ExtensionStep(named)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, rawVal := range raw {
+		if ExtensionStepKnownFields[k] {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(rawVal, &val); err != nil {
+			return err
+		}
+		if v.Extra == nil {
+			v.Extra = map[string]any{}
+		}
+		v.Extra[k] = val
+	}
+	return nil
+}
+
+// UnmarshalYAML decodes YAML through the JSON codec above, so unions,
+// shorthands and extensions behave identically in both formats.
+func (v *ExtensionStep) UnmarshalYAML(unmarshal func(any) error) error {
+	return DecodeYAMLViaJSON(unmarshal, v)
+}
+
+// MarshalYAML encodes through the JSON codec above, for the same reason.
+func (v ExtensionStep) MarshalYAML() (any, error) {
 	return EncodeYAMLViaJSON(v)
 }
 
@@ -882,6 +983,14 @@ type Governance struct {
 	// ForeseeableMisuse uses the author considers out of bounds and reasonably foreseeable.
 	ForeseeableMisuse []string `json:"foreseeable_misuse,omitempty" yaml:"foreseeable_misuse,omitempty"`
 
+	// IndependentOf requires that whatever produces this agent's input does not share the listed properties
+	// with it (RFC 0016). A deployment requirement the runtime resolves against the composition
+	// it is running, not a reference to another agent. 'accountable_owner' expresses
+	// organisational independence, which is how a pack states segregation of duties; the other
+	// axes are technical independence — a quality control against correlated failure, not a
+	// security control.
+	IndependentOf *GovernanceIndependentOf `json:"independent_of,omitempty" yaml:"independent_of,omitempty"`
+
 	// IntendedDeploymentContexts sectors or settings the agent is built for, as vocabulary terms or free strings. Distinct
 	// from metadata.domain, which is a discovery tag.
 	IntendedDeploymentContexts []string `json:"intended_deployment_contexts,omitempty" yaml:"intended_deployment_contexts,omitempty"`
@@ -889,12 +998,23 @@ type Governance struct {
 	// IntendedPurpose what the agent is built to do, stated by its author. Free text.
 	IntendedPurpose string `json:"intended_purpose,omitempty" yaml:"intended_purpose,omitempty"`
 
+	// Obligations what obligations follow from this agent's declared capabilities, data or classification,
+	// and which controls discharge them (RFC 0016). A record, never a filter: nothing here
+	// decides whether an obligation applies, and naming a control does not assert that the
+	// obligation currently holds.
+	Obligations []*Obligation `json:"obligations,omitempty" yaml:"obligations,omitempty"`
+
 	// OperatorRole the declaring organisation's role for this agent, as a vocabulary term or free string.
 	OperatorRole string `json:"operator_role,omitempty" yaml:"operator_role,omitempty"`
 
 	// RequiresAIDisclosure whether the agent must disclose that it is an AI to the people interacting with it. The
 	// runtime decides which of its interfaces this applies to.
 	RequiresAIDisclosure *bool `json:"requires_ai_disclosure,omitempty" yaml:"requires_ai_disclosure,omitempty"`
+
+	// Reviews obligations that recur, with their cadence and owning team (RFC 0016). Completion records
+	// are runtime state and do not belong in the pack; a runtime that records completions
+	// SHOULD key them by reviews[].id.
+	Reviews []*Review `json:"reviews,omitempty" yaml:"reviews,omitempty"`
 
 	// RiskClassification the risk classification assigned to this agent, as a vocabulary term or free string. A
 	// namespaced term carries both the framework and the value, so no separate framework field
@@ -1204,6 +1324,51 @@ func (v NotPredicate) MarshalYAML() (any, error) {
 	return EncodeYAMLViaJSON(v)
 }
 
+// Obligation an obligation triggered by something the agent declares, and the controls that discharge
+// it (RFC 0016).
+type Obligation struct {
+	// AppliesTo what triggers the obligation. A record, not a filter — whether it applies is a legal
+	// determination.
+	AppliesTo *ObligationAppliesTo `json:"applies_to,omitempty" yaml:"applies_to,omitempty"`
+
+	// Controls controls that discharge the obligation. Each entry carries exactly one of 'field',
+	// 'validator', 'eval' or 'external'.
+	Controls []*ObligationControl `json:"controls" yaml:"controls"`
+
+	// Extensions opaque annotations, such as a control-framework identifier. Never interpreted by this
+	// specification, and never evidence that the obligation is current. Keys SHOULD be
+	// namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
+	// ID identifier, unique within the governance object that declares it. Referenced by
+	// reviews[].satisfies.
+	ID string `json:"id" yaml:"id"`
+
+	// Note free-text context, such as the article or section the obligation comes from.
+	Note string `json:"note,omitempty" yaml:"note,omitempty"`
+
+	// Obligation the obligation, as a vocabulary term (CURIE or absolute IRI) or a free string.
+	Obligation string `json:"obligation" yaml:"obligation"`
+}
+
+// ObligationControl one control that discharges an obligation (RFC 0016). Exactly one key.
+type ObligationControl struct {
+	// Eval names the id of an eval in the pack's evals or in a prompt's evals. Records that a
+	// measurement for this control exists, not its outcome; what acts on the score is runtime
+	// policy.
+	Eval string `json:"eval,omitempty" yaml:"eval,omitempty"`
+
+	// External a control outside the pack, described in prose. Resolves against nothing.
+	External string `json:"external,omitempty" yaml:"external,omitempty"`
+
+	// Field names a governance property that must be declared in the effective governance object.
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
+
+	// Validator names the id of a Validator declared on one of this pack's prompts. Enforces in the
+	// response path; validators always enforce (RFC 0015).
+	Validator string `json:"validator,omitempty" yaml:"validator,omitempty"`
+}
+
 // ParallelStep step kind 'parallel': a static fan-out block whose branches execute concurrently and are
 // merged by a declared reducer.
 type ParallelStep struct {
@@ -1364,6 +1529,11 @@ type Prompt struct {
 	// generated by this specific prompt. Prompt-level evals with the same id override
 	// pack-level evals.
 	Evals []*Eval `json:"evals,omitempty" yaml:"evals,omitempty"`
+
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 
 	// ID unique identifier for this prompt, typically matching the task_type key
 	ID string `json:"id" yaml:"id"`
@@ -1773,6 +1943,34 @@ func (v Reducer) MarshalYAML() (any, error) {
 	return EncodeYAMLViaJSON(v)
 }
 
+// Review a recurring obligation: what is reviewed, how often, and which team owns it (RFC 0016).
+type Review struct {
+	// Cadence ISO 8601 duration between reviews. Must not be the empty duration 'P'.
+	Cadence string `json:"cadence" yaml:"cadence"`
+
+	// Eval names the id of an eval in the pack's evals or in a prompt's evals that this review runs
+	// or reads.
+	Eval string `json:"eval,omitempty" yaml:"eval,omitempty"`
+
+	// Extensions opaque annotations, such as a method reference or evidence location. Never interpreted by
+	// this specification. MUST NOT be used to record completions. Keys SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
+	// ID identifier, unique within the governance object that declares it. Keep it stable across
+	// pack versions while the review means the same thing — runtimes key completion records
+	// by it.
+	ID string `json:"id" yaml:"id"`
+
+	// Owner the team or role that owns the review. Never a named individual.
+	Owner string `json:"owner" yaml:"owner"`
+
+	// Satisfies ids of obligations in the effective governance object that this review answers to.
+	Satisfies []string `json:"satisfies,omitempty" yaml:"satisfies,omitempty"`
+
+	// Type the kind of review, as a vocabulary term (CURIE or absolute IRI) or a free string.
+	Type string `json:"type" yaml:"type"`
+}
+
 // SkillPathSource a skill source with a path and optional preload configuration.
 type SkillPathSource struct {
 	// Path path to a skill directory, file, or package reference.
@@ -1880,9 +2078,10 @@ type Step struct {
 	// steps' outputs.
 	Input *StepInput `json:"input,omitempty" yaml:"input,omitempty"`
 
-	// Kind step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'.
-	// Free-form string with documented conventional values; runtimes may support additional
-	// vendor-namespaced kinds (e.g. 'omnia.judge').
+	// Kind step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'. Any
+	// other kind must be vendor-namespaced as 'vendor.kind' (e.g. 'omnia.judge'); an
+	// unnamespaced kind outside the v1 set is invalid, so future specification kinds cannot
+	// collide with vendor ones.
 	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
 
 	// Modifiers optional declarative modifiers (retry, eval attachment). Modifier semantics are
@@ -2401,11 +2600,20 @@ type Validator struct {
 	// removing them.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+
 	// FailOnViolation DEPRECATED as of v1.7.0, removed in v2.0.0 (RFC 0015). Ignored — validators always
 	// enforce. A triggered validator rewrites or blocks the assistant message regardless of
 	// this value. To disable a validator, use 'enabled: false'. For observation without
 	// enforcement, declare an eval and assert on its score instead.
 	FailOnViolation *bool `json:"fail_on_violation,omitempty" yaml:"fail_on_violation,omitempty"`
+
+	// ID optional identifier, so a governance obligation control can name this validator (RFC
+	// 0016). Unique across the pack where declared. Does not change how the validator runs.
+	ID string `json:"id,omitempty" yaml:"id,omitempty"`
 
 	// Message user-facing message returned when the validator blocks content.
 	Message string `json:"message,omitempty" yaml:"message,omitempty"`
@@ -2514,16 +2722,23 @@ type WorkflowState struct {
 	Composition string `json:"composition,omitempty" yaml:"composition,omitempty"`
 
 	// Control who holds the next turn after entering this state (RFC 0014). 'user' yields the
-	// conversation to the user (default, and the behavior of every state before v1.7.0).
-	// 'agent' runs another agent round in this state without yielding, for transient routing or
-	// processing states. Orthogonal to 'orchestration', which declares who initiates a
-	// transition rather than who holds the turn after one; inert on states reached via
-	// 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget
-	// — it introduces no new limits.
+	// conversation to the user (the default). Before v1.7.0 the specification did not say who
+	// holds the turn after a transition, and implementations differed; one that previously ran
+	// the destination state should treat adopting this default as a behavioral change for packs
+	// that do not declare 'control'. 'agent' runs another agent round in this state without
+	// yielding, for transient routing or processing states. Orthogonal to 'orchestration',
+	// which declares who initiates a transition rather than who holds the turn after one; inert
+	// on states reached via 'external' orchestration. Bounded by terminal states, max_visits
+	// and the workflow budget — it introduces no new limits.
 	Control *string `json:"control,omitempty" yaml:"control,omitempty"`
 
 	// Description human-readable description of this state's purpose.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Extensions opaque policy annotations about this object (RFC 0016). Never interpreted by this
+	// specification and never passed to a scorer, guardrail or model as configuration. Keys
+	// SHOULD be namespaced.
+	Extensions map[string]any `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 
 	// MaxVisits maximum number of times this state can be entered during a single workflow execution.
 	// When the limit is reached, the workflow transitions to the state named in on_max_visits.
@@ -2573,7 +2788,9 @@ type WorkflowState struct {
 // (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is
 // recorded alongside capability. Workflow states may declare who holds the next turn via
 // 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always
-// enforce (RFC 0015).
+// enforce (RFC 0015). Governance may record the obligations a declaration triggers and the
+// controls that discharge them, recurring reviews, and independence requirements; policy
+// decision points carry an opaque 'extensions' slot (RFC 0016).
 type Pack struct {
 	// Schema JSON Schema reference for validation and IDE support
 	Schema *string `json:"$schema,omitempty" yaml:"$schema,omitempty"`
@@ -2657,6 +2874,26 @@ type EvalThreshold struct {
 
 	// Value the threshold value to compare against.
 	Value *float64 `json:"value,omitempty" yaml:"value,omitempty"`
+}
+
+// GovernanceIndependentOf is an inline object hoisted from the spec so its fields stay named.
+// GovernanceIndependentOf requires that whatever produces this agent's input does not share the listed properties
+// with it (RFC 0016). A deployment requirement the runtime resolves against the composition
+// it is running, not a reference to another agent. 'accountable_owner' expresses
+// organisational independence, which is how a pack states segregation of duties; the other
+// axes are technical independence — a quality control against correlated failure, not a
+// security control.
+type GovernanceIndependentOf struct {
+	// Axes the axes on which the producer must differ. 'model' and 'provider' compare the effective
+	// values after model_overrides; 'tools' requires disjoint tool sets; 'prompts' requires
+	// that neither uses the other's prompt keys; 'accountable_owner' compares the two
+	// governance declarations.
+	Axes []any `json:"axes" yaml:"axes"`
+
+	// Enforcement 'strict': a runtime that enforces independent_of MUST NOT deploy the pack when the
+	// requirement is unsatisfied, including when it cannot determine the producer. 'advisory':
+	// surface the violation without refusing.
+	Enforcement *string `json:"enforcement,omitempty" yaml:"enforcement,omitempty"`
 }
 
 // MetricDefRange is an inline object hoisted from the spec so its fields stay named.
@@ -2745,6 +2982,17 @@ func (v *MetricDefRange) UnmarshalYAML(unmarshal func(any) error) error {
 // MarshalYAML encodes through the JSON codec above, for the same reason.
 func (v MetricDefRange) MarshalYAML() (any, error) {
 	return EncodeYAMLViaJSON(v)
+}
+
+// ObligationAppliesTo is an inline object hoisted from the spec so its fields stay named.
+// ObligationAppliesTo what triggers the obligation. A record, not a filter — whether it applies is a legal
+// determination.
+type ObligationAppliesTo struct {
+	Capability string `json:"capability,omitempty" yaml:"capability,omitempty"`
+
+	DataClass string `json:"data_class,omitempty" yaml:"data_class,omitempty"`
+
+	RiskClassification string `json:"risk_classification,omitempty" yaml:"risk_classification,omitempty"`
 }
 
 // PackCompilation is an inline object hoisted from the spec so its fields stay named.
@@ -3374,6 +3622,7 @@ func OpenObjectPrototypes() map[string]any {
 		"BranchStep":               &BranchStep{},
 		"ComparePredicate":         &ComparePredicate{},
 		"ExistsPredicate":          &ExistsPredicate{},
+		"ExtensionStep":            &ExtensionStep{},
 		"GenericMediaTypeConfig":   &GenericMediaTypeConfig{},
 		"MetricDef":                &MetricDef{},
 		"MetricDefRange":           &MetricDefRange{},
