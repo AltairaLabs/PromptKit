@@ -18,7 +18,7 @@ import (
 // otherwise break the packs users copy from without any test noticing.
 func TestEveryExamplePackLoads(t *testing.T) {
 	var paths []string
-	for _, root := range []string{"examples", "../server/a2a/examples"} {
+	for _, root := range []string{"examples", "../server/a2a/examples", "../benchmarks"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

@@ -266,7 +266,7 @@ func DescribeGovernance(g *Governance) string {
 // describeIndependentOf renders the axes, and the enforcement only when the
 // pack declares one: the schema's "advisory" default is not a declaration.
 func describeIndependentOf(in *packspec.GovernanceIndependentOf) string {
-	if in == nil {
+	if in == nil || len(in.Axes) == 0 {
 		return ""
 	}
 	axes := make([]string, 0, len(in.Axes))

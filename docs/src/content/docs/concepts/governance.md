@@ -82,7 +82,9 @@ agents:
         approved_environments: [staging]
 ```
 
-The `refunds` agent is cleared for **staging only**. If arrays merged, narrowing an agent's approved environments would be impossible — every attempt to restrict would silently re-grant everything the pack allowed. The same applies to `capabilities`, `foreseeable_misuse`, `intended_deployment_contexts`, `extensions` and `vocabularies`.
+The `refunds` agent is cleared for **staging only**. If arrays merged, narrowing an agent's approved environments would be impossible — every attempt to restrict would silently re-grant everything the pack allowed. The same applies to `capabilities`, `foreseeable_misuse`, `intended_deployment_contexts`, `obligations`, `reviews` and `extensions`. `independent_of` is an object, but it also replaces whole: an agent that declares it gets its own axes and enforcement, never the pack's enforcement attached to the agent's axes.
+
+Because `obligations` and `reviews` replace independently, an agent that restates its obligations but not its reviews inherits the pack's reviews. Each review's `satisfies` must name an obligation in the agent's resolved governance, so restate `reviews` alongside `obligations` when the obligation ids change.
 
 ### `vocabularies` merges, and only it
 
@@ -133,6 +135,9 @@ All optional. Absence means undeclared — which is not the same as a default, a
 | `approved_environments` | Environments it has been cleared to run in |
 | `foreseeable_misuse` | Uses the author considers out of bounds and reasonably foreseeable |
 | `vocabularies` | Prefix-to-IRI map for CURIE values used in the block |
+| `obligations` | Obligations the declaration triggers, each with the controls (`field`, `validator`, `eval` or `external`) that discharge it |
+| `reviews` | Recurring reviews, each with an ISO 8601 `cadence`, an owning team, and the obligation ids it `satisfies` |
+| `independent_of` | Axes (`model`, `provider`, `tools`, `prompts`, `accountable_owner`) on which whatever produces this agent's input must differ from it, with `strict` or `advisory` enforcement |
 | `extensions` | Opaque annotations for external tooling, never interpreted by the spec |
 
 `autonomy_level` is a **closed enum** — a value outside these four fails schema validation:
