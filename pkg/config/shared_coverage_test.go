@@ -78,6 +78,19 @@ func TestLoadProvider_IDSource(t *testing.T) {
 	}
 }
 
+// TestExplicitID covers both manifest shapes: one exposing spec.id through
+// GetID, and one that doesn't, which always falls back to metadata.name.
+func TestExplicitID(t *testing.T) {
+	withID := &ProviderConfig{}
+	withID.Spec.ID = "gpt4"
+	if got := explicitID(withID); got != "gpt4" {
+		t.Errorf("explicitID(ProviderConfig) = %q, want gpt4", got)
+	}
+	if got := explicitID(struct{}{}); got != "" {
+		t.Errorf("explicitID(no GetID) = %q, want empty", got)
+	}
+}
+
 func TestLoadProviderReadError(t *testing.T) {
 	if _, err := LoadProvider(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
 		t.Error("expected error for missing file")
