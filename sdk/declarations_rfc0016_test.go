@@ -155,6 +155,9 @@ func TestToolExecutorAndHookReceiveThisToolsDeclaration(t *testing.T) {
 		require.Equal(t, "external", seen["refund"].ActionScope.Effect)
 	}
 
+	require.Same(t, rec.tools["refund"], exec.seen["refund"],
+		"the executor receives the same declaration the tool hook saw")
+
 	exec.seen["refund"].Extensions["acme:tier"] = "changed"
 	rec.tools["refund"].Extensions["acme:tier"] = "changed"
 	require.Equal(t, "money", conv.pack.Tools["refund"].Extensions["acme:tier"],
@@ -250,4 +253,21 @@ func TestA2AToolsCarryTheCalleeMembersDefinition(t *testing.T) {
 
 	byName[tools.QualifyToolName(nsA2A, "billing")].Extensions["acme:approver"] = "changed"
 	require.Equal(t, "billing-oncall", p.Agents.Members["billing"].Extensions["acme:approver"])
+}
+
+// TestForkCopiesToolDeclarations — a fork's registry holds its own copies, so
+// a hook or executor in the fork cannot change what the parent's see.
+func TestForkCopiesToolDeclarations(t *testing.T) {
+	conv := openDeclarations(t, "chat")
+	fork, err := conv.Fork()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fork.Close() })
+
+	parent := conv.toolRegistry.Get("refund").Declaration
+	forked := fork.toolRegistry.Get("refund").Declaration
+	require.NotNil(t, forked)
+	require.NotSame(t, parent, forked)
+
+	forked.Extensions["acme:tier"] = "changed"
+	require.Equal(t, "money", parent.Extensions["acme:tier"])
 }

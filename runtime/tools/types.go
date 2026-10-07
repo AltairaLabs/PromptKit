@@ -137,17 +137,18 @@ type ToolDescriptor struct {
 	ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration
 	ExecConfig   *ExecConfig   `json:"exec,omitempty" yaml:"exec,omitempty"`     // Exec subprocess configuration
 
-	// Declaration is the pack's definition of this tool (RFC 0016), a copy
-	// taken when the conversation was built, so a host's executor can apply
-	// its own policy to action_scope and extensions. Nil means the pack does
-	// not declare the tool: a capability, MCP or discovered tool, or a
-	// handler with no pack entry. How to treat an undeclared tool is the
-	// host's decision. PromptKit never reads it.
+	// Declaration is the pack's definition of this tool (RFC 0016), so a
+	// host's executor can apply its own policy to action_scope and
+	// extensions. It is a copy, never the loaded pack, and is read-only: it
+	// may be shared by every conversation opened from one PackTemplate. Nil
+	// means the pack does not declare the tool: a capability, MCP or
+	// discovered tool, or a handler with no pack entry. How to treat an
+	// undeclared tool is the host's decision. PromptKit never reads it.
 	Declaration *packspec.Tool `json:"-" yaml:"-"`
 
 	// Agent is the pack's definition of the agent member this tool calls,
-	// set on A2A tools resolved from the pack's own agents (a copy, like
-	// Declaration). Nil for every other tool, including A2A tools discovered
+	// set on A2A tools resolved from the pack's own agents (a read-only copy,
+	// like Declaration). Nil for every other tool, including A2A tools discovered
 	// from a remote agent card.
 	Agent *packspec.AgentDef `json:"-" yaml:"-"`
 }

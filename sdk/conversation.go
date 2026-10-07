@@ -1360,8 +1360,10 @@ func (c *Conversation) Fork() (*Conversation, error) {
 			InputSchema: desc.InputSchema,
 			Mode:        desc.Mode,
 			Namespace:   desc.Namespace,
-			Declaration: desc.Declaration,
-			Agent:       desc.Agent,
+			// Copies, so a hook or executor in the fork cannot change what
+			// the parent's hooks and executors see (RFC 0016).
+			Declaration: packspec.Clone(desc.Declaration),
+			Agent:       packspec.Clone(desc.Agent),
 		})
 	}
 

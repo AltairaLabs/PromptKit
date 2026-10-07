@@ -178,3 +178,52 @@ func TestValidatorDeclarationReachesTheEventButNotTheMessage(t *testing.T) {
 	require.NotContains(t, v.Details, hooks.MetadataKeyValidatorDeclaration)
 	require.Equal(t, "banned_words", v.Details["validator_type"])
 }
+
+// TestValidatorDeclarationStaysOutOfMessageMeta — a blocked or rewritten
+// message copies the firing's metadata into Meta, which is public and
+// persisted; the declaration must not travel with it.
+func TestValidatorDeclarationStaysOutOfMessageMeta(t *testing.T) {
+	d := hooks.Enforced("blocked", map[string]any{
+		"validator_type":                      "banned_words",
+		hooks.MetadataKeyValidatorDeclaration: &packspec.Validator{ID: "no-cards", Type: "banned_words"},
+	})
+
+	blocked := (&ProviderStage{}).blockedMessage(nil, d)
+	require.NotContains(t, blocked.Meta, hooks.MetadataKeyValidatorDeclaration)
+	require.Equal(t, "banned_words", blocked.Meta["validator_type"])
+
+	msg := types.Message{}
+	var calls []types.MessageToolCall
+	applyEnforcedResponse(&msg, &calls, &hooks.ProviderResponse{}, d)
+	require.NotContains(t, msg.Meta, hooks.MetadataKeyValidatorDeclaration)
+	require.Equal(t, "banned_words", msg.Meta["validator_type"])
+
+	onlyDecl := hooks.Enforced("blocked", map[string]any{
+		hooks.MetadataKeyValidatorDeclaration: &packspec.Validator{Type: "banned_words"},
+	})
+	require.Nil(t, (&ProviderStage{}).blockedMessage(nil, onlyDecl).Meta)
+}
+
+// TestPromptTaskResetsWhenNoTemplateLoaded — a stage reused across executions
+// must not keep reporting a previous turn's (or handoff's) prompt when the
+// next execution loaded no template.
+func TestPromptTaskResetsWhenNoTemplateLoaded(t *testing.T) {
+	ts := &TurnState{Template: &prompt.Template{TaskType: "triage"}}
+	stage := &ProviderStage{
+		turnState: ts,
+		config: &ProviderConfig{PromptDeclarations: map[string]*packspec.Prompt{
+			"triage": {ID: "triage"},
+		}},
+	}
+	stage.promptTaskFromTurnState()
+	require.Equal(t, "triage", stage.promptDeclaration().ID)
+
+	ts.Template = nil
+	stage.promptTaskFromTurnState()
+	require.Nil(t, stage.promptDeclaration())
+
+	stage.setPromptTask("triage")
+	stage.turnState = nil
+	stage.streamingTurnState()
+	require.Nil(t, stage.promptDeclaration())
+}

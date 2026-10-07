@@ -409,9 +409,9 @@ type ValidationEventData struct {
 	// requires the message they both hang off, not these numbers.
 	TurnIndex int
 
-	// Validator is the pack's definition of the validator (RFC 0016), a copy
-	// taken when the conversation was built, so a host can apply its own
-	// policy to its id and extensions. Nil for a guardrail not declared in
+	// Validator is the pack's definition of the validator (RFC 0016), so a
+	// host can apply its own policy to its id and extensions. A read-only
+	// copy, shared by every event the validator emits. Nil for a guardrail not declared in
 	// the pack. PromptKit never reads it.
 	Validator *packspec.Validator
 }

@@ -313,11 +313,15 @@ func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
 // setPromptTask records the prompt task the model is invoked for next.
 func (s *ProviderStage) setPromptTask(task string) { s.promptTask.Store(task) }
 
-// promptTaskFromTurnState records the task the turn's template was loaded for.
+// promptTaskFromTurnState records the task the turn's template was loaded for,
+// or none when no template was loaded, so a stage reused across executions
+// never reports the previous turn's prompt (or a previous handoff's).
 func (s *ProviderStage) promptTaskFromTurnState() {
+	task := ""
 	if s.turnState != nil && s.turnState.Template != nil {
-		s.setPromptTask(s.turnState.Template.TaskType)
+		task = s.turnState.Template.TaskType
 	}
+	s.setPromptTask(task)
 }
 
 // promptDeclaration returns the pack declaration of the prompt the model is
@@ -417,12 +421,12 @@ type streamingConfig struct {
 // streamingTurnState snapshots the per-session invariants for a streaming run.
 func (s *ProviderStage) streamingTurnState() streamingConfig {
 	cfg := streamingConfig{baseMeta: map[string]interface{}{}}
+	s.promptTaskFromTurnState()
 	if s.turnState == nil {
 		return cfg
 	}
 	cfg.systemPrompt = s.turnState.SystemPrompt
 	cfg.allowedTools = s.turnState.AllowedTools
-	s.promptTaskFromTurnState()
 	cfg.baseMeta = make(map[string]interface{}, len(s.turnState.ProviderRequestMetadata))
 	for k, v := range s.turnState.ProviderRequestMetadata {
 		cfg.baseMeta[k] = v
@@ -2669,15 +2673,30 @@ func applyEnforcedResponse(
 	responseMsg.ToolCalls = nil
 	*toolCalls = nil
 	responseMsg.FinishReason = types.FinishReasonSafety
-	if len(d.Metadata) > 0 {
-		// Meta is map[string]interface{} (types/message.go:39). Copy rather than
-		// alias the decision's map so a hook cannot mutate an already-recorded
-		// message afterwards (mirrors blockedMessage).
-		responseMsg.Meta = make(map[string]interface{}, len(d.Metadata))
-		for k, v := range d.Metadata {
-			responseMsg.Meta[k] = v
-		}
+	if meta := decisionMessageMeta(d); meta != nil {
+		responseMsg.Meta = meta
 	}
+}
+
+// decisionMessageMeta copies a guardrail decision's metadata for the message
+// it is recorded on, or returns nil when there is none. Meta is
+// map[string]interface{} (types/message.go:39); copying rather than aliasing
+// the decision's map keeps a hook from mutating an already-recorded message
+// afterwards. The validator declaration is left out: it rides on the decision
+// only to reach the validation event, and Meta is public and persisted with
+// the message (the same reason guardrailValidation drops it from Details).
+func decisionMessageMeta(d hooks.Decision) map[string]interface{} {
+	meta := make(map[string]interface{}, len(d.Metadata))
+	for k, v := range d.Metadata {
+		if k == hooks.MetadataKeyValidatorDeclaration {
+			continue
+		}
+		meta[k] = v
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
 }
 
 // recordGuardrailFiring stamps a guardrail firing onto msg.Validations and
@@ -2812,15 +2831,7 @@ func (s *ProviderStage) blockedMessage(
 		Timestamp:    timeNow(),
 		FinishReason: types.FinishReasonSafety,
 	}
-	if len(d.Metadata) > 0 {
-		// Meta is map[string]interface{} (types/message.go:39). Copy rather
-		// than alias the decision's map so a hook cannot mutate the recorded
-		// message afterwards.
-		msg.Meta = make(map[string]interface{}, len(d.Metadata))
-		for k, v := range d.Metadata {
-			msg.Meta[k] = v
-		}
-	}
+	msg.Meta = decisionMessageMeta(d)
 	return msg
 }
 

@@ -69,7 +69,8 @@ type ProviderRequest struct {
 	TurnIndex int
 
 	// Prompt is the pack's definition of the prompt the model is being
-	// invoked for (RFC 0016), a copy taken when the conversation was built.
+	// invoked for (RFC 0016), a read-only copy taken when the conversation
+	// was built.
 	// After a workflow handoff it is the destination state's prompt. Nil means
 	// undeclared. PromptKit never reads it.
 	Prompt *packspec.Prompt

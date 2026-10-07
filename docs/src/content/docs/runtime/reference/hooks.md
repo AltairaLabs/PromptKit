@@ -396,7 +396,7 @@ func (e *HookDeniedError) Error() string
 
 
 <a name="InputRequest"></a>
-## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L96-L106>)
+## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L97-L107>)
 
 InputRequest is the narrow view of an about\-to\-be\-sent call handed to a func\-based input guardrail. Use guardrails.InputFunc to build one.
 
@@ -451,7 +451,7 @@ func WithToolHook(h ToolHook) Option
 WithToolHook registers a tool hook.
 
 <a name="OutputRequest"></a>
-## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L110-L117>)
+## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L111-L118>)
 
 OutputRequest is the narrow view of a completed call handed to a func\-based output guardrail. Use guardrails.OutputFunc to build one.
 
@@ -480,7 +480,7 @@ type ProviderHook interface {
 ```
 
 <a name="ProviderRequest"></a>
-## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L58-L83>)
+## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L58-L84>)
 
 ProviderRequest describes an LLM call about to be made.
 
@@ -499,7 +499,8 @@ type ProviderRequest struct {
     TurnIndex int
 
     // Prompt is the pack's definition of the prompt the model is being
-    // invoked for (RFC 0016), a copy taken when the conversation was built.
+    // invoked for (RFC 0016), a read-only copy taken when the conversation
+    // was built.
     // After a workflow handoff it is the destination state's prompt. Nil means
     // undeclared. PromptKit never reads it.
     Prompt *packspec.Prompt
@@ -514,7 +515,7 @@ type ProviderRequest struct {
 ```
 
 <a name="ProviderResponse"></a>
-## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L86-L92>)
+## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L87-L93>)
 
 ProviderResponse describes a completed LLM call.
 
@@ -704,7 +705,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L148-L154>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L149-L155>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -746,7 +747,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L126-L136>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L127-L137>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -765,7 +766,7 @@ type ToolRequest struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L139-L145>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L140-L146>)
 
 ToolResponse describes a completed tool execution.
 
