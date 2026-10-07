@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability. Workflow states may declare who holds the next turn via 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always enforce (RFC 0015).",
-  "version": "1.7.0",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability. Workflow states may declare who holds the next turn via 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always enforce (RFC 0015). Governance may record the obligations a declaration triggers and the controls that discharge them, recurring reviews, and independence requirements; policy decision points carry an opaque 'extensions' slot (RFC 0016).",
+  "version": "1.8.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -419,6 +419,12 @@
         "media": {
           "$ref": "#/$defs/MediaConfig",
           "description": "Multimodal content configuration for this prompt. Defines supported media types and validation rules."
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       }
     },
@@ -614,10 +620,156 @@
           "description": "Opaque annotations for external tooling. Never interpreted by this specification. Keys SHOULD be namespaced.",
           "additionalProperties": true,
           "examples": [{"acme.example/control-set": "SOC2-CC7"}]
+        },
+
+        "independent_of": {
+          "type": "object",
+          "description": "Requires that whatever produces this agent's input does not share the listed properties with it (RFC 0016). A deployment requirement the runtime resolves against the composition it is running, not a reference to another agent. 'accountable_owner' expresses organisational independence, which is how a pack states segregation of duties; the other axes are technical independence — a quality control against correlated failure, not a security control.",
+          "additionalProperties": false,
+          "required": ["axes"],
+          "properties": {
+            "axes": {
+              "type": "array",
+              "description": "The axes on which the producer must differ. 'model' and 'provider' compare the effective values after model_overrides; 'tools' requires disjoint tool sets; 'prompts' requires that neither uses the other's prompt keys; 'accountable_owner' compares the two governance declarations.",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["model", "provider", "tools", "prompts", "accountable_owner"] }
+            },
+            "enforcement": {
+              "type": "string",
+              "description": "'strict': a runtime that enforces independent_of MUST NOT deploy the pack when the requirement is unsatisfied, including when it cannot determine the producer. 'advisory': surface the violation without refusing.",
+              "enum": ["strict", "advisory"],
+              "default": "advisory"
+            }
+          },
+          "examples": [{"axes": ["accountable_owner", "model", "provider", "prompts"], "enforcement": "strict"}]
+        },
+
+        "obligations": {
+          "type": "array",
+          "description": "What obligations follow from this agent's declared capabilities, data or classification, and which controls discharge them (RFC 0016). A record, never a filter: nothing here decides whether an obligation applies, and naming a control does not assert that the obligation currently holds.",
+          "items": { "$ref": "#/$defs/Obligation" }
+        },
+
+        "reviews": {
+          "type": "array",
+          "description": "Obligations that recur, with their cadence and owning team (RFC 0016). Completion records are runtime state and do not belong in the pack; a runtime that records completions SHOULD key them by reviews[].id.",
+          "items": { "$ref": "#/$defs/Review" }
         }
       }
     },
     
+    "Obligation": {
+      "type": "object",
+      "description": "An obligation triggered by something the agent declares, and the controls that discharge it (RFC 0016).",
+      "required": ["id", "obligation", "controls"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identifier, unique within the governance object that declares it. Referenced by reviews[].satisfies."
+        },
+        "obligation": {
+          "type": "string",
+          "description": "The obligation, as a vocabulary term (CURIE or absolute IRI) or a free string.",
+          "examples": ["eu-aiact:Article50", "legal-eu-gdpr:Article22"]
+        },
+        "applies_to": {
+          "type": "object",
+          "description": "What triggers the obligation. A record, not a filter — whether it applies is a legal determination.",
+          "additionalProperties": false,
+          "properties": {
+            "capability": { "type": "string" },
+            "data_class": { "type": "string" },
+            "risk_classification": { "type": "string" }
+          }
+        },
+        "controls": {
+          "type": "array",
+          "description": "Controls that discharge the obligation. Each entry carries exactly one of 'field', 'validator', 'eval' or 'external'.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ObligationControl" }
+        },
+        "note": {
+          "type": "string",
+          "description": "Free-text context, such as the article or section the obligation comes from."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Opaque annotations, such as a control-framework identifier. Never interpreted by this specification, and never evidence that the obligation is current. Keys SHOULD be namespaced.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "ObligationControl": {
+      "type": "object",
+      "description": "One control that discharges an obligation (RFC 0016). Exactly one key.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Names a governance property that must be declared in the effective governance object."
+        },
+        "validator": {
+          "type": "string",
+          "description": "Names the id of a Validator declared on one of this pack's prompts. Enforces in the response path; validators always enforce (RFC 0015)."
+        },
+        "eval": {
+          "type": "string",
+          "description": "Names the id of an eval in the pack's evals or in a prompt's evals. Records that a measurement for this control exists, not its outcome; what acts on the score is runtime policy."
+        },
+        "external": {
+          "type": "string",
+          "description": "A control outside the pack, described in prose. Resolves against nothing."
+        }
+      }
+    },
+
+    "Review": {
+      "type": "object",
+      "description": "A recurring obligation: what is reviewed, how often, and which team owns it (RFC 0016).",
+      "required": ["id", "type", "cadence", "owner"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identifier, unique within the governance object that declares it. Keep it stable across pack versions while the review means the same thing — runtimes key completion records by it."
+        },
+        "type": {
+          "type": "string",
+          "description": "The kind of review, as a vocabulary term (CURIE or absolute IRI) or a free string.",
+          "examples": ["pp:BiasTesting", "pp:AccuracyReview", "risk:RiskAssessment"]
+        },
+        "cadence": {
+          "type": "string",
+          "description": "ISO 8601 duration between reviews. Must not be the empty duration 'P'.",
+          "pattern": "^P(?!$)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?$",
+          "examples": ["P3M", "P1Y"]
+        },
+        "owner": {
+          "type": "string",
+          "description": "The team or role that owns the review. Never a named individual."
+        },
+        "satisfies": {
+          "type": "array",
+          "description": "Ids of obligations in the effective governance object that this review answers to.",
+          "items": { "type": "string" }
+        },
+        "eval": {
+          "type": "string",
+          "description": "Names the id of an eval in the pack's evals or in a prompt's evals that this review runs or reads."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Opaque annotations, such as a method reference or evidence location. Never interpreted by this specification. MUST NOT be used to record completions. Keys SHOULD be namespaced.",
+          "additionalProperties": true
+        }
+      }
+    },
+
     "ActionScope": {
       "type": "object",
       "description": "What a tool can affect (RFC 0013). Describes consequence; does not gate anything. Absence means undeclared, not safe.",
@@ -859,6 +1011,12 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "type": "string",
+          "description": "Optional identifier, so a governance obligation control can name this validator (RFC 0016). Unique across the pack where declared. Does not change how the validator runs.",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+
         "type": {
           "type": "string",
           "description": "The validator type that determines how validation is performed. Not an enum — runtimes define and register their own validator types.",
@@ -893,6 +1051,12 @@
             {"words": ["inappropriate", "banned"]},
             {"max_characters": 1000, "max_tokens": 250}
           ]
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       }
     },
@@ -1445,6 +1609,12 @@
             "type": "string"
           },
           "examples": [["quality", "tone"], ["safety", "compliance"]]
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       }
     },
@@ -1557,7 +1727,7 @@
         },
         "control": {
           "type": "string",
-          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (default, and the behavior of every state before v1.7.0). 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits.",
+          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (the default). Before v1.7.0 the specification did not say who holds the turn after a transition, and implementations differed; one that previously ran the destination state should treat adopting this default as a behavioral change for packs that do not declare 'control'. 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits.",
           "enum": ["user", "agent"],
           "default": "user",
           "examples": ["agent"]
@@ -1601,6 +1771,12 @@
               "test_report": { "type": "application/json", "description": "Structured test runner summary" }
             }
           ]
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       },
       "if": {
@@ -1732,6 +1908,12 @@
         "governance": {
           "$ref": "#/$defs/Governance",
           "description": "Governance facts for this agent, overriding metadata.governance by per-field replacement: a field present here replaces the pack value for that field, a field absent inherits. Arrays and extensions replace whole (RFC 0013)."
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       }
     },
@@ -1836,6 +2018,12 @@
           "type": "object",
           "description": "Runtime-specific configuration (e.g. budgets, telemetry, scheduling hints). Opaque escape hatch with no schema enforcement.",
           "additionalProperties": true
+        },
+
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced.",
+          "additionalProperties": true
         }
       }
     },
@@ -1852,7 +2040,7 @@
         },
         "kind": {
           "type": "string",
-          "description": "Step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'. Free-form string with documented conventional values; runtimes may support additional vendor-namespaced kinds (e.g. 'omnia.judge')."
+          "description": "Step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'. Any other kind must be vendor-namespaced as 'vendor.kind' (e.g. 'omnia.judge'); an unnamespaced kind outside the v1 set is invalid, so future specification kinds cannot collide with vendor ones."
         },
         "description": { "type": "string" },
         "depends_on": {
@@ -1870,8 +2058,20 @@
         { "$ref": "#/$defs/AgentStep" },
         { "$ref": "#/$defs/ToolStep" },
         { "$ref": "#/$defs/BranchStep" },
-        { "$ref": "#/$defs/ParallelStep" }
+        { "$ref": "#/$defs/ParallelStep" },
+        { "$ref": "#/$defs/ExtensionStep" }
       ]
+    },
+
+    "ExtensionStep": {
+      "description": "A vendor-namespaced step kind, written 'vendor.kind' (e.g. 'omnia.judge'). The namespace dot keeps extension kinds disjoint from the v1 kinds and from any future unnamespaced kind the specification defines. Fields beyond the common step fields are defined by the runtime that supports the kind, and a composition using one is portable only to runtimes that support it (RFC 0010 Level 3).",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_.-]*$"
+        }
+      },
+      "required": ["kind"]
     },
 
     "PromptStep": {
