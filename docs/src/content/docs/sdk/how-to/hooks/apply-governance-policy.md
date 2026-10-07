@@ -6,7 +6,7 @@ sidebar:
 
 Enforce your own governance policy over a pack's declarations at each point where your host decides: admission, tool calls, model calls, validators, evals and workflow transitions.
 
-PromptKit carries every declaration a pack makes and hands it to your code. It makes no policy decision itself and never reads `extensions`. Each seam below gives you a copy of the pack's own definition, so changing it does not change the loaded pack.
+PromptKit carries every declaration a pack makes and hands it to your code. It makes no policy decision itself and never reads `extensions`. Treat every declaration a seam gives you as read-only: `PackTemplate.Pack()` returns the loaded pack itself, and an eval hook's `def` shares its `extensions` with it.
 
 ## Prerequisites
 
@@ -25,13 +25,17 @@ import (
     "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
-conv, err := sdk.Open("./support.pack.json", "billing")
-if err != nil {
-    return err // includes a pack whose governance references do not resolve
-}
-g := conv.Governance()
-if g != nil && !slices.Contains(g.ApprovedEnvironments, "production") {
-    return errors.New("pack is not cleared for production")
+func openForProduction() (*sdk.Conversation, error) {
+    conv, err := sdk.Open("./support.pack.json", "billing")
+    if err != nil {
+        return nil, err // includes a pack whose governance references do not resolve
+    }
+    g := conv.Governance()
+    if g != nil && !slices.Contains(g.ApprovedEnvironments, "production") {
+        _ = conv.Close()
+        return nil, errors.New("pack is not cleared for production")
+    }
+    return conv, nil
 }
 ```
 
@@ -72,15 +76,29 @@ Register it with `sdk.WithToolExecutor(name, executor)` or `Conversation.OnToolE
 To allow or deny every tool in one place, use a tool hook instead. `hooks.ToolRequest.Declaration` carries the same value the executor receives:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+import (
+    "context"
 
-func (h *toolPolicy) BeforeExecution(ctx context.Context, req hooks.ToolRequest) hooks.Decision {
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+)
+
+type toolPolicy struct{}
+
+func (*toolPolicy) Name() string { return "tool_policy" }
+
+func (*toolPolicy) BeforeExecution(ctx context.Context, req hooks.ToolRequest) hooks.Decision {
     if req.Declaration == nil {
         return hooks.Deny("undeclared tool " + req.Name)
     }
     if req.Declaration.Extensions["acme.example/approver-group"] != nil {
         return hooks.Deny("needs approval")
     }
+    return hooks.Allow
+}
+
+func (*toolPolicy) AfterExecution(
+    ctx context.Context, req hooks.ToolRequest, resp hooks.ToolResponse,
+) hooks.Decision {
     return hooks.Allow
 }
 ```
@@ -96,12 +114,28 @@ When a pack's agent calls another of the pack's agents over A2A, your A2A execut
 A provider hook receives the prompt the model is being invoked for on `hooks.ProviderRequest.Prompt`. After a workflow moves to another state within a turn, it is that state's prompt.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+import (
+    "context"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+)
+
+type promptPolicy struct {
+    euModels map[string]bool
+}
+
+func (*promptPolicy) Name() string { return "prompt_policy" }
 
 func (h *promptPolicy) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    if req.Prompt != nil && req.Prompt.Extensions["acme.example/region"] == "eu" && !h.euModel(req.Model) {
+    if req.Prompt != nil && req.Prompt.Extensions["acme.example/region"] == "eu" && !h.euModels[req.Model] {
         return hooks.Deny("prompt is restricted to EU-hosted models")
     }
+    return hooks.Allow
+}
+
+func (*promptPolicy) AfterCall(
+    ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse,
+) hooks.Decision {
     return hooks.Allow
 }
 ```
@@ -113,12 +147,17 @@ Register it with `sdk.WithProviderHook`.
 Every `validation.started`, `validation.passed` and `validation.failed` event carries the validator's declaration on `events.ValidationEventData.Validator`, including its `id` and `extensions`. Subscribe on the bus you pass to `sdk.WithEventBus`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/events"
+import (
+    "log/slog"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+)
 
 bus := events.NewEventBus()
 bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
     if d, ok := e.Data.(*events.ValidationEventData); ok && d.Validator != nil {
-        audit.Record(d.Validator.ID, d.Validator.Extensions)
+        slog.Info("validator failed", "id", d.Validator.ID, "extensions", d.Validator.Extensions)
     }
 })
 conv, err := sdk.Open("./support.pack.json", "billing", sdk.WithEventBus(bus))
@@ -133,7 +172,13 @@ An eval hook (`sdk.WithEvalHook`) receives the whole eval definition, `extension
 Implement `workflow.TransitionAuthorizer` and install it with `sdk.WithTransitionAuthorizer`. PromptKit calls it before every transition, whether the model requested it or you fired the event with `WorkflowConversation.Transition`.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
+import (
+    "context"
+    "errors"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
+)
 
 type transitionPolicy struct{}
 
@@ -154,7 +199,9 @@ The request carries the state names, both states' declarations and the event.
 - When the model requests a transition you refuse, it receives a tool result with status `transition_refused` and your error text as the reason. The workflow stays in its state and the model answers from it.
 - When you refuse a transition you fired, `Transition` returns the error.
 
-The authorizer runs while the workflow conversation holds its lock, so it must not call back into the conversation.
+The authorizer must not call back into the workflow conversation. A transition you fire is authorized while the conversation holds its lock, so a call such as `CurrentState` deadlocks.
+
+A transition the model requests is authorized when it calls `workflow__transition` and committed when the turn ends. If the destination has reached its `max_visits`, the state machine redirects without asking the authorizer again.
 
 ## Undeclared means nil
 

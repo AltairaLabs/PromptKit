@@ -18,9 +18,9 @@ compositions. Each host-facing seam hands you the matching declaration; see
 
 | If you | You will see | Change |
 |---|---|---|
-| Open a pack whose obligation or review names an eval, validator id, governance field or obligation id that does not exist, or whose review `cadence` is not an ISO 8601 duration | `sdk.Open` fails with `*pack.GovernanceValidationError` | fix the reference; `sdk.ValidatePack` reports the same errors before you open |
+| Open a pack whose obligation or review names an eval, validator id or obligation id that does not exist, or a governance field its governance does not declare, or whose review `cadence` is not an ISO 8601 duration | `sdk.Open` fails with a `governance validation failed` error | fix the reference; `sdk.ValidatePack` returns the same error before you open |
 | Use a CURIE prefix in `obligation`, `applies_to` or a review `type` that is neither well-known nor in `vocabularies` | a logged warning, and a `warning` issue from `sdk.ValidatePack`; the pack still opens | declare the prefix in `vocabularies`, or ignore it |
-| Give two validators the same `id` | `sdk.Open` fails | make validator ids unique across the pack |
+| Give two validators the same `id`, or two obligations or two reviews in one governance object the same `id` | `sdk.Open` fails | make validator ids unique across the pack, and obligation and review ids unique within each governance object |
 | Build `tools.ToolDescriptor`, `hooks.ToolRequest`, `hooks.ProviderRequest` or `events.ValidationEventData` literals | nothing: the new `Declaration`, `Agent`, `Prompt` and `Validator` fields are optional, and nil means undeclared | nothing |
 | Want to decide workflow transitions | every transition is allowed unless you install a policy | implement `workflow.TransitionAuthorizer` and pass it to `sdk.WithTransitionAuthorizer` |
 
