@@ -110,8 +110,10 @@ for m in "${MODULES[@]}"; do
 done
 git -C "$CLONE" -c user.email=ci@local -c user.name=ci \
   commit --no-verify -aqm "resolve siblings to ${VERSION}"
+# Every module, and the sibling a consumer resolves at VERSION, is this commit.
+RESOLVED=$(git -C "$CLONE" rev-parse HEAD)
 for m in "${MODULES[@]}"; do
-  git -C "$CLONE" tag "${m}/${VERSION}"
+  git -C "$CLONE" tag "${m}/${VERSION}" "$RESOLVED"
 done
 
 # One environment for every gorelease run. -mod=mod lets the go command add the
@@ -125,6 +127,13 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0="url.file://${CLONE}.insteadOf"
 export GIT_CONFIG_VALUE_0="https://${MODULE_PATH}"
 
+# tidy_commit commits a module's tidied go.mod and go.sum, if tidy changed them.
+tidy_commit() {
+  git -C "$CLONE" diff --quiet -- "$1" && return 0
+  git -C "$CLONE" -c user.email=ci@local -c user.name=ci \
+    commit --no-verify -qm "tidy $1" -- "$1"
+}
+
 failed=()
 for m in "${MODULES[@]}"; do
   echo "── ${m}"
@@ -133,11 +142,26 @@ for m in "${MODULES[@]}"; do
   # so the module under analysis is untagged for its own run only.
   git -C "$CLONE" tag -d "${m}/${VERSION}" >/dev/null
 
+  # The rewritten requires name sibling versions the committed go.sum has never
+  # seen. -mod=mod lets the build add them, but gorelease checks go.sum itself
+  # and reports "one or more sums are missing" for every module with a sibling,
+  # noise that would hide a real diagnostic (#2139). Tidying records them, and
+  # gorelease refuses an uncommitted tree, so the result is committed. Only
+  # this module's go.mod and go.sum change; sibling tags stay on RESOLVED.
+  if ! tidy_out=$(go -C "$CLONE/$m" mod tidy 2>&1 && tidy_commit "$m"); then
+    echo "$tidy_out" | sed 's/^/   /'
+    echo "::error::${m}: go mod tidy failed in the analysis clone, so the API is UNVERIFIED."
+    failed+=("$m (unverified)")
+    git -C "$CLONE" tag "${m}/${VERSION}" "$RESOLVED"
+    echo
+    continue
+  fi
+
   out=$(go -C "$CLONE/$m" run golang.org/x/exp/cmd/gorelease@latest \
           -base="$BASE" -version="$VERSION" 2>&1 || true)
   echo "$out" | sed 's/^/   /'
 
-  git -C "$CLONE" tag "${m}/${VERSION}"
+  git -C "$CLONE" tag "${m}/${VERSION}" "$RESOLVED"
 
   # Key on the VERDICT, not the exit code: gorelease exits non-zero for
   # diagnostics too, and a diagnostic is not a breaking change.
