@@ -672,11 +672,21 @@ func (r *Registry) applyModelOverrides(config *Config, model string) string {
 
 	override, exists := config.Spec.ModelOverrides[model]
 	if !exists {
+		if len(config.Spec.ModelOverrides) > 0 {
+			// Keys must match the provider's model exactly; say so, since a
+			// near miss (a dated model id, a deployment name) is easy to make.
+			logger.Debug("prompt has model_overrides but none for this model",
+				"task_type", config.Spec.TaskType, "model", model,
+				"override_models", extractKeys(config.Spec.ModelOverrides))
+		}
 		return systemTemplate
 	}
 
 	if override.SystemTemplate != "" {
 		systemTemplate = override.SystemTemplate
+	}
+	if override.SystemTemplatePrefix != "" {
+		systemTemplate = override.SystemTemplatePrefix + systemTemplate
 	}
 	if override.SystemTemplateSuffix != "" {
 		systemTemplate += override.SystemTemplateSuffix

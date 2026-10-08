@@ -94,6 +94,9 @@ type workflowStateResolver struct {
 	transExec *workflow.TransitionExecutor
 	registry  *prompt.Registry
 	renderer  *template.Renderer
+	// model is the model of the provider the turn runs on, which selects the
+	// destination prompt's model_overrides entry.
+	model string
 
 	// contextSummary is the brief the outgoing state wrote for the incoming
 	// one (the transition tool's `context` argument). Retained across calls
@@ -115,6 +118,12 @@ func newWorkflowStateResolver(
 		registry:  registry,
 		renderer:  template.NewRenderer(),
 	}
+}
+
+// withModel sets the model of the provider the turn runs on. Returns r.
+func (r *workflowStateResolver) withModel(model string) *workflowStateResolver {
+	r.model = model
+	return r
 }
 
 // RecordToolCalls implements stage.ToolCallRecorder, feeding RFC 0009's
@@ -224,7 +233,7 @@ func (r *workflowStateResolver) renderState(
 		vars[workflowContextVar] = contextSummary
 	}
 
-	tmpl, err := r.registry.LoadTemplate(dest.PromptTask, vars, "")
+	tmpl, err := r.registry.LoadTemplate(dest.PromptTask, vars, r.model)
 	if err != nil {
 		return "", nil, fmt.Errorf("load prompt %q for state: %w", dest.PromptTask, err)
 	}

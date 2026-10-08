@@ -391,6 +391,43 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 			expectedResult: "gpt-4 template",
 		},
 		{
+			name: "overrides for other models only",
+			config: &Config{
+				Spec: Spec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{"claude-3-opus": {SystemTemplate: "opus"}},
+				},
+			},
+			model:          "claude-3-opus-20240229",
+			expectedResult: "base template",
+		},
+		{
+			name: "model with prefix override",
+			config: &Config{
+				Spec: Spec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {SystemTemplatePrefix: "<thinking>\n"},
+					},
+				},
+			},
+			model:          "gpt-4",
+			expectedResult: "<thinking>\nbase template",
+		},
+		{
+			name: "model with prefix, replacement and suffix",
+			config: &Config{
+				Spec: Spec{
+					SystemTemplate: "base template",
+					ModelOverrides: map[string]ModelOverride{
+						"gpt-4": {SystemTemplatePrefix: "[", SystemTemplate: "gpt-4 template", SystemTemplateSuffix: "]"},
+					},
+				},
+			},
+			model:          "gpt-4",
+			expectedResult: "[gpt-4 template]",
+		},
+		{
 			name: "model with suffix override",
 			config: &Config{
 				Spec: Spec{

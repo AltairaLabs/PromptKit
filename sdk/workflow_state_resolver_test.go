@@ -326,3 +326,21 @@ func TestWorkflowStateResolver_ControlDecidesWhoHoldsTheTurn(t *testing.T) {
 		})
 	}
 }
+
+// A mid-turn handoff renders the destination prompt's model_overrides entry for
+// the model the turn runs on (#2201).
+func TestWorkflowStateResolver_AppliesModelOverride(t *testing.T) {
+	spec := resolverSpec(&workflow.State{PromptTask: "dest"})
+	machine := workflow.NewStateMachine(spec)
+	repo := memory.NewPromptRepository()
+	repo.RegisterPrompt("origin", &prompt.Config{Spec: prompt.Spec{
+		TaskType: "origin", Version: "1.0.0", SystemTemplate: "ORIGIN",
+		ModelOverrides: map[string]prompt.ModelOverride{"turn-model": {SystemTemplateSuffix: " FOR TURN MODEL"}},
+	}})
+	resolver := newWorkflowStateResolver(machine, spec, workflow.NewTransitionExecutor(machine, spec),
+		prompt.NewRegistryWithRepository(repo)).withModel("turn-model")
+
+	handoff, err := resolver.ResolveCurrentState(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "ORIGIN FOR TURN MODEL", handoff.SystemPrompt)
+}

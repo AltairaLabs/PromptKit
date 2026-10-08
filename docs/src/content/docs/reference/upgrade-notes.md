@@ -8,6 +8,24 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### A prompt's `model_overrides` apply
+
+A prompt's `model_overrides` entry for a model never applied: the runtime loaded
+every template without a model, and the SDK dropped the overrides when it built
+its prompt registry. The entry for the model of the provider that runs the call
+now applies. Its `system_template`, `system_template_prefix` and
+`system_template_suffix` shape the system prompt of an opened prompt, a
+composition step and a mid-turn workflow handoff. Its `parameters` replace the
+prompt's `max_tokens` and `temperature` for an opened prompt; composition steps
+apply no prompt parameters yet. The model is the bound provider's when the
+prompt or step names a `provider` key, and an override key must match it
+exactly.
+
+| If you | You will see | Change |
+|---|---|---|
+| Ship a pack with `model_overrides` | the override for the running provider's model in the system prompt and parameters | check the override text and parameters, which have not run before |
+| Ship a pack without `model_overrides` | nothing | nothing |
+
 ### A prompt or composition step runs on the provider its `provider` key names
 
 PromptKit implements PromptPack v1.9.0, which adds RFC 0017. A prompt, or a
