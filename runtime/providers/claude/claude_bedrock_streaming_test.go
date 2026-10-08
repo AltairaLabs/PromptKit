@@ -242,7 +242,7 @@ func TestBedrockMarshalStreamingRequest(t *testing.T) {
 		MaxTokens:   1024,
 		Messages:    []map[string]string{{"role": "user", "content": "hi"}},
 		Stream:      true,
-		Temperature: 0.7,
+		Temperature: f32Ptr(0.7),
 	}
 
 	body, err := provider.marshalPartnerRequest(&req)

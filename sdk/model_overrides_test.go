@@ -159,3 +159,59 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 		assert.InDelta(t, 0.4, req.Temperature, 1e-6, "and its override's for the step provider's model")
 	})
 }
+
+const samplingParamsPack = `{
+	"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+	"id": "sampling-params", "name": "sampling-params", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+	"prompts": {
+		"exact": {"id": "exact", "name": "exact", "version": "1.0.0", "system_template": "exact",
+			"parameters": {"temperature": 0, "top_p": 0.5, "frequency_penalty": 0.2, "presence_penalty": 0.1}}
+	},
+	"workflow": {"version": 1, "entry": "compose",
+		"states": {"compose": {"orchestration": "composition", "composition": "flow", "terminal": true}}},
+	"compositions": {"flow": {"version": 1, "output": "s",
+		"steps": [{"id": "s", "kind": "prompt", "prompt_task": "exact", "input": "${input}"}]}}
+}`
+
+// A prompt's parameters reach the request whole: an explicit temperature of 0
+// is marked set, and top_p and both penalties are carried (#2212). Opened
+// directly or as a composition step, the request is the same.
+func TestPromptParameters_ReachTheRequest(t *testing.T) {
+	packPath := createTestPackFile(t, samplingParamsPack)
+	ctx := context.Background()
+
+	check := func(t *testing.T, req providers.PredictionRequest) {
+		t.Helper()
+		assert.Zero(t, req.Temperature)
+		assert.True(t, req.TemperatureSet, "an explicit 0 must not be read as unset")
+		assert.InDelta(t, 0.5, req.TopP, 1e-6)
+		require.NotNil(t, req.FrequencyPenalty)
+		assert.InDelta(t, 0.2, *req.FrequencyPenalty, 1e-6)
+		require.NotNil(t, req.PresencePenalty)
+		assert.InDelta(t, 0.1, *req.PresencePenalty, 1e-6)
+	}
+
+	t.Run("opened prompt", func(t *testing.T) {
+		agent := newOverrideProvider("agent", "agent-model")
+		conv, err := Open(packPath, "exact", WithProvider(agent))
+		require.NoError(t, err)
+		defer conv.Close()
+		_, err = conv.Send(ctx, "hi")
+		require.NoError(t, err)
+		req, n := agent.lastRequest()
+		require.Equal(t, 1, n)
+		check(t, req)
+	})
+	t.Run("composition step", func(t *testing.T) {
+		agent := newOverrideProvider("agent", "agent-model")
+		wc, err := OpenWorkflow(packPath, WithProvider(agent))
+		require.NoError(t, err)
+		defer wc.Close()
+		_, err = wc.Send(ctx, "hi")
+		require.NoError(t, err)
+		req, n := agent.lastRequest()
+		require.Equal(t, 1, n)
+		check(t, req)
+	})
+}

@@ -170,7 +170,9 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	}
 
 	// Add sampling parameters (some models, e.g. o-series, don't support these)
-	if !hasUnsupportedParam(p.unsupportedParams, "temperature") && temperature > 0 {
+	// A zero is sent only when asked for (TemperatureSet). The Responses API
+	// takes no frequency_penalty or presence_penalty, so those are not sent.
+	if !hasUnsupportedParam(p.unsupportedParams, "temperature") && (temperature > 0 || req.TemperatureSet) {
 		responsesReq["temperature"] = temperature
 	}
 	if !hasUnsupportedParam(p.unsupportedParams, "top_p") && topP > 0 {

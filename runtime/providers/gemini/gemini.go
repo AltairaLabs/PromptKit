@@ -52,6 +52,9 @@ type streamSessionFactory func(
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
+	// unsupportedParams lists request parameters this model rejects
+	// (ProviderSpec.UnsupportedParams); nil supports all.
+	unsupportedParams  map[string]bool
 	model              string
 	baseURL            string
 	apiKey             string
@@ -274,7 +277,9 @@ type geminiInlineData struct {
 type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`  // 0 = no limit
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"` // 0 = no limit
+	PresencePenalty  *float32              `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float32              `json:"frequencyPenalty,omitempty"`
 	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
 	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
@@ -415,10 +420,7 @@ func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Messa
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
-	temperature = req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
 
 	topP = req.TopP
 	if topP == 0 {
@@ -451,6 +453,35 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	temperature, topP, maxTokens = p.applyRequestDefaults(req)
 
 	return contents, systemInstruction, temperature, topP, maxTokens
+}
+
+// applyPenalties sets the request's presence and frequency penalties, which
+// Gemini's generationConfig takes; nil sends neither. A model that rejects
+// them is configured with unsupported_params (presence_penalty,
+// frequency_penalty), which drops them here.
+func (g *geminiGenConfig) applyPenalties(p *Provider, req *providers.PredictionRequest) {
+	if p.paramSupported("presence_penalty") {
+		g.PresencePenalty = req.PresencePenalty
+	}
+	if p.paramSupported("frequency_penalty") {
+		g.FrequencyPenalty = req.FrequencyPenalty
+	}
+}
+
+// setUnsupportedParams records the request parameters this model rejects.
+func (p *Provider) setUnsupportedParams(params []string) {
+	if len(params) == 0 {
+		return
+	}
+	p.unsupportedParams = make(map[string]bool, len(params))
+	for _, name := range params {
+		p.unsupportedParams[name] = true
+	}
+}
+
+// paramSupported reports whether the named request parameter may be sent.
+func (p *Provider) paramSupported(name string) bool {
+	return !p.unsupportedParams[name]
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
@@ -749,6 +780,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+	geminiReq.GenerationConfig.applyPenalties(p, &req)
 
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API

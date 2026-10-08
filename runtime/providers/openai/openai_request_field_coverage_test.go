@@ -34,14 +34,18 @@ func jsonSchemaFormat() *providers.ResponseFormat {
 // could express, so a builder that silently drops one is visible.
 func fullyPopulatedRequest() providers.PredictionRequest {
 	seed := 42
+	freq, pres := float32(0.3), float32(0.4)
 	return providers.PredictionRequest{
-		System:         "you are a helpful assistant",
-		Messages:       []types.Message{{Role: "user", Content: "hello"}},
-		Temperature:    0.5,
-		TopP:           0.9,
-		MaxTokens:      128,
-		Seed:           &seed,
-		ResponseFormat: jsonSchemaFormat(),
+		System:           "you are a helpful assistant",
+		Messages:         []types.Message{{Role: "user", Content: "hello"}},
+		Temperature:      0.5,
+		TemperatureSet:   true,
+		TopP:             0.9,
+		MaxTokens:        128,
+		FrequencyPenalty: &freq,
+		PresencePenalty:  &pres,
+		Seed:             &seed,
+		ResponseFormat:   jsonSchemaFormat(),
 	}
 }
 
@@ -97,13 +101,16 @@ func TestBuildResponsesRequest_NeverSendsSeed(t *testing.T) {
 // max_completion_tokens except on models that only accept the older max_tokens
 // (addMaxTokensToRequest). Any one of the listed keys satisfies the field.
 var chatCompletionsFieldKeys = map[string][]string{
-	"System":         {"messages"}, // folded into the messages array as a system turn
-	"Messages":       {"messages"},
-	"Temperature":    {"temperature"},
-	"TopP":           {"top_p"},
-	"MaxTokens":      {"max_completion_tokens", "max_tokens"},
-	"Seed":           {"seed"},
-	"ResponseFormat": {"response_format"},
+	"System":           {"messages"}, // folded into the messages array as a system turn
+	"Messages":         {"messages"},
+	"Temperature":      {"temperature"},
+	"TemperatureSet":   {"temperature"}, // makes an explicit zero reach the wire as zero
+	"TopP":             {"top_p"},
+	"MaxTokens":        {"max_completion_tokens", "max_tokens"},
+	"FrequencyPenalty": {"frequency_penalty"},
+	"PresencePenalty":  {"presence_penalty"},
+	"Seed":             {"seed"},
+	"ResponseFormat":   {"response_format"},
 }
 
 // responsesFieldKeys is the same mapping for the Responses API, which renames
@@ -112,6 +119,7 @@ var responsesFieldKeys = map[string][]string{
 	"System":         {"instructions"},
 	"Messages":       {"input"},
 	"Temperature":    {"temperature"},
+	"TemperatureSet": {"temperature"},
 	"TopP":           {"top_p"},
 	"MaxTokens":      {"max_output_tokens"},
 	"ResponseFormat": {"text"},
@@ -124,6 +132,10 @@ var responsesFieldKeys = map[string][]string{
 // this file exists to catch.
 var responsesNotApplicable = map[string]string{
 	"Seed": "the Responses API rejects it — \"Unknown parameter: 'seed'\" (#1870)",
+	// openai-python's response_create_params.py has no penalty fields;
+	// completion_create_params.py has both.
+	"FrequencyPenalty": "the Responses API takes no frequency_penalty",
+	"PresencePenalty":  "the Responses API takes no presence_penalty",
 }
 
 // firstPresentKey returns the first of keys present in body, and whether any was.
@@ -243,4 +255,20 @@ func TestPredictionRequestFieldCoverageIsExhaustive(t *testing.T) {
 					"responsesNotApplicable.", name)
 		}
 	}
+}
+
+// o-series reasoning models reject the penalties as they do temperature and
+// top_p, so without unsupported_params they are withheld rather than sent
+// into a 400.
+func TestOSeriesFallback_WithholdsPenalties(t *testing.T) {
+	p := NewToolProvider("o", "o3-mini", "https://api.openai.com/v1",
+		providers.ProviderDefaults{MaxTokens: 64}, false, nil, nil)
+	p.apiMode = APIModeCompletions
+	req := fullyPopulatedRequest()
+	body := map[string]any{"model": p.model}
+	p.enrichRequest(body, &req, "wav")
+
+	assert.NotContains(t, body, "frequency_penalty")
+	assert.NotContains(t, body, "presence_penalty")
+	assert.NotContains(t, body, "temperature")
 }

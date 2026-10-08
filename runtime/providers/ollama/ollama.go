@@ -84,6 +84,10 @@ type ollamaRequest struct {
 	Seed        *int            `json:"seed,omitempty"`
 	Stream      bool            `json:"stream"`
 	KeepAlive   string          `json:"keep_alive,omitempty"`
+	// Ollama's OpenAI-compatible endpoint takes both penalties; nil sends
+	// neither.
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
 }
 
 type ollamaMessage struct {
@@ -157,14 +161,22 @@ func (p *Provider) prepareMessages(
 	return messages, nil
 }
 
+// addOllamaPenalties sets the request's frequency and presence penalties on a
+// map-built request; nil sends neither.
+func addOllamaPenalties(body map[string]any, req *providers.PredictionRequest) {
+	if req.FrequencyPenalty != nil {
+		body["frequency_penalty"] = *req.FrequencyPenalty
+	}
+	if req.PresencePenalty != nil {
+		body["presence_penalty"] = *req.PresencePenalty
+	}
+}
+
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(
 	req providers.PredictionRequest,
 ) (temperature, topP float32, maxTokens int) {
-	temperature = req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
 
 	topP = req.TopP
 	if topP == 0 {
@@ -563,6 +575,9 @@ func (p *Provider) predictWithMessages(
 		Seed:        req.Seed,
 		Stream:      false,
 		KeepAlive:   p.keepAlive,
+
+		FrequencyPenalty: req.FrequencyPenalty,
+		PresencePenalty:  req.PresencePenalty,
 	}
 
 	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
@@ -678,6 +693,7 @@ func (p *Provider) predictStreamWithMessages(
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed
 	}
+	addOllamaPenalties(ollamaReq, &req)
 	if p.keepAlive != "" {
 		ollamaReq["keep_alive"] = p.keepAlive
 	}

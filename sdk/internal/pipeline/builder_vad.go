@@ -140,8 +140,12 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 // Add a field here only alongside an assertion in builder_vad_wiring_test.go.
 func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 	pc := &stage.ProviderConfig{
-		MaxTokens:   cfg.MaxTokens,
-		Temperature: cfg.Temperature,
+		MaxTokens:        cfg.MaxTokens,
+		Temperature:      cfg.Temperature,
+		TemperatureSet:   cfg.TemperatureSet,
+		TopP:             cfg.TopP,
+		FrequencyPenalty: cfg.FrequencyPenalty,
+		PresencePenalty:  cfg.PresencePenalty,
 		// The message log is what persists a turn as it happens, rather than
 		// at session close, which is all IncrementalSaveStage can do for a
 		// long-running session: it drains its input channel before writing.

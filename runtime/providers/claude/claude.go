@@ -402,7 +402,7 @@ type claudeRequest struct {
 	MaxTokens    int                  `json:"max_tokens"`
 	Messages     any                  `json:"messages"`
 	System       []claudeContentBlock `json:"system,omitempty"`
-	Temperature  float32              `json:"temperature,omitempty"`
+	Temperature  *float32             `json:"temperature,omitempty"`
 	TopP         float32              `json:"top_p,omitempty"`
 	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
 	Thinking     *claudeThinking      `json:"thinking,omitempty"`
@@ -509,7 +509,7 @@ func (p *Provider) claudeThinkingFor() *claudeThinking {
 //
 //nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
 func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages any) claudeRequest {
-	temperature, _, maxTokens := p.applyDefaults(req.Temperature, req.TopP, req.MaxTokens)
+	temperature, _, maxTokens := p.applyDefaults(&req)
 	cr := claudeRequest{
 		Model:     p.model,
 		MaxTokens: maxTokens,
@@ -524,9 +524,10 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		if cr.MaxTokens <= thinking.BudgetTokens {
 			cr.MaxTokens = thinking.BudgetTokens + thinkingAnswerHeadroom
 		}
-	} else if p.paramSupported("temperature") {
+	} else if p.paramSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
 		// Claude 4.7+ models reject temperature; only send it when supported.
-		cr.Temperature = temperature
+		// A zero is sent only when asked for: unset leaves the API's default.
+		cr.Temperature = &temperature
 	}
 	return cr
 }
@@ -709,10 +710,11 @@ func (p *Provider) createSystemBlocks(systemPrompt string) []claudeContentBlock 
 const defaultMaxTokens = 4096
 
 // applyDefaults applies provider defaults to zero values in the request
-func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (finalTemp, finalTopP float32, finalMaxTokens int) {
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+// A zero temperature is the default unless the request set it explicitly
+// (providers.ResolveTemperature).
+func (p *Provider) applyDefaults(req *providers.PredictionRequest) (finalTemp, finalTopP float32, finalMaxTokens int) {
+	temperature := providers.ResolveTemperature(req, p.defaults.Temperature)
+	topP, maxTokens := req.TopP, req.MaxTokens
 	if topP == 0 {
 		topP = p.defaults.TopP
 	}

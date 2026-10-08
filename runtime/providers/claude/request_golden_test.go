@@ -252,7 +252,7 @@ func TestGolden_PartnerRequest_NonStreaming(t *testing.T) {
 			Content: []claudeContentBlock{{Type: "text", Text: "hello"}},
 		}},
 		System:       []claudeContentBlock{{Type: "text", Text: "you are helpful"}},
-		Temperature:  0.1,
+		Temperature:  f32Ptr(0.1),
 		OutputConfig: outputConfigFor(goldenJSONSchemaResponseFormat()),
 	}
 	body, err := p.marshalPartnerRequest(req)
@@ -276,7 +276,7 @@ func TestGolden_PartnerRequest_Streaming(t *testing.T) {
 			Content: []claudeContentBlock{{Type: "text", Text: "hello"}},
 		}},
 		System:       []claudeContentBlock{{Type: "text", Text: "you are helpful"}},
-		Temperature:  0.1,
+		Temperature:  f32Ptr(0.1),
 		Stream:       true,
 		OutputConfig: outputConfigFor(goldenJSONSchemaResponseFormat()),
 	}
@@ -312,3 +312,6 @@ func TestGolden_PredictStreamWithTools_Direct(t *testing.T) {
 	}
 	assertGolden(t, "predict_stream_tools_direct", body)
 }
+
+// f32Ptr returns a pointer to v, for claudeRequest.Temperature.
+func f32Ptr(v float32) *float32 { return &v }

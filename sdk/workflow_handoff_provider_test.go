@@ -86,7 +86,7 @@ const handoffProviderPack = `{
 			"parameters": {"max_tokens": 500, "temperature": 0.9}},
 		"draft": {"id": "draft", "name": "draft", "version": "1.0.0",
 			"system_template": "draft base", "provider": "drafter",
-			"parameters": {"max_tokens": 123, "temperature": 0.2},
+			"parameters": {"max_tokens": 123, "temperature": 0.2, "top_p": 0.6, "presence_penalty": 0.5},
 			"model_overrides": {
 				"agent-model":   {"system_template_suffix": " WRONG: the agent's override"},
 				"drafter-model": {"system_template_suffix": " for drafter", "parameters": {"max_tokens": 64}}
@@ -126,6 +126,9 @@ func TestWorkflowHandoff_SwitchesToTheDestinationPromptsProvider(t *testing.T) {
 		"rendered with drafter's model_overrides entry, not the agent's")
 	assert.Equal(t, 64, drafterRounds[0].MaxTokens, "the override's max_tokens")
 	assert.InDelta(t, 0.2, drafterRounds[0].Temperature, 1e-6, "the destination prompt's temperature")
+	assert.InDelta(t, 0.6, drafterRounds[0].TopP, 1e-6, "and its top_p")
+	require.NotNil(t, drafterRounds[0].PresencePenalty, "and its presence_penalty")
+	assert.InDelta(t, 0.5, *drafterRounds[0].PresencePenalty, 1e-6)
 	assert.Equal(t, "reply from drafter", resp.Text())
 }
 

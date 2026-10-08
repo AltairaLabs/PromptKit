@@ -22,7 +22,7 @@ func TestRegistry_ConcurrentColdLoadsDoNotRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = reg.CallParameters("p", "m")
+			_ = reg.CallParameters("p", "m")
 		}()
 	}
 	wg.Wait()

@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -40,13 +41,11 @@ type Handoff struct {
 	Call *HandoffCall
 }
 
-// HandoffCall is what the current state's prompt runs on. MaxTokens and
-// Temperature are the values the request carries, zero meaning the provider's
-// default, exactly as ProviderConfig's.
+// HandoffCall is what the current state's prompt runs on: its provider and
+// its sampling parameters (prompt.Registry.CallParameters).
 type HandoffCall struct {
-	Provider    providers.Provider
-	MaxTokens   int
-	Temperature float32
+	Provider providers.Provider
+	Params   prompt.CallParams
 }
 
 // WorkflowStateResolver lets a workflow consumer keep a turn aligned with the

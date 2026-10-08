@@ -748,7 +748,7 @@ func (c *Conversation) buildPipelineConfig(
 	// Parameters from the prompt, then from its model_overrides entry for the
 	// model this conversation runs on.
 	if c.promptRegistry != nil {
-		pipelineCfg.MaxTokens, pipelineCfg.Temperature = c.promptRegistry.CallParameters(c.promptName, c.callModel())
+		pipelineCfg.SetCallParams(c.promptRegistry.CallParameters(c.promptName, c.callModel()))
 	}
 
 	// RFC 0010 — composition execution. When the active config carries a

@@ -404,12 +404,21 @@ func TestApplyDefaults(t *testing.T) {
 	tests := []struct {
 		name        string
 		temperature float32
+		tempSet     bool
 		topP        float32
 		maxTokens   int
 		expectTemp  float32
 		expectTopP  float32
 		expectMax   int
 	}{
+		{
+			name:        "Explicit zero temperature is kept",
+			temperature: 0,
+			tempSet:     true,
+			expectTemp:  0,
+			expectTopP:  0.9,
+			expectMax:   1000,
+		},
 		{
 			name:        "All zero values use defaults",
 			temperature: 0,
@@ -441,7 +450,9 @@ func TestApplyDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			temp, topP, maxTokens := provider.applyDefaults(tt.temperature, tt.topP, tt.maxTokens)
+			temp, topP, maxTokens := provider.applyDefaults(&providers.PredictionRequest{
+				Temperature: tt.temperature, TemperatureSet: tt.tempSet, TopP: tt.topP, MaxTokens: tt.maxTokens,
+			})
 			assert.Equal(t, tt.expectTemp, temp)
 			assert.Equal(t, tt.expectTopP, topP)
 			assert.Equal(t, tt.expectMax, maxTokens)

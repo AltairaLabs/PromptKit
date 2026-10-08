@@ -101,6 +101,13 @@ type Config struct {
 	// Temperature for LLM response
 	Temperature float32
 
+	// TemperatureSet, TopP, FrequencyPenalty and PresencePenalty are the
+	// prompt's other sampling parameters, with stage.ProviderConfig's meaning.
+	TemperatureSet   bool
+	TopP             float32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
+
 	// ResponseFormat for JSON mode output (optional)
 	ResponseFormat *providers.ResponseFormat
 
@@ -672,6 +679,10 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		providerConfig := &stage.ProviderConfig{
 			MaxTokens:        cfg.MaxTokens,
 			Temperature:      cfg.Temperature,
+			TemperatureSet:   cfg.TemperatureSet,
+			TopP:             cfg.TopP,
+			FrequencyPenalty: cfg.FrequencyPenalty,
+			PresencePenalty:  cfg.PresencePenalty,
 			ResponseFormat:   cfg.ResponseFormat,
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
@@ -782,6 +793,17 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 	}
 
 	return compactor
+}
+
+// SetCallParams sets the sampling fields from a prompt's resolved parameters
+// (prompt.Registry.CallParameters).
+func (c *Config) SetCallParams(p prompt.CallParams) {
+	c.MaxTokens = p.MaxTokens
+	c.Temperature = p.Temperature
+	c.TemperatureSet = p.TemperatureSet
+	c.TopP = p.TopP
+	c.FrequencyPenalty = p.FrequencyPenalty
+	c.PresencePenalty = p.PresencePenalty
 }
 
 // providerModel returns p's model, or "" for no provider.

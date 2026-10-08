@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -100,7 +101,7 @@ func originToDestinationCall(dest providers.Provider) []Handoff {
 	return []Handoff{
 		{Valid: true, SystemPrompt: "SAME PROMPT", AllowedTools: []string{"workflow__transition"}},
 		{Valid: true, SystemPrompt: "SAME PROMPT", AllowedTools: []string{"workflow__transition"},
-			Call: &HandoffCall{Provider: dest, MaxTokens: 64, Temperature: 0.3}},
+			Call: &HandoffCall{Provider: dest, Params: prompt.CallParams{MaxTokens: 64, Temperature: 0.3}}},
 	}
 }
 

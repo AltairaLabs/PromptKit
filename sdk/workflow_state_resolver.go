@@ -152,7 +152,7 @@ func (r *workflowStateResolver) callFor(task string) (*stage.HandoffCall, error)
 	}
 	call := &stage.HandoffCall{Provider: prov}
 	if r.registry != nil {
-		call.MaxTokens, call.Temperature = r.registry.CallParameters(task, prov.Model())
+		call.Params = r.registry.CallParameters(task, prov.Model())
 	}
 	return call, nil
 }

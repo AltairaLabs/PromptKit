@@ -786,8 +786,12 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 
 			request := provider.buildToolRequest(context.Background(), req, nil, "")
 
-			if request.Temperature != tt.expectedTemp {
-				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request.Temperature)
+			var gotTemp float32
+			if request.Temperature != nil {
+				gotTemp = *request.Temperature
+			}
+			if gotTemp != tt.expectedTemp {
+				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, gotTemp)
 			}
 
 			// Note: top_p is intentionally NOT included in the request
@@ -1041,7 +1045,7 @@ func TestToolProvider_MakeRequest_BedrockBodyMutation(t *testing.T) {
 		Model:       "anthropic.claude-3-5-haiku-20241022-v1:0",
 		MaxTokens:   100,
 		Messages:    []claudeToolMessage{},
-		Temperature: 0.7,
+		Temperature: f32Ptr(0.7),
 	}
 
 	ctx := context.Background()

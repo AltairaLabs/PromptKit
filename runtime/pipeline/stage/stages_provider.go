@@ -113,12 +113,39 @@ func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
 	s.stateResolver = r
 }
 
+// CallParams returns c's sampling fields as one value.
+func (c *ProviderConfig) CallParams() prompt.CallParams {
+	return prompt.CallParams{
+		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
+		TopP: c.TopP, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+	}
+}
+
+// ApplyCallParams sets c's sampling fields from a prompt's resolved
+// parameters (prompt.Registry.CallParameters).
+func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams) {
+	c.MaxTokens = p.MaxTokens
+	c.Temperature = p.Temperature
+	c.TemperatureSet = p.TemperatureSet
+	c.TopP = p.TopP
+	c.FrequencyPenalty = p.FrequencyPenalty
+	c.PresencePenalty = p.PresencePenalty
+}
+
 // ProviderConfig contains configuration for the provider stage.
 type ProviderConfig struct {
-	MaxTokens      int
-	Temperature    float32
-	Seed           *int
-	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
+	MaxTokens   int
+	Temperature float32
+	// TemperatureSet marks Temperature as set, so a zero is requested rather
+	// than the provider's default (providers.ResolveTemperature).
+	TemperatureSet bool
+	// TopP, FrequencyPenalty and PresencePenalty are the prompt's other
+	// sampling parameters; zero TopP and nil penalties are unset.
+	TopP             float32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
+	Seed             *int
+	ResponseFormat   *providers.ResponseFormat // Optional response format (JSON mode)
 
 	// StructuredOutputMode selects when ResponseFormat is applied to a tool
 	// loop. Empty means final_turn — the schema is withheld from tool-calling
@@ -319,9 +346,32 @@ func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
 
 // activeCall is the provider and parameters the next round runs with.
 type activeCall struct {
-	provider    providers.Provider
-	maxTokens   int
-	temperature float32
+	provider providers.Provider
+	params   prompt.CallParams
+}
+
+// applyCallParams sets req's sampling fields from p.
+func applyCallParams(req *providers.PredictionRequest, p *prompt.CallParams) {
+	req.MaxTokens = p.MaxTokens
+	req.Temperature = p.Temperature
+	req.TemperatureSet = p.TemperatureSet
+	req.TopP = p.TopP
+	req.FrequencyPenalty = p.FrequencyPenalty
+	req.PresencePenalty = p.PresencePenalty
+}
+
+// sameCallParams compares by value: the penalties are pointers.
+func sameCallParams(a, b *prompt.CallParams) bool {
+	return a.MaxTokens == b.MaxTokens && a.Temperature == b.Temperature &&
+		a.TemperatureSet == b.TemperatureSet && a.TopP == b.TopP &&
+		equalF32(a.FrequencyPenalty, b.FrequencyPenalty) && equalF32(a.PresencePenalty, b.PresencePenalty)
+}
+
+func equalF32(a, b *float32) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // resetActiveCall starts an execution on the stage's own provider and
@@ -330,8 +380,7 @@ type activeCall struct {
 func (s *ProviderStage) resetActiveCall() {
 	call := &activeCall{provider: s.provider}
 	if s.config != nil {
-		call.maxTokens = s.config.MaxTokens
-		call.temperature = s.config.Temperature
+		call.params = s.config.CallParams()
 	}
 	s.active.Store(call)
 }
@@ -347,11 +396,10 @@ func (s *ProviderStage) activeCallOrDefault() *activeCall {
 // callProvider returns the provider the next round runs on.
 func (s *ProviderStage) callProvider() providers.Provider { return s.activeCallOrDefault().provider }
 
-// callMaxTokens returns the max_tokens the next round requests.
-func (s *ProviderStage) callMaxTokens() int { return s.activeCallOrDefault().maxTokens }
-
-// callTemperature returns the temperature the next round requests.
-func (s *ProviderStage) callTemperature() float32 { return s.activeCallOrDefault().temperature }
+// applySampling sets req's sampling fields to what the next round requests.
+func (s *ProviderStage) applySampling(req *providers.PredictionRequest) {
+	applyCallParams(req, &s.activeCallOrDefault().params)
+}
 
 // setPromptTask records the prompt task the model is invoked for next.
 func (s *ProviderStage) setPromptTask(task string) { s.promptTask.Store(task) }
@@ -935,10 +983,10 @@ func (s *ProviderStage) applyHandoffCall(call *HandoffCall) (providerChanged boo
 	}
 	current := s.activeCallOrDefault()
 	same := sameProvider(call.Provider, current.provider)
-	if same && call.MaxTokens == current.maxTokens && call.Temperature == current.temperature {
+	if same && sameCallParams(&call.Params, &current.params) {
 		return false
 	}
-	s.active.Store(&activeCall{provider: call.Provider, maxTokens: call.MaxTokens, temperature: call.Temperature})
+	s.active.Store(&activeCall{provider: call.Provider, params: call.Params})
 	return !same
 }
 
@@ -1460,7 +1508,6 @@ func (tl *toolLoop) afterRound(
 		}
 	}
 
-
 	if round == tl.maxRounds {
 		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
 	}
@@ -1581,12 +1628,11 @@ func (s *ProviderStage) executeRound(
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
 		Messages:       messages,
-		MaxTokens:      s.callMaxTokens(),
-		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
 	}
+	s.applySampling(&req)
 
 	// Normalize: merge any system-role messages from Messages into the System
 	// field so all providers receive system context through the dedicated field.
@@ -1763,12 +1809,11 @@ func (s *ProviderStage) executeStreamingRound(
 	req := providers.PredictionRequest{
 		System:         params.systemPrompt,
 		Messages:       params.messages,
-		MaxTokens:      s.callMaxTokens(),
-		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),
 	}
+	s.applySampling(&req)
 
 	// Normalize: merge any system-role messages from Messages into the System
 	// field so all providers receive system context through the dedicated field.

@@ -308,7 +308,7 @@ func TestClaudeRequest_Structure(t *testing.T) {
 		System: []claudeContentBlock{
 			{Type: "text", Text: "You are helpful"},
 		},
-		Temperature: 0.7,
+		Temperature: f32Ptr(0.7),
 		TopP:        0.9,
 	}
 
@@ -547,7 +547,7 @@ func TestMarshalPartnerRequest(t *testing.T) {
 			MaxTokens:   512,
 			Messages:    []claudeMessage{},
 			System:      []claudeContentBlock{{Type: "text", Text: "system prompt"}},
-			Temperature: 0.7,
+			Temperature: f32Ptr(0.7),
 			TopP:        0.9,
 		}
 
