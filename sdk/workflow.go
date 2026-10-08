@@ -526,6 +526,9 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 		opts = append(append([]Option{}, opts...), compOpt)
 	}
 
+	// The first Open checked every call site's provider against these same
+	// bindings; the pack has not changed since.
+	opts = append(append([]Option{}, opts...), withCallProvidersChecked())
 	conv, err := Open(wc.packPath, targetPrompt, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",

@@ -87,18 +87,34 @@ type callSiteRef struct {
 //     an inference provider anywhere, or a provider without tool support on an
 //     agent step.
 func checkCallProviders(p *pack.Pack, cfg *config) error {
-	refs := collectCallSiteRefs(p)
-	if len(refs) == 0 {
-		return nil
-	}
-	declared, err := declaredRequirementKeys(p)
-	if err != nil {
-		return err
-	}
+	return newCallProviderCheck(p).run(cfg)
+}
 
+// callProviderCheck is the pack-only half of checkCallProviders: which call
+// sites name which keys, and what the pack declares. It depends on nothing a
+// host supplies, so a PackTemplate builds it once and runs it per Open.
+type callProviderCheck struct {
+	refs     []callSiteRef
+	declared map[string]rtprompt.ResolvedRequirement
+	err      error
+}
+
+func newCallProviderCheck(p *pack.Pack) *callProviderCheck {
+	c := &callProviderCheck{refs: collectCallSiteRefs(p)}
+	if len(c.refs) > 0 {
+		c.declared, c.err = declaredRequirementKeys(p)
+	}
+	return c
+}
+
+// run checks the call sites against the providers cfg binds.
+func (c *callProviderCheck) run(cfg *config) error {
+	if c.err != nil {
+		return c.err
+	}
 	var problems []string
-	for _, ref := range refs {
-		if msg := checkCallSiteRef(ref, declared, cfg); msg != "" {
+	for _, ref := range c.refs {
+		if msg := checkCallSiteRef(ref, c.declared, cfg); msg != "" {
 			problems = append(problems, msg)
 		}
 	}
@@ -121,6 +137,9 @@ func checkCallSiteRef(ref callSiteRef, declared map[string]rtprompt.ResolvedRequ
 	}
 	prov, err := resolveCallProvider(cfg, ref.key)
 	switch {
+	case errors.Is(err, evals.ErrNoBinding):
+		return fmt.Sprintf("%s names provider %q and this conversation has no providers wired at all",
+			ref.site, ref.key)
 	case errors.Is(err, evals.ErrWrongKind):
 		return fmt.Sprintf("%s names provider %q, and the host bound an inference provider to it; "+
 			"a prompt or step needs an LLM provider (WithNamedProvider)", ref.site, ref.key)
@@ -187,6 +206,60 @@ func appendStepRefs(refs []callSiteRef, p *pack.Pack, compName string, steps []*
 	return refs
 }
 
+// packNeedsAgent reports whether any call in the pack can run on the agent
+// provider: a prompt that names no key, or a composition prompt/agent step
+// whose step and prompt name none. When none can, a host that bound every key
+// it names need not supply an agent, and Open does not go looking for one.
+func packNeedsAgent(p *pack.Pack) bool {
+	if p == nil {
+		return true
+	}
+	for _, pr := range p.Prompts {
+		if pr == nil || !isNamedKey(pr.Provider) {
+			return true
+		}
+	}
+	for _, comp := range p.Compositions {
+		if comp != nil && stepsNeedAgent(p, comp.Steps) {
+			return true
+		}
+	}
+	return false
+}
+
+func stepsNeedAgent(p *pack.Pack, steps []*composition.Step) bool {
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if stepsNeedAgent(p, step.Branches) {
+			return true
+		}
+		isCall := step.Kind == composition.KindAgent || step.Kind == composition.KindPrompt
+		if isCall && !isNamedKey(callProviderKey(p, step.PromptTask, step.Provider)) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveAgentProvider resolves the agent provider as resolveProvider does,
+// except that it does not auto-detect one when no call in the pack can use it
+// and the host asked for nothing an agent would be built from (an API key, a
+// model, a platform or a credential). Detecting then would only pick up
+// whatever key happens to be in the environment, or fail Open for a provider
+// no call needs.
+func resolveAgentProvider(cfg *config, p *pack.Pack) error {
+	if cfg.getAgentProvider() != nil {
+		return nil
+	}
+	if !packNeedsAgent(p) && cfg.apiKey == "" && cfg.model == "" && cfg.platform == nil && cfg.credential == nil {
+		return nil
+	}
+	_, err := resolveProvider(cfg)
+	return err
+}
+
 func isNamedKey(key string) bool {
 	return key != "" && key != rtprompt.RequirementKeyDefault
 }
@@ -213,4 +286,14 @@ func (c *Conversation) resolvePromptProvider() (providers.Provider, error) {
 	}
 	c.provider = prov
 	return prov, nil
+}
+
+// withCallProvidersChecked marks the call-site provider check as already done
+// for these bindings. Internal: only a workflow transition, re-opening the
+// pack its first Open checked, sets it.
+func withCallProvidersChecked() Option {
+	return func(c *config) error {
+		c.callProvidersChecked = true
+		return nil
+	}
 }
