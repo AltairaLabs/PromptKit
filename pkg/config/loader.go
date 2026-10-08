@@ -60,9 +60,27 @@ func LoadSimpleK8sManifest[T K8sManifest](filename, expectedKind string) (T, err
 
 	// Schema validation already confirmed required fields and kind value are correct
 
-	// Use metadata.name as the ID
-	config.SetID(config.GetName())
+	// metadata.name is the resource name; spec.id is the identifier other
+	// config refers to. metadata.name is only the fallback for an absent id.
+	if explicitID(config) == "" {
+		config.SetID(config.GetName())
+	}
 	return config, nil
+}
+
+// K8sManifestWithID is implemented by manifests whose spec carries an explicit
+// id. LoadSimpleK8sManifest keeps that id rather than overwriting it with
+// metadata.name. It is separate from K8sManifest so existing implementations
+// keep compiling.
+type K8sManifestWithID interface {
+	GetID() string
+}
+
+func explicitID(m any) string {
+	if withID, ok := m.(K8sManifestWithID); ok {
+		return withID.GetID()
+	}
+	return ""
 }
 
 // LoadProvider loads and parses a provider configuration from a YAML file in K8s-style manifest format
