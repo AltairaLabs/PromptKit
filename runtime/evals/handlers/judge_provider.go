@@ -237,10 +237,11 @@ func judgeWithProvider(
 
 	startTime := time.Now()
 	resp, err := provider.Predict(ctx, providers.PredictionRequest{
-		System:      systemPrompt,
-		Messages:    []types.Message{userMsg},
-		Temperature: 0.0,
-		MaxTokens:   judgeMaxTokens,
+		System:         systemPrompt,
+		Messages:       []types.Message{userMsg},
+		Temperature:    0.0,
+		TemperatureSet: true, // deterministic grading: 0, not the provider's default
+		MaxTokens:      judgeMaxTokens,
 	})
 	duration := time.Since(startTime)
 

@@ -15,13 +15,17 @@ a temperature of `0` as unset and replaced it with its own default, so
 `temperature: 0` never took effect, and `top_p`, `frequency_penalty` and
 `presence_penalty` were never sent at all. They now apply to an opened prompt,
 a composition step and a mid-turn workflow handoff, and a `model_overrides`
-entry can set them too.
+entry can set them too. A realtime duplex session (ASM) does not take them yet.
 
 `PredictionRequest` gains `TemperatureSet`, `FrequencyPenalty` and
 `PresencePenalty`. A zero `Temperature` with `TemperatureSet` is sent as zero;
 `providers.ResolveTemperature` applies the rule for custom providers.
 Penalties are sent to OpenAI Chat Completions, vLLM, Ollama and Gemini, whose
 APIs take them, and not to the OpenAI Responses API or Claude, whose APIs do not.
+`top_p` is not sent to Claude, which rejects it alongside a temperature. A model
+that rejects a parameter is configured with `unsupported_params` — now honored
+by Gemini for the penalties — and OpenAI o-series models withhold the penalties
+by default, as they already did temperature and `top_p`.
 
 | If you | You will see | Change |
 |---|---|---|

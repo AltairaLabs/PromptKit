@@ -31,7 +31,7 @@ func (p *Provider) PredictStream(
 
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-	geminiReq.GenerationConfig.applyPenalties(&req)
+	geminiReq.GenerationConfig.applyPenalties(p, &req)
 
 	// Explicit context caching: reference the cached system prefix and drop the
 	// inline systemInstruction (the API rejects sending both).

@@ -52,6 +52,9 @@ type streamSessionFactory func(
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
+	// unsupportedParams lists request parameters this model rejects
+	// (ProviderSpec.UnsupportedParams); nil supports all.
+	unsupportedParams  map[string]bool
 	model              string
 	baseURL            string
 	apiKey             string
@@ -453,10 +456,32 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 }
 
 // applyPenalties sets the request's presence and frequency penalties, which
-// Gemini's generationConfig takes; nil sends neither.
-func (g *geminiGenConfig) applyPenalties(req *providers.PredictionRequest) {
-	g.PresencePenalty = req.PresencePenalty
-	g.FrequencyPenalty = req.FrequencyPenalty
+// Gemini's generationConfig takes; nil sends neither. A model that rejects
+// them is configured with unsupported_params (presence_penalty,
+// frequency_penalty), which drops them here.
+func (g *geminiGenConfig) applyPenalties(p *Provider, req *providers.PredictionRequest) {
+	if p.paramSupported("presence_penalty") {
+		g.PresencePenalty = req.PresencePenalty
+	}
+	if p.paramSupported("frequency_penalty") {
+		g.FrequencyPenalty = req.FrequencyPenalty
+	}
+}
+
+// setUnsupportedParams records the request parameters this model rejects.
+func (p *Provider) setUnsupportedParams(params []string) {
+	if len(params) == 0 {
+		return
+	}
+	p.unsupportedParams = make(map[string]bool, len(params))
+	for _, name := range params {
+		p.unsupportedParams[name] = true
+	}
+}
+
+// paramSupported reports whether the named request parameter may be sent.
+func (p *Provider) paramSupported(name string) bool {
+	return !p.unsupportedParams[name]
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
@@ -755,7 +780,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-	geminiReq.GenerationConfig.applyPenalties(&req)
+	geminiReq.GenerationConfig.applyPenalties(p, &req)
 
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API

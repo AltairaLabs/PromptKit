@@ -113,6 +113,14 @@ func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
 	s.stateResolver = r
 }
 
+// CallParams returns c's sampling fields as one value.
+func (c *ProviderConfig) CallParams() prompt.CallParams {
+	return prompt.CallParams{
+		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
+		TopP: c.TopP, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+	}
+}
+
 // ApplyCallParams sets c's sampling fields from a prompt's resolved
 // parameters (prompt.Registry.CallParameters).
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams) {
@@ -339,35 +347,24 @@ func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
 // activeCall is the provider and parameters the next round runs with.
 type activeCall struct {
 	provider providers.Provider
-	sampling sampling
+	params   prompt.CallParams
 }
 
-// sampling is what a round asks of its provider: zero MaxTokens and TopP, and
-// nil penalties, are unset; Temperature counts only with TemperatureSet or
-// when non-zero (providers.ResolveTemperature).
-type sampling struct {
-	maxTokens        int
-	temperature      float32
-	temperatureSet   bool
-	topP             float32
-	frequencyPenalty *float32
-	presencePenalty  *float32
+// applyCallParams sets req's sampling fields from p.
+func applyCallParams(req *providers.PredictionRequest, p *prompt.CallParams) {
+	req.MaxTokens = p.MaxTokens
+	req.Temperature = p.Temperature
+	req.TemperatureSet = p.TemperatureSet
+	req.TopP = p.TopP
+	req.FrequencyPenalty = p.FrequencyPenalty
+	req.PresencePenalty = p.PresencePenalty
 }
 
-// applyTo sets the sampling fields of req.
-func (sp *sampling) applyTo(req *providers.PredictionRequest) {
-	req.MaxTokens = sp.maxTokens
-	req.Temperature = sp.temperature
-	req.TemperatureSet = sp.temperatureSet
-	req.TopP = sp.topP
-	req.FrequencyPenalty = sp.frequencyPenalty
-	req.PresencePenalty = sp.presencePenalty
-}
-
-func (sp *sampling) equal(o *sampling) bool {
-	return sp.maxTokens == o.maxTokens && sp.temperature == o.temperature &&
-		sp.temperatureSet == o.temperatureSet && sp.topP == o.topP &&
-		equalF32(sp.frequencyPenalty, o.frequencyPenalty) && equalF32(sp.presencePenalty, o.presencePenalty)
+// sameCallParams compares by value: the penalties are pointers.
+func sameCallParams(a, b *prompt.CallParams) bool {
+	return a.MaxTokens == b.MaxTokens && a.Temperature == b.Temperature &&
+		a.TemperatureSet == b.TemperatureSet && a.TopP == b.TopP &&
+		equalF32(a.FrequencyPenalty, b.FrequencyPenalty) && equalF32(a.PresencePenalty, b.PresencePenalty)
 }
 
 func equalF32(a, b *float32) bool {
@@ -383,14 +380,7 @@ func equalF32(a, b *float32) bool {
 func (s *ProviderStage) resetActiveCall() {
 	call := &activeCall{provider: s.provider}
 	if s.config != nil {
-		call.sampling = sampling{
-			maxTokens:        s.config.MaxTokens,
-			temperature:      s.config.Temperature,
-			temperatureSet:   s.config.TemperatureSet,
-			topP:             s.config.TopP,
-			frequencyPenalty: s.config.FrequencyPenalty,
-			presencePenalty:  s.config.PresencePenalty,
-		}
+		call.params = s.config.CallParams()
 	}
 	s.active.Store(call)
 }
@@ -408,7 +398,7 @@ func (s *ProviderStage) callProvider() providers.Provider { return s.activeCallO
 
 // applySampling sets req's sampling fields to what the next round requests.
 func (s *ProviderStage) applySampling(req *providers.PredictionRequest) {
-	s.activeCallOrDefault().sampling.applyTo(req)
+	applyCallParams(req, &s.activeCallOrDefault().params)
 }
 
 // setPromptTask records the prompt task the model is invoked for next.
@@ -993,18 +983,10 @@ func (s *ProviderStage) applyHandoffCall(call *HandoffCall) (providerChanged boo
 	}
 	current := s.activeCallOrDefault()
 	same := sameProvider(call.Provider, current.provider)
-	next := sampling{
-		maxTokens:        call.MaxTokens,
-		temperature:      call.Temperature,
-		temperatureSet:   call.TemperatureSet,
-		topP:             call.TopP,
-		frequencyPenalty: call.FrequencyPenalty,
-		presencePenalty:  call.PresencePenalty,
-	}
-	if same && next.equal(&current.sampling) {
+	if same && sameCallParams(&call.Params, &current.params) {
 		return false
 	}
-	s.active.Store(&activeCall{provider: call.Provider, sampling: next})
+	s.active.Store(&activeCall{provider: call.Provider, params: call.Params})
 	return !same
 }
 

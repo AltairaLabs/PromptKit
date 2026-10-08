@@ -824,19 +824,20 @@ func (r *Registry) loadConfig(activity string) (*Config, error) {
 	}
 	r.mu.RUnlock()
 
-	// Load, populate and cache under the write lock, re-checking first. A
-	// repository can hand every caller the same *Config (the in-memory one
-	// does), and populateDefaults writes to it, so two goroutines missing the
-	// cache together raced on it — conversations opened concurrently from one
-	// PackTemplate share this registry.
+	// Load outside the lock (a repository may do I/O), then populate and cache
+	// under it, re-checking first. A repository can hand every caller the same
+	// *Config (the in-memory one does) and populateDefaults writes to it, so
+	// only the first to take the lock populates it; a later one returns what
+	// that one cached. Conversations opened concurrently from one PackTemplate
+	// share this registry.
+	config, err := r.repository.LoadPrompt(activity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load prompt from repository: %w", err)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if cached, ok := r.promptCache[activity]; ok {
 		return cached, nil
-	}
-	config, err := r.repository.LoadPrompt(activity)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load prompt from repository: %w", err)
 	}
 	r.populateDefaults(config)
 	r.promptCache[activity] = config

@@ -101,24 +101,10 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 	}
 }
 
-// addSamplingParamsToRequest adds temperature and top_p to the request,
-// skipping any that are listed in unsupportedParams.
-//
-// top_p is additionally skipped when it resolves to ZERO. OpenAI requires
-// top_p > 0, so zero is invalid on every model — older ones merely tolerate it,
-// while gpt-5.1 and 5.2 answer "top_p must be greater than 0 and less than or
-// equal to 1" and gpt-5 answers "top_p is not supported with this model".
-//
-// Zero is also never a deliberate choice here: ProviderConfig has no TopP field
-// at all, so a resolved zero always means nobody set one. Sending it turns
-// "unspecified" into an invalid request rather than letting the API apply its
-// own default.
-//
-// Temperature gets no such treatment: zero is a legitimate deterministic
-// setting and float32 cannot distinguish it from unset, so skipping it would
-// silently promote deliberate-zero callers to the API default — a quieter bug
-// than the one being fixed. Models that reject a temperature are handled by
-// unsupportedParams instead.
+// paramTemperature is the temperature request parameter's name, as
+// unsupported_params lists it.
+const paramTemperature = "temperature"
+
 // addPenaltiesToRequest sets frequency_penalty and presence_penalty when the
 // request carries them; Chat Completions takes both. Models that reject them
 // are handled by unsupportedParams.
@@ -131,6 +117,24 @@ func addPenaltiesToRequest(req map[string]interface{}, unsupportedParams []strin
 	}
 }
 
+// addSamplingParamsToRequest adds temperature and top_p to the request,
+// skipping any that are listed in unsupportedParams.
+//
+// top_p is additionally skipped when it resolves to ZERO. OpenAI requires
+// top_p > 0, so zero is invalid on every model — older ones merely tolerate it,
+// while gpt-5.1 and 5.2 answer "top_p must be greater than 0 and less than or
+// equal to 1" and gpt-5 answers "top_p is not supported with this model".
+//
+// Zero is also never a deliberate choice for top_p: the API rejects it, so a
+// resolved zero means nobody set one. Sending it turns "unspecified" into an
+// invalid request rather than letting the API apply its own default.
+//
+// Temperature gets no such treatment: zero is a legitimate deterministic
+// setting (a caller asks for it with PredictionRequest.TemperatureSet, see
+// providers.ResolveTemperature), so skipping it would silently promote
+// deliberate-zero callers to the API default — a quieter bug
+// than the one being fixed. Models that reject a temperature are handled by
+// unsupportedParams instead.
 func addSamplingParamsToRequest(req map[string]interface{}, unsupportedParams []string, temperature, topP float32) {
 	if !hasUnsupportedParam(unsupportedParams, "temperature") {
 		req["temperature"] = temperature
@@ -254,12 +258,13 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 
 	unsupported := cfg.UnsupportedParams
 	// Fallback for configs that don't declare unsupported_params: o-series
-	// reasoning models don't accept temperature/top_p. Prefer declaring this in
+	// reasoning models don't accept temperature, top_p or the penalties.
+	// Prefer declaring this in
 	// the provider config; the model-name check is only a best-effort default.
 	// (The output token limit is handled uniformly by addMaxTokensToRequest,
 	// which defaults to max_completion_tokens, so it's not listed here.)
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
-		unsupported = []string{"temperature", "top_p"}
+		unsupported = []string{paramTemperature, "top_p", "frequency_penalty", "presence_penalty"}
 	}
 	// Same best-effort default for the first GPT-5 generation, which accepts
 	// only temperature 1. Measured live: gpt-5, gpt-5-mini and gpt-5-nano
@@ -267,7 +272,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	// this is deliberately NOT a "gpt-5" prefix match, which would withhold
 	// temperature from models that handle it fine.
 	if len(unsupported) == 0 && isFirstGenGPT5(cfg.Model) {
-		unsupported = []string{"temperature"}
+		unsupported = []string{paramTemperature}
 	}
 	// Bedrock-hosted OpenAI (gpt-oss family) rejects `top_p: 0.0` (must be in
 	// (0, 1]). Skip it by default so the model picks its own; operators can

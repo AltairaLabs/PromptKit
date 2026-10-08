@@ -256,3 +256,19 @@ func TestPredictionRequestFieldCoverageIsExhaustive(t *testing.T) {
 		}
 	}
 }
+
+// o-series reasoning models reject the penalties as they do temperature and
+// top_p, so without unsupported_params they are withheld rather than sent
+// into a 400.
+func TestOSeriesFallback_WithholdsPenalties(t *testing.T) {
+	p := NewToolProvider("o", "o3-mini", "https://api.openai.com/v1",
+		providers.ProviderDefaults{MaxTokens: 64}, false, nil, nil)
+	p.apiMode = APIModeCompletions
+	req := fullyPopulatedRequest()
+	body := map[string]any{"model": p.model}
+	p.enrichRequest(body, &req, "wav")
+
+	assert.NotContains(t, body, "frequency_penalty")
+	assert.NotContains(t, body, "presence_penalty")
+	assert.NotContains(t, body, "temperature")
+}

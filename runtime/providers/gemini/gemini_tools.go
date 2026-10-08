@@ -461,10 +461,10 @@ func (p *ToolProvider) buildToolRequest(
 		"temperature": temperature,
 		"topP":        topP,
 	}
-	if req.PresencePenalty != nil {
+	if req.PresencePenalty != nil && p.paramSupported("presence_penalty") {
 		genConfig["presencePenalty"] = *req.PresencePenalty
 	}
-	if req.FrequencyPenalty != nil {
+	if req.FrequencyPenalty != nil && p.paramSupported("frequency_penalty") {
 		genConfig["frequencyPenalty"] = *req.FrequencyPenalty
 	}
 	if maxTokens > 0 {
@@ -810,6 +810,7 @@ func init() {
 					spec.Platform, spec.PlatformConfig,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				tp.setUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
@@ -821,6 +822,7 @@ func init() {
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 				)
 				tp.setCapabilities(spec.Capabilities)
+				tp.setUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
