@@ -534,26 +534,35 @@ func TestAnswerElicitation(t *testing.T) {
 func TestClient_ElicitationIsAdvertisedOnlyWithAHandler(t *testing.T) {
 	// Advertising elicitation invites servers to ask; without a host handler
 	// nothing could answer.
+	//
+	// The capabilities travel in the initialize request, so they are read
+	// there: it completes before Initialize returns. Reading them from the
+	// server's InitializedHandler waited on the later notification, which the
+	// test's go-sdk SSE server occasionally did not handle within 5s under a
+	// loaded CI run, although the client had sent it (#2189).
 	advertised := func(opts ClientOptions) string {
-		caps := make(chan string, 1)
+		var caps atomic.Value
 		srv := httptest.NewServer(gosdk.NewSSEHandler(func(*http.Request) *gosdk.Server {
-			return goSDKTestServer(&gosdk.ServerOptions{InitializedHandler: func(_ context.Context, r *gosdk.InitializedRequest) {
-				raw, _ := json.Marshal(r.Session.InitializeParams().Capabilities)
-				caps <- string(raw)
-			}})
+			s := goSDKTestServer(nil)
+			s.AddReceivingMiddleware(func(next gosdk.MethodHandler) gosdk.MethodHandler {
+				return func(ctx context.Context, method string, req gosdk.Request) (gosdk.Result, error) {
+					if p, ok := req.GetParams().(*gosdk.InitializeParams); ok && method == "initialize" {
+						raw, _ := json.Marshal(p.Capabilities)
+						caps.Store(string(raw))
+					}
+					return next(ctx, method, req)
+				}
+			})
+			return s
 		}, nil))
 		defer srv.Close()
 		c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: srv.URL}, opts)
 		defer c.Close()
 		_, err := c.Initialize(context.Background())
 		require.NoError(t, err)
-		select {
-		case got := <-caps:
-			return got
-		case <-time.After(5 * time.Second):
-			t.Fatal("the server saw no handshake")
-			return ""
-		}
+		got, ok := caps.Load().(string)
+		require.True(t, ok, "the server saw no initialize request")
+		return got
 	}
 	assert.NotContains(t, advertised(DefaultClientOptions()), "elicitation")
 	assert.Contains(t, advertised(testOptions()), `"elicitation"`)
