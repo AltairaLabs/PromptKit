@@ -385,3 +385,75 @@ func TestProviderRefs_ForkKeepsThePromptsProvider(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "answer from drafter", resp.Text())
 }
+
+// clearDetectableEnv hides every API key provider detection reads, so a test
+// sees what Open does with no agent available.
+func clearDetectableEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"} {
+		t.Setenv(k, "")
+	}
+}
+
+// providerRefsAllNamedPack names a key on every prompt, so no call can run on
+// the agent provider.
+const providerRefsAllNamedPack = `{
+	"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+	"id": "provider-refs-all-named",
+	"name": "provider-refs-all-named",
+	"version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+	"requires": {"providers": [{"key": "drafter", "role": "llm", "required": true}]},
+	"prompts": {
+		"draft": {"id": "draft", "name": "draft", "version": "1.0.0", "system_template": "draft", "provider": "drafter"}
+	}
+}`
+
+// When every call names a key the host bound, Open needs no agent provider and
+// does not go looking for one.
+func TestProviderRefs_NoAgentNeededWhenEveryCallNamesAKey(t *testing.T) {
+	clearDetectableEnv(t)
+	packPath := createTestPackFile(t, providerRefsAllNamedPack)
+
+	drafter := newRefProvider("drafter")
+	conv, err := Open(packPath, "draft", withPooledProvider(drafter))
+	require.NoError(t, err)
+	defer conv.Close()
+	assert.Nil(t, conv.config.getAgentProvider(), "nothing was detected or registered as the agent")
+
+	resp, err := conv.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "answer from drafter", resp.Text())
+}
+
+// A pack in which some call runs on the agent still requires one.
+func TestProviderRefs_AgentStillRequiredWhenACallUsesIt(t *testing.T) {
+	clearDetectableEnv(t)
+	packPath := createTestPackFile(t, providerRefsPack)
+
+	_, err := Open(packPath, "draft", withPooledProvider(newRefProvider("drafter")),
+		withPooledProvider(newRefProvider("reviewer")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to detect provider")
+}
+
+// With nothing wired at all, the error says so rather than blaming one key.
+func TestProviderRefs_NothingWiredAtAll(t *testing.T) {
+	clearDetectableEnv(t)
+	packPath := createTestPackFile(t, providerRefsAllNamedPack)
+
+	_, err := Open(packPath, "draft")
+	require.ErrorIs(t, err, errProviderKeys)
+	assert.Contains(t, err.Error(), `prompt "draft" names provider "drafter" and this conversation has no providers wired at all`)
+}
+
+// A workflow's first Open checks every call site; only its transitions, which
+// re-open the same pack with the same bindings, skip the check.
+func TestProviderRefs_OpenWorkflowChecksAtEntry(t *testing.T) {
+	packPath := createTestPackFile(t, providerRefsPack)
+	_, err := OpenWorkflow(packPath, WithProvider(newRefProvider("agent")),
+		withPooledProvider(newRefProvider("reviewer")))
+	require.ErrorIs(t, err, errProviderKeys)
+	assert.Contains(t, err.Error(), `prompt "draft" names provider "drafter"`,
+		"the entry state's prompt names no key; the drafting state's does")
+}

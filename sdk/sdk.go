@@ -231,10 +231,9 @@ func initConversation(
 		return nil, nil, err
 	}
 
-	// Resolve provider and store in config
-	prov, err := resolveProvider(cfg)
-	if err != nil {
-		return nil, nil, err
+	// Resolve the agent provider (when a call can use it) and store it in config
+	if agentErr := resolveAgentProvider(cfg, p); agentErr != nil {
+		return nil, nil, agentErr
 	}
 
 	// Inject the media storage service into every pooled provider. This runs
@@ -304,14 +303,19 @@ func initConversation(
 	// RFC 0017: every prompt and composition step that names a provider key,
 	// across the whole pack. Before the requirements gate, which only warns
 	// about an unbound optional requirement that a call site cannot run without.
-	if refErr := checkCallProviders(p, cfg); refErr != nil {
-		return nil, nil, refErr
+	// A workflow transition re-opens the same pack with the same bindings its
+	// first Open already checked, so it skips this.
+	if !cfg.callProvidersChecked {
+		if refErr := checkCallProviders(p, cfg); refErr != nil {
+			return nil, nil, refErr
+		}
 	}
 	if err := checkProviderRequirements(p, cfg); err != nil {
 		return nil, nil, err
 	}
 	// The opened prompt runs on the provider its key is bound to.
-	if prov, err = conv.resolvePromptProvider(); err != nil {
+	prov, err := conv.resolvePromptProvider()
+	if err != nil {
 		return nil, nil, err
 	}
 

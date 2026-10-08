@@ -79,6 +79,11 @@ type config struct {
 	// empty ID() values (e.g. minimal test mocks), so empty
 	// agentProviderID is not a reliable "unset" sentinel.
 	agentSet bool
+
+	// callProvidersChecked skips the RFC 0017 call-site provider check: set
+	// only by a workflow transition, whose first Open ran it against the same
+	// bindings (see withCallProvidersChecked).
+	callProvidersChecked bool
 	// Deprecated: legacy field for test scaffolding that builds *config
 	// directly. Production code uses WithProvider, which registers the
 	// provider into the pool. Reads via getAgentProvider() lift this

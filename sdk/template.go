@@ -49,6 +49,10 @@ type PackTemplate struct {
 	// its own tools.Registry wrapping this shared repository, so tool
 	// descriptors are loaded once but executors remain per-conversation.
 	toolRepository *memory.ToolRepository
+
+	// callCheck is the pack-only half of the RFC 0017 call-site check, built
+	// once; each Open runs it against that conversation's bindings.
+	callCheck *callProviderCheck
 }
 
 // LoadTemplate loads a pack file and pre-builds shared, immutable resources.
@@ -91,6 +95,7 @@ func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error) {
 		pack:           p,
 		promptRegistry: pack.ToPromptRegistry(p),
 		toolRepository: pack.ToToolRepository(p),
+		callCheck:      newCallProviderCheck(p),
 	}, nil
 }
 
@@ -136,19 +141,19 @@ func (t *PackTemplate) openConversation(
 		return nil, err
 	}
 
-	prov, err := resolveProvider(cfg)
-	if err != nil {
-		return nil, err
+	if agentErr := resolveAgentProvider(cfg, t.pack); agentErr != nil {
+		return nil, agentErr
 	}
 
 	conv := t.newConversation(promptName, packPrompt, cfg)
 
 	// RFC 0017: validate every call site's provider key, then run the opened
 	// prompt on the provider its key is bound to.
-	if refErr := checkCallProviders(t.pack, cfg); refErr != nil {
+	if refErr := t.callCheck.run(cfg); refErr != nil {
 		return nil, refErr
 	}
-	if prov, err = conv.resolvePromptProvider(); err != nil {
+	prov, err := conv.resolvePromptProvider()
+	if err != nil {
 		return nil, err
 	}
 
