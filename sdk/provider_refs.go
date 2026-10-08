@@ -72,7 +72,38 @@ type callSiteRef struct {
 	needTools bool // an agent step runs a tool loop
 }
 
-// checkCallProviders validates, at Open, every provider key a call site in the
+// checkLoadGates runs every load-time provider gate, in one order for both
+// sdk.Open and PackTemplate.Open so the two paths cannot drift:
+//
+//  1. checks' provider keys (checkProviderKeys) — first, because when a gate
+//     below fails on the same missing provider, this one says more: which
+//     check wanted it, and whether what the host bound is missing or merely
+//     unsuitable;
+//  2. RFC 0017 call sites, across the whole pack — before the requirements
+//     gate, which only warns about an unbound optional requirement that a
+//     call site cannot run without. A workflow transition re-opens the pack
+//     with the bindings its first Open checked, and skips it;
+//  3. RFC 0012 requirements (checkProviderRequirements) — what nothing above
+//     references.
+//
+// calls is the pack's prebuilt call-site check, or nil to build it here only
+// when it runs.
+func checkLoadGates(p *pack.Pack, prompt *pack.Prompt, cfg *config, calls *callProviderCheck) error {
+	if err := checkProviderKeys(p, prompt, cfg); err != nil {
+		return err
+	}
+	if !cfg.callProvidersChecked {
+		if calls == nil {
+			calls = newCallProviderCheck(p)
+		}
+		if err := calls.run(cfg); err != nil {
+			return err
+		}
+	}
+	return checkProviderRequirements(p, cfg)
+}
+
+// The RFC 0017 call-site check validates, at Open, every provider key a call site in the
 // pack names: every prompt and every composition step, not only the prompt
 // being opened, so a workflow fails at its entry state rather than at the
 // transition that reaches a bad one.
@@ -86,13 +117,10 @@ type callSiteRef struct {
 //   - the host bound something that cannot serve the call — also the host's:
 //     an inference provider anywhere, or a provider without tool support on an
 //     agent step.
-func checkCallProviders(p *pack.Pack, cfg *config) error {
-	return newCallProviderCheck(p).run(cfg)
-}
-
-// callProviderCheck is the pack-only half of checkCallProviders: which call
-// sites name which keys, and what the pack declares. It depends on nothing a
-// host supplies, so a PackTemplate builds it once and runs it per Open.
+//
+// callProviderCheck is its pack-only half: which call sites name which keys,
+// and what the pack declares. It depends on nothing a host supplies, so a
+// PackTemplate builds it once and runs it per Open.
 type callProviderCheck struct {
 	refs     []callSiteRef
 	declared map[string]rtprompt.ResolvedRequirement
@@ -302,17 +330,6 @@ func (c *Conversation) callModel() string {
 		return prov.Model()
 	}
 	return ""
-}
-
-// resolvePromptProvider resolves the provider for an opened prompt and records
-// it on the conversation. checkCallProviders has already validated the key.
-func (c *Conversation) resolvePromptProvider() (providers.Provider, error) {
-	prov, err := resolvePromptCallProvider(c.pack, c.config, c.promptName)
-	if err != nil {
-		return nil, err
-	}
-	c.provider = prov
-	return prov, nil
 }
 
 // resolvePromptCallProvider returns the provider a call to task's prompt runs

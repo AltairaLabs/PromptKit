@@ -8,6 +8,18 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### `PackTemplate.Open` runs the same provider checks as `sdk.Open`
+
+A conversation opened from a `PackTemplate` skipped two load-time gates that
+`sdk.Open` runs: a check's `provider` key must be declared and bound to the
+right kind of provider, and a `required` provider in `requires.providers` must
+be bound. Such a pack opened cleanly from a template and failed at the first
+request that needed the missing provider.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a template whose pack has a check naming an undeclared or unbound key, or a required provider you do not bind | `Open` fails with the error `sdk.Open` gives | bind the provider, or fix the pack |
+
 ### A mid-turn workflow handoff runs on the destination prompt's provider
 
 When the model transitions a workflow mid-turn, the destination state speaks in
