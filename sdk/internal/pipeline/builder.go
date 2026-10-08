@@ -769,15 +769,11 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 		return cfg.CompactionStrategy
 	}
 
-	budgetTokens := stage.DefaultBudgetTokens
-	if cwp, ok := cfg.Provider.(providers.ContextWindowProvider); ok {
-		if v := cwp.MaxContextTokens(); v > 0 {
-			budgetTokens = v
-		}
-	}
-
+	// The budget is the running provider's context window, and follows the
+	// provider when a workflow handoff switches it mid-turn.
 	compactor := &stage.ContextCompactor{
-		BudgetTokens: budgetTokens,
+		BudgetTokens:       stage.BudgetTokensFor(cfg.Provider),
+		BudgetFromProvider: true,
 	}
 
 	// User-provided rules replace the defaults

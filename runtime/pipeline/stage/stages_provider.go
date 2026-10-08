@@ -887,6 +887,7 @@ func (s *ProviderStage) applyStateHandoff(
 	loop.providerTools = rebuilt
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
+		loop.compact()
 	}
 
 	// Write through to TurnState so anything else reading it this execution
@@ -898,6 +899,26 @@ func (s *ProviderStage) applyStateHandoff(
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
 	return false, nil
+}
+
+// compact folds stale tool results to the budget of the provider the next
+// round runs on. It runs after every round, and again when a workflow handoff
+// switches the provider, since the new one may have a smaller context window
+// than the budget the round was compacted to.
+func (tl *toolLoop) compact() {
+	if tl.stage.config == nil || tl.stage.config.Compactor == nil {
+		return
+	}
+	compactor := tl.stage.config.Compactor
+	if pb, ok := compactor.(ProviderBudgetedCompaction); ok {
+		compactor = pb.ForProvider(tl.stage.callProvider())
+	}
+	cr := compactor.Compact(tl.messages, 0)
+	tl.messages = cr.Messages
+	if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
+		tl.stage.emitter.ContextCompacted(tl.lastRound, cr.OriginalTokens, cr.CompactedTokens,
+			cr.MessagesFolded, compactor.TokenBudget())
+	}
 }
 
 // applyHandoffCall switches the next round to call's provider and parameters.
@@ -1207,6 +1228,7 @@ type toolLoop struct {
 	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
 	nudgedLoop          bool           // already fed an identical-loop back to the model once
+	lastRound           int            // the round compaction last ran after, for its event
 	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
 
 	// acc is the live turn input. Held as a pointer rather than copied because
@@ -1436,14 +1458,8 @@ func (tl *toolLoop) afterRound(
 	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
 	// saw on the last call, but we've since appended the assistant response and
 	// tool results — using the stale count would under-compact.
-	if tl.stage.config != nil && tl.stage.config.Compactor != nil {
-		cr := tl.stage.config.Compactor.Compact(tl.messages, 0)
-		tl.messages = cr.Messages
-		if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
-			tl.stage.emitter.ContextCompacted(round, cr.OriginalTokens, cr.CompactedTokens,
-				cr.MessagesFolded, tl.stage.config.Compactor.TokenBudget())
-		}
-	}
+	tl.lastRound = round
+	tl.compact()
 
 	if round == tl.maxRounds {
 		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
