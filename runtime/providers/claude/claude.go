@@ -626,7 +626,12 @@ func (p *Provider) SupportsPromptCaching() bool {
 
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
 // Handles both text-only and multimodal (image) messages inline.
-func (p *Provider) convertMessagesToClaudeFormat(ctx context.Context, messages []types.Message) []claudeMessage {
+//
+// A media part that cannot be converted is an error: falling back to the
+// message's text used to send the model the question without its image.
+func (p *Provider) convertMessagesToClaudeFormat(
+	ctx context.Context, messages []types.Message,
+) ([]claudeMessage, error) {
 	claudeMessages := make([]claudeMessage, 0, len(messages))
 	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
 
@@ -638,16 +643,9 @@ func (p *Provider) convertMessagesToClaudeFormat(ctx context.Context, messages [
 			// Use multimodal conversion path
 			claudeMsg, err := p.convertMessageToClaudeMultimodal(ctx, *msg)
 			if err != nil {
-				// Fall back to text-only on conversion error
-				logger.Warn("Failed to convert multimodal message, falling back to text", "error", err)
-				textContent := msg.GetContent()
-				claudeMessages = append(claudeMessages, claudeMessage{
-					Role:    msg.Role,
-					Content: []claudeContentBlock{{Type: "text", Text: textContent}},
-				})
-			} else {
-				claudeMessages = append(claudeMessages, claudeMsg)
+				return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 			}
+			claudeMessages = append(claudeMessages, claudeMsg)
 			continue
 		}
 
@@ -669,7 +667,7 @@ func (p *Provider) convertMessagesToClaudeFormat(ctx context.Context, messages [
 		})
 	}
 
-	return claudeMessages
+	return claudeMessages, nil
 }
 
 // createSystemBlocks creates system content blocks with cache control if applicable
@@ -906,7 +904,10 @@ func (p *Provider) predictOnce(
 
 	// Build the canonical request via the shared base builder, then layer on
 	// structured outputs (the no-tools paths honor output_config).
-	messages := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	messages, err := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	if err != nil {
+		return providers.PredictionResponse{}, err
+	}
 	claudeReq := p.buildBaseRequest(req, messages)
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 
@@ -1053,3 +1054,11 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
+
+// WithMediaSettings returns a view of p that uses m's media settings and
+// shares everything else (providers.MediaScoped).
+func (p *Provider) WithMediaSettings(m providers.MediaSettings) providers.Provider {
+	view := *p
+	view.BaseProvider = p.WithMedia(m)
+	return &view
+}

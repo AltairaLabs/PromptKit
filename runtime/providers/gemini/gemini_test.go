@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewProvider(t *testing.T) {
@@ -564,7 +565,8 @@ func TestConvertMessagesToGeminiContents_WithParts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := tt.setup()
-			contents := convProvider().convertMessagesToGeminiContents(context.Background(), []types.Message{msg})
+			contents, err := convProvider().convertMessagesToGeminiContents(context.Background(), []types.Message{msg})
+			require.NoError(t, err)
 
 			if len(contents) != 1 {
 				t.Fatalf("Expected 1 content, got %d", len(contents))

@@ -34,7 +34,10 @@ func (p *Provider) predictStreamOnce(
 	ctx = p.LoggingContext(ctx, p.model)
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(ctx, req)
+	contents, systemInstruction, temperature, topP, maxTokens, err := p.prepareGeminiRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)

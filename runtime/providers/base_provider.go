@@ -404,6 +404,23 @@ func (b *BaseProvider) LoggingContext(ctx context.Context, model string) context
 	return logger.WithLoggingContext(ctx, &logger.LoggingFields{Provider: b.id, Model: model})
 }
 
+// WithMedia returns a copy of b using m's media settings. A zero field keeps
+// b's own: a nil Storage keeps the store the provider was built with, and
+// AllowPrivateNetworks only ever widens. Providers build their MediaScoped
+// views from it.
+func (b *BaseProvider) WithMedia(m MediaSettings) BaseProvider {
+	mediaSettingsMu.RLock()
+	c := *b
+	mediaSettingsMu.RUnlock()
+	if m.Storage != nil {
+		c.mediaStorage = m.Storage
+	}
+	if m.AllowPrivateNetworks {
+		c.allowPrivateMediaURLs = true
+	}
+	return c
+}
+
 // MediaLoader returns a per-call MediaLoader configured with this provider's
 // injected storage service (if any). Providers use it to resolve media parts
 // (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
