@@ -587,7 +587,8 @@ func appendPromptAssemblyStages(stages []stage.Stage, cfg *Config, turnState *st
 	}
 	return append(stages,
 		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
-		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
+		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState).
+			WithModel(providerModel(cfg.Provider)),
 	)
 }
 
@@ -785,4 +786,12 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 	}
 
 	return compactor
+}
+
+// providerModel returns p's model, or "" for no provider.
+func providerModel(p providers.Provider) string {
+	if p == nil {
+		return ""
+	}
+	return p.Model()
 }

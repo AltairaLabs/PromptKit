@@ -931,6 +931,7 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 			AllowedTools:   pr.Tools,
 			ToolPolicy:     pr.ToolPolicy,
 			Variables:      vars,
+			ModelOverrides: valueMap(pr.ModelOverrides),
 		},
 	}
 }
@@ -976,6 +977,20 @@ func ptrSlice[T any](in []T) []*T {
 }
 
 // ptrMap is ptrSlice for string-keyed maps.
+// valueMap is the inverse of ptrMap; nil entries are dropped.
+func valueMap[T any](in map[string]*T) map[string]T {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]T, len(in))
+	for k, v := range in {
+		if v != nil {
+			out[k] = *v
+		}
+	}
+	return out
+}
+
 func ptrMap[T any](in map[string]T) map[string]*T {
 	if in == nil {
 		return nil

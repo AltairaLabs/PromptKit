@@ -291,6 +291,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func NewPromptAssemblyStage\(promptRegistry \*prompt.Registry, taskType string, baseVariables map\[string\]string\) \*PromptAssemblyStage](<#NewPromptAssemblyStage>)
   - [func NewPromptAssemblyStageWithTurnState\(promptRegistry \*prompt.Registry, taskType string, baseVariables map\[string\]string, turnState \*TurnState\) \*PromptAssemblyStage](<#NewPromptAssemblyStageWithTurnState>)
   - [func \(s \*PromptAssemblyStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#PromptAssemblyStage.Process>)
+  - [func \(s \*PromptAssemblyStage\) WithModel\(model string\) \*PromptAssemblyStage](<#PromptAssemblyStage.WithModel>)
 - [type ProviderConfig](<#ProviderConfig>)
 - [type ProviderStage](<#ProviderStage>)
   - [func NewProviderStage\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig\) \*ProviderStage](<#NewProviderStage>)
@@ -3864,7 +3865,7 @@ func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error
 Send sends an element to the priority channel. Blocks if the channel is at capacity.
 
 <a name="PromptAssemblyStage"></a>
-## type [PromptAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L19-L25>)
+## type [PromptAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L19-L28>)
 
 PromptAssemblyStage loads and assembles prompts from the prompt registry. It populates TurnState \(Template, AllowedTools, Validators\) on its first iteration; downstream stages read from TurnState. See ARCHITECTURE.md §4.
 
@@ -3876,7 +3877,7 @@ type PromptAssemblyStage struct {
 ```
 
 <a name="NewPromptAssemblyStage"></a>
-### func [NewPromptAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L31-L35>)
+### func [NewPromptAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L34-L38>)
 
 ```go
 func NewPromptAssemblyStage(promptRegistry *prompt.Registry, taskType string, baseVariables map[string]string) *PromptAssemblyStage
@@ -3885,7 +3886,7 @@ func NewPromptAssemblyStage(promptRegistry *prompt.Registry, taskType string, ba
 NewPromptAssemblyStage creates a prompt assembly stage with no TurnState wired. Useful for tests that only need the loadTemplate side; production callers should use NewPromptAssemblyStageWithTurnState so downstream stages can read the loaded template.
 
 <a name="NewPromptAssemblyStageWithTurnState"></a>
-### func [NewPromptAssemblyStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L47-L52>)
+### func [NewPromptAssemblyStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L50-L55>)
 
 ```go
 func NewPromptAssemblyStageWithTurnState(promptRegistry *prompt.Registry, taskType string, baseVariables map[string]string, turnState *TurnState) *PromptAssemblyStage
@@ -3894,13 +3895,22 @@ func NewPromptAssemblyStageWithTurnState(promptRegistry *prompt.Registry, taskTy
 NewPromptAssemblyStageWithTurnState creates a stage that publishes the loaded template, allowed tools, and validator configs onto the supplied TurnState before forwarding the first element.
 
 <a name="PromptAssemblyStage.Process"></a>
-### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L64>)
+### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L74>)
 
 ```go
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 ```
 
 Process loads the prompt template and populates TurnState. It does NOT render the template \(that is TemplateStage's job\) and does NOT set variables \(that is VariableProviderStage's job\). All input elements are forwarded unchanged.
+
+<a name="PromptAssemblyStage.WithModel"></a>
+### func \(\*PromptAssemblyStage\) [WithModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L63>)
+
+```go
+func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage
+```
+
+WithModel sets the model of the provider that runs this prompt, so the prompt's model\_overrides entry for it applies. Returns the stage.
 
 <a name="ProviderConfig"></a>
 ## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L110-L185>)
@@ -4892,7 +4902,7 @@ func (st StageType) String() string
 String returns the string representation of the stage type.
 
 <a name="StateStoreLoadStage"></a>
-## type [StateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L149-L153>)
+## type [StateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L159-L163>)
 
 StateStoreLoadStage loads conversation history from state store.
 
@@ -4904,7 +4914,7 @@ type StateStoreLoadStage struct {
 ```
 
 <a name="NewStateStoreLoadStage"></a>
-### func [NewStateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L156>)
+### func [NewStateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L166>)
 
 ```go
 func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadStage
@@ -4913,7 +4923,7 @@ func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadSt
 NewStateStoreLoadStage creates a new state store load stage.
 
 <a name="NewStateStoreLoadStageWithTurnState"></a>
-### func [NewStateStoreLoadStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L162>)
+### func [NewStateStoreLoadStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L172>)
 
 ```go
 func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turnState *TurnState) *StateStoreLoadStage
@@ -4922,7 +4932,7 @@ func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turn
 NewStateStoreLoadStageWithTurnState creates a state store load stage that publishes ConversationID/UserID onto the supplied TurnState.
 
 <a name="StateStoreLoadStage.Process"></a>
-### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L173-L177>)
+### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L183-L187>)
 
 ```go
 func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

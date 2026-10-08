@@ -157,7 +157,9 @@ func (deps CompositionExecutorDeps) execLLM(
 	// Carry the turn number across the sub-pipeline boundary; everything else
 	// about this TurnState is deliberately the step's own.
 	turnState.SetTurnIndex(deps.ParentTurnState.TurnIndex())
-	promptStage := NewPromptAssemblyStageWithTurnState(deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState)
+	promptStage := NewPromptAssemblyStageWithTurnState(
+		deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState,
+	).WithModel(provider.Model())
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 
 	cfg := &ProviderConfig{Source: "agent", PromptDeclarations: deps.PromptDeclarations}

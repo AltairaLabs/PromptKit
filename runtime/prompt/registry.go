@@ -678,6 +678,9 @@ func (r *Registry) applyModelOverrides(config *Config, model string) string {
 	if override.SystemTemplate != "" {
 		systemTemplate = override.SystemTemplate
 	}
+	if override.SystemTemplatePrefix != "" {
+		systemTemplate = override.SystemTemplatePrefix + systemTemplate
+	}
 	if override.SystemTemplateSuffix != "" {
 		systemTemplate += override.SystemTemplateSuffix
 	}

@@ -615,9 +615,13 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	// built against the conversation's holder before transExec existed, so
 	// populating it here is what activates the handoff.
 	if wc.activeConv.workflowResolver != nil {
-		wc.activeConv.workflowResolver.set(newWorkflowStateResolver(
+		resolver := newWorkflowStateResolver(
 			wc.machine, wc.workflowSpec, wc.transExec, wc.activeConv.promptRegistry,
-		))
+		)
+		if prov := wc.activeConv.callProvider(); prov != nil {
+			resolver.withModel(prov.Model())
+		}
+		wc.activeConv.workflowResolver.set(resolver)
 	}
 }
 

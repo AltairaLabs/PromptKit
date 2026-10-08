@@ -745,13 +745,12 @@ func (c *Conversation) buildPipelineConfig(
 		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(sp)
 	}
 
-	// Apply parameters from prompt if available
-	if c.prompt.Parameters != nil {
-		if c.prompt.Parameters.MaxTokens != nil {
-			pipelineCfg.MaxTokens = *c.prompt.Parameters.MaxTokens
-		}
-		if c.prompt.Parameters.Temperature != nil {
-			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
+	// Apply parameters from the prompt, then from its model_overrides entry
+	// for the model this conversation runs on.
+	applyPromptParameters(pipelineCfg, c.prompt.Parameters)
+	if prov := c.callProvider(); prov != nil {
+		if override := c.prompt.ModelOverrides[prov.Model()]; override != nil {
+			applyPromptParameters(pipelineCfg, override.Parameters)
 		}
 	}
 
@@ -1790,4 +1789,18 @@ func promptDeclarations(p *pack.Pack) map[string]*packspec.Prompt {
 		out[task] = packspec.Clone(pr)
 	}
 	return out
+}
+
+// applyPromptParameters sets the pipeline's max_tokens and temperature from
+// params, leaving each unset field as it was.
+func applyPromptParameters(cfg *intpipeline.Config, params *pack.Parameters) {
+	if params == nil {
+		return
+	}
+	if params.MaxTokens != nil {
+		cfg.MaxTokens = *params.MaxTokens
+	}
+	if params.Temperature != nil {
+		cfg.Temperature = float32(*params.Temperature)
+	}
 }

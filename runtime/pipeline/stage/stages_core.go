@@ -22,6 +22,9 @@ type PromptAssemblyStage struct {
 	taskType       string
 	baseVariables  map[string]string
 	turnState      *TurnState
+	// model is the model of the provider that runs this prompt; it selects
+	// the prompt's model_overrides entry. "" applies none.
+	model string
 }
 
 // NewPromptAssemblyStage creates a prompt assembly stage with no TurnState
@@ -52,6 +55,13 @@ func NewPromptAssemblyStageWithTurnState(
 ) *PromptAssemblyStage {
 	s := NewPromptAssemblyStage(promptRegistry, taskType, baseVariables)
 	s.turnState = turnState
+	return s
+}
+
+// WithModel sets the model of the provider that runs this prompt, so the
+// prompt's model_overrides entry for it applies. Returns the stage.
+func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage {
+	s.model = model
 	return s
 }
 
@@ -117,7 +127,7 @@ func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) *prompt.Template
 		}
 	}
 
-	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, loadVars, "")
+	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, loadVars, s.model)
 	if err != nil {
 		logger.Warn("Using default system prompt, no prompt found for task type", "task_type", s.taskType)
 		return defaultTemplate
