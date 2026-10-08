@@ -128,8 +128,8 @@ func (c *ContextCompactor) TokenBudget() int {
 }
 
 // Compact applies rules to fold stale messages until under budget.
-// lastInputTokens is the round's whole input — messages, system prompt and
-// tool definitions — when known; 0 counts the messages alone.
+// lastInputTokens is the round's whole input (messages, system prompt and
+// tool definitions) when known; 0 counts the messages alone.
 // Safe to call on a nil receiver (returns messages unchanged).
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult {
 	noOp := CompactResult{Messages: messages}

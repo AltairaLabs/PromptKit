@@ -1843,7 +1843,7 @@ type ContextCompactor struct {
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult
 ```
 
-Compact applies rules to fold stale messages until under budget. lastInputTokens is the round's whole input — messages, system prompt and tool definitions — when known; 0 counts the messages alone. Safe to call on a nil receiver \(returns messages unchanged\).
+Compact applies rules to fold stale messages until under budget. lastInputTokens is the round's whole input \(messages, system prompt and tool definitions\) when known; 0 counts the messages alone. Safe to call on a nil receiver \(returns messages unchanged\).
 
 <a name="ContextCompactor.ForProvider"></a>
 ### func \(\*ContextCompactor\) [ForProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L108>)
