@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConvertMessagesToGeminiContents(t *testing.T) {
@@ -56,7 +57,8 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			contents := convProvider().convertMessagesToGeminiContents(context.Background(), tt.messages)
+			contents, err := convProvider().convertMessagesToGeminiContents(context.Background(), tt.messages)
+			require.NoError(t, err)
 
 			if len(contents) != tt.expected {
 				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
@@ -172,7 +174,8 @@ func TestPrepareGeminiRequest(t *testing.T) {
 				defaults: tt.defaults,
 			}
 
-			contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(context.Background(), tt.req)
+			contents, systemInstruction, temp, topP, maxTokens, prepErr := provider.prepareGeminiRequest(context.Background(), tt.req)
+			require.NoError(t, prepErr)
 
 			// Check contents
 			if len(contents) != len(tt.req.Messages) {
@@ -322,7 +325,8 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare request
-		contents, systemInstruction, temp, topP, maxTokens := provider.prepareGeminiRequest(context.Background(), req)
+		contents, systemInstruction, temp, topP, maxTokens, prepErr := provider.prepareGeminiRequest(context.Background(), req)
+		require.NoError(t, prepErr)
 
 		if len(contents) != 3 {
 			t.Errorf("Expected 3 contents, got %d", len(contents))

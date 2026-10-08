@@ -91,3 +91,55 @@ func TestWithMediaStorage_NoStoreIsNoOp(t *testing.T) {
 		t.Fatal("expected no store injection when WithMediaStorage is not set")
 	}
 }
+
+// scopedSpy is a MediaScoped provider: WithMediaSettings returns a view
+// carrying the settings, and any in-place write is recorded.
+type scopedSpy struct {
+	*mock.Provider
+	settings providers.MediaSettings
+	mutated  bool
+}
+
+func (s *scopedSpy) WithMediaSettings(m providers.MediaSettings) providers.Provider {
+	return &scopedSpy{Provider: s.Provider, settings: m}
+}
+
+func (s *scopedSpy) SetMediaStorageService(storage.MediaStorageService) { s.mutated = true }
+
+func (s *scopedSpy) SetAllowPrivateNetworkMedia(bool) { s.mutated = true }
+
+// Two conversations over one shared provider keep their own media settings
+// (#2216). Writing them onto the shared provider let the last Open decide for
+// every conversation, and one WithUnsafePrivateNetworkMedia switched off the
+// private-network guard for all of them.
+func TestMediaSettings_AreScopedPerConversation(t *testing.T) {
+	shared := &scopedSpy{Provider: mock.NewProvider("shared", "mock-model", false)}
+	store := fakeMediaStore{}
+
+	trusting, err := Open("./testdata/packs/eval-test.pack.json", "assistant", WithProvider(shared),
+		WithMediaStorage(store), WithUnsafePrivateNetworkMedia(), WithSkipSchemaValidation())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = trusting.Close() }()
+	plain, err := Open("./testdata/packs/eval-test.pack.json", "assistant", WithProvider(shared),
+		WithSkipSchemaValidation())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = plain.Close() }()
+
+	if shared.mutated {
+		t.Fatal("a conversation's media settings were written onto the shared provider")
+	}
+	view, ok := trusting.callProvider().(*scopedSpy)
+	if !ok || view == shared {
+		t.Fatalf("the trusting conversation runs on %T %p, not its own view", trusting.callProvider(), view)
+	}
+	if view.settings.Storage != store || !view.settings.AllowPrivateNetworks {
+		t.Errorf("the view carries %+v, not the conversation's settings", view.settings)
+	}
+	if plain.callProvider() != providers.Provider(shared) {
+		t.Error("a conversation without media options should run on the shared provider unchanged")
+	}
+}

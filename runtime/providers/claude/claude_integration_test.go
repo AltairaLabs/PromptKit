@@ -318,7 +318,8 @@ func TestConvertMessagesToClaudeFormat(t *testing.T) {
 				},
 			}
 
-			result := provider.convertMessagesToClaudeFormat(context.Background(), tt.messages)
+			result, err := provider.convertMessagesToClaudeFormat(context.Background(), tt.messages)
+			require.NoError(t, err)
 			require.NotEmpty(t, result)
 
 			lastMsg := result[len(result)-1]

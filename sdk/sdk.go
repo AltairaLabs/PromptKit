@@ -198,13 +198,11 @@ func prepareConversation(
 		return nil, nil, agentErr
 	}
 
-	// Inject the media storage service into every pooled provider. This runs
-	// after all options are applied and the pool is fully populated
-	// (resolveProvider registers the agent/summarizer), and well before the
-	// first provider call (the pipeline is built per-Send). Providers that
-	// don't implement MediaStorageConfigurable are skipped.
-	applyMediaStorageToPool(cfg)
-	applyPrivateNetworkMediaToPool(cfg)
+	// Give the conversation its own media settings on every pooled provider.
+	// This runs after all options are applied and the pool is fully populated
+	// (resolveProvider registers the agent/summarizer), and before the call
+	// provider is resolved from the pool.
+	applyMediaSettingsToPool(cfg)
 
 	// Every conversation gets its OWN registry. When the host supplied one
 	// (WithToolRegistry), take a child of it: the child inherits the host's tool
@@ -518,34 +516,32 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	return detected, nil
 }
 
-// applyMediaStorageToPool injects the configured MediaStorageService into every
-// provider in the pool that implements providers.MediaStorageConfigurable.
-// No-op when no store is configured or the pool is empty.
-func applyMediaStorageToPool(c *config) {
-	if c.mediaStorage == nil || c.providers == nil {
+// applyMediaSettingsToPool gives this conversation its own view of every
+// pooled provider, carrying WithMediaStorage and WithUnsafePrivateNetworkMedia.
+// The host's provider is left as it was, so conversations sharing it keep
+// their own store and network policy (#2216): setting them on the shared
+// provider let the last conversation opened decide for every other, including
+// switching off the private-network guard for ones that never opted in. A
+// provider that is not providers.MediaScoped is configured in place.
+func applyMediaSettingsToPool(c *config) {
+	if (c.mediaStorage == nil && !c.allowPrivateNetworkMedia) || c.providers == nil {
 		return
 	}
+	m := providers.MediaSettings{Storage: c.mediaStorage, AllowPrivateNetworks: c.allowPrivateNetworkMedia}
 	for _, id := range c.providers.List() {
-		if p, ok := c.providers.Get(id); ok {
-			if mc, ok := p.(providers.MediaStorageConfigurable); ok {
-				mc.SetMediaStorageService(c.mediaStorage)
-			}
+		p, ok := c.providers.Get(id)
+		if !ok {
+			continue
 		}
-	}
-}
-
-// applyPrivateNetworkMediaToPool passes WithUnsafePrivateNetworkMedia to every
-// pooled provider that fetches media. No-op unless the option was given, so
-// providers keep their safe default.
-func applyPrivateNetworkMediaToPool(c *config) {
-	if !c.allowPrivateNetworkMedia || c.providers == nil {
-		return
-	}
-	for _, id := range c.providers.List() {
-		if p, ok := c.providers.Get(id); ok {
-			if pc, ok := p.(providers.PrivateNetworkMediaConfigurable); ok {
-				pc.SetAllowPrivateNetworkMedia(true)
-			}
+		if scoped, ok := p.(providers.MediaScoped); ok {
+			c.providers.Register(scoped.WithMediaSettings(m))
+			continue
+		}
+		if mc, ok := p.(providers.MediaStorageConfigurable); ok && c.mediaStorage != nil {
+			mc.SetMediaStorageService(c.mediaStorage)
+		}
+		if pc, ok := p.(providers.PrivateNetworkMediaConfigurable); ok && c.allowPrivateNetworkMedia {
+			pc.SetAllowPrivateNetworkMedia(true)
 		}
 	}
 }

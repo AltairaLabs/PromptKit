@@ -375,20 +375,27 @@ type geminiSafetyRating struct {
 //
 // For messages with actual media content (images, audio, video), each part is
 // converted separately using the multimodal conversion functions.
-func (p *Provider) convertMessagesToGeminiContents(ctx context.Context, messages []types.Message) []geminiContent {
+func (p *Provider) convertMessagesToGeminiContents(
+	ctx context.Context, messages []types.Message,
+) ([]geminiContent, error) {
 	contents := make([]geminiContent, 0, len(messages))
 	for i := range messages {
-		contents = append(contents, p.geminiContentForMessage(ctx, &messages[i]))
+		content, err := p.geminiContentForMessage(ctx, &messages[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
+		}
+		contents = append(contents, content)
 	}
-	return contents
+	return contents, nil
 }
 
 // geminiContentForMessage converts a single provider message to Gemini content.
 // Messages with actual media (images, audio, video) convert each part; text-only
 // messages combine all text via GetContent(). We use HasMediaContent() rather
 // than IsMultimodal() because IsMultimodal() is true even for text-only Parts
-// (SDK-style). On any per-part conversion error we fall back to text-only.
-func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Message) geminiContent {
+// (SDK-style). A part that cannot be converted is an error: falling back to the
+// message's text used to send the model the question without its media.
+func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Message) (geminiContent, error) {
 	role := msg.Role
 	// Gemini uses "user" and "model" roles
 	if role == roleAssistant {
@@ -396,22 +403,18 @@ func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Messa
 	}
 
 	if !msg.HasMediaContent() {
-		return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}
+		return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}, nil
 	}
 
 	parts := make([]geminiPart, 0, len(msg.Parts))
 	for _, part := range msg.Parts {
 		gPart, err := p.convertPartToGemini(ctx, part)
 		if err != nil {
-			// Fall back to text-only on conversion error, saying so: a media
-			// URL refused as non-public, for one, otherwise vanishes silently.
-			logger.Warn("Gemini: media part could not be loaded; sending the message as text only",
-				"part_type", part.Type, "error", err)
-			return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}
+			return geminiContent{}, fmt.Errorf("%s part: %w", part.Type, err)
 		}
 		parts = append(parts, gPart)
 	}
-	return geminiContent{Role: role, Parts: parts}
+	return geminiContent{Role: role, Parts: parts}, nil
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
@@ -434,6 +437,7 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	systemInstruction *geminiContent,
 	temperature, topP float32,
 	maxTokens int,
+	err error,
 ) {
 	// Handle system message
 	if req.System != "" {
@@ -443,12 +447,15 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	}
 
 	// Convert conversation messages
-	contents = p.convertMessagesToGeminiContents(ctx, req.Messages)
+	contents, err = p.convertMessagesToGeminiContents(ctx, req.Messages)
+	if err != nil {
+		return nil, nil, 0, 0, 0, err
+	}
 
 	// Apply defaults using the shared method
 	temperature, topP, maxTokens = p.applyRequestDefaults(req)
 
-	return contents, systemInstruction, temperature, topP, maxTokens
+	return contents, systemInstruction, temperature, topP, maxTokens, nil
 }
 
 // applyOptionalSampling sets the request's top_k, which Gemini's
@@ -760,7 +767,10 @@ func (p *Provider) predictOnce(
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(ctx, req)
+	contents, systemInstruction, temperature, topP, maxTokens, err := p.prepareGeminiRequest(ctx, req)
+	if err != nil {
+		return providers.PredictionResponse{}, err
+	}
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
@@ -945,3 +955,11 @@ func inferMediaTypeFromMIME(mimeType string) string {
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
+
+// WithMediaSettings returns a view of p that uses m's media settings and
+// shares everything else (providers.MediaScoped).
+func (p *Provider) WithMediaSettings(m providers.MediaSettings) providers.Provider {
+	view := *p
+	view.BaseProvider = p.WithMedia(m)
+	return &view
+}

@@ -306,6 +306,24 @@ type PrivateNetworkMediaConfigurable interface {
 	SetAllowPrivateNetworkMedia(allow bool)
 }
 
+// MediaSettings are the media options one conversation applies: the store
+// that resolves storage references, and whether URL media may be fetched from
+// non-public addresses. A zero field keeps the provider's own setting.
+type MediaSettings struct {
+	Storage              storage.MediaStorageService
+	AllowPrivateNetworks bool
+}
+
+// MediaScoped is implemented by a provider that can give one conversation a
+// view of itself with that conversation's MediaSettings. The view shares the
+// provider's clients and state; only the media settings differ, so a host
+// that shares one provider across conversations keeps each one's store and
+// network policy its own. Setting them on the shared provider
+// (MediaStorageConfigurable) let the last conversation opened decide for all.
+type MediaScoped interface {
+	WithMediaSettings(MediaSettings) Provider
+}
+
 // openAIBuildsPlatformBaseURL reports whether the openai factory derives the
 // base URL itself from PlatformConfig — Azure's deployment URL, Bedrock's
 // regional invoke URL, Vertex's Model Garden endpoint.

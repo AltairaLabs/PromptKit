@@ -852,3 +852,11 @@ func init() {
 		),
 	))
 }
+
+// WithMediaSettings returns a view of p, and of the Provider it wraps, that
+// uses m's media settings (providers.MediaScoped).
+func (p *ToolProvider) WithMediaSettings(m providers.MediaSettings) providers.Provider {
+	view := *p
+	view.Provider = p.Provider.WithMediaSettings(m).(*Provider)
+	return &view
+}

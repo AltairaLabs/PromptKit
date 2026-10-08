@@ -45,7 +45,10 @@ func (p *Provider) predictStreamOnce(
 	// streaming deltas. PredictStream is the no-tools path; the tool paths
 	// honor output_config too, since structured outputs and tool use do not
 	// conflict (#1848).
-	messages := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	messages, err := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	if err != nil {
+		return nil, err
+	}
 	claudeReq := p.buildBaseRequest(req, messages)
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 	claudeReq.Stream = true

@@ -730,3 +730,11 @@ func (p *Provider) predictStreamWithMessages(
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
+
+// WithMediaSettings returns a view of p that uses m's media settings and
+// shares everything else (providers.MediaScoped).
+func (p *Provider) WithMediaSettings(m providers.MediaSettings) providers.Provider {
+	view := *p
+	view.BaseProvider = p.WithMedia(m)
+	return &view
+}
