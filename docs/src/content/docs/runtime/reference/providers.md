@@ -356,6 +356,8 @@ This file contains exported test helpers that can be used by provider implementa
 - [type StreamingCapabilities](<#StreamingCapabilities>)
 - [type StreamingInputConfig](<#StreamingInputConfig>)
   - [func \(r \*StreamingInputConfig\) Validate\(\) error](<#StreamingInputConfig.Validate>)
+- [type StreamingSampling](<#StreamingSampling>)
+  - [func \(s \*StreamingSampling\) Request\(\) \*PredictionRequest](<#StreamingSampling.Request>)
 - [type StreamingToolDefinition](<#StreamingToolDefinition>)
 - [type ToolDescriptor](<#ToolDescriptor>)
 - [type ToolResponse](<#ToolResponse>)
@@ -1005,7 +1007,7 @@ func ResolveEmbeddingCredential(ctx context.Context, providerType string, cfgDir
 ResolveEmbeddingCredential resolves an embedding provider's credential block into a concrete Credential, applying the same fallback chain as chat providers \(api\_key → file → env → default env vars\). When platform is non\-empty, the platform branch produces a platform credential \(e.g. AzureCredential\) instead of an API key. Exposed as a helper for the SDK runtime\-config layer.
 
 <a name="ResolveMaxTokens"></a>
-## func [ResolveMaxTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L224>)
+## func [ResolveMaxTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L229>)
 
 ```go
 func ResolveMaxTokens(requested int, defaults ProviderDefaults) int
@@ -1149,16 +1151,16 @@ func ValidateSamplingParamsAccepted(t *testing.T, provider Provider)
 ValidateSamplingParamsAccepted sends every sampling parameter a prompt can set \(an explicit temperature of 0, top\_p, both penalties and top\_k\) down each request path, and fails on any API error. Unlike the other contract checks it does not skip on an error: a 400 here means the provider sends a parameter its API rejects, which is what this guards. Exported so a provider can run it against extra configurations \(another API mode, a thinking model\).
 
 <a name="WarnUnsentParams"></a>
-## func [WarnUnsentParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L104>)
+## func [WarnUnsentParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L105>)
 
 ```go
 func WarnUnsentParams(providerID string, req *PredictionRequest, params ...string)
 ```
 
-WarnUnsentParams logs, once per provider and parameter, each of params \(ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty\) that req sets but providerID does not send, because its API rejects or has no such parameter. A parameter req leaves unset logs nothing.
+WarnUnsentParams logs, once per provider and parameter, each of params \(ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty\) that req sets but providerID does not send, because its API rejects or has no such parameter. A parameter req leaves unset logs nothing.
 
 <a name="AudioStreamingCapabilities"></a>
-## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L220-L242>)
+## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L250-L272>)
 
 AudioStreamingCapabilities describes audio streaming support.
 
@@ -1952,7 +1954,7 @@ func (BedrockEventStreamFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, erro
 PeekFirstFrame reads one complete event\-stream message from r and returns the raw bytes. The reader must be positioned at the start of a message boundary.
 
 <a name="ContextWindowProvider"></a>
-## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L275-L277>)
+## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L280-L282>)
 
 ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it.
 
@@ -2330,7 +2332,7 @@ const (
 ```
 
 <a name="InferenceProvider"></a>
-## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L261>)
+## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L266>)
 
 InferenceProvider is the unified name for predict\-based LLM providers. Provider remains as a deprecated alias for back\-compat with existing call sites.
 
@@ -2339,7 +2341,7 @@ type InferenceProvider = Provider
 ```
 
 <a name="AssertInferenceProvider"></a>
-### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L265>)
+### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L270>)
 
 ```go
 func AssertInferenceProvider(p base.Provider) (InferenceProvider, error)
@@ -2411,7 +2413,7 @@ func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters,
 Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics\).
 
 <a name="LateInputTranscriber"></a>
-## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L187-L191>)
+## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L217-L221>)
 
 LateInputTranscriber is an optional interface a StreamInputSupport provider implements to declare that it delivers the user's input transcription AFTER the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper transcription arrives asynchronously, after the model has started replying.
 
@@ -2761,7 +2763,7 @@ type PredictionRequest struct {
 ```
 
 <a name="PredictionRequest.NormalizeMessages"></a>
-### func \(\*PredictionRequest\) [NormalizeMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L140>)
+### func \(\*PredictionRequest\) [NormalizeMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L145>)
 
 ```go
 func (r *PredictionRequest) NormalizeMessages()
@@ -2774,7 +2776,7 @@ Ordering: existing System content first, then system\-role message content in or
 This method is idempotent — calling it on an already\-normalized request \(no system\-role messages in Messages\) is a no\-op.
 
 <a name="PredictionResponse"></a>
-## type [PredictionResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L176-L191>)
+## type [PredictionResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L181-L196>)
 
 PredictionResponse represents a response from a predict provider
 
@@ -2807,7 +2809,7 @@ func RetryToolCall(b *BaseProvider, req PredictionRequest, call func(PredictionR
 RetryToolCall is RetryCall for PredictWithTools, which also returns the tool calls.
 
 <a name="Pricing"></a>
-## type [Pricing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L194-L197>)
+## type [Pricing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L199-L202>)
 
 Pricing defines cost per 1K tokens for input and output
 
@@ -2830,7 +2832,7 @@ type PrivateNetworkMediaConfigurable interface {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L237-L257>)
+## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L242-L262>)
 
 Provider interface defines the contract for predict providers. It embeds base.Provider for cross\-cutting concerns \(identity, lifecycle, pricing\) and adds inference\-specific operations.
 
@@ -2895,7 +2897,7 @@ type ProviderContractTests struct {
 ```
 
 <a name="ProviderDefaults"></a>
-## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L209-L217>)
+## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L214-L222>)
 
 ProviderDefaults holds default parameters for providers.
 
@@ -3117,7 +3119,7 @@ func (s *ProviderSpec) HasCredential() bool
 HasCredential returns true if the spec has a real \(non\-empty, non\-"none"\) credential. Use this in factory functions to decide between credential\-based and env\-var\-based constructors.
 
 <a name="ProviderTools"></a>
-## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L301>)
+## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L306>)
 
 ProviderTools represents provider\-specific tool configuration. Each provider returns its own native format:
 
@@ -3913,7 +3915,7 @@ type StreamInputSession interface {
 ```
 
 <a name="StreamInputSupport"></a>
-## type [StreamInputSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L161-L176>)
+## type [StreamInputSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L191-L206>)
 
 StreamInputSupport extends the Provider interface for bidirectional streaming. Providers that implement this interface can handle streaming media input \(e.g., real\-time audio\) and provide streaming responses.
 
@@ -4583,7 +4585,7 @@ Release returns one slot to the semaphore. Nil\-safe.
 Release of a token that was not acquired will cause semaphore.Weighted to panic — callers must pair each successful Acquire with exactly one Release, typically via defer.
 
 <a name="StreamingCapabilities"></a>
-## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L194-L217>)
+## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L224-L247>)
 
 StreamingCapabilities describes what streaming features a provider supports.
 
@@ -4615,7 +4617,7 @@ type StreamingCapabilities struct {
 ```
 
 <a name="StreamingInputConfig"></a>
-## type [StreamingInputConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L133-L149>)
+## type [StreamingInputConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L133-L154>)
 
 StreamingInputConfig configures a new streaming input session.
 
@@ -4636,11 +4638,16 @@ type StreamingInputConfig struct {
     // Metadata contains provider-specific session configuration
     // Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
     Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+    // Sampling carries the opened prompt's sampling parameters into the
+    // session. A provider sends those its realtime API takes and reports the
+    // rest with WarnUnsentParams. Nil sends none.
+    Sampling *StreamingSampling `json:"sampling,omitempty"`
 }
 ```
 
 <a name="StreamingInputConfig.Validate"></a>
-### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L279>)
+### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L309>)
 
 ```go
 func (r *StreamingInputConfig) Validate() error
@@ -4648,8 +4655,34 @@ func (r *StreamingInputConfig) Validate() error
 
 Validate checks if the StreamInputRequest is valid
 
+<a name="StreamingSampling"></a>
+## type [StreamingSampling](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L159-L167>)
+
+StreamingSampling is a prompt's sampling parameters for a realtime session, with PredictionRequest's meaning: zero MaxTokens and TopP, and nil pointers, are unset, and Temperature counts only with TemperatureSet or when non\-zero.
+
+```go
+type StreamingSampling struct {
+    MaxTokens        int      `json:"max_tokens,omitempty"`
+    Temperature      float32  `json:"temperature,omitempty"`
+    TemperatureSet   bool     `json:"temperature_set,omitempty"`
+    TopP             float32  `json:"top_p,omitempty"`
+    TopK             *int     `json:"top_k,omitempty"`
+    FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+    PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+}
+```
+
+<a name="StreamingSampling.Request"></a>
+### func \(\*StreamingSampling\) [Request](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L171>)
+
+```go
+func (s *StreamingSampling) Request() *PredictionRequest
+```
+
+Request returns s as a PredictionRequest's sampling fields, for WarnUnsentParams. A nil s returns an empty request.
+
 <a name="StreamingToolDefinition"></a>
-## type [StreamingToolDefinition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L152-L156>)
+## type [StreamingToolDefinition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L182-L186>)
 
 StreamingToolDefinition represents a function/tool available in streaming sessions.
 
@@ -4662,7 +4695,7 @@ type StreamingToolDefinition struct {
 ```
 
 <a name="ToolDescriptor"></a>
-## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L280-L285>)
+## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L285-L290>)
 
 ToolDescriptor represents a tool that can be used by providers
 
@@ -4676,7 +4709,7 @@ type ToolDescriptor struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L307-L311>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L337-L341>)
 
 ToolResponse represents a single tool execution result.
 
@@ -4689,7 +4722,7 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResponseSupport"></a>
-## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L293-L304>)
+## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L323-L334>)
 
 ToolResponseSupport is an optional interface for streaming sessions that support tool calling. When the model returns a tool call, the caller can execute the tool and send the result back using this interface. The session will then continue generating a response based on the tool result.
 
@@ -4717,7 +4750,7 @@ type ToolResponseSupport interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L289>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L294>)
 
 ToolResult represents the result of a tool execution This is an alias to types.MessageToolResult for provider\-specific context
 
@@ -4726,7 +4759,7 @@ type ToolResult = types.MessageToolResult
 ```
 
 <a name="ToolSupport"></a>
-## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L304-L328>)
+## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L309-L333>)
 
 ToolSupport interface for providers that support tool/function calling
 
@@ -4845,7 +4878,7 @@ func (e *ValidationAbortError) Error() string
 Error returns the error message for this validation abort error.
 
 <a name="VideoResolution"></a>
-## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L268-L271>)
+## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L298-L301>)
 
 VideoResolution represents a video resolution.
 
@@ -4857,7 +4890,7 @@ type VideoResolution struct {
 ```
 
 <a name="VideoResolution.String"></a>
-### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L274>)
+### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L304>)
 
 ```go
 func (r VideoResolution) String() string
@@ -4866,7 +4899,7 @@ func (r VideoResolution) String() string
 String returns a string representation of the resolution \(e.g., "1920x1080"\)
 
 <a name="VideoStreamingCapabilities"></a>
-## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L245-L265>)
+## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L275-L295>)
 
 VideoStreamingCapabilities describes video streaming support.
 

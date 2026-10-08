@@ -146,6 +146,36 @@ type StreamingInputConfig struct {
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// Sampling carries the opened prompt's sampling parameters into the
+	// session. A provider sends those its realtime API takes and reports the
+	// rest with WarnUnsentParams. Nil sends none.
+	Sampling *StreamingSampling `json:"sampling,omitempty"`
+}
+
+// StreamingSampling is a prompt's sampling parameters for a realtime session,
+// with PredictionRequest's meaning: zero MaxTokens and TopP, and nil pointers,
+// are unset, and Temperature counts only with TemperatureSet or when non-zero.
+type StreamingSampling struct {
+	MaxTokens        int      `json:"max_tokens,omitempty"`
+	Temperature      float32  `json:"temperature,omitempty"`
+	TemperatureSet   bool     `json:"temperature_set,omitempty"`
+	TopP             float32  `json:"top_p,omitempty"`
+	TopK             *int     `json:"top_k,omitempty"`
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+}
+
+// Request returns s as a PredictionRequest's sampling fields, for
+// WarnUnsentParams. A nil s returns an empty request.
+func (s *StreamingSampling) Request() *PredictionRequest {
+	if s == nil {
+		return &PredictionRequest{}
+	}
+	return &PredictionRequest{
+		MaxTokens: s.MaxTokens, Temperature: s.Temperature, TemperatureSet: s.TemperatureSet,
+		TopP: s.TopP, TopK: s.TopK, FrequencyPenalty: s.FrequencyPenalty, PresencePenalty: s.PresencePenalty,
+	}
 }
 
 // StreamingToolDefinition represents a function/tool available in streaming sessions.

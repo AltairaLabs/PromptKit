@@ -8,6 +8,25 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Realtime sessions use the prompt's parameters and the configured model
+
+An `OpenDuplex` session in ASM mode ignored the prompt's `parameters`, so the
+same prompt ran at the realtime API's defaults. The session now carries them:
+Gemini Live sends `temperature`, `top_p`, `top_k` and `max_tokens`, and OpenAI
+Realtime sends `max_tokens` (its session takes no other sampling parameter).
+The rest are logged as not sent. Gemini Live does not answer below a
+temperature of 0.5, so a lower one is not sent, with a warning.
+
+An OpenAI realtime session also ran a built-in model whenever the configured
+one lacked "realtime" in its name, and that model has been retired. It now
+runs the configured model. A Gemini Live provider with no model uses
+`gemini-3.8-live`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a duplex session on a prompt that sets `parameters` | the session uses them | check the values, which were never sent before |
+| Set a temperature below 0.5 on a Gemini Live prompt | a warning, and the model's default temperature | raise it to 0.5 or more |
+
 ### OpenAI uses the Responses API by default
 
 An OpenAI provider with no `api_mode` used Chat Completions unless its model
@@ -89,7 +108,8 @@ a temperature of `0` as unset and replaced it with its own default, so
 `temperature: 0` never took effect, and `top_p`, `frequency_penalty` and
 `presence_penalty` were never sent at all. They now apply to an opened prompt,
 a composition step and a mid-turn workflow handoff, and a `model_overrides`
-entry can set them too. A realtime duplex session (ASM) does not take them yet.
+entry can set them too. A realtime duplex session (ASM) takes them as well; see
+the realtime section above.
 
 `PredictionRequest` gains `TemperatureSet`, `FrequencyPenalty` and
 `PresencePenalty`. A zero `Temperature` with `TemperatureSet` is sent as zero;

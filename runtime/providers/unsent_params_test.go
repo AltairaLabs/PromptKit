@@ -29,3 +29,19 @@ func TestWarnUnsentParams_OncePerProviderAndParam(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out, "provider=unsent-other param=frequency_penalty"), out)
 	assert.Equal(t, 3, strings.Count(out, "param="), out)
 }
+
+// A realtime session's sampling reports its unsent parameters the same way a
+// request does, through Request; nil reports none.
+func TestStreamingSampling_RequestReportsWhatItSets(t *testing.T) {
+	topK := 5
+	s := &StreamingSampling{MaxTokens: 9, Temperature: 0, TemperatureSet: true, TopP: 0.5, TopK: &topK}
+	req := s.Request()
+	assert.Equal(t, 9, req.MaxTokens)
+	assert.True(t, req.setsParam(ParamTemperature), "an explicit 0 is set")
+	assert.True(t, req.setsParam(ParamTopP))
+	assert.True(t, req.setsParam(ParamTopK))
+	assert.False(t, req.setsParam(ParamPresencePenalty))
+
+	var none *StreamingSampling
+	assert.False(t, none.Request().setsParam(ParamTemperature))
+}

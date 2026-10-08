@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // Wire-protocol field keys and modality values for the Gemini Live setup message.
@@ -37,6 +38,7 @@ func validateModalities(modalities []string) error {
 func buildSetupMessage(config *StreamSessionConfig, modalities []string) map[string]interface{} {
 	modelPath := getModelPath(config.Model)
 	generationConfig := buildGenerationConfig(modalities)
+	addSamplingConfig(generationConfig, config.Sampling)
 
 	setupContent := map[string]interface{}{
 		wireKeyModel:       modelPath,
@@ -56,12 +58,36 @@ func buildSetupMessage(config *StreamSessionConfig, modalities []string) map[str
 // getModelPath ensures model is in correct format: models/{model}
 func getModelPath(model string) string {
 	if model == "" {
-		return "models/gemini-2.0-flash-exp"
+		return "models/" + defaultLiveModel
 	}
 	if len(model) < 7 || model[:7] != "models/" {
 		return "models/" + model
 	}
 	return model
+}
+
+// defaultLiveModel is the Live API model used when none is configured.
+const defaultLiveModel = "gemini-3.8-live"
+
+// addSamplingConfig adds the prompt's sampling parameters to a Live setup's
+// generationConfig. The penalties are left out: Gemini answers them with
+// "Penalty is not enabled" (CreateStreamSession reports them as not sent).
+func addSamplingConfig(generationConfig map[string]interface{}, s *providers.StreamingSampling) {
+	if s == nil {
+		return
+	}
+	if s.TemperatureSet || s.Temperature != 0 {
+		generationConfig["temperature"] = s.Temperature
+	}
+	if s.TopP != 0 {
+		generationConfig["topP"] = s.TopP
+	}
+	if s.TopK != nil {
+		generationConfig["topK"] = *s.TopK
+	}
+	if s.MaxTokens > 0 {
+		generationConfig["maxOutputTokens"] = s.MaxTokens
+	}
 }
 
 // buildGenerationConfig creates the generation configuration

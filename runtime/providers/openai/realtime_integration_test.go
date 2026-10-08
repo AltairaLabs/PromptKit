@@ -30,11 +30,20 @@ func generateSineWave24k(freqHz float64, durationMs int, amplitude float64) []by
 	return buf
 }
 
+// realtimeTestModel is the model the suite runs against: OPENAI_REALTIME_MODEL,
+// else a current realtime model.
+func realtimeTestModel() string {
+	if m := os.Getenv("OPENAI_REALTIME_MODEL"); m != "" {
+		return m
+	}
+	return "gpt-realtime-2.1"
+}
+
 // newRealtimeProvider creates a provider configured for the OpenAI Realtime API.
 func newRealtimeProvider() *Provider {
 	return NewProvider(
 		"openai-realtime-test",
-		"gpt-realtime",
+		realtimeTestModel(),
 		"https://api.openai.com",
 		providers.ProviderDefaults{},
 		false,
@@ -968,5 +977,38 @@ loop:
 	}
 	if firstChunkLatency > 15*time.Second && firstChunkLatency > 0 {
 		t.Errorf("First chunk latency too high: %v (expected < 15s)", firstChunkLatency)
+	}
+}
+
+// TestRealtimeIntegration_SamplingParams opens a session carrying every
+// sampling parameter a prompt can set. The GA session takes max_output_tokens
+// and none of the others, so the session must open and answer with them held
+// back rather than refuse the session.update.
+func TestRealtimeIntegration_SamplingParams(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	topK, pen := 20, float32(0.1)
+	session, err := newRealtimeProvider().CreateStreamSession(ctx, &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio, ChunkSize: 3200,
+			SampleRate: DefaultRealtimeSampleRate, Channels: DefaultRealtimeChannels,
+			BitDepth: DefaultRealtimeBitDepth, Encoding: "pcm16"},
+		Metadata: map[string]interface{}{"modalities": []string{"text", "audio"}, "input_transcription": false},
+		Sampling: &providers.StreamingSampling{MaxTokens: 300, Temperature: 0, TemperatureSet: true,
+			TopP: 0.9, TopK: &topK, FrequencyPenalty: &pen, PresencePenalty: &pen},
+	})
+	if err != nil {
+		t.Fatalf("session with sampling parameters refused: %v", err)
+	}
+	defer session.Close()
+	if err := session.SendText(ctx, "Say hi in one sentence."); err != nil {
+		t.Fatalf("SendText: %v", err)
+	}
+	response, _, gotFinish := collectResponse(t, session, 20*time.Second)
+	if !gotFinish || response == "" {
+		t.Fatalf("no complete reply (finished=%v, response=%q)", gotFinish, response)
 	}
 }

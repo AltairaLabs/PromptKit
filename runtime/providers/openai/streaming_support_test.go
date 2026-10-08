@@ -565,3 +565,32 @@ func TestRealtimeSessionBookkeeping_ConcurrentCloseAndDone(t *testing.T) {
 		}
 	}
 }
+
+// The session runs the configured model, whatever its name. A model without
+// "realtime" in it used to be swapped for a retired preview default, so the
+// API's refusal named a model nobody had configured.
+func TestBuildRealtimeSessionConfig_UsesConfiguredModel(t *testing.T) {
+	p := NewProvider("test", "gpt-live-1", "https://api.openai.com", providers.ProviderDefaults{}, false)
+	config := p.buildRealtimeSessionConfig(&providers.StreamingInputConfig{})
+	if config.Model != "gpt-live-1" {
+		t.Errorf("session model = %q, want the configured gpt-live-1", config.Model)
+	}
+}
+
+// The GA realtime session takes max_output_tokens from the prompt; nothing
+// else, so the rest are not sent (#2219).
+func TestApplyStreamSampling_SetsMaxOutputTokens(t *testing.T) {
+	p := NewProvider("rt", "gpt-realtime-2.1", "https://api.openai.com", providers.ProviderDefaults{}, false)
+	config := p.buildRealtimeSessionConfig(&providers.StreamingInputConfig{})
+	p.applyStreamSampling(&providers.StreamingSampling{MaxTokens: 300, Temperature: 0.2}, &config)
+	if got := buildRealtimeSessionConfig(config).MaxOutputTokens; got != 300 {
+		t.Errorf("max_output_tokens = %v, want 300", got)
+	}
+
+	untouched := p.buildRealtimeSessionConfig(&providers.StreamingInputConfig{})
+	p.applyStreamSampling(nil, &untouched)
+	if want := DefaultRealtimeSessionConfig().MaxResponseOutputTokens; untouched.MaxResponseOutputTokens != want {
+		t.Errorf("nil sampling changed max_output_tokens to %v, want the default %v",
+			untouched.MaxResponseOutputTokens, want)
+	}
+}

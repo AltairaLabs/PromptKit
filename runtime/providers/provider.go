@@ -98,7 +98,8 @@ const (
 var unsentParamOnce sync.Map
 
 // WarnUnsentParams logs, once per provider and parameter, each of params
-// (ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty) that req sets but
+// (ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty,
+// ParamPresencePenalty) that req sets but
 // providerID does not send, because its API rejects or has no such parameter.
 // A parameter req leaves unset logs nothing.
 func WarnUnsentParams(providerID string, req *PredictionRequest, params ...string) {
@@ -117,6 +118,10 @@ func WarnUnsentParams(providerID string, req *PredictionRequest, params ...strin
 // setsParam reports whether r sets the optional sampling parameter param.
 func (r *PredictionRequest) setsParam(param string) bool {
 	switch param {
+	case ParamTemperature:
+		return r.TemperatureSet || r.Temperature != 0
+	case ParamTopP:
+		return r.TopP != 0
 	case ParamTopK:
 		return r.TopK != nil
 	case ParamFrequencyPenalty:

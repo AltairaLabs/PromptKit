@@ -85,6 +85,7 @@ func (p *Provider) CreateStreamSession(
 
 	config := p.buildRealtimeSessionConfig(req)
 	p.applyStreamMetadata(req.Metadata, &config)
+	p.applyStreamSampling(req.Sampling, &config)
 	p.applyStreamTools(req.Tools, &config)
 
 	session, err := NewRealtimeSession(ctx, p.apiKey, &config)

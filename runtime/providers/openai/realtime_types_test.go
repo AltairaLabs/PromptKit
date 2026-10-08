@@ -40,8 +40,8 @@ func TestHandleInputTranscription_MarksFinal(t *testing.T) {
 func TestDefaultRealtimeSessionConfig(t *testing.T) {
 	config := DefaultRealtimeSessionConfig()
 
-	if config.Model != "gpt-4o-realtime-preview" {
-		t.Errorf("expected model gpt-4o-realtime-preview, got %s", config.Model)
+	if config.Model != "gpt-realtime-2.1" {
+		t.Errorf("expected model gpt-realtime-2.1, got %s", config.Model)
 	}
 
 	if len(config.Modalities) != 2 {

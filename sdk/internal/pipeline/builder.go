@@ -661,7 +661,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
 		return []stage.Stage{stage.NewDuplexProviderStageWithTurnState(
-			cfg.StreamInputProvider, cfg.StreamInputConfig, nil, turnState,
+			cfg.StreamInputProvider, cfg.streamSessionConfig(), nil, turnState,
 		)}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
@@ -796,6 +796,22 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 	}
 
 	return compactor
+}
+
+// streamSessionConfig returns a copy of StreamInputConfig carrying the
+// prompt's sampling parameters, so a realtime session runs with them as
+// ProviderStage calls do. A copy, because the stage writes the session's
+// system instruction into it and the caller's config is shared.
+func (c *Config) streamSessionConfig() *providers.StreamingInputConfig {
+	var out providers.StreamingInputConfig
+	if c.StreamInputConfig != nil {
+		out = *c.StreamInputConfig
+	}
+	out.Sampling = &providers.StreamingSampling{
+		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
+		TopP: c.TopP, TopK: c.TopK, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+	}
+	return &out
 }
 
 // SetCallParams sets the sampling fields from a prompt's resolved parameters
