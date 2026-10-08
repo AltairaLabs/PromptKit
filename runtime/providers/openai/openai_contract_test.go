@@ -107,6 +107,35 @@ func TestToolProvider_Contract(t *testing.T) {
 	})
 }
 
+// TestSamplingParams_Contract sends every sampling parameter a prompt can set
+// on both API modes, and to an o-series model, which must withhold the ones it
+// rejects. Built from a spec, as a pack's provider is.
+func TestSamplingParams_Contract(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+	for _, tc := range []struct{ name, model, mode string }{
+		{"completions", "gpt-4o-mini", "completions"},
+		{"responses", "gpt-4o-mini", "responses"},
+		{"o_series_completions", "o4-mini", "completions"},
+		{"o_series_responses", "o4-mini", "responses"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+				ID: "openai-sampling-" + tc.name, Type: "openai", Model: tc.model,
+				BaseURL:          "https://api.openai.com/v1",
+				Defaults:         providers.ProviderDefaults{MaxTokens: 100},
+				AdditionalConfig: map[string]any{"api_mode": tc.mode},
+			})
+			if err != nil {
+				t.Fatalf("CreateProviderFromSpec: %v", err)
+			}
+			defer p.Close()
+			providers.ValidateSamplingParamsAccepted(t, p)
+		})
+	}
+}
+
 // TestAudioModel_Predict_TextResponse verifies that sending audio input to an
 // audio model via the Chat Completions API returns a text response describing
 // the audio content.

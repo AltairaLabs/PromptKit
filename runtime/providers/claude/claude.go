@@ -517,6 +517,8 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		Messages:  messages,
 		System:    p.createSystemBlocks(req.System),
 	}
+	// The Messages API takes no penalties.
+	providers.WarnUnsentParams(p.ID(), &req, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 	if thinking := p.claudeThinkingFor(); thinking != nil {
 		// Extended thinking: reasoning tokens count toward max_tokens, so ensure
 		// headroom for an answer; and the API rejects a custom temperature, so we

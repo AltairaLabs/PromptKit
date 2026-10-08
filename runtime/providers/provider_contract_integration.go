@@ -21,6 +21,13 @@ const (
 	contractToolMaxTokens   = 200
 	contractSmallMaxTokens  = 50
 	contractZeroTemperature = 0.0
+	// contractSamplingMaxTokens leaves a reasoning model room to finish: at 50
+	// an o-series model's tool round fails with "max_tokens reached".
+	contractSamplingMaxTokens = 1000
+	contractSamplingTopP      = 0.9
+	contractSamplingPenalty   = 0.1
+	contractSamplingTopK      = 20
+	contractHelloPrompt       = "Say 'hello'"
 )
 
 // ProviderContractTests defines a comprehensive test suite that validates
@@ -84,6 +91,10 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 			testPredictStreamWithToolsProducesToolCalls(t, config.Provider)
 		})
 	}
+
+	t.Run("Contract_SamplingParams_Accepted", func(t *testing.T) {
+		ValidateSamplingParamsAccepted(t, config.Provider)
+	})
 
 	t.Run("Contract_Predict_ReturnsCostInfo", func(t *testing.T) {
 		testPredictReturnsCostInfo(t, config.Provider)
@@ -233,6 +244,53 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
+// ValidateSamplingParamsAccepted sends every sampling parameter a prompt can
+// set (an explicit temperature of 0, top_p, both penalties and top_k) down each
+// request path, and fails on any API error. Unlike the other contract checks
+// it does not skip on an error: a 400 here means the provider sends a
+// parameter its API rejects, which is what this guards. Exported so a provider
+// can run it against extra configurations (another API mode, a thinking model).
+func ValidateSamplingParamsAccepted(t *testing.T, provider Provider) {
+	t.Helper()
+	pen, topK := float32(contractSamplingPenalty), contractSamplingTopK
+	req := PredictionRequest{
+		Messages:         []types.Message{{Role: "user", Content: contractHelloPrompt}},
+		MaxTokens:        contractSamplingMaxTokens,
+		Temperature:      contractZeroTemperature,
+		TemperatureSet:   true,
+		TopP:             contractSamplingTopP,
+		FrequencyPenalty: &pen,
+		PresencePenalty:  &pen,
+		TopK:             &topK,
+	}
+	ctx := context.Background()
+
+	// Only acceptance is checked: a reasoning model can spend a small token
+	// limit before it writes any content.
+	if _, err := provider.Predict(ctx, req); err != nil {
+		t.Fatalf("Predict rejected the sampling parameters: %v", err)
+	}
+
+	if provider.SupportsStreaming() {
+		chunks, err := provider.PredictStream(ctx, req)
+		if err != nil {
+			t.Fatalf("PredictStream rejected the sampling parameters: %v", err)
+		}
+		for chunk := range chunks {
+			if chunk.Error != nil {
+				t.Fatalf("PredictStream rejected the sampling parameters: %v", chunk.Error)
+			}
+		}
+	}
+
+	if ts, ok := provider.(ToolSupport); ok {
+		tools := buildWeatherTools(t, ts)
+		if _, _, err := ts.PredictWithTools(ctx, req, tools, "auto"); err != nil {
+			t.Fatalf("PredictWithTools rejected the sampling parameters: %v", err)
+		}
+	}
+}
+
 // testPredictReturnsCostInfo verifies that Predict() returns cost information
 func testPredictReturnsCostInfo(t *testing.T, provider Provider) {
 	ctx := context.Background()
@@ -276,7 +334,7 @@ func testPredictNonEmptyResponse(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "Say 'hello'"},
+			{Role: "user", Content: contractHelloPrompt},
 		},
 		MaxTokens:   50,
 		Temperature: 0.7,

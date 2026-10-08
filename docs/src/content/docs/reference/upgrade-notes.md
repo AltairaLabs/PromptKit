@@ -20,13 +20,15 @@ and log a warning once per provider. A model that rejects it is configured
 with `unsupported_params: [top_k]`, which Claude and Gemini honor.
 
 `PredictionRequest` and `prompt.CallParams` gain `TopK *int`, where nil sends
-nothing.
+nothing. `providers.WarnUnsentParams` logs, once per provider and parameter,
+a `top_k` or penalty a provider does not send. Claude, Gemini and the OpenAI
+Responses API now log it for penalties too, which they drop.
 
 | If you | You will see | Change |
 |---|---|---|
 | Set `top_k` on a prompt served by Claude, Gemini or vLLM | it on the request | check the value, which was never sent before |
 | Set `top_k` on a prompt served by OpenAI or Ollama | a warning that it is not sent | remove it, or set it through `extra_body` for a compatible backend that takes it |
-| Write a custom provider | `PredictionRequest.TopK` set when the prompt asks for it | send it, or call `providers.WarnTopKDropped` |
+| Write a custom provider | `PredictionRequest.TopK` set when the prompt asks for it | send it, or call `providers.WarnUnsentParams` |
 
 ### Context compaction leaves room for the system prompt and tools, and keeps the message log whole
 
@@ -57,11 +59,11 @@ entry can set them too. A realtime duplex session (ASM) does not take them yet.
 `PredictionRequest` gains `TemperatureSet`, `FrequencyPenalty` and
 `PresencePenalty`. A zero `Temperature` with `TemperatureSet` is sent as zero;
 `providers.ResolveTemperature` applies the rule for custom providers.
-Penalties are sent to OpenAI Chat Completions, vLLM, Ollama and Gemini, whose
-APIs take them, and not to the OpenAI Responses API or Claude, whose APIs do not.
+Penalties are sent to OpenAI Chat Completions, vLLM and Ollama, whose APIs
+take them. They are not sent to the OpenAI Responses API or Claude, whose APIs
+do not, nor to Gemini, whose current models answer them with a 400.
 `top_p` is not sent to Claude, which rejects it alongside a temperature. A model
-that rejects a parameter is configured with `unsupported_params`, which Gemini
-now honors for the penalties. OpenAI o-series models withhold the penalties by
+that rejects a parameter is configured with `unsupported_params`. OpenAI o-series models withhold the penalties by
 default, as they already did temperature and `top_p`.
 
 | If you | You will see | Change |

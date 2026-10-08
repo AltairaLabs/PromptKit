@@ -512,7 +512,7 @@ func (p *Provider) enrichRequest(
 	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
 	addPenaltiesToRequest(openAIReq, p.unsupportedParams, req)
 	// Chat Completions has no top-k parameter.
-	providers.WarnTopKDropped(p.ID(), req)
+	providers.WarnUnsentParams(p.ID(), req, providers.ParamTopK)
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
 	}

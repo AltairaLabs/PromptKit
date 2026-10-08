@@ -68,7 +68,8 @@ type PredictionRequest struct {
 	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
 	// TopK limits sampling to the K most likely tokens; nil sends nothing.
-	// Providers whose API has no top-k drop it with WarnTopKDropped.
+	// A provider whose API takes no top_k, or no penalties, drops them and
+	// says so with WarnUnsentParams.
 	TopK           *int            `json:"top_k,omitempty"`
 	Seed           *int            `json:"seed,omitempty"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
@@ -86,20 +87,44 @@ func ResolveTemperature(req *PredictionRequest, def float32) float32 {
 	return def
 }
 
-// topKDroppedOnce keys the providers WarnTopKDropped has already warned for.
-var topKDroppedOnce sync.Map
+// Wire names of the optional sampling parameters WarnUnsentParams reports.
+const (
+	ParamTopK             = "top_k"
+	ParamFrequencyPenalty = "frequency_penalty"
+	ParamPresencePenalty  = "presence_penalty"
+)
 
-// WarnTopKDropped logs, once per provider, that req's top_k is not sent
-// because providerID's API has no top-k parameter. A nil TopK logs nothing.
-func WarnTopKDropped(providerID string, req *PredictionRequest) {
-	if req.TopK == nil {
-		return
+// unsentParamOnce keys the provider|param pairs WarnUnsentParams has warned for.
+var unsentParamOnce sync.Map
+
+// WarnUnsentParams logs, once per provider and parameter, each of params
+// (ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty) that req sets but
+// providerID does not send, because its API rejects or has no such parameter.
+// A parameter req leaves unset logs nothing.
+func WarnUnsentParams(providerID string, req *PredictionRequest, params ...string) {
+	for _, param := range params {
+		if !req.setsParam(param) {
+			continue
+		}
+		if _, loaded := unsentParamOnce.LoadOrStore(providerID+"|"+param, struct{}{}); loaded {
+			continue
+		}
+		logger.Warn("a prompt parameter is not sent: the provider's API does not take it",
+			"provider", providerID, "param", param)
 	}
-	if _, loaded := topKDroppedOnce.LoadOrStore(providerID, struct{}{}); loaded {
-		return
+}
+
+// setsParam reports whether r sets the optional sampling parameter param.
+func (r *PredictionRequest) setsParam(param string) bool {
+	switch param {
+	case ParamTopK:
+		return r.TopK != nil
+	case ParamFrequencyPenalty:
+		return r.FrequencyPenalty != nil
+	case ParamPresencePenalty:
+		return r.PresencePenalty != nil
 	}
-	logger.Warn("top_k is not sent: the provider's API has no top-k parameter",
-		"provider", providerID, "top_k", *req.TopK)
+	return false
 }
 
 // NormalizeMessages extracts system-role messages from Messages, merges their

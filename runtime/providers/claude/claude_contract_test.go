@@ -65,3 +65,21 @@ func TestToolProvider_Contract(t *testing.T) {
 		SupportsStreamingExpected: true,
 	})
 }
+
+// TestSamplingParams_ThinkingContract sends every sampling parameter alongside
+// extended thinking, which the API rejects temperature and top_k with: the
+// provider must withhold them.
+func TestSamplingParams_ThinkingContract(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("ANTHROPIC_API_KEY not set")
+	}
+	budget := 1024
+	provider := NewToolProvider("claude-thinking-sampling", "claude-haiku-4-5-20251001",
+		"https://api.anthropic.com/v1", providers.ProviderDefaults{MaxTokens: 100}, false)
+	provider.thinkingBudget = &budget
+	defer provider.Close()
+	if provider.claudeThinkingFor() == nil {
+		t.Fatal("thinking must be on, or this checks the plain request again")
+	}
+	providers.ValidateSamplingParamsAccepted(t, provider)
+}

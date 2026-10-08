@@ -178,8 +178,8 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	if !hasUnsupportedParam(p.unsupportedParams, "top_p") && topP > 0 {
 		responsesReq["top_p"] = topP
 	}
-	// Nor does it take top_k.
-	providers.WarnTopKDropped(p.ID(), &req)
+	providers.WarnUnsentParams(p.ID(), &req,
+		providers.ParamTopK, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 
 	// Add tools if provided. parallel_tool_calls is scoped to this guard for the
 	// same reason as the completions builder — it is only valid alongside a

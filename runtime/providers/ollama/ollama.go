@@ -165,7 +165,7 @@ func (p *Provider) prepareMessages(
 // map-built request; nil sends neither. Ollama's OpenAI-compatible endpoint
 // has no top_k, so a request's top_k is dropped with a warning.
 func addOllamaPenalties(providerID string, body map[string]any, req *providers.PredictionRequest) {
-	providers.WarnTopKDropped(providerID, req)
+	providers.WarnUnsentParams(providerID, req, providers.ParamTopK)
 	if req.FrequencyPenalty != nil {
 		body["frequency_penalty"] = *req.FrequencyPenalty
 	}
@@ -581,7 +581,7 @@ func (p *Provider) predictWithMessages(
 		FrequencyPenalty: req.FrequencyPenalty,
 		PresencePenalty:  req.PresencePenalty,
 	}
-	providers.WarnTopKDropped(p.ID(), &req) // the endpoint has no top_k
+	providers.WarnUnsentParams(p.ID(), &req, providers.ParamTopK) // the endpoint has no top_k
 
 	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {

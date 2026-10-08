@@ -278,9 +278,7 @@ type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
 	TopK             *int                  `json:"topK,omitempty"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"` // 0 = no limit
-	PresencePenalty  *float32              `json:"presencePenalty,omitempty"`
-	FrequencyPenalty *float32              `json:"frequencyPenalty,omitempty"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`  // 0 = no limit
 	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
 	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
@@ -456,20 +454,22 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	return contents, systemInstruction, temperature, topP, maxTokens
 }
 
-// applyOptionalSampling sets the request's presence and frequency penalties
-// and top_k, which Gemini's generationConfig takes; nil sends nothing. A model
-// that rejects one is configured with unsupported_params (presence_penalty,
-// frequency_penalty, top_k), which drops it here.
+// applyOptionalSampling sets the request's top_k, which Gemini's
+// generationConfig takes; nil sends nothing. A model that rejects it is
+// configured with unsupported_params: [top_k], which drops it here.
 func (g *geminiGenConfig) applyOptionalSampling(p *Provider, req *providers.PredictionRequest) {
-	if p.paramSupported("top_k") {
+	if p.paramSupported(providers.ParamTopK) {
 		g.TopK = req.TopK
 	}
-	if p.paramSupported("presence_penalty") {
-		g.PresencePenalty = req.PresencePenalty
-	}
-	if p.paramSupported("frequency_penalty") {
-		g.FrequencyPenalty = req.FrequencyPenalty
-	}
+	p.warnUnsentPenalties(req)
+}
+
+// warnUnsentPenalties reports the request's penalties as not sent. The
+// generationConfig schema has presencePenalty and frequencyPenalty, but every
+// current model answers them with 400 "Penalty is not enabled", so they are
+// never sent.
+func (p *Provider) warnUnsentPenalties(req *providers.PredictionRequest) {
+	providers.WarnUnsentParams(p.ID(), req, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 }
 
 // setUnsupportedParams records the request parameters this model rejects.

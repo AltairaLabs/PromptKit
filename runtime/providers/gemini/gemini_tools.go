@@ -461,15 +461,10 @@ func (p *ToolProvider) buildToolRequest(
 		"temperature": temperature,
 		"topP":        topP,
 	}
-	if req.PresencePenalty != nil && p.paramSupported("presence_penalty") {
-		genConfig["presencePenalty"] = *req.PresencePenalty
-	}
-	if req.FrequencyPenalty != nil && p.paramSupported("frequency_penalty") {
-		genConfig["frequencyPenalty"] = *req.FrequencyPenalty
-	}
-	if req.TopK != nil && p.paramSupported("top_k") {
+	if req.TopK != nil && p.paramSupported(providers.ParamTopK) {
 		genConfig["topK"] = *req.TopK
 	}
+	p.warnUnsentPenalties(&req)
 	if maxTokens > 0 {
 		genConfig["maxOutputTokens"] = maxTokens
 	}
