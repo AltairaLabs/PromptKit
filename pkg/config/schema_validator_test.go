@@ -481,55 +481,6 @@ metadata:
 	assert.Contains(t, err.Error(), "missing or unknown 'kind'")
 }
 
-func TestTryLocalSchemaFallback(t *testing.T) {
-	// Test with a config type that should have a local schema
-	schema, err := tryLocalSchemaFallback(ConfigTypeArena)
-	if err == nil {
-		require.NotNil(t, schema)
-	} else {
-		// If no local schema exists, we expect an error
-		assert.Contains(t, err.Error(), "no local schema found")
-	}
-
-	// Test with an invalid config type (no schema file should exist)
-	_, err = tryLocalSchemaFallback(ConfigType("nonexistent"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no local schema found")
-}
-
-func TestLoadSchema_WithFallback(t *testing.T) {
-	// Enable fallback for this test
-	originalFallbackSetting := SchemaFallbackDisabled.Load()
-	SchemaFallbackDisabled.Store(false)
-	defer func() { SchemaFallbackDisabled.Store(originalFallbackSetting) }()
-
-	// Test with an invalid remote schema URL (should trigger fallback)
-	schema, err := loadSchema("http://invalid-url-that-does-not-exist.com/schema.json", ConfigTypeArena, "")
-
-	// The result depends on whether local schemas exist
-	// Either way, we're testing the fallback path
-	if err != nil {
-		assert.Contains(t, err.Error(), "failed to load schema")
-	} else {
-		require.NotNil(t, schema)
-	}
-}
-
-func TestLoadSchema_WithoutFallback(t *testing.T) {
-	// Disable fallback for this test
-	originalFallbackSetting := SchemaFallbackDisabled.Load()
-	SchemaFallbackDisabled.Store(true)
-	defer func() { SchemaFallbackDisabled.Store(originalFallbackSetting) }()
-
-	// Test with a malformed schema reference that will fail
-	_, err := loadSchema("file:///nonexistent/path/to/schema.json", ConfigTypeArena, "")
-	if err != nil {
-		// Error is expected when the file doesn't exist
-		require.Error(t, err)
-	}
-	// Note: This test verifies the non-fallback path is tested
-}
-
 func TestValidateScenario_InvalidYAML(t *testing.T) {
 	invalidYAML := []byte(`invalid: yaml: content: [[[`)
 

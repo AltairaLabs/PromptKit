@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,10 +26,34 @@ const SchemaBaseURL = "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 
 const errorFormat = "  - %s"
 
-// SchemaFallbackDisabled controls whether local schema fallback is suppressed.
-// When true (non-default), the loader will not fall back to local schemas on remote fetch failure.
+// SchemaFallbackDisabled controls whether a failed remote fetch falls back to
+// the embedded schemas. It only matters with PROMPTKIT_SCHEMA_SOURCE=remote.
+// When true (non-default), a failed fetch is an error.
 // Uses atomic.Bool for safe concurrent access across goroutines and test init functions.
 var SchemaFallbackDisabled atomic.Bool
+
+// schemaSourceEnvVar selects where config schemas come from: unset uses the
+// schemas embedded in this package, "local" a schemas/v1alpha1 directory found
+// relative to the working directory, "remote" the hosted copy at SchemaBaseURL.
+const schemaSourceEnvVar = "PROMPTKIT_SCHEMA_SOURCE"
+
+// The embedded schemas are a mirror of the repo's schemas/v1alpha1, which an
+// embed directive cannot reach from this module. `make schemas` refreshes both, and
+// TestEmbeddedSchemas_MatchCommittedCopy fails when they differ.
+//
+//go:embed schemas/*.json schemas/common/*.json
+var embeddedSchemas embed.FS
+
+// builtinSchemaFS is the default schema source: the embedded schemas, with gen
+// 0 so its cache keys never collide with a filesystem from UseSchemaFS.
+var builtinSchemaFS = func() *schemaFSSource {
+	sub, err := fs.Sub(embeddedSchemas, "schemas")
+	if err != nil {
+		// fs.Sub fails only for an invalid path, and "schemas" is a constant.
+		panic(fmt.Sprintf("config: embedded schemas: %v", err))
+	}
+	return &schemaFSSource{fsys: sub}
+}()
 
 // SchemaValidationDisabled controls whether schema validation is skipped.
 // When true (non-default), schema validation is bypassed (useful for testing or unpublished schemas).
@@ -57,19 +82,17 @@ var (
 
 // UseSchemaFS makes schema validation — ValidateWithSchema and every Load
 // function that validates — use the schemas in fsys, named <type>.json at its
-// root (arena.json, scenario.json, ...), instead of fetching the hosted copy.
+// root (arena.json, scenario.json, ...), instead of the schemas embedded in
+// this package.
 //
-// Without it, validation fetches the latest schemas from SchemaBaseURL and,
-// if that fails, falls back to a schemas/v1alpha1 directory found relative to
-// the working directory. So the result depends on network access, on where the
-// process runs, and on whatever the hosted copy is today — not on the version
-// of the program doing the validating. A program that embeds its schemas (as
-// the promptarena CLI does) calls this once at startup so that validation is
-// hermetic and matches the schemas it was built with.
+// Without it, validation uses the embedded schemas: no network access, and the
+// result depends only on the version of this module. A program that embeds its
+// own copy (as the promptarena CLI does) calls this once at startup so that
+// validation matches the schemas it was built with.
 //
-// PROMPTKIT_SCHEMA_SOURCE=local still takes precedence, for working on the
-// schemas themselves, and ValidateWithLocalSchema's explicit directory wins
-// over both. Pass nil to return to the default.
+// PROMPTKIT_SCHEMA_SOURCE=local or =remote still takes precedence, and
+// ValidateWithLocalSchema's explicit directory wins over everything. Pass nil
+// to return to the embedded schemas.
 func UseSchemaFS(fsys fs.FS) {
 	if fsys == nil {
 		registeredSchemaFS.Store(nil)
@@ -81,7 +104,7 @@ func UseSchemaFS(fsys fs.FS) {
 // localSchemaDirIfRequested returns a local schema directory when
 // PROMPTKIT_SCHEMA_SOURCE=local is set. Returns empty string otherwise.
 func localSchemaDirIfRequested() string {
-	if os.Getenv("PROMPTKIT_SCHEMA_SOURCE") != "local" {
+	if os.Getenv(schemaSourceEnvVar) != "local" {
 		return ""
 	}
 	// Use discovery to find an existing local schema file, then use its directory
@@ -276,19 +299,29 @@ func buildSchemaKey(configType ConfigType, schemaDir string) string {
 	if schemaDir != "" {
 		return fmt.Sprintf("file://%s/%s.json", schemaDir, configType)
 	}
-	if src := registeredSchemaFS.Load(); src != nil {
-		return fmt.Sprintf("%s%d:%s.json", embeddedSchemaPrefix, src.gen, configType)
+	if os.Getenv(schemaSourceEnvVar) == "remote" {
+		return fmt.Sprintf("%s/%s.json", SchemaBaseURL, configType)
 	}
-	return fmt.Sprintf("%s/%s.json", SchemaBaseURL, configType)
+	return embeddedSchemaKey(activeSchemaFS(), configType)
+}
+
+// activeSchemaFS returns the filesystem registered with UseSchemaFS, or the
+// embedded schemas when none is.
+func activeSchemaFS() *schemaFSSource {
+	if src := registeredSchemaFS.Load(); src != nil {
+		return src
+	}
+	return builtinSchemaFS
+}
+
+func embeddedSchemaKey(src *schemaFSSource, configType ConfigType) string {
+	return fmt.Sprintf("%s%d:%s.json", embeddedSchemaPrefix, src.gen, configType)
 }
 
 // readEmbeddedSchema returns the bytes behind an embedded: schema key, from the
-// filesystem registered when the key was built.
+// filesystem that was active when the key was built.
 func readEmbeddedSchema(schemaKey string) ([]byte, error) {
-	src := registeredSchemaFS.Load()
-	if src == nil {
-		return nil, fmt.Errorf("schema %s: no schema filesystem registered", schemaKey)
-	}
+	src := activeSchemaFS()
 	gen, name, ok := strings.Cut(strings.TrimPrefix(schemaKey, embeddedSchemaPrefix), ":")
 	if !ok || gen != fmt.Sprint(src.gen) {
 		return nil, fmt.Errorf("schema %s: the schema filesystem changed since the key was built", schemaKey)
@@ -317,8 +350,8 @@ func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir st
 }
 
 func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
-	// A registered schema filesystem is authoritative: no network fetch and no
-	// working-directory fallback, which are exactly what UseSchemaFS removes.
+	// An embedded or registered schema filesystem is authoritative: no network
+	// fetch and no working-directory fallback.
 	if strings.HasPrefix(schemaKey, embeddedSchemaPrefix) {
 		data, err := readEmbeddedSchema(schemaKey)
 		if err != nil {
@@ -327,41 +360,33 @@ func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*goj
 		return gojsonschema.NewSchema(gojsonschema.NewBytesLoader(data))
 	}
 
-	// If a local schema directory is requested via env, prefer that
-	if schemaDir == "" {
-		if d := localSchemaDirIfRequested(); d != "" {
-			schemaDir = d
-		}
-	}
-
-	schemaLoader := gojsonschema.NewReferenceLoader(schemaKey)
-	compiledSchema, err := gojsonschema.NewSchema(schemaLoader)
-
+	compiledSchema, err := gojsonschema.NewSchema(gojsonschema.NewReferenceLoader(schemaKey))
 	if err == nil {
 		return compiledSchema, nil
 	}
 
-	// Try fallback to local schema if remote fetch failed
-	if !SchemaFallbackDisabled.Load() && schemaDir == "" {
-		localSchema, fallbackErr := tryLocalSchemaFallback(configType)
-		if fallbackErr == nil {
-			return localSchema, nil
+	// A remote fetch that fails falls back to the embedded schemas. An explicit
+	// or env-requested local directory does not: its caller asked for that copy.
+	if isRemoteSchemaKey(schemaKey) && !SchemaFallbackDisabled.Load() {
+		if fallback, fallbackErr := loadBuiltinSchema(configType); fallbackErr == nil {
+			return fallback, nil
 		}
-		// If fallback also fails, return the original error (not the fallback error)
-		// This prevents confusing error messages when running in environments without local schemas
 	}
 
 	return nil, fmt.Errorf("failed to load schema: %w", err)
 }
 
-func tryLocalSchemaFallback(configType ConfigType) (*gojsonschema.Schema, error) {
-	localSchemaPath := findLocalSchemaPath(string(configType))
-	if localSchemaPath == "" {
-		return nil, fmt.Errorf("no local schema found for fallback")
-	}
+func isRemoteSchemaKey(schemaKey string) bool {
+	return strings.HasPrefix(schemaKey, "http://") || strings.HasPrefix(schemaKey, "https://")
+}
 
-	localLoader := gojsonschema.NewReferenceLoader("file://" + localSchemaPath)
-	return gojsonschema.NewSchema(localLoader)
+// loadBuiltinSchema compiles the schema for configType embedded in this package.
+func loadBuiltinSchema(configType ConfigType) (*gojsonschema.Schema, error) {
+	data, err := fs.ReadFile(builtinSchemaFS.fsys, string(configType)+".json")
+	if err != nil {
+		return nil, err
+	}
+	return gojsonschema.NewSchema(gojsonschema.NewBytesLoader(data))
 }
 
 func validateJSONWithSchema(

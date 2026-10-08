@@ -260,8 +260,10 @@ test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 verify: lint-diff test-fast ## Run all verification checks (used by CI and pre-commit)
 	@echo "✓ All verification checks passed!"
 
-schemas: ## Fetch JSON schemas from promptarena (the schema owner)
+schemas: ## Fetch JSON schemas from promptarena (the schema owner) and mirror them into pkg/config
 	@./scripts/fetch-schemas.sh
+	@rm -rf pkg/config/schemas && cp -R schemas/v1alpha1 pkg/config/schemas
+	@echo "✓ Mirrored into pkg/config/schemas (embedded by the validator)"
 
 schemas-check: ## Check committed schemas match promptarena (for CI)
 	@echo "Checking schemas are in sync with promptarena..."
