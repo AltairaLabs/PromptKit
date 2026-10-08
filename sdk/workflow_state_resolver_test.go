@@ -338,7 +338,8 @@ func TestWorkflowStateResolver_AppliesModelOverride(t *testing.T) {
 		ModelOverrides: map[string]prompt.ModelOverride{"turn-model": {SystemTemplateSuffix: " FOR TURN MODEL"}},
 	}})
 	resolver := newWorkflowStateResolver(machine, spec, workflow.NewTransitionExecutor(machine, spec),
-		prompt.NewRegistryWithRepository(repo)).withModel("turn-model")
+		prompt.NewRegistryWithRepository(repo))
+	resolver.model = "turn-model"
 
 	handoff, err := resolver.ResolveCurrentState(context.Background())
 	require.NoError(t, err)

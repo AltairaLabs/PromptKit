@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // workflowResolverHolder is a stable stage.WorkflowStateResolver that the
@@ -95,8 +96,14 @@ type workflowStateResolver struct {
 	registry  *prompt.Registry
 	renderer  *template.Renderer
 	// model is the model of the provider the turn runs on, which selects the
-	// destination prompt's model_overrides entry.
+	// destination prompt's model_overrides entry when the resolver cannot
+	// resolve the state's own provider (no pack or config).
 	model string
+
+	// pack and cfg resolve the provider each state's prompt runs on (RFC
+	// 0017), so a handoff switches the turn to it; see withConversation.
+	pack *pack.Pack
+	cfg  *config
 
 	// contextSummary is the brief the outgoing state wrote for the incoming
 	// one (the transition tool's `context` argument). Retained across calls
@@ -120,10 +127,32 @@ func newWorkflowStateResolver(
 	}
 }
 
-// withModel sets the model of the provider the turn runs on. Returns r.
-func (r *workflowStateResolver) withModel(model string) *workflowStateResolver {
-	r.model = model
+// withConversation lets the resolver resolve each state's provider and
+// parameters from conv's pack and bindings. Returns r.
+func (r *workflowStateResolver) withConversation(conv *Conversation) *workflowStateResolver {
+	r.pack = conv.pack
+	r.cfg = conv.config
+	r.model = conv.callModel()
 	return r
+}
+
+// callFor returns the provider and parameters task's prompt runs with, as
+// Open would give them: its RFC 0017 provider, and its parameters with that
+// provider's model_overrides entry. nil without a pack and config.
+func (r *workflowStateResolver) callFor(task string) (*stage.HandoffCall, error) {
+	if r.pack == nil || r.cfg == nil {
+		return nil, nil
+	}
+	prov, err := resolvePromptCallProvider(r.pack, r.cfg, task)
+	if err != nil {
+		return nil, err
+	}
+	if prov == nil {
+		return nil, nil
+	}
+	call := &stage.HandoffCall{Provider: prov}
+	call.MaxTokens, call.Temperature = promptParameters(r.pack.Prompts[task], prov.Model())
+	return call, nil
 }
 
 // RecordToolCalls implements stage.ToolCallRecorder, feeding RFC 0009's
@@ -203,7 +232,15 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 		return stage.Handoff{}, nil
 	}
 
-	systemPrompt, allowedTools, err := r.renderState(current, r.contextSummary)
+	call, err := r.callFor(current.PromptTask)
+	if err != nil {
+		return stage.Handoff{}, err
+	}
+	model := r.model
+	if call != nil {
+		model = call.Provider.Model()
+	}
+	systemPrompt, allowedTools, err := r.renderState(current, r.contextSummary, model)
 	if err != nil {
 		return stage.Handoff{}, err
 	}
@@ -212,6 +249,7 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 		SystemPrompt: systemPrompt,
 		AllowedTools: allowedTools,
 		PromptTask:   current.PromptTask,
+		Call:         call,
 	}, nil
 }
 
@@ -219,7 +257,7 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 // carry-forward context and current artifact values bound, mirroring what
 // openConvForCurrentState injects when it opens a conversation for a state.
 func (r *workflowStateResolver) renderState(
-	dest *workflow.State, contextSummary string,
+	dest *workflow.State, contextSummary, model string,
 ) (systemPrompt string, allowedTools []string, err error) {
 	if r.registry == nil {
 		return "", nil, fmt.Errorf("no prompt registry configured")
@@ -233,7 +271,7 @@ func (r *workflowStateResolver) renderState(
 		vars[workflowContextVar] = contextSummary
 	}
 
-	tmpl, err := r.registry.LoadTemplate(dest.PromptTask, vars, r.model)
+	tmpl, err := r.registry.LoadTemplate(dest.PromptTask, vars, model)
 	if err != nil {
 		return "", nil, fmt.Errorf("load prompt %q for state: %w", dest.PromptTask, err)
 	}
