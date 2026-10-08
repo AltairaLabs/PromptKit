@@ -40,6 +40,12 @@ hooks.On(conv, events.EventMessageCreated, func(e *events.Event) {
 
 This needs no `EventStore`, no `WithRecording()` and no state store — only a bus.
 
+A handler registered through `hooks` stops when the conversation closes, along
+with any forks sharing its bus. That holds for a bus you supply too, so a
+service that shares one bus across conversations doesn't collect handlers. To
+keep listening after the conversation closes, subscribe on the bus directly
+with `bus.Subscribe`, which returns its own unsubscribe function.
+
 :::caution[An event bus is required]
 `hooks.On` does nothing when the conversation has no event bus. If you do not
 pass `sdk.WithEventBus(...)`, the handler is never called and no error is

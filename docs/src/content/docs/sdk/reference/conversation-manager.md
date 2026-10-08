@@ -203,6 +203,7 @@ All pack examples conform to the PromptPack Specification v1.8.1: https://github
   - [func \(c \*Conversation\) OnToolExecutor\(name string, executor tools.Executor\)](<#Conversation.OnToolExecutor>)
   - [func \(c \*Conversation\) OnToolHTTP\(name string, config \*sdktools.HTTPToolConfig\)](<#Conversation.OnToolHTTP>)
   - [func \(c \*Conversation\) OnTools\(handlers map\[string\]ToolHandler\)](<#Conversation.OnTools>)
+  - [func \(c \*Conversation\) OwnSubscription\(unsubscribe func\(\)\)](<#Conversation.OwnSubscription>)
   - [func \(c \*Conversation\) PackGovernance\(\) \*Governance](<#Conversation.PackGovernance>)
   - [func \(c \*Conversation\) PendingTools\(ctx context.Context\) \(\[\]\*sdktools.PendingToolCall, error\)](<#Conversation.PendingTools>)
   - [func \(c \*Conversation\) RejectClientTool\(\_ context.Context, callID, reason string\)](<#Conversation.RejectClientTool>)
@@ -1823,6 +1824,17 @@ conv.OnTools(map[string]sdk.ToolHandler{
     "send_email":    sendEmailHandler,
 })
 ```
+
+<a name="Conversation.OwnSubscription"></a>
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1695>)
+
+```go
+func (c *Conversation) OwnSubscription(unsubscribe func())
+```
+
+OwnSubscription ties a subscription on [Conversation.EventBus](<#Conversation.EventBus>) to this conversation: unsubscribe runs when the conversation, and every fork sharing its bus, has closed. On a closed conversation it runs at once.
+
+The \[hooks\] helpers call it, so their handlers stop with the conversation even on a bus supplied with [WithEventBus](<#WithEventBus>), which outlives it.
 
 <a name="Conversation.PackGovernance"></a>
 ### func \(\*Conversation\) [PackGovernance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L70>)
