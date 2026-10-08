@@ -78,6 +78,10 @@ type AgentStep struct {
 
 	PromptTask string `json:"prompt_task" yaml:"prompt_task"`
 
+	// Provider key of the provider requirement that runs this step, overriding the provider of the
+	// step's prompt_task. Absent means the prompt's provider (RFC 0017).
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+
 	// Termination REQUIRED. The condition under which the bounded loop exits. Without an explicit
 	// termination predicate, an agent step is invalid.
 	Termination *TerminationPredicate `json:"termination" yaml:"termination"`
@@ -100,6 +104,7 @@ var AgentStepKnownFields = map[string]bool{
 	"kind":          true,
 	"output_schema": true,
 	"prompt_task":   true,
+	"provider":      true,
 	"termination":   true,
 	"tools":         true,
 }
@@ -1555,6 +1560,10 @@ type Prompt struct {
 	// Pipeline pipeline configuration defining processing stages and middleware
 	Pipeline *PipelineConfig `json:"pipeline,omitempty" yaml:"pipeline,omitempty"`
 
+	// Provider key of the provider requirement (requires.providers[].key, RFC 0012) that runs this
+	// prompt. Absent means 'default'. The host binds the key to a concrete provider (RFC 0017).
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+
 	// SystemTemplate the system prompt template. Use template syntax (e.g., {{variable}}) for variable
 	// substitution. This is the core instruction that guides the LLM's behavior.
 	SystemTemplate string `json:"system_template" yaml:"system_template"`
@@ -1582,7 +1591,7 @@ type Prompt struct {
 	Version string `json:"version" yaml:"version"`
 }
 
-// PromptStep step kind 'prompt': a one-shot LLM invocation against a declared prompt task with an
+// PromptStep step kind 'prompt': a one-shot model invocation against a declared prompt task with an
 // optional output schema. No tool calls.
 type PromptStep struct {
 	// Input optional input binding. Variables resolved against the composition's input and prior
@@ -1598,6 +1607,10 @@ type PromptStep struct {
 	// PromptTask reference to a prompt key defined in the pack's prompts object.
 	PromptTask string `json:"prompt_task" yaml:"prompt_task"`
 
+	// Provider key of the provider requirement that runs this step, overriding the provider of the
+	// step's prompt_task. Absent means the prompt's provider (RFC 0017).
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+
 	// Extra carries properties the schema allows but does not name.
 	// This def is additionalProperties:true — an envelope the spec expects
 	// runtimes to extend — so unknown keys are preserved here rather than
@@ -1612,6 +1625,7 @@ var PromptStepKnownFields = map[string]bool{
 	"kind":          true,
 	"output_schema": true,
 	"prompt_task":   true,
+	"provider":      true,
 }
 
 // MarshalJSON writes the named properties plus everything in Extra, flattened
@@ -2097,6 +2111,10 @@ type Step struct {
 	// PromptTask reference to a prompt key defined in the pack's prompts object.
 	PromptTask string `json:"prompt_task,omitempty" yaml:"prompt_task,omitempty"`
 
+	// Provider key of the provider requirement that runs this step, overriding the provider of the
+	// step's prompt_task. Absent means the prompt's provider (RFC 0017).
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+
 	Reduce *Reducer `json:"reduce,omitempty" yaml:"reduce,omitempty"`
 
 	// Termination REQUIRED. The condition under which the bounded loop exits. Without an explicit
@@ -2135,6 +2153,7 @@ var StepKnownFields = map[string]bool{
 	"output_schema": true,
 	"predicate":     true,
 	"prompt_task":   true,
+	"provider":      true,
 	"reduce":        true,
 	"termination":   true,
 	"then":          true,
@@ -2790,7 +2809,9 @@ type WorkflowState struct {
 // 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always
 // enforce (RFC 0015). Governance may record the obligations a declaration triggers and the
 // controls that discharge them, recurring reviews, and independence requirements; policy
-// decision points carry an opaque 'extensions' slot (RFC 0016).
+// decision points carry an opaque 'extensions' slot (RFC 0016). Prompts and composition
+// prompt/agent steps may name the provider requirement that runs them via 'provider' (RFC
+// 0017).
 type Pack struct {
 	// Schema JSON Schema reference for validation and IDE support
 	Schema *string `json:"$schema,omitempty" yaml:"$schema,omitempty"`
