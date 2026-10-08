@@ -33,12 +33,14 @@ This file contains exported test helpers that can be used by provider implementa
 - [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func APIKeyFromCredential\(c credentials.Credential\) string](<#APIKeyFromCredential>)
+- [func ApplyExtraBody\(providerID string, body, extra map\[string\]any\)](<#ApplyExtraBody>)
 - [func CapabilitySet\(capabilities \[\]string\) map\[string\]bool](<#CapabilitySet>)
 - [func CheckHTTPError\(resp \*http.Response, url string\) error](<#CheckHTTPError>)
 - [func ClampTopN\(topN, available int\) int](<#ClampTopN>)
 - [func DefaultRetryPolicy\(\) pipeline.RetryPolicy](<#DefaultRetryPolicy>)
 - [func DoAncillaryJSONRequest\(ctx context.Context, client \*http.Client, providerID, apiKey string, cfg HTTPRequestConfig\) \(\[\]byte, error\)](<#DoAncillaryJSONRequest>)
 - [func DoWithRetry\(ctx context.Context, policy pipeline.RetryPolicy, providerName string, doFn DoRequestFunc\) \(\*http.Response, error\)](<#DoWithRetry>)
+- [func ExtraBody\(providerID string, additional map\[string\]any\) map\[string\]any](<#ExtraBody>)
 - [func ExtractAPIKey\(cred Credential\) string](<#ExtractAPIKey>)
 - [func ExtractOrderedEmbeddings\[T any\]\(data \[\]T, getIndex func\(T\) int, getEmbedding func\(T\) \[\]float32, expectedCount int\) \(\[\]\[\]float32, error\)](<#ExtractOrderedEmbeddings>)
 - [func HasAudioSupport\(p Provider\) bool](<#HasAudioSupport>)
@@ -58,6 +60,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func LogEmbeddingRequestWithTokens\(provider, model string, textCount, tokens int, start time.Time\)](<#LogEmbeddingRequestWithTokens>)
 - [func LogRerankRequest\(provider, model string, docCount, tokens int, start time.Time\)](<#LogRerankRequest>)
 - [func MarshalRequest\(req any\) \(\[\]byte, error\)](<#MarshalRequest>)
+- [func MarshalWithExtraBody\(providerID string, req any, extra map\[string\]any\) \(\[\]byte, error\)](<#MarshalWithExtraBody>)
 - [func NewInstrumentedTransport\(base http.RoundTripper\) http.RoundTripper](<#NewInstrumentedTransport>)
 - [func NewPooledTransport\(\) \*http.Transport](<#NewPooledTransport>)
 - [func NewPooledTransportWithOptions\(opts HTTPTransportOptions\) \*http.Transport](<#NewPooledTransportWithOptions>)
@@ -480,6 +483,21 @@ const DefaultStreamBufferSize = 32
 const DefaultStreamIdleTimeout = 30 * time.Second
 ```
 
+<a name="ExtraBodyConfigKey"></a>ExtraBodyConfigKey is the additional\_config key whose map is merged into the request body of the OpenAI\-compatible chat providers \(openai, vllm, ollama\), like the OpenAI SDK's extra\_body. It carries server\-specific request parameters PromptKit has no field for, such as vLLM's chat\_template\_kwargs:
+
+```
+additional_config:
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+```
+
+A field the provider sets itself \(model, messages, tools, stream, ...\) always wins; the colliding extra\_body field is dropped with a warning.
+
+```go
+const ExtraBodyConfigKey = "extra_body"
+```
+
 <a name="MaxErrorResponseSize"></a>MaxErrorResponseSize is the maximum size for error response bodies \(1 MB\). Error responses should be small; this prevents reading huge bodies on failures.
 
 ```go
@@ -514,6 +532,15 @@ func APIKeyFromCredential(c credentials.Credential) string
 ```
 
 APIKeyFromCredential returns the raw API key from an APIKey credential, or "" for any other credential shape \(or nil\). Embedding providers only need the key string, not the full header\-application machinery — exposed here so per\-provider init\(\) functions can build their factory closures.
+
+<a name="ApplyExtraBody"></a>
+## func [ApplyExtraBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/extra_body.go#L52>)
+
+```go
+func ApplyExtraBody(providerID string, body, extra map[string]any)
+```
+
+ApplyExtraBody adds each extra field to body unless body already sets it.
 
 <a name="CapabilitySet"></a>
 ## func [CapabilitySet](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L25>)
@@ -570,6 +597,15 @@ func DoWithRetry(ctx context.Context, policy pipeline.RetryPolicy, providerName 
 ```
 
 DoWithRetry executes doFn with retry logic according to the given policy. It retries on retryable HTTP status codes \(429, 502, 503, 504\) and transient network errors. The Retry\-After header is honored for 429 responses. On retryable HTTP errors the response body is closed before retrying. The caller is responsible for closing the body of the final returned response.
+
+<a name="ExtraBody"></a>
+## func [ExtraBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/extra_body.go#L29>)
+
+```go
+func ExtraBody(providerID string, additional map[string]any) map[string]any
+```
+
+ExtraBody returns the extra\_body map from a provider's additional\_config, or nil when there is none. A value that is not a JSON\-encodable map is ignored with a warning naming the provider, so a mistyped extra\_body is visible rather than silently doing nothing.
 
 <a name="ExtractAPIKey"></a>
 ## func [ExtractAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L240>)
@@ -747,6 +783,15 @@ func MarshalRequest(req any) ([]byte, error)
 ```
 
 MarshalRequest marshals a request body to JSON with standardized error handling.
+
+<a name="MarshalWithExtraBody"></a>
+## func [MarshalWithExtraBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/extra_body.go#L64>)
+
+```go
+func MarshalWithExtraBody(providerID string, req any, extra map[string]any) ([]byte, error)
+```
+
+MarshalWithExtraBody marshals req, a JSON object, and merges extra into it as ApplyExtraBody does. With no extra fields it is json.Marshal.
 
 <a name="NewInstrumentedTransport"></a>
 ## func [NewInstrumentedTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L134>)

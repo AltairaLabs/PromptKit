@@ -214,6 +214,7 @@ func (p *ToolProvider) predictWithCompletions(
 
 	// Build OpenAI request with tools
 	openaiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	providers.ApplyExtraBody(p.ID(), openaiReq, p.extraBody)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -638,6 +639,7 @@ func (p *ToolProvider) predictStreamWithCompletions(
 	if audio, ok := openaiReq["audio"].(map[string]interface{}); ok {
 		audio["format"] = "pcm16"
 	}
+	providers.ApplyExtraBody(p.ID(), openaiReq, p.extraBody)
 
 	reqBody, err := json.Marshal(openaiReq)
 	if err != nil {

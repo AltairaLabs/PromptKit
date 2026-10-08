@@ -107,17 +107,13 @@ func (p *Provider) PredictWithTools( // NOSONAR
 
 	// Prepare response with raw request if configured
 	predictResp := providers.PredictionResponse{}
-	if p.ShouldIncludeRawOutput() {
-		rawReq, marshalErr := json.Marshal(vllmReq)
-		if marshalErr == nil {
-			predictResp.RawRequest = string(rawReq)
-		}
-	}
-
 	// Serialize request
-	reqBody, err := json.Marshal(vllmReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), vllmReq, p.extraBody)
 	if err != nil {
 		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	if p.ShouldIncludeRawOutput() {
+		predictResp.RawRequest = string(reqBody)
 	}
 
 	// Create HTTP request
@@ -231,7 +227,7 @@ func (p *Provider) PredictStreamWithTools(
 	})
 
 	// Serialize request
-	reqBody, err := json.Marshal(vllmReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), vllmReq, p.extraBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
