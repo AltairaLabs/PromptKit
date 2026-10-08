@@ -52,7 +52,8 @@ jobs:
 
     - name: Install ALSA dev headers (Linux)
       if: runner.os == 'Linux'
-      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      timeout-minutes: 15
+      run: scripts/ci-install-alsa.sh
 
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -240,7 +241,8 @@ jobs:
 
     - name: Install ALSA dev headers (Linux)
       if: runner.os == 'Linux'
-      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      timeout-minutes: 15
+      run: scripts/ci-install-alsa.sh
 
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
