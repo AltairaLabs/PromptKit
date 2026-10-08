@@ -1064,7 +1064,7 @@ func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start ti
 SetErrorResponse sets latency and raw body on error responses
 
 <a name="SkipIfNoCredentials"></a>
-## func [SkipIfNoCredentials](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L760>)
+## func [SkipIfNoCredentials](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L722>)
 
 ```go
 func SkipIfNoCredentials(t *testing.T, provider Provider)

@@ -895,15 +895,6 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 	return claudeResp, responseText, predictResp, nil
 }
 
-// Predict runs predictOnce, retrying without any sampling parameter the API
-// rejects for this model (providers.BaseProvider.RetryRejectedParams).
-func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-			return p.predictOnce(ctx, r)
-		})
-}
-
 // predictOnce sends a predict request to Claude
 func (p *Provider) predictOnce(
 	ctx context.Context, req providers.PredictionRequest,
@@ -954,6 +945,15 @@ func (p *Provider) predictOnce(
 	predictResp.FinishReason = normalizeFinishReason(claudeResp.StopReason)
 
 	return predictResp, nil
+}
+
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // claudePricing returns pricing for Claude models (input, output, cached per 1K tokens)

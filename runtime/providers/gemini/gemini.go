@@ -750,15 +750,6 @@ func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp p
 	return geminiResp, candidate, predictResp, nil
 }
 
-// Predict runs predictOnce, retrying without any sampling parameter the API
-// rejects for this model (providers.BaseProvider.RetryRejectedParams).
-func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-			return p.predictOnce(ctx, r)
-		})
-}
-
 // predictOnce sends a predict request to Gemini
 func (p *Provider) predictOnce(
 	ctx context.Context, req providers.PredictionRequest,
@@ -871,6 +862,15 @@ func (p *Provider) predictOnce(
 		"video_parts", countPartsByType(contentParts, types.ContentTypeVideo))
 
 	return predictResp, nil
+}
+
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // countPartsByType counts how many parts match a given type

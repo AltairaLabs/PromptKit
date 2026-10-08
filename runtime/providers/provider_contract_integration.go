@@ -479,83 +479,45 @@ func buildWeatherTools(t *testing.T, toolSupport ToolSupport) ProviderTools {
 	return tools
 }
 
-// testPredictWithToolsProducesToolCalls verifies that PredictWithTools actually
-// returns tool calls when given a clear tool-calling prompt with required tool choice.
-func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
+// requiredToolCalls asks provider about the weather in city with
+// tool_choice=required and returns the tool calls, from whichever of the
+// returned slice and the response carries them. It skips a provider without
+// tool support and fails on an API error.
+func requiredToolCalls(t *testing.T, provider Provider, city string) []types.MessageToolCall {
+	t.Helper()
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
 		t.Skip("Provider doesn't implement ToolSupport")
-		return
 	}
-
-	tools := buildWeatherTools(t, toolSupport)
-
-	ctx := context.Background()
 	req := PredictionRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Tokyo?"},
-		},
+		Messages:    []types.Message{{Role: "user", Content: "What is the weather in " + city + "?"}},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
-
-	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "required")
+	resp, toolCalls, err := toolSupport.PredictWithTools(
+		context.Background(), req, buildWeatherTools(t, toolSupport), "required")
 	if err != nil {
-		t.Fatalf("tool call test: API error: %v", err)
-		return
+		t.Fatalf("PredictWithTools: API error: %v", err)
 	}
+	if len(toolCalls) == 0 {
+		toolCalls = resp.ToolCalls
+	}
+	if len(toolCalls) == 0 {
+		t.Fatalf("no tool call, though tool_choice was required (content %q)", resp.Content)
+	}
+	return toolCalls
+}
 
-	if len(toolCalls) == 0 && len(resp.ToolCalls) == 0 {
-		t.Error("PredictWithTools() with toolChoice=required returned no tool calls")
-		t.Logf("Response content: %q", resp.Content)
-	}
-
-	// At least one source of tool calls should be populated
-	calls := toolCalls
-	if len(calls) == 0 {
-		calls = resp.ToolCalls
-	}
-
-	if len(calls) > 0 {
-		t.Logf("Got %d tool call(s), first: %s(%s)", len(calls), calls[0].Name, string(calls[0].Args))
-	}
+// testPredictWithToolsProducesToolCalls verifies that PredictWithTools actually
+// returns tool calls when given a clear tool-calling prompt with required tool choice.
+func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
+	calls := requiredToolCalls(t, provider, "Tokyo")
+	t.Logf("Got %d tool call(s), first: %s(%s)", len(calls), calls[0].Name, string(calls[0].Args))
 }
 
 // testPredictWithToolsToolCallFormat validates the structure of returned tool calls.
 func testPredictWithToolsToolCallFormat(t *testing.T, provider Provider) {
-	toolSupport, ok := provider.(ToolSupport)
-	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
-		return
-	}
-
-	tools := buildWeatherTools(t, toolSupport)
-
-	ctx := context.Background()
-	req := PredictionRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Paris?"},
-		},
-		MaxTokens:   contractMaxTokens,
-		Temperature: contractZeroTemperature,
-	}
-
-	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "required")
-	if err != nil {
-		t.Fatalf("tool format test: API error: %v", err)
-		return
-	}
-
-	calls := toolCalls
-	if len(calls) == 0 {
-		calls = resp.ToolCalls
-	}
-	if len(calls) == 0 {
-		t.Fatal("no tool call, though tool_choice was required")
-		return
-	}
-
-	for i, tc := range calls {
+	for i, tc := range requiredToolCalls(t, provider, "Paris") {
 		if tc.Name == "" {
 			t.Errorf("ToolCall[%d].Name is empty", i)
 		}
